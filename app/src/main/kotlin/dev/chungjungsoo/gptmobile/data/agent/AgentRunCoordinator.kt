@@ -911,12 +911,23 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
-    private suspend fun execute(request: AgentRunRequest) = coroutineScope {
-        val eligibilityFailure = if (request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) {
+    private fun combinedEligibilityFailure(request: AgentRunRequest): String? =
+        if (request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) {
             CombinedProviderEligibility.unavailableReason(request.platform, request.userMessages.lastOrNull()?.content.orEmpty())
         } else {
             null
         }
+
+    private suspend fun recoveredCombinedAnswer(request: AgentRunRequest): String? =
+        if (request.chatToolConfig?.combined?.requested?.singlePass == true) {
+            chatRepository.observeAgentRuns(request.chatId).first().firstOrNull { it.runId == request.runId }
+                ?.let { CombinedAcceptedTurn.decode(it.synthesisSnapshot)?.recoveredProviderAnswer }
+        } else {
+            null
+        }
+
+    private suspend fun execute(request: AgentRunRequest) = coroutineScope {
+        val eligibilityFailure = combinedEligibilityFailure(request)
         val startedAt = currentEpochSeconds()
         val executionStartNanos = System.nanoTime()
         AppLogRecorder.record("Agent", "RUN_EXECUTION_STARTED · runId=${request.runId} · chatId=${request.chatId} · phase=PREPARATION · providerDispatched=unknown")
@@ -1107,11 +1118,7 @@ class AgentRunCoordinator @Inject constructor(
                     }
                     return@coroutineScope
                 }
-                val recovered = if (request.chatToolConfig?.combined?.requested?.singlePass == true) {
-                    chatRepository.observeAgentRuns(request.chatId).first().firstOrNull { it.runId == request.runId }?.let { CombinedAcceptedTurn.decode(it.synthesisSnapshot)?.recoveredProviderAnswer }
-                } else {
-                    null
-                }
+                val recovered = recoveredCombinedAnswer(request)
                 val response = if (recovered != null) {
                     kotlinx.coroutines.flow.flowOf(dev.chungjungsoo.gptmobile.data.dto.ApiState.Success(recovered), dev.chungjungsoo.gptmobile.data.dto.ApiState.Done)
                 } else {

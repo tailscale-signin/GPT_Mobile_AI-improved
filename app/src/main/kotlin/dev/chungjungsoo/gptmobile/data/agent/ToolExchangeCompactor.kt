@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubSemanticSummary
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import kotlinx.serialization.encodeToString
@@ -183,13 +184,12 @@ internal object ToolExchangeCompactor {
 
     /** Small immutable facts survive projection; the hard bound below still governs replay size. */
     private fun semanticContent(result: AgentToolResult): ToolResultContent? {
-        val source = GitHubReplayRecovery.envelope(result.content)
+        val source = GitHubReplayRecovery.envelope(result.content) ?: (result.content as? ToolResultContent.Json)?.value as? JsonObject
         val summary = (result.executionReceipt?.get("semantic_summary") ?: source?.get("semantic_summary")) as? JsonObject ?: return null
-        if (summary.toString().length > 2400) return null
         return ToolResultContent.Json(
             buildJsonObject {
                 put("schema", JsonPrimitive("github.evidence-summary.v1"))
-                put("semantic_summary", summary)
+                put("semantic_summary", GitHubSemanticSummary.bounded(summary))
                 put("receipt_reference", JsonPrimitive("tool-batch/${result.callId}"))
                 put("previously_delivered", JsonPrimitive(true))
                 result.executionReceipt?.get("retained_original_complete")?.let { put("retained_original_complete", it) }

@@ -55,7 +55,26 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
 
     companion object {
         val CODES = setOf("PROVIDER_WAIT_CHECKPOINT_CHANGED", "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", "PROVIDER_WAIT_OUTCOME_UNKNOWN", "PROVIDER_WAIT_TASK_CHANGED", "PROVIDER_WAIT_CHECKPOINT_INVALID", "PROVIDER_WAIT_INPUT_CHANGED", "PROVIDER_WAIT_PREFIX_CHANGED", "PROVIDER_WAIT_REVIEW_REQUIRED", "RESEARCH_RECOVERY_ACTION_CHANGED")
-        private val CORRELATION_KEYS = setOf("checkpoint_binding", "checkpoint_digest", "resume_claim_id", "ownership_fence", "run_id")
+        private val CORRELATION_KEYS = setOf("checkpoint_binding", "checkpoint_digest", "resume_claim_id", "ownership_fence", "run_id", "observed_checkpoint_digest", "observed_checkpoint_state", "checkpoint_mismatch_reason")
+        val CHECKPOINT_MISMATCH_REASONS = setOf("MISSING_CHECKPOINT", "STATE_CHANGED", "RESUME_DISALLOWED", "DIGEST_CHANGED", "TASK_BINDING_CHANGED", "TOOL_BINDING_CHANGED", "EVIDENCE_DIGEST_INVALID")
+        val CHECKPOINT_STATES = setOf("WAITING_PROVIDER_LIMIT", "TOOL_RESULTS_READY", "TOOL_HANDOFF", "BLOCKED_RECOVERY", "COMPLETED", "PARTIAL", "FAILED", "UNKNOWN")
+
+        fun checkpointCorrelation(expected: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint, observed: JsonObject?, reason: String? = null): JsonObject = buildJsonObject {
+            correlation(expected, null, null, null).forEach { (key, value) -> put(key, value) }
+            val state = (observed?.get("state") as? JsonPrimitive)?.contentOrNull
+            put("observed_checkpoint_state", state?.takeIf { it in CHECKPOINT_STATES } ?: "UNKNOWN")
+            observed?.let {
+                put("observed_checkpoint_digest", java.security.MessageDigest.getInstance("SHA-256").digest(it.toString().toByteArray(Charsets.UTF_8)).joinToString("") { byte -> "%02x".format(byte) })
+            }
+            val mismatch = reason?.takeIf { it in CHECKPOINT_MISMATCH_REASONS } ?: when {
+                observed == null -> "MISSING_CHECKPOINT"
+                state != "WAITING_PROVIDER_LIMIT" -> "STATE_CHANGED"
+                observed["resume_allowed"] != JsonPrimitive(true) -> "RESUME_DISALLOWED"
+                !expected.matches(observed) -> "DIGEST_CHANGED"
+                else -> null
+            }
+            mismatch?.let { put("checkpoint_mismatch_reason", it) }
+        }
 
         fun correlation(checkpoint: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint?, claimId: String?, fence: Long?, runId: String?): JsonObject = buildJsonObject {
             checkpoint?.let {

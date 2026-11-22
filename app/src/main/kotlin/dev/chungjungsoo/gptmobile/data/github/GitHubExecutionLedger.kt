@@ -112,11 +112,13 @@ internal object GitHubExecutionLedger {
         val failedStage = checkpoint.text("failed_stage")
         val outcome = checkpoint.text("task_outcome")
         val deadlineReached = originalFailure?.text("stop_reason") == "ACCEPTED_TASK_DEADLINE_REACHED"
+        val internalVerificationFailure = code == GitHubVerificationFault.CODE || checkpoint["verification_internal_error"] == JsonPrimitive(true)
         val reviewFailure = code.startsWith("GITHUB_REVIEW_") ||
             code.startsWith("GITHUB_EXTRACTION_") ||
             failedStage in setOf("answer_review", "claim_extraction") ||
             checkpoint["verification_failure"] is JsonObject
         val verification = when {
+            internalVerificationFailure -> "FAILED"
             reviewFailure -> "FAILED"
             unresolved > 0 || deadlineReached -> "PENDING"
             !failureIsPrimary && pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
@@ -139,6 +141,7 @@ internal object GitHubExecutionLedger {
             unresolved > 0 -> "RECONCILE_REMOTE_OUTCOME"
             deadlineReached -> "AUTHORIZE_NEW_TIME_WINDOW"
             failureIsPrimary && outcome == "CONFIGURATION_INVALIDATED" -> "RESTORE_AUTHORIZED_CONFIGURATION"
+            internalVerificationFailure -> "INSPECT_VERIFICATION_FAILURE"
             failureIsPrimary && reviewFailure -> "RESUME_VERIFICATION"
             failureIsPrimary -> "INSPECT_EXECUTION_FAILURE"
             pendingApprovals.isNotEmpty() -> "WAITING_FOR_APPROVAL"
@@ -226,7 +229,7 @@ internal object GitHubExecutionLedger {
             )
             put("recovery", recovery)
             put("user_input_required", pendingApprovals.isNotEmpty() || deadlineReached || recovery == "USER_INPUT_REQUIRED")
-            if (pendingApprovals.isNotEmpty() || deadlineReached) put("retryable_without_new_input", false) else (checkpoint["retryable_without_new_input"] as? JsonPrimitive)?.booleanOrNull?.let { put("retryable_without_new_input", it) }
+            if (pendingApprovals.isNotEmpty() || deadlineReached || internalVerificationFailure) put("retryable_without_new_input", false) else (checkpoint["retryable_without_new_input"] as? JsonPrimitive)?.booleanOrNull?.let { put("retryable_without_new_input", it) }
             if (rejectedApprovals.isNotEmpty()) put("retryable_without_new_input", false)
         }
         val limitation = if (unresolved > 0) {
@@ -307,7 +310,7 @@ internal object GitHubExecutionLedger {
         } else {
             JsonObject(emptyMap())
         }
-        return JsonObject(checkpoint + limitation + ("execution_ledger" to ledger))
+        return GitHubEffectiveRecovery.attach(JsonObject(checkpoint + limitation + ("execution_ledger" to ledger)))
     }
 
     /** Receipt IDs settled by exact native readback, shared by checkpoint and continuation policy. */

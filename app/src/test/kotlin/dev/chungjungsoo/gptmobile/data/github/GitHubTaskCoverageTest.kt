@@ -27,6 +27,33 @@ class GitHubTaskCoverageTest {
         assertEquals(null, GitHubEngineeringMemoryPolicy.checkpoint(json("""{"schema":"untrusted"}""")))
     }
 
+    @Test fun checkpointKeepsVerifiedIssueFindingAndTheActualRecoveryDecision() {
+        val verdict = json("""{"schema":"github.verification.v1","task":"Fix all issues","task_outcome":"PARTIAL","claims":[{"kind":"fact","status":"VERIFIED","receipt_id":"issue-42","pointer":"/title","observed":"Verifier drops the final answer"},{"kind":"fact","status":"NOT_MEASURED","receipt_id":"unknown","pointer":"/state","observed":"closed"}],"remaining_requirements":[{"id":"repair-42","requirement":"Fix issue 42 and verify its final state","status":"NOT_TESTED"}],"recovery_action":"INSPECT_EXECUTION_FAILURE","retryable_without_new_input":false}""")
+        val checkpoint = requireNotNull(GitHubEngineeringMemoryPolicy.checkpoint(verdict))
+        val finding = (checkpoint["retained_findings"] as JsonArray).single() as JsonObject
+        assertEquals(JsonPrimitive("issue-42"), finding["receipt_id"])
+        assertEquals(JsonPrimitive("Verifier drops the final answer"), finding["observed"])
+        assertEquals(JsonPrimitive("repair-42"), (checkpoint["next_requirement"] as JsonObject)["id"])
+        assertEquals(JsonPrimitive("INSPECT_EXECUTION_FAILURE"), checkpoint["recovery_action"])
+        assertEquals(JsonPrimitive(false), checkpoint["retryable_without_new_input"])
+        assertEquals(JsonPrimitive(false), checkpoint["completion_verified"])
+    }
+
+    @Test fun workingBriefPrioritizesIssueFindingsAndExcludesUntrustedReceiptsWithinItsBound() {
+        val issue = json("""{"trusted":true,"success":true,"repository":"owner/repo","semantic_summary":{"schema":"github.semantic-summary.v1","operation":"github_issue","source_result_sha256":"issue-source","resource_observations":[{"number":42,"title":"Verifier drops the final answer","state":"open"}]}}""")
+        val receipts = linkedMapOf("issue" to issue, "untrusted" to JsonObject(issue + ("trusted" to JsonPrimitive(false))))
+        repeat(30) { index ->
+            receipts["metadata-$index"] = json("""{"trusted":true,"success":true,"semantic_summary":{"schema":"github.semantic-summary.v1","operation":"github_context","source_result_sha256":"source-$index","commit_sha":"${"a".repeat(40)}"}}""")
+        }
+        val brief = GitHubEngineeringMemoryPolicy.workingBrief("Fix all issues", null, receipts)
+        val findings = json(brief)["findings"] as JsonArray
+        assertEquals(JsonPrimitive("issue"), (findings.first() as JsonObject)["receipt_id"])
+        assertFalse(findings.any { (it as JsonObject)["receipt_id"] == JsonPrimitive("untrusted") })
+        assertTrue(brief.contains("Verifier drops the final answer"))
+        assertTrue(brief.length <= 6000)
+        assertTrue(brief.contains("not current proof or authorization"))
+    }
+
     @Test fun securityFieldsRemainVerifiableWhileAppMetadataDoesNotCrowdOutChecks() {
         val source = json("""{"permissions":{"push":false},"verification":{"verified":false},"app":{"node_id":"noise"},"checks":19}""")
         val facts = GitHubEvidencePolicy.facts(source)

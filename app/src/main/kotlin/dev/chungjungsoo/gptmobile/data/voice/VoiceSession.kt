@@ -37,6 +37,8 @@ interface VoiceAudio {
     }
     fun retryAfterMillis(): Long = 0
     fun listen(listener: Listener)
+    fun finishListening() = Unit
+    fun configureInterruption(enabled: Boolean, interrupted: (() -> Unit)?) = Unit
     fun speak(text: String, complete: () -> Unit, error: (String) -> Unit)
 
     /** Older backends keep their message-only contract; typed producers retain their actual cause. */
@@ -102,6 +104,13 @@ class VoiceSession(
     }
     private val mutableState = kotlinx.coroutines.flow.MutableStateFlow(VoiceState())
     val states: kotlinx.coroutines.flow.StateFlow<VoiceState> = mutableState
+    private val presentation = kotlinx.coroutines.flow.MutableStateFlow(VoiceState())
+    val presentationStates: kotlinx.coroutines.flow.StateFlow<VoiceState> = presentation
+    private val inputLevel = kotlinx.coroutines.flow.MutableStateFlow(VoiceInputLevel())
+    val inputLevels: kotlinx.coroutines.flow.StateFlow<VoiceInputLevel> = inputLevel
+    private val captionCursor = kotlinx.coroutines.flow.MutableStateFlow(VoiceCaptionCursor())
+    val captionCursors: kotlinx.coroutines.flow.StateFlow<VoiceCaptionCursor> = captionCursor
+    val performanceHistory: VoicePerformanceHistory get() = diagnosticTrace.performance
     var state = VoiceState()
         private set
     private var enabled = false
@@ -129,7 +138,7 @@ class VoiceSession(
     private var lastReply: String? = null
     private var streamId: String? = null
     private var streamDiagnosticId: String? = null
-    private var speechBuffer = VoiceSpeechBuffer()
+    private var speechBuffer = VoiceSpeechBuffer(now)
     private val queuedSpeech = ArrayDeque<String>()
     private var chunkPlaying = false
     private var streamComplete = false
@@ -142,7 +151,7 @@ class VoiceSession(
     private fun resetStream() {
         streamId = null
         streamDiagnosticId = null
-        speechBuffer = VoiceSpeechBuffer()
+        speechBuffer = VoiceSpeechBuffer(now)
         queuedSpeech.clear()
         chunkPlaying = false
         streamComplete = false
@@ -153,8 +162,18 @@ class VoiceSession(
     }
     var editBeforeSend = false
     var autoContinue = false
+    fun finishListening() {
+        if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING) && accessAllowed()) audio.finishListening()
+    }
+    private var interruptionEnabled: Boolean? = null
+    fun configureInterruption(enabled: Boolean) {
+        if (interruptionEnabled == enabled) return
+        interruptionEnabled = enabled
+        audio.configureInterruption(enabled) { if (accessAllowed() && state.phase == VoicePhase.SPEAKING) interrupt() }
+    }
     var speakWhileGenerating = true
     internal var performanceMode = VoicePerformanceMode.BALANCED
+    internal var synthesisFeedback: () -> VoiceSynthesisFeedback? = { null }
     private fun replaceDraft() {
         draftGeneration++
         submittedDraft = null
@@ -328,9 +347,15 @@ class VoiceSession(
             playbackCaption = next.playbackCaption?.takeIf { next.phase == VoicePhase.SPEAKING },
             spokenRange = next.spokenRange?.takeIf { next.phase == VoicePhase.SPEAKING && next.reply.startsWith(state.reply) }
         )
-        diagnosticProbe.phase(state.phase)
+        val visible = state.presentationState()
+        inputLevel.value = VoiceInputLevel(state.level, state.hasAudioLevel)
+        captionCursor.value = VoiceCaptionCursor(state.spokenRange, state.playbackCaption)
         mutableState.value = state
-        changed(state)
+        if (presentation.value != visible) {
+            diagnosticProbe.phase(state.phase)
+            presentation.value = visible
+            changed(state)
+        }
     }
     private fun voiceFailureFields(): Map<String, Any?> {
         val operation = when (state.phase) {
@@ -509,6 +534,12 @@ class VoiceSession(
         })
     }
 
+    /** Stable words may meet the adaptive time budget while the provider pauses between chunks. */
+    fun flushSpeech() {
+        if (performanceMode != VoicePerformanceMode.AUTO || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !accessAllowed()) return
+        streamId?.let { streamReply(it, state.reply) }
+    }
+
     fun streamReply(id: String, text: String, complete: Boolean = false) {
         if (!waiting || state.phase == VoicePhase.CLOSED || (streamId != null && streamId != id)) return
         if (text.isNotBlank()) diagnosticProbe.responseText()
@@ -524,7 +555,7 @@ class VoiceSession(
         // While generating, start after a stable phrase. A completed response or explicit
         // replay already has its full text and can retain natural sentence boundaries.
         val chunks = if (complete || speakWhileGenerating) {
-            speechBuffer.append(text, complete, earlyStart = !complete, followUpWords = performanceMode.followUpWords)
+            speechBuffer.append(text, complete, earlyStart = !complete, followUpWords = performanceMode.followUpWords, feedback = synthesisFeedback(), adaptive = performanceMode == VoicePerformanceMode.AUTO)
         } else {
             emptyList()
         }

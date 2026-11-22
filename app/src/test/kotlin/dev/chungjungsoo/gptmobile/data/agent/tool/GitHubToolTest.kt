@@ -26,6 +26,61 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun pullRequestFiltersReachTheHttpQueryAndRemainBoundToEveryRemotePage() = runTest {
+        var requests = 0
+        HttpClient(
+            MockEngine { request ->
+                requests++
+                assertEquals(HttpMethod.Get, request.method)
+                assertEquals("/repos/owner/repo/pulls", request.url.encodedPath)
+                assertEquals("open", request.url.parameters["state"])
+                assertEquals("contributor:feature/issue&state=closed", request.url.parameters["head"])
+                assertEquals("release/2026+stable", request.url.parameters["base"])
+                assertEquals("updated", request.url.parameters["sort"])
+                assertEquals("asc", request.url.parameters["direction"])
+                assertEquals("1", request.url.parameters["per_page"])
+                assertEquals(requests.toString(), request.url.parameters["page"])
+                respond(if (requests == 1) """[{"number":7,"title":"Filtered PR","state":"open"}]""" else "[]")
+            }
+        ).use { http ->
+            val tool = GitHubTool("token", http)
+            val arguments = Json.parseToJsonElement("""{"action":"list_pull_requests","owner":"owner","repo":"repo","head":"contributor:feature/issue&state=closed","base":"release/2026+stable","state":"open","sort":"updated","direction":"asc","per_page":1}""").jsonObject
+            val first = tool.execute("first", arguments)
+            assertFalse(first.toString(), first.isError)
+            val data = Json.parseToJsonElement((first.content as ToolResultContent.Text).text).jsonObject
+            val next = data.getValue("continuation").jsonObject
+            for (field in listOf("head", "base", "state", "sort", "direction", "per_page")) assertEquals(arguments[field], next[field])
+            val last = tool.execute("last", next)
+            assertFalse(last.toString(), last.isError)
+            assertEquals(JsonPrimitive(false), Json.parseToJsonElement((last.content as ToolResultContent.Text).text).jsonObject["has_more"])
+            assertEquals(2, requests)
+        }
+    }
+
+    @Test fun missingAuthenticatedIssueCursorHasTypedFieldDiagnosticsWithoutARequest() = runTest {
+        var requests = 0
+        HttpClient(
+            MockEngine {
+                requests++
+                error("Missing continuation must not contact GitHub")
+            }
+        ).use { http ->
+            val tool = GitHubTool("token", http, repositoryContext = GitHubRepositoryContext("owner", "repo", "work")).operations().single { it.definition.name == "github_issue" }
+            val result = tool.execute("missing-after", Json.parseToJsonElement("""{"action":"list","page":2,"per_page":100,"state":"open"}""").jsonObject)
+            assertTrue(result.isError)
+            assertFalse(result.dispatched)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertEquals(0, requests)
+            val receipt = requireNotNull(result.executionReceipt)
+            assertEquals(JsonPrimitive("MISSING_AFTER"), receipt["issue_continuation_state"])
+            assertEquals(JsonPrimitive("TOOL_ARGUMENT_CONSTRAINT_REJECTED"), receipt["reason_code"])
+            assertEquals(JsonPrimitive(1), receipt["missing_field_count"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("after"))), receipt["missing_fields"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("after"))), receipt["validation_field_names"])
+            assertTrue(receipt.containsKey("tool_schema_hash"))
+        }
+    }
+
     @Test fun copilotCannotStartCloudWorkWithoutBothUserToggles() = runTest {
         var networkCalls = 0
         HttpClient(

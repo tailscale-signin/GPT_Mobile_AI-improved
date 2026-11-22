@@ -235,6 +235,44 @@ class AndroidRecognitionRecoveryTest {
         }
     }
 
+    @Test fun doneSpeakingRequestsOneFinalResultWithoutCancellingCapturedWords() {
+        val service = Service()
+        val audio = audio(service, RecognitionStartGate { 0L })
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            val platform = service.listener()
+            platform.onReadyForSpeech(Bundle())
+            audio.finishListening()
+            audio.finishListening()
+            verify(service.engine, times(1)).stopListening()
+            platform.onResults(Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("Finished manually")) })
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+            assertEquals("Finished manually", listener.final)
+            assertTrue(listener.failures.isEmpty())
+        } finally {
+            audio.close()
+        }
+    }
+
+    @Test fun doneSpeakingDispatchFailureReportsRecoveryInsteadOfCrashingTheUi() {
+        val service = Service()
+        val audio = audio(service, RecognitionStartGate { 0L })
+        val listener = Listener()
+        val cause = IllegalStateException("Platform stopped")
+        doThrow(cause).`when`(service.engine).stopListening()
+        try {
+            audio.listen(listener)
+            service.listener().onReadyForSpeech(Bundle())
+            audio.finishListening()
+            assertEquals(listOf("VOICE_RECOGNIZER_UNAVAILABLE"), listener.codes)
+            assertEquals(listOf(cause), listener.causes)
+            assertEquals(listOf(VoiceRecoveryAction.SPEECH_SERVICE), listener.repairs)
+        } finally {
+            audio.close()
+        }
+    }
+
     @Test fun stalledCaptureRetainsPartialSpeechAndDuplicateCallbacksCannotExtendItsDeadline() {
         val service = Service()
         val audio = audio(service, RecognitionStartGate { 0L })

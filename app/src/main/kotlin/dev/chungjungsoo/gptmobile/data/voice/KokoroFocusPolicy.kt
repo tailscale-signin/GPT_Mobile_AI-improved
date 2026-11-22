@@ -14,6 +14,7 @@ internal const val KOKORO_FOCUS_PAUSE_MAX_MS = 15_000L
 internal fun kokoroFocusRetryDelay(attempt: Int, mode: Int?): Long? = when {
     attempt == 1 && mode == AudioManager.MODE_NORMAL -> 900L
     attempt == 1 -> 250L
+    attempt == 2 && mode == AudioManager.MODE_NORMAL -> 1_500L
     else -> null
 }
 

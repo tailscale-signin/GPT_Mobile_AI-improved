@@ -6,6 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun internalVerifierFailureSurvivesSerializationWithoutBecomingMissingEvidenceOrRetryable() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"verification","recovery_action":"INSPECT_VERIFICATION_FAILURE","retryable":false,"request_replay_allowed":false}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("An internal verification fault; historical HTTP 429 text is not a current rejection", "GITHUB_VERIFICATION_INTERNAL_ERROR", details)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+        assertEquals("GITHUB_VERIFICATION_INTERNAL_ERROR", restored.category)
+        assertEquals("verification", restored.phase)
+        assertEquals(listOf("INSPECT_VERIFICATION_FAILURE"), restored.recoveryActions)
+        assertTrue(restored.isTaskVerification)
+        assertFalse(restored.retryAllowed)
+        assertEquals(false, restored.requestReplayAllowed)
+        assertEquals(null, restored.dispatched)
+        assertEquals(null, restored.retryAfterMillis)
+        val legacy = ProfileFailureRecord.classify("GITHUB_VERIFICATION_INTERNAL_ERROR")
+        assertEquals(restored.category, legacy.category)
+        assertFalse(legacy.retryAllowed)
+    }
+
     @Test fun typedEngineeringRejectionRetainsSafeDetailsAcrossProcessSerialization() {
         val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"reasonCode":"ENGINEERING_BUDGET_INVALID","invalid_fields":["execution_budget","private-field"],"failed_stage":"request_validation","http_status":409,"message":"private gateway reply"}""") as kotlinx.serialization.json.JsonObject
         val failure = ProfileFailureRecord.fromProvider("The saved request was rejected", "ENGINEERING_STATE_OR_INPUT_CHANGED", details)

@@ -39,6 +39,7 @@ object ResilientStreamingClient {
         config: RetryConfig = RetryConfig(),
         onRetry: ((attempt: Int, delayMs: Long, reason: Throwable) -> Unit)? = null,
         shouldRetry: () -> Boolean = { true },
+        shouldRetryFailure: (Throwable) -> Boolean = { true },
         block: suspend () -> T
     ): T {
         var currentAttempt = 0
@@ -53,7 +54,7 @@ object ResilientStreamingClient {
                 val durableRateLimit = context[ProviderWaitContext]?.durableRateLimits == true &&
                     generateSequence(e) { it.cause?.takeUnless { cause -> cause === it } }
                         .take(8).filterIsInstance<ProviderHttpFailure>().any { it.status == 429 }
-                if (durableRateLimit || context[WorkerRequestBudget] != null || currentAttempt >= config.maxAttempts || !shouldRetry() || !isRetryable(e)) {
+                if (durableRateLimit || context[WorkerRequestBudget] != null || currentAttempt >= config.maxAttempts || !shouldRetryFailure(e) || !shouldRetry() || !isRetryable(e)) {
                     throw e
                 }
 

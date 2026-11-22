@@ -10,6 +10,71 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_conversation_recovery_details_survive_approved_report_submission(self):
+        samples = [
+            ("PROVIDER", "GITHUB_VERIFICATION_INTERNAL_ERROR", "INSPECT_VERIFICATION_FAILURE", {
+                "verification_phase": "ACCEPTANCE_RENDERING",
+                "incident_capture_site": "GITHUB_VERIFICATION_CATCH",
+                "provider_failure_code": "GITHUB_VERIFICATION_INTERNAL_ERROR",
+            }),
+            ("PROVIDER", "OUTPUT_CONTINUATION_UNAVAILABLE", "SEND_ORIGINAL_REQUEST", {
+                "continuation_cause": "NO_SAVED_TASK", "continuation_saved_characters": 0,
+                "continuation_attempt_count": 0, "continuation_output_cap": 6144,
+                "continuation_trigger": "RESTORED_DRAFT",
+                "incident_capture_site": "OUTPUT_CONTINUATION_OPEN_CATCH",
+            }),
+            ("PROVIDER", "PROVIDER_WAIT_CHECKPOINT_CHANGED", "REVIEW_SAVED_RECOVERY", {
+                "checkpoint_mismatch_reason": "DIGEST_CHANGED",
+                "observed_checkpoint_state": "TOOL_RESULTS_READY",
+                "provider_wait_observed_checkpoint_hash": "b" * 64,
+            }),
+            ("TOOL", "INVALID_ARGUMENTS", None, {
+                "issue_continuation_state": "MISSING_AFTER",
+                "validation_field_names": ["after", "expected_updated_at"],
+            }),
+            ("ACCEPTANCE", "GITHUB_EVIDENCE_REQUIRED", "RESUME_UNFINISHED_WORK", {
+                "acceptance_advertised_tool_count": 0,
+            }),
+            ("TOOL", "INVALID_ARGUMENTS", None, {
+                "catalog_selector_state": "NAMES_NULL",
+                "argument_field_names": ["names", "inventory_cursor", "inventory_version"],
+                "argument_field_types": ["NULL", "STRING", "STRING"],
+            }),
+        ]
+        for area, code, recovery, details in samples:
+            with self.subTest(code=code):
+                capture = self.capture(area, {**details, "causal_failure_code": code})
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = code
+                if recovery:
+                    report["context"]["recoveryAction"] = recovery
+                    report["context"]["unavailableFields"].remove("recoveryAction")
+                issue = issue_from_report(report)
+                self.assertIn(code, str(issue))
+        for code in capsule.CONVERSATION_RECOVERY_CODES:
+            capture = self.capture("PROVIDER", {"causal_failure_code": code, "provider_failure_code": code})
+            report = self.report(capture)
+            report["errorCode"] = code
+            self.assertIn(code, str(issue_from_report(report)))
+
+    def test_conversation_recovery_details_reject_payloads_outside_closed_contract(self):
+        for key, value in [
+            ("checkpoint_mismatch_reason", "private checkpoint body"),
+            ("provider_wait_observed_checkpoint_hash", "raw-checkpoint-identifier"),
+            ("continuation_saved_characters", True),
+            ("continuation_attempt_count", -1),
+            ("continuation_output_cap", 16_000_001),
+            ("verification_phase", "private source path"),
+        ]:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {key: value}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"issue_continuation_state": "MISSING_AFTER"}))
+        for area, value in (("PROVIDER", 0), ("TOOL", 1), ("ACCEPTANCE", True), ("ACCEPTANCE", -1), ("ACCEPTANCE", 16_000_001)):
+            with self.subTest(area=area, value=value), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {"acceptance_advertised_tool_count": value}))
+
     def test_gateway_preflight_receipt_retains_all_closed_blockers_without_private_values(self):
         from authentication.engineering_report_contract import GATEWAY_ADMISSION_CORE
 
@@ -338,6 +403,7 @@ class IncidentReportContractTest(unittest.TestCase):
             "TOOL_RETRY_EXHAUSTED",
             "BACKEND_HANDLED_TOOLS",
             "SINGLE_PASS_NOT_RETRYABLE",
+            "TEXT_ALREADY_EMITTED",
             "NO_SAFE_REPAIR",
         )
         for value in choices:

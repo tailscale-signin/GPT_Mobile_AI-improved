@@ -1,9 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -37,8 +39,12 @@ class ProgressiveToolCatalog(
     private val taskText = task
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
     private val actionSelections = mutableMapOf<String, Pair<String, String>>()
+    private val requirementActions = mutableMapOf<String, Pair<String, String>>()
+    private val explicitSelections = linkedSetOf<String>()
+    private var candidateRevision = 0L
+    private var requirementFocusKey: Pair<String, Long>? = null
     private fun presented(tool: AgentToolDefinition): AgentToolDefinition {
-        val selected = actionSelections[tool.name] ?: return tool
+        val selected = actionSelections[tool.name] ?: requirementActions[tool.name] ?: return tool
         if (selected.first != contractFingerprint(tool)) return tool
         return GitHubActionSchema.project(tool, selected.second) ?: tool
     }
@@ -122,6 +128,7 @@ class ProgressiveToolCatalog(
         ).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
     private val advertisedContracts = mutableSetOf<String>()
+    private var advertisedSelectorContracts = emptyMap<String, Pair<String, String>>()
 
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.
     private val acquiredQueryKeys = mutableMapOf<String, String>()
@@ -147,6 +154,13 @@ class ProgressiveToolCatalog(
     }
 
     private fun contractFingerprint(tool: AgentToolDefinition): String = fingerprint(tool.contractVersion.toString() + ":" + ToolContractFingerprint.definition(tool))
+    private fun selectionContractChanged(before: AgentToolDefinition?, after: AgentToolDefinition): Boolean =
+        before == null ||
+            contractFingerprint(before) != contractFingerprint(after) ||
+            before.capabilities != after.capabilities ||
+            before.dependsOn != after.dependsOn ||
+            before.workflowLinks != after.workflowLinks ||
+            before.modelVisible != after.modelVisible
 
     @Synchronized
     internal fun recordObservation(name: String, result: AgentToolResult, observedAtEpochMillis: Long = System.currentTimeMillis()) {
@@ -193,7 +207,7 @@ class ProgressiveToolCatalog(
     }
     override val definition = AgentToolDefinition(
         NAME,
-        "List authorized tools with {} or search by query/names. For GitHub, one name plus action returns its action schema. Omit action for all. Follow continuation_call exactly. Tools appear next round.",
+        "List authorized tools with {}. Use query or names (string array). One GitHub name plus action selects its schema; omit action for all. Copy continuation_call exactly. Schemas appear next round.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -218,7 +232,14 @@ class ProgressiveToolCatalog(
                         "action",
                         buildJsonObject {
                             put("type", "string")
-                            put("description", "GitHub action for one named tool.")
+                            put("description", "Action for one GitHub name.")
+                        }
+                    )
+                    put(
+                        "catalog_only",
+                        buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Use only the visible catalog; never acquire from other connections.")
                         }
                     )
                     put(
@@ -233,7 +254,7 @@ class ProgressiveToolCatalog(
                         "inventory_version",
                         buildJsonObject {
                             put("type", "string")
-                            put("description", "Omit on page one. Copy the opaque version from the previous page.")
+                            put("description", "Copy from continuation_call; omit on the first page.")
                         }
                     )
                 }
@@ -244,7 +265,7 @@ class ProgressiveToolCatalog(
                 JsonArray(
                     listOf(
                         buildJsonObject {
-                            put("properties", JsonObject(listOf("query", "names", "inventory_cursor", "inventory_version").associateWith { JsonObject(emptyMap()) }))
+                            put("properties", JsonObject(listOf("query", "names", "catalog_only", "inventory_cursor", "inventory_version").associateWith { JsonObject(emptyMap()) }))
                             put("additionalProperties", false)
                         },
                         buildJsonObject {
@@ -276,6 +297,48 @@ class ProgressiveToolCatalog(
         return (active + NAME).distinct().mapNotNull(definitions::get).map(::presented)
     }
 
+    /** Reorder existing authorized contracts; discovery and execution admission remain independent. */
+    @Synchronized
+    internal fun focusRequirement(checkpoint: JsonObject?): Boolean {
+        if (conversational || scopedGitHubStatus) return false
+        val focus = GitHubRequirementToolFocus.next(checkpoint) ?: return false
+        val key = focus.identity to candidateRevision
+        if (requirementFocusKey == key) return false
+        val previous = presentedSchemas()
+        val previousActive = active.toList()
+        requirementActions.clear()
+        val focused = focus.operations.flatMap { operation ->
+            candidates.values.filter { (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) ?: it.name.substringBefore("__")) == operation }
+                .let { preferredInitialContracts(it, null) }
+        }
+        for (tool in focused) {
+            if (tool.name in explicitSelections || tool.name in actionSelections) continue
+            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name) ?: continue
+            val action = focus.actions[operation] ?: continue
+            if (GitHubActionSchema.project(tool, action) != null) requirementActions[tool.name] = contractFingerprint(tool) to action
+        }
+        val explicit = (explicitlyRequiredToolNames(taskText, candidates.keys) + explicitSelections).mapNotNull { candidates[resolveName(it)] }
+        val recovery = taskRequired.filter { it.name == "read_recovery_context" || AgentToolCapability.USER_DECISION in it.capabilities }
+        val ordered = explicit + recovery + focused + ranked(focus.query) + taskRequired + active.mapNotNull(candidates::get)
+        val expanded = mutableListOf<AgentToolDefinition>()
+        val included = mutableSetOf<String>()
+        fun include(tool: AgentToolDefinition) {
+            if (!included.add(tool.name)) return
+            tool.dependsOn.mapNotNull(candidates::get).forEach(::include)
+            expanded += tool
+        }
+        ordered.forEach(::include)
+        val selected = window(expanded)
+        // A missing or oversized focused schema does not erase a working window.
+        if (selected.isNotEmpty()) {
+            active.clear()
+            active.addAll(selected.map { it.name })
+            discovered.addAll(active)
+        }
+        requirementFocusKey = key
+        return previousActive != active.toList() || previous != presentedSchemas()
+    }
+
     /** Reflect trusted execution wrappers without adding names or changing discovery selection. */
     @Synchronized
     internal fun bindExecutionContracts(definitions: Collection<AgentToolDefinition>) {
@@ -283,6 +346,7 @@ class ProgressiveToolCatalog(
             val existing = candidates[definition.name] ?: return@forEach
             val source = executionBindings[definition.name]?.source ?: existing
             executionBindings[definition.name] = ExecutionBinding(source, definition)
+            if (selectionContractChanged(existing, definition)) candidateRevision++
             candidates[definition.name] = definition
         }
     }
@@ -310,6 +374,7 @@ class ProgressiveToolCatalog(
         if (conversational || !definition.modelVisible || definition.name == NAME) return false
         val existing = candidates[definition.name]
         if (existing != null && existing != definition) return false
+        if (existing == null) candidateRevision++
         candidates[definition.name] = definition
         val explicitRequired = explicitlyRequiredToolNames(taskText, candidates.keys).mapNotNull { candidates[resolveName(it)] }
         val selected = window(explicitRequired + definition + implementationTools + taskRequired + active.mapNotNull(candidates::get))
@@ -341,6 +406,10 @@ class ProgressiveToolCatalog(
     @Synchronized
     internal fun recordSelection(allowed: List<AgentToolDefinition>, selected: List<AgentToolDefinition>) {
         selected.filter { it.name in candidates }.forEach { advertisedContracts += "${it.name}:${contractFingerprint(it)}" }
+        advertisedSelectorContracts = selected.filter { it.modelVisible }.mapNotNull { selectedTool ->
+            candidates[selectedTool.name]?.takeIf { it.modelVisible && selectedTool == presented(it) }
+                ?.let { it.name to (contractFingerprint(it) to contractFingerprint(selectedTool)) }
+        }.toMap()
         val omitted = selectionOmissions(allowed)
         val identity = fingerprint(selected.joinToString { it.name + contractFingerprint(it) } + omitted.toSortedMap())
         if (identity == lastSelection) {
@@ -354,7 +423,25 @@ class ProgressiveToolCatalog(
         ToolCatalogDiagnostics.recordOmissions("catalog", omitted, schemaAllowance.toLong(), inventoryNames = (candidates.keys + allowed.map { it.name }).toSet())
     }
 
+    /** Normalize only unused null selectors and exact names from the current advertised contract. */
+    @Synchronized
+    internal fun canonicalArguments(arguments: JsonObject): JsonObject {
+        if (arguments.keys.any { it !in setOf("query", "names", "action", "catalog_only") }) return arguments
+        val normalized = arguments.filterNot { (key, value) -> key in setOf("query", "names") && value == JsonNull }.toMutableMap()
+        val name = (normalized["names"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (name != null) {
+            val candidate = candidates[name]?.takeIf { it.modelVisible && name.length in 1..160 } ?: return arguments
+            if (advertisedSelectorContracts[name] != (contractFingerprint(candidate) to contractFingerprint(presented(candidate)))) return arguments
+            normalized["names"] = JsonArray(listOf(JsonPrimitive(name)))
+        }
+        val corrected = JsonObject(normalized)
+        return corrected.takeIf { ToolArgumentValidator.errors(it, definition.inputSchema).isEmpty() } ?: arguments
+    }
+
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        val arguments = canonicalArguments(arguments)
+        val invalid = ToolArgumentValidator.errors(arguments, definition.inputSchema)
+        if (invalid.isNotEmpty()) return ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, invalid)
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
         if (("inventory_cursor" in arguments || "inventory_version" in arguments) && (query.isNotBlank() || names.isNotEmpty() || "action" in arguments)) {
@@ -363,7 +450,7 @@ class ProgressiveToolCatalog(
         if ("action" in arguments && names.size != 1) {
             return AgentToolResult(callId, ToolResultContent.Text("Search with query alone. To select an action, pass exactly one returned tool in names together with action."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
-        if (acquireCold != null && "inventory_cursor" !in arguments) {
+        if (acquireCold != null && "inventory_cursor" !in arguments && arguments["catalog_only"] != JsonPrimitive(true)) {
             // Cache exact unknown names per catalog version. Broad/empty discovery remains retryable.
             // Never suspend while holding the selection monitor.
             val key = query.trim().lowercase(java.util.Locale.ROOT) + "|" + names.sorted().joinToString("|")
@@ -389,7 +476,11 @@ class ProgressiveToolCatalog(
                     }
                     if (acquired.isNotEmpty()) {
                         synchronized(this) {
-                            acquired.forEach { candidates[it.name] = acquiredDefinition(it) }
+                            acquired.forEach {
+                                val definition = acquiredDefinition(it)
+                                if (selectionContractChanged(candidates[it.name], definition)) candidateRevision++
+                                candidates[it.name] = definition
+                            }
                             if (githubUpfront) active.addAll(acquired.filter(::isGitHubTool).map { it.name })
                         }
                         if (acquiredQueryKeys.size >= 128) acquiredQueryKeys.clear()
@@ -449,6 +540,7 @@ class ProgressiveToolCatalog(
         } else {
             names.forEach(actionSelections::remove)
         }
+        names.forEach(requirementActions::remove)
         if (query.isBlank() && names.isEmpty()) {
             // Cold inventory must seed an executable window, otherwise an empty call can
             // discover tools forever while every subsequent request advertises only us.
@@ -645,11 +737,13 @@ class ProgressiveToolCatalog(
             (active.mapNotNull(candidates::get) + ranked(taskText)).firstOrNull { capability in it.capabilities }
         }
         val explicit = names.mapNotNull(candidates::get) + listOfNotNull(exact)
+        explicitSelections.addAll(explicit.map { it.name })
         val retained = ranked(taskText).filter { it.name in active }
         val selected = window(explicit + implementationTools + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))
             .distinctBy { it.name }
         active.clear()
         active.addAll(selected.map { it.name })
+        explicitSelections.retainAll(active)
         val admitted = found.filter { it.name in active }
         discovered.addAll(admitted.map { it.name })
         val unchanged = previousActive == active && previousSchemas == presentedSchemas()
@@ -807,13 +901,21 @@ class ProgressiveToolCatalog(
     }
 }
 
+/** Carry only this run's local catalog through trusted provenance and budget wrappers. */
+internal interface ProgressiveCatalogCarrier {
+    val progressiveCatalog: ProgressiveToolCatalog?
+}
+
+internal fun AgentTool.argumentCatalog(): ProgressiveToolCatalog? = this as? ProgressiveToolCatalog
+    ?: (this as? ProgressiveCatalogCarrier)?.progressiveCatalog
+
 internal fun AgentProviderSession.withToolCatalog(catalog: ProgressiveToolCatalog): AgentProviderSession = object : AgentProviderSession {
     override val handlesToolsInternally = this@withToolCatalog.handlesToolsInternally
-    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> =
-        this@withToolCatalog.streamRound(
-            catalog.selected(tools).also { selected ->
-                catalog.recordSelection(tools, selected)
-            },
-            exchanges
-        )
+    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
+        val selected = catalog.selected(tools)
+        catalog.recordSelection(tools, selected)
+        return this@withToolCatalog.streamRound(selected, exchanges).map { event ->
+            if (event is ProviderEvent.RequestConfigured) event.copy(advertisedToolCount = selected.count { it.modelVisible }) else event
+        }
+    }
 }

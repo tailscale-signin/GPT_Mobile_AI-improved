@@ -1,5 +1,9 @@
 # Gateway 18 for Windows
 
+Optional [Gateway CUDA voice synthesis](../VOICE-CUDA.md) is available through
+the bundled setup helper and a separate pinned GPU environment. It uses the
+existing phone connection and starts only after actual CUDA execution qualifies.
+
 Gateway connects GPT Mobile to your model backend and approved PC tools. The Windows x64 installer bundles Python, the pinned gateway dependencies and the self-contained .NET 10 native Windows workspace. The model server is a separate prerequisite. No Tailscale installation is needed.
 
 ## Install and connect

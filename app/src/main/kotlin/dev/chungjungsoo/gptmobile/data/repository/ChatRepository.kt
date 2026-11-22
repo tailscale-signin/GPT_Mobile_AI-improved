@@ -129,6 +129,7 @@ interface ChatRepository {
     ): Flow<ApiState>
     fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>>
     fun observeMessageWindow(chatId: Int, turns: Int): Flow<List<MessageV2>> = observeMessagesV2(chatId)
+    fun observeReplyCount(chatId: Int): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     fun observeTurnCount(chatId: Int): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>>
     fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>>

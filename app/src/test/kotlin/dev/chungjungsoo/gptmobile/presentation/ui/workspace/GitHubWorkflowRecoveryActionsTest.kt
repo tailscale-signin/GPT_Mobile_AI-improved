@@ -1,14 +1,21 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.workspace
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
@@ -28,6 +35,54 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = android.app.Application::class)
 class GitHubWorkflowRecoveryActionsTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun deadlineControlTargetsOneOwnedWaitAndDropsItsNoticeWhenTheFenceChanges() {
+        val original = AgentRun("run", 13, 2, 3, "profile", "provider", "model", AgentRunStatus.WAITING_PROVIDER_LIMIT, ownershipFence = 7)
+        var run by mutableStateOf(original)
+        val evidence = GitHubWorkflowEvidence(
+            providerWaits = mapOf("run" to ProviderWaitDeadline("run", 7, 30_000, 120_000)),
+            prerequisiteNoticeRunId = "run",
+            prerequisiteNoticeFence = 7,
+            prerequisiteNotice = "Saved wait scheduled"
+        )
+        val scheduled = mutableListOf<AgentRun>()
+        val recoveries = mutableListOf<GitHubRecoveryRequest>()
+        compose.setContent {
+            val state = GitHubProgrammerState(chatId = 13, runs = listOf(run), eventCountsByRun = mapOf("run" to 0))
+            MaterialTheme {
+                // Match the scrollable Task details host before tapping the control.
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    GitHubWorkflowExecutionContent(state, evidence, recoveries::add, {}, onRetryProvider = scheduled::add)
+                }
+            }
+        }
+        compose.onNodeWithText("Earliest provider retry: 1970-01-01T00:02:00Z").assertExists()
+        compose.onNodeWithText("Retry after the provider deadline").assertIsEnabled().performScrollTo().assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertEquals(listOf(original), scheduled)
+            assertEquals(emptyList<GitHubRecoveryRequest>(), recoveries)
+            run = original.copy(ownershipFence = 8)
+        }
+        compose.onNodeWithText("Retry after the provider deadline").assertDoesNotExist()
+        compose.onNodeWithText("Saved wait scheduled").assertDoesNotExist()
+    }
+
+    @Test fun changedAuthorityControlOnlyRequestsItsSavedOwnerSettingsRoute() {
+        val run = AgentRun("run", 13, 2, 3, "saved-profile", "provider", "model", AgentRunStatus.BLOCKED, terminalError = "DISPATCH_POLICY_CHANGED", ownershipFence = 7)
+        val proof = Json.parseToJsonElement("""{"task_outcome":"CONFIGURATION_INVALIDATED","original_failure":{"code":"DISPATCH_POLICY_CHANGED"}}""") as JsonObject
+        val state = GitHubProgrammerState(chatId = 13, runs = listOf(run), eventCountsByRun = mapOf("run" to 0))
+        val reviews = mutableListOf<AgentRun>()
+        val recoveries = mutableListOf<GitHubRecoveryRequest>()
+        compose.setContent {
+            MaterialTheme { GitHubWorkflowExecutionContent(state, GitHubWorkflowEvidence(mapOf("run" to proof)), recoveries::add, {}, onRefreshAuthority = reviews::add) }
+        }
+        compose.runOnIdle { assertEquals(emptyList<AgentRun>(), reviews) }
+        compose.onNodeWithText("Refresh changed authority").assertIsEnabled().performClick()
+        compose.runOnIdle {
+            assertEquals(listOf(run), reviews)
+            assertEquals(emptyList<GitHubRecoveryRequest>(), recoveries)
+        }
+    }
 
     @Test fun reconciliationWaitsForTheActualApprovalCardAndNeverRunsAutomaticallyWhenItResolves() {
         val run = AgentRun("run", 13, 2, 3, "profile", "provider", "model", AgentRunStatus.BLOCKED, terminalError = "OUTPUT_CONTINUATION_PENDING_TOOLS")

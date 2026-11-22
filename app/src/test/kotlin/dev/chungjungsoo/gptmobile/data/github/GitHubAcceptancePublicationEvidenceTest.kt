@@ -127,6 +127,26 @@ class GitHubAcceptancePublicationEvidenceTest {
         assertEquals(JsonPrimitive(receipts), values["acceptance_receipt_snapshot_count"])
     }
 
+    @Test fun observedCatalogCountSurvivesTerminalFailureAndApprovalWhileMissingObservationStaysAbsent() = runBlocking {
+        for (observed in listOf(null, 0, 2)) {
+            val fixture = fixture()
+            val published = mutableListOf<JsonObject>()
+            val source = provider(ProviderEvent.RequestConfigured(advertisedToolCount = observed), ProviderEvent.TextDelta(draft), ProviderEvent.Completed)
+            val outerTools = (1..5).map { AgentToolDefinition("outer_$it", "Outer catalog entry", json("""{"type":"object"}""")) }
+            val events = session(fixture, published, source = source) {
+                answer("""{"claims":[{"kind":"not_measured","subject":"The requested source was not read"}]}""")
+            }.streamRound(outerTools, emptyList()).toList()
+            val terminal = events.last() as ProviderEvent.Failed
+            val expected = observed?.let(::JsonPrimitive)
+            assertEquals(expected, terminal.failureDetails?.get("acceptance_advertised_tool_count"))
+            val verdict = published.single()
+            assertEquals(JsonPrimitive(false), verdict["completion_verified"])
+            assertEquals(expected, GitHubAcceptancePublicationEvidence.fields(verdict)["acceptance_advertised_tool_count"])
+            assertEquals(expected, approvedValues(verdict)["acceptance_advertised_tool_count"])
+            assertEquals(expected, approvedValues(verdict, retained = true)["acceptance_advertised_tool_count"])
+        }
+    }
+
     @Test fun originalTrustFailuresReachOnlyTheirUnresolvedClaimsWithoutChangingProofBytes() = runBlocking {
         val cases = listOf(
             Triple("private-reader", emptySet(), GitHubAcceptancePublicationEvidence.TrustFailure.TOOL_NOT_IN_AUTHORIZED_CATALOG),
@@ -656,7 +676,7 @@ class GitHubAcceptancePublicationEvidenceTest {
             "acceptance_draft_state" to "PRESENT",
             "acceptance_publication_entry" to "COMPLETED_DRAFT"
         )
-        val countFields = setOf("acceptance_extraction_planned_batches", "acceptance_receipt_snapshot_count", "acceptance_claim_count")
+        val countFields = setOf("acceptance_extraction_planned_batches", "acceptance_receipt_snapshot_count", "acceptance_claim_count", "acceptance_advertised_tool_count")
         for (key in GitHubAcceptancePublicationEvidence.fields) {
             val maximum = if (key in countFields) 16_000_000L else Int.MAX_VALUE.toLong()
             val trustList = key == "acceptance_claim_trust_failures"

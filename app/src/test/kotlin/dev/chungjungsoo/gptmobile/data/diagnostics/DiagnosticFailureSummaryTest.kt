@@ -16,6 +16,22 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class DiagnosticFailureSummaryTest {
+    @Test fun compactSummaryRetainsVerificationFaultFingerprintAndPhaseWithoutExceptionText() {
+        val partial = dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.partial(
+            ClassCastException("private formatter payload"),
+            dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.Phase.ACCEPTANCE_RENDERING,
+            emptyMap(),
+            null
+        )
+        val result = summary(null, listOf(DiagnosticFailureEvidence("current", "VERIFICATION_CURRENT", partial.report)))
+        assertEquals(JsonPrimitive("GITHUB_VERIFICATION_INTERNAL_ERROR"), result["failure_code"])
+        assertEquals(JsonPrimitive("ACCEPTANCE_RENDERING"), result["verification_phase"])
+        assertEquals(JsonPrimitive("INSPECT_VERIFICATION_FAILURE"), result["recovery_action"])
+        assertEquals(partial.failure.failureDetails?.get("exception_fingerprint"), result["exception_fingerprint"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("java.lang.ClassCastException"))), result["cause_types"])
+        assertFalse(result.toString().contains("private formatter payload"))
+    }
+
     @Test fun failedRunSupersedesItsUnfinishedTaskProgressAndKeepsPartialEvidence() {
         val progress = DiagnosticFailureEvidence(
             "verification",

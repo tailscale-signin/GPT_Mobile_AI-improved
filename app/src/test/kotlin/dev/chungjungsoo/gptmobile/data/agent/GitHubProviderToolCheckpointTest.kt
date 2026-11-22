@@ -48,6 +48,27 @@ class GitHubProviderToolCheckpointTest {
         val details = (error as ProviderRecoveryFailure).event().failureDetails
         assertEquals(JsonPrimitive(false), details?.get("dispatched"))
         assertEquals(JsonPrimitive(expected(saved).digest), details?.get("checkpoint_digest"))
+        assertEquals(JsonPrimitive("DIGEST_CHANGED"), details?.get("checkpoint_mismatch_reason"))
+        assertEquals(JsonPrimitive(expected(changed).digest), details?.get("observed_checkpoint_digest"))
+        assertEquals(JsonPrimitive("WAITING_PROVIDER_LIMIT"), details?.get("observed_checkpoint_state"))
+        assertTrue(details.toString().contains("A newer owner").not())
+    }
+
+    @Test fun mismatchDiagnosisDistinguishesMissingStateAndPermissionWithoutRelaxingTheDigestFence() {
+        val saved = checkpoint()
+        val expected = expected(saved)
+        val cases = listOf(
+            null to "MISSING_CHECKPOINT",
+            JsonObject(saved + ("state" to JsonPrimitive("TOOL_RESULTS_READY"))) to "STATE_CHANGED",
+            JsonObject(saved + ("resume_allowed" to JsonPrimitive(false))) to "RESUME_DISALLOWED"
+        )
+        for ((observed, reason) in cases) {
+            val failure = runCatching { GitHubProviderToolCheckpoint.binding(scope, "current", expected, observed) }.exceptionOrNull() as ProviderRecoveryFailure
+            assertEquals(reason, (failure.correlation["checkpoint_mismatch_reason"] as JsonPrimitive).content)
+            assertEquals(JsonPrimitive(false), failure.event().failureDetails?.get("request_replay_allowed"))
+            assertEquals(JsonPrimitive(false), failure.event().failureDetails?.get("resume_allowed"))
+        }
+        assertEquals(original, GitHubProviderToolCheckpoint.binding(scope, "current", expected, saved))
     }
 
     @Test fun anotherTaskProfileOrTurnCannotBeSubstitutedEvenWithAMatchingDigest() {

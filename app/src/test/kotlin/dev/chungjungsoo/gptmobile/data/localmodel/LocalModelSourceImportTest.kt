@@ -57,16 +57,21 @@ class LocalModelSourceImportTest {
             }
         }
         every { context.contentResolver } returns resolver
-        every { resolver.query(source.uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null) } answers { MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME)).apply { addRow(arrayOf("model.litertlm")) } }
+        every { resolver.query(source.uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null) } answers {
+            MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)).apply {
+                addRow(arrayOf<Any?>("model.litertlm", 8L))
+            }
+        }
         every { resolver.openInputStream(source.uri) } returns stream
-        coEvery { repository.importPersisted(stream, "model.litertlm", job, any(), any()) } coAnswers {
-            assertEquals("LITERTLM", stream.readBytes().decodeToString())
+        coEvery { repository.importPersisted(any(), "model.litertlm", job, any(), any()) } coAnswers {
+            assertEquals("LITERTLM", firstArg<InputStream>().readBytes().decodeToString())
             failure
         }
         assertEquals(failure, LocalModelSourceImport.execute(context, repository, source.copy(mode = LocalModelSource.Mode.COPY), job, {}, {}))
         assertTrue(closed)
-        coVerify(exactly = 1) { repository.importPersisted(stream, "model.litertlm", job, any(), any()) }
+        coVerify(exactly = 1) { repository.importPersisted(any(), "model.litertlm", job, any(), any()) }
         coVerify(exactly = 0) { repository.linkSource(any(), any(), any(), any()) }
+        verify(exactly = 1) { resolver.openInputStream(source.uri) }
         verify(exactly = 0) { resolver.openFileDescriptor(any(), any()) }
     }
 

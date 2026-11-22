@@ -11,3 +11,11 @@ condition = "AND"
 paths = ['''^gateway/manifest-v14\.json$''', '''^docs/(engineering|repairs)/.*\.json$''']
 regexTarget = "line"
 regexes = ['''^\s*"[^"]+\.(py|kt)":\s*"[0-9a-f]{40}([0-9a-f]{24})?",?\s*$''']
+
+# This generated entry is the SHA-256 of the canonical token mapping fixture.
+# Its bytes are independently checked by the Gateway manifest validator.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^gateway/manifest-v14\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"tests/fixtures/voice-frontend-tokens\.json":\s*"[0-9a-f]{64}",?\s*$''']

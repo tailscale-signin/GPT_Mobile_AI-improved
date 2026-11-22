@@ -265,6 +265,10 @@ class LoadGuard:
             headers = {'X-Gateway-Trace-ID': trace}
             if status == 503:
                 headers['Retry-After'] = '2'
+            if status == 413:
+                # The guard rejects before routing; this is a request limit,
+                # unlike Content-Length, which describes the error response.
+                headers['X-Gateway-Max-Request-Bytes'] = str(self.config.max_body_bytes)
             await JSONResponse({'error': {'code': code}, 'traceId': trace}, status_code=status,
                                headers=headers)(scope, receive, send)
         with self.state.lock:

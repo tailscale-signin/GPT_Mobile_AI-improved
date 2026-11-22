@@ -75,6 +75,7 @@ internal object FrameTimingRecorder {
         var totalObservedFrames = 0L
         val coverageId = screenIds.incrementAndGet()
         val runCoverage = FrameRunCoverage()
+        val windowEvidence = FrameWindowEvidence()
         var slow = 0
         var dropped = 0
         var totalNs = 0L
@@ -109,6 +110,7 @@ internal object FrameTimingRecorder {
                     AppLogRecorder.recordCaptured(diagnosticCaptureEpoch, "Rendering", "FRAME_OPERATION_CONTEXTS · coverageId=$coverageId · causalAttribution=false · contextTruncated=${operationContexts.truncated} · maximumContexts=${FrameOperationCoverage.MAX_REPORTED_CONTEXTS} · maximumContextCharacters=${FrameOperationCoverage.MAX_CONTEXT_CHARACTERS} · windowStartMonoNs=$observedWindowStartNanos · windowEndMonoNs=$operationWindowEndedNanos · contexts=${operationContexts.contexts}")
                 }
                 val memory = AndroidDiagnosticExportMemory.sample()
+                AppLogRecorder.recordCaptured(diagnosticCaptureEpoch, "Rendering", "FRAME_WINDOW_EVIDENCE · coverageId=$coverageId · evidence=${windowEvidence.snapshot(diagnosticCaptureEpoch)}")
                 val gcCount = previousMemory?.gcCount?.let { before -> memory.gcCount?.minus(before)?.takeIf { it >= 0 } }
                 val gcDurationMs = previousMemory?.gcTimeMillis?.let { before -> memory.gcTimeMillis?.minus(before)?.takeIf { it >= 0 } }
                 val cpuMillis = android.os.Process.getElapsedCpuTime()
@@ -126,6 +128,7 @@ internal object FrameTimingRecorder {
             histogram.clear()
             work.clear()
             runCoverage.clear()
+            windowEvidence.clear()
             frames = 0
             slow = 0
             dropped = 0
@@ -160,7 +163,12 @@ internal object FrameTimingRecorder {
             frames++
             totalObservedFrames++
             val captureEpoch = AppLogRecorder.operationCaptureEpoch()
-            runCoverage.observe(runPhases.snapshot(captureEpoch), captureEpoch)
+            val observedPhases = runPhases.snapshot(captureEpoch)
+            runCoverage.observe(observedPhases, captureEpoch)
+            windowEvidence.observe(System.nanoTime(), duration, observedPhases.keys, captureEpoch) {
+                val runtime = Runtime.getRuntime()
+                (runtime.totalMemory() - runtime.freeMemory()).coerceAtLeast(0)
+            }
             minimumDeadlineNs = minOf(minimumDeadlineNs, deadline)
             maximumDeadlineNs = maxOf(maximumDeadlineNs, deadline)
             if (observedDeadline == null) fallbackDeadlines++

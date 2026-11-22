@@ -9,6 +9,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticExportSummaryTest {
+    @Test fun verifiedBundleAndMissingDependenciesHaveDistinctShareStates() {
+        val base = manifest(stage("critical_logs", "COMPLETED", 2))
+        val bundle = buildJsonObject {
+            put("dependencyClosureComplete", true)
+            put("parts", JsonArray(listOf(JsonObject(emptyMap()), JsonObject(emptyMap()))))
+        }
+        val complete = diagnosticExportSummary(JsonObject(base + ("archiveBundle" to bundle)))
+        assertTrue(complete.contains("2 verified archive parts"))
+        assertFalse(complete.contains("incomplete"))
+        val missing = buildJsonObject {
+            put("dependencyClosureComplete", false)
+            put("missingParts", JsonArray(listOf(buildJsonObject { put("fileName", "old-part.zip") })))
+        }
+        val partial = diagnosticExportSummary(JsonObject(base + ("archiveBundle" to missing)))
+        assertTrue(partial.contains("bundle is incomplete"))
+        assertTrue(partial.contains("old-part.zip"))
+        assertTrue(partial.contains("history is not considered recovered"))
+        assertFalse(partial.contains("verified archive parts"))
+    }
+
     @Test fun metadataCannotBeDescribedAsCapturedLogs() {
         val summary = diagnosticExportSummary(manifest(stage("critical_logs", "EMPTY", 0, records = 1), stage("recent_logs", "PARTIAL", 0, records = 1)))
         assertTrue(summary.startsWith("No application log records"))

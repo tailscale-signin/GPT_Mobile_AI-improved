@@ -252,6 +252,29 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertEqual(200, self.submit(report).status_code)
         self.assertEqual(len(cases), len(self.issued))
 
+    def test_voice_clock_detail_can_remain_local_without_changing_the_report_protocol(self):
+        for basis in ("UTTERANCE_START", "PLAYBACK_HEAD"):
+            with self.subTest(basis=basis):
+                capture = self.diagnostics("VOICE", {"voice_engine": "KOKORO", "voice_phase": "SPEAKING",
+                                                     "voice_first_audio_basis": basis, "voice_response_to_first_audio_ms": 98})
+                report = {**self.manual(), "context": self.context(schemaVersion=5, source="VOICE_STATE", diagnostics=capture)}
+                approved = json.dumps(report, separators=(",", ":"))
+                self.assertEqual(200, self.submit(report).status_code)
+                self.assertIn(f"| voice_first_audio_basis | `{basis}` |", self.issued[-1]["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        for basis in ("AUDIO_TIMESTAMP", "private-clock", "audio_timestamp", 1, None):
+            with self.subTest(basis=basis):
+                capture = self.diagnostics("VOICE", {"voice_first_audio_basis": basis})
+                report = {**self.manual(), "context": self.context(schemaVersion=5, source="VOICE_STATE", diagnostics=capture)}
+                self.assertEqual(422, self.submit(report).status_code)
+        capture = self.diagnostics("VOICE", {"voice_engine": "KOKORO", "voice_phase": "SPEAKING",
+                                             "voice_response_to_first_audio_ms": 98})
+        report = {**self.manual(), "context": self.context(schemaVersion=5, source="VOICE_STATE", diagnostics=capture)}
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertIn("| voice_response_to_first_audio_ms | `98` |", self.issued[-1]["body"])
+        self.assertNotIn("| voice_first_audio_basis |", self.issued[-1]["body"])
+        self.assertEqual(3, len(self.issued))
+
     def test_preparing_voice_report_keeps_unknown_first_audio_as_unavailable(self):
         capture = self.diagnostics("VOICE", {"voice_engine": "KOKORO", "voice_phase": "PREPARING"})
         report = {**self.manual(), "context": self.context(schemaVersion=5, source="VOICE_STATE", diagnostics=capture)}
@@ -556,7 +579,7 @@ class IssueReportHttpTest(unittest.TestCase):
         legacy = self.client.get("/health/ready")
         extended = self.client.get("/health/ready?capabilities=extended")
         self.assertEqual(200, extended.status_code)
-        additions = ["CLAIM_EXTRACTION_SCHEMA_HASH_V1", "ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
+        additions = ["CONVERSATION_RECOVERY_DIAGNOSTICS_V1", "REQUEST_BYTE_BUDGET_V1", "CLAIM_EXTRACTION_SCHEMA_HASH_V1", "ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
                      "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "REPORT_TEXT_ATTACHMENT_V1", "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1", "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1", "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1", "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1", "PRIVACY_ELIGIBILITY_EVIDENCE_V1", "GATEWAY_CAPABILITY_EVIDENCE_V1", "STATUS_COVERAGE_EVIDENCE_V1", "AUDIO_FOCUS_MODE_V1", "GITHUB_VALIDATION_CONTEXT_V1", "RUNTIME_INCIDENT_DETAILS_V1", "SELECTED_MODEL_ADMISSION_V1", "REVIEW_CATALOG_OBSERVATION_V1", "ACTION_ONLY_TOOL_PRECHECK_V1", "TOOL_REPEAT_PRIOR_CAUSE_V1", "PROFILE_BEHAVIOR_CHANGE_V1", "APP_SEARCH_READINESS_V1", "VOICE_SILENCED_INPUT_V1", "TASK_AND_TOOL_FAILURE_DETAILS_V1", "READER_AND_RUN_FAILURE_DETAILS_V1", "REPLAY_BUDGET_EVIDENCE_V1", "GRAPH_TRANSPORT_EVIDENCE_V1"]
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
                          extended.json()["reportDiagnosticFeatures"])

@@ -37,7 +37,7 @@ internal object GitHubTaskContinuity {
     fun control(text: String): Boolean = normalized(text) in
         setOf(
             "test again", "retest", "continue", "continue research", "continue run", "continue response", "resume", "proceed",
-            "retry", "retry full", "retry failed stage", "try again", "proceed primary-only", "proceed primary only",
+            "retry", "retry full", "retry failed stage", "try again", "resume verification", "verify saved results", "proceed primary-only", "proceed primary only",
             "continue primary-only", "continue primary only", "primary-only"
         ) ||
         GitHubNativeContinuation.matches(text) ||

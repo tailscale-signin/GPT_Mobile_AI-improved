@@ -29,12 +29,12 @@ internal object IssueReportIncidentCapsule {
         "action", "connection_id", "connection_uid", "owner", "repo", "repository", "repository_id", "repository_full_name",
         "issue_number", "pull_number", "pr_number", "pull_request_number", "number", "title", "body", "state", "state_reason", "labels",
         "assignees", "milestone", "head", "base", "ref", "sha", "base_sha", "head_sha", "branch", "path", "paths", "content", "message",
-        "draft", "maintainer_can_modify", "merge_method", "commit_title", "commit_message", "event", "comments", "line", "side",
+        "draft", "maintainer_can_modify", "merge_method", "commit_title", "commit_message", "expected_updated_at", "event", "comments", "line", "side",
         "start_line", "end_line", "max_lines", "start_offset", "ranges", "evidence_id", "start_side", "commit_id", "in_reply_to", "thread_id", "review_id", "comment_id", "run_id", "job_id", "workflow_id",
         "check_run_id", "artifact_id", "release_id", "tag_name", "query", "q", "sort", "order", "direction", "page", "per_page", "limit",
-        "cursor", "view_cursor", "index_cursor", "search_id", "view_id", "operation", "operation_id", "model", "schema", "schema_version",
+        "cursor", "after", "view_cursor", "index_cursor", "search_id", "view_id", "operation", "operation_id", "model", "schema", "schema_version",
         "includeLinks", "includeDomains", "excludeDomains", "extractDocument", "documentPageStart", "documentPageLimit", "documentTextOffset", "expectedDocumentSha256",
-        "url", "download_url", "accept", "since", "until", "filter", "status", "conclusion", "inputs", "files", "encoding", "recursive"
+        "url", "download_url", "accept", "since", "until", "filter", "status", "conclusion", "inputs", "files", "encoding", "recursive", "names", "inventory_cursor", "inventory_version", "catalog_only"
     )
     val dispatchPolicyFields = setOf("dispatch_policy_sections", "dispatch_policy_stage", "dispatch_policy_resume_required")
     private val policySections = setOf("PROFILE", "BUDGET", "SPEND", "TOOLS", "MCP", "PERMISSIONS", "ASSIST", "DELEGATION", "RESEARCH", "GATEWAY", "GITHUB", "REASONING", "ENGINEERING")
@@ -66,8 +66,11 @@ internal object IssueReportIncidentCapsule {
         "provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash", "crash_surface", "crash_boundary"
     )
     private val policyObservation = setOf("OBSERVED", "UNOBSERVED", "INVALID_RESPONSE", "ACCESS_DENIED", "NOT_FOUND_OR_INACCESSIBLE", "RATE_LIMITED", "UNAVAILABLE", "HTTP_FAILURE")
-    val failedEventFields = setOf("failed_event_code_present", "failed_event_invocation_present", "failed_event_details_present")
-    private val common = failedEventFields + setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "sqlite_constraint_kind", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
+    val failedEventFields = setOf("failed_event_provider_text_seen", "failed_event_answer_emitted", "failed_event_code_present", "failed_event_invocation_present", "failed_event_details_present")
+    private val recoveryCauseFields = setOf("verification_phase", "continuation_cause", "continuation_trigger", "continuation_saved_characters", "continuation_attempt_count", "continuation_output_cap", "checkpoint_mismatch_reason", "observed_checkpoint_state", "provider_wait_observed_checkpoint_hash")
+    const val CONVERSATION_RECOVERY_FEATURE = "CONVERSATION_RECOVERY_DIAGNOSTICS_V1"
+    val conversationRecoveryFields = recoveryCauseFields + setOf("issue_continuation_state", "acceptance_advertised_tool_count")
+    private val common = failedEventFields + recoveryCauseFields + setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "sqlite_constraint_kind", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
     val toolFailureFields = setOf("round_catalog_tool_count", "url_reader_dns_state", "url_reader_availability", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
     val providerExecutionFields = setOf("claim_extraction_validation_stage", "claim_extraction_schema_hash", "tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection", "tool_protocol_frame_kind", "tool_protocol_recovery_outcome", "claim_extraction_failure_kind", "claim_extraction_response_characters", "claim_extraction_max_claims", "claim_extraction_completed")
@@ -120,7 +123,7 @@ internal object IssueReportIncidentCapsule {
         "remote_pagination_reason"
     )
     private val toolFields = setOf(
-        "native_tool_action", "tool_contract_version", "action_schema_generation_hash", "validation_field_names", "validation_path_hashes", "unknown_field_hashes", "unknown_field_count",
+        "native_tool_action", "tool_contract_version", "action_schema_generation_hash", "validation_field_names", "validation_path_hashes", "unknown_field_hashes", "unknown_field_count", "issue_continuation_state",
         "argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types", "resolved_argument_shape_hash",
         "saved_view_owner_operation", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_cursor_issued", "saved_view_expired", "saved_view_restore_state", "saved_view_restore_error_hash",
         "github_validation_endpoint", "github_error_resources", "github_error_fields", "github_error_codes", "server_request_id_hash", "argument_repair_signature_hash", "argument_repair_attempt", "argument_repair_exhausted",
@@ -128,7 +131,7 @@ internal object IssueReportIncidentCapsule {
         "native_dependency_state", "dependency_call_id_hashes", "dependency_count", "dependency_failed_count", "semantic_read_rules", "semantic_ci_rules", "search_validation_field_names", "dependency_admission_reasons", "search_cursor_state", "search_id_hash", "search_cursor_hash"
     ) + remotePaginationFields + prContextRaceFields
     private val acceptanceFields = setOf(
-        "task_kind", "acceptance_evaluator_branch", "acceptance_mismatch", "eligible_receipt_count", "excluded_receipt_count", "receipt_count_scope", "receipt_exclusion_reasons",
+        "acceptance_advertised_tool_count", "task_kind", "acceptance_evaluator_branch", "acceptance_mismatch", "eligible_receipt_count", "excluded_receipt_count", "receipt_count_scope", "receipt_exclusion_reasons",
         "expected_operation", "expected_action", "evidence_ref_hashes", "required_capability_count", "verified_capability_count", "blocked_capability_count", "untested_capability_count"
     )
     private val gatewayFields = setOf("command_receipt_observation", "command_id_hash", "gateway_source_commit_hash", "gateway_package_digest_hash")
@@ -139,14 +142,20 @@ internal object IssueReportIncidentCapsule {
         "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "privacy_metadata_age_ms", "privacy_blockers"
     ) + gatewayDeliveryFields + providerExecutionFields
     private val voiceFields = setOf("voice_pronunciation_unknown_word_length", "run_id_hash", "invocation_id_hash", "voice_reply_failed", "voice_reply_terminal_status", "voice_reply_failure_evidence", "voice_chat_failure_code", "voice_chat_failure_code_hash", "voice_chat_failure_phase", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed")
-    private val hashes = setOf("claim_extraction_schema_hash", "causal_id_hash", "action_schema_generation_hash", "resolved_argument_shape_hash", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_restore_error_hash", "server_request_id_hash", "command_id_hash", "gateway_source_commit_hash", "gateway_package_digest_hash", "argument_repair_signature_hash", "provider_error_type_hash", "provider_parameter_path_hash", "voice_chat_failure_code_hash", "mcp_connection_hash", "search_id_hash", "search_cursor_hash", "provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_route_hash") + handoffReconciliationHashes
+    private val hashes = setOf("provider_wait_observed_checkpoint_hash", "claim_extraction_schema_hash", "causal_id_hash", "action_schema_generation_hash", "resolved_argument_shape_hash", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_restore_error_hash", "server_request_id_hash", "command_id_hash", "gateway_source_commit_hash", "gateway_package_digest_hash", "argument_repair_signature_hash", "provider_error_type_hash", "provider_parameter_path_hash", "voice_chat_failure_code_hash", "mcp_connection_hash", "search_id_hash", "search_cursor_hash", "provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_route_hash") + handoffReconciliationHashes
     private val hashLists = setOf("validation_path_hashes", "unknown_field_hashes", "evidence_ref_hashes", "exception_type_hashes", "dependency_call_id_hashes", "pending_tool_identity_hashes")
     private val flags = failedEventFields + setOf("tls_response_started", "provider_local_budget_block", "saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed", "dispatch_policy_resume_required", "chat_delivery_counts_capped", "tool_event_write_attempted", "inventory_restart_offered", "claim_extraction_completed", "remote_pagination_contiguous", "remote_pagination_changed", "pr_context_revision_changed", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed")
-    private val counts = setOf("recovery_attempt_count", "unknown_field_count", "eligible_receipt_count", "excluded_receipt_count", "required_capability_count", "verified_capability_count", "blocked_capability_count", "untested_capability_count", "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count", "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "claim_extraction_response_characters", "claim_extraction_max_claims", "dependency_count", "dependency_failed_count", "pending_tool_count", "remote_pagination_page", "remote_pagination_pages_observed", "remote_pagination_reported_total", "remote_pagination_unique_records", "remote_pagination_duplicate_records", "pr_context_read_requests", "pr_context_read_responses", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms") + policyCounts
+    private val counts = setOf("acceptance_advertised_tool_count", "continuation_saved_characters", "continuation_attempt_count", "continuation_output_cap", "recovery_attempt_count", "unknown_field_count", "eligible_receipt_count", "excluded_receipt_count", "required_capability_count", "verified_capability_count", "blocked_capability_count", "untested_capability_count", "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count", "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "claim_extraction_response_characters", "claim_extraction_max_claims", "dependency_count", "dependency_failed_count", "pending_tool_count", "remote_pagination_page", "remote_pagination_pages_observed", "remote_pagination_reported_total", "remote_pagination_unique_records", "remote_pagination_duplicate_records", "pr_context_read_requests", "pr_context_read_responses", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms") + policyCounts
     private val executionCounts = setOf("round_catalog_tool_count", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "combined_issue_count", "combined_failed_check_count", "combined_unverified_check_count", "combined_repair_rounds") + acceptanceBlockerFields
     private val types = setOf("STRING", "NUMBER", "BOOLEAN", "OBJECT", "ARRAY", "NULL")
     private val mcpHealth = setOf("DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "CONNECTION_REFUSED", "AUTHENTICATION_FAILED", "TLS_FAILED", "CONNECT_TIMEOUT", "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT", "HEALTHY", "UNKNOWN")
     private val enums = mapOf(
+        "verification_phase" to dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.Phase.entries.mapTo(mutableSetOf()) { it.name },
+        "continuation_cause" to dev.chungjungsoo.gptmobile.data.agent.OutputContinuationFailure.Cause.entries.mapTo(mutableSetOf()) { it.name },
+        "continuation_trigger" to dev.chungjungsoo.gptmobile.data.agent.ContinuationTrigger.entries.mapTo(mutableSetOf()) { it.name },
+        "checkpoint_mismatch_reason" to dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CHECKPOINT_MISMATCH_REASONS,
+        "observed_checkpoint_state" to dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CHECKPOINT_STATES,
+        "issue_continuation_state" to setOf("MISSING_AFTER", "MALFORMED_AFTER", "FILTER_MISMATCH", "PAGE_MISMATCH", "INITIAL_PAGE_WITH_AFTER", "AUTHENTICATED_CONNECTION_REQUIRED"),
         // The selected provider's error object may omit both code and type.
         // Capture only the producer's closed type, never its raw error string.
         "provider_error_code_state" to setOf("ABSENT"),
@@ -225,7 +234,7 @@ internal object IssueReportIncidentCapsule {
         "tls_failure_kind" to setOf("CERTIFICATE", "PROTOCOL", "HANDSHAKE", "OTHER"),
         "provider_tool_rejection" to setOf("TOOL_USE_FAILED"),
         "tool_protocol_frame_kind" to setOf("MISSING_FUNCTION_NAME", "UNFINISHED_STREAM", "NON_OBJECT_ARGUMENTS", "MALFORMED_JSON"),
-        "tool_protocol_recovery_outcome" to setOf("TEXT_FALLBACK_EXHAUSTED", "TOOL_RETRY_EXHAUSTED", "BACKEND_HANDLED_TOOLS", "SINGLE_PASS_NOT_RETRYABLE", "NO_SAFE_REPAIR"),
+        "tool_protocol_recovery_outcome" to setOf("TEXT_FALLBACK_EXHAUSTED", "TOOL_RETRY_EXHAUSTED", "BACKEND_HANDLED_TOOLS", "SINGLE_PASS_NOT_RETRYABLE", "TEXT_ALREADY_EMITTED", "NO_SAFE_REPAIR"),
         "reasoning_probe_observation" to setOf("GATEWAY_OBSERVATION_AVAILABLE", "DEADLINE_WITHOUT_GATEWAY_OBSERVATION", "NO_GATEWAY_OBSERVATION"),
         "gateway_terminal_status" to setOf("completed", "failed", "cancelled", "canceled", "interrupted"),
         "gateway_result_quality" to setOf("complete", "partial"),
@@ -261,9 +270,9 @@ internal object IssueReportIncidentCapsule {
         "receipt_exclusion_reasons" to setOf("WRONG_OPERATION", "WRONG_ACTION", "WRONG_REVISION", "WRONG_SCOPE", "PRECHECK_ONLY", "NOT_SUCCESSFUL", "UNKNOWN_OUTCOME", "STALE", "MISSING_IDENTITY", "UNVERIFIED")
     )
     val coreFields = listOf("incident_phase", "causal_id_hash", "causal_provenance", "incident_evidence_status")
-    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes", "sqlite_constraint_kind") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields + remotePaginationFields + prContextRaceFields + GitHubAcceptancePublicationEvidence.fields
+    val priorityFields = coreFields.toSet() + recoveryCauseFields + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes", "sqlite_constraint_kind") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields + remotePaginationFields + prContextRaceFields + GitHubAcceptancePublicationEvidence.fields
 
-    enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, CHAT_REPOSITORY_PREFLIGHT, OPENAI_ADAPTER_STREAM_CATCH, PROVIDER_ADAPTER_STREAM_CATCH, CHAT_REPOSITORY_ERROR_VALUE, CHAT_FLOW_EMPTY_ANSWER, AGENT_FAILED_EVENT, AGENT_ROUND_CATCH }
+    enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, CHAT_REPOSITORY_PREFLIGHT, OPENAI_ADAPTER_STREAM_CATCH, PROVIDER_ADAPTER_STREAM_CATCH, CHAT_REPOSITORY_ERROR_VALUE, CHAT_FLOW_EMPTY_ANSWER, AGENT_FAILED_EVENT, AGENT_ROUND_CATCH, GITHUB_VERIFICATION_CATCH, OUTPUT_CONTINUATION_OPEN_CATCH }
 
     /** An observed boundary does not establish dispatch, retryability, or a throwable. */
     fun boundaryFields(site: ExceptionCaptureSite): JsonObject = buildJsonObject {
@@ -487,6 +496,12 @@ internal object IssueReportIncidentCapsule {
     /** No latest-run lookup: this projection uses only the failure's own typed fields. */
     fun fields(feature: ReportFeature, source: String, code: String, fields: Map<String, Any?>): Map<String, Any?> = buildMap {
         putAll(fields)
+        remove("provider_wait_observed_checkpoint_hash")
+        if (IssueReportContext.localRecoveryCode(fields) != null) {
+            text(fields["observed_checkpoint_digest"])?.takeIf(HASH::matches)
+                ?.let { IssueReportContext.identifierHash("observed-provider-checkpoint", it) }
+                ?.let { put("provider_wait_observed_checkpoint_hash", it) }
+        }
         // Only the original structured list supplies policy-change evidence. Never publish arbitrary names.
         policyDiagnostics.forEach(::remove)
         if (fields.containsKey("changed_policy_fields")) putAll(policyFields(fields["changed_policy_fields"]))

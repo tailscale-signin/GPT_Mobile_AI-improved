@@ -29,6 +29,7 @@ internal object GitHubAcceptanceLedger {
                 put("id", row.text("id"))
                 put("kind", kind)
                 row["acceptance_role"]?.let { put("acceptance_role", it) }
+                for (key in listOf("issue_group", "issue_number", "issue_revisions", "issue_test_revision_scope", "issue_phases")) row[key]?.let { put(key, it) }
                 put("criterion", row.text(if (kind == "REQUIREMENT") "requirement" else "scope"))
                 if (kind == "REQUIREMENT") put("category", GitHubAcceptanceDiagnostics.category(row.text("requirement")))
                 put("required", !excluded)

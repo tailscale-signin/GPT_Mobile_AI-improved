@@ -51,16 +51,17 @@ class DiagnosticIncidentTrackerTest {
         assertEquals(null, other.outcome)
     }
 
-    @Test fun androidFinalizerHeaderAndFrameworkStackCountAsOneIncidentWithoutSuppressingIt() {
+    @Test fun androidFinalizerHeaderAndFrameworkStackRemainOneNonActionableContext() {
         val tracker = DiagnosticIncidentTracker()
         val header = tracker.accept("2026-11-05T00:00:00Z E/Android: E/System (42): Uncaught exception thrown by finalizer", "header", null)
         val exception = tracker.accept("2026-11-05T00:00:00Z E/Android: E/System (42): java.lang.SecurityException: Settings key: <asus_leak_detect_proj> is not readable", "exception", null)
         val frame = tracker.accept("2026-11-05T00:00:00Z E/Android: E/System (42): at com.android.internal.os.BinderInternal\$GcWatcher.finalize(BinderInternal.java:61)", "frame", null)
-        assertTrue(header.first)
+        assertFalse(header.first)
         assertFalse(exception.first)
         assertFalse(frame.first)
         assertEquals(header.id, exception.id)
         assertEquals(header.id, frame.id)
+        assertFalse(classifyDiagnostic("E", "Android", "E/System (42): java.lang.SecurityException: Settings key: <asus_leak_detect_proj> is not readable").actionable)
         assertTrue(classifyDiagnostic("E", "Android", "java.lang.SecurityException: asus_leak_detect_proj").actionable)
     }
 
@@ -77,7 +78,7 @@ class DiagnosticIncidentTrackerTest {
         assertEquals(finalizer.id, cause.id)
         assertEquals(finalizer.id, finalizerFrame.id)
         assertEquals(other.id, networkFrame.id)
-        assertEquals(3, listOf(finalizer, other, replacement, cause, networkFrame, finalizerFrame).count { it.first })
+        assertEquals(2, listOf(finalizer, other, replacement, cause, networkFrame, finalizerFrame).count { it.first })
     }
 
     @Test fun longStackUsesLastFrameTimeButNewExceptionAndExpiredFramesStayDistinct() {

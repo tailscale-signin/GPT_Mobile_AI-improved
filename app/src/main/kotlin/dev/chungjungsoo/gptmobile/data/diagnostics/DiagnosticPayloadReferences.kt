@@ -14,6 +14,17 @@ internal class DiagnosticPayloadReferences {
     }
 
     suspend fun write(value: JsonElement, emit: suspend (JsonElement) -> Unit) {
+        prepare(value) { output, _ -> emit(output) }
+    }
+
+    /** Reuse the payload encoding used by its digest instead of encoding it again in the row. */
+    suspend fun writeEncoded(value: JsonElement, emit: suspend (String) -> Unit) {
+        prepare(value) { output, encodedPayload ->
+            emit(if (encodedPayload == null) output.toString() else encodeRow(output as JsonObject, encodedPayload))
+        }
+    }
+
+    private suspend fun prepare(value: JsonElement, emit: suspend (JsonElement, String?) -> Unit) {
         val row = value as? JsonObject
         val fields = row?.get("fields") as? JsonObject
         val payload = fields?.get("payload")
@@ -24,18 +35,18 @@ internal class DiagnosticPayloadReferences {
             payload == null ||
             (payload is JsonPrimitive && payload.content.length < 2048)
         ) {
-            emit(value)
+            emit(value, null)
             return
         }
         val serialized = payload.toString()
         if (serialized.length < 2048) {
-            emit(value)
+            emit(value, serialized)
             return
         }
         val digest = DiagnosticRecordChunks.sha256(serialized)
         val first = originals[digest]
         if (first == null || first == rowId) {
-            emit(value)
+            emit(value, serialized)
             originals[digest] = rowId
         } else {
             val reference = buildJsonObject {
@@ -45,7 +56,30 @@ internal class DiagnosticPayloadReferences {
                 put("pointer", "/fields/payload")
                 put("redactedJsonSha256", digest)
             }
-            emit(JsonObject(row + ("fields" to JsonObject(fields - "payload" + ("payload_ref" to reference)))))
+            emit(JsonObject(row + ("fields" to JsonObject(fields - "payload" + ("payload_ref" to reference)))), null)
         }
+    }
+
+    private fun encodeRow(row: JsonObject, payload: String): String = buildString(payload.length + 512) {
+        appendObject(row) { name, value ->
+            if (name == "fields") {
+                appendObject(value as JsonObject) { field, content ->
+                    if (field == "payload") append(payload) else append(content)
+                }
+            } else {
+                append(value)
+            }
+        }
+    }
+
+    private inline fun StringBuilder.appendObject(value: JsonObject, field: (String, JsonElement) -> Unit) {
+        append('{')
+        value.entries.forEachIndexed { index, entry ->
+            if (index > 0) append(',')
+            append(JsonPrimitive(entry.key))
+            append(':')
+            field(entry.key, entry.value)
+        }
+        append('}')
     }
 }

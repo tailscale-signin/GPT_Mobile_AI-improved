@@ -127,7 +127,7 @@ class AnthropicAPIImpl @Inject constructor(
                     responseEvidence = null
                     ProviderCooldown.withPermit(config) {
                         val admittedPayload = requestPreparation.prepare(json.encodeToString(messageRequest), config, messageRequest.model, null)
-                        networkClient().preparePost(endpoint) {
+                        networkClient.inferenceClient().preparePost(endpoint) {
                             applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                             contentType(ContentType.Application.Json)
                             setBody(admittedPayload)
@@ -179,7 +179,10 @@ class AnthropicAPIImpl @Inject constructor(
                                             type = errorResponse?.error?.type ?: "api_error",
                                             message = providerErrorDetails(errorBody, "HTTP ${observed.status}: The provider rejected this request.", config.token),
                                             code = typed.code,
-                                            failureDetails = JsonObject(typed.failureDetails.orEmpty() + ProviderRejectionDiagnostics.response(observed.status, errorBody, ProviderRejectionDiagnostics.Contract.ANTHROPIC_MESSAGES, endpoint))
+                                            failureDetails = JsonObject(
+                                                typed.failureDetails.orEmpty() + ProviderRejectionDiagnostics.response(observed.status, errorBody, ProviderRejectionDiagnostics.Contract.ANTHROPIC_MESSAGES, endpoint) +
+                                                    requestPayloadRejection(observed.status, admittedPayload, config, messageRequest.model, receivedPayload, response.headers::get)
+                                            )
                                         ).withResponseEvidence(observed, receivedPayload)
                                     )
                                 )

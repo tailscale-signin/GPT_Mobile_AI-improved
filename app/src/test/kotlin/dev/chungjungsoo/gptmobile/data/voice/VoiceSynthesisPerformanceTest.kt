@@ -1,0 +1,118 @@
+package dev.chungjungsoo.gptmobile.data.voice
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class VoiceSynthesisPerformanceTest {
+    @Test fun pcmViewsRetainEveryFrameWithoutCopyingThePhrase() {
+        val samples = FloatArray(24_007) { it.toFloat() }
+        val slices = mutableListOf<VoicePcmSlice>()
+        assertTrue(
+            KokoroPcmBatches.slices(samples, 24_000) {
+                slices += it
+                true
+            }
+        )
+        assertEquals(samples.size, slices.sumOf { it.size })
+        var next = 0
+        slices.forEach {
+            assertSame(samples, it.samples)
+            assertEquals(next, it.offset)
+            assertTrue(it.size in 1..2_400)
+            next += it.size
+        }
+    }
+
+    @Test fun cancellingPcmDeliveryStopsAtTheRejectedView() {
+        var count = 0
+        assertFalse(KokoroPcmBatches.slices(FloatArray(48_000), 24_000) { ++count < 3 })
+        assertEquals(3, count)
+    }
+
+    @Test fun autoBufferRespondsToMeasuredProductionAndRefills() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        assertEquals(100, policy.bufferMs())
+        policy.observe(100, 1_000)
+        assertEquals(45, policy.bufferMs())
+        assertEquals(6, policy.phraseWords(100))
+        assertEquals(16, policy.phraseWords(2_000))
+        policy.underrun()
+        assertEquals(85, policy.bufferMs())
+        repeat(20) {
+            policy.observe(2_000, 1_000)
+            policy.underrun()
+        }
+        assertEquals(300, policy.bufferMs())
+    }
+
+    @Test fun fixedModesRemainExplicitAndBadMeasurementsDoNotDriveAuto() {
+        val fixed = VoiceAdaptivePlayback(VoicePerformanceMode.FAST)
+        fixed.observe(5_000, 100)
+        fixed.underrun()
+        assertEquals(45, fixed.bufferMs())
+        val auto = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        auto.observe(-1, 1_000)
+        auto.observe(1_000, 0)
+        assertEquals(100, auto.bufferMs())
+    }
+
+    @Test fun calibrationRequiresRepeatedMeasurementsAndAMaterialGain() {
+        assertEquals(2, VoiceCpuCalibration.select(mapOf(4 to listOf(10))))
+        assertEquals(2, VoiceCpuCalibration.select(mapOf(2 to listOf(90, 100, 100), 4 to listOf(90, 96, 96))))
+        assertEquals(3, VoiceCpuCalibration.select(mapOf(2 to listOf(100, 110, 120), 3 to listOf(60, 70, 75), 4 to listOf(50, 60, 140))))
+    }
+
+    @Test fun timestampPresentationUsesTheMeasuredClockAndNeverRewinds() {
+        val clock = VoicePlaybackClock(24_000)
+        val first = clock.position(2_400, 1_200, 1_000_000_000, 1_025_000_000, true)
+        assertEquals(1_800, first.frames)
+        assertEquals("audio_timestamp", first.basis)
+        assertEquals(1_800, clock.position(2_400, 1_000, 1_020_000_000, 1_025_000_000, true).frames)
+        assertEquals(1_800, clock.position(2_400, null, null, 1_100_000_000, false).frames)
+    }
+
+    @Test fun staleTimestampsFallBackAndRouteChangesResetClockHistory() {
+        val clock = VoicePlaybackClock(24_000)
+        assertEquals("playback_head", clock.position(2_400, 0, 1, 2_000_000_000, true).basis)
+        clock.routeChanged()
+        assertEquals(600, clock.position(1_200, 600, 2_000_000_000, 2_000_000_000, true).frames)
+    }
+
+    @Test fun captionDelayDrainsTheFinalWordsWithoutChangingPcm() {
+        assertEquals(21_600, VoicePlaybackClock.captionFrames(24_000, 24_000, 100))
+        assertEquals(22_800, VoicePlaybackClock.captionFrames(24_000, 24_000, 100, 50))
+        assertEquals(24_000, VoicePlaybackClock.captionFrames(24_000, 24_000, 100, 200))
+        assertEquals(26_400, VoicePlaybackClock.captionFrames(24_000, 24_000, -100))
+    }
+
+    @Test fun pronunciationOverridesRemainBoundedAndKeepSourceWordMapping() {
+        assertFalse(VoicePronunciationOverrides.valid("word", "text; other"))
+        assertFalse(VoicePronunciationOverrides.valid("two words", "test"))
+        val clean = VoicePronunciationOverrides.clean(mapOf("Sentoria" to "sen toria", "bad" to "<script>"))
+        assertEquals(mapOf("sentoria" to "sen toria"), clean)
+        val result = requireNotNull(KokoroSpeechText.withPolicy("Sentoria is here.", { true }, clean, 16, true).phrases)
+        assertEquals("sen toria is here.", result.single().speech)
+        assertEquals(listOf(0..7, 0..7, 9..10, 12..15), result.single().wordRanges)
+    }
+
+    @Test fun adaptiveChunksStartEarlyAndUseCurrentPlaybackFeedback() {
+        val buffer = VoiceSpeechBuffer()
+        val text = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
+        val parts = requireNotNull(buffer.append(text, false, true, feedback = VoiceSynthesisFeedback(suggestedFollowUpWords = 6), adaptive = true))
+        assertEquals(listOf("one two three four ", "five six seven eight nine ten "), parts)
+        val tail = requireNotNull(buffer.append(text, true, true, feedback = VoiceSynthesisFeedback(suggestedFollowUpWords = 6), adaptive = true))
+        assertEquals(text, (parts + tail).joinToString(""))
+    }
+
+    @Test fun slowTextArrivalHasABoundedStablePhraseWait() {
+        var time = 0L
+        val buffer = VoiceSpeechBuffer { time }
+        assertEquals(emptyList<String>(), buffer.append("Hello there ", false, true, adaptive = true))
+        time = 250
+        assertEquals(listOf("Hello there "), buffer.append("Hello there ", false, true, adaptive = true))
+        assertEquals(emptyList<String>(), buffer.append("Hello there ", false, true, adaptive = true))
+    }
+}

@@ -5,7 +5,8 @@ internal data class DiagnosticClassification(
     val category: String,
     val severity: String,
     val actionable: Boolean,
-    val recovery: String = "not_reported"
+    val recovery: String = "not_reported",
+    val nativeReturnCode: Int? = null
 )
 
 internal fun classifyDiagnostic(level: String?, tag: String?, message: String): DiagnosticClassification {
@@ -35,8 +36,8 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             text.startsWith("moonshine_") &&
             (text.startsWith("moonshine_released") || text.startsWith("moonshine_decoder_close") || "cancelled=true" in text) ->
             DiagnosticClassification("native_voice_cleanup", "info", false)
-        transcriptionCode == 0 -> DiagnosticClassification("native_transcription_success", "info", false)
-        transcriptionCode != null -> DiagnosticClassification("native_operation_failure", "error", true, "inspect_operation_receipt")
+        transcriptionCode == 0 -> DiagnosticClassification("native_transcription_success", "info", false, nativeReturnCode = 0)
+        transcriptionCode != null -> DiagnosticClassification("native_operation_failure", "error", true, "inspect_operation_receipt", transcriptionCode)
         tag == "Android" && capturedTag == "sherpa-onnx" && isSherpaConfigurationRecord(text) ->
             DiagnosticClassification("native_voice_configuration", "info", false)
         tag == "VoiceTiming" && text.startsWith("kokoro_terminal") && Regex("(?:^| · )reason=(?:timeout|engine_failed|synthesis_failed|audio_failed|text_queue_full|memory_pressure|pronunciation_unavailable|lexicon_unavailable)(?: · |$)").containsMatchIn(text) ->
@@ -68,6 +69,9 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         tag == "MCP" && (text.startsWith("connect start") || text.startsWith("connected")) -> DiagnosticClassification("connectivity_progress", "info", false)
         ("strictmode" in text || capturedTag == "strictmode") && "networkviolation" in text -> DiagnosticClassification("main_thread_network_io", "warning", true, "move_network_and_socket_cleanup_to_io")
         "strictmode" in text && ("diskreadviolation" in text || "diskwriteviolation" in text) -> DiagnosticClassification("main_thread_disk_io", "warning", true, "move_work_to_io")
+        (capturedTag in setOf("sqliteconnectionpool", "supportsqlitedatabase", "room") || tag in setOf("Database", "Room")) &&
+            Regex("database (?:is )?(?:locked|busy)|sqlite_busy|connection pool.*(?:wait|starv)").containsMatchIn(text) ->
+            DiagnosticClassification("encrypted_database_stall", "warning", true, "move_encrypted_database_work_off_main_and_bound_lock_wait")
         "method exceeds compiler instruction limit" in text || "method exceeds compiler" in text -> DiagnosticClassification("compiler_method_size", "warning", true, "split_coroutine_stages")
         text.startsWith("synthesis_quality") && ("missing_contribution_link" in text || "word_target_undershot" in text || "word_limit_exceeded" in text || "exact_word_count_unmet" in text) -> DiagnosticClassification("combined_contract", "warning", true, "retain_answer_and_review_quality")
         text.startsWith("discovery_negotiation") && ("outcome=legacy_fallback" in text || "outcome=legacy_initialization_required" in text) -> DiagnosticClassification("compatibility_probe", "info", false)
@@ -112,15 +116,15 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             "aibinder_linktodeath is being called with a non-null cookie and no onunlink callback set. this might not be intended. aibinder_deathrecipient_setonunlinked should be called first." ->
             DiagnosticClassification("platform_binder_registration", "info", false)
         tag == "Android" && capturedTag == "mobile.improved" && text == "failed to query component interface for required system resources: 6" ->
-            DiagnosticClassification("codec_resource_query", "warning", true, "inspect_codec_configuration_and_playback_outcome")
+            DiagnosticClassification("codec_resource_query", "warning", false, "inspect_codec_configuration_and_playback_outcome")
         tag == "Android" && capturedTag == "libc" && text == "access denied finding property \"ro.hardware.chipname\"" ->
             DiagnosticClassification("platform_optional_property", "info", false)
         tag == "Android" && capturedTag == "system" && text.startsWith("uncaught exception thrown by finalizer") ->
-            DiagnosticClassification("platform_finalizer_exception", "warning", true, "capture_complete_stack_and_os_exit_before_attributing_process_failure")
-        "asus_leak_detect_proj" in text -> DiagnosticClassification(
+            DiagnosticClassification("platform_finalizer_exception", "warning", false, "capture_complete_stack_and_os_exit_before_attributing_process_failure")
+        tag == "Android" && capturedTag == "system" && "asus_leak_detect_proj" in text && "not readable" in text -> DiagnosticClassification(
             "protected_settings_access",
-            if (level == "E") "error" else "warning",
-            true,
+            "warning",
+            false,
             "capture_complete_stack_and_android_build_before_attributing_origin"
         )
         tag == "Android" && capturedTag == "imebackdispatcher" && text.startsWith("ime callback not found. ignoring unregisterreceivedcallback.") -> DiagnosticClassification("platform_input_cleanup", "info", false)
@@ -132,7 +136,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             DiagnosticClassification("input_lifecycle", "info", false, "inspect_focus_lifecycle_if_input_loss_is_observed")
         "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true, "release_composer_focus_before_screen_or_editor_detaches")
         tag == "Android" && "systemjobservice" in text && "onnetworkchanged" in text && "not implemented" in text ->
-            DiagnosticClassification("work_scheduler_compatibility", "warning", true, "verify_workmanager_and_android_build_with_background_recovery")
+            DiagnosticClassification("work_scheduler_compatibility", "warning", false, "verify_workmanager_and_android_build_with_background_recovery")
         tag == "Android" && "reducing the number of considered missed gc histogram windows" in text ->
             DiagnosticClassification("gc_sampling_window", "info", false, "profile_allocations_before_attributing_memory_leak")
         "getenv: not attached" in text -> DiagnosticClassification("native_thread_attachment", "info", false)

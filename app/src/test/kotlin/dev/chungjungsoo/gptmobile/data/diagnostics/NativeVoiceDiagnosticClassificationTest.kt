@@ -18,7 +18,7 @@ class NativeVoiceDiagnosticClassificationTest {
     @Test fun codecServiceMessageDoesNotConcealResourceOrPlaybackFailures() {
         assertFalse(classifyDiagnostic("E", "Android", "E/MediaCodec(2623): Media Quality Service not found.").actionable)
         assertTrue(classifyDiagnostic("E", "Android", "E/MediaCodec(2623): Codec start failed.").actionable)
-        assertTrue(classifyDiagnostic("E", "Android", "E/mobile.improved(2623): Failed to query component interface for required system resources: 6").actionable)
+        assertFalse(classifyDiagnostic("E", "Android", "E/mobile.improved(2623): Failed to query component interface for required system resources: 6").actionable)
     }
 
     @Test fun documentedSherpaHeaderAndCompleteTypedDumpsAreConfigurationRatherThanFailures() {
@@ -61,7 +61,17 @@ class NativeVoiceDiagnosticClassificationTest {
             assertEquals("native_voice_cleanup", classifyDiagnostic("I", "VoiceEngine", record).category)
             assertFalse(classifyDiagnostic("I", "VoiceEngine", record).actionable)
         }
-        assertEquals("native_transcription_success", classifyDiagnostic("E", "Android", "E/MoonshineJni(123): Transcription error: 0").category)
-        assertEquals("native_operation_failure", classifyDiagnostic("E", "Android", "E/MoonshineJni(123): Transcription error: -4").category)
+        val success = classifyDiagnostic("E", "Android", "E/MoonshineJni(123): Transcription error: 0")
+        val failureCode = classifyDiagnostic("E", "Android", "E/MoonshineJni(123): Transcription error: -4")
+        assertEquals("native_transcription_success", success.category)
+        assertEquals(0, success.nativeReturnCode)
+        assertEquals("native_operation_failure", failureCode.category)
+        assertEquals(-4, failureCode.nativeReturnCode)
+    }
+
+    @Test fun encryptedDatabaseWaitsAreSeparatedFromGenericFrameworkWarnings() {
+        val result = classifyDiagnostic("W", "Android", "W/SQLiteConnectionPool: database is locked; connection pool wait exceeded")
+        assertEquals("encrypted_database_stall", result.category)
+        assertTrue(result.actionable)
     }
 }

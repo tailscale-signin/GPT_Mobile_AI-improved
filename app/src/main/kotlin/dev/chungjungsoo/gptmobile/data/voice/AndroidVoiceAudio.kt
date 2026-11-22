@@ -188,6 +188,7 @@ class AndroidVoiceAudio internal constructor(
         )
     }
     private var watchdog: Runnable? = null
+    private var requestRecognitionFinish: (() -> Unit)? = null
     var languageTag: String = Locale.getDefault().toLanguageTag()
     var allowOnlineSpeech: Boolean = false
     var speechRate: Float = 1f
@@ -298,6 +299,27 @@ class AndroidVoiceAudio internal constructor(
                     }
                 }
             }
+            fun requestFinalWords() {
+                if (!active() || finalizing) return
+                finalizeCapture()
+                if (!active()) return
+                try {
+                    engine.stopListening()
+                } catch (failure: Exception) {
+                    terminal("finalization_failed")
+                    recognitionGate.bindingFailed(sessionId)
+                    recognitionFailure("SPEECH_FINALIZATION_FAILED", "finalization", true, ticket)
+                    stop()
+                    listener.failure(
+                        "The speech service could not finish this turn. Your captured words are kept; review its settings or continue in chat.",
+                        "VOICE_RECOGNIZER_UNAVAILABLE",
+                        recognitionGate.remainingMillis(),
+                        recoveryAction = VoiceRecoveryAction.SPEECH_SERVICE,
+                        cause = failure
+                    )
+                }
+            }
+            requestRecognitionFinish = ::requestFinalWords
             engine.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
                     if (active() && !becameReady && !finalizing) {
@@ -308,23 +330,7 @@ class AndroidVoiceAudio internal constructor(
                         armWatchdog(30_000) {
                             if (active() && !finalizing) {
                                 event("recognition_capture_deadline", ticket)
-                                finalizeCapture()
-                                if (!active()) return@armWatchdog
-                                try {
-                                    engine.stopListening()
-                                } catch (failure: Exception) {
-                                    terminal("finalization_failed")
-                                    recognitionGate.bindingFailed(sessionId)
-                                    recognitionFailure("SPEECH_FINALIZATION_FAILED", "finalization", true, ticket)
-                                    stop()
-                                    listener.failure(
-                                        "The speech service could not finish this turn. Your captured words are kept; review its settings or continue in chat.",
-                                        "VOICE_RECOGNIZER_UNAVAILABLE",
-                                        recognitionGate.remainingMillis(),
-                                        recoveryAction = VoiceRecoveryAction.SPEECH_SERVICE,
-                                        cause = failure
-                                    )
-                                }
+                                requestFinalWords()
                             }
                         }
                         event("recognition_ready")
@@ -916,6 +922,7 @@ class AndroidVoiceAudio internal constructor(
         }
         watchdog?.let(main::removeCallbacks)
         watchdog = null
+        requestRecognitionFinish = null
         focus?.let { runCatching { audioManager?.abandonAudioFocusRequest(it) } }
         focus = null
         pendingSpeech = null
@@ -948,6 +955,11 @@ class AndroidVoiceAudio internal constructor(
                 }
             }
         }
+    }
+
+    override fun finishListening() {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        if (!closed && recognitionActive) requestRecognitionFinish?.invoke()
     }
 
     /** Release an idle system service before changing backends or leaving the voice screen. */

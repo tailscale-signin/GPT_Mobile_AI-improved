@@ -4,11 +4,77 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubDispatchAccountingTest {
+    @Test fun issueContinuationDiagnosticsRequireTheCompleteTypedShapeAndCannotReplaceAccounting() = runTest {
+        for (state in GitHubInspection.InvalidIssueContinuation.State.entries) {
+            val failure = GitHubInspection.InvalidIssueContinuation(state)
+            val fields = buildJsonObject {
+                put("issue_continuation_rejected", true)
+                put("issue_continuation_state", state.name)
+                put("reason_code", "TOOL_ARGUMENT_CONSTRAINT_REJECTED")
+                put("missing_field_count", if (failure.missing) 1 else 0)
+                put("invalid_field_count", if (failure.missing) 0 else 1)
+                put(if (failure.missing) "missing_fields" else "invalid_fields", JsonArray(listOf(JsonPrimitive("after"))))
+                put("invalid_field_classes", JsonArray(listOf(JsonPrimitive(if (failure.missing) "MISSING_REQUIRED" else "COMPOSITE_CONSTRAINT"))))
+                put("validation_field_names", JsonArray(failure.fields.map(::JsonPrimitive)))
+            }
+            val candidate = AgentToolResult(
+                "issue-page",
+                ToolResultContent.Text("Rejected continuation"),
+                true,
+                errorCode = "INVALID_ARGUMENTS",
+                dispatched = false,
+                executionReceipt = JsonObject(
+                    fields + buildJsonObject {
+                        put("phase", "ACCEPTED")
+                        put("http_status", 200)
+                        put("read_requests", 99)
+                        put("accepted_mutations", 99)
+                        put("requires_reconciliation", true)
+                    }
+                )
+            )
+            val receipt = requireNotNull(GitHubDispatchAccounting(record = {}).finish(candidate, false).executionReceipt)
+            fields.forEach { (key, value) -> assertEquals(key, value, receipt[key]) }
+            assertEquals(JsonPrimitive("PREFLIGHT_REJECTED"), receipt["phase"])
+            assertEquals(JsonPrimitive(0), receipt["read_requests"])
+            assertEquals(JsonPrimitive(0), receipt["accepted_mutations"])
+            assertEquals(JsonPrimitive(false), receipt["requires_reconciliation"])
+            assertEquals(null, receipt["http_status"])
+            val malformed = listOf(
+                fields + ("issue_continuation_rejected" to JsonPrimitive("true")),
+                fields + ("issue_continuation_state" to JsonPrimitive("invented")),
+                fields + ("missing_field_count" to JsonPrimitive(if (failure.missing) "1" else "0")),
+                fields + ("validation_field_names" to JsonArray(listOf(JsonPrimitive("private-value")))),
+                fields + ((if (failure.missing) "invalid_fields" else "missing_fields") to JsonArray(listOf(JsonPrimitive("after"))))
+            )
+            for (invalid in malformed) {
+                val rejected = GitHubDispatchAccounting(record = {}).finish(candidate.copy(executionReceipt = JsonObject(invalid)), false)
+                assertEquals(null, rejected.executionReceipt?.get("issue_continuation_state"))
+                assertEquals(null, rejected.executionReceipt?.get("validation_field_names"))
+            }
+            for (mutation in listOf(false, true)) {
+                val dispatched = GitHubDispatchAccounting(record = {})
+                withContext(dispatched) {
+                    val id = GitHubDispatchAccounting.started(mutation)
+                    GitHubDispatchAccounting.responded(mutation, if (mutation) 201 else 200, id)
+                }
+                val observed = dispatched.finish(candidate, mutation)
+                assertEquals(true, observed.dispatched)
+                assertEquals(JsonPrimitive(if (mutation) "PARTIAL_ACCEPTED" else "READ_FAILED"), observed.executionReceipt?.get("phase"))
+                assertEquals(null, observed.executionReceipt?.get("issue_continuation_state"))
+            }
+        }
+    }
+
     @Test fun cooldownObservationsNeverReplaceEarlierAcceptedOrUnknownMutationAccounting() = runTest {
         val cooldown = GitHubCooldownActive(GitHubCooldownActive.Resource.CORE, GitHubCooldownActive.Basis.RESOURCE_RESET, 30_000, 1_800_000_030_000, 1_800_000_000_000, 0)
         for (accepted in listOf(false, true)) {

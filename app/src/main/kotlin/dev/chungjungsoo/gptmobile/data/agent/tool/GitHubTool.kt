@@ -1212,12 +1212,10 @@ class GitHubTool(
         if (owner.isEmpty() || repo.isEmpty()) {
             return errorResult(callId, "Parameters 'owner' and 'repo' are required.")
         }
-        val page = arguments["page"]?.jsonPrimitive?.intOrNull ?: 1
-        val perPage = arguments["per_page"]?.jsonPrimitive?.intOrNull ?: 20
-        require(page in 1..1000 && perPage in 1..100)
-        val state = arguments["state"]?.jsonPrimitive?.content ?: "all"
-        require(state in setOf("open", "closed", "all")) { "state must be open, closed or all." }
-        val response = getGitHubApi("$BASE_URL/repos/$owner/$repo/pulls?state=$state&per_page=$perPage&page=$page")
+        val parameters = dev.chungjungsoo.gptmobile.data.github.GitHubPullRequestQuery.parameters(arguments)
+        val page = parameters.getValue("page").jsonPrimitive.intOrNull!!
+        val perPage = parameters.getValue("per_page").jsonPrimitive.intOrNull!!
+        val response = getGitHubApi("$BASE_URL/repos/$owner/$repo/pulls?${dev.chungjungsoo.gptmobile.data.github.GitHubPullRequestQuery.encode(parameters)}")
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
             return classifyGitHubHttpFailure(callId, arguments["action"]?.jsonPrimitive?.content.orEmpty(), arguments, response, text)
@@ -1243,14 +1241,14 @@ class GitHubTool(
                 if (items.size == perPage && page < 1000) {
                     put(
                         "continuation",
-                        buildJsonObject {
-                            put("action", "list_pull_requests")
-                            put("owner", owner)
-                            put("repo", repo)
-                            put("state", state)
-                            put("page", page + 1)
-                            put("per_page", perPage)
-                        }
+                        JsonObject(
+                            parameters + buildJsonObject {
+                                put("action", "list_pull_requests")
+                                put("owner", owner)
+                                put("repo", repo)
+                                put("page", page + 1)
+                            }
+                        )
                     )
                 }
             }.toString()
@@ -2190,11 +2188,13 @@ class GitHubTool(
                 dispatched = false,
                 executionReceipt = buildJsonObject {
                     put("issue_continuation_rejected", true)
+                    put("issue_continuation_state", throwable.state.name)
                     put("reason_code", "TOOL_ARGUMENT_CONSTRAINT_REJECTED")
                     put("missing_field_count", if (throwable.missing) 1 else 0)
                     put("invalid_field_count", if (throwable.missing) 0 else 1)
+                    put(if (throwable.missing) "missing_fields" else "invalid_fields", JsonArray(listOf(JsonPrimitive("after"))))
                     put("invalid_field_classes", JsonArray(listOf(JsonPrimitive(if (throwable.missing) "MISSING_REQUIRED" else "COMPOSITE_CONSTRAINT"))))
-                    put("validation_field_names", JsonArray(listOf(JsonPrimitive("page"))))
+                    put("validation_field_names", JsonArray(throwable.fields.map(::JsonPrimitive)))
                 }
             )
         }

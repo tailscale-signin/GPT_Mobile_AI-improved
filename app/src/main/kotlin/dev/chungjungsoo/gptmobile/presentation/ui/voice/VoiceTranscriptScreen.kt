@@ -51,6 +51,8 @@ internal fun VoiceTranscriptScreen(
     model: ChatViewModel,
     profileName: String,
     status: String,
+    session: dev.chungjungsoo.gptmobile.data.voice.VoiceState,
+    captions: Boolean,
     controls: VoiceMessageControls,
     spokenReplies: Boolean,
     changeSpokenReplies: (Boolean) -> Unit,
@@ -60,7 +62,9 @@ internal fun VoiceTranscriptScreen(
     settings: () -> Unit,
     end: () -> Unit,
     destinations: VoiceChatDestinations,
-    bottomInteractionContent: (@Composable () -> Unit)?
+    bottomInteractionContent: (@Composable () -> Unit)?,
+    captionCursor: kotlinx.coroutines.flow.StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor>? = null,
+    doneSpeaking: () -> Unit = {}
 ) {
     VoiceTranscriptFrame(profileName, spokenReplies, changeSpokenReplies, showVoice, settings, end) {
         CompositionLocalProvider(LocalVoiceMessageControls provides controls) {
@@ -73,7 +77,10 @@ internal fun VoiceTranscriptScreen(
                 onProfileSettings = destinations.profileSettings,
                 onOpenConversation = destinations.conversation,
                 bottomInteractionContent = {
-                    VoiceTranscriptOutputControls(status, controls.phase, microphone, audioRoute)
+                    if (captions && session.phase in setOf(VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.SPEAKING)) {
+                        VoiceLiveCaptions(session, compact = true, modifier = Modifier.fillMaxWidth(), cursor = captionCursor)
+                    }
+                    VoiceTranscriptOutputControls(status, controls.phase, microphone, audioRoute, doneSpeaking)
                     bottomInteractionContent?.invoke()
                 }
             )
@@ -140,9 +147,10 @@ private fun VoiceTranscriptToolbar(
 }
 
 @Composable
-internal fun VoiceTranscriptOutputControls(status: String, phase: VoicePhase, microphone: () -> Unit, audioRoute: () -> Unit) {
+internal fun VoiceTranscriptOutputControls(status: String, phase: VoicePhase, microphone: () -> Unit, audioRoute: () -> Unit, doneSpeaking: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (phase == VoicePhase.LISTENING) TextButton(onClick = doneSpeaking, modifier = Modifier.testTag("voice_transcript_done_speaking")) { Text("Done") }
         FilledTonalButton(onClick = microphone, modifier = Modifier.testTag("voice_transcript_microphone")) {
             val playing = phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)
             Icon(if (playing) Icons.Rounded.Stop else Icons.Rounded.Mic, if (playing) "Stop reply" else "Microphone")

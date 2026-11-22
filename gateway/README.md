@@ -1,5 +1,10 @@
 # Local gateway 18.0.0
 
+Optional [CUDA voice synthesis](VOICE-CUDA.md) supports the Android voice screen
+through the existing Gateway connection. The published Windows package includes
+a setup helper and a private GPU worker; CUDA is enabled only after a measured
+warmup proves that the selected model executed GPU nodes.
+
 Gateway 17 preserves the existing state schema, installation identity, accepted job IDs, conversations and explicit execution budgets. It adds native Chat and Saved views, searchable message bookmarks, a graphical durable benchmark workspace, and paired request-scheduling comparisons. See [Gateway 17 desktop and benchmark contracts](V17_DESKTOP.md) for evidence scope and setup. `/gateway/v17` and `/v1/gateway/v17` advertise the current contract; v14/v15/v16 aliases remain available.
 
 For an existing v15 Windows installation, install the reviewed v16 package in the existing installation directory after accepted work reaches a safe stopping point. The already-installed v15 updater may filter out major 16; it cannot discover this change until its manager is upgraded. Keep the state directory. The managed trial backs it up, checks the new process and rolls back an unhealthy candidate; an unavailable model backend does not erase saved work. A source branch is not a published installer release.

@@ -120,7 +120,9 @@ class AgentRunner(
     private val onToolResultsRestored: (suspend (List<AgentToolExchange>) -> Unit)? = null,
     private val remainingTaskMillis: (suspend () -> Long?)? = null,
     private val replayDispatcher: CoroutineDispatcher = Dispatchers.Default,
-    private val diagnosticRunId: String? = null
+    private val diagnosticRunId: String? = null,
+    private val prepareToolSelection: (suspend () -> Unit)? = null,
+    private val verificationOnlyRequested: Boolean = false
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
     private val replayCompactionLogGate = ReplayCompactionLogGate()
@@ -156,10 +158,23 @@ class AgentRunner(
     }
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
-        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope()))
+        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope() + dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope()))
     }
 
     private fun runWithRepairScope(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): Flow<AgentRunEvent> = flow {
+        if (verificationOnlyRequested && session.handlesToolsInternally) {
+            // An opaque backend can execute before exposing a ToolCall event.
+            // Verification must use a session whose tool dispatch remains local.
+            emit(
+                AgentRunEvent.Provider(
+                    verificationOnlyFailure(
+                        "This session executes tools internally and cannot verify saved results without starting work. Saved evidence and unfinished operations remain retained.",
+                        false
+                    )
+                )
+            )
+            return@flow
+        }
         val acceptedAtEntry = remainingTaskMillis?.invoke()
         if (minOf(limits.runTimeoutMillis, acceptedAtEntry ?: Long.MAX_VALUE) <= 0L) {
             // An expired accepted task may deliver retained evidence, but must not
@@ -187,7 +202,7 @@ class AgentRunner(
             }
             return@flow
         }
-        if (tools.isNotEmpty() && !session.handlesToolsInternally && effectiveReplayTokens <= 0) {
+        if (!verificationOnlyRequested && tools.isNotEmpty() && !session.handlesToolsInternally && effectiveReplayTokens <= 0) {
             emit(
                 AgentRunEvent.Provider(
                     ProviderEvent.Failed(
@@ -206,7 +221,7 @@ class AgentRunner(
             return@flow
         }
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
-            emit(failed("Ambiguous tool aliases: resolve duplicate model-facing names before execution."))
+            emit(failed("AMBIGUOUS_TOOL_ALIAS", "Ambiguous tool aliases: resolve duplicate model-facing names before execution."))
             return@flow
         }
         val guardedSession = session.withGenerationSafety(GenerationSafety(limits.maxGeneratedCharacters, limits.detectRepetition))
@@ -215,7 +230,7 @@ class AgentRunner(
         var exposedDefinitions = tools.map { it.definition }
         val exchanges = mutableListOf<AgentToolExchange>()
         var rounds = 0
-        if (retryUndispatchedBudgetFailures) checkpoint?.prepareExplicitBudgetRetry()
+        if (!verificationOnlyRequested && retryUndispatchedBudgetFailures) checkpoint?.prepareExplicitBudgetRetry()
         val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
         // Reopening an undispatched refusal does not renew the accepted allowance.
         // Only a separate explicit grant may start a new bounded tranche.
@@ -244,7 +259,7 @@ class AgentRunner(
             } else if (limits.githubTask && exchanges.isNotEmpty()) {
                 finishFromRetained(guardedSession, ProviderEvent.Failed("Agent run timed out after $runTimeoutMillis ms. Completed receipts are retained; unfinished work can be resumed.", errorCode = "RUN_DEADLINE_REACHED"), true)
             } else {
-                emit(failed("Agent run timed out after $runTimeoutMillis ms."))
+                emit(failed("TIMEOUT", "Agent run timed out after $runTimeoutMillis ms."))
             }
         }
     }.withGitHubTerminalDelivery(limits.githubTask && limits.combined == null)
@@ -264,6 +279,11 @@ class AgentRunner(
         dynamicTools: () -> List<AgentTool>,
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>
     ) {
+        if (verificationOnlyRequested) {
+            verifyRetainedResults(session, toolByName, recovery, exchanges)
+            return
+        }
+        prepareToolSelection?.invoke()
         val initialSchemaTokens = selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
         val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
         val ciInvestigation = GitHubCiInvestigationRecovery(limits.githubTaskRequest)
@@ -281,6 +301,7 @@ class AgentRunner(
         with(state) {
             while (true) {
                 if (!prepareNextRound(session, exchanges, state, executionToolCallLimit)) return
+                prepareToolSelection?.invoke()
 
                 // collectRound catches only upstream provider failures. Cancellation and
                 // downstream collector errors must leave the run without retrying or emitting.
@@ -341,7 +362,7 @@ class AgentRunner(
                 observedToolCalls += round.observedCalls
                 if (round.batchRejected) {
                     if (limits.combined?.requested?.singlePass == true) {
-                        emit(failed(round.failure ?: "Tool batch rejected. Retry this profile explicitly; no calls from this batch were executed."))
+                        emit(failed("TOOL_BATCH_REJECTED", round.failure ?: "Tool batch rejected. Retry this profile explicitly; no calls from this batch were executed."))
                         return
                     }
                     val recovery = recoverRejectedBatch(session, round, exposedDefinitions, observedToolCalls, observedLimit, rounds, batchRepairAttempted, stormFinalizationAttempted, finalResponseRequested) ?: return
@@ -368,11 +389,35 @@ class AgentRunner(
                         emit(AgentRunEvent.Notice(TOOLS_UNAVAILABLE_MESSAGE, persistent = true))
                         continue
                     }
-                    emit(failed(round.failure ?: "Tools are unavailable for this model."))
+                    emit(failed("TOOL_UNAVAILABLE", round.failure ?: "Tools are unavailable for this model."))
                     return
                 }
                 if (round.failure != null) {
                     val admission = round.failureDetails
+                    if (capacityReplans < 2 &&
+                        !session.handlesToolsInternally &&
+                        !retainedUnknownOutcome &&
+                        unknownOutcomes.isEmpty() &&
+                        !round.textEmitted &&
+                        round.calls.isEmpty() &&
+                        exchanges.isNotEmpty() &&
+                        admission?.get("logical_continuation_allowed") != JsonPrimitive(false) &&
+                        round.errorCode in setOf("413", dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE) &&
+                        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope]?.consumeReplan(admission) == true
+                    ) {
+                        val target = dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.replayTarget(admission, replayTokens, admittedReplayLimit)
+                        if (target != null) {
+                            val fit = prepareReplay(exchanges, target, limits.maxReplayResultTokens, consumedCallIds)
+                            if (fit.compactedTokens <= target && fit.compactedTokens.toLong() < replayTokens) {
+                                admittedReplayLimit = target
+                                replayTokens = fit.compactedTokens.toLong()
+                                capacityReplans++
+                                rounds--
+                                emit(AgentRunEvent.Notice("The provider's request-size limit was reached. I have retained the findings and am reducing the tool-result replay before continuing.", persistent = false))
+                                continue
+                            }
+                        }
+                    }
                     if (capacityReplans < 2 &&
                         !session.handlesToolsInternally &&
                         !retainedUnknownOutcome &&
@@ -489,6 +534,84 @@ class AgentRunner(
         }
     }
 
+    /** Verification can read settled receipts, but cannot advance the saved execution journal. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.verifyRetainedResults(
+        session: AgentProviderSession,
+        toolByName: Map<String, AgentTool>,
+        recovery: ToolBatchRecoverySnapshot?,
+        exchanges: MutableList<AgentToolExchange>
+    ) {
+        val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
+        val state = LoopState(emptyMap(), emptyList(), 0, recovery?.dispatchedCount ?: 0, false, false, recovery, retainedUnknownOutcome, diagnosticRunId)
+        if (!restoreCompletedExchanges(recovery, toolByName, exchanges, state)) return
+        if (recovery?.unsettledCalls.orEmpty().isNotEmpty()) {
+            emit(
+                AgentRunEvent.Provider(
+                    verificationOnlyFailure(
+                        "A saved operation has an unresolved outcome. Reconcile it before verifying completion; no operation was dispatched again.",
+                        true
+                    )
+                )
+            )
+            return
+        }
+        // A queued batch, saved-result continuation, CI investigation, or provider
+        // tool request is execution work. None may precede the verifier's guard.
+        val round = collectRound(
+            session,
+            emptyList(),
+            exchanges,
+            0,
+            false,
+            emptySet(),
+            state.consumedCallIds,
+            retainedUnknownOutcome || state.unknownOutcomes.isNotEmpty()
+        )
+        if (round.failure != null) {
+            emit(
+                AgentRunEvent.Provider(
+                    ProviderEvent.Failed(
+                        round.failure,
+                        errorCode = round.errorCode,
+                        progressDeadline = round.progressDeadline,
+                        transportComplete = round.failureTransportComplete,
+                        providerLimit = round.providerLimit,
+                        taskOutcome = round.taskOutcome,
+                        failureDetails = round.failureDetails,
+                        invocationId = round.invocationId
+                    )
+                )
+            )
+        } else if (round.completed && round.textEmitted) {
+            // Completion belongs to verification only. Pending operations and
+            // their original call grouping remain available for reconciliation.
+            emit(AgentRunEvent.Provider(ProviderEvent.Completed))
+        } else {
+            emit(
+                AgentRunEvent.Provider(
+                    verificationOnlyFailure(
+                        "Verification returned no final answer. Saved evidence and unfinished operations remain retained; no tool work was started.",
+                        retainedUnknownOutcome || state.unknownOutcomes.isNotEmpty()
+                    )
+                )
+            )
+        }
+    }
+
+    private fun verificationOnlyFailure(message: String, hasUnknownOutcome: Boolean): ProviderEvent.Failed = ProviderEvent.Failed(
+        message,
+        errorCode = "GITHUB_TASK_INCOMPLETE",
+        taskOutcome = "BLOCKED",
+        failureDetails = buildJsonObject {
+            put("failed_stage", "verification")
+            put("dispatched", false)
+            put("resume_allowed", false)
+            put("request_replay_allowed", false)
+            put("logical_continuation_allowed", false)
+            if (hasUnknownOutcome) put("requires_reconciliation", true)
+        }
+    )
+
     private fun resumeGitHubInvestigation(
         progress: GitHubInvestigationProgress,
         ci: GitHubCiInvestigationRecovery,
@@ -573,7 +696,7 @@ class AgentRunner(
             val retained = completed + listOfNotNull(pendingCompleted)
             // Keep partial receipts in their original assistant call group.
             restoredCompleted = pendingCompleted?.results.orEmpty().associateBy { it.callId }
-            if (limits.githubTask) {
+            if (limits.githubTask || verificationOnlyRequested) {
                 if (retained.isEmpty()) return true
                 // Restore current authorization/evidence once, before provider work.
                 // Completion callbacks persist new work and must not replay here.
@@ -769,7 +892,7 @@ class AgentRunner(
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishFromRetained(session: AgentProviderSession, failure: ProviderEvent.Failed, hasResults: Boolean) {
         if (limits.githubTask && hasResults) {
             session.retainedFailureResponse(failure).collect { event ->
-                if (event is ProviderEvent.Completed) checkpoint?.finish()
+                if (event is ProviderEvent.Completed && !verificationOnlyRequested) checkpoint?.finish()
                 emit(AgentRunEvent.Provider(event))
             }
         } else {
@@ -785,11 +908,12 @@ class AgentRunner(
         }
     }
 
-    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.deliverTerminalFailure(session: AgentProviderSession, failure: ProviderEvent.Failed, noPendingCalls: Boolean) {
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.deliverTerminalFailure(session: AgentProviderSession, failure: ProviderEvent.Failed, noPendingCalls: Boolean, applicationReportEmitted: Boolean) {
         val reviewOrigin = failure.errorCode?.startsWith("GITHUB_REVIEW_") == true ||
             failure.failureDetails?.get("review_stage") in setOf(JsonPrimitive("answer_review"), JsonPrimitive("review_compatibility"))
-        if (limits.githubTask && noPendingCalls && reviewOrigin) {
-            // A final review refusal still publishes its saved explanation once.
+        if (limits.githubTask && noPendingCalls && reviewOrigin && !applicationReportEmitted) {
+            // A final review refusal publishes its saved explanation only when
+            // this round has not already delivered an application report.
             // This callback cannot dispatch a model request or replay an operation.
             session.retainedFailureResponse(failure).collect { event ->
                 if (event is ProviderEvent.Completed) checkpoint?.finish()
@@ -830,7 +954,7 @@ class AgentRunner(
         if (GatewayOutcomeRecovery.requiresReconciliation(roundFailure, round.errorCode)) {
             // Even a tool-free repair can reach a gateway with server tools enabled.
             // Leave the terminal delivery boundary to report the retained failure without another model request.
-            deliverTerminalFailure(session, ProviderEvent.Failed(roundFailure, round.progressDeadline, GatewayOutcomeRecovery.ERROR_CODE, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails, round.invocationId), round.calls.isEmpty())
+            deliverTerminalFailure(session, ProviderEvent.Failed(roundFailure, round.progressDeadline, GatewayOutcomeRecovery.ERROR_CODE, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails, round.invocationId), round.calls.isEmpty(), round.applicationReportEmitted)
             return null
         }
         if (round.errorCode in ToolFailureMetadata.authorityInvalidationCodes || round.taskOutcome == "CONFIGURATION_INVALIDATED") {
@@ -878,8 +1002,9 @@ class AgentRunner(
         var finalize = false
         if (round.failureDetails?.get("logical_continuation_allowed") == JsonPrimitive(false)) {
             // Saved-report publication does not start another model round. Keep
-            // its receipt and acceptance delivery even when continuation is forbidden.
-            if (limits.githubTask && round.calls.isEmpty()) {
+            // its receipt and acceptance delivery even when continuation is forbidden,
+            // without publishing an application report already delivered by this round.
+            if (limits.githubTask && round.calls.isEmpty() && !round.applicationReportEmitted) {
                 session.retainedFailureResponse(typedFailure).collect { event ->
                     if (event is ProviderEvent.Completed) checkpoint?.finish()
                     emit(AgentRunEvent.Provider(event))
@@ -890,7 +1015,7 @@ class AgentRunner(
             return null
         }
         if (round.providerLimit != null || round.taskOutcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "WAITING_FOR_APPROVAL") || round.errorCode == "WAITING_FOR_APPROVAL" || round.taskOutcome == "PARTIAL" && !recoverableConnection) {
-            deliverTerminalFailure(session, typedFailure, round.calls.isEmpty())
+            deliverTerminalFailure(session, typedFailure, round.calls.isEmpty(), round.applicationReportEmitted)
             return null
         }
         val protocolFailure = round.errorCode?.startsWith("TOOL_PROTOCOL_") == true ||
@@ -922,6 +1047,7 @@ class AgentRunner(
                 state.protocolRecoveryAttempted -> "TOOL_RETRY_EXHAUSTED"
                 session.handlesToolsInternally -> "BACKEND_HANDLED_TOOLS"
                 limits.combined?.requested?.singlePass == true -> "SINGLE_PASS_NOT_RETRYABLE"
+                round.textEmitted && !limits.githubTask -> "TEXT_ALREADY_EMITTED"
                 else -> "NO_SAFE_REPAIR"
             }
             val observedDetails = JsonObject(
@@ -1352,7 +1478,7 @@ class AgentRunner(
         }
         emit(AgentRunEvent.Notice("An oversized or invalid tool batch was stopped before dispatch. Retry with at most ${limits.maxToolCallsPerRound} calls per batch; completed evidence remains available.", persistent = true))
         if (stormFinalizationAttempted || session.handlesToolsInternally || !limits.allowToolStormFinalization) {
-            emit(failed("TOOL_BATCH_OVERSIZE: partial answer and completed evidence retained. The provider did not honor tool-free finalization."))
+            emit(failed("TOOL_BATCH_OVERSIZE", "TOOL_BATCH_OVERSIZE: partial answer and completed evidence retained. The provider did not honor tool-free finalization."))
             return null
         }
         return BatchRejectionRecovery(emptyList(), false)
@@ -1404,7 +1530,7 @@ class AgentRunner(
     ): ToolCatalogUpdate? {
         val additions = discovered.filter { it.definition.name !in toolByName && it.definition.name !in executableToolByName && (consecutiveToolFailures[it.definition.name] ?: 0) < 2 && (toolCallsByName[it.definition.name] ?: 0) < (if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN) }
         if (additions.groupBy { it.definition.name }.any { it.value.size > 1 }) {
-            emit(failed("Ambiguous discovered tool aliases; no discovered action dispatched."))
+            emit(failed("AMBIGUOUS_TOOL_ALIAS", "Ambiguous discovered tool aliases; no discovered action dispatched."))
             return null
         }
         val selectedSchemas = selectedForRound((exposedDefinitions + additions.map { it.definition }).distinctBy { it.name }, selectDefinitions)
@@ -1651,7 +1777,8 @@ class AgentRunner(
         val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null,
         val taskOutcome: String? = null,
         val failureDetails: JsonObject? = null,
-        val invocationId: String? = null
+        val invocationId: String? = null,
+        val applicationReportEmitted: Boolean = false
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -1699,6 +1826,7 @@ class AgentRunner(
         var failureInvocationId: String? = null
         var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         var textEmitted = false
+        var applicationReportEmitted = false
         var providerPayloadObserved = false
         val answerCandidate = StringBuilder()
         var toolDefinitionsRejected = false
@@ -1881,7 +2009,15 @@ class AgentRunner(
                 }
             }
         }.transformWhile { event ->
-            if (event is ProviderEvent.Failed && GatewayOutcomeRecovery.requiresReconciliation(event.message, event.errorCode)) {
+            if (verificationOnlyRequested && (event is ProviderEvent.ToolCall || event is ProviderEvent.ToolResult)) {
+                emit(
+                    verificationOnlyFailure(
+                        "Verification requested tool work. The request was blocked; saved receipts and unfinished operations remain unchanged.",
+                        hasUnknownOutcome
+                    )
+                )
+                false
+            } else if (event is ProviderEvent.Failed && GatewayOutcomeRecovery.requiresReconciliation(event.message, event.errorCode)) {
                 emit(event)
                 false
             } else if (event is ProviderEvent.ToolCall && !admission.admit(event)) {
@@ -1976,6 +2112,9 @@ class AgentRunner(
                         answerCandidate.append(event.text)
                         textEmitted = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(answerCandidate.toString())
                     }
+                    if (event is ProviderEvent.TextDelta && event.text.isNotBlank() && event.lineage.origin == dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT) {
+                        applicationReportEmitted = true
+                    }
                     emit(AgentRunEvent.Provider(event))
                 }
             }
@@ -1983,11 +2122,11 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
-        if (completed && failure == null && deliveredCallIds.any { it !in consumedCallIds }) {
+        if (!verificationOnlyRequested && completed && failure == null && deliveredCallIds.any { it !in consumedCallIds }) {
             checkpoint?.markConsumed(deliveredCallIds)
             consumedCallIds += deliveredCallIds
         }
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId, applicationReportEmitted)
     }
 
     private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {
@@ -2324,7 +2463,7 @@ class AgentRunner(
         return result.toString()
     }
 
-    private fun failed(message: String) = AgentRunEvent.Provider(ProviderEvent.Failed(message))
+    private fun failed(code: String, message: String) = AgentRunEvent.Provider(ProviderEvent.Failed(message, errorCode = code))
 
     companion object {
         private const val MAX_SAME_TOOL_CALLS_PER_RUN = 24

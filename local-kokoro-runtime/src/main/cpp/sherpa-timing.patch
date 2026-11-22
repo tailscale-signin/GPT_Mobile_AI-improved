@@ -1,14 +1,17 @@
 diff --git a/sherpa-onnx/csrc/macros.h b/sherpa-onnx/csrc/macros.h
-index d68c4c1..8488709 100644
+index 86ba683..df5a339 100644
 --- a/sherpa-onnx/csrc/macros.h
 +++ b/sherpa-onnx/csrc/macros.h
-@@ -9,4 +9,5 @@
+@@ -8,6 +8,7 @@
+ #include <stdlib.h>
 
  #include <utility>
 +#include <stdexcept>
  #if __OHOS__
  #include "hilog/log.h"
-@@ -52,10 +53,6 @@
+
+@@ -51,12 +52,8 @@
+   } while (0)
  #endif
 
 -#define SHERPA_ONNX_EXIT(code) \
@@ -21,80 +24,170 @@ index d68c4c1..8488709 100644
 +#define SHERPA_ONNX_EXIT(code) throw std::runtime_error("Invalid Kokoro runtime configuration")
 
  // Read an integer
+ #define SHERPA_ONNX_READ_META_DATA(dst, src_key)                           \
 diff --git a/sherpa-onnx/csrc/offline-tts-kokoro-model.cc b/sherpa-onnx/csrc/offline-tts-kokoro-model.cc
-index 68d67ec..1f49a01 100644
+index 507d128..660936b 100644
 --- a/sherpa-onnx/csrc/offline-tts-kokoro-model.cc
 +++ b/sherpa-onnx/csrc/offline-tts-kokoro-model.cc
-@@ -23,9 +23,16 @@
+@@ -22,20 +22,21 @@
+ #include "sherpa-onnx/csrc/file-utils.h"
  #include "sherpa-onnx/csrc/macros.h"
  #include "sherpa-onnx/csrc/onnx-utils.h"
 -#include "sherpa-onnx/csrc/session.h"
  #include "sherpa-onnx/csrc/text-utils.h"
++#include "kokoro_execution_provider.h"
 
  namespace sherpa_onnx {
 
-+// The Android voice pack uses the CPU execution provider.
-+static Ort::SessionOptions CpuOptions(int threads) {
-+  Ort::SessionOptions options;
-+  options.SetIntraOpNumThreads(threads);
-+  options.SetInterOpNumThreads(threads);
-+  return options;
-+}
-+
  class OfflineTtsKokoroModel::Impl {
   public:
-@@ -33,5 +40,5 @@ class OfflineTtsKokoroModel::Impl {
+-  explicit Impl(const OfflineTtsModelConfig &config)
++  explicit Impl(const OfflineTtsModelConfig &config, const std::string &library_dir, const std::string &profile_prefix, int64_t token_count)
        : config_(config),
-         env_(ORT_LOGGING_LEVEL_ERROR),
+-        env_(ORT_LOGGING_LEVEL_ERROR),
 -        sess_opts_(GetSessionOptions(config)),
-+        sess_opts_(CpuOptions(config.num_threads)),
++        env_(kokoro_runtime::Environment()),
++        sess_opts_(kokoro_runtime::Options(*env_, config.num_threads, config.provider, library_dir, profile_prefix, token_count)),
          allocator_{} {
      sess_ = std::make_unique<Ort::Session>(
-@@ -45,5 +52,5 @@ class OfflineTtsKokoroModel::Impl {
+-        env_, SHERPA_ONNX_TO_ORT_PATH(config.kokoro.model), sess_opts_);
++        *env_, SHERPA_ONNX_TO_ORT_PATH(config.kokoro.model), sess_opts_);
++    profiling_ = config.provider != "cpu";
+     auto voices_buf = ReadFile(config.kokoro.voices);
+     Init(nullptr, 0, voices_buf.data(), voices_buf.size());
+   }
+@@ -43,8 +44,8 @@ class OfflineTtsKokoroModel::Impl {
+   template <typename Manager>
+   Impl(Manager *mgr, const OfflineTtsModelConfig &config)
        : config_(config),
-         env_(ORT_LOGGING_LEVEL_ERROR),
+-        env_(ORT_LOGGING_LEVEL_ERROR),
 -        sess_opts_(GetSessionOptions(config)),
-+        sess_opts_(CpuOptions(config.num_threads)),
++        env_(kokoro_runtime::Environment()),
++        sess_opts_(kokoro_runtime::Options(*env_, config.num_threads, "cpu", "", "", 0)),
          allocator_{} {
      auto model_buf = ReadFile(mgr, config.kokoro.model);
-@@ -57,5 +64,5 @@ class OfflineTtsKokoroModel::Impl {
+     auto voices_buf = ReadFile(mgr, config.kokoro.voices);
+@@ -52,11 +53,19 @@ class OfflineTtsKokoroModel::Impl {
+          voices_buf.size());
+   }
+
++  ~Impl() {
++    if (profiling_ && sess_) {
++      try { kokoro_runtime::FinishQualification(*sess_); } catch (...) {}
++    }
++  }
++
++  int ExecutedAcceleratorNodes() const { return executed_nodes_; }
++
+   const OfflineTtsKokoroModelMetaData &GetMetaData() const {
+     return meta_data_;
    }
 
 -  Ort::Value Run(Ort::Value x, int32_t sid, float speed) {
-+  std::vector<Ort::Value> Run(Ort::Value x, int32_t sid, float speed) {
++  std::vector<Ort::Value> Run(Ort::Value x, int32_t sid, float speed, const Ort::RunOptions &options) {
      auto memory_info =
          Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
-@@ -100,5 +107,5 @@ class OfflineTtsKokoroModel::Impl {
+
+@@ -96,17 +105,21 @@ class OfflineTtsKokoroModel::Impl {
+         std::move(x), std::move(style_embedding), std::move(speed_tensor)};
+
+     auto out =
+-        sess_->Run({}, input_names_ptr_.data(), inputs.data(), inputs.size(),
++        sess_->Run(options, input_names_ptr_.data(), inputs.data(), inputs.size(),
                     output_names_ptr_.data(), output_names_ptr_.size());
 
 -    return std::move(out[0]);
++    if (profiling_) {
++      profiling_ = false;
++      executed_nodes_ = kokoro_runtime::FinishQualification(*sess_);
++    }
 +    return out;
    }
 
-@@ -251,5 +258,5 @@ const OfflineTtsKokoroModelMetaData &OfflineTtsKokoroModel::GetMetaData()
+  private:
+   void Init(void *model_data, size_t model_data_length, const char *voices_data,
+             size_t voices_data_length) {
+     if (model_data) {
+-      sess_ = std::make_unique<Ort::Session>(env_, model_data, model_data_length,
++      sess_ = std::make_unique<Ort::Session>(*env_, model_data, model_data_length,
+                                              sess_opts_);
+     } else if (!sess_) {
+       SHERPA_ONNX_LOGE(
+@@ -215,7 +228,9 @@ class OfflineTtsKokoroModel::Impl {
+
+  private:
+   OfflineTtsModelConfig config_;
+-  Ort::Env env_;
++  std::shared_ptr<Ort::Env> env_;
++  bool profiling_ = false;
++  int executed_nodes_ = 0;
+   Ort::SessionOptions sess_opts_;
+   Ort::AllocatorWithDefaultOptions allocator_;
+
+@@ -235,8 +250,8 @@ class OfflineTtsKokoroModel::Impl {
+ };
+
+ OfflineTtsKokoroModel::OfflineTtsKokoroModel(
+-    const OfflineTtsModelConfig &config)
+-    : impl_(std::make_unique<Impl>(config)) {}
++    const OfflineTtsModelConfig &config, const std::string &library_dir, const std::string &profile_prefix, int64_t token_count)
++    : impl_(std::make_unique<Impl>(config, library_dir, profile_prefix, token_count)) {}
+
+ template <typename Manager>
+ OfflineTtsKokoroModel::OfflineTtsKokoroModel(
+@@ -245,14 +260,18 @@ OfflineTtsKokoroModel::OfflineTtsKokoroModel(
+
+ OfflineTtsKokoroModel::~OfflineTtsKokoroModel() = default;
+
++int OfflineTtsKokoroModel::ExecutedAcceleratorNodes() const {
++  return impl_->ExecutedAcceleratorNodes();
++}
++
+ const OfflineTtsKokoroModelMetaData &OfflineTtsKokoroModel::GetMetaData()
+     const {
+   return impl_->GetMetaData();
  }
 
 -Ort::Value OfflineTtsKokoroModel::Run(Ort::Value x, int64_t sid /*= 0*/,
+-                                      float speed /*= 1.0*/) const {
+-  return impl_->Run(std::move(x), sid, speed);
 +std::vector<Ort::Value> OfflineTtsKokoroModel::Run(Ort::Value x, int64_t sid /*= 0*/,
-                                       float speed /*= 1.0*/) const {
-   return impl_->Run(std::move(x), sid, speed);
++                                      float speed, const Ort::RunOptions &options) const {
++  return impl_->Run(std::move(x), sid, speed, options);
+ }
+
+ #if __ANDROID_API__ >= 9
 diff --git a/sherpa-onnx/csrc/offline-tts-kokoro-model.h b/sherpa-onnx/csrc/offline-tts-kokoro-model.h
-index 5fa880c..2a7bbd6 100644
+index cb321ad..72a0a6c 100644
 --- a/sherpa-onnx/csrc/offline-tts-kokoro-model.h
 +++ b/sherpa-onnx/csrc/offline-tts-kokoro-model.h
-@@ -8,4 +8,5 @@
+@@ -7,6 +7,7 @@
+
  #include <memory>
  #include <string>
 +#include <vector>
 
  #include "onnxruntime_cxx_api.h"  // NOLINT
-@@ -24,7 +25,6 @@ class OfflineTtsKokoroModel {
+ #include "sherpa-onnx/csrc/offline-tts-kokoro-model-meta-data.h"
+@@ -18,16 +19,17 @@ class OfflineTtsKokoroModel {
+  public:
+   ~OfflineTtsKokoroModel();
+
+-  explicit OfflineTtsKokoroModel(const OfflineTtsModelConfig &config);
++  explicit OfflineTtsKokoroModel(const OfflineTtsModelConfig &config,
++      const std::string &library_dir = "", const std::string &profile_prefix = "", int64_t token_count = 0);
+
+   template <typename Manager>
    OfflineTtsKokoroModel(Manager *mgr, const OfflineTtsModelConfig &config);
 
 -  // Return a float32 tensor containing the samples
 -  // of shape (batch_size, num_samples)
 -  Ort::Value Run(Ort::Value x, int64_t sid = 0, float speed = 1.0) const;
 +  // Waveform and predicted token durations from the same session run.
-+  std::vector<Ort::Value> Run(Ort::Value x, int64_t sid = 0, float speed = 1.0) const;
++  std::vector<Ort::Value> Run(Ort::Value x, int64_t sid, float speed, const Ort::RunOptions &options) const;
 
    const OfflineTtsKokoroModelMetaData &GetMetaData() const;
++  int ExecutedAcceleratorNodes() const;
+
+  private:
+   class Impl;

@@ -129,7 +129,14 @@ internal class IssueReportGitHubSubmission(
 
         internal fun render(report: IssueReport, approvedPayload: String): JsonObject {
             val digest = MessageDigest.getInstance("SHA-256").digest(approvedPayload.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
-            val title = (report.title?.takeIf(String::isNotBlank) ?: "[Debug] ${report.feature} · ${report.errorCode}")
+            val observations = report.context?.diagnostics?.values.orEmpty()
+            val detail = listOf(
+                "gateway_capability_failure_kind", "read_handle_kind", "acceptance_mismatch",
+                "review_comparison_state", "pending_tool_receipt_state", "tool_budget_kind",
+                "tool_protocol_recovery_outcome", "catalog_selector_state", "tool_reason_code", "incident_phase"
+            ).firstNotNullOfOrNull { key -> (observations[key] as? JsonPrimitive)?.contentOrNull }
+            val debugTitle = listOfNotNull("[Debug] ${report.feature}", report.errorCode, detail).joinToString(" · ")
+            val title = (report.title?.takeIf(String::isNotBlank) ?: debugTitle)
                 .replace(Regex("\\s+"), " ").replace('@', '＠').take(160)
             // Indented JSON makes all user text, HTML, mentions and forged markers inert.
             // Its exact bytes are the approved report; the marker is added outside it.

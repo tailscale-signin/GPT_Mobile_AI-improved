@@ -79,17 +79,19 @@ class TaskRecoveryActionTest {
 
     @Test fun serializedRecoveryRequiresAnIndependentToolAllowanceGrantAndWritingNeverRenews() {
         val messages = listOf(user(1, "Inspect the repository with at most two tool calls"))
+        val executionActions = setOf(TaskRecoveryAction.CONTINUE_RUN, TaskRecoveryAction.RETRY_FAILED_STAGE, TaskRecoveryAction.CONTINUE_PRIMARY_ONLY)
         for (action in TaskRecoveryAction.entries) {
             val ordinary = TaskResumeDescriptor("1:1", 1, "manual-${action.name}", action, allowUndispatchedBudgetRetry = true)
             val ordinaryJson = kotlinx.serialization.json.Json.encodeToString(TaskResumeDescriptor.serializer(), ordinary)
-            assertFalse(ordinaryJson.contains("allowNewToolBudget"))
+            assertFalse("$action must omit the ungranted tool allowance", ordinaryJson.contains("allowNewToolBudget"))
             val restoredOrdinary = kotlinx.serialization.json.Json.decodeFromString(TaskResumeDescriptor.serializer(), ordinaryJson)
-            assertFalse(resolveTaskRecovery(messages, restoredOrdinary)!!.renewsToolBudget)
+            assertFalse("$action must not renew tools without an independent grant", resolveTaskRecovery(messages, restoredOrdinary)!!.renewsToolBudget)
 
             val grantJson = kotlinx.serialization.json.Json.encodeToString(TaskResumeDescriptor.serializer(), ordinary.copy(allowNewToolBudget = true))
             val restoredGrant = kotlinx.serialization.json.Json.decodeFromString(TaskResumeDescriptor.serializer(), grantJson)
-            assertEquals(action != TaskRecoveryAction.RETRY_WRITING, resolveTaskRecovery(messages, restoredGrant)!!.renewsToolBudget)
-            assertEquals(action == TaskRecoveryAction.RETRY_FAILED_STAGE, resolveTaskRecovery(messages, restoredGrant)!!.retryUndispatchedBudgetFailures)
+            val grantedRecovery = requireNotNull(resolveTaskRecovery(messages, restoredGrant))
+            assertEquals("$action: only execution actions may use a serialized tool allowance grant", action in executionActions, grantedRecovery.renewsToolBudget)
+            assertEquals("$action: only failed-stage retry may reopen undispatched budget failures", action == TaskRecoveryAction.RETRY_FAILED_STAGE, grantedRecovery.retryUndispatchedBudgetFailures)
         }
     }
 

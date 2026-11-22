@@ -41,7 +41,12 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
                     .putString("kokoro_voice", value.kokoroVoice?.name).putBoolean("spoken_replies", value.spokenReplies)
                     .putInt("kokoro_threads", value.kokoroThreads).putBoolean("button_sounds", value.buttonSounds)
                     .putString("pause_duration", value.pause.name).putString("performance_mode", value.performance.name)
-                    .putBoolean("speak_while_generating", value.speakWhileGenerating).commit()
+                    .putBoolean("speak_while_generating", value.speakWhileGenerating)
+                    .putString("listening_style", value.tuning.listeningStyle.name)
+                    .putInt("capture_batch_ms", value.tuning.captureBatchMs)
+                    .putBoolean("hands_free_interruption", value.tuning.handsFreeInterruption)
+                    .putString("pronunciation_overrides", org.json.JSONObject(value.tuning.pronunciation).toString())
+                    .putInt("caption_offset_ms", value.tuning.captionOffsetMs).commit()
             )
             error.value = null
         } catch (cancelled: CancellationException) {
@@ -89,6 +94,7 @@ internal fun readVoicePreferences(saved: Map<String, *>): VoicePreferences {
         buttonSounds = saved["button_sounds"] as? Boolean ?: defaults.buttonSounds,
         pause = VoicePauseDuration.entries.firstOrNull { it.name == saved["pause_duration"] } ?: defaults.pause,
         performance = VoicePerformanceMode.entries.firstOrNull { it.name == saved["performance_mode"] } ?: defaults.performance,
-        speakWhileGenerating = saved["speak_while_generating"] as? Boolean ?: defaults.speakWhileGenerating
+        speakWhileGenerating = saved["speak_while_generating"] as? Boolean ?: defaults.speakWhileGenerating,
+        tuning = readVoiceTuningPreferences(saved)
     )
 }

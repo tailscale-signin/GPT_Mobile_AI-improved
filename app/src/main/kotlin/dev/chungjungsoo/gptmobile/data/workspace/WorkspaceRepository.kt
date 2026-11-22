@@ -184,6 +184,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
     ): Boolean {
         if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return false
         if (appendOnly && dao.get(id) != null) {
+            if (engineeringMemory) return protectedSynthesisCheckpoint(id) == payload
             check(protectedSynthesisCheckpoint(id) == payload) { "Existing evidence is immutable" }
             return true
         }
@@ -228,6 +229,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                         return@withTransaction false
                     }
                 }
+                if (appendOnly && existing != null && engineeringMemory) return@withTransaction false
                 check(!appendOnly || existing == null) { "Evidence was already appended; refresh before retrying" }
                 dao.save(
                     WorkspaceRecord(

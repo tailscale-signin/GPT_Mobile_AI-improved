@@ -42,6 +42,15 @@ internal fun ReadinessDiagnosticsCard(runId: String?, running: Boolean) {
         phases.forEach { (phase, samples) ->
             Text("${phase?.name?.replace('_', ' ') ?: "Preparation"}: ${samples.sumOf { it.elapsedMillis ?: 0 }} ms · ${samples.count { it.successful == false }} unsuccessful", style = MaterialTheme.typography.bodySmall)
         }
+        events.firstOrNull { it.kind == RunDiagnosticKind.FIRST_PROGRESS && it.outputOrigin == dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.PROGRESS_NOTICE }?.elapsedMillis?.let {
+            Text("First progress published: $it ms from run execution start · draw unmeasured", style = MaterialTheme.typography.bodySmall)
+        }
+        dev.chungjungsoo.gptmobile.data.diagnostics.linkedInvocationToFirstTextMillis(events)?.let {
+            Text("First model text received: $it ms from its invocation start", style = MaterialTheme.typography.bodySmall)
+        }
+        dev.chungjungsoo.gptmobile.data.diagnostics.linkedInvocationToDrawMillis(events)?.let {
+            Text("First model text drawn: $it ms from its matched invocation start", style = MaterialTheme.typography.bodySmall)
+        }
         val visible = events.firstOrNull { it.kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT }
         val drawDelay = dev.chungjungsoo.gptmobile.data.diagnostics.linkedParsedToDrawMillis(events)
         if (drawDelay != null) {
@@ -57,6 +66,13 @@ internal fun ReadinessDiagnosticsCard(runId: String?, running: Boolean) {
             }
             Text("$origin drawn. Provider-to-draw latency is unmeasured without matching model invocation evidence.", style = MaterialTheme.typography.bodySmall)
         }
+        val reportDrawDelay = dev.chungjungsoo.gptmobile.data.diagnostics.linkedFinalReportToDrawMillis(events)
+        if (reportDrawDelay != null) {
+            Text("Final app report committed to linked draw: $reportDrawDelay ms · same owned report bytes", style = MaterialTheme.typography.bodySmall)
+        } else if (events.any { it.outputOrigin == dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT }) {
+            Text("Final app report draw timing is unmeasured without matching committed bytes and terminal ownership.", style = MaterialTheme.typography.bodySmall)
+        }
+        Text("Frame duration and sampled process heap peaks are reported separately in captured frame windows; overlapping runs share process measurements.", style = MaterialTheme.typography.bodySmall)
         Text("${events.count { it.kind == RunDiagnosticKind.HTTP_CALL_START }} observed HTTP attempts · ${events.count { it.kind == RunDiagnosticKind.REQUEST_BODY_END }} body writes completed · ${events.count { it.kind == RunDiagnosticKind.RESPONSE_HEADERS }} response headers", style = MaterialTheme.typography.bodySmall)
         events.lastOrNull { it.kind == RunDiagnosticKind.PROVIDER_COOLDOWN }?.let { Text("Provider cooldown observed: ${it.elapsedMillis ?: 0} ms", style = MaterialTheme.typography.bodySmall) }
     }

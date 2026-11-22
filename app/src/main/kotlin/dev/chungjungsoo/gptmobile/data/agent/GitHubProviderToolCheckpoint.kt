@@ -34,7 +34,8 @@ internal object GitHubProviderToolCheckpoint {
         val context = saved["context"] as? JsonObject
         val digest = (saved["provider_evidence_digest"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
         if (context == null || context["task_binding"] != JsonPrimitive(expected.binding) || digest == null || !digest.matches(Regex("[a-f0-9]{64}"))) {
-            throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(saved), ProviderRecoveryFailure.correlation(expected, null, null, null))
+            val reason = if (context?.get("task_binding") != JsonPrimitive(expected.binding)) "TASK_BINDING_CHANGED" else "EVIDENCE_DIGEST_INVALID"
+            throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(saved), ProviderRecoveryFailure.checkpointCorrelation(expected, saved, reason))
         }
         val legacy = if (persistent && context["tool_checkpoint_binding"] == null) {
             ToolBatchCheckpoint.legacyProviderBinding(directory, chatId, scope, expected, saved)
@@ -47,10 +48,13 @@ internal object GitHubProviderToolCheckpoint {
     fun binding(scope: String, authorityRevision: String, expected: GitHubProviderCheckpoint?, checkpoint: JsonObject?): String {
         val current = "$scope:$authorityRevision"
         if (expected == null) return current
-        if (checkpoint == null || !expected.matches(checkpoint)) throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", correlation = ProviderRecoveryFailure.correlation(expected, null, null, null))
+        if (checkpoint == null || !expected.matches(checkpoint)) throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", correlation = ProviderRecoveryFailure.checkpointCorrelation(expected, checkpoint))
         val context = checkpoint["context"] as? JsonObject
         val retained = (context?.get("tool_checkpoint_binding") as? JsonPrimitive)?.contentOrNull ?: return current
-        if (!(context["task_binding"] == JsonPrimitive(expected.binding) && retained.startsWith("$scope:") && retained.length <= 4096)) throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(checkpoint), ProviderRecoveryFailure.correlation(expected, null, null, null))
+        if (!(context["task_binding"] == JsonPrimitive(expected.binding) && retained.startsWith("$scope:") && retained.length <= 4096)) {
+            val reason = if (context["task_binding"] != JsonPrimitive(expected.binding)) "TASK_BINDING_CHANGED" else "TOOL_BINDING_CHANGED"
+            throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(checkpoint), ProviderRecoveryFailure.checkpointCorrelation(expected, checkpoint, reason))
+        }
         return retained
     }
 }

@@ -16,6 +16,12 @@ class StructuredDiagnosticExportTest {
         assertEquals("UNVERIFIED", record.getValue("causalAttribution").jsonPrimitive.content)
     }
 
+    @Test fun moonshineNativeReturnCodeIsExportedAsANumber() {
+        val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-11-21T12:00:00Z E/Android: E/MoonshineJni(123): Transcription error: -4")).jsonObject
+        assertEquals("-4", record.getValue("nativeReturnCode").jsonPrimitive.content)
+        assertFalse(record.getValue("nativeReturnCode").jsonPrimitive.isString)
+    }
+
     @Test fun observedFailureIsNeverPresentedAsAVerifiedRootCause() {
         val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-11-02T12:00:00Z E/Tool: Tool failed · errorCode=SAVED_VIEW_UNAVAILABLE")).jsonObject
         assertEquals("OBSERVED_FAILURE", record.getValue("classification").jsonPrimitive.content)

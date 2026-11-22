@@ -7,7 +7,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AndroidProcessExitEvidenceTest {
@@ -18,7 +17,7 @@ class AndroidProcessExitEvidenceTest {
         assertEquals(JsonPrimitive(false), exit["countAsIssue"])
         val exception = classifyDiagnostic("E", "Android", "E/System (42): Uncaught exception thrown by finalizer")
         assertEquals("platform_finalizer_exception", exception.category)
-        assertTrue(exception.actionable)
+        assertFalse(exception.actionable)
         assertFalse(exception.category == "fatal")
     }
 

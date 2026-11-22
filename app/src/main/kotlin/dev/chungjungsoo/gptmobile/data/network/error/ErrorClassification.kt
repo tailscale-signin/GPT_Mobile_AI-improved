@@ -80,6 +80,8 @@ object ErrorClassification {
         val gatewayAdmission = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException>().firstOrNull()
         val githubProfileSelection = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.context.GitHubProfileSelectionRejected>().firstOrNull()
         val githubCooldown = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive>().firstOrNull()
+        val typedRecovery = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure>().firstOrNull()
+        val requestBytes = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.network.RequestByteLimitException>().firstOrNull()
         val recoveryCheckpointCode = causes.filterIsInstance<IllegalStateException>().mapNotNull { it.message }
             .firstOrNull { it in setOf("PROVIDER_WAIT_CHECKPOINT_CHANGED", "RESEARCH_RECOVERY_ACTION_CHANGED") }
 
@@ -133,9 +135,11 @@ object ErrorClassification {
             "gateway_outcome_unknown" in msg -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "The gateway may already have performed actions. Reconcile the saved job and remote results before resuming; do not repeat this request.", throwable, errorCode = "GATEWAY_OUTCOME_UNKNOWN")
             dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes.any { msg.contains(it.lowercase(java.util.Locale.ROOT)) } -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "A dispatched operation has an unknown outcome. Reconcile the exact saved result before another write; do not repeat the request.", throwable, errorCode = "RECONCILIATION_REQUIRED")
             gatewayAdmission != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.HIGH, false, 0, requireNotNull(gatewayAdmission.message), throwable, errorCode = "GATEWAY_${gatewayAdmission.reason.name}")
+            typedRecovery != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.HIGH, false, 0, typedRecovery.event().message, throwable, errorCode = typedRecovery.code)
             recoveryCheckpointCode != null -> ClassifiedError(ErrorCategory.POLICY_STALE, ErrorSeverity.HIGH, false, 0, "$recoveryCheckpointCode: The saved recovery checkpoint changed. Reconcile the retained results and current task settings before resuming. Automatic retry has stopped; completed actions remain recorded.", throwable, errorCode = "POLICY_STALE")
             githubProfileSelection != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.MEDIUM, false, 0, requireNotNull(githubProfileSelection.message), throwable, errorCode = githubProfileSelection.errorCode)
             githubCooldown != null -> ClassifiedError(ErrorCategory.RATE_LIMIT_EXCEEDED, ErrorSeverity.MEDIUM, false, githubCooldown.delayMillis, requireNotNull(githubCooldown.message), throwable, errorCode = githubCooldown.errorCode)
+            requestBytes != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.MEDIUM, false, 0, requireNotNull(requestBytes.message), throwable, errorCode = dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE)
             contract != null -> when (contract.code) {
                 "OUTPUT_CAPACITY_EXCEEDED" -> ClassifiedError(
                     ErrorCategory.INVALID_OUTPUT_CAP,

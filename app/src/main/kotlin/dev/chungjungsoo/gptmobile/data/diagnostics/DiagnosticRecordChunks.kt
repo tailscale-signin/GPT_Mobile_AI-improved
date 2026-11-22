@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import java.io.OutputStream
+import java.io.OutputStreamWriter
+import java.security.DigestOutputStream
 import java.security.MessageDigest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -46,7 +49,18 @@ internal object DiagnosticRecordChunks {
         return next
     }
 
-    internal fun sha256(value: String): String = hex(MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)))
+    internal fun sha256(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        // JSON can exceed the remaining heap reserve. Hash through the encoder's
+        // bounded buffer instead of allocating a second complete UTF-8 payload.
+        OutputStreamWriter(DigestOutputStream(discard, digest), Charsets.UTF_8).use { it.write(value) }
+        return hex(digest.digest())
+    }
+
+    private val discard = object : OutputStream() {
+        override fun write(value: Int) = Unit
+        override fun write(value: ByteArray, offset: Int, length: Int) = Unit
+    }
 
     /** Avoid allocating a Formatter and temporary strings for every byte of every record hash. */
     internal fun hex(bytes: ByteArray): String {

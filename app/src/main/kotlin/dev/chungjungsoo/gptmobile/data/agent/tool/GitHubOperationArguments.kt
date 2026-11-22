@@ -326,16 +326,18 @@ internal object GitHubOperationArguments {
                 }
             }
             "github_pr" -> {
-                if (text("action") in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions) required("pull_number", "expected_head_sha")
+                val action = (dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(operation, args)["action"] as? JsonPrimitive)?.content.orEmpty().ifBlank { "context" }
+                if (action in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions) required("pull_number", "expected_head_sha")
                 positive("pull_number")
                 positive("comment_id")
+                if (action != "list") unused("sort", "direction")
                 val copilotFields = arrayOf("request_id", "task_id", "gateway_job_id", "prompt", "base_ref", "head_ref", "model", "custom_agent", "create_pull_request")
-                if (text("action") !in dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.actions) {
+                if (action !in dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.actions) {
                     unused(*copilotFields)
                 } else {
                     unused("pull_number", "title", "body", "head", "base", "state", "draft", "comment_id", "event", "comments", "allowed_actions", "reviewers", "team_reviewers", "labels", "assignees", "reaction", "lock_reason", "merge_method", "thread_id", "after", "review_id", "reaction_id", "label", "expected_comment_updated_at", "include_patches", "include_files", "include_checks", "include_health", "check_page")
                 }
-                when (text("action").ifBlank { "context" }) {
+                when (action) {
                     "copilot_create_task" -> {
                         required("request_id", "prompt", "base_ref", "expected_base_sha")
                         unused("task_id", "gateway_job_id", "page", "per_page")
@@ -369,10 +371,10 @@ internal object GitHubOperationArguments {
                     "agent_merge_enable", "agent_merge_update", "agent_merge_disable" -> {
                         required("pull_number", "expected_head_sha")
                         unused("title", "body", "head", "base", "state", "draft", "comment_id", "event", "comments")
-                        if (text("action") == "agent_merge_disable") {
+                        if (action == "agent_merge_disable") {
                             unused("allowed_actions")
                         } else {
-                            if (text("action") == "agent_merge_update" && "allowed_actions" !in args) {
+                            if (action == "agent_merge_update" && "allowed_actions" !in args) {
                                 errors += "agent_merge_update requires explicit allowed_actions"
                             }
                             if ("allowed_actions" in args) {
@@ -396,13 +398,17 @@ internal object GitHubOperationArguments {
                     }
                     "comment", "reply" -> {
                         required("pull_number", "expected_head_sha", "body")
-                        if (text("action") == "reply") required("comment_id") else unused("comment_id")
+                        if (action == "reply") required("comment_id") else unused("comment_id")
                         unused("title", "head", "base", "state", "draft", "event", "comments")
                     }
                     "review" -> required("pull_number", "expected_head_sha")
-                    "context", "headers", "comments", "reviews", "list" -> unused("title", "body", "head", "base", "draft", "comment_id", "event", "comments")
+                    "list" -> {
+                        unused("pull_number", "title", "body", "draft", "comment_id", "event", "comments")
+                        runCatching { dev.chungjungsoo.gptmobile.data.github.GitHubPullRequestQuery.parameters(args) }.exceptionOrNull()?.message?.let(errors::add)
+                    }
+                    "context", "headers", "comments", "reviews" -> unused("title", "body", "head", "base", "draft", "comment_id", "event", "comments")
                 }
-                if (text("action") == "review") {
+                if (action == "review") {
                     val inline = (args["comments"] as? JsonArray).orEmpty()
                     if (inline.isEmpty() && text("event") != "APPROVE" && text("body").isBlank()) {
                         errors += "a COMMENT or REQUEST_CHANGES review needs body text or inline comments; APPROVE may omit body"

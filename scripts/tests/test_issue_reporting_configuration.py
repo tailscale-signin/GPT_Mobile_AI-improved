@@ -1,12 +1,36 @@
 import json
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
+from unittest.mock import patch
 
-from scripts.check_issue_reporting_configuration import MAX_READINESS_BYTES, REQUIRED_DIAGNOSTIC_FEATURES, check_readiness, validate
+from scripts.check_issue_reporting_configuration import MAX_READINESS_BYTES, REQUIRED_DIAGNOSTIC_FEATURES, check_readiness, main, validate
 
 
 class IssueReportingConfigurationTest(unittest.TestCase):
     def test_native_route_supports_builds_without_an_invented_service(self):
         self.assertEqual({"nativeGitHub": True, "reportingService": False}, validate("", "true"))
+
+    def test_native_only_probe_does_not_require_a_hosted_service(self):
+        output = StringIO()
+        with patch("sys.argv", ["check_issue_reporting_configuration.py", "--origin", "", "--github-enabled", "true", "--probe-service"]), \
+                patch("scripts.check_issue_reporting_configuration.check_readiness") as probe, redirect_stdout(output):
+            main()
+        probe.assert_not_called()
+        self.assertEqual({"nativeGitHub": True, "reportingService": False}, json.loads(output.getvalue()))
+
+    def test_hosted_recovery_reports_require_conversation_recovery_capability(self):
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {"CONVERSATION_RECOVERY_DIAGNOSTICS_V1"})}
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+
+    def test_hosted_extended_readiness_accepts_conversation_recovery_and_future_features(self):
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES | {"CONVERSATION_RECOVERY_DIAGNOSTICS_V1", "FUTURE_OPTIONAL_DIAGNOSTICS_V1"})}
+        check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
 
     def test_disabling_both_routes_fails(self):
         with self.assertRaises(ValueError):

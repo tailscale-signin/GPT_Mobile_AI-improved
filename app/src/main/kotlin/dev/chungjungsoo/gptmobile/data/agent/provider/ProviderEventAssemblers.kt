@@ -261,7 +261,7 @@ class AnthropicEventAssembler {
 
 object GeminiEventMapper {
     fun accept(response: GenerateContentResponse): List<ProviderEvent> {
-        response.error?.let { return listOf(ProviderEvent.Failed(it.message)) }
+        response.error?.let { return listOf(ProviderEvent.Failed(it.message, errorCode = it.code?.toString(), failureDetails = it.failureDetails)) }
         val events = mutableListOf<ProviderEvent>()
         response.usageMetadata?.let { usage ->
             val output = if (usage.candidateTokens != null || usage.thoughtTokens != null) (usage.candidateTokens ?: 0) + (usage.thoughtTokens ?: 0) else null

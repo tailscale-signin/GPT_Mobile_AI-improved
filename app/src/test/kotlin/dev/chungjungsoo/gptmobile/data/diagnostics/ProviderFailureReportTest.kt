@@ -30,6 +30,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderFailureReportTest {
+    @Test fun internalVerificationFaultKeepsItsCodeDomainAndPhaseThroughProviderReporting() {
+        val failure = dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.partial(
+            ClassCastException("private payload"),
+            dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.Phase.ACCEPTANCE_RENDERING,
+            emptyMap(),
+            null
+        ).failure
+        val receipt = ProviderFailureReceipt.from(profile, "github-delivery", failure)
+        assertEquals("GITHUB_VERIFICATION_INTERNAL_ERROR", receipt.errorCode)
+        assertEquals(FailureDomain.APPLICATION_VERIFICATION, receipt.failureDomain)
+        assertEquals(ProviderFailureStage.CLAIM_VERIFICATION, receipt.stage)
+        val fields = ProviderFailureReport.fields("run", failure, receipt)
+        val capture = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L).diagnostics)
+        assertEquals(JsonPrimitive("GITHUB_VERIFICATION_INTERNAL_ERROR"), capture.values["provider_failure_code"])
+        assertEquals(JsonPrimitive("APPLICATION_VERIFICATION"), capture.values["provider_failure_domain"])
+        assertEquals(JsonPrimitive("ACCEPTANCE_RENDERING"), capture.values["verification_phase"])
+        assertFalse(capture.toString().contains("private payload"))
+    }
+
     @Test
     fun toolProtocolFrameReportOnlyRetainsAClosedParserReason() {
         val failure = dev.chungjungsoo.gptmobile.data.agent.provider.toolCall("call", "weather", "{")

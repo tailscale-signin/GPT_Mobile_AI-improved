@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect conversations, staged captures or structured app logs without a model runtime.
+"""Inspect conversations, staged captures, multipart bundles or structured app logs without a model runtime.
 
 This replays retained committed segments only. Missing provider deltas or reducer
 events are reported as unavailable, never synthesized from the saved answer.
@@ -13,11 +13,16 @@ import hashlib
 import json
 import re
 from pathlib import Path
+import tempfile
 import zipfile
 
 MAX_BYTES = 64 * 1024 * 1024
 FILES = {"manifest.json", "conversation.json", "events.jsonl", "context-manifests.json", "provenance.json"}
 STAGED_SCHEMA = "gptmobile.staged-diagnostics.v1"
+BUNDLE_SCHEMA = "gptmobile.diagnostic-bundle.v1"
+BUNDLE_INSPECTION_SCHEMA = "gptmobile.offline-bundle-inspection.v1"
+MAX_BUNDLE_BYTES = 256 * 1024 * 1024
+MAX_MANIFEST_BYTES = 256 * 1024
 LOG_INSPECTION_SCHEMA = "gptmobile.offline-log-inspection.v1"
 MAX_LOG_LINE_BYTES = 256 * 1024
 MAX_LOG_ROWS = 100_000
@@ -283,7 +288,7 @@ def load_diagnostic_log(path: Path) -> dict:
     }
 
 
-def load_staged_snapshot(archive: zipfile.ZipFile, manifest: dict) -> dict:
+def load_staged_snapshot(archive: zipfile.ZipFile, manifest: dict, maximum_bytes: int = MAX_BYTES) -> dict:
     """Validate staged captures without retaining their potentially large record bodies."""
     stages = manifest.get("stages")
     if not isinstance(stages, list) or not 1 <= len(stages) <= 32:
@@ -319,7 +324,7 @@ def load_staged_snapshot(archive: zipfile.ZipFile, manifest: dict) -> dict:
         with archive.open(name) as stream:
             while block := stream.read(8192):
                 byte_count += len(block)
-                if byte_count > counts[0] or byte_count > MAX_BYTES:
+                if byte_count > counts[0] or byte_count > maximum_bytes:
                     raise ValueError("Diagnostic stage exceeds declared byte limit")
                 sha.update(block)
                 decoder.decode(block)
@@ -359,34 +364,193 @@ def load_staged_snapshot(archive: zipfile.ZipFile, manifest: dict) -> dict:
     return manifest
 
 
+def _read_manifest(archive: zipfile.ZipFile) -> dict:
+    if archive.getinfo("manifest.json").file_size > MAX_MANIFEST_BYTES:
+        raise ValueError("Diagnostic manifest exceeds the inspection limit")
+    with archive.open("manifest.json") as stream:
+        data = stream.read(MAX_MANIFEST_BYTES + 1)
+    if len(data) > MAX_MANIFEST_BYTES:
+        raise ValueError("Diagnostic manifest exceeds the inspection limit")
+    manifest = json.loads(data)
+    if not isinstance(manifest, dict):
+        raise ValueError("Invalid diagnostic manifest")
+    return manifest
+
+
+def load_diagnostic_bundle(archive: zipfile.ZipFile, manifest: dict) -> dict:
+    """Stream immutable parts to one temporary file at a time; never unpack archive paths.
+
+    The outer inventory and every inner stage are verified independently. Dependency
+    closure is recomputed, and missing parts never turn into recovered source records.
+    """
+    session = manifest.get("sessionId")
+    if not isinstance(session, str) or re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", session) is None:
+        raise ValueError("Invalid diagnostic bundle session")
+    pattern = re.compile(r"(?:partial-)?diagnostics-" + re.escape(session) + r"-part-([1-9][0-9]{0,17})-[0-9a-f-]{36}\.zip")
+    descriptors = manifest.get("parts")
+    declared_missing = manifest.get("missingParts")
+    if (not isinstance(descriptors, list) or not 1 <= len(descriptors) <= 64
+            or not isinstance(declared_missing, list) or len(declared_missing) > 128
+            or any(not isinstance(row, dict) for row in declared_missing)
+            or type(manifest.get("dependencyListTruncated")) is not bool):
+        raise ValueError("Invalid diagnostic bundle dependency inventory")
+    for field in ("captureCompleted", "dependencyClosureComplete", "shareComplete"):
+        if type(manifest.get(field)) is not bool:
+            raise ValueError("Invalid diagnostic bundle completeness flag")
+    if manifest.get("capturedFully") is not False:
+        raise ValueError("Diagnostic bundle cannot claim complete source history")
+    closure_declared = not declared_missing and not manifest["dependencyListTruncated"]
+    if (manifest["dependencyClosureComplete"] is not closure_declared
+            or manifest["shareComplete"] is not (closure_declared and manifest["captureCompleted"])):
+        raise ValueError("Diagnostic bundle completeness claims disagree with dependencies")
+    inventory = {}
+    for row in descriptors:
+        if not isinstance(row, dict):
+            raise ValueError("Invalid diagnostic bundle part")
+        name, number, size, sha = (row.get(key) for key in ("fileName", "archivePart", "bytes", "sha256"))
+        match = pattern.fullmatch(name) if isinstance(name, str) else None
+        if (match is None or name in inventory or type(number) is not int or number != int(match[1])
+                or type(size) is not int or size <= 0 or not isinstance(sha, str)
+                or re.fullmatch(r"[a-f0-9]{64}", sha) is None):
+            raise ValueError("Invalid or duplicate diagnostic bundle part")
+        inventory[name] = dict(fileName=name, archivePart=number, bytes=size, sha256=sha)
+    if (set(archive.namelist()) != set(inventory) | {"manifest.json"}
+            or sum(row["bytes"] for row in inventory.values()) > MAX_BUNDLE_BYTES):
+        raise ValueError("Diagnostic bundle inventory or total byte limit mismatch")
+    latest_name = manifest.get("latestArchive")
+    if not isinstance(latest_name, str) or latest_name not in inventory:
+        raise ValueError("Latest diagnostic archive is missing; inspect the bundle manifest and obtain the named part")
+
+    remaining = MAX_BUNDLE_BYTES
+    verified = {}
+    links = []
+    unresolved = []
+
+    def dependency(reference, parent, stage=None):
+        if not isinstance(reference, dict):
+            unresolved.append(dict(reason="INVALID_ARCHIVE_REFERENCE"))
+            return
+        name, number, sha = (reference.get(key) for key in ("fileName", "archivePart", "sha256"))
+        if (not isinstance(name, str) or pattern.fullmatch(name) is None
+                or type(number) is not int or not 0 < number < parent
+                or stage is None and number != parent - 1
+                or not isinstance(sha, str) or re.fullmatch(r"[a-f0-9]{64}", sha) is None):
+            unresolved.append(dict(reason="INVALID_ARCHIVE_REFERENCE"))
+            return
+        target = dict(fileName=name, archivePart=number, sha256=sha)
+        if stage is not None:
+            target["stage"] = {key: stage.get(key) for key in ("stage", "fileName", "sha256", "bytes", "records")}
+        links.append(target)
+
+    for name, descriptor in inventory.items():
+        if archive.getinfo(name).file_size != descriptor["bytes"]:
+            raise ValueError("Diagnostic bundle part byte count mismatch")
+        # A disk-backed scratch file lets ZipFile seek without retaining a complete
+        # compressed part in memory, and never trusts an archive-supplied path.
+        with tempfile.TemporaryFile() as temporary:
+            sha = hashlib.sha256()
+            count = 0
+            with archive.open(name) as source:
+                while block := source.read(8192):
+                    count += len(block)
+                    if count > descriptor["bytes"]:
+                        raise ValueError("Diagnostic bundle part exceeds its declared byte count")
+                    sha.update(block)
+                    temporary.write(block)
+            if count != descriptor["bytes"] or sha.hexdigest() != descriptor["sha256"]:
+                raise ValueError("Diagnostic bundle part digest or byte count mismatch")
+            temporary.seek(0)
+            with zipfile.ZipFile(temporary) as part:
+                entries = part.infolist()
+                names = [entry.filename for entry in entries]
+                expanded = sum(entry.file_size for entry in entries)
+                if (not 2 <= len(entries) <= 33 or len(names) != len(set(names))
+                        or "manifest.json" not in names or expanded > remaining):
+                    raise ValueError("Diagnostic part inventory or cumulative expanded byte limit exceeded")
+                captured = _read_manifest(part)
+                if (captured.get("schema") != STAGED_SCHEMA or captured.get("sessionId") != session
+                        or type(captured.get("archivePart")) is not int or captured["archivePart"] != descriptor["archivePart"]
+                        or not isinstance(captured.get("sourceIdentityHash"), str)
+                        or re.fullmatch(r"[a-f0-9]{64}", captured["sourceIdentityHash"]) is None):
+                    raise ValueError("Diagnostic part schema or source ownership mismatch")
+                load_staged_snapshot(part, captured, remaining)
+                remaining -= expanded
+                previous = captured.get("previousArchive")
+                if previous is not None or captured["archivePart"] > 1:
+                    dependency(previous, captured["archivePart"])
+                for stage in captured["stages"]:
+                    for field in ("continuedFrom", "sourceReference"):
+                        reference = stage.get(field)
+                        if reference is not None:
+                            if not isinstance(reference, dict):
+                                raise ValueError("Invalid diagnostic stage dependency")
+                            dependency(reference.get("archive"), captured["archivePart"], reference)
+                # Retain bounded metadata only, not record bodies or arbitrary manifest fields.
+                verified[name] = dict(
+                    **descriptor, sourceIdentityHash=captured["sourceIdentityHash"],
+                    captureCompleted=captured["captureCompleted"], retryRecommended=captured["retryRecommended"],
+                    usefulRecords=captured["usefulRecords"], criticalEvidenceAvailable=captured["criticalEvidenceAvailable"],
+                    stages={stage["id"]: {key: stage.get(key) for key in ("fileName", "sha256", "bytes", "records", "status", "evidenceRecords")}
+                            for stage in captured["stages"]},
+                )
+    latest = verified[latest_name]
+    if (any(part["sourceIdentityHash"] != latest["sourceIdentityHash"] for part in verified.values())
+            or latest["captureCompleted"] is not manifest["captureCompleted"]):
+        raise ValueError("Diagnostic bundle source identity or latest completion mismatch")
+    for link in links:
+        part = verified.get(link["fileName"])
+        if part is None or any(part[key] != link[key] for key in ("archivePart", "sha256")):
+            unresolved.append(dict(fileName=link["fileName"], reason="ARCHIVE_UNAVAILABLE_OR_MISMATCHED"))
+        elif "stage" in link:
+            reference = link["stage"]
+            identity = reference.get("stage")
+            stage = part["stages"].get(identity) if isinstance(identity, str) else None
+            if stage is None or any(stage[key] != reference[key] for key in ("fileName", "sha256", "bytes", "records")):
+                unresolved.append(dict(fileName=link["fileName"], reason="STAGE_REFERENCE_MISMATCH"))
+    if closure_declared and unresolved:
+        raise ValueError("Diagnostic bundle claims complete dependencies, but referenced parts or stages are unresolved")
+    return {
+        "schema": BUNDLE_INSPECTION_SCHEMA,
+        "result": "retained-bundle-parts-verified" if closure_declared and not latest["retryRecommended"] else "partial",
+        "sessionId": session, "latestArchive": latest_name,
+        "captureCompleted": latest["captureCompleted"], "capturedFully": False,
+        "dependencyClosureComplete": closure_declared,
+        "verifiedPartCount": len(verified), "expandedBytes": MAX_BUNDLE_BYTES - remaining,
+        "parts": list(verified.values()), "missingParts": declared_missing,
+        "unresolvedDependencies": unresolved, "dependencyListTruncated": manifest["dependencyListTruncated"],
+        "providerDeltaReplay": "unavailable", "reducerReplay": "unavailable", "taskCompletion": "not-verified",
+        "recoveryAction": "NONE" if closure_declared else "Obtain the missing or unverified archive parts named in manifest.json; available records do not recover their referenced history.",
+        "scope": "Verified immutable ZIP parts and retained stage bytes, record counts, hashes and dependency links. Parts are not combined into replayed history; task success and complete source coverage are not established.",
+    }
+
+
 def digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def load_snapshot(path: Path) -> dict:
-    if path.stat().st_size > MAX_BYTES:
-        raise ValueError("Export exceeds the inspection memory limit")
+    file_bytes = path.stat().st_size
+    if file_bytes > MAX_BUNDLE_BYTES + MAX_MANIFEST_BYTES + 64 * 1024:
+        raise ValueError("Export exceeds the diagnostic bundle inspection limit; inspect its original archive parts separately")
     if path.suffix.lower() == ".jsonl":
+        if file_bytes > MAX_BYTES:
+            raise ValueError("Export exceeds the inspection memory limit")
         return load_diagnostic_log(path)
     if not zipfile.is_zipfile(path):
+        if file_bytes > MAX_BYTES:
+            raise ValueError("Export exceeds the inspection memory limit")
         root = json.loads(path.read_text(encoding="utf-8"))
     else:
         with zipfile.ZipFile(path) as archive:
             infos = archive.infolist()
             names = [entry.filename for entry in infos]
-            if len(names) != len(set(names)) or "manifest.json" not in names:
+            if len(names) > 65 or len(names) != len(set(names)) or "manifest.json" not in names:
                 raise ValueError("Missing manifest or duplicate bundle entry")
-            if sum(entry.file_size for entry in infos) > MAX_BYTES:
+            manifest = _read_manifest(archive)
+            if manifest.get("schema") == BUNDLE_SCHEMA:
+                return load_diagnostic_bundle(archive, manifest)
+            if file_bytes > MAX_BYTES or sum(entry.file_size for entry in infos) > MAX_BYTES:
                 raise ValueError("Expanded bundle exceeds the inspection memory limit")
-            if archive.getinfo("manifest.json").file_size > 256 * 1024:
-                raise ValueError("Diagnostic manifest exceeds the inspection limit")
-            with archive.open("manifest.json") as stream:
-                manifest_bytes = stream.read(256 * 1024 + 1)
-            if len(manifest_bytes) > 256 * 1024:
-                raise ValueError("Diagnostic manifest exceeds the inspection limit")
-            manifest = json.loads(manifest_bytes)
-            if not isinstance(manifest, dict):
-                raise ValueError("Invalid diagnostic manifest")
             if manifest.get("schema") == STAGED_SCHEMA:
                 return load_staged_snapshot(archive, manifest)
             if set(names) != FILES or len(names) != len(FILES):
@@ -422,7 +586,7 @@ def load_snapshot(path: Path) -> dict:
 
 
 def inspect_snapshot(root: dict) -> dict:
-    if root.get("schema") == LOG_INSPECTION_SCHEMA:
+    if root.get("schema") in {LOG_INSPECTION_SCHEMA, BUNDLE_INSPECTION_SCHEMA}:
         return root
     if root.get("schema") == STAGED_SCHEMA:
         return {

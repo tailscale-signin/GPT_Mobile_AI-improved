@@ -3,8 +3,10 @@ on:
   pull_request:
     paths:
       - 'gateway/desktop/development_profiles.py'
+      - 'gateway/tests/test_gateway_workspace_profiles.py'
       - 'gateway/v14/workspace_environment.py'
       - 'gateway/tests/prepared_environment_smoke.py'
+      - 'local-kokoro-runtime/src/main/cpp/CMakeLists.txt'
       - '.github/workflows/development-environments.yml'
   push:
     branches: [main]
@@ -12,8 +14,10 @@ on:
       - 'app/build.gradle.kts'
       - 'release-scope.json'
       - 'gateway/desktop/development_profiles.py'
+      - 'gateway/tests/test_gateway_workspace_profiles.py'
       - 'gateway/v14/workspace_environment.py'
       - 'gateway/tests/prepared_environment_smoke.py'
+      - 'local-kokoro-runtime/src/main/cpp/CMakeLists.txt'
       - '.github/workflows/development-environments.yml'
       # Recovery-only commits must independently pass the offline environments.
       - '.github/workflows/recover-verified-android144-gateway18.yml'
@@ -40,7 +44,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - id: recipe
         env:
-          RECIPE_DIGEST: ${{ hashFiles('.github/workflows/development-environments.yml', 'gateway/desktop/development_profiles.py', 'gateway/desktop/repository_validation.py', 'gateway/v14/engineering_validation.py', 'gateway/v14/workspace_environment.py', 'gateway/tests/prepared_environment_smoke.py', 'gateway/requirements.txt') }}
+          RECIPE_DIGEST: ${{ hashFiles('.github/workflows/development-environments.yml', 'gateway/desktop/development_profiles.py', 'gateway/desktop/repository_validation.py', 'gateway/v14/engineering_validation.py', 'gateway/v14/workspace_environment.py', 'gateway/tests/prepared_environment_smoke.py', 'gateway/tests/test_gateway_workspace_profiles.py', 'local-kokoro-runtime/src/main/cpp/CMakeLists.txt', 'gateway/requirements.txt') }}
         run: |
           [[ "$RECIPE_DIGEST" =~ ^[a-f0-9]{64}$ ]]
           echo "digest=$RECIPE_DIGEST" >> "$GITHUB_OUTPUT"

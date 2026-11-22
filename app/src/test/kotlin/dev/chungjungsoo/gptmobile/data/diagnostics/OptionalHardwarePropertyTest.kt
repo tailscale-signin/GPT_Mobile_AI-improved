@@ -12,6 +12,6 @@ class OptionalHardwarePropertyTest {
         assertFalse(classification.actionable)
         assertTrue(classifyDiagnostic("W", "Android", "W/libc (15901): Access denied finding property \"unknown.property\"").actionable)
         assertTrue(classifyDiagnostic("E", "LocalModel", "Model load failed").actionable)
-        assertTrue(classifyDiagnostic("E", "Android", "E/System (15901): Uncaught exception thrown by finalizer").actionable)
+        assertFalse(classifyDiagnostic("E", "Android", "E/System (15901): Uncaught exception thrown by finalizer").actionable)
     }
 }

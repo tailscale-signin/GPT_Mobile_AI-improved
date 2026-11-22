@@ -326,7 +326,8 @@ internal object IssueReportIncidents {
             // A prerequisite question is already delivered in the task. It is not a provider incident.
             return
         }
-        val localRecovery = IssueReportContext.localRecoveryCode(fields) != null
+        val localRecoveryCode = IssueReportContext.localRecoveryCode(fields)
+        val localRecovery = localRecoveryCode != null
         val rejection = when (val category = fields["provider_rejection_category"]) {
             is String -> category
             is kotlinx.serialization.json.JsonPrimitive -> category.takeIf { it.isString }?.content
@@ -336,6 +337,7 @@ internal object IssueReportIncidents {
             code == "BILLING_UNAVAILABLE" || rejection == "BILLING_UNAVAILABLE" && input.httpStatus in setOf(400, 402) -> "SOURCE_PAYMENT_REQUIRED"
             code == "OUTPUT_CONTINUATION_PENDING_TOOLS" && input.stage == "tool_reconciliation" && input.dispatched == false -> "RECONCILIATION_REQUIRED"
             code == "RATE_LIMIT" && input.provider != null -> "PROVIDER_RATE_LIMITED"
+            code == "413" && input.httpStatus == 413 && input.provider != null -> "PROVIDER_PAYLOAD_ERROR"
             code == "TOOL_PROTOCOL_INVALID_FRAME" -> "TOOL_PROTOCOL_INVALID_FRAME"
             code == "GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET" -> "GITHUB_TOOL_CONTEXT_BUDGET"
             code in dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.codes -> code
@@ -381,6 +383,7 @@ internal object IssueReportIncidents {
                     "NOT_FOUND", "UNAVAILABLE" -> "SOURCE_UNAVAILABLE"
                     else -> "SOURCE_HTTP_ERROR"
                 }
+                413 -> "PROVIDER_PAYLOAD_ERROR"
                 400, 422 -> if (rejection in setOf("INVALID_REQUEST", "PAYLOAD_SIZE")) "PROVIDER_PAYLOAD_ERROR" else "SOURCE_HTTP_ERROR"
                 else -> null
             }
@@ -399,7 +402,7 @@ internal object IssueReportIncidents {
         // A rejected provider attempt may lack a resumable checkpoint. Retain its
         // observed cause without treating the report as authorization to retry.
         val publicCode = if (localRecovery) {
-            "CHAT_FAILED"
+            requireNotNull(localRecoveryCode)
         } else {
             specificCode ?: when {
                 observedPermissionDenial -> "SOURCE_ACCESS_BLOCKED"

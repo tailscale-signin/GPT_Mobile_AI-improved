@@ -14,12 +14,117 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatProgressTest {
+    @Test fun matchingCorrectedRequestRetiresItsOldBlockerWithoutClaimingTaskCompletion() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Fix issues on the selected branch") { clock }
+        progress.tick()
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_failed", toolName = "github_pr", toolCallId = "bad-list", toolArgs = json("""{"action":"list","head":"fix/branch"}"""))))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_pr", toolCallId = "corrected-list", toolArgs = json("""{"action":"list"}"""))))
+        clock = 45_000
+        val text = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
+        assertTrue(text.contains("available again"))
+        assertFalse(text.contains("needs attention") || text.contains(" failed"))
+        assertTrue(text.contains("still needs verification"))
+        assertEquals(1, progress.summarySnapshot().failed)
+        assertEquals(1, progress.summarySnapshot().completed)
+    }
+
+    @Test fun aDifferentFullPathOrSavedResultCannotClearTheSourceFailure() {
+        val progress = GitHubChatProgress { 0L }
+        val failedArgs = json("""{"path":"first/src/Reader.kt","commit_sha":"${"a".repeat(40)}"}""")
+        val otherArgs = json("""{"path":"second/src/Reader.kt","commit_sha":"${"a".repeat(40)}"}""")
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_failed", toolName = "github_read", toolCallId = "failed", toolArgs = failedArgs)))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "other", toolArgs = otherArgs)))
+        val cached = ProviderEvent.ToolCall("cached", "github_read", failedArgs)
+        progress.observeResult(cached, AgentToolResult(cached.callId, ToolResultContent.Text("saved result"), false, sharedResult = true))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = cached.name, toolCallId = cached.callId, toolArgs = cached.arguments)))
+        assertTrue(progress.summarySnapshot().recentSteps.any { it.contains("failed") })
+        assertFalse(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+    }
+
+    @Test fun incompleteHealthyCheckPageCannotClearAnObservedFailure() {
+        val progress = GitHubChatProgress { 0L }
+        val args = json("""{"action":"checks","commit_sha":"${"a".repeat(40)}"}""")
+        fun complete(id: String, failed: Int, complete: Boolean) {
+            val facts = json("""{"schema":"github.semantic-summary.v1","operation":"github_context","check_counts":{"successful":1,"skipped":0,"in_progress":0,"failed":$failed,"other_completed":0},"check_inventory_complete":$complete}""")
+            val call = ProviderEvent.ToolCall(id, "github_context", args)
+            progress.observeResult(call, AgentToolResult(id, ToolResultContent.Text("bounded"), false, executionReceipt = kotlinx.serialization.json.buildJsonObject { put("semantic_summary", facts) }))
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = call.name, toolCallId = id, toolArgs = args)))
+        }
+        complete("bad-checks", 1, true)
+        complete("partial-healthy", 0, false)
+        assertTrue(progress.summarySnapshot().recentSteps.any { it.contains("1 failed") })
+        assertFalse(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+        complete("all-healthy", 0, true)
+        assertFalse(progress.summarySnapshot().recentSteps.any { it.contains("1 failed") })
+        assertTrue(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+    }
+
+    @Test fun savedHealthyChecksCannotReplaceFreshFailureOrAllowPolicyOnlyRecovery() {
+        listOf("shared", "retained").forEach { source ->
+            val progress = GitHubChatProgress { 0L }
+            observeChecks(progress, "fresh-failure", failed = 1, policy = "UNKNOWN")
+            val failure = progress.summarySnapshot().recentSteps.single()
+            observeChecks(progress, "saved-healthy", failed = 0, policy = "UNKNOWN", savedSource = source)
+            assertTrue("$source results must preserve the fresh failure", failure in progress.summarySnapshot().recentSteps)
+            observeChecks(progress, "fresh-policy", policy = "VERIFIED_PRESENT")
+            assertTrue("$source results must not erase the failed-check condition", failure in progress.summarySnapshot().recentSteps)
+            assertFalse(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+
+            observeChecks(progress, "fresh-healthy", failed = 0, policy = "VERIFIED_PRESENT")
+            assertFalse(failure in progress.summarySnapshot().recentSteps)
+            assertTrue(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+        }
+    }
+
+    @Test fun savedFailedChecksCannotRestoreAConditionAlreadyResolvedByFreshEvidence() {
+        listOf("shared", "retained").forEach { source ->
+            val progress = GitHubChatProgress { 0L }
+            observeChecks(progress, "fresh-failure", failed = 1, policy = "UNKNOWN")
+            observeChecks(progress, "fresh-healthy", failed = 0, policy = "UNKNOWN")
+            val currentProblem = progress.summarySnapshot().recentSteps.single()
+            observeChecks(progress, "saved-failure", failed = 1, policy = "UNKNOWN", savedSource = source)
+            assertTrue("$source results must preserve the current problem", currentProblem in progress.summarySnapshot().recentSteps)
+
+            observeChecks(progress, "fresh-policy", policy = "VERIFIED_PRESENT")
+            assertFalse(currentProblem in progress.summarySnapshot().recentSteps)
+            assertTrue("Fresh evidence resolved both conditions", progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+        }
+    }
+
+    private fun observeChecks(progress: GitHubChatProgress, id: String, failed: Int? = null, policy: String, savedSource: String? = null) {
+        val args = json("""{"action":"checks","commit_sha":"${"a".repeat(40)}"}""")
+        val counts = failed?.let { ""","check_counts":{"successful":1,"skipped":0,"in_progress":0,"failed":$it,"other_completed":0},"check_inventory_complete":true""" }.orEmpty()
+        val facts = json("""{"schema":"github.semantic-summary.v1","operation":"github_context","required_checks_state":"$policy"$counts}""")
+        val call = ProviderEvent.ToolCall(id, "github_context", args)
+        val receipt = kotlinx.serialization.json.buildJsonObject {
+            put("semantic_summary", facts)
+            if (savedSource == "retained") put("read_source", kotlinx.serialization.json.JsonPrimitive("RETAINED"))
+        }
+        progress.observeResult(call, AgentToolResult(id, ToolResultContent.Text("bounded"), false, executionReceipt = receipt, sharedResult = savedSource == "shared"))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = call.name, toolCallId = id, toolArgs = args)))
+    }
+
+    @Test fun issueProgressNamesTheObservedProblemWithoutRepeatingItsRawReport() {
+        val progress = GitHubChatProgress { 0L }
+        val args = json("""{"action":"get","issue_number":2229}""")
+        val source = json("""{"number":2229,"title":"Verifier drops the final answer","state":"open","body":"private raw report"}""")
+        val facts = GitHubSemanticSummary.from("github_issue", args, source)
+        val call = ProviderEvent.ToolCall("issue", "github_issue", args)
+        val preview = progress.observeResult(call, AgentToolResult(call.callId, ToolResultContent.Text("raw"), false, executionReceipt = kotlinx.serialization.json.buildJsonObject { put("semantic_summary", facts) }))
+        assertTrue(preview.orEmpty().contains("Verifier drops the final answer"))
+        assertFalse(preview.orEmpty().contains("private raw report"))
+    }
+
     @Test fun ciPresetStartsWithTheActualInvestigationAndOnlyReturnedLinesBecomeFindings() {
         var clock = 0L
         val progress = GitHubChatProgress(GitHubWorkflowPreset.selected("diagnose_ci").prompt()) { clock }
@@ -37,7 +142,16 @@ class GitHubChatProgressTest {
         val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertEquals("I have lines 8–12 of src/Compile.kt.", summary.text)
         assertFalse(summary.modelAuthored)
-        assertFalse(facts.toString().contains("PRIVATE SOURCE"))
+        assertFalse(progress.summarySnapshot().toString().contains("PRIVATE SOURCE"))
+        assertFalse(summary.text.contains("PRIVATE SOURCE"))
+        val excerpt = facts.getValue("source_excerpts").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("PRIVATE SOURCE"), excerpt["excerpt"])
+        assertEquals(JsonPrimitive("src/Compile.kt"), excerpt["path"])
+        assertEquals(JsonPrimitive(8), excerpt["start_line"])
+        assertEquals(JsonPrimitive(12), excerpt["end_line"])
+        assertEquals(JsonPrimitive("/items/0/content"), excerpt["pointer"])
+        assertEquals(JsonPrimitive("a".repeat(40)), facts["commit_sha"])
+        assertTrue(facts.toString().length <= 2400)
     }
 
     @Test fun repeatedHistoryRetrievalDoesNotFloodThePreview() {

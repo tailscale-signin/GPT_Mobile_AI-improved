@@ -1,3 +1,51 @@
+# GPT Mobile 0.9.66.12 (build 146) and Windows Gateway 18.1.0
+
+Chat now shows animated dots while following the bottom, inline generation progress, a numbered table of contents and a Statistics tab. Model attribution labels have been removed from the answer body. Voice and transcript views now show live microphone captions. During reply generation captions hide, then fade in over two seconds as speech starts, with a bold theme-coloured highlight on the spoken word. This build also improves discovery argument repair, Gateway connection timing, voice focus recovery and diagnostic evidence.
+
+## Conversation continuity and issue reporting
+
+Long repository conversations retain useful issue and source findings, the original request and the next unfinished requirement across continuations. Progress warnings clear when the matching operation recovers. Search can advance past a repeatedly unreadable file while showing the remaining coverage gap.
+
+GitHub PR filters and saved pagination now agree with their advertised tool contracts. Tool discovery recovers narrowly defined selector mistakes without executing an unselected action. Internal verification faults, saved-checkpoint changes and continuation failures retain their actual causes and recovery guidance. Requests that exceed the known context budget keep their planning observations for diagnosis.
+
+Reports collect bounded verification, continuation, checkpoint and cursor evidence, and low-memory exports begin with a smaller raw-record capture. New conversation-recovery fields require a hosted reporter advertising CONVERSATION_RECOVERY_DIAGNOSTICS_V1; an older service keeps the exact approved report pending. The historical numeric-cast location and affected-phone performance remain unverified.
+
+Implementation, issue mapping and validation limits: [conversation repair map](docs/repairs/conversation-intelligence-2026-11-21.md).
+
+Recovery controls now share one effective decision. **Resume verification** checks the saved result once without repeating completed tools, reopening execution or renewing its allowance. **Retry after the provider deadline** reattaches the existing scheduled run at its retained or later shared deadline. **Refresh changed authority** opens the saved writer profile’s settings after checking its saved connection identities. The controls recheck run and checkpoint ownership, including combined answers; required approvals and uncertain writes retain their specific review actions. A new blocker, required decision or proven recovery can appear immediately once; routine findings keep the existing 45-second initial and 135-second follow-up cadence.
+
+Bulk issue work freezes the observed intake and tracks each issue's diagnosis, published fix or targeted diagnostic improvement, revision-bound tests and verified closure independently. Completed groups remain visible when another group is blocked. Tool selection follows the next unfinished acceptance step while preserving authorized schemas, explicit selections and discovery. Read receipts explain pinned-source reuse, mutable revalidation, write invalidation and observed ETag changes.
+
+Serialized request budgets now retain exact UTF-8 envelope counts plus tool/evidence attribution. A safely rejected oversized request can compact saved tool evidence within a bounded retry allowance; partial output, saved remote jobs and uncertain writes prevent replay. Gateway body-limit responses expose the actual limit. Hosted reporters must also advertise REQUEST_BYTE_BUDGET_V1 before receiving these fields.
+
+Diagnostic exports reduce repeated encoding and can clear disposable rendering caches before a guarded low-memory retry. Resumed shares include verified original ZIP parts with an explicit dependency manifest; unavailable parts stay marked incomplete. The offline inspector validates the same multipart closure. Idle journal compaction retains original encrypted evidence, and repeated unchanged rendering checkpoints are coalesced. Progress publication, model receive/draw, final-report draw and sampled frame/heap windows are measured separately with their ownership and observation limits.
+
+REQUEST_BYTE_BUDGET_V1 is required for hosted byte diagnostics. Saved-job identity, partial output, uncertain writes and changed authority prevent automatic replay. Missing diagnostic archive dependencies remain explicitly incomplete. Frame/heap windows describe overlapping process observations, not causal per-run ownership or measured physical-device speedups.
+
+Verification-only recovery also blocks saved queued calls before execution begins and leaves the execution checkpoint intact. Empty verified issue inventories require no invented changes; closure-only requests retain their guarded closure and live readback checks, while “close them once fixed” retains the full repair requirements. Late completed invocations no longer prevent later settled journal maintenance, and privacy clearing during saved-checkpoint export no longer deadlocks.
+
+Verification-only recovery now suppresses search, page reads, new memory/delegation preparation, queued follow-ups and optional narration before the runner. Ordinary retry keeps authorized acquisition. Conditional issue requests such as “close all open issues in owner/repo once fixed” retain per-issue repair obligations; a verified empty cohort completes only the issue-only requirement and leaves unrelated work intact.
+
+Native status reports are delivered once when execution continuation is forbidden or a final review fails. Saved-report fallback remains available when no application report was delivered, including after unverified model text. An already delivered report retains its original typed failure and pending receipt checkpoint; verifier-only decisions and incomplete retained evidence continue to block execution recovery.
+
+Review APK validation separates cold source generation and production compilation from full native assembly, with bounded fresh processes and retained runtime, privacy, method-size, device-regression and benchmark checks.
+
+Complete design and test coverage: [17-repair / 16-improvement implementation map](docs/repairs/full-approved-scope-2026-11-21.md).
+
+## Voice performance and speech backends
+
+Voice now reuses verified model installations and the loaded Moonshine model while creating a fresh recognition stream for each turn. Quick, Natural and Thoughtful listening styles, a Done speaking button and configurable microphone frame sizes make turn-taking adjustable. A navigation-owned warm runtime survives rotation and brief interruptions while capture and playback pause immediately.
+
+Kokoro gains adaptive phrase scheduling and playback buffers, measured 2/3/4-thread CPU calibration with thermal limits, fewer PCM copies, cancellable native inference, a personal pronunciation dictionary and route-aware caption timing. Fast meter/cursor updates are isolated from the conversation UI; captions and reply projections reuse unchanged work. Optional hands-free interruption uses an echo-cancelled capture path and preserves a short speech pre-roll.
+
+The Performance panel shows observed stage median/p95 timings, actual speech providers, queue age, frame/GPU duration, thermal state and sampled memory. The benchmark module includes a voice rendering journey and baseline-profile generator; neither substitutes for physical speech or battery measurements.
+
+Speech processing settings now offer local CPU, experimental Adreno GPU and Hexagon NPU prototypes, and an optional selected Gateway CUDA connection. Qualcomm paths specialize the real token sequence length, check executed kernel evidence, and retain truthful CPU fallback. Gateway uses authenticated existing routes with bounded queues, cancellation and exact PCM/token timing; Privacy Mode blocks outbound reply pronunciation tokens. The optional GPU add-on runs in an isolated, hash-locked Python environment through private pipes and is available to the packaged Windows Gateway.
+
+Voice acceleration is opt-in and experimental. Qualcomm GPU/NPU execution requires a compatible Android device and successful kernel-profile qualification for the installed model; unsupported graphs fall back to CPU. Gateway CUDA requires the separately installed, hash-locked GPU add-on and a successful real CUDA warmup. No phone, GPU/NPU speedup, acoustic latency, battery, or physical hands-free accuracy is claimed by host tests or compilation.
+
+Implementation and validation details: [21-item voice implementation map](docs/repairs/voice-performance-2026-11-21.md).
+
 # GPT Mobile 0.9.66.11 (build 145) and Windows Gateway 18.1.0
 
 ### Conversation completion

@@ -641,7 +641,8 @@ fun GitHubWorkspaceScreen(
                                                 tab = 3
                                             },
                                             approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" },
-                                            onReviewApproval = { tab = 3 }
+                                            onReviewApproval = { tab = 3 },
+                                            onProfileSettings = onProfileSettings
                                         )
                                         visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
                                     }

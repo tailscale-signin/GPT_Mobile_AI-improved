@@ -4,11 +4,15 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Icon
@@ -21,11 +25,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
+import kotlin.math.abs
 import kotlinx.coroutines.delay
 
 /** Follow intent has the same presentation after a button press or a deliberate bottom arrival. */
@@ -41,9 +46,17 @@ internal fun ChatBottomIndicator(
 ) {
     val fadeMillis = chatScrollArrowFadeMillis(animate)
     AnimatedVisibility(visible = showAnchorDots && following, enter = fadeIn(tween(fadeMillis)), exit = fadeOut(tween(fadeMillis))) {
-        val tint = MaterialTheme.colorScheme.primary
-        Canvas(Modifier.size(30.dp, 18.dp).testTag("chat_anchor_dots")) {
-            for (offset in -1..1) drawCircle(tint, 2.dp.toPx(), Offset(center.x + offset * 7.dp.toPx(), center.y))
+        val phase = rememberGitHubProgressMotion(animate)
+        val color = MaterialTheme.colorScheme.primary
+        Row(Modifier.size(48.dp).testTag("chat_anchor_dots"), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+            repeat(3) { index ->
+                Spacer(
+                    Modifier.size(5.dp).graphicsLayer {
+                        val staggered = (phase.value + index / 3f) % 1f
+                        alpha = if (animate) 0.35f + 0.65f * (1f - abs(staggered * 2f - 1f)) else 1f
+                    }.background(color, CircleShape)
+                )
+            }
         }
     }
     // Do not infer reading speed from programmatic list movement. The shared

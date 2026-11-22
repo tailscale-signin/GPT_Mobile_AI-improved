@@ -15,6 +15,28 @@ import org.junit.Test
 class ResponseContinuationPlanTest {
     private fun current(request: String) = ConversationTurn(MessageV2(id = 1, chatId = 1, platformType = null, content = request), null, isCurrentTurn = true)
 
+    @Test fun oneTurnContinuationSeparatesTheOriginalGoalAndKeepsTheWorkingFindingWithinAdmission() {
+        val request = "Fix all repo issues and close"
+        val brief = """{"issue":2229,"finding":"Verifier loses the final answer","receipt_id":"retained-issue","next":"inspect typed verification failure"}"""
+        val continued = planResponseContinuation(
+            listOf(current(request)),
+            "Respect authorization and exact receipts.",
+            TokenBudgetSettings(contextTokens = 4096, outputTokens = 512),
+            "The failure is in final verification.",
+            "Finish the next outstanding requirement.",
+            emptyList(),
+            fitProviderBudget = true,
+            retainedTaskContext = brief
+        )
+        val sent = continued.turns.single().userMessage.content
+        assertTrue(sent.startsWith("$request\n\nContinuation instructions:\nFinish"))
+        assertFalse(sent.contains("closeFinish"))
+        assertTrue(sent.contains("retained-issue") && sent.contains("Verifier loses the final answer"))
+        assertTrue(sent.contains("not permission or current verification"))
+        val prompt = continued.promptTokens.toLong()
+        assertTrue(prompt + dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(prompt) + 512 <= 4096)
+    }
+
     @Test fun automaticOutputUsesTheAdmittedContextReserveInsteadOfTheLargerRouteCeiling() {
         val settings = TokenBudgetSettings(contextTokens = 1024)
         val output = responseOutputAllowance(settings, routeOutputCap = 1024)

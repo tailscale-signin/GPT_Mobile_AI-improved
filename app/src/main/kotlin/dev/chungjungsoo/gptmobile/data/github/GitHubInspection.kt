@@ -14,10 +14,26 @@ import kotlinx.serialization.json.put
 
 /** Bounded, explicit follow-ups. A failed policy read is unknown, never permission. */
 internal class GitHubInspection(private val get: suspend (String) -> JsonElement) {
-    class InvalidIssueContinuation(val missing: Boolean) :
+    class InvalidIssueContinuation(val state: State) :
         IllegalArgumentException(
             "Follow the exact issue continuation with the original repository, filters and page size."
-        )
+        ) {
+        enum class State {
+            MISSING_AFTER,
+            MALFORMED_AFTER,
+            FILTER_MISMATCH,
+            PAGE_MISMATCH,
+            INITIAL_PAGE_WITH_AFTER,
+            AUTHENTICATED_CONNECTION_REQUIRED
+        }
+
+        val missing get() = state == State.MISSING_AFTER
+        val fields get() = when (state) {
+            State.FILTER_MISMATCH -> listOf("after", "owner", "repo", "state", "per_page", "sort", "direction")
+            State.PAGE_MISMATCH, State.INITIAL_PAGE_WITH_AFTER -> listOf("after", "page")
+            else -> listOf("after")
+        }
+    }
 
     companion object {
         val actions = setOf("branch_context", "branch_dependencies", "repository_details", "list_issues", "search_issues", "issue_context", "issue_comments", "issue_events", "search_commits", "tag_context", "pull_request_reviews")
@@ -54,7 +70,7 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
                 val sort = args.s("sort").ifBlank { "created" }.also { require(it in setOf("created", "updated", "comments")) }
                 val direction = args.s("direction").ifBlank { "asc" }.also { require(it in setOf("asc", "desc")) }
                 if (graphQl != null) return issueConnection(root, args, page, state, perPage, sort, direction, graphQl)
-                require(args.s("after").isBlank()) { "Restore the original authenticated GitHub connection before continuing this issue cursor." }
+                if (args.s("after").isNotBlank()) throw InvalidIssueContinuation(InvalidIssueContinuation.State.AUTHENTICATED_CONNECTION_REQUIRED)
                 val raw = get("$root/issues?state=$state&sort=$sort&direction=$direction&per_page=$perPage&page=$page").jsonArray
                 val issues = raw.filter { "pull_request" !in it.jsonObject }
                 buildJsonObject {
@@ -218,9 +234,18 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
     ): JsonObject {
         val scope = GitHubRepositoryStateStore.digest("$root|$state|$perPage|$sort|$direction")
         val cursor = args.s("after").takeIf(String::isNotBlank)
-        val after = cursor?.split(':', limit = 3)?.takeIf { it.size == 3 && it[0] == scope && it[1].toIntOrNull() == page }
-            ?.get(2)?.takeIf { it.length in 1..512 && it.none(Char::isISOControl) }
-        if (!(page == 1 && cursor == null || page > 1 && after != null)) throw InvalidIssueContinuation(missing = cursor == null)
+        val parts = cursor?.split(':', limit = 3)
+        val rejection = when {
+            page > 1 && cursor == null -> InvalidIssueContinuation.State.MISSING_AFTER
+            page == 1 && cursor != null -> InvalidIssueContinuation.State.INITIAL_PAGE_WITH_AFTER
+            cursor == null -> null
+            parts?.size != 3 || parts[1].toIntOrNull() == null || parts[2].length !in 1..512 || parts[2].any(Char::isISOControl) -> InvalidIssueContinuation.State.MALFORMED_AFTER
+            parts[0] != scope -> InvalidIssueContinuation.State.FILTER_MISMATCH
+            parts[1].toIntOrNull() != page -> InvalidIssueContinuation.State.PAGE_MISMATCH
+            else -> null
+        }
+        if (rejection != null) throw InvalidIssueContinuation(rejection)
+        val after = parts?.get(2)
         val response = graphQl(
             "query(\$owner:String!,\$repo:String!,\$first:Int!,\$after:String,\$states:[IssueState!],\$order:IssueOrder!){repository(owner:\$owner,name:\$repo){issues(first:\$first,after:\$after,states:\$states,orderBy:\$order){totalCount pageInfo{hasNextPage endCursor} nodes{id number title state url createdAt updatedAt}}}}",
             buildJsonObject {

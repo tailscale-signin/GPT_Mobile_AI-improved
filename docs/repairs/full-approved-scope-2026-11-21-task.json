@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "9a50912fdeb0bde59a83ea32764e0b403b19e620",
+  "source_sha": "6cd19630b0f142edb0c4597728fade3e58b5b4b3",
+  "working_branch": "fix/offline-kokoro-release-publication-2026-11-21",
+  "parent_pr": 2126,
+  "intent": "Complete all 17 approved repairs and 16 conversation/intelligence improvements alongside the concurrent 21-issue patch, preserve shared-branch commits, validate, merge and publish Android 0.9.66.12 (146) and Gateway 18.1.0.",
+  "status": "IMPLEMENTED_LOCAL_GATES_PASS_CI_PENDING",
+  "requirements": [
+    {
+      "id": "R08",
+      "title": "Serialized request-byte evidence, exact-route byte admission and bounded semantic replan",
+      "status": "IMPLEMENTED_LOCAL_COMPONENT_GATES_PASS"
+    },
+    {
+      "id": "R12",
+      "title": "Frozen bulk issue cohort and independent acceptance units",
+      "status": "IMPLEMENTED_LOCAL_COMPONENT_GATES_PASS"
+    },
+    {
+      "id": "R15",
+      "title": "Settled journal compaction and semantic output-checkpoint deduplication",
+      "status": "IMPLEMENTED_LOCAL_COMPONENT_GATES_PASS"
+    },
+    {
+      "id": "R04-I12",
+      "title": "One effective recovery projection and exact UI recovery actions",
+      "status": "IMPLEMENTED_LOCAL_COMPONENT_GATES_PASS"
+    },
+    {
+      "id": "scope",
+      "title": "Verify all remaining approved R01-R17 and I01-I16 behavior against existing and concurrent changes",
+      "status": "IMPLEMENTED_LOCAL_COMPONENT_GATES_PASS"
+    },
+    {
+      "id": "publication",
+      "title": "Current-head CI, main merge, exact-main checks and verified coordinated publication",
+      "status": "PENDING"
+    }
+  ],
+  "integrated_remote_base": "4e40cd883bf0b6d910a4d9c6ef99d48891f7a8ca",
+  "intake_issues": [
+    2214,
+    2215,
+    2218,
+    2220,
+    2222,
+    2223,
+    2224,
+    2225,
+    2226,
+    2227,
+    2228,
+    2229,
+    2230,
+    2231,
+    2232,
+    2233,
+    2234,
+    2235,
+    2236,
+    2237,
+    2238
+  ],
+  "validation": {
+    "scope": "Focused host tests compile actual changed sources against existing app dependencies; final combined Android and release gates remain required.",
+    "request_byte_tests": 24,
+    "journal_tests": 40,
+    "freshness_tests": 8,
+    "stage_and_delegation_policy_tests": 14,
+    "recovery_tests": 50,
+    "progress_tests": 58,
+    "issue_acceptance_tests": 29,
+    "catalog_focus_tests": 45,
+    "diagnostic_export_tests": 88,
+    "diagnostic_heap_gate": {
+      "heap_mib": 64,
+      "records": 40000,
+      "source_bytes": 163840000,
+      "result": "PASS"
+    },
+    "source_traversal_tests": 21,
+    "bundle_reader_tests": 37,
+    "canonical_repository_tests": 601,
+    "combined_production_source_compile": {
+      "source_files": 94,
+      "result": "PASS",
+      "scope": "Actual changed/shared Kotlin production sources; no handwritten stubs; full Android dependency classpath; final I12 closure and reporting client compiled separately against this integration."
+    },
+    "reporting_service_tests": 192,
+    "gateway_tests": 1625,
+    "gateway_skips": 30,
+    "gateway_browser_tests": 7,
+    "changed_kotlin_formatting": "PASS_90_FILES",
+    "recovery_prerequisite_tests": 39,
+    "reporting_client_contract_tests": 57,
+    "final_recovery_production_compile": {
+      "source_files": 9,
+      "result": "PASS",
+      "production_stubs": false
+    },
+    "extended_android_test_compile": {
+      "classes": [
+        "ProviderWaitRecoveryTest",
+        "GitHubWorkflowRecoveryActionsTest"
+      ],
+      "result": "PASS",
+      "runtime": "CI_PENDING"
+    },
+    "final_canonical_fast": "PASS_601_TESTS",
+    "conditional_issue_obligation_tests": 36,
+    "conditional_issue_regression_red_cases": 2,
+    "concurrent_correction_source": "c7d507a32986f75adab38b303bdb3019b0c889a4",
+    "final_preparation_guard": {
+      "production_sources": 98,
+      "production_compile": "PASS",
+      "repository_test_compile": "PASS",
+      "android34_selected_regression": "PASS",
+      "runtime_tests": 1,
+      "runtime_failures": 0,
+      "scope": "Verification-only zero acquisition/provider dispatch and exact native refusal; ordinary retry search/read preserved."
+    },
+    "full_suite_recovery_followup": {
+      "superseded_ci_run": 44969292584,
+      "superseded_unit_job": 137047403010,
+      "superseded_tests": 12095,
+      "superseded_failures": 6,
+      "superseded_skips": 5,
+      "serialized_budget_fixture": "PRESERVED_CONCURRENT_CORRECTION",
+      "actual_runner_verifier_progress_tests": 63,
+      "actual_incident_export_tests": 2,
+      "actual_android34_compose_tests": 4,
+      "result": "PASS",
+      "production_fix": "Prevent duplicate retained application-report publication while preserving fallback for absent, blank and model-only output.",
+      "fixture_corrections": "Retain verifier-only and incomplete-evidence refusal; match the scrollable deadline-control host and require a displayed click.",
+      "production_stubs": false,
+      "canonical_fast": "PASS_601_TESTS",
+      "changed_kotlin_formatting": "PASS_6_FILES"
+    }
+  },
+  "remaining": [
+    "Observe required and applicable Android CI on the exact final combined PR head.",
+    "Close all current intake reports with concrete action and validation evidence.",
+    "Merge only after checks pass, then observe exact-main checks and verified Android/Gateway publication."
+  ]
+}

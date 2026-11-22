@@ -50,7 +50,10 @@ internal object KokoroSpeechText {
     fun timed(input: String, isKnown: (String) -> Boolean): KokoroSpeechProjection =
         project(input, markdown = false, isKnown, timed = true)
 
-    private fun project(input: String, markdown: Boolean, isKnown: (String) -> Boolean, timed: Boolean = false): KokoroSpeechProjection {
+    fun withPolicy(input: String, isKnown: (String) -> Boolean, overrides: Map<String, String>, wordLimit: Int, timed: Boolean): KokoroSpeechProjection =
+        project(input, markdown = false, isKnown, timed, overrides, wordLimit.coerceIn(4, MAX_PART_WORDS))
+
+    private fun project(input: String, markdown: Boolean, isKnown: (String) -> Boolean, timed: Boolean = false, overrides: Map<String, String> = emptyMap(), wordLimit: Int = MAX_PART_WORDS): KokoroSpeechProjection {
         val clipped = if (input.length <= MAX_INPUT) {
             input
         } else {
@@ -104,7 +107,7 @@ internal object KokoroSpeechText {
             words = 0
         }
         fun appendWord(word: String) {
-            if (words == MAX_PART_WORDS || part.length + word.length + 1 > MAX_PART_CHARS) flush()
+            if (words == wordLimit || part.length + word.length + 1 > MAX_PART_CHARS) flush()
             if (part.isNotEmpty()) part.append(' ')
             part.append(word)
             if (timed) wordRanges += sourceRange
@@ -130,7 +133,7 @@ internal object KokoroSpeechText {
                 val original = if (origins == null) match.range else origins[match.range.first].first..origins[match.range.last].last
                 sourceRange = if (original.last < clipped.length) original else IntRange.EMPTY
             }
-            val expanded = when {
+            val expanded = overrides[value.lowercase(Locale.ROOT)] ?: when {
                 value.any(Char::isDigit) -> spokenNumber(value)
                 value == "%" -> "percent"
                 value == "#" -> if (plain.getOrNull(match.range.last + 1)?.isDigit() == true) "number" else ""

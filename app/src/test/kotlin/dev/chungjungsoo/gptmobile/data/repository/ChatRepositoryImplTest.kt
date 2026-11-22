@@ -224,8 +224,14 @@ class ChatRepositoryImplTest {
             ).onEach { states += it }.collectApiStateUpdates(onUpdate = { _, _, _ -> })
             assertTrue(outcome is dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed)
             val failure = states.filterIsInstance<ApiState.Error>().single()
-            assertTrue(failure.message.contains("There is no saved task to resume"))
+            assertTrue(failure.message.contains("No saved task is available"))
+            assertTrue(failure.message.contains("Send the original request"))
             assertEquals("OUTPUT_CONTINUATION_UNAVAILABLE", failure.errorCode)
+            assertEquals(JsonPrimitive("NO_SAVED_TASK"), failure.failureDetails?.get("continuation_cause"))
+            assertEquals(JsonPrimitive("SEND_ORIGINAL_REQUEST"), failure.failureDetails?.get("next_action"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
             assertNull(failure.invocationId)
             assertEquals(0, api.streamChatCompletionCalls)
             val report = incidents.pending.value.single()
@@ -240,9 +246,9 @@ class ChatRepositoryImplTest {
             assertNull(context.invocationIdHash)
             assertEquals(false, context.dispatched)
             assertEquals(false, context.requiresReconciliation)
-            assertNull(context.remoteAcceptance)
+            assertEquals("NO", context.remoteAcceptance)
             assertNull(context.httpStatus)
-            assertNull(context.retryable)
+            assertEquals(false, context.retryable)
             val values = requireNotNull(context.diagnostics).values
             assertEquals(JsonPrimitive("CHAT_REPOSITORY_ERROR_VALUE"), values["incident_capture_site"])
             assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), values["incident_phase_provenance"])
@@ -1129,6 +1135,105 @@ class ChatRepositoryImplTest {
         io.mockk.coVerify(exactly = 0) { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
+    /** The Robolectric wrapper exercises preparation before the real native verifier guard. */
+    fun verificationOnlyRecoveryDoesNotAcquireOriginalWebSearchAgain() = runBlocking {
+        val platform = customPlatform().copy(enabled = true, maxTokens = 2048)
+        val original = MessageV2(id = 1, content = "Search the web for current documentation for the GitHub repository owner/repo.", platformType = null)
+        val recovery = original.copy(id = 2, content = "Resume verification")
+        val dispatched = mutableListOf<String>()
+        fun tool(name: String) = ResolvedAgentTool(
+            object : AgentTool {
+                override val definition = AgentToolDefinition(name, "Fixture source acquisition", buildJsonObject { put("type", "object") })
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    dispatched += name
+                    return AgentToolResult(
+                        callId,
+                        ToolResultContent.Json(
+                            if (name == "web_search") {
+                                buildJsonObject {
+                                    put(
+                                        "results",
+                                        JsonArray(
+                                            listOf(
+                                                buildJsonObject {
+                                                    put("url", "https://example.org/fixture")
+                                                    put("title", "Fixture documentation")
+                                                    put("snippet", "A retained source must not be acquired again during verification.")
+                                                }
+                                            )
+                                        )
+                                    )
+                                }
+                            } else {
+                                buildJsonObject { put("text", "Fixture documentation page.") }
+                            }
+                        ),
+                        false
+                    )
+                }
+            },
+            null,
+            "Fixture source",
+            name,
+            name,
+            shareableReadOnly = true
+        )
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } returns listOf(tool("web_search"), tool("read_url"))
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            tokenBudget = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 32768, profileContextCeilings = mapOf(platform.uid to 32768), outputTokens = 2048),
+            githubProfileOverrides = mapOf(platform.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(maximumContext = false))
+        )
+        val api = RecordingOpenAIAPI(
+            ArrayDeque(
+                listOf(flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "Fixture provider stopped", code = "403"))))
+            )
+        )
+        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        val runs = listOf("verify-preparation", "retry-preparation").mapIndexed { index, runId ->
+            dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(runId, original.chatId, original.id, index + 3, platform.uid, platform.compatibleType.name, platform.model, ownershipFence = 7)
+        }.associateBy { it.runId }
+        coEvery { persistence.recoveryRun(any()) } answers { runs[firstArg()] }
+        coEvery { persistence.recoveryMessage(any()) } answers {
+            runs.values.firstOrNull { it.assistantMessageId == firstArg<Int>() }?.let {
+                MessageV2(id = it.assistantMessageId, chatId = it.chatId, content = "", platformType = platform.uid, currentRunId = it.runId, ownershipFence = it.ownershipFence)
+            }
+        }
+        coEvery { persistence.getChatRoom(original.chatId) } returns ChatRoomV2(id = original.chatId, title = "Temporary recovery fixture", enabledPlatform = listOf(platform.uid), isTemporary = true)
+        val repository = createRepository(openAIAPI = api, agentToolResolver = resolver, settingsOverride = settings, persistenceOverride = persistence, toolEventRecorder = ToolEventRecorder(RecordingToolEventDao().asDao(), proxy()))
+        val config = ChatMcpToolConfig(github = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "main", "a".repeat(40), platform.uid))
+        val states = repository.completeChat(
+            listOf(original, recovery),
+            emptyList(),
+            platform,
+            "verify-preparation",
+            config
+        ).toList()
+
+        assertTrue("The original task intentionally triggers app-assisted acquisition", AppAssistedSearch.requested(original.content))
+        assertEquals("Preparation must not dispatch search or page reads: $states", emptyList<String>(), dispatched)
+        assertEquals(0, api.streamChatCompletionCalls)
+        // Missing retained verification evidence remains a native verifier refusal,
+        // not permission to reacquire sources or return a newly generated answer.
+        val failure = states.filterIsInstance<ApiState.Error>().single()
+        assertEquals(states.toString(), "GITHUB_TASK_INCOMPLETE", failure.errorCode)
+        assertEquals(JsonPrimitive("acceptance_verification"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        io.mockk.coVerify(atLeast = 1) { resolver.resolve(any(), any(), any(), any(), any(), any(), true, any()) }
+
+        val ordinaryRetry = repository.completeChat(
+            listOf(original, recovery.copy(content = "Retry failed stage")),
+            emptyList(),
+            platform,
+            "retry-preparation",
+            config
+        ).toList()
+        assertTrue("An execution retry still acquires its authorized search evidence: $ordinaryRetry", "web_search" in dispatched)
+        assertTrue("An execution retry still reads its authorized source page: $ordinaryRetry", "read_url" in dispatched)
+    }
+
     @Test
     fun `cold remote greeting never joins blocked optional tool or memory producers`() = runBlocking {
         val resolver = mockk<AgentToolResolver>()
@@ -1780,6 +1885,8 @@ class ChatRepositoryImplTest {
         val expectedDetails = buildJsonObject {
             put("incident_capture_site", "AGENT_FAILED_EVENT")
             put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+            put("failed_event_provider_text_seen", false)
+            put("failed_event_answer_emitted", false)
             put("failed_event_code_present", true)
             put("failed_event_invocation_present", false)
             put("failed_event_details_present", true)
@@ -1944,6 +2051,8 @@ class ChatRepositoryImplTest {
                     failureDetails = buildJsonObject {
                         put("incident_capture_site", "AGENT_FAILED_EVENT")
                         put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+                        put("failed_event_provider_text_seen", false)
+                        put("failed_event_answer_emitted", false)
                         put("failed_event_code_present", false)
                         put("failed_event_invocation_present", false)
                         put("failed_event_details_present", false)
@@ -1985,6 +2094,8 @@ class ChatRepositoryImplTest {
                     failureDetails = buildJsonObject {
                         put("incident_capture_site", "AGENT_FAILED_EVENT")
                         put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+                        put("failed_event_provider_text_seen", false)
+                        put("failed_event_answer_emitted", false)
                         put("failed_event_code_present", false)
                         put("failed_event_invocation_present", false)
                         put("failed_event_details_present", false)
@@ -2192,6 +2303,8 @@ class ChatRepositoryImplTest {
                     failureDetails = kotlinx.serialization.json.buildJsonObject {
                         put("incident_capture_site", kotlinx.serialization.json.JsonPrimitive("AGENT_FAILED_EVENT"))
                         put("incident_phase_provenance", kotlinx.serialization.json.JsonPrimitive("CAPTURE_BOUNDARY_ONLY"))
+                        put("failed_event_provider_text_seen", false)
+                        put("failed_event_answer_emitted", false)
                         put("failed_event_code_present", true)
                         put("failed_event_invocation_present", false)
                         put("failed_event_details_present", true)
@@ -2241,6 +2354,8 @@ class ChatRepositoryImplTest {
                     put("provider_kind", "CUSTOM")
                     put("incident_capture_site", "AGENT_FAILED_EVENT")
                     put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+                    put("failed_event_provider_text_seen", false)
+                    put("failed_event_answer_emitted", false)
                     put("failed_event_code_present", true)
                     put("failed_event_invocation_present", true)
                     put("failed_event_details_present", true)

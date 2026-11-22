@@ -6,6 +6,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PreparationErrorClassificationTest {
+    @Test fun wrappedTypedRecoveryRefusalKeepsExactCodeAndCannotBecomeAPolicyOrTransportRetry() {
+        for (code in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES) {
+            val error = dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure(code)
+            val result = ErrorClassification.classify(IllegalStateException("private wrapper", error))
+            assertEquals(code, result.errorCode)
+            assertEquals(ErrorCategory.REQUEST_REJECTED, result.category)
+            assertFalse(result.isRetryable)
+            assertFalse(result.userMessage.contains("private wrapper"))
+            assertFalse(ErrorTemplates.getTemplateFor(result).autoRetry)
+        }
+    }
+
     @Test fun privateExceptionTextIsNeverCopiedIntoUnknownOrMalformedResponseMessages() {
         for (cause in listOf(IllegalStateException("private canary"), kotlinx.serialization.SerializationException("private canary"))) {
             val result = ErrorClassification.classify(cause)

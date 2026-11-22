@@ -159,7 +159,23 @@ internal class GitHubOperationTool(
         }
         val wrongHandles = arguments.keys.intersect(setOf("cursor", "next_cursor", "evidence_id", "tracking_id")) - if (operation == "github_read" && "view_cursor" !in arguments) setOf("evidence_id") else emptySet()
         if (wrongHandles.isNotEmpty() && "view_cursor" !in arguments) {
-            return AgentToolResult(callId, ToolResultContent.Text("${wrongHandles.sorted().joinToString()} cannot paginate this operation. Use the exact continuation_call returned by this tool. evidence_id only reopens source through github_read; it is never a pagination cursor. Nothing was dispatched."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            val rejection = ToolArgumentValidator.rejection(
+                callId,
+                definition.name,
+                arguments,
+                definition.inputSchema,
+                listOf("${wrongHandles.sorted().joinToString()} cannot paginate this operation. Use the exact continuation_call returned by this tool. evidence_id only reopens source through github_read; it is never a pagination cursor. Nothing was dispatched.")
+            )
+            return rejection.copy(
+                executionReceipt = JsonObject(
+                    rejection.executionReceipt.orEmpty() + buildJsonObject {
+                        put("reason_code", "SAVED_VIEW_CURSOR_MALFORMED")
+                        put("invalid_field_count", wrongHandles.size)
+                        put("invalid_fields", JsonArray(wrongHandles.sorted().map(::JsonPrimitive)))
+                        put("validation_field_names", JsonArray(wrongHandles.sorted().map(::JsonPrimitive)))
+                    }
+                )
+            )
         }
         if ("view_cursor" in arguments) {
             savedViewAuthorizationFailure(callId)?.let { return it }
@@ -1231,6 +1247,8 @@ internal class GitHubOperationTool(
                         put("description", "Required for headers/context/comments/reviews and updates. Discover an existing pull_number with action=list first; never invent one.")
                     }
                     properties["state"] = choice("open", "closed", "all")
+                    properties["sort"] = choice("created", "updated", "popularity", "long-running")
+                    properties["direction"] = choice("asc", "desc")
                     properties["allowed_actions"] = buildJsonObject {
                         put("type", "array")
                         put("minItems", 1)

@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "9a50912fdeb0bde59a83ea32764e0b403b19e620",
+  "parent_pr": 2126,
+  "source_sha": "6c42f46d183eb5d2681000d4b385355e011b2b46",
+  "working_branch": "fix/offline-kokoro-release-publication-2026-11-21",
+  "intent": "Implement all 21 approved voice menu items, preserve concurrent commits, validate draft PR, merge only when required checks are green, publish and verify signed Android and coordinated Gateway artifacts.",
+  "status": "IMPLEMENTED_AWAITING_FINAL_CI_AND_PUBLICATION",
+  "requirements": [
+    {
+      "id": 1,
+      "title": "Cache verified installation generations",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "LocalVoiceModelStore"
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Retain Moonshine model with fresh per-turn streams",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "MoonshineStreamDecoder"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Warm lifecycle-aware voice session",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoiceRuntimeViewModel"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Adaptive listening endpoint and done-speaking",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoiceListeningPolicy"
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Tune pooled microphone capture frames",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoiceListeningPolicy"
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Overlap final transcript delivery and serialized native cleanup",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "MoonshineVoiceRecognizer"
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Adaptive Kokoro phrase scheduler",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoiceSpeechBuffer"
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Measured CPU performance tuning",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoiceSynthesisFeedback"
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Adaptive low-latency playback buffers",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "KokoroVoiceOutput"
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Reduced-copy PCM transport",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "KokoroPcmBatches"
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Cancel in-flight native synthesis",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "TimedKokoro"
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Isolated UI state and GPU-assisted drawing",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoicePresentationSignals"
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Incremental caption layout",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoiceCaptionLayoutCache"
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Incremental reply observation",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoiceReplyProjectionCache"
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Hands-free interruption with echo handling",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoiceInterruptionMonitor"
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Personal pronunciation dictionary",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoicePronunciationOverrides"
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Audio-route-aware playback and captions",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoicePlaybackClock"
+      ]
+    },
+    {
+      "id": 18,
+      "title": "Voice performance dashboard and benchmark",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "VoicePerformanceHistory"
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Adreno GPU speech prototype",
+      "status": "PROTOTYPE_PENDING_QUALIFICATION",
+      "evidence": [
+        "VoiceSpeechBackend"
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Hexagon NPU speech prototype",
+      "status": "PROTOTYPE_PENDING_QUALIFICATION",
+      "evidence": [
+        "VoiceSpeechBackend"
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Windows Gateway CUDA speech",
+      "status": "INTEGRATED_PENDING_FINAL_CI",
+      "evidence": [
+        "GatewayVoicePhraseEngineFactory"
+      ]
+    }
+  ],
+  "validation": {
+    "host": "PASS: canonical fast validation (589 script tests plus resources, policy, inventory, regex and provenance); changed Kotlin formatting; 29 focused ASR,59 speech and63 UI/session host tests. Real integrated Android tests are recorded separately.",
+    "android": "PASS: complete Android main Kotlin compilation and complete unit-test source compilation; real Gradle/Robolectric selection442 tests across55 classes,0 failures/errors/skips (423 voice plus19 repaired fixtures). Executed source was f70c997d plus the three fixture edits; incoming87390e2 changes only generated audit constants/JSON. Both ARM64 and x86_64 JNI/ORT builds passed.",
+    "physical_device": "NOT_RUN: no ROG Phone 9 Pro attached",
+    "gpu_npu": "NOT_RUN: native provider implementation compiled; physical QNN/CUDA execution and speed qualification unobserved.",
+    "native": "PASS: real pinned Kokoro/ORT JNI audio and word timings, frontend parity, before/in-flight cancellation and reset; pronunciation and executed-provider-evidence CTests.",
+    "gateway": "PASS:125 Python suites/1607 reported tests (32 platform/optional-dependency skips) plus7 browser tests in locked core environment; supplemental23-case voice suite passed with0 skips using hash-verified NumPy2.3.5. Windows Python3.12/3.13 Gateway stability44948109989 passed on44e1656e, including repaired path/newline cases, voice23 tests (2 optional NumPy skips), durable-event stress and authentication188/188. Windows installer44948109947 also passed.",
+    "authentication": "PASS:188 tests, including compatibility with existing hosted voice-report vocabulary.",
+    "credentials": "PASS: pinned Gitleaks8.30.1 scanned all8712 reachable commits with the same heads/tags/PR merge as CI. Both original findings were independently verified SHA-256 values for tests/fixtures/voice-frontend-tokens.json in the generated Gateway manifest (implementation commit and merge preview). Exact manifest path/fixture entry exception clears those false positives. Real-scanner controls still reject the same line elsewhere, an unrelated credential, and another manifest token entry.",
+    "pr_voice_head": "PASS: all 15 applicable workflow groups on ad26151b2916bf25feb20bcb99c5f233e7de790d. The Android audit executed 11882 tests:11877 passed,0 failures/errors,5 dedicated-heap skips; separate PR heap gates passed. New concurrent source requires fresh combined-head validation.",
+    "combined_integration": "Focused progress behavior:38 actual-source JVM tests passed with0 failures/skips, including two regressions that failed before the fix. Hosted report readiness:12 tests passed, including missing-capability rejection, future-capability compatibility and native-only operation without a network call. CI on incoming386997d found Collection<String> vs List<String> at GitHubVerifiedSession1171; the internal-fault empty result is now a List. A local full Android compile process exited unexpectedly during KSP without a compiler diagnostic; full combined-head Actions remain required. Combined canonical fast validation passed592 tests plus resource, inventory, policy, regex and provenance checks.",
+    "supplemental_reporting": "PASS: 59 actual current-c7 reporting/recovery/request-byte source tests, including independent publication-only legacy compatibility, new conversation capability rejection before POST, and unchanged approved UTF-8 request bytes across all 18 publication value/omission variants. Canonical fast:601 passed. No full Android result is inferred from this focused suite.",
+    "supplemental_diagnostic_timing": "PASS:19 actual-source attribution tests (13 existing plus6 regressions), ktlint1.3.1 and canonical fast601. Deterministic4096-event incomplete histories dropped from16789504 to32768 event reads. Indexed joins preserve input-order first events, ownership, timestamp ties, latest eligible evidence, fingerprint and overflow semantics. Desktop synthetic measurements are not phone or voice hot-path results. Two independent concrete-diff reviews approved.",
+    "c7_schema_budget": "PASS:54 actual-source catalog/resolver/focus tests. Context415+read588+search663+discovery326=1992 tokens, below the unchanged2000 bound; schema fields, constraints and authorization unchanged.",
+    "verification_budget_fixture": "PASS: reproduced the exact c7 CI failure against actual1e production (12 tests,1 stale expectation); corrected only the serialized-grant test to permit CONTINUE_RUN, RETRY_FAILED_STAGE and CONTINUE_PRIMARY_ONLY. RETRY_WRITING and RESUME_VERIFICATION remain unable to renew tools. All12 tests pass with real current sources and serialization plugin; formatting and diff checks pass. No production restriction was changed.",
+    "final_integration": "The reporting regression, indexed diagnostic attribution and verification-budget fixture are integrated above1e9822f5. The incoming issue grammar and preparation fence passed independent pinned-source reviews; the incoming owner reports36 issue tests and an actual Android34 repository regression with zero verification-only acquisition and positive ordinary retry behavior. Final combined-tree canonical validation and exact-head Android/CI remain separate required gates; no earlier green revision is accepted as final approval."
+  },
+  "publication": {
+    "status": "AWAITING_FINAL_PR_AND_MAIN_CHECKS"
+  },
+  "concurrent_commits_preserved": [
+    "6a905e21188c659d50f6bcbb8bbbcf9999eda12f",
+    "d65b306d867fc54617e179b2de15e1b8883ed340",
+    "87390e2800ee5749c0b2c4eb7f3379cc0be58f02",
+    "386997d862447884142698b1623abefdee15c7ee",
+    "34f3e83fb2fa27ca9648a270840d8d0f610e7465",
+    "af50b4b2f62eeaa3e2dd2884ef0b48453b4c5d1e",
+    "e66e9665402b388a673dd42dc3ddc70fe3e3ea29",
+    "c7d507a32986f75adab38b303bdb3019b0c889a4",
+    "60dfcb79cf3096a366cd4bcf9496334fc89f647e",
+    "1e9822f54a2ac4932a0739004d35a8623d706349"
+  ],
+  "concurrent_repair": "Preserved the complete conversation and diagnostic design and the final integration through1e9822f5, including verifier preparation/execution fences, conditional issue obligations, journal/privacy lifecycle corrections and independent reporting capability negotiation. Supplemental capability coverage, bounded diagnostic attribution and the stale verification-budget fixture correction are integrated. All applicable final-head checks and exact-main publication verification remain required.",
+  "latest_integrated_source_sha": "1e9822f54a2ac4932a0739004d35a8623d706349",
+  "supplemental_reviewed_commits": [
+    "8a7a6269a7089104f0c594346b61e17e976a9f5b",
+    "c5cf101b229f139006d578e48e84fcb8d19c47ec",
+    "63f8d14a1ff3bcb22863c8cc10f3560a6a673061"
+  ]
+}

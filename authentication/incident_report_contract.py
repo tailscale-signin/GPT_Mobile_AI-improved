@@ -340,7 +340,7 @@ HANDOFF_RECONCILIATION_FIELDS = HANDOFF_RECONCILIATION_COUNTS | HANDOFF_RECONCIL
 CHAT_DELIVERY_COUNTS = {'chat_delivery_content_bytes', 'chat_delivery_thinking_bytes', 'chat_delivery_success_events', 'chat_delivery_tool_events', 'chat_delivery_progress_events', 'chat_delivery_github_rounds'}
 CHAT_DELIVERY_FIELDS = CHAT_DELIVERY_COUNTS | {'chat_delivery_terminal', 'chat_delivery_answer_state', 'chat_delivery_counts_capped'}
 CLAIM_FRESHNESS_FIELDS = {'acceptance_claim_freshness_predicates'}
-ACCEPTANCE_PUBLICATION_COUNTS = {'acceptance_extraction_planned_batches', 'acceptance_receipt_snapshot_count', 'acceptance_claim_count'}
+ACCEPTANCE_PUBLICATION_COUNTS = {'acceptance_extraction_planned_batches', 'acceptance_receipt_snapshot_count', 'acceptance_claim_count', 'acceptance_advertised_tool_count'}
 ACCEPTANCE_PUBLICATION_TOKENS = {'acceptance_extraction_required_tokens', 'acceptance_extraction_input_limit_tokens'}
 ACCEPTANCE_PUBLICATION_FIELDS = ACCEPTANCE_PUBLICATION_COUNTS | ACCEPTANCE_PUBLICATION_TOKENS | {'acceptance_publication_source', 'acceptance_extraction_observation', 'acceptance_draft_state'}
 ACCEPTANCE_OBSERVATION_FIELDS = {'acceptance_claim_trust_failures', 'acceptance_publication_entry'}
@@ -564,7 +564,7 @@ ENUMS = {
     'remote_pagination_reason': {'INCOMPLETE', 'STALLED'},
     'provider_tool_rejection': {'TOOL_USE_FAILED'},
     'tool_protocol_frame_kind': {'MISSING_FUNCTION_NAME', 'UNFINISHED_STREAM', 'NON_OBJECT_ARGUMENTS', 'MALFORMED_JSON'},
-    'tool_protocol_recovery_outcome': {'TEXT_FALLBACK_EXHAUSTED', 'TOOL_RETRY_EXHAUSTED', 'BACKEND_HANDLED_TOOLS', 'SINGLE_PASS_NOT_RETRYABLE', 'NO_SAFE_REPAIR'},
+    'tool_protocol_recovery_outcome': {'TEXT_FALLBACK_EXHAUSTED', 'TOOL_RETRY_EXHAUSTED', 'BACKEND_HANDLED_TOOLS', 'SINGLE_PASS_NOT_RETRYABLE', 'TEXT_ALREADY_EMITTED', 'NO_SAFE_REPAIR'},
     'reasoning_probe_observation': {'GATEWAY_OBSERVATION_AVAILABLE', 'DEADLINE_WITHOUT_GATEWAY_OBSERVATION', 'NO_GATEWAY_OBSERVATION'},
     'gateway_terminal_status': {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'},
     'gateway_result_quality': {'complete', 'partial'},
@@ -632,6 +632,46 @@ ENUM_LISTS = {
     'resolved_argument_field_types': TYPES,
     'github_error_fields': FIELD_NAMES,
 }
+
+
+CONVERSATION_RECOVERY_FEATURE = 'CONVERSATION_RECOVERY_DIAGNOSTICS_V1'
+CONVERSATION_RECOVERY_CODES = {
+    'GITHUB_VERIFICATION_INTERNAL_ERROR',
+    'PROVIDER_WAIT_CHECKPOINT_CHANGED', 'PROVIDER_WAIT_EVIDENCE_UNAVAILABLE',
+    'PROVIDER_WAIT_OUTCOME_UNKNOWN', 'PROVIDER_WAIT_TASK_CHANGED',
+    'PROVIDER_WAIT_CHECKPOINT_INVALID', 'PROVIDER_WAIT_INPUT_CHANGED',
+    'PROVIDER_WAIT_PREFIX_CHANGED', 'PROVIDER_WAIT_REVIEW_REQUIRED',
+    'RESEARCH_RECOVERY_ACTION_CHANGED',
+}
+CONVERSATION_RECOVERY_COUNTS = {
+    'continuation_saved_characters', 'continuation_attempt_count', 'continuation_output_cap',
+}
+CONVERSATION_RECOVERY_FIELDS = CONVERSATION_RECOVERY_COUNTS | {
+    'verification_phase', 'continuation_cause', 'continuation_trigger',
+    'checkpoint_mismatch_reason', 'observed_checkpoint_state',
+    'provider_wait_observed_checkpoint_hash',
+}
+COMMON.update(CONVERSATION_RECOVERY_FIELDS)
+COUNTS.update(CONVERSATION_RECOVERY_COUNTS | {'acceptance_advertised_tool_count'})
+ACCEPTANCE_FIELDS.add('acceptance_advertised_tool_count')
+HASHES.add('provider_wait_observed_checkpoint_hash')
+TOOL_FIELDS.add('issue_continuation_state')
+FIELD_NAMES.update({'after', 'expected_updated_at', 'names', 'inventory_cursor', 'inventory_version', 'catalog_only'})
+ENUMS['incident_capture_site'].update({'GITHUB_VERIFICATION_CATCH', 'OUTPUT_CONTINUATION_OPEN_CATCH'})
+ENUMS.update({
+    'verification_phase': {
+        'DESCENDANTS', 'AUTHORITY', 'SNAPSHOT', 'RECEIPT_RENDERING',
+        'CLAIM_PLANNING', 'CLAIM_EXTRACTION', 'ACCEPTANCE_RENDERING', 'PUBLICATION',
+    },
+    'continuation_cause': {'NO_SAVED_TASK', 'CAPACITY_REJECTED', 'HTTP_REJECTED', 'TRANSPORT_FAILURE', 'OPEN_FAILED'},
+    'continuation_trigger': {'PROVIDER_OUTPUT_LIMIT', 'REQUESTED_LENGTH', 'STREAM_INTERRUPTED', 'RESTORED_DRAFT', 'NO_PROGRESS', 'REPETITIVE_OUTPUT'},
+    'checkpoint_mismatch_reason': {
+        'MISSING_CHECKPOINT', 'STATE_CHANGED', 'RESUME_DISALLOWED', 'DIGEST_CHANGED',
+        'TASK_BINDING_CHANGED', 'TOOL_BINDING_CHANGED', 'EVIDENCE_DIGEST_INVALID',
+    },
+    'observed_checkpoint_state': {'WAITING_PROVIDER_LIMIT', 'TOOL_RESULTS_READY', 'TOOL_HANDOFF', 'BLOCKED_RECOVERY', 'COMPLETED', 'PARTIAL', 'FAILED', 'UNKNOWN'},
+    'issue_continuation_state': {'MISSING_AFTER', 'MALFORMED_AFTER', 'FILTER_MISMATCH', 'PAGE_MISMATCH', 'INITIAL_PAGE_WITH_AFTER', 'AUTHENTICATED_CONNECTION_REQUIRED'},
+})
 
 
 def fields_for(area):

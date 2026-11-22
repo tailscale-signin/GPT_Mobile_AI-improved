@@ -227,29 +227,22 @@ class ProviderWaitStore @Inject constructor(
     }
 
     /** Retry reattaches to the durable slot owner before preparing a new action. */
-    internal suspend fun reattach(message: MessageV2): ProviderWaitDeadline? {
+    internal suspend fun reattach(message: MessageV2): ProviderWaitDeadline? = reattach(message, null)
+
+    /** A workflow control may only reschedule the exact run and fence shown to the user. */
+    internal suspend fun reattachOwned(message: MessageV2, expected: AgentRun): ProviderWaitDeadline? = reattach(message, expected)
+
+    private suspend fun reattach(message: MessageV2, expected: AgentRun?): ProviderWaitDeadline? {
         val dao = database.agentPersistenceDao()
-        val current = dao.recoveryMessage(message.id) ?: return null
-        if (current.chatId != message.chatId || current.platformType != message.platformType) return null
-        val runId = current.currentRunId ?: return null
-        val row = dao.rawProviderWait(runId) ?: return null
-        val run = dao.recoveryRun(runId) ?: return null
-        if (current.ownershipFence != row.fence || run.ownershipFence != row.fence || run.status !in setOf("WAITING_PROVIDER_LIMIT", "QUEUED", "RUNNING")) return null
-        val deadline = ProviderWaitSchedule.prepare(listOf(row), settings::fetchPlatformV2s).single().project()
-        // Profile loading can suspend. A cancelled or replaced owner cannot
-        // schedule another wake after the read-only deadline projection.
-        val latest = dao.recoveryMessage(message.id) ?: return null
-        val latestRun = dao.recoveryRun(runId) ?: return null
-        if (dao.rawProviderWait(runId) != row ||
-            latest.currentRunId != runId ||
-            latest.ownershipFence != row.fence ||
-            latestRun.ownershipFence != row.fence ||
-            latestRun.status !in setOf("WAITING_PROVIDER_LIMIT", "QUEUED", "RUNNING")
-        ) {
-            return null
-        }
-        if (latestRun.status != "RUNNING") ProviderLimitResumeWorker.enqueue(context, row.scope, deadline.effectiveRetryAt)
-        return deadline
+        return ProviderWaitReattachment.reattach(
+            message,
+            expected,
+            dao::recoveryMessage,
+            dao::recoveryRun,
+            dao::rawProviderWait,
+            project = { row -> ProviderWaitSchedule.prepare(listOf(row), settings::fetchPlatformV2s).single().project() },
+            enqueue = { scope, retryAt -> ProviderLimitResumeWorker.enqueue(context, scope, retryAt) }
+        )
     }
 
     suspend fun combinedRoots(runIds: Set<String>): List<String> = database.agentPersistenceDao().providerWaits().filter { it.runId in runIds }.mapNotNull { row ->
@@ -403,11 +396,15 @@ class ProviderWaitStore @Inject constructor(
 
     private suspend fun recoveryForWait(row: ProviderWait, saved: ProviderWaitCheckpoint, failure: ProviderRecoveryFailure): ProviderRecoveryFailure {
         val expected = saved.decision?.gitHubCheckpoint
+        var observedCheckpoint: JsonObject? = null
+        var checkpointRead = false
         val original = failure.original ?: expected?.let { checkpoint ->
             val digest = JsonPrimitive(checkpoint.digest)
             val recorded = saved.recoveryFailure?.takeIf { it["checkpoint_digest"] == digest }
             (recorded?.get("original_interruption") as? JsonObject) ?: try {
                 val source = workspace?.protectedSynthesisCheckpoint("github-output:${checkpoint.binding}")
+                observedCheckpoint = source
+                checkpointRead = workspace != null
                 source?.takeIf {
                     checkpoint.matches(it) || (it["latest_recovery_failure"] as? JsonObject)?.get("checkpoint_digest") == digest
                 }?.let(ProviderRecoveryFailure::interruption)
@@ -418,7 +415,12 @@ class ProviderWaitStore @Inject constructor(
                 null
             }
         }
-        return ProviderRecoveryFailure(failure.code, ProviderRecoveryFailure.retainedInterruption(original), ProviderRecoveryFailure.correlation(expected, saved.resumeClaimId, row.fence, row.runId))
+        val observation = if (expected != null && failure.code == "PROVIDER_WAIT_CHECKPOINT_CHANGED" && checkpointRead) {
+            ProviderRecoveryFailure.checkpointCorrelation(expected, observedCheckpoint)
+        } else {
+            JsonObject(ProviderRecoveryFailure.retainedDetails(saved.recoveryFailure).orEmpty() + failure.correlation)
+        }
+        return ProviderRecoveryFailure(failure.code, ProviderRecoveryFailure.retainedInterruption(original), JsonObject(observation + ProviderRecoveryFailure.correlation(expected, saved.resumeClaimId, row.fence, row.runId)))
     }
 
     private suspend fun synchronizeRecoveryCheckpointSafely(row: ProviderWait, code: String) {

@@ -38,6 +38,10 @@ class ChatBenchmarkActivity : ComponentActivity() {
         val streaming = intent.getBooleanExtra("stream", false)
         setContent {
             MaterialTheme {
+                if (intent.getStringExtra("screen") == "voice") {
+                    VoiceRenderingBenchmarkFixture()
+                    return@MaterialTheme
+                }
                 if (intent.getStringExtra("screen") == "diagnostic-export") {
                     DiagnosticExportFixture()
                     return@MaterialTheme

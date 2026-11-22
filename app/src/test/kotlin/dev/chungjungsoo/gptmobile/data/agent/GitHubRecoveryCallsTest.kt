@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
@@ -10,6 +11,79 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubRecoveryCallsTest {
+    @Test fun inventorySavedPagesRemoveOnlyMatchingContextFromAnExactlyIssuedCursor() {
+        val cursor = "inventory:20:1536"
+        for ((name, sourceArguments) in listOf(
+            "github_context__selected" to """{"action":"branches"}""",
+            "github_issue__selected" to """{"action":"list","state":"open","per_page":100,"page":1}""",
+            "github_pr__selected" to """{"action":"list","head":"owner:work","state":"open","page":1}"""
+        )) {
+            val original = Json.parseToJsonElement(sourceArguments).jsonObject
+            val source = ProviderEvent.ToolCall("source", name, original)
+            val receipt = Json.parseToJsonElement("""{"saved_view_id":"inventory","saved_view_cursor_ids":["$cursor"]}""").jsonObject
+            val result = AgentToolResult("source", ToolResultContent.Text("retained inventory"), false, executionReceipt = receipt)
+            val exchanges = listOf(AgentToolExchange(listOf(source), listOf(result)))
+            val tools = mapOf(name to tool(name))
+            val request = source.copy(callId = "page", arguments = JsonObject(original + ("view_cursor" to JsonPrimitive(cursor)))).captureProviderInvocation()
+            val repaired = GitHubRecoveryCalls.resolve(request, exchanges, tools)
+            assertEquals(buildJsonObject { put("view_cursor", cursor) }, repaired.arguments)
+            assertEquals(request.providerInvocation(), repaired.providerInvocation())
+            assertEquals(request, GitHubRecoveryCalls.resolve(request, emptyList(), tools))
+            assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(AgentToolExchange(listOf(source.copy(name = name + "_other")), listOf(result))), tools))
+            for ((field, value) in listOf(
+                "view_cursor" to JsonPrimitive(cursor + "0"),
+                "page" to JsonPrimitive(2),
+                "state" to JsonPrimitive("closed"),
+                "owner" to JsonPrimitive("another-owner"),
+                "action" to JsonPrimitive("update")
+            )) {
+                val changed = request.copy(arguments = JsonObject(request.arguments + (field to value)))
+                assertEquals(changed, GitHubRecoveryCalls.resolve(changed, exchanges, tools))
+            }
+        }
+    }
+
+    @Test fun missingIssueAfterIsFilledOnlyFromOneIdenticalIssuedContinuationRecipe() {
+        val name = "github_issue__selected"
+        val arguments = Json.parseToJsonElement("""{"action":"list","owner":"owner","repo":"repo","page":2,"per_page":100,"state":"open"}""").jsonObject
+        val request = ProviderEvent.ToolCall("next", name, arguments).captureProviderInvocation()
+        val tools = mapOf(name to tool(name))
+        fun issued(cursor: String, issuer: String = name, failed: Boolean = false, sourceName: String = name): AgentToolExchange {
+            val recipe = buildJsonObject {
+                put("tool", issuer)
+                put("arguments", JsonObject(arguments + ("after" to JsonPrimitive(cursor))))
+            }
+            return AgentToolExchange(
+                listOf(ProviderEvent.ToolCall("prior", sourceName, JsonObject(arguments + ("page" to JsonPrimitive(1))))),
+                listOf(
+                    AgentToolResult(
+                        "prior",
+                        ToolResultContent.Json(
+                            buildJsonObject {
+                                put("schema", "github.operation.v1")
+                                put("continuation_call", recipe)
+                            }
+                        ),
+                        failed
+                    )
+                )
+            )
+        }
+        val exchanges = listOf(issued("issued-cursor"))
+        val repaired = GitHubRecoveryCalls.resolve(request, exchanges, tools)
+        assertEquals(JsonObject(arguments + ("after" to JsonPrimitive("issued-cursor"))), repaired.arguments)
+        assertEquals(request.providerInvocation(), repaired.providerInvocation())
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, emptyList(), tools))
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(issued("issued-cursor", name + "_other")), tools))
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(issued("issued-cursor", sourceName = name + "_other")), tools))
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(issued("issued-cursor", failed = true)), tools))
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, exchanges + issued("another-cursor"), tools))
+        for ((field, value) in listOf("page" to JsonPrimitive(3), "per_page" to JsonPrimitive(30), "state" to JsonPrimitive("closed"), "repo" to JsonPrimitive("other"), "action" to JsonPrimitive("update"))) {
+            val changed = request.copy(arguments = JsonObject(arguments + (field to value)))
+            assertEquals(changed, GitHubRecoveryCalls.resolve(changed, exchanges, tools))
+        }
+    }
+
     @Test fun redundantLogsActionResolvesOnlyForTheExactCursorIssuedByThatLogRead() {
         val name = "github_ci__selected"
         val cursor = "00000000-0000-4000-8000-000000000001:47:1536"

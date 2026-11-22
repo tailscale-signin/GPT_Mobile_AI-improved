@@ -12,6 +12,62 @@ import org.junit.Test
 class VoiceDiagnosticTraceTest {
     @After fun clear() = VoiceDiagnosticTrace.clearAll()
 
+    @Test fun actualFallbackProviderOwnsPerformanceSamplesAndNeverBecomesExportedRawData() {
+        var time = 100L
+        val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})
+        fun play(provider: String, duration: Long) {
+            val probe = trace.beginReply(time)
+            probe.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+            probe.responseText()
+            probe.speechProvider(provider)
+            probe.engineReady(true)
+            time += duration
+            probe.firstAudio(VoiceDiagnosticTrace.FirstAudio.AUDIO_TIMESTAMP)
+        }
+        play("qnn-gpu", 100)
+        play("cpu", 400)
+        val rows = trace.performance.snapshots.value.rows.filter { it.metric == "text_to_audio" }
+        assertEquals(setOf("QNN_GPU", "KOKORO_CPU"), rows.map { it.engine }.toSet())
+        assertEquals(100L, rows.single { it.engine == "QNN_GPU" }.p50Ms)
+        assertEquals(400L, rows.single { it.engine == "KOKORO_CPU" }.p50Ms)
+        assertEquals("KOKORO", trace.incidentFields()["voice_engine"])
+        assertFalse(trace.incidentFields().values.contains("qnn-gpu"))
+        assertFalse("voice_first_audio_basis" in trace.incidentFields())
+        assertEquals(400L, trace.incidentFields()["voice_response_to_first_audio_ms"])
+        val fallback = trace.beginReply(time)
+        fallback.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        fallback.speechProvider("qnn-gpu")
+        fallback.engineReady(true)
+        fallback.responseText()
+        fallback.speechProvider("cpu")
+        time += 500
+        fallback.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
+        val cold = trace.performance.snapshots.value.rows.single { it.metric == "text_to_audio" && it.warm == false }
+        assertEquals("KOKORO_CPU", cold.engine)
+        assertEquals(500L, cold.p50Ms)
+    }
+
+    @Test fun captureReadinessAndAcousticEndpointUseSeparateObservedClocks() {
+        var time = 100L
+        val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})
+        val probe = trace.advance(1, reset = true)
+        probe.engine(VoiceDiagnosticTrace.Engine.LOCAL)
+        probe.captureRequested()
+        time = 300
+        probe.microphoneReady()
+        time = 500
+        probe.acousticSpeechEnded(elapsedAgoMs = 150)
+        time = 800
+        probe.speechEnded()
+        probe.finalTranscript()
+        probe.finalTranscript()
+        val rows = trace.performance.snapshots.value.rows
+        assertEquals(200L, rows.single { it.metric == "capture_ready" }.p50Ms)
+        assertEquals(450L, rows.single { it.metric == "speech_end" }.p50Ms)
+        assertEquals(1, rows.single { it.metric == "speech_end" }.count)
+        assertEquals(0L, trace.incidentFields()["voice_speech_end_to_transcript_ms"])
+    }
+
     @Test fun timingUsesObservedStagesAndSnapshotAgeDoesNotRefreshOnRead() {
         var time = 100L
         val retained = mutableListOf<IssueReportDiagnostics>()

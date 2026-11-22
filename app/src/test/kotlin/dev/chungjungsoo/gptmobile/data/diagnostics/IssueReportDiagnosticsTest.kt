@@ -14,6 +14,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IssueReportDiagnosticsTest {
+    @Test fun conversationRecoveryRequiresCapabilityForPresentOmittedAndUnavailableEvidence() {
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "INCIDENT", "continuation_cause" to "OPEN_FAILED"), 1_800_000_000_000L))
+        val feature = IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE
+        assertTrue(feature in capture.requiredServiceFeatures())
+        val without = capture.copy(values = capture.values - "continuation_cause")
+        assertTrue(feature in without.copy(omittedFields = listOf("continuation_cause")).requiredServiceFeatures())
+        assertTrue(feature in without.copy(unavailableFields = without.unavailableFields + "verification_phase").requiredServiceFeatures())
+        val boundary = without.copy(values = without.values + ("incident_capture_site" to JsonPrimitive("GITHUB_VERIFICATION_CATCH")))
+        assertTrue(feature in boundary.requiredServiceFeatures())
+    }
+
     @Test fun codeLessProviderStreamErrorRetainsClosedPrivacySafeOrigin() {
         val fields = mapOf<String, Any?>(
             "diagnostic_area" to "INCIDENT",

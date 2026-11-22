@@ -196,8 +196,8 @@ extensions.configure<ApplicationExtension> {
         targetSdk = 37
         // Interim release: Play-ready artifact gates remain mandatory while full
         // Unified Reliability v2 milestone acceptance is still in progress.
-        versionCode = 145
-        versionName = "0.9.66.11"
+        versionCode = 146
+        versionName = "0.9.66.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -363,7 +363,8 @@ extensions.configure<ApplicationExtension> {
             // do not mix it with checked-in HTP stubs/skeletons via pickFirsts.
             // libQnnHtpPrepare is part of Qualcomm's documented LiteRT dispatch
             // runtime, including for precompiled contexts, and must be packaged.
-            excludes += setOf("**/libQnnDsp*.so", "**/libQnnGpu.so")
+            excludes += "**/libQnnDsp*.so"
+            // The opt-in Kokoro GPU prototype uses the matching QAIRT GPU backend.
             if (geniexRuntime) excludes += "**/libLiteRtDispatch_Qualcomm.so"
         }
     }
@@ -611,6 +612,7 @@ dependencies {
         implementation(libs.geniex.android)
     } else {
         implementation(libs.qnn.runtime)
+        implementation(libs.qnn.speech)
     }
 
     // License page UI

@@ -16,6 +16,27 @@ class GitHubRequestCompletionTest {
     private val sha = "a".repeat(40)
     private val task = "Implement the feature"
 
+    @Test fun anInformationalAnswerWithoutCollectedEvidenceRequestsAReadAndRemainsUnverified() {
+        val request = "Explain the selected repository implementation"
+        val claims = List(2) {
+            buildJsonObject {
+                put("kind", "not_measured")
+                put("status", "NOT_MEASURED")
+                put("subject", "Repository source was not observed")
+            }
+        }
+        val result = GitHubRequestCompletion.evaluate(request, claims, JsonObject(emptyMap()), emptyMap())
+        val row = result.getValue("requirements").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("READ_ONLY"), result["task_kind"])
+        assertEquals(JsonPrimitive("INFORMATIONAL_CLAIMS"), row["acceptance_evaluator_branch"])
+        assertEquals(JsonPrimitive("ACCEPTANCE_EVIDENCE_MISSING"), row["acceptance_mismatch"])
+        assertEquals(JsonPrimitive("NOT_TESTED"), row["acceptance_state"])
+        assertEquals(JsonPrimitive("PARTIAL"), result["task_outcome"])
+        assertEquals(JsonPrimitive(false), result["completion_verified"])
+        assertTrue(row.getValue("acceptance").toString().contains("No repository observations were collected"))
+        assertTrue(row.getValue("acceptance").toString().contains("authorized source read"))
+    }
+
     @Test fun unmappedAcceptanceRecordsItsActualEvaluatorWithoutInventingExecutionEvidence() {
         val claims = listOf(buildJsonObject { put("status", "VERIFIED") })
         val result = GitHubRequestCompletion.evaluate(task, claims, JsonObject(emptyMap()), mapOf("read" to receipt("status", JsonObject(emptyMap()))))

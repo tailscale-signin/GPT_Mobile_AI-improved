@@ -36,7 +36,8 @@ internal data class VoicePreferences(
     val buttonSounds: Boolean = false,
     val pause: VoicePauseDuration = VoicePauseDuration.SHORT,
     val performance: VoicePerformanceMode = VoicePerformanceMode.BALANCED,
-    val speakWhileGenerating: Boolean = true
+    val speakWhileGenerating: Boolean = true,
+    val tuning: VoiceTuningPreferences = VoiceTuningPreferences()
 )
 
 internal data class VoiceModelStores(val moonshine: LocalVoiceModelStore, val kokoro: LocalVoiceModelStore)

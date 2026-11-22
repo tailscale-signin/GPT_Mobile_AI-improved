@@ -12,6 +12,7 @@ internal object KokoroModelPack {
     private const val ARCHIVE = "$REVISION.tar.bz2"
     const val DOWNLOAD_BYTES = 132_353_410L
     const val MODEL = "model.int8.onnx"
+    const val MODEL_SHA256 = "75635ea3b85a32d00094dcdd61a258aba87c160f7c264c304a7b3ae9d734195e"
     const val VOICES = "voices.bin"
     const val TOKENS = "tokens.txt"
     const val US_LEXICON = "lexicon-us-en.txt"
@@ -26,7 +27,7 @@ internal object KokoroModelPack {
 
     // Only the English renderer's inputs are installed from the verified release.
     private val files = listOf(
-        file(MODEL, 114_202_993, "75635ea3b85a32d00094dcdd61a258aba87c160f7c264c304a7b3ae9d734195e"),
+        file(MODEL, 114_202_993, MODEL_SHA256),
         file(VOICES, 28_200_960, "1c5a5b983d3d50d8586d437a51f3faa2da7919ce76a013c081e65671a3447c29"),
         file(TOKENS, 687, "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425"),
         file(US_LEXICON, 5_956_885, "7daaab53a181be9885b853a8582bf1838186317e5dadacbcef9c426d6fa0da14"),

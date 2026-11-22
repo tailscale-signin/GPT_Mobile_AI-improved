@@ -8,12 +8,15 @@ internal data class VoicePhraseAudio(val samples: FloatArray, val durations: Lon
 
 internal interface VoicePhraseEngine : AutoCloseable {
     val executionProvider: String get() = "cpu"
+    val executionEvidence: VoiceSpeechExecutionEvidence? get() = null
     fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio
     fun resetCancellation()
     fun cancel()
 }
 
 internal interface VoicePhraseEngineFactory {
+    val selectedBackend: VoiceSpeechBackend get() = VoiceSpeechBackend.CPU
+
     /** Includes model/runtime/configuration revision; changing it invalidates the warm engine. */
     val identity: String
     fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine
@@ -23,7 +26,7 @@ internal interface VoicePhraseEngineFactory {
 }
 
 internal object TimedKokoroPhraseEngineFactory : VoicePhraseEngineFactory {
-    override val identity = "kokoro-cpu-ort-1.28.2-v2"
+    override val identity = "kokoro-cpu-${TimedKokoro.RUNTIME_ID}-${KokoroModelPack.MODEL_SHA256}"
     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
         val engine = TimedKokoro(
             File(directory, KokoroModelPack.MODEL).absolutePath,

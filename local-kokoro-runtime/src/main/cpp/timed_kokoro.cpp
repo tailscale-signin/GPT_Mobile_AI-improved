@@ -3,6 +3,8 @@
 #include <jni.h>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <cstring>
 #include <cmath>
 #include <fstream>
 #include <memory>
@@ -13,6 +15,7 @@
 #include <vector>
 
 #include "kokoro_pronunciation.h"
+#include "kokoro_execution_provider.h"
 #include "sherpa-onnx/csrc/offline-tts-kokoro-model.h"
 #include "sherpa-onnx/csrc/symbol-table.h"
 #include "sherpa-onnx/csrc/text-utils.h"
@@ -112,19 +115,28 @@ struct Model : Frontend {
 
   void EnsureSession(int64_t token_count) const {
     if (kokoro && (config.provider == "cpu" || specialized_tokens == token_count)) return;
-    // Keep at most one specialized graph. These opt-in prototypes include graph
-    // preparation in their measured latency instead of hiding it as a speedup.
+    // Bound native model residency to one exact token shape. Preparation is
+    // included in the backend comparison instead of being hidden as a speedup.
+    stage = "preparing";
+    const auto started = std::chrono::steady_clock::now();
     kokoro.reset();
+    qualification = {};
+    kokoro_runtime::LastQualification() = {};
     kokoro = std::make_unique<sherpa_onnx::OfflineTtsKokoroModel>(config, library_dir,
         profile_prefix + "-" + std::to_string(token_count), token_count);
     Require(kokoro->GetMetaData().sample_rate == kSampleRate &&
             kokoro->GetMetaData().max_token_len == max_tokens, "Unexpected Kokoro pack");
     specialized_tokens = token_count;
+    selected_device = config.provider == "cpu" ? kokoro_runtime::SelectedDevice{} : kokoro_runtime::LastSelectedDevice();
+    prepare_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
   }
 
   jobject Generate(JNIEnv *env, const std::string &text, jint sid, jfloat speed) const {
     Require(!cancelled.load(), "Kokoro generation cancelled");
+    stage = "frontend";
+    phrase_tokens = 0;
     Phrase phrase = Encode(text);
+    phrase_tokens = phrase.tokens.size();
     EnsureSession(phrase.tokens.size());
     Require(sid >= 0 && sid < kokoro->GetMetaData().num_speakers &&
             std::isfinite(speed) && speed >= .5f && speed <= 2.f, "Invalid Kokoro voice or speed");
@@ -132,7 +144,13 @@ struct Model : Frontend {
     std::array<int64_t, 2> shape{1, static_cast<int64_t>(phrase.tokens.size())};
     auto input = Ort::Value::CreateTensor<int64_t>(memory, phrase.tokens.data(), phrase.tokens.size(),
                                                     shape.data(), shape.size());
+    stage = "synthesis";
+    const auto started = std::chrono::steady_clock::now();
     auto out = kokoro->Run(std::move(input), sid, speed, run_options);
+    synthesis_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    if (config.provider != "cpu" && qualification.accelerator.kernels == 0)
+      qualification = kokoro_runtime::LastQualification();
+    stage = "validating";
     Require(!cancelled.load(), "Kokoro generation cancelled");
     Require(out.size() == 2, "Kokoro timing output missing");
     auto audio = out[0].GetTensorTypeAndShapeInfo();
@@ -150,6 +168,9 @@ struct Model : Frontend {
       units += durations[i];
     }
     Require(units * kSamplesPerUnit == static_cast<int64_t>(frames), "Kokoro timing and PCM disagree");
+    const auto *pcm = out[0].GetTensorData<float>();
+    for (size_t i = 0; i < frames; ++i)
+      Require(std::isfinite(pcm[i]), "Kokoro returned non-finite PCM");
 
     auto cls = env->FindClass("dev/melo/kokoro/TimedKokoro$Audio");
     if (!cls) return nullptr;
@@ -165,6 +186,7 @@ struct Model : Frontend {
     std::vector<jlong> java_times(durations, durations + phrase.tokens.size());
     env->SetLongArrayRegion(times, 0, java_times.size(), java_times.data());
     env->SetIntArrayRegion(words, 0, phrase.word_tokens.size(), phrase.word_tokens.data());
+    stage = "ready";
     return env->NewObject(cls, constructor, samples, times, words);
   }
 
@@ -186,6 +208,12 @@ struct Model : Frontend {
   std::string profile_prefix;
   mutable std::unique_ptr<sherpa_onnx::OfflineTtsKokoroModel> kokoro;
   mutable int64_t specialized_tokens = 0;
+  mutable int64_t phrase_tokens = 0;
+  mutable int64_t prepare_ms = 0;
+  mutable int64_t synthesis_ms = 0;
+  mutable kokoro_runtime::Qualification qualification;
+  mutable kokoro_runtime::SelectedDevice selected_device;
+  mutable const char *stage = "frontend";
   Ort::RunOptions run_options;
   std::mutex cancellation_lock;
   std::atomic<bool> cancelled{false};
@@ -195,6 +223,31 @@ struct Model : Frontend {
 void ReportError(JNIEnv *env, const char *kind, const char *message) {
   if (env->ExceptionCheck()) return;
   if (auto cls = env->FindClass(kind)) env->ThrowNew(cls, message);
+}
+
+void ReportModelFailure(JNIEnv *env, const Model *model, const std::exception &error, int native_code) {
+  if (env->ExceptionCheck()) return;
+  const std::string detail(error.what());
+  const char *code = "EXECUTION_FAILED";
+  if (detail.find("fused together") != std::string::npos || detail.find("partition") != std::string::npos)
+    code = "GRAPH_PARTITION";
+  else if (detail.find("CPU only") != std::string::npos) code = "CPU_ONLY";
+  else if (detail.find("No Qualcomm speech device") != std::string::npos) code = "DEVICE_UNAVAILABLE";
+  else if (detail.find("could not load") != std::string::npos || detail.find("register") != std::string::npos)
+    code = "PROVIDER_LOAD";
+  else if (std::string(model->stage) == "validating") code = "OUTPUT_INVALID";
+  else if (std::string(model->stage) == "preparing") code = "GRAPH_PREPARATION";
+  const auto cls = env->FindClass("dev/melo/kokoro/TimedKokoro$Failure");
+  if (!cls) return;
+  const auto constructor = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;)V");
+  if (!constructor) return;
+  auto stage = env->NewStringUTF(model->stage);
+  auto reason = env->NewStringUTF(code);
+  auto provider = env->NewStringUTF(model->config.provider.c_str());
+  if (!stage || !reason || !provider) return;
+  auto failure = static_cast<jthrowable>(env->NewObject(cls, constructor, stage, reason,
+      static_cast<jint>(native_code), static_cast<jint>(model->phrase_tokens), provider));
+  if (failure) env->Throw(failure);
 }
 
 }  // namespace
@@ -226,10 +279,14 @@ extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_TimedKokoro_generatePh
     return reinterpret_cast<Model *>(handle)->Generate(env, FromJava(env, phrase), speaker, speed);
   } catch (const std::bad_alloc &) {
     ReportError(env, "java/lang/OutOfMemoryError", "Kokoro allocation failed");
-  } catch (const std::exception &) {
+  } catch (const Ort::Exception &error) {
     if (reinterpret_cast<Model *>(handle)->cancelled.load())
       ReportError(env, "java/util/concurrent/CancellationException", "Kokoro generation cancelled");
-    else ReportError(env, "java/lang/IllegalStateException", "Kokoro could not generate aligned phrase audio");
+    else ReportModelFailure(env, reinterpret_cast<Model *>(handle), error, error.GetOrtErrorCode());
+  } catch (const std::exception &error) {
+    if (reinterpret_cast<Model *>(handle)->cancelled.load())
+      ReportError(env, "java/util/concurrent/CancellationException", "Kokoro generation cancelled");
+    else ReportModelFailure(env, reinterpret_cast<Model *>(handle), error, -1);
   }
   return nullptr;
 }
@@ -254,6 +311,21 @@ extern "C" JNIEXPORT jint JNICALL Java_dev_melo_kokoro_TimedKokoro_executedAccel
     JNIEnv *, jclass, jlong handle) {
   const auto &model = reinterpret_cast<Model *>(handle)->kokoro;
   return model ? model->ExecutedAcceleratorNodes() : 0;
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_kokoro_TimedKokoro_executionEvidence(
+    JNIEnv *env, jclass, jlong handle) {
+  const auto *model = reinterpret_cast<Model *>(handle);
+  // Kernel profile belongs to the first completed inference of this exact
+  // compiled shape. Synthesis time belongs to the most recent inference.
+  const std::array<jlong, 12> values{1, model->qualification.accelerator.kernels,
+      model->qualification.cpu.kernels, model->qualification.accelerator.microseconds,
+      model->qualification.cpu.microseconds, model->prepare_ms, model->synthesis_ms,
+      model->phrase_tokens, model->selected_device.type, model->selected_device.vendor,
+      model->selected_device.id, std::strcmp(model->stage, "ready") == 0 ? 1 : 0};
+  auto result = env->NewLongArray(values.size());
+  if (result) env->SetLongArrayRegion(result, 0, values.size(), values.data());
+  return result;
 }
 
 extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_KokoroFrontend_open(

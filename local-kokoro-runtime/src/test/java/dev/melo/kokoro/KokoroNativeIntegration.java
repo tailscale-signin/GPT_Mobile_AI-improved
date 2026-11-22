@@ -29,6 +29,18 @@ public final class KokoroNativeIntegration {
             TimedKokoro.Audio audio = model.generate(phrase, 0, 1f);
             validate(audio, encoded);
             require(model.acceleratedNodes() == 0, "CPU cannot claim acceleration");
+            TimedKokoro.Evidence evidence = model.evidence();
+            require(evidence.validatedAudio && evidence.tokenCount == encoded.tokenIds.length, "JNI evidence does not match audio");
+            require(evidence.acceleratorKernels == 0 && evidence.deviceType == -1, "CPU evidence invented accelerator execution");
+            require(evidence.prepareMs >= 0 && evidence.synthesisMs >= 0, "Invalid native stage measurements");
+            try {
+                model.generate(phrase, 0, 0f);
+                throw new AssertionError("Invalid speed was accepted");
+            } catch (TimedKokoro.Failure expected) {
+                require("frontend".equals(expected.stage) && "cpu".equals(expected.provider), "Native failure provenance was lost");
+                require(expected.tokenCount == encoded.tokenIds.length && expected.nativeCode == -1, "Native failure shape/code was lost");
+                require(!expected.getMessage().contains(phrase), "Native failure exposed phrase text");
+            }
             model.cancel();
             try {
                 model.generate(phrase, 0, 1f);

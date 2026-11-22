@@ -15,6 +15,14 @@
 
 namespace kokoro_runtime {
 
+struct Qualification {
+  KokoroProfileStats accelerator;
+  KokoroProfileStats cpu;
+};
+inline Qualification &LastQualification() { static thread_local Qualification value; return value; }
+struct SelectedDevice { int type = -1; uint32_t vendor = 0; uint32_t id = 0; };
+inline SelectedDevice &LastSelectedDevice() { static thread_local SelectedDevice value; return value; }
+
 // ORT keeps a process-wide environment. Keep the plugin registered for its whole
 // lifetime so another warm session cannot unload a provider still in use.
 inline std::shared_ptr<Ort::Env> Environment() {
@@ -38,11 +46,16 @@ inline Ort::SessionOptions Options(Ort::Env &env, int threads,
   static std::once_flag registered;
   std::call_once(registered, [&] {
     env.RegisterExecutionProviderLibrary("QNNExecutionProvider",
-        library_dir + "/libonnxruntime_providers_qnn.so");
+        library_dir + "/libkokoro_qnn_adapter.so");
   });
   std::vector<Ort::ConstEpDevice> selected;
+  const auto requested_type = provider == "qnn-gpu" ? OrtHardwareDeviceType_GPU : OrtHardwareDeviceType_NPU;
   for (const auto &device : env.GetEpDevices()) {
-    if (std::string(device.EpName()) == "QNNExecutionProvider") selected.push_back(device);
+    if (std::string(device.EpName()) == "QNNExecutionProvider" && device.Device().Type() == requested_type) {
+      selected.push_back(device);
+      LastSelectedDevice() = {static_cast<int>(device.Device().Type()), device.Device().VendorId(), device.Device().DeviceId()};
+      break;  // One exact hardware device, never the GPU and HTP together.
+    }
   }
   if (selected.empty()) throw std::runtime_error("No Qualcomm speech device");
   // QAIRT 2.51 and the plugin 2.7.0 are pinned together in Gradle. Explicit
@@ -77,9 +90,10 @@ inline int FinishQualification(Ort::Session &session) {
   std::string json(size, '\0');
   file.seekg(0);
   if (!file.read(json.data(), size)) throw std::runtime_error("Incomplete speech profile");
-  const int executed = KokoroExecutedProviderKernels(json, "QNNExecutionProvider");
-  if (executed == 0) throw std::runtime_error("Kokoro graph executed on CPU only");
-  return executed;
+  LastQualification() = {KokoroExecutedProviderStats(json, "QNNExecutionProvider"),
+      KokoroExecutedProviderStats(json, "CPUExecutionProvider")};
+  if (LastQualification().accelerator.kernels == 0) throw std::runtime_error("Kokoro graph executed on CPU only");
+  return LastQualification().accelerator.kernels;
 }
 
 }  // namespace kokoro_runtime

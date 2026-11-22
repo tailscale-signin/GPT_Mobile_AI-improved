@@ -1,4 +1,5 @@
 -keep class dev.melo.kokoro.TimedKokoro { *; }
 -keep class dev.melo.kokoro.TimedKokoro$Audio { *; }
+-keep class dev.melo.kokoro.TimedKokoro$Failure { *; }
 -keep class dev.melo.kokoro.KokoroFrontend { *; }
 -keep class dev.melo.kokoro.KokoroFrontend$EncodedPhrase { *; }

@@ -123,10 +123,10 @@ internal class VoiceBackendViewModel internal constructor(
             return
         }
         configuration = next
-        rebuild(preference)
+        rebuild(preference, force)
     }
 
-    private fun rebuild(preference: VoiceBackendPreference) {
+    private fun rebuild(preference: VoiceBackendPreference, retest: Boolean) {
         val epoch = ++generation
         update?.cancel()
         backendStatus = "Preparing speech settings…"
@@ -142,7 +142,10 @@ internal class VoiceBackendViewModel internal constructor(
         }
         update = viewModelScope.launch {
             try {
-                val prepared = withContext(io) { prepare(preference, report) }
+                val prepared = withContext(io) {
+                    if (retest) QualcommVoicePhraseEngineFactory.requestRetest(context, preference.backend)
+                    prepare(preference, report, retest)
+                }
                 if (generation == epoch) {
                     backendStatus = prepared.status
                     mutable.value = mutable.value.copy(factory = prepared.factory, loaded = true)
@@ -162,11 +165,19 @@ internal class VoiceBackendViewModel internal constructor(
 
     private data class Prepared(val factory: VoicePhraseEngineFactory, val status: String)
 
-    private suspend fun prepare(value: VoiceBackendPreference, report: (String) -> Unit): Prepared = when (value.backend) {
-        VoiceSpeechBackend.CPU -> Prepared(TimedKokoroPhraseEngineFactory, "Speech runs on this phone's CPU.")
+    private suspend fun prepare(value: VoiceBackendPreference, report: (String) -> Unit, retest: Boolean): Prepared = when (value.backend) {
+        VoiceSpeechBackend.CPU -> Prepared(QualcommVoicePhraseEngineFactory(context, value.backend, report), "Speech runs on this phone's CPU.")
+        VoiceSpeechBackend.AUTO -> Prepared(
+            QualcommVoicePhraseEngineFactory(context, value.backend, report, calibrateAll = retest),
+            if (retest) {
+                "The next reply compares CPU, GPU and NPU with two speech samples. Playback starts after the comparison."
+            } else {
+                "Auto uses the fastest verified measurement on this phone, or CPU until you compare engines."
+            }
+        )
         VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP -> Prepared(
             QualcommVoicePhraseEngineFactory(context, value.backend, report),
-            "Experimental: hardware execution will be checked when speech starts. CPU fallback is available."
+            "Hardware execution and aligned audio are checked when speech starts. The result is saved for this model, runtime and phone."
         )
         VoiceSpeechBackend.GATEWAY_CUDA -> {
             val connection = settings.getProviderConnection(value.gatewayUid)

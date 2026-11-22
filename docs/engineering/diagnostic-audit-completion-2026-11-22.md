@@ -143,3 +143,84 @@ environment, and no leak-test pass is claimed. These component results do not
 replace current-head Android tests, instrumented rendering, packaged DEX checks
 or exact-main publication verification. Physical GPU/NPU and target-phone
 audio/frame/memory performance remain unqualified as disclosed in the release.
+
+## Full-suite corrections and shared-branch integration
+
+PR validation run `45052936588`, job `137305365276`, executed 12,256 Android
+unit tests on `f225c20`: 12,222 passed, 29 failed and five were skipped. Those
+failures are retained as failure evidence, not counted as a passing qualification.
+The following corrections address the observed failures without raising budgets,
+removing assertions, or weakening the required workflow aggregate:
+
+- GitHub checkpoint classification now snapshots at most sixteen distinct cause
+  objects once. Cycles stop by object identity, and policy/persistence checks share
+  that bounded snapshot. Compact tool descriptions preserve all schema structure
+  and validators while reducing the ordinary schema estimate from 1,677 to 1,508
+  tokens. Irreducible invocation tests retain their receipt/no-replay assertions and
+  expect the existing explicit `BLOCKED` terminal outcome.
+- Gateway client fixtures reset process-wide reachability evidence between tests.
+  Explicit status refresh now clears the selected service's transport cooldown;
+  passive cache invalidation, other ports, and network-generation boundaries retain
+  their restrictions. Cancellation remains separate from a transport failure.
+- Stream failure tests distinguish the closed application classification from the
+  real HTTP status and original upstream semantic code. Authentication failures
+  retain the actionable Settings → Platforms guidance. Typed local recovery
+  reports once again retain their ownership fence.
+- Migration tests verify the current schema, retained data, the diagnostic paging
+  index, and the unclaimed privacy state of legacy conversations. Log grouping
+  asserts process/session-scoped incident identities. Staged export fixtures match
+  the capture's owned timing collector, preserving cancellation, resume, redaction,
+  report correlation and chunk-integrity checks. Markdown tests verify effective
+  laid-out character colours, including plain text's inherited TextStyle.
+
+Concurrent commits `5e4ab1e` (setup, routing, benchmark accounting and voice export)
+and `eeb2a20` (local privacy receipts, highlights and conversation badges) remain
+in the shared history. The latter advances Room to 53. Concurrent commit `2fa6f59`
+adds an early audit schema gate and artifact; its equivalent local draft change was
+discarded in favour of the worker's committed implementation. The mandatory PR
+schema-drift gate is unchanged.
+
+Room 53 was exported by real KSP on `2fa6f59` in audit run `45058161842`, job
+`137318034810` (generation succeeded at `2026-11-22T19:02:51Z`). Artifact
+`14768098633` retains the 164,660-byte export; its schema SHA-256 is
+`4d9294e56972dd23bb99841b263e026d9f4d97faa0acf71d4d40da4f9b28afdb` and Room
+identity is `489fe6ad9e5f86a5af203af446e77dbf`. Those exact bytes and regenerated
+agent build facts are imported; later CI must confirm there is no schema drift.
+
+Focused host verification passes eleven log-grouping tests using the real grouping,
+correlation and log-entry source, with explicit Android boundaries. Provider helper
+checks reproduce two production defects before the repairs and pass all four after.
+The GitHub schema harness verifies all fourteen operation schemas are structurally
+unchanged after excluding description text; bounded-cause checks cover self-cycles,
+two-object cycles and a forty-object chain. A real-Ktor host harness reproduces all
+eleven Gateway failures on `5e4ab1e`, then passes all 38 current admission/dashboard
+tests with the repairs; Android logging and injection remain explicit boundaries.
+These focused results do not replace
+the next complete Android, emulator, packaged-artifact and exact-main release runs.
+
+Privacy integration review also found that an older UI snapshot could erase the
+conversation's Privacy Mode marker or restore protection ranges cleared by a later
+unmasked send. Snapshot persistence now retains the current marker and uses saved,
+matching body/owner/revision evidence instead of incoming display claims. Edited
+bodies and unknown revisions cannot borrow old protection. Cross-conversation or
+role-changing message IDs fail within the transaction. Four Room regressions
+cover marker isolation, cleared/narrowed ranges, edited/unowned revisions and
+rollback. Nine exact-helper/receipt host scenarios passed; real transactions remain
+subject to device execution.
+
+Device acceptance now executes the Room 52→53 migration and all twenty persistence
+cases, including those four regressions, on both configured emulators. It also
+requires explicit successful receipts for all nine caption cases. Previously,
+these database classes were only compiled and three caption methods lacked named
+receipt requirements. All existing failure/skip checks remain; 67 host tests
+validate the updated shell runner, missing/skipped receipt rejection and source
+declaration matching. The authentic Room 53 export and matching build facts were
+then committed concurrently as `7c4b142`; all three files were byte-identical to
+the verified local import, so the worker's commit was retained without duplication.
+
+The integrated working tree passes canonical `bash scripts/validate-local.sh fast`
+with 608 host tests, generated metadata/inventories, dependency and secret checks,
+Android resource/regex checks and whitespace validation. All nineteen changed
+Kotlin files pass ktlint 1.3.1. The proposed 379-file release delta remains within
+its explicit scoped manifest. Full Android and both device lanes remain pending
+for the pushed revision; no earlier head's pass is used as final merge evidence.

@@ -105,7 +105,8 @@ internal object ExecutionCompletionDiagnostics {
             val eligible = when (key) {
                 "provider_wait_decision_state", "provider_wait_no_wait_reason", "provider_wait_scheduler_state", "provider_wait_state", "provider_wait_persisted" -> waitDecision
                 "no_output_kind", "no_output_stop_reason", "no_output_parent_invocation_hash", "visible_bytes", "reasoning_bytes", "tool_call_count", "no_output_repairs", "no_output_repair_limit", "continuation_attempt", "continuation_limit", "output_tokens", "reasoning_tokens", "effective_output_tokens", "serialized_output_tokens", "repair_scheduled", "draft_sha256", "segment_sha256", "evidence_digest" -> output
-                "evidence_conflict_reason", "evidence_record_kind", "evidence_writer_phase", "ownership_fence", "record_identity_sha256", "proposed_payload_sha256", "retained_payload_sha256" -> persistence
+                "ownership_fence" -> persistence || recovery
+                "evidence_conflict_reason", "evidence_record_kind", "evidence_writer_phase", "record_identity_sha256", "proposed_payload_sha256", "retained_payload_sha256" -> persistence
                 "expected_tool_journal_digest", "observed_tool_journal_digest", "expected_tool_evidence_digest", "observed_tool_evidence_digest", "tool_checkpoint_binding_sha256", "queued_tool_count", "unsettled_tool_count", "settled_tool_count", "checkpoint_validation_stage" -> recovery
                 "provider_failure_kind", "upstream_error_code", "upstream_error_type", "stream_event_type", "provider_response_id_hash", "http_status" -> provider
                 "provider_semantic_status" -> provider && details["provider_failure_kind"] == JsonPrimitive("RATE_LIMIT")

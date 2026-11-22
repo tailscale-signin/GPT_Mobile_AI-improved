@@ -40,16 +40,19 @@ class GroupedAppLogsTest {
 
     @Test fun recoveredMetadataReadKeepsRawFailuresWithoutResolvingAnotherOperation() {
         val grouping = IncrementalAppLogGroups()
-        val failed = AppLogEntry(1000, "D", "Network", "HTTP call failed: unexpected end of stream · incident_id=read-a")
-        val exchange = AppLogEntry(1100, "I", "Gateway", "CLIENT_EXCHANGE · incident_id=read-a · transport=TIMEOUT")
-        val other = AppLogEntry(1200, "I", "Gateway", "CLIENT_EXCHANGE · incident_id=read-b · transport=TIMEOUT")
+        fun entry(time: Long, level: String, tag: String, message: String) = AppLogEntry(time, level, tag, message, processId = 42, processSessionId = "test-session")
+        val failed = entry(1000, "D", "Network", "HTTP call failed: unexpected end of stream · incident_id=read-a")
+        val exchange = entry(1100, "I", "Gateway", "CLIENT_EXCHANGE · incident_id=read-a · transport=TIMEOUT")
+        val other = entry(1200, "I", "Gateway", "CLIENT_EXCHANGE · incident_id=read-b · transport=TIMEOUT")
+        val readA = "incident:session:12:test-session:process:2:42:read-a"
+        val readB = "incident:session:12:test-session:process:2:42:read-b"
         val initial = grouping.update(listOf(failed, exchange, other))
-        assertEquals(setOf("read-a", "read-b"), initial.flatMap { it.unresolvedIncidentIds }.toSet())
-        val recovered = AppLogEntry(1300, "I", "Gateway", "METADATA_READ_OUTCOME · incident_id=read-a · outcome=COMPLETED")
+        assertEquals(setOf(readA, readB), initial.flatMap { it.unresolvedIncidentIds }.toSet())
+        val recovered = entry(1300, "I", "Gateway", "METADATA_READ_OUTCOME · incident_id=read-a · outcome=COMPLETED")
         val updated = grouping.update(listOf(failed, exchange, other, recovered))
-        assertEquals(setOf("read-a", "read-b"), updated.flatMap { it.incidentIds }.toSet())
-        assertEquals(setOf("read-b"), updated.flatMap { it.unresolvedIncidentIds }.toSet())
-        assertEquals(listOf(failed, exchange, recovered), updated.single { "read-a" in it.incidentIds }.rawDetails)
+        assertEquals(setOf(readA, readB), updated.flatMap { it.incidentIds }.toSet())
+        assertEquals(setOf(readB), updated.flatMap { it.unresolvedIncidentIds }.toSet())
+        assertEquals(listOf(failed, exchange, recovered), updated.single { readA in it.incidentIds }.rawDetails)
     }
 
     @Test fun largeRepeatedGroupRetainsEveryOriginalEntry() {

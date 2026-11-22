@@ -1,5 +1,9 @@
+import ast
+from contextlib import redirect_stdout
 import importlib.util
+import io
 from pathlib import Path
+import re
 import tempfile
 import unittest
 import json
@@ -195,6 +199,75 @@ INSTRUMENTATION_STATUS_CODE: 0
         self.assertNotIn('scripts/', manifest['allowedPaths'])
         with self.assertRaisesRegex(ValueError, 'Changes outside release scope'):
             release_scope.validate(root, manifest, required + ['scripts/unrelated-regression.py'])
+
+
+class LatestFeatureAcceptanceReceiptsTest(unittest.TestCase):
+    SOURCES = {
+        'privacy-migration-instrumentation.txt': 'data/database/PrivacyModeMigrationInstrumentedTest',
+        'agent-persistence-instrumentation.txt': 'data/database/AgentPersistenceDaoInstrumentedTest',
+        'voice-conversation-instrumentation.txt': 'presentation/ui/voice/VoiceConversationInstrumentedTest',
+    }
+
+    def setUp(self):
+        self.root = Path(__file__).resolve().parents[2]
+        runner = (self.root / 'scripts/run_release0950_acceptance.sh').read_text()
+        validator = runner.split("python3 - <<'CHECK'\n", 1)[1].rsplit('\nCHECK', 1)[0]
+        self.contracts = {}
+        selected = []
+        for node in ast.parse(validator).body:
+            if not isinstance(node, ast.For):
+                continue
+            for child in ast.walk(node):
+                if not (isinstance(child, ast.Call) and isinstance(child.func, ast.Name) and child.func.id == 'check_instrumentation'):
+                    continue
+                path = child.args[0]
+                if not (isinstance(path, ast.BinOp) and isinstance(path.right, ast.Constant) and path.right.value in self.SOURCES):
+                    continue
+                self.assertFalse(child.keywords, 'Latest feature receipts must not permit skipped tests')
+                self.assertNotIn(path.right.value, self.contracts)
+                self.contracts[path.right.value] = (ast.literal_eval(child.args[1]), ast.literal_eval(node.iter))
+                selected.append(node)
+        self.assertEqual(set(self.SOURCES), set(self.contracts), 'Acceptance must require every latest-feature suite')
+        self.validator = compile(ast.Module(body=selected, type_ignores=[]), '<actual-acceptance-receipts>', 'exec')
+
+    def test_every_current_privacy_persistence_and_caption_method_has_a_required_receipt(self):
+        for name, source in self.SOURCES.items():
+            with self.subTest(suite=name):
+                text = (self.root / f'app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/{source}.kt').read_text()
+                declared = re.findall(r'@Test\s+fun\s+(\w+)\s*\(', text)
+                test_class, required = self.contracts[name]
+                self.assertEqual('dev.chungjungsoo.gptmobile.' + source.replace('/', '.'), test_class)
+                self.assertTrue(declared)
+                self.assertEqual(len(required), len(set(required)), 'Duplicate required receipt')
+                self.assertCountEqual(declared, required)
+
+    @staticmethod
+    def packets(test_class, methods, omitted=None, skipped=None):
+        packets = []
+        for method in methods:
+            if method == omitted:
+                continue
+            identity = f'INSTRUMENTATION_STATUS: class={test_class}\nINSTRUMENTATION_STATUS: test={method}\n'
+            packets.append(identity + 'INSTRUMENTATION_STATUS_CODE: 1\n')
+            packets.append(identity + f'INSTRUMENTATION_STATUS_CODE: {-4 if method == skipped else 0}\n')
+        return ''.join(packets) + 'INSTRUMENTATION_CODE: -1\n'
+
+    def test_actual_acceptance_checks_reject_each_missing_or_skipped_feature_receipt(self):
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()):
+            folder = Path(directory)
+            valid = {name: self.packets(test_class, methods) for name, (test_class, methods) in self.contracts.items()}
+            for name, packets in valid.items():
+                (folder / name).write_text(packets)
+            namespace = {'folder': folder, 'check_instrumentation': smoke.check_instrumentation}
+            exec(self.validator, namespace)
+            for name, (test_class, methods) in self.contracts.items():
+                for method in methods:
+                    for outcome in ('omitted', 'skipped'):
+                        with self.subTest(suite=name, method=method, outcome=outcome):
+                            (folder / name).write_text(self.packets(test_class, methods, **{outcome: method}))
+                            with self.assertRaises(ValueError):
+                                exec(self.validator, namespace)
+                            (folder / name).write_text(valid[name])
 
 
 if __name__ == "__main__":

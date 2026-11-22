@@ -151,9 +151,12 @@ class ExecutionCompletionDiagnosticsTest {
             put("unsettled_tool_count", 1)
             put("settled_tool_count", 3)
             put("checkpoint_validation_stage", "TOOL_JOURNAL")
+            put("ownership_fence", 3)
         }
         val context = capture("PROVIDER_WAIT_CHECKPOINT_CHANGED", details)
+        assertEquals(3L, context.ownershipFence)
         val diagnostics = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive(3), diagnostics.values["ownership_fence"])
         assertEquals(JsonPrimitive(2), diagnostics.values["provider_wait_queued_tool_count"])
         assertEquals(JsonPrimitive("TOOL_JOURNAL"), diagnostics.values["checkpoint_validation_stage"])
         assertNotNull(diagnostics.values["provider_wait_expected_tool_journal_hash"])
@@ -168,6 +171,10 @@ class ExecutionCompletionDiagnosticsTest {
         assertNull(ExecutionCompletionDiagnostics.validValue("provider_wait_no_wait_reason", JsonPrimitive("private exception")))
         assertNull(ExecutionCompletionDiagnostics.validValue("no_output_reasoning_bytes", JsonPrimitive("19128")))
         assertNull(ExecutionCompletionDiagnostics.validValue("provider_semantic_status", JsonPrimitive(200)))
+        assertFalse(ExecutionCompletionDiagnostics.publicFields("CHAT_FAILED", details).containsKey("ownership_fence"))
+        assertFalse(ExecutionCompletionDiagnostics.publicFields("PROVIDER_WAIT_CHECKPOINT_CHANGED", details + ("failure_origin" to JsonPrimitive("provider"))).containsKey("ownership_fence"))
+        assertNull(ExecutionCompletionDiagnostics.validValue("ownership_fence", JsonPrimitive(-1)))
+        assertNull(ExecutionCompletionDiagnostics.validValue("ownership_fence", JsonPrimitive("3")))
     }
 
     @Test fun fuzzySearchReasonSurvivesPublicPrecheckWithoutQueryText() {

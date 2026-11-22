@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -105,7 +106,8 @@ class GitHubContinuationInvocationTest {
         assertEquals(JsonArray(emptyList()), saved?.get("pending_calls"))
         assertEquals(JsonPrimitive("Saved prefix."), saved?.get("draft"))
         val output = events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { (it.event as? ProviderEvent.TextDelta)?.text }.joinToString("")
-        assertTrue(output.contains("Status: PARTIAL. Recorded failure: `REPLAY_EVIDENCE_REQUIRED`."))
+        assertTrue(output.contains("Status: BLOCKED. Recorded failure: `REPLAY_EVIDENCE_REQUIRED`."))
+        assertFalse("A retained receipt cannot establish a partial task outcome.", output.contains("Status: PARTIAL"))
         assertTrue(output.contains("Stopped during `planning`."))
     }
 

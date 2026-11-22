@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -12,6 +13,7 @@ import java.io.EOFException
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -28,7 +30,12 @@ class GatewayAdmissionClientTest {
     private fun capabilities(source: String = sha) = """{"gatewayVersion":"15.0.0","contractVersion":1,"gateway_id":"original-installation","principal_id":"network:shared","instanceId":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","build":{"sourceCommit":"$source"},"features":{"conversation_sync_v1":true,"job_catalog_v1":true},"contracts":{"gatewayConversations":["gptmobile.gateway.conversations.v1"],"gatewayJobCatalog":["gptmobile.gateway.job-catalog.v1"]}}"""
 
     @Before fun clearSharedCapabilityEvidence() {
+        LocalServiceHealth.checkAgain(config.apiUrl)
         dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy.shared.invalidate()
+    }
+
+    @After fun clearFixtureTransportEvidence() {
+        LocalServiceHealth.checkAgain(config.apiUrl)
     }
 
     @Test fun unsupportedCapabilitiesShareNegativeEvidenceUntilExplicitRefresh() = runBlocking {

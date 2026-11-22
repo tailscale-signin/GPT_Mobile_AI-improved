@@ -76,8 +76,14 @@ internal class GitHubVerifiedSession(
     private var verificationOnlyAttempted = false
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
-    private fun failureCauses(error: Throwable): Sequence<Throwable> =
-        generateSequence(error) { current -> current.cause?.takeUnless { it === current } }.take(16)
+    private fun failureCauses(error: Throwable): List<Throwable> = buildList {
+        val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
+        var current: Throwable? = error
+        while (current != null && size < 16 && seen.add(current)) {
+            add(current)
+            current = if (size < 16) current.cause else null
+        }
+    }
 
     private suspend fun retainProgress(tools: List<AgentToolDefinition>, failure: ProviderEvent.Failed? = null) {
         try {
@@ -773,9 +779,10 @@ internal class GitHubVerifiedSession(
     private suspend fun FlowCollector<ProviderEvent>.handleCheckpointFailure(error: Throwable) {
         // Flow.catch preserves collector failures and cancellation. A failed
         // progress checkpoint stops work before any further provider/tool action.
-        val policy = failureCauses(error)
+        val causes = failureCauses(error)
+        val policy = causes
             .filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
-        val persistence = failureCauses(error).filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()
+        val persistence = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()
         val original = (error as? ProgressCheckpointFailure)?.originalFailure
         if (original != null) {
             val checkpoint = buildJsonObject {
@@ -1173,8 +1180,9 @@ internal class GitHubVerifiedSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            failureCauses(failure).filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
-            val persistence = failureCauses(failure).filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()
+            val causes = failureCauses(failure)
+            causes.filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+            val persistence = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()
             if (persistence != null) {
                 // A local save failure must not hide an already uncertain remote
                 // operation or be mislabeled as a provider/verification failure.
@@ -1182,11 +1190,11 @@ internal class GitHubVerifiedSession(
                 emit(originalFailure?.copy(failureDetails = JsonObject(originalFailure.failureDetails.orEmpty() + ("persistence_failure" to requireNotNull(local.failureDetails)))) ?: local)
                 return@flow
             }
-            failureCauses(failure).firstOrNull {
+            causes.firstOrNull {
                 it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
                     it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied
             }?.let { throw it }
-            val policy = failureCauses(failure).filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
+            val policy = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
             if (policy != null) {
                 evidence.retainVerdict(
                     buildJsonObject {

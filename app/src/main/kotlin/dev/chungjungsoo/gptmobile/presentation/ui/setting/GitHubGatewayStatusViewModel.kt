@@ -73,8 +73,9 @@ internal class GitHubGatewayStatusViewModel @Inject constructor(private val sett
     }
 
     fun refresh() {
-        mutable.value.target?.config?.let(GatewayClientDiagnostics::refreshDiagnostics)
-        client.refresh()
+        val config = mutable.value.target?.config
+        config?.let(GatewayClientDiagnostics::refreshDiagnostics)
+        client.refresh(config)
         monitor.refresh()
         loadDiagnosticPage(0)
     }

@@ -45,7 +45,7 @@ internal object ProviderStreamFailure {
         } else {
             when (failure.kind) {
                 ProviderFailureKind.BUDGET -> "The provider reported that its credit or budget allowance is unavailable. Check the allowance or choose another AI profile, then resume the saved work."
-                ProviderFailureKind.AUTHENTICATION -> "The provider could not authenticate the generation. Update the platform connection, then resume the saved work."
+                ProviderFailureKind.AUTHENTICATION -> "The provider could not authenticate the generation. Update the platform connection in Settings → Platforms, then resume the saved work."
                 ProviderFailureKind.PERMISSION, ProviderFailureKind.FORBIDDEN_UNKNOWN -> "The provider denied access to this generation. Check the selected profile's access before resuming."
                 ProviderFailureKind.CONTENT_POLICY -> "The provider declined this generation under its content policy. The saved evidence is retained."
                 ProviderFailureKind.RATE_LIMIT -> "The provider rate-limited the generation. Saved evidence is retained for the provider cooldown."

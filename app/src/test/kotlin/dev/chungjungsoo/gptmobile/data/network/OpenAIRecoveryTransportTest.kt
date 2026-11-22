@@ -83,15 +83,23 @@ class OpenAIRecoveryTransportTest {
                         withContext(ProviderWaitContext(durableRateLimits = true) {}) {
                             val error = api.streamChatCompletion(request, 5, config).toList().mapNotNull { it.error }.single()
                             assertEquals(1, requests)
-                            assertEquals(status.toString(), error.code)
+                            assertEquals(if (stream && status == 503) "PROVIDER_UNAVAILABLE" else status.toString(), error.code)
                             assertEquals(false, error.retryable)
                             assertFalse(error.providerLimit?.knownNotAccepted == true)
                             val details = requireNotNull(error.failureDetails)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(if (stream) 200 else status), details["http_status"])
+                            if (stream) {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(if (status == 429) "RATE_LIMIT" else "UNAVAILABLE"), details["provider_failure_kind"])
+                                if (status == 503) assertEquals(kotlinx.serialization.json.JsonPrimitive("503"), details["upstream_error_code"])
+                            }
                             assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                            assertFalse(details.containsKey("cause_types"))
                             val recovery = details.getValue("gateway_recovery").jsonObject
                             val receipts = recovery.getValue("attempt_receipts") as kotlinx.serialization.json.JsonArray
                             assertEquals(2, receipts.size)
                             assertEquals(kotlinx.serialization.json.JsonPrimitive(11), receipts.first().jsonObject["reasoning_output_bytes"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(status), receipts.last().jsonObject["terminal_status_code"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive("backend_http_error"), receipts.last().jsonObject["terminal_error_code"])
                             val known = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(details)
                             assertEquals(if (measured) 7 else null, known?.outputTokens)
                             assertFalse(known?.outputComplete == true)
@@ -823,9 +831,15 @@ class OpenAIRecoveryTransportTest {
                         assertEquals(kotlinx.serialization.json.JsonPrimitive("backend_failed"), failure.failureDetails?.get("upstream_error_code"))
                         assertRetainedServerPrecheck(failure.failureDetails)
                     } else {
-                        assertEquals("backend_failed", failure.errorCode)
+                        assertEquals("PROVIDER_GENERATION_FAILED", failure.errorCode)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive("UNKNOWN"), failure.failureDetails?.get("provider_failure_kind"))
+                        assertNull(failure.failureDetails?.get("upstream_error_code"))
                         assertFalse(failure.failureDetails?.get("requires_reconciliation") == kotlinx.serialization.json.JsonPrimitive(true))
                     }
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(200), failure.failureDetails?.get("http_status"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(type), failure.failureDetails?.get("stream_event_type"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("generation_completed"))
+                    assertEquals(if (type == "response.failed") kotlinx.serialization.json.JsonPrimitive("response-1") else null, failure.failureDetails?.get("provider_response_id"))
                 }
             }
         }

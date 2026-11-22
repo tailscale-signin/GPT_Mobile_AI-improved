@@ -146,6 +146,107 @@ class AgentPersistenceDaoInstrumentedTest {
     }
 
     @Test
+    fun staleSnapshotCannotClearPrivacyMarkerOrChangeAnotherConversation() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val stale = newChat().let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        val other = newChat().let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        dao.markPrivacyModeUsed(stale.id)
+
+        dao.saveChatSnapshot(stale, emptyList(), emptyMap())
+
+        assertTrue(requireNotNull(dao.getChatRoom(stale.id)).privacyModeEnabled)
+        assertFalse(requireNotNull(dao.getChatRoom(other.id)).privacyModeEnabled)
+    }
+
+    @Test
+    fun staleSnapshotsCannotRestoreOrWidenProtectionForCurrentBodyAndRevisions() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val text = "Alice and Bob"
+        val both = PrivacyProtectionReceipt.create(text, listOf(PrivacyProtectedRange(0, 5), PrivacyProtectedRange(10, 13)))
+        fun timeline(receipt: PrivacyProtectionReceipt) = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, privacyProtection = receipt))
+        for (ranges in listOf(emptyList(), listOf(PrivacyProtectedRange(0, 5)))) {
+            val room = newChat().let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+            val stale = MessageV2(
+                chatId = room.id,
+                content = text,
+                platformType = "profile-1",
+                timeline = timeline(both),
+                revisions = listOf(AssistantRevision(text, createdAt = 42L, runId = "older", timeline = timeline(both)))
+            ).let { it.copy(id = dao.insertMessage(it).toInt()) }
+            val narrowed = PrivacyProtectionReceipt.create(text, ranges)
+            dao.recordPrivacyProtection(stale, narrowed)
+            val pending = timeline(PrivacyProtectionReceipt.create(text, emptyList(), confirmed = false))
+            for (snapshot in listOf(stale, stale.copy(timeline = pending, revisions = stale.revisions.map { it.copy(timeline = pending) }))) {
+                dao.saveChatSnapshot(room, listOf(snapshot), emptyMap())
+                dao.recordPrivacyProtection(stale, both)
+
+                val saved = requireNotNull(dao.recoveryMessage(stale.id))
+                assertEquals(text, saved.content)
+                assertEquals(narrowed, saved.timeline.last().privacyProtection)
+                assertEquals(narrowed, saved.revisions.single().timeline.last().privacyProtection)
+                val expected = if (ranges.isEmpty()) emptyList() else listOf("Alice")
+                assertEquals(expected, saved.effectivePrivacyProtectedValues())
+                assertEquals(expected, saved.copy(activeRevisionIndex = 0).effectivePrivacyProtectedValues())
+            }
+        }
+    }
+
+    @Test
+    fun editedSnapshotBodiesAndUnownedRevisionsCannotBorrowProtection() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val room = newChat().let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        fun timeline(text: String, name: String) = listOf(
+            AssistantTimelineItem(AssistantTimelineItemType.NOTICE, privacyProtection = PrivacyProtectionReceipt.create(text, listOf(PrivacyProtectedRange(text.indexOf(name), text.indexOf(name) + name.length))))
+        )
+        val original = MessageV2(
+            chatId = room.id,
+            content = "Hello Alice",
+            platformType = null,
+            timeline = timeline("Hello Alice", "Alice"),
+            revisions = listOf(AssistantRevision("Earlier Alice", createdAt = 42L, runId = "older", timeline = timeline("Earlier Alice", "Alice")))
+        ).let { it.copy(id = dao.insertMessage(it).toInt()) }
+        val edited = original.copy(
+            content = "Hello Bob",
+            timeline = timeline("Hello Bob", "Bob"),
+            revisions = listOf(
+                original.revisions.single().copy(content = "Earlier Bob", timeline = timeline("Earlier Bob", "Bob")),
+                AssistantRevision(original.content, createdAt = 99L, runId = "unowned", timeline = original.timeline)
+            )
+        )
+
+        dao.saveChatSnapshot(room, listOf(edited), emptyMap())
+
+        val saved = requireNotNull(dao.recoveryMessage(original.id))
+        assertEquals(edited.content, saved.content)
+        assertTrue(saved.effectivePrivacyProtectedValues().isEmpty())
+        assertTrue(requireNotNull(saved.timeline.last().privacyProtection).validFor(saved.content))
+        for (index in saved.revisions.indices) {
+            assertTrue(saved.copy(activeRevisionIndex = index).effectivePrivacyProtectedValues().isEmpty())
+            val revision = saved.revisions[index]
+            assertTrue(requireNotNull(revision.timeline.last().privacyProtection).validFor(revision.content))
+        }
+    }
+
+    @Test
+    fun snapshotRejectsMessagesOwnedByAnotherConversation() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val source = newChat().copy(privacyModeEnabled = true).let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        val target = newChat().let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        val foreign = MessageV2(chatId = source.id, content = "Alice", platformType = null).let { it.copy(id = dao.insertMessage(it).toInt()) }
+        val retained = MessageV2(chatId = target.id, content = "Keep this history", platformType = null).let { it.copy(id = dao.insertMessage(it).toInt()) }
+
+        val failure = runCatching {
+            dao.saveChatSnapshot(target.copy(privacyModeEnabled = true), listOf(foreign.copy(chatId = target.id)), emptyMap())
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertEquals(source.id, requireNotNull(dao.recoveryMessage(foreign.id)).chatId)
+        assertEquals(retained, dao.recoveryMessage(retained.id))
+        assertTrue(requireNotNull(dao.getChatRoom(source.id)).privacyModeEnabled)
+        assertFalse(requireNotNull(dao.getChatRoom(target.id)).privacyModeEnabled)
+    }
+
+    @Test
     fun removedQueuedProfileCannotDispatchOrOverwriteCurrentMembership() = runBlocking {
         val stale = ChatRoomV2(title = "Queued", enabledPlatform = listOf("profile-1", "profile-2"))
         val id = database.agentPersistenceDao().insertChatRoom(stale).toInt()

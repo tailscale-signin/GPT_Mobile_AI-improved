@@ -74,6 +74,7 @@
     "app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/53.json",
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/database/AgentPersistenceDaoInstrumentedTest.kt",
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/database/PrivacyModeMigrationInstrumentedTest.kt",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/DeepResearchSettingsInstrumentedTest.kt",
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationInstrumentedTest.kt",
     "app/src/main/AndroidManifest.xml",
     "app/src/main/assets/diagnostics/app-code-inventory.json",

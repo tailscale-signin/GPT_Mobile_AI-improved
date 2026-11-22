@@ -359,3 +359,32 @@ The combined correction passes all 608 canonical host checks, all three changed
 Kotlin files pass ktlint 1.3.1, and the complete 405-file proposed release delta
 passes the unchanged exact-path scope validator. Generated architecture,
 diagnostic schema, app inventory and Room-derived metadata checks also pass.
+
+## Packaged native verification and Research editor state
+
+Concurrent `459261b` and `e9148ab` are retained. The APK check now requires both
+Kokoro timing and adapter libraries for each packaged ABI, verifies ELF identity,
+and checks the adapter's direct dependencies against same-ABI packaged libraries
+or the existing Android system-library list. All seventeen focused native
+inventory cases pass. This validates packaging rules, not physical accelerator
+execution. An eight-way Room replacement regression is now required on both
+acceptance APIs, bringing the explicit gate to 21 persistence, one migration and
+nine caption receipts per API. The selected-Gateway refresh fixture also checks
+the null-selection path separately.
+
+Research presets, report options and feature controls now follow the editor's
+read-only and saving state. Save captures both draft groups together before
+suspending, and edits are rejected during the save. All shared tab call sites
+retain their trailing selection callbacks. Review found one older instrumented
+assertion still expecting retired effort/cap wording; it now checks the visible
+`500 source goal · 100% depth` text. The 500-source custom goal, disabled editor,
+320 dp width and enlarged-text fixture are unchanged.
+
+The integrated Research revision passes 615 canonical host checks, all six
+changed Kotlin files pass ktlint, and its 410-file release delta passes the
+existing exact-path scope. The assertion follow-up adds only its explicit test
+path. Full current-head Android, 31 focused receipts per API, native APK byte
+checks and both exact-main publication verifications remain required.
+
+The assertion follow-up passes the same 615 canonical checks, its changed Kotlin
+file passes ktlint, and the proposed 411-file delta passes the scope validator.

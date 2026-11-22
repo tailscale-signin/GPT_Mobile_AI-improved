@@ -55,6 +55,6 @@ class DeepResearchSettingsInstrumentedTest {
                 }
             }
         }
-        compose.onNodeWithText("100% effort · 500-source goal · No additional cap").assertExists()
+        compose.onNodeWithText("500 source goal · 100% depth").assertExists()
     }
 }

@@ -67,6 +67,7 @@ class GatewayEngineeringSubmissionTest {
         coEvery { store.deferCommandLookup(any()) } returns Unit
         coEvery { modelPreparation.prepareSelected(any(), any(), any(), any()) } returns null
         coEvery { history.identity(any()) } returns GatewayScopeIdentity("gateway", "owner")
+        coEvery { conversations.requireUnprotectedConversation(8) } returns dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(8, false)
         coEvery { conversations.requireSavedSelection(any()) } returns Unit
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(githubProfileOverrides = mapOf(selected.uid to GitHubChatProfileOverride(githubTools = true)))
     }

@@ -512,6 +512,110 @@ class GitHubProviderJournalRecoveryTest {
         }
     }
 
+    @Test fun changedStoredProjectionCannotAuthorizeProviderWaitOrReplay() = runBlocking {
+        for (shared in listOf(false, true)) {
+            for (change in listOf("body", "hash")) {
+                val directory = Files.createTempDirectory("github-projection-integrity").toFile()
+                try {
+                    var dispatches = 0
+                    val journal = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+                    journal.enqueue(listOf(call))
+                    journal.execute(call) {
+                        dispatches++
+                        AgentToolResult(call.callId, ToolResultContent.Text("Retained result"), shared, dispatched = !shared, errorCode = if (shared) "INVALID_ARGUMENTS" else null, sharedResult = shared)
+                    }
+                    val receipts = journal.providerWaitReceipts()
+                    assertEquals(shared, receipts.single().sourceResultSha256 == null)
+                    val digest = requireNotNull(GitHubProviderReplayEvidence.journalDigest(receipts))
+                    rewriteStoredResult(directory, call.callId) { result ->
+                        val altered = if (change == "body") "body" to JsonPrimitive("Changed retained result") else "projectionSha256" to JsonPrimitive("not-a-sha")
+                        JsonObject(result + altered)
+                    }
+                    val restored = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true, expectedProviderJournalDigest = digest)
+                    val message = "Tool recovery ledger has invalid stored-result projection proof."
+                    assertEquals(message, runCatching { journal.providerWaitReceipts() }.exceptionOrNull()?.message)
+                    assertEquals(message, runCatching { restored.recoverySnapshot() }.exceptionOrNull()?.message)
+                    assertEquals(
+                        message,
+                        runCatching {
+                            restored.execute(call) {
+                                dispatches++
+                                error("Changed retained data must not authorize dispatch")
+                            }
+                        }.exceptionOrNull()?.message
+                    )
+                    assertEquals(1, dispatches)
+                } finally {
+                    directory.deleteRecursively()
+                }
+            }
+        }
+    }
+
+    @Test fun legacyAbsentProjectionHashesStillRestoreAndDeduplicateSettledCalls() = runBlocking {
+        for (shared in listOf(false, true)) {
+            val directory = Files.createTempDirectory("github-legacy-projection").toFile()
+            try {
+                var dispatches = 0
+                val journal = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+                journal.enqueue(listOf(call))
+                journal.execute(call) {
+                    dispatches++
+                    AgentToolResult(call.callId, ToolResultContent.Text("Retained result"), shared, dispatched = !shared, errorCode = if (shared) "INVALID_ARGUMENTS" else null, sharedResult = shared)
+                }
+                val receipts = journal.providerWaitReceipts()
+                val digest = requireNotNull(GitHubProviderReplayEvidence.journalDigest(receipts))
+                rewriteStoredResult(directory, call.callId) { JsonObject(it - "projectionSha256") }
+                val restored = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true, expectedProviderJournalDigest = digest)
+                assertEquals(receipts, restored.providerWaitReceipts())
+                assertEquals(ToolResultContent.Text("Retained result"), restored.recoverySnapshot().completedExchanges.single().results.single().content)
+                assertTrue(
+                    restored.execute(call) {
+                        dispatches++
+                        error("A settled call must not dispatch again")
+                    }.sharedResult
+                )
+                assertEquals(1, dispatches)
+            } finally {
+                directory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test fun changedPriorBudgetProjectionCannotAuthorizeAnExplicitRetry() = runBlocking {
+        val directory = Files.createTempDirectory("github-budget-projection-integrity").toFile()
+        try {
+            val journal = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+            journal.enqueue(listOf(call))
+            journal.complete(call, AgentToolResult(call.callId, ToolResultContent.Text("Budget rejected"), true, dispatched = false, errorCode = "BUDGET_EXHAUSTED", sharedResult = true))
+            journal.prepareExplicitBudgetRetry()
+            rewriteStoredResult(directory, call.callId, "priorBudgetRejection") { JsonObject(it + ("body" to JsonPrimitive("Changed refusal"))) }
+            var dispatches = 0
+            val restored = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+            assertEquals(
+                "Tool recovery ledger has invalid stored-result projection proof.",
+                runCatching {
+                    restored.execute(call) {
+                        dispatches++
+                        error("A changed retained refusal must not authorize dispatch")
+                    }
+                }.exceptionOrNull()?.message
+            )
+            assertEquals(0, dispatches)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    private fun rewriteStoredResult(directory: File, callId: String, field: String = "result", transform: (JsonObject) -> JsonObject) {
+        val file = File(directory, "tool-batches/2").listFiles()!!.single { it.extension == "json" }
+        val saved = Json.parseToJsonElement(file.readText()) as JsonObject
+        val entries = saved.getValue("entries") as JsonObject
+        val entry = entries.getValue(callId) as JsonObject
+        val result = entry.getValue(field) as JsonObject
+        file.writeText(JsonObject(saved + ("entries" to JsonObject(entries + (callId to JsonObject(entry + (field to transform(result))))))).toString())
+    }
+
     @Test fun protectedJournalBoundaryRejectsChangedIdentitiesAndUnsettledOperationsBeforeDispatch() = runBlocking {
         for (change in listOf("missing", "extra", "renamed", "source", "dispatched", "error", "unknown", "pending", "started")) {
             val directory = Files.createTempDirectory("github-changed-journal-boundary").toFile()

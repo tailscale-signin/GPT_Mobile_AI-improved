@@ -48,7 +48,7 @@ class ProviderInterruptionReceiptTest {
         }
     }
 
-    @Test fun baselinePrerequisiteRetainsItsTypedAdmissionWithoutBlamingTheProvider() {
+    @Test fun baselinePrerequisiteRetainsItsEngineeringGuardWithoutBlamingTheProvider() {
         val failure = ProviderEvent.Failed(
             "Select the comparison baseline.",
             errorCode = "REVIEW_INPUT_REQUIRED",
@@ -64,7 +64,7 @@ class ProviderInterruptionReceiptTest {
         val receipt = ProviderFailureReceipt.from(PlatformV2(uid = "profile", name = "Selected", model = "chosen-model"), "github-delivery", failure)
         assertTrue(receipt.valid())
         assertEquals("REVIEW_INPUT_REQUIRED", receipt.errorCode)
-        assertEquals(ProviderFailureStage.ADMISSION, receipt.stage)
+        assertEquals(ProviderFailureStage.ENGINEERING_GUARD, receipt.stage)
         assertEquals(FailureDomain.APPLICATION_VERIFICATION, receipt.failureDomain)
         assertEquals(ProviderResponseFormat.TEXT, receipt.responseFormat)
         assertEquals("review_comparison", receipt.causeStage)

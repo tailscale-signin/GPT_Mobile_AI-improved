@@ -66,7 +66,8 @@ class McpReadRecoveryTest {
             UnknownHostException("DNS unavailable") to 2,
             IllegalStateException("Not connected") to 2,
             java.net.ConnectException("Connection refused") to 1,
-            javax.net.ssl.SSLException("Untrusted peer", EOFException()) to 1,
+            javax.net.ssl.SSLHandshakeException("Untrusted peer").apply { initCause(EOFException()) } to 1,
+            javax.net.ssl.SSLPeerUnverifiedException("Peer not verified") to 1,
             PrivateMetadataDenied() to 1
         )) {
             val evidence = MetadataResponseObservation()
@@ -82,6 +83,26 @@ class McpReadRecoveryTest {
             }
             assertEquals(first.javaClass.simpleName, expectedAttempts, attempts)
             assertFalse(first.javaClass.simpleName, evidence.hasInterruptedRead)
+        }
+    }
+
+    @Test fun anInterruptedTlsReadCannotBecomeProofThatNothingWasDispatched() = runTest {
+        for (failure in listOf(
+            javax.net.ssl.SSLException("Connection reset during response", EOFException()),
+            IllegalStateException("SDK wrapper", javax.net.ssl.SSLException("Connection reset during response", EOFException()))
+        )) {
+            val evidence = MetadataResponseObservation()
+            withContext(evidence) {
+                assertTrue(failure.isMcpInterruptedRead())
+                // The legacy session reconnect path records this acquisition before
+                // another local gate can reject its retry. A general TLS read
+                // failure does not establish that the earlier exchange never began.
+                recordMcpInterruptedRead(failure)
+                recordMcpInterruptedRead(PrivateMetadataDenied())
+            }
+            assertTrue(evidence.hasInterruptedRead)
+            assertEquals(null, evidence.observedAtEpochMs)
+            assertFalse(MetadataResponseObservation().hasInterruptedRead)
         }
     }
 

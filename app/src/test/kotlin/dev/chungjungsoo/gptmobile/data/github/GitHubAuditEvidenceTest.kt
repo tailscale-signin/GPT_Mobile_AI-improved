@@ -172,7 +172,8 @@ class GitHubAuditEvidenceTest {
         assertEquals(JsonPrimitive("CAPTURED_STATUS_COUNTS"), projection["kind"])
         val retained = (result.retainedContent as ToolResultContent.Json).value.jsonObject
         assertEquals(JsonPrimitive(GitHubEvidenceBook.digest(retained.toString())), projection["source_result_sha256"])
-        assertEquals(source, JsonObject(retained - "pagination_progress"))
+        val traversal = json("""{"has_more":false,"upstream_has_more":false,"complete":true,"traversal_state":"COMPLETE"}""")
+        assertEquals(JsonObject(source + traversal), JsonObject(retained - "pagination_progress"))
         assertEquals(JsonPrimitive(true), retained.getValue("pagination_progress").jsonObject["complete"])
         assertEquals(retained["pagination_progress"], data["pagination_progress"])
         assertEquals(18, (retained.getValue("check_details").jsonObject["check_runs"] as JsonArray).size)

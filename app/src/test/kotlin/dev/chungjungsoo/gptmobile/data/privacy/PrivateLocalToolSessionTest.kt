@@ -161,13 +161,15 @@ class PrivateLocalToolSessionTest {
     @Test fun privacyRevisionIsPinnedAtThePhysicalBoundaryAfterSessionOpening() = runTest {
         val fixture = Fixture()
         val local = CalculatorTool()
-        val session = PrivateLocalToolSession(fixture.store, fixture.profile, fixture.turns, listOf(local)) { _, _ ->
-            object : AgentProviderSession {
-                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
-                    fixture.state = fixture.state.copy(revision = 2)
-                    requireNotNull(currentCoroutineContext()[RequestAuthorizationGuard]).validate()
-                    fixture.dispatches++
-                    emit(ProviderEvent.Completed)
+        val session = ConversationPrivacyContext.withCaptured(ConversationPrivacyContext(27, true)) {
+            PrivateLocalToolSession(fixture.store, fixture.profile, fixture.turns, listOf(local)) { _, _ ->
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                        fixture.state = fixture.state.copy(revision = 2)
+                        requireNotNull(currentCoroutineContext()[RequestAuthorizationGuard]).validate()
+                        fixture.dispatches++
+                        emit(ProviderEvent.Completed)
+                    }
                 }
             }
         }

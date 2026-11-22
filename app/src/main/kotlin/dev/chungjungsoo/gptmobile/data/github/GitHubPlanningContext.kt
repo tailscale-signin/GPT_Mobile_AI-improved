@@ -16,7 +16,7 @@ data class GitHubPlanningContext(
 ) {
     fun toolDescription(): String = repository?.let {
         " Selected repository: ${it.fullName}; ref: ${JsonPrimitive(it.ref)}. Omitted owner/repo/ref use this selection. Resolve it before dependent operations; never invent repository or fixture names."
-    } ?: " No repository is selected. Use an explicitly supplied owner/repo or authorized repository discovery; never invent repository or fixture names."
+    } ?: " No repository selected. Use explicit owner/repo or authorized discovery; never invent repository or fixture names."
 
     private fun record() = buildJsonObject {
         put("connection_uid", connectionUid)

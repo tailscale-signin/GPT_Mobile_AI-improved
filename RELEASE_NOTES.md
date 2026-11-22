@@ -45,6 +45,7 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Separate requested local processors from native execution receipts. Failed, recovering and released runtimes do not display retained receipts as current readiness.
 - Explain unavailable research adapters, document text recovery and backup transfer boundaries alongside the existing controls, including credentials, model downloads and device-specific NPU packages.
 - Apply built-in tool changes atomically across settings and imports. Consolidate duplicate built-in grants within selected restore data while preserving other profiles, tools and connection-backed bindings.
+- Retain saved Gateway transcripts when a linked local room is deleted. Reopening stops before network access while the original conversation's privacy policy is unavailable; a missing room cannot be assumed ordinary or silently assigned to a new conversation.
 
 ## Task efficiency and provider consistency
 
@@ -62,6 +63,7 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Make the phone map available to authorized native GitHub model tools without requiring an engineering Gateway or persistent engineering memory. Account, connection, profile, permission and revision checks apply to cached reads and pagination as well as downloads.
 - Preserve Privacy Mode rejection and recovery guidance in the map. Record whether any GitHub request actually left the phone, retain earlier completed reads, and stop queued tool authority when the policy rejects a request.
 - Retain Gateway as an explicit optional source for its additional analysis and durable background indexing. Source switches discard stale results and cursors, and failures never silently change the selected provider.
+- Preserve that selected source in saved-job status checks, uncertain-index reconciliation and continuation recipes. Phone observations cannot consume Gateway cursors or finish Gateway jobs; a typed retained Gateway uncertainty receipt stays bound to its original source.
 - Preserve GitHub cooldown timing and earlier request evidence when a phone-map operation stops locally. A confirmed HTTP response remains observed, and local indexing never acquires Gateway write-reconciliation claims.
 
 ## Execution, GitHub and diagnostic reliability
@@ -69,6 +71,7 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Compile compound engineering requests into stable source-linked acceptance criteria with explicit dependencies and evidence producers; preserve original scope and budgets when refining saved contracts.
 - Require actual pinned source content, complete instruction coverage, a changed regression at the tested revision, complete diff coverage and the matching live draft pull request before their individual obligations can pass.
 - Bind provider cooldown recovery to the complete atomic durable tool journal independently of compacted provider replay; retain local projection identity, original failure provenance, settled-write replay and unknown-write reconciliation.
+- Validate each retained projection hash against the saved result body before recovery, replay or an explicit budget retry. Older entries without this hash retain their existing compatible recovery path; changed saved results cannot authorize another dispatch.
 - Keep task acceptance, delivered responses and output attempts independent; reconcile same-task recovery refusals and require observed scheduler ownership instead of inferring a live executor from saved state.
 - Execute every currently admissible GitHub checklist lane, discover exact missing schemas within the accepted budget, retain candidate admission reasons and correct a proven legacy invalid status recipe once.
 - Route instruction discovery through native path search, replay exact saved continuation selectors, convert search receipts to pinned source reads and derive CI run/job selectors from observed identities.
@@ -133,6 +136,7 @@ The exact release commit must pass the required main workflows, artifact identit
 - Keep enabled calculator, current-date and supplied-text slicing tools available in Privacy Mode through trusted local execution. Each model continuation masks tool arguments and results and retains profile, plugin and personal-data permissions.
 - Keep each turn bound to its saved conversation privacy and captured masking policy through preparation, configuration checks and native callbacks. Changes to masking policy require a fresh turn; Options availability never unlocks a private conversation. Recheck captured authority and cancellation immediately before tool execution.
 - Report privacy-blocked GitHub and MCP requests as local policy decisions with known non-dispatch. Preserve earlier uncertain operations and genuine connection recovery state; a local denial does not create a network cooldown or invalidate a working catalogue.
+- Preserve uncertainty when a legacy TLS response read is interrupted and its reconnect is later blocked locally. Typed handshake and peer-admission failures remain separate; certificate checks and retry policy are unchanged.
 - Preserve bounded DNS, TLS, connection, timeout and HTTP evidence in audit results. Record fixed assertion identities, attempted and passed counts, safe expected/observed states and privacy-policy revisions without exporting request bodies, private terms or credentials.
 - Show the original cached failure, observation age and recorded retry eligibility. Repair actions keep the exact saved connection identity, and untested tools, models and device checks retain explicit qualification steps.
 - Make Options availability changes effective immediately while saving on a background writer. Keep toggles and navigation responsive during disk writes, preserve the latest choice across rapid changes, and expose save failure/retry without cancelling saves when a screen closes. New Chat keeps its privacy selection independently.

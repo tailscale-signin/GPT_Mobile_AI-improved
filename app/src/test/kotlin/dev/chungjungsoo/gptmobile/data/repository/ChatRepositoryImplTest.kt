@@ -2976,7 +2976,9 @@ class ChatRepositoryImplTest {
 
     private fun persistenceFixture(): dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao =
         mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true).also { dao ->
-            coEvery { dao.getChatRoom(any()) } answers { ChatRoomV2(id = firstArg(), title = "Conversation fixture") }
+            coEvery { dao.getChatRoom(any()) } answers {
+                firstArg<Int>().takeIf { it > 0 }?.let { ChatRoomV2(id = it, title = "Conversation fixture") }
+            }
         }
 
     private fun createRepository(

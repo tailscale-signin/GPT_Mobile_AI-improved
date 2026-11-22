@@ -189,11 +189,11 @@ class ToolReportIncidentProjectionTest {
     }
 
     @Test fun savedIndexPublicAliasRequiresTheExactPersistedCallAndTypedPriorCheckpointReceipt() = runBlocking {
-        val event = event("""{"action":"index"}""").copy(modelToolName = "repository_graph__selected")
+        val event = event("""{"action":"index","map_source":"gateway"}""").copy(modelToolName = "repository_graph__selected")
         val tool = RepositoryGraphTool(event.modelToolName) {
             throw GatewayGraphOperationException(GatewayGraphAdmissionException("GRAPH_INDEX_OUTCOME_UNKNOWN", "private earlier request", "CHECK_SAVED_INDEX"), "private-host", "private name", "CHECK_SAVED_INDEX", true)
         }
-        val result = tool.execute(event.callId, buildJsonObject { put("action", "index") })
+        val result = tool.execute(event.callId, Json.parseToJsonElement(event.arguments).jsonObject)
         assertEquals("RECONCILIATION_REQUIRED", ToolReportDiagnostics.reportCode(event, result))
         assertEquals("GRAPH_INDEX_OUTCOME_UNKNOWN", result.errorCode)
         assertFalse(result.dispatched)
@@ -203,7 +203,7 @@ class ToolReportIncidentProjectionTest {
             event.copy(callId = "other-call"),
             event.copy(modelToolName = "repository_graph_other"),
             event.copy(modelToolName = "github_context"),
-            event.copy(arguments = """{"action":"status"}"""),
+            event.copy(arguments = """{"action":"status","map_source":"gateway"}"""),
             event.copy(arguments = "{incomplete"),
             event.copy(arguments = " ".repeat(65_537))
         )) {
@@ -232,7 +232,7 @@ class ToolReportIncidentProjectionTest {
     }
 
     @Test fun http500IndexReportsExactBoundedGraphReasonWithoutDisclosingGatewayIdentity() = runBlocking {
-        val event = event("""{"action":"index"}""").copy(modelToolName = "repository_graph__selected")
+        val event = event("""{"action":"index","map_source":"gateway"}""").copy(modelToolName = "repository_graph__selected")
         val attempted = "a".repeat(64)
         val tool = RepositoryGraphTool(event.modelToolName) {
             throw GatewayGraphOperationException(
@@ -245,7 +245,7 @@ class ToolReportIncidentProjectionTest {
                 currentIndexOutcomeUnknown = true
             )
         }
-        val result = tool.execute(event.callId, buildJsonObject { put("action", "index") })
+        val result = tool.execute(event.callId, Json.parseToJsonElement(event.arguments).jsonObject)
         val fields = ToolReportDiagnostics.fields(event, result)
         assertEquals("REPOSITORY_GRAPH_UNAVAILABLE", result.errorCode)
         assertEquals("GRAPH_HTTP_REJECTED", fields["tool_reason_code"])
@@ -261,7 +261,7 @@ class ToolReportIncidentProjectionTest {
     }
 
     @Test fun graphTransportReportsOnlyTheCurrentGatewayFailure() = runBlocking {
-        val call = event("""{"action":"metrics"}""").copy(modelToolName = "repository_graph__selected")
+        val call = event("""{"action":"metrics","map_source":"gateway"}""").copy(modelToolName = "repository_graph__selected")
         for ((cause, expected) in listOf(
             java.net.ConnectException("private endpoint") to "DISCONNECTED",
             java.net.UnknownHostException("private host") to "DNS",
@@ -274,7 +274,7 @@ class ToolReportIncidentProjectionTest {
                 if (cause != null) unavailable.initCause(cause)
                 throw GatewayGraphOperationException(unavailable, null, null, "RESTORE_SELECTED_GATEWAY_CONNECTION", false)
             }
-            val result = tool.execute(call.callId, buildJsonObject { put("action", "metrics") })
+            val result = tool.execute(call.callId, Json.parseToJsonElement(call.arguments).jsonObject)
             val fields = ToolReportDiagnostics.fields(call, result)
             val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
             assertEquals(JsonPrimitive("GRAPH_TRANSPORT_UNAVAILABLE"), report.values["tool_reason_code"])
@@ -293,7 +293,7 @@ class ToolReportIncidentProjectionTest {
     }
 
     @Test fun gatewayHttp500ClosedClassProjectsThroughOwnedToolReceipt() = runBlocking {
-        val event = event("""{"action":"index"}""").copy(modelToolName = "repository_graph__selected")
+        val event = event("""{"action":"index","map_source":"gateway"}""").copy(modelToolName = "repository_graph__selected")
         val failure = GatewayGraphHttpFailure.fromResponse(500, null, buildJsonObject { put("code", "graph_internal_storage_error") })
         val tool = RepositoryGraphTool(event.modelToolName) {
             throw GatewayGraphOperationException(
@@ -306,7 +306,7 @@ class ToolReportIncidentProjectionTest {
                 currentIndexOutcomeUnknown = true
             )
         }
-        val result = tool.execute(event.callId, buildJsonObject { put("action", "index") })
+        val result = tool.execute(event.callId, Json.parseToJsonElement(event.arguments).jsonObject)
         val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(event, result), 1_800_000_000_000))
         assertEquals(JsonPrimitive("GRAPH_INTERNAL_STORAGE"), report.values["tool_reason_code"])
         assertFalse(report.toString().contains("private"))

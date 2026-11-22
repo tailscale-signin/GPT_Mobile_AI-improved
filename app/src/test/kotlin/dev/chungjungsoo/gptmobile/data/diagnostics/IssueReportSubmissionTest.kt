@@ -1087,7 +1087,7 @@ class IssueReportSubmissionTest {
                     val diagnostics = if (omitted) base.copy(omittedFields = listOf(key)) else base.copy(values = base.values + (key to value))
                     val approved = report.copy(context = context.withDiagnostics(diagnostics))
                     val payload = approved.approvedPayload()
-                    val requiredFeatures = diagnostics.requiredServiceFeatures()
+                    val requiredFeatures = diagnostics.requiredServiceFeatures() + ExecutionCompletionDiagnostics.FEATURE
                     assertTrue("$key omitted=$omitted", feature in requiredFeatures)
                     var supported = false
                     var dispatched = 0
@@ -1098,7 +1098,7 @@ class IssueReportSubmissionTest {
                         methods += request.method
                         if (request.method == "GET") {
                             val features = JsonArray(requiredFeatures.filter { supported || it != feature }.map(::JsonPrimitive))
-                            response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                            response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
                         } else {
                             posted += body(request)
                             response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
@@ -1996,14 +1996,16 @@ class IssueReportSubmissionTest {
             assertEquals(code, retained.originalFailureCode)
             for (enriched in listOf(report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = code), report.copy(context = retained), report.copy(events = listOf("-1ms E tools $code")))) {
                 val payload = enriched.approvedPayload()
+                val requiredFeatures = enriched.context?.diagnostics?.requiredServiceFeatures().orEmpty() + "REVIEW_COMPARISON_V1" +
+                    if (code == "GITHUB_REVIEW_COMPARISON_REQUIRED") setOf(ExecutionCompletionDiagnostics.FEATURE) else emptySet()
                 var supported = false
                 val posted = mutableListOf<String>()
                 var dispatched = 0
                 val client = OkHttpClient.Builder().addInterceptor { chain ->
                     val request = chain.request()
                     if (request.method == "GET") {
-                        val feature = if (supported) "REVIEW_COMPARISON_V1" else "GATEWAY_MODEL_PREPARATION_V1"
-                        response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5],"reportDiagnosticFeatures":["$feature"]}""")
+                        val features = JsonArray(requiredFeatures.filter { supported || it != "REVIEW_COMPARISON_V1" }.map(::JsonPrimitive))
+                        response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5],"reportDiagnosticFeatures":$features}""")
                     } else {
                         posted += body(request)
                         response(request, 200, """{"reportId":"${report.reportId}","number":885}""")

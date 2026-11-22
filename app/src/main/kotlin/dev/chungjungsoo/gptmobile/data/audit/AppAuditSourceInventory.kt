@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "6a9328299e6fdc2b16ef6cfbe3f7294ef21b1a8ab965155b5ef1222c5ffa1bce"
+    val sourceDigest: String = "6f417a3aae1d5e715091bd3773879607fa9effc9f69f902a1a544c1c94c61ea7"
     val fileCount: Int = 2925
-    val lineCount: Int = 485133
+    val lineCount: Int = 485183
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -27,16 +27,16 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 75, 8736),
         AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 594, 104605),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 200, 9297),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 246, 43197),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 246, 43208),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 104, 24275),
-        AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 31, 4846),
+        AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 31, 4847),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
         AppAuditSourceArea("model_providers", "Model providers and adapters", 66, 9630),
         AppAuditSourceArea("models_and_profiles", "Model profiles and settings", 41, 4083),
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14881),
         AppAuditSourceArea("gateway_client", "Android gateway client", 39, 6999),
         AppAuditSourceArea("network", "Networking and readiness", 111, 11240),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 272, 49184),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 272, 49222),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14068),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 45, 5037),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 111, 15083),

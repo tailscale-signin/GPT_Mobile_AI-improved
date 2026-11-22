@@ -23,7 +23,7 @@ internal object GitHubSelfTestGraph {
 
     private val pendingJobStates = setOf("QUEUED", "RUNNING", "PAUSED", "INTERRUPTED")
 
-    private fun evidence(receipts: List<JsonObject>): Evidence? {
+    private fun evidence(receipts: List<JsonObject>, graphOwner: JsonObject? = null): Evidence? {
         val trusted = receipts.filter {
             it["trusted"] == JsonPrimitive(true) &&
                 it["verification_eligible"] != JsonPrimitive(false) &&
@@ -39,6 +39,7 @@ internal object GitHubSelfTestGraph {
         val observations = trusted.filter { it["binding"] == source["binding"] && it["repository"] == source["repository"] }
         val graph = observations.filter { receipt ->
             if (receipt.text("tool").githubOperationFamily() != "repository_graph") return@filter false
+            if (receipt.mapSource() == null) return@filter false
             if (receipt["success"] != JsonPrimitive(true)) return@filter true
             val root = GitHubInventoryObservation.planningRoot(receipt) ?: return@filter false
             val metadata = (root["graph"] as? JsonObject) ?: root
@@ -46,21 +47,23 @@ internal object GitHubSelfTestGraph {
                 metadata.text("commit_sha").equals(sha, ignoreCase = true) &&
                 (metadata["branch"] == null || selected["branch"] == null || metadata["branch"] == selected["branch"])
         }
-        val selectedTool = graph.lastOrNull { it.action() in setOf("status", "index") }?.text("tool")
-        return Evidence(sha, observations, graph.filter { it.text("tool") == selectedTool })
+        val owner = graphOwner ?: graph.lastOrNull { it.action() in setOf("status", "index") }
+        return Evidence(sha, observations, graph.filter { it["tool"] == owner?.get("tool") && it.mapSource() == owner?.mapSource() })
     }
 
     /** A fresh Continue can observe the same attempt again. A single request cannot poll indefinitely. */
     fun statusForPendingIndex(pending: JsonObject, tools: List<AgentToolDefinition>, receipts: Collection<JsonObject>, requestKey: String): ProviderEvent.ToolCall? {
+        if (!pending.ownsPendingGatewayIndex() || pending.mapSource() != "gateway") return null
         val attempt = (pending["execution"] as? JsonObject)?.text("graph_index_attempt_hash") ?: return null
         if (!attempt.matches(Regex("[a-f0-9]{64}"))) return null
         val args = buildJsonObject {
             put("action", "status")
+            put("map_source", "gateway")
             put("options", buildJsonObject { put("expected_index_attempt_hash", attempt) })
         }
         val tool = tools.singleOrNull { it.modelVisible && it.name == pending.text("tool") && it.name.githubOperationFamily() == "repository_graph" } ?: return null
         if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty()) return null
-        val id = "graph-status-" + GitHubEvidenceBook.digest("${pending.text("binding")}:$attempt:$requestKey").take(24)
+        val id = "graph-status-" + GitHubEvidenceBook.digest("${pending.text("binding")}:${pending.text("repository")}:${pending.text("branch")}:${tool.name}:gateway:$attempt:$requestKey").take(24)
         if (receipts.any { it["call_id"] == JsonPrimitive(id) }) return null
         return ProviderEvent.ToolCall(id, tool.name, args)
     }
@@ -73,11 +76,11 @@ internal object GitHubSelfTestGraph {
         val needsSnapshot = observed.action() == "index" && job.text("state") == "COMPLETED" && evidence.state?.get("has_more") != JsonPrimitive(false)
         if ((job.text("state") !in pendingJobStates && !needsSnapshot) || job.text("id").isBlank()) return null
         val generation = (job["generation"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it > 0 } ?: return null
-        val args = buildJsonObject { put("action", "status") }
+        val args = JsonObject(buildJsonObject { put("action", "status") } + observed.sourceArguments())
         val tool = tools.singleOrNull {
             it.modelVisible && it.name == observed.text("tool") && ToolArgumentValidator.errors(args, it.inputSchema).isEmpty()
         } ?: return null
-        val id = "graph-job-status-" + GitHubEvidenceBook.digest("${observed.text("binding")}:${evidence.sha}:${tool.name}:${job.text("id")}:$generation:$requestKey").take(24)
+        val id = "graph-job-status-" + GitHubEvidenceBook.digest("${observed.text("binding")}:${evidence.sha}:${tool.name}:${observed.mapSource()}:${job.text("id")}:$generation:$requestKey").take(24)
         if (receipts.any { it["call_id"] == JsonPrimitive(id) }) return null
         return ProviderEvent.ToolCall(id, tool.name, args)
     }
@@ -88,7 +91,7 @@ internal object GitHubSelfTestGraph {
         // successful status reconciliation may unlock a subsequent preparation.
         // Read status once; never turn a missing mutation response into a replay.
         if (evidence.preparation?.action() == "index" && evidence.preparation["success"] != JsonPrimitive(true)) {
-            val args = buildJsonObject { put("action", "status") }
+            val args = JsonObject(buildJsonObject { put("action", "status") } + evidence.preparation.sourceArguments())
             val tool = tools.singleOrNull {
                 it.modelVisible && it.name == evidence.preparation.text("tool") && ToolArgumentValidator.errors(args, it.inputSchema).isEmpty()
             } ?: return emptyList()
@@ -103,6 +106,7 @@ internal object GitHubSelfTestGraph {
             fun recipe(action: String, vararg fields: Pair<String, JsonElement>) = add(
                 buildJsonObject {
                     put("action", action)
+                    evidence.preparation.sourceArguments().forEach { (key, value) -> put(key, value) }
                     fields.forEach { (key, value) -> put(key, value) }
                 }
             )
@@ -201,7 +205,7 @@ internal object GitHubSelfTestGraph {
             } ?: return@mapNotNull null
             val prior = evidence.graph.filter { it.text("tool") == tool.name && it.action() == args.text("action") }
             val continuation = args.text("action") == "index" && (args["options"] as? JsonObject)?.get("index_cursor") != null
-            if (prior.any { it["arguments"] == args } || !continuation && prior.isNotEmpty()) return@mapNotNull null
+            if (prior.any { (it["arguments"] as? JsonObject)?.minus("map_source") == args - "map_source" } || !continuation && prior.isNotEmpty()) return@mapNotNull null
             ProviderEvent.ToolCall("graph-preparation-" + GitHubEvidenceBook.digest("${evidence.sha}:${tool.name}:$args").take(24), tool.name, args)
         }
     }
@@ -217,7 +221,7 @@ internal object GitHubSelfTestGraph {
             (root["has_more"] != JsonPrimitive(false) || job != null && job.text("state") != "COMPLETED")
         if (!incomplete || action != "index" || job == null || job.text("id").isBlank()) return incomplete
         val generation = (job["generation"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it > 0 } ?: return true
-        val graph = evidence(receipts)?.graph ?: return true
+        val graph = evidence(receipts, receipt)?.graph ?: return true
         val original = graph.indexOf(receipt).takeIf { it >= 0 } ?: return true
         val observed = graph.drop(original + 1).lastOrNull { it.action() == "status" && it["success"] == JsonPrimitive(true) }
             ?.let(GitHubInventoryObservation::planningRoot) ?: return true
@@ -268,6 +272,40 @@ internal object GitHubSelfTestGraph {
             "note", "federated", "provider" -> listOf("Separately authorized graph write or configuration inputs; the integration read planner does not infer these")
             else -> emptyList()
         }
+    }
+
+    /** Missing source keeps the phone default; only a bound native uncertainty receipt proves a legacy Gateway attempt. */
+    private fun JsonObject.mapSource(): String? {
+        val arguments = get("arguments") as? JsonObject ?: return null
+        return when (arguments["map_source"]) {
+            JsonPrimitive("phone") -> "phone"
+            JsonPrimitive("gateway") -> "gateway"
+            null -> if (ownsPendingGatewayIndex()) "gateway" else "phone"
+            else -> null
+        }
+    }
+
+    private fun JsonObject.sourceArguments(): Map<String, JsonElement> {
+        val source = mapSource() ?: return emptyMap()
+        return if (source == "gateway" || (get("arguments") as? JsonObject)?.containsKey("map_source") == true) {
+            mapOf("map_source" to JsonPrimitive(source))
+        } else {
+            emptyMap()
+        }
+    }
+
+    private fun JsonObject.ownsPendingGatewayIndex(): Boolean {
+        if (get("trusted") != JsonPrimitive(true) || get("verification_eligible") == JsonPrimitive(false) || text("tool").githubOperationFamily() != "repository_graph") return false
+        if (listOf("binding", "repository", "branch", "call_id").any { text(it).isBlank() }) return false
+        val arguments = get("arguments") as? JsonObject ?: return false
+        val execution = get("execution") as? JsonObject ?: return false
+        return execution["schema"] == JsonPrimitive("gptmobile.repository-graph.v1") &&
+            execution["call_id"] == get("call_id") &&
+            execution["map_source"] in setOf(null, JsonPrimitive("gateway")) &&
+            execution["action"] == arguments["action"] &&
+            arguments.text("action") in setOf("index", "status", "query", "node", "callers", "callees", "path", "impact", "architecture", "diff", "diagnose", "contracts", "prs", "note", "notes", "requirements", "wiki", "metrics", "federated", "provider") &&
+            execution["index_outcome_unknown"] == JsonPrimitive(true) &&
+            execution.text("graph_index_attempt_hash").matches(Regex("[a-f0-9]{64}"))
     }
 
     private fun JsonObject.action() = (get("arguments") as? JsonObject)?.text("action").orEmpty()

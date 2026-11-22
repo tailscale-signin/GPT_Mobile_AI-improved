@@ -125,6 +125,17 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             val call = entry.call.event()
             if (call.originalInvocation != null) call.providerInvocation()
         }
+        // A stored projection can be the only retained result identity. Validate
+        // its bytes before either recovery evidence or replay can reuse that hash.
+        // Older journals without a projection hash retain their existing fallback.
+        require(
+            saved.entries.values.all { entry ->
+                listOfNotNull(entry.result, entry.priorBudgetRejection).all { result ->
+                    result.projectionSha256 == null ||
+                        result.projectionSha256 == dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body)
+                }
+            }
+        ) { "Tool recovery ledger has invalid stored-result projection proof." }
         require(saved.batches.size <= 1024 && saved.batches.sumOf { it.size } <= 8192 && saved.batches.all { batch -> batch.isNotEmpty() && batch.distinct().size == batch.size && batch.all(saved.entries::containsKey) }) { "Tool recovery journal has invalid batch identities." }
         require(saved.batches.isEmpty() || saved.pending.isEmpty() || saved.batches.last() == saved.pending) { "Tool recovery pending batch no longer matches its original grouping." }
         require(saved.consumedCallIds.size <= 1024 && saved.consumedCallIds.all { saved.entries[it]?.result != null }) { "Tool recovery ledger has invalid consumed identities." }

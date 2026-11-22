@@ -18,6 +18,7 @@ import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCancelResult
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -27,7 +28,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -290,17 +290,27 @@ class GatewayConversationRepositoryTest {
         assertEquals("Newer answer", db.gatewayJobDao().localMessage(run.assistantMessageId)?.content)
     }
 
-    @Test fun remoteOnlyConversationReopensSameRoomAndRebuildsDeletedRoomWithoutDuplicateServerCommands() = runBlocking {
+    @Test fun remoteOnlyConversationReopensSameRoomButDeletedPrivacyAuthorityBlocksRecreation() = runBlocking {
         remote = transcript("remote-command")
         val first = repository.openConversation("profile", "gateway", "owner", "conversation")
         val second = repository.openConversation("profile", "gateway", "owner", "conversation")
         assertEquals(first.chatId, second.chatId)
         assertEquals(2, messageCount(first.chatId))
         db.chatRoomDao().deleteChatRooms(requireNotNull(db.gatewayJobDao().localChat(first.chatId)))
-        val recreated = repository.openConversation("profile", "gateway", "owner", "conversation")
-        assertNotEquals(first.chatId, recreated.chatId)
-        assertEquals(2, messageCount(recreated.chatId))
-        assertTrue(db.gatewayJobDao().messages(key).all { db.gatewayJobDao().localMessage(requireNotNull(it.localMessageId))?.chatId == recreated.chatId })
+        val retained = requireNotNull(db.gatewayJobDao().conversation(key))
+        val history = db.gatewayJobDao().messages(key)
+        clearMocks(client, jobs, answers = false, recordedCalls = true)
+
+        val failure = runCatching { repository.openConversation("profile", "gateway", "owner", "conversation") }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+        assertEquals("The saved conversation is unavailable. No external work was started.", failure?.message)
+        assertNull(db.gatewayJobDao().localChat(first.chatId))
+        assertEquals(first.chatId, retained.localChatId)
+        assertEquals(retained, db.gatewayJobDao().conversation(key))
+        assertEquals(history, db.gatewayJobDao().messages(key))
+        coVerify(exactly = 0) { jobs.route(any(), any()) }
+        coVerify(exactly = 0) { client.conversation(any(), any()) }
+        coVerify(exactly = 0) { client.messages(any(), any(), any()) }
         coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
     }
 

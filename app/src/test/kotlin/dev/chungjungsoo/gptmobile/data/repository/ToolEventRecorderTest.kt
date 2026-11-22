@@ -272,7 +272,10 @@ class ToolEventRecorderTest {
                 reports.add(arg<String?>(3) to arg<Map<String, Any?>>(5))
                 Unit
             }
-            val args = buildJsonObject { put("action", "index") }
+            val args = buildJsonObject {
+                put("action", "index")
+                put("map_source", "gateway")
+            }
             val event = recorder.startTool("private-graph-run", 0, "private-graph-call", "repository_graph", "repository_graph__selected", args, startedAt = 10L)
             val tool = dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool(event.modelToolName) {
                 throw dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException(

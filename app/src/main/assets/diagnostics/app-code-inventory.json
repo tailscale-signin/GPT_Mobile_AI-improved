@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6a9328299e6fdc2b16ef6cfbe3f7294ef21b1a8ab965155b5ef1222c5ffa1bce",
+  "source_digest": "6f417a3aae1d5e715091bd3773879607fa9effc9f69f902a1a544c1c94c61ea7",
   "file_count": 2925,
-  "indexed_line_count": 485133,
+  "indexed_line_count": 485183,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 246,
-      "indexed_line_count": 43197
+      "indexed_line_count": 43208
     },
     {
       "id": "agent_tools",
@@ -65,7 +65,7 @@
       "id": "mcp_plugins",
       "label": "MCP connections and tool catalogues",
       "file_count": 31,
-      "indexed_line_count": 4846
+      "indexed_line_count": 4847
     },
     {
       "id": "marketplace_plugins",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 272,
-      "indexed_line_count": 49184
+      "indexed_line_count": 49222
     },
     {
       "id": "research",
@@ -2055,8 +2055,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchCheckpoint.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "2bfe085540087b89a7a5ed40817a7b984d7a3be06d2b4f31fff01be9940f6e43",
-      "indexed_lines": 594
+      "sha256": "cae6d88cd24708efa1e948932fa914621a5b43e682f19ac4b9026e28129f6ac9",
+      "indexed_lines": 605
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchPlan.kt",
@@ -3014,8 +3014,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpReadRecovery.kt",
       "area_id": "mcp_plugins",
       "kind": "source",
-      "sha256": "452fbb7517b7ee12b9bc361fcc431202ba913228383d092a671e0ce46454048c",
-      "indexed_lines": 78
+      "sha256": "2516d6d387b20b8bbf714dfc42c5b0557516260d0404dacd917b9293e378d8af",
+      "indexed_lines": 79
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpStreamDeadline.kt",
@@ -7599,7 +7599,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningContext.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "a58157ad62f6ef37b13f4527184ac376bd00a8a051c3720d1ad516aa975bc77c",
+      "sha256": "d9993add9c8c0e8695128819ef44ec1b5291e2bdede6750d10615ee6fc25fef1",
       "indexed_lines": 50
     },
     {
@@ -7963,8 +7963,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraph.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "c6d4a7e4fcac6f5a71dc63aa13a917346d5ba17a280e94d581cae54e422e1599",
-      "indexed_lines": 275
+      "sha256": "90adca985e2677235a6016cb55073a8f6061e4a0517693a6139a79faf8717f43",
+      "indexed_lines": 313
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPrerequisites.kt",

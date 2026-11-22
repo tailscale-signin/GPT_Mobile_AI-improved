@@ -35,8 +35,9 @@ internal suspend fun recordMcpInterruptedRead(failure: Throwable) {
     val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
     val causes = generateSequence(failure) { it.cause }.takeWhile(seen::add).take(16).toList()
     // Known local, DNS, connection and TLS admission failures do not establish
-    // an uncertain HTTP exchange. Retain only this acquisition's interrupted read.
-    if (causes.none { it is CancellationException || it is UnknownHostException || it is ConnectException || it is javax.net.ssl.SSLException } &&
+    // an uncertain HTTP exchange. A general SSLException can instead report an
+    // interrupted response after dispatch; retain that acquisition's uncertainty.
+    if (causes.none { it is CancellationException || it is UnknownHostException || it is ConnectException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException } &&
         causes.any { it is IOException }
     ) {
         currentCoroutineContext()[MetadataResponseObservation]?.readInterrupted()

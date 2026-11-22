@@ -7,7 +7,7 @@
   "source_sha": "2fb4f4434fa80ef26455d84f09e45fc425c6b629",
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "intent": "Implement the approved voice mode design, GPU/NPU execution repairs and remaining diagnostic gaps on the latest draft PR, preserve concurrent commits, merge only after exact-head required verification and publish exact-main signed Android and Gateway releases.",
-  "status": "IMPLEMENTED_PENDING_HOSTED_CI",
+  "status": "INTEGRATION_IMPLEMENTED_LOCALLY_VALIDATED_AWAITING_EXACT_HEAD_CI",
   "authorization": "User explicitly authorized implementation, pushing a draft PR, merging after green checks and publishing after green main verification.",
   "workers": [
     {
@@ -728,9 +728,10 @@
     "Keep quoted/code/escaped/nested reasoning delimiters and embedded apostrophes within their channel across arbitrary streaming chunks and saved projections; one truncated choice cannot clear another choice’s reasoning or tools.",
     "Exclude legacy two-phrase cache receipts from current three-fixture Auto ranking and include the workload/scoring protocol in persistent and resident identities."
   ],
-  "last_reconciled_remote_head": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+  "last_reconciled_remote_head": "f0250cf0c82b0a1939af9721a814c89129be377a",
   "pending_concurrent_scope": [
-    "The shared PR advertises acceptance-completion-70afcf89 diagnostic implementation. Preserve and review that worker’s incoming scope before final readiness, exact-head gates, guarded merge and publication."
+    "github-coding-benchmark-2026-11-22: preserve and review the separately announced coding benchmark implementation.",
+    "github-agent-integrations-2026-11-22: preserve and review the separately announced agent/workspace integration implementation."
   ],
   "integration_review_followup": {
     "source_head": "ecd207312bbbcef04790762217c3d66a75ebb26f",
@@ -740,5 +741,175 @@
     "auto": "Current three-fixture workload and complete-cost scoring protocol now participate in capability cache and resident engine identity; Auto requires exactly three valid samples. Explicit qualification and the standalone benchmark remain independent.",
     "prior_corrections": "Preserved comparison cap and pinned restart, actual closed outcome fixtures, invocation-owned MCP interrupted-read observation and extra denial/cancellation/confirmed-response coverage, incoming stronger Gateway/graph tests, and sticky unshared private memory.",
     "gates": "Final616 canonical host tests,35-file pinned Kotlin formatting, generated metadata/inventories, committed Room schema history and664-path exact release scope pass. Exact integrated hosted Android/unit/security/native/device checks, guarded merge, exact-main validation and signed Android/Gateway publication remain required."
+  },
+  "hosted_unit_followup": {
+    "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "run_id": 45074676939,
+    "job_id": 137371424410,
+    "tests": 12803,
+    "failures": 41,
+    "skipped": 5,
+    "status": "CORRECTED_AWAITING_FINAL_HEAD_FULL_SUITE",
+    "already_repaired": "Four failures are superseded by the preserved c29 delivery-proof2, Gateway recovery1 and graph-context1 fixture corrections.",
+    "remaining_groups": {
+      "gateway_privacy_repository": 20,
+      "graph_and_recorder": 12,
+      "reporting_audit_schema": 5
+    },
+    "policy": "Preserve new durable conversation authority, exact phone/Gateway evidence, closed diagnostics, existing schema budgets and all substantive regression assertions. Use a real Android runtime for actual AtomicFile paths.",
+    "deleted_room_contract": "The old remote-only reopening test assumed that a deleted local room could be silently replaced. Current privacy policy intentionally rejects missing saved authority before any network read. Preserve same-room reopening, original remote binding/history and zero replay; after deletion assert the exact denial and no added external reads/commands. No production privacy guard is weakened.",
+    "incoming_review": "Clean fast-forward retained all c29 corrections. Independently reviewed dbc29 unknown-room screen protection, per-window leases and ordinary FactVault scope moves; private and unshared scope restrictions remain sticky. No further blocker in those incoming changes.",
+    "corrections": {
+      "gateway_privacy_repository": "Preserve exact-chat ordinary admission in the 17 Gateway engineering fixtures; keep deleted-room authority fail-closed with retained history and zero external work; capture the originating private conversation in the local-tool fixture; represent unsaved/nonpositive chat IDs truthfully in the shared repository fixture without changing original trace assertions.",
+      "graph_and_recorder": "Explicit Gateway fixtures retain real native uncertainty and dispatch evidence. Assert every original retained audit payload field plus the complete traversal envelope. Production graph status/job/cursor recipes preserve typed source ownership; Phone and Gateway observations cannot settle or consume each other's work.",
+      "reporting_audit_schema": "Advertise the independent execution-completion capability required by existing reporter codes; preserve typed ENGINEERING_GUARD and distinct enabled/featureAvailable audit fields. Shorten redundant no-repository wording while retaining the closed schemas and unchanged <2000-token limit."
+    },
+    "focused_validation": [
+      {
+        "suite": "Captured private turn and physical dispatch boundary",
+        "tests": 11,
+        "result": "PASS",
+        "baseline": "The original direct local-session fixture failed without its captured conversation; corrected fixture passes before and after c818.",
+        "boundary": "Actual session/context/authority source; unrelated DTO/platform boundaries isolated."
+      },
+      {
+        "suite": "Graph follow-up source ownership",
+        "tests": 13,
+        "result": "PASS",
+        "baseline_failures": 4,
+        "boundary": "Actual complete helper and inventory; exact validator/DTO/digest declarations and minimal ToolCall boundary."
+      },
+      {
+        "suite": "Current graph/map/fallback and retained envelope",
+        "tests": 30,
+        "result": "PASS",
+        "baseline_failures": 1,
+        "boundary": "Actual graph tool/map/fallback sources plus exact envelope method; full facade/recorder/Room integration remains hosted."
+      },
+      {
+        "suite": "Reporting and original provider interruption receipts",
+        "tests": 5,
+        "result": "PASS",
+        "baseline_failures": 3,
+        "boundary": "Actual reporting/incident/receipt/serialization/OkHttp; unused Android/storage/service boundaries isolated."
+      },
+      {
+        "suite": "Full bounded audit exporter",
+        "tests": 1,
+        "result": "PASS",
+        "baseline_failures": 1,
+        "boundary": "Actual exporter/models/scoring serialization; unrelated inventory/container inputs isolated."
+      },
+      {
+        "suite": "Exact selected native schema pipeline",
+        "tests": 1,
+        "result": "PASS",
+        "baseline_tokens": 2008,
+        "corrected_c818_tokens": 1979,
+        "corrected_f025_tokens": 1976,
+        "limit": "<2000 unchanged",
+        "boundary": "Actual native schema builders, planning suffix, discovery schema and estimator; full resolver lifecycle remains hosted."
+      }
+    ],
+    "full_suite_limit": "These focused runs do not establish that all 37 predecessor failures pass on the final head. Actual full Android/Room/Robolectric/unit execution, required instrumentation and every applicable final-head workflow remain mandatory."
+  },
+  "combined_incoming_review": {
+    "preserved_through": "f0250cf0c82b0a1939af9721a814c89129be377a",
+    "reviewed": "Restored-screen protection and ordinary memory moves; captured and physical private authority; exact-total Auto selection and benchmark ownership; reasoning delimiters; local pagination generations; evidence-bound acceptance, original provider-call identity, complete durable recovery, exact source/cursor/CI selectors and bounded source replanning.",
+    "validation": [
+      {
+        "suite": "Incoming reasoning/provider parsing",
+        "tests": 63,
+        "result": "PASS"
+      },
+      {
+        "suite": "Benchmark/Auto/export",
+        "tests": 23,
+        "result": "PASS"
+      },
+      {
+        "suite": "Runtime benchmark ownership",
+        "tests": 2,
+        "result": "PASS"
+      },
+      {
+        "suite": "Comparison/pagination including incoming generation and empty tasks",
+        "tests": 70,
+        "result": "PASS",
+        "boundary": "Actual complete boundary/page/coverage helpers plus exact supporting methods; full operation facade remains hosted."
+      },
+      {
+        "suite": "Acceptance contract and task recovery",
+        "tests": 9,
+        "result": "PASS"
+      },
+      {
+        "suite": "Criterion source/regression/draft proof",
+        "tests": 13,
+        "result": "PASS",
+        "boundary": "Actual acceptance helpers; unrelated bulk issue and positive comparison adapters fail closed in host boundaries."
+      },
+      {
+        "suite": "Native recipes, source and CI selectors",
+        "tests": 62,
+        "result": "PASS",
+        "boundary": "Actual sources/exact methods with explicit platform/data boundaries; full Android facade remains hosted."
+      },
+      {
+        "suite": "Measured queue headroom",
+        "tests": 18,
+        "result": "PASS",
+        "baseline_failures": 1,
+        "boundary": "Actual synthesis performance helpers; synthetic timings do not establish physical playback continuity."
+      },
+      {
+        "suite": "Final integrated voice session, caption, buffer and parser",
+        "tests": 89,
+        "result": "PASS",
+        "boundary": "Actual merged VoiceSession/caption/performance/reserve/parser; only diagnostic transport/failure classification isolated. No changed renderer signature or physical rendering claim."
+      },
+      {
+        "suite": "Complete durable recovery and journal integrity",
+        "tests": 110,
+        "result": "PASS",
+        "boundary": "Actual checkpoint, output continuation, provider checkpoint/replay source; Android AtomicFile and unrelated platform/storage boundaries isolated."
+      }
+    ],
+    "additional_regressions": [
+      {
+        "finding": "A generic TLS response interruption could lose invocation-owned uncertainty before a legacy reconnect was blocked locally.",
+        "correction": "Exclude typed handshake/peer-admission errors; retain ambiguous TLS read uncertainty without changing retry, certificate or transport policies.",
+        "baseline": "23 tests / 1 failure",
+        "corrected": "23 tests pass with coroutine debug/stacktrace recovery enabled and disabled; actual complete manager and modern/legacy transport paths use real pinned Ktor and MCP SDK, with labelled platform boundaries."
+      },
+      {
+        "finding": "A saved local/reused result could change while retaining its old projection hash, allowing unchanged journal identity to attest a changed body.",
+        "correction": "Validate every present projection hash against stored body before recovery or journal evidence, preserving compatible legacy missing hashes.",
+        "status": "PASS",
+        "baseline": "Incoming recovery suite107 PASS; identical new three-test group reproduced two failures while legacy compatibility passed.",
+        "corrected": "Full actual recovery suite110 PASS, including changed result/body/hash, prior budget refusal and legacy absent-hash/dedup regressions. Android AtomicFile/platform boundaries are explicitly isolated in this host harness; full hosted execution remains required."
+      }
+    ],
+    "qualification": "Software integration only. No physical GPU/NPU speed, acoustic latency, thermal, battery or frame-time qualification; exact final-head Android gates and exact-main signed publication remain pending.",
+    "format": {
+      "kotlin_files": 21,
+      "tool": "ktlint1.3.1",
+      "result": "PASS"
+    },
+    "release_scope": {
+      "changed_paths": 712,
+      "explicit_allowed_paths": 712,
+      "qualification": "scoped",
+      "result": "PASS"
+    },
+    "canonical": {
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 616,
+      "seconds": 23.413,
+      "result": "PASS",
+      "literal_regexes": 1949,
+      "dynamic_regexes_skipped": 99,
+      "resource_xml_files": 36
+    }
   }
 }

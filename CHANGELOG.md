@@ -1,5 +1,9 @@
 # 0.9.66.13 — 2026-11-22
 
+- Preserve the selected Phone or Gateway source through repository-map status recovery, saved jobs and cursor continuation, keeping their evidence and pending work separate.
+- Validate retained result bytes before reusing a saved journal projection hash, preserving legacy recovery and settled-call deduplication while rejecting changed results before dispatch.
+- Keep saved-conversation privacy admission, reporter capability negotiation, audit metadata and compact tool-schema limits aligned across the full-suite integration fixtures.
+
 - Compile compound engineering requests into stable source-linked acceptance criteria with explicit dependencies and evidence producers; preserve original scope and budgets when refining saved contracts.
 - Require actual pinned source content, complete instruction coverage, a changed regression at the tested revision, complete diff coverage and the matching live draft pull request before their individual obligations can pass.
 - Bind provider cooldown recovery to the complete atomic durable tool journal independently of compacted provider replay; retain local projection identity, original failure provenance, settled-write replay and unknown-write reconciliation.

@@ -8,13 +8,14 @@
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "intent": "Trace new features from their entry points, repair integration defects and improve their presentation.",
   "status": "FOCUSED_ANDROID_AND_HOST_CHECKS_PASS_FULL_CI_PENDING",
-  "integrated_head": "66cbf7122c28f9d895ee1863e613287fe44baeed",
+  "integrated_head": "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
   "coverage": {
     "voice": "Caption correction, bidi shaping, five-line cursor, presented-audio timing, PCM reserve, engine selection and retest, and measurement export.",
     "chat": "Compact decision queue, independent drafts, reflowing actions, fully readable expanded questions, navigation contrast, notification ownership, Markdown/privacy evidence and conversation indicators.",
     "profiles_and_research": "Setup and saved-profile verification, configured route and direct Gateway evidence, Research source configuration, history, citation import, read-only and saving state, and selected-provider routing.",
     "benchmarks": "Fixture-level timing and pricing, partial/failed attempts, exports and progressive disclosure.",
-    "gateway_and_diagnostics": "Local inspection dispatch and firewall observations, dashboard/admission, incident export, recovery ownership, accepted baseline and built-in binding changes."
+    "gateway_and_diagnostics": "Local inspection dispatch and firewall observations, dashboard/admission, incident export, recovery ownership, accepted baseline and built-in binding changes.",
+    "phone_repository_map": "Phone and Gateway map selection, revision and account binding, parser and session coverage, source switching, cancellation and search pagination. Full phone-map preparation now stays off the caller dispatcher."
   },
   "regressions": [
     "Three caption fixtures failed on 7afcd240, including a StringIndexOutOfBoundsException. All three pass after correction.",
@@ -22,7 +23,9 @@
     "Added Android regression coverage for separate queued answers, adaptive choice layout, explicit voice recheck, stable picker route and Research controls with unavailable history.",
     "Research preset and report chips were editable while the parent editor was locked. Feature controls also accepted changes after Save captured the draft. The controls now follow editor state and the save operation uses a single draft snapshot.",
     "The read-only-to-editable preset test sampled its previous semantics before the next display frame. Advancing one frame and waiting for Compose to idle verifies the same transition reproducibly.",
-    "Native Android rendering at 150% text revealed a custom-answer label split mid-word, low-contrast navigation and a clipped expanded question. A spacing and action-position regression failed on the previous head. The revised card passes native layout assertions and was visually inspected at normal and 150% text."
+    "Native Android rendering at 150% text revealed a custom-answer label split mid-word, low-contrast navigation and a clipped expanded question. A spacing and action-position regression failed on the previous head. The revised card passes native layout assertions and was visually inspected at normal and 150% text.",
+    "A 50-file architecture request posted 112 times to its caller dispatcher. Moving tree preparation, shard inspection and projection into one background scope reduces the same fixture to two caller dispatches.",
+    "The Android job on f3b9b40 ran 12,515 app tests and reported three failures. Concurrent commits corrected the cursor and Gateway-refresh tests. The provider-report assertion in 1b603e4 checks the public context.httpStatus field, with upstream hashes and classification in the nested diagnostic data."
   ],
   "host_validation": {
     "caption_junit": 41,
@@ -43,7 +46,11 @@
     "kokoro_real_model_jni_integration": "passed",
     "configured_inference_route_junit": 5,
     "focused_android_ui_and_voice_junit": 30,
-    "native_graphics_choice_layout_renders": 2
+    "native_graphics_choice_layout_renders": 2,
+    "phone_repository_map_component_junit": 102,
+    "privacy_settings_writer_junit": 7,
+    "phone_width_choice_layout_renders": 2,
+    "privacy_store_and_setup_junit": 40
   },
   "qualification": "The 30 focused tests run the changed Compose controls, Android ViewModel, Android SharedPreferences and real Qualcomm factory selection code on Robolectric and the JVM. Unused repository, Gateway transport, telemetry and dialog decoration use isolated boundaries. The JNI integration executes the pinned model and native runtime. The QNN graph checks use an x86 emulator. Full application CI, end-to-end device behavior and physical accelerator latency require their respective targets."
 }

@@ -41,7 +41,7 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 
 ## Repository map on this phone
 
-- Open a revision-bound file and folder map directly from GitHub without configuring Gateway. Search files and indexed symbols, inspect source links, and explore caller, callee, path and impact candidates in the existing map interface.
+- Open a revision-bound file and folder map directly from GitHub without configuring Gateway. Tree preparation and cached-file scanning run off the UI thread. Search files and indexed symbols, inspect source links, and explore caller, callee, path and impact candidates in the existing map interface.
 - Build source relationships progressively on the phone using the encrypted source cache and reusable per-blob index. Each foreground session advances through bounded batches, reports coverage, supports Pause and resumes saved progress at the same revision.
 - Distinguish observed tree structure from lexical symbol, import and call candidates. Keep unsupported files, missing sources, truncation and partial coverage visible instead of presenting an incomplete map as compiler-resolved analysis.
 - Make the phone map available to authorized native GitHub model tools without requiring an engineering Gateway or persistent engineering memory. Account, connection, profile, permission and revision checks apply to cached reads and pagination as well as downloads.

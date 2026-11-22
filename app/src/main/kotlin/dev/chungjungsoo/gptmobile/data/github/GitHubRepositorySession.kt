@@ -431,8 +431,8 @@ internal class GitHubRepositorySession(
         }
     }
 
-    /** A map is a native read over the selected immutable tree, not a Gateway job. */
-    internal suspend fun repositoryMap(owner: String, repo: String, args: JsonObject): JsonObject {
+    /** Build the immutable tree and inspect its cached shards away from the workspace UI. */
+    internal suspend fun repositoryMap(owner: String, repo: String, args: JsonObject): JsonObject = withContext(Dispatchers.Default) {
         require(args.toString().length <= 64_000) { "Repository map request is too large." }
         val action = args.s("action").ifBlank { "status" }
         if (action !in setOf("status", "index", "architecture", "query", "node", "callers", "callees", "path", "impact", "metrics")) {
@@ -467,9 +467,7 @@ internal class GitHubRepositorySession(
             ?.takeIf { it.s("blob_sha") == entry.s("sha") && it["parser_version"] == JsonPrimitive(PhoneRepositoryGraph.PARSER_VERSION) }
 
         suspend fun retainShard(entry: JsonObject, blob: JsonObject): JsonObject {
-            val parsed = withContext(Dispatchers.Default) {
-                PhoneRepositoryGraph.sourceIndex(entry.s("path"), blob.s("content"))
-            }
+            val parsed = PhoneRepositoryGraph.sourceIndex(entry.s("path"), blob.s("content"))
             val retained = buildJsonObject {
                 put("blob_sha", entry.s("sha"))
                 put("parser_version", PhoneRepositoryGraph.PARSER_VERSION)
@@ -588,7 +586,7 @@ internal class GitHubRepositorySession(
             put("index_coverage_scope", "ELIGIBLE_TEXT_SOURCE_ONLY")
             put("compiler_resolution", false)
         }
-        return withContext(Dispatchers.Default) { PhoneRepositoryGraph.execute(context, tree, cached, status, args) }
+        PhoneRepositoryGraph.execute(context, tree, cached, status, args)
     }
 
     /** Explicit foreground preparation. Every batch is bounded and pinned to one SHA. */

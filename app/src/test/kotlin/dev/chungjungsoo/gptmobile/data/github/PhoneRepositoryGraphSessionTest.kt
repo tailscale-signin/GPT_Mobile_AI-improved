@@ -1,7 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -78,6 +83,20 @@ class PhoneRepositoryGraphSessionTest {
         put("ref", "main")
         put("commit_sha", revision)
         cursor?.let { put("index_cursor", it) }
+    }
+
+    @Test fun preparingTheMapDoesNotResumeItsCallerForEveryFile() = runTest {
+        val resumes = AtomicInteger()
+        val scheduler = StandardTestDispatcher(testScheduler)
+        val caller = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                resumes.incrementAndGet()
+                scheduler.dispatch(context, block)
+            }
+        }
+        val result = withContext(caller) { session().repositoryMap("owner", "repo", arguments("architecture")) }
+        assertEquals(treeSize, result.getValue("graph").jsonObject.getValue("expected_files").jsonPrimitive.int)
+        assertTrue("Map preparation posted ${resumes.get()} times to the caller for $treeSize files", resumes.get() <= 3)
     }
 
     @Test fun initialMapShowsTheRealTreeWithoutDownloadingAnySource() = runTest {

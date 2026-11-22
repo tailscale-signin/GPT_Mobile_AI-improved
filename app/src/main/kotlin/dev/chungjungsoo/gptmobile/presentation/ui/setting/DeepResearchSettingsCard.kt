@@ -79,7 +79,10 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                             OutlinedTextField(value.excludeDomains, { onChange(value.copy(excludeDomains = it.take(1000))) }, label = { Text("Exclude these domains") }, enabled = enabled, modifier = Modifier.fillMaxWidth())
                             OutlinedTextField(if (value.recencyDays == 0) "" else value.recencyDays.toString(), { onChange(value.copy(recencyDays = it.filter(Char::isDigit).take(3).toIntOrNull()?.coerceIn(0, 365) ?: 0)) }, label = { Text("Past days · blank for any time") }, enabled = enabled, modifier = Modifier.fillMaxWidth())
                         }
-                        1 -> ResearchEngineHealthPanel(value.disabledEngineIds) { id, selected -> if (enabled) onChange(value.copy(disabledEngineIds = if (selected) value.disabledEngineIds - id else value.disabledEngineIds + id)) }
+                        1 -> ResearchEngineHealthPanel(
+                            disabledEngineIds = value.disabledEngineIds,
+                            onEngineEnabled = { id, selected -> if (enabled) onChange(value.copy(disabledEngineIds = if (selected) value.disabledEngineIds - id else value.disabledEngineIds + id)) }
+                        )
                         2 -> {
                             ResearchLimit("Follow-up rounds", value.maxRounds, 1..8, enabled) { onChange(value.copy(maxRounds = it)) }
                             ResearchLimit("Link levels", value.linkDepth, 0..2, enabled) { onChange(value.copy(linkDepth = it)) }

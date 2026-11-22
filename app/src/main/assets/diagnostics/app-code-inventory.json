@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "e9b305a5f7c4dd02b7271881bcca5c9521319da9698e2837630cd614d6eaf980",
+  "source_digest": "6591d7ee978380a13aeca6d78eea3edf40ca0a2fe383a8fd2eececb8a2ce976e",
   "file_count": 2887,
-  "indexed_line_count": 477018,
+  "indexed_line_count": 477021,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -41,7 +41,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 592,
-      "indexed_line_count": 103885
+      "indexed_line_count": 103888
     },
     {
       "id": "accessibility_and_localization",
@@ -15432,8 +15432,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/DeepResearchSettingsCard.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "7315fbfaddcfdb00971dafa0375b8bca540aab041079447322f658eed227d919",
-      "indexed_lines": 163
+      "sha256": "11eb13bf6b976ae154b22489d0276561da7a7f1070994d3faa1330c51d064d8c",
+      "indexed_lines": 166
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/DeepResearchSettingsScreen.kt",

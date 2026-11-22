@@ -224,3 +224,10 @@ Android resource/regex checks and whitespace validation. All nineteen changed
 Kotlin files pass ktlint 1.3.1. The proposed 379-file release delta remains within
 its explicit scoped manifest. Full Android and both device lanes remain pending
 for the pushed revision; no earlier head's pass is used as final merge evidence.
+
+Production compilation of the concurrent research UI change exposed one missed
+call site: a trailing engine-selection lambda bound to the newly added optional
+help callback. `DeepResearchSettingsCard` now names `onEngineEnabled` explicitly;
+its enabled guard and selected-engine update are preserved. Both panel call sites
+were inspected, and the corrected file passes ktlint. Full Android compilation
+remains required on the next pushed revision.

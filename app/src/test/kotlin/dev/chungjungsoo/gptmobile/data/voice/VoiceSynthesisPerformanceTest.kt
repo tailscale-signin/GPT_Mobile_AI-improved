@@ -36,27 +36,52 @@ class VoiceSynthesisPerformanceTest {
         val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
         assertEquals(100, policy.bufferMs())
         policy.observe(100, 1_000)
-        assertEquals(45, policy.bufferMs())
+        assertTrue(policy.bufferMs() >= 100)
         assertEquals(6, policy.phraseWords(100))
         assertEquals(16, policy.phraseWords(2_000))
         policy.underrun()
-        assertEquals(85, policy.bufferMs())
+        assertTrue(policy.bufferMs() > 300)
         repeat(20) {
             policy.observe(2_000, 1_000)
             policy.underrun()
         }
-        assertEquals(300, policy.bufferMs())
+        assertTrue(policy.bufferMs() >= 2_000)
+        assertTrue(policy.bufferMs() < KokoroPcmBatches.QUEUE_LIMIT_MS)
+        assertTrue(requireNotNull(policy.ratio()) > 1.0)
     }
 
-    @Test fun fixedModesRemainExplicitAndBadMeasurementsDoNotDriveAuto() {
+    @Test fun explicitPhraseModesKeepTheirLimitsButAllModesProtectMeasuredContinuity() {
         val fixed = VoiceAdaptivePlayback(VoicePerformanceMode.FAST)
         fixed.observe(5_000, 100)
         fixed.underrun()
-        assertEquals(45, fixed.bufferMs())
+        assertEquals(VoiceAdaptivePlayback.MAX_RESERVE_MS, fixed.bufferMs())
+        assertEquals(12, fixed.phraseWords(2_000))
+        assertEquals(24, VoiceAdaptivePlayback(VoicePerformanceMode.QUALITY).phraseWords(2_000))
         val auto = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
         auto.observe(-1, 1_000)
         auto.observe(1_000, 0)
         assertEquals(100, auto.bufferMs())
+    }
+
+    @Test fun productionTailRetainsSlowPhrasesAndReservesRemainBounded() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        policy.observe(2_500, 4_000)
+        repeat(7) { policy.observe(100, 1_000) }
+        assertEquals(2_500L, policy.predictedSynthesisMs())
+        assertTrue(policy.bufferMs() >= 2_500)
+        assertTrue(policy.primeWaitMs() >= 2_500)
+        policy.observe(100, 1_000)
+        assertEquals(100L, policy.predictedSynthesisMs())
+        policy.observe(30_000, 1_000)
+        assertTrue(policy.primeWaitMs() < KokoroPcmBatches.QUEUE_LIMIT_MS)
+        assertTrue(policy.bufferMs() < KokoroPcmBatches.QUEUE_LIMIT_MS)
+    }
+
+    @Test fun qualityActuallyGeneratesTwentyFourShortWordsInOneTimedPhrase() {
+        val text = "go ".repeat(24)
+        val phrases = requireNotNull(KokoroSpeechText.withPolicy(text, { true }, emptyMap(), 24, true).phrases)
+        assertEquals(1, phrases.size)
+        assertEquals(24, phrases.single().wordRanges.size)
     }
 
     @Test fun calibrationRequiresRepeatedMeasurementsAndAMaterialGain() {
@@ -74,11 +99,33 @@ class VoiceSynthesisPerformanceTest {
         assertEquals(1_800, clock.position(2_400, null, null, 1_100_000_000, false).frames)
     }
 
-    @Test fun staleTimestampsFallBackAndRouteChangesResetClockHistory() {
+    @Test fun staleTimestampsFallBackAndRouteChangesPreservePresentedWords() {
         val clock = VoicePlaybackClock(24_000)
-        assertEquals("playback_head", clock.position(2_400, 0, 1, 2_000_000_000, true).basis)
+        assertEquals("playback_head", clock.position(2_400, 0, 1, 20_000_000_000, true).basis)
         clock.routeChanged()
-        assertEquals(600, clock.position(1_200, 600, 2_000_000_000, 2_000_000_000, true).frames)
+        assertEquals(2_400, clock.position(1_200, 600, 20_000_000_000, 20_000_000_000, true).frames)
+        assertEquals(1, clock.routeEpoch)
+        assertEquals(600, VoicePlaybackClock(24_000).position(1_200, 600, 20_000_000_000, 20_000_000_000, true).frames)
+    }
+
+    @Test fun stableTimestampCanBeInterpolatedBetweenOccasionalPlatformSamples() {
+        val clock = VoicePlaybackClock(24_000)
+        assertEquals(240_000L, clock.position(250_000, 0, 1_000_000_000, 11_000_000_000, true).frames)
+        assertEquals(240_000L, clock.position(230_000, 0, 1_000_000_000, 11_000_000_000, true).frames)
+    }
+
+    @Test fun queueEmptyAtLastPhraseKeepsPresentationTailMovingUntilALateSealCanComplete() {
+        val clock = VoicePlaybackClock(1_000)
+        var playing = true
+        var presented = 0L
+        for (milliseconds in 0L..100L step 10) {
+            presented = clock.position(1_000, 900, 1_000_000_000, 1_000_000_000 + milliseconds * 1_000_000, playing).frames
+            if (VoicePlaybackClock.drained(1_000, 1_000, presented)) playing = false
+            if (milliseconds < 100) assertTrue("The raw head is drained but its measured presentation tail must keep advancing", playing)
+        }
+        assertFalse(playing)
+        assertEquals(1_000L, presented)
+        assertTrue(VoicePlaybackClock.drained(1_000, 1_000, presented))
     }
 
     @Test fun captionDelayDrainsTheFinalWordsWithoutChangingPcm() {

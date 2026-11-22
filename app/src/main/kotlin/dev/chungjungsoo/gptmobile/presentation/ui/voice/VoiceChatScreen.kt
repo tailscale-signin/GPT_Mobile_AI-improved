@@ -404,7 +404,7 @@ private fun VoiceChatSessionScreen(
     var remaining by remember { mutableIntStateOf(0) }
     DisposableEffect(audio, session) {
         systemAudio.routeChanged = {
-            session.pause()
+            session.pause("audio_route_changed")
             route = systemAudio.routeName()
         }
         onDispose { systemAudio.routeChanged = null }
@@ -483,7 +483,7 @@ private fun VoiceChatSessionScreen(
     fun pauseCapture() {
         listeningEnabled = false
         session.autoContinue = false
-        if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) session.pause()
+        if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) session.pause("transcript_opened")
     }
     fun openChat() {
         if (preferencesApplied) savePreferences()
@@ -732,13 +732,13 @@ private fun VoiceChatSessionScreen(
                 actions = VoiceSettingsActions(
                     done = ::closeSettings,
                     selectProfile = { uid ->
-                        session.pause()
+                        session.pause("profile_changed")
                         model.selectVoiceProfile(uid) { changed -> if (changed) closeSettings() }
                     },
                     installLocalModel = voiceSettings::installLocalModel,
                     cancelLocalModelInstall = voiceSettings::cancelLocalModelInstall,
                     removeLocalModel = {
-                        session.pause()
+                        session.pause("model_removed")
                         localRecognition.releaseWarmModel(voiceSettings::removeLocalModel)
                     },
                     changeLanguage = {
@@ -851,11 +851,11 @@ private fun VoiceChatSessionScreen(
                 },
                 microphone = ::toggleMicrophone,
                 audioRoute = {
-                    session.pause()
+                    session.pause("audio_route_opened")
                     routeOpen = true
                 },
                 settings = {
-                    session.pause()
+                    session.pause("settings_opened")
                     settingsOpen = true
                 },
                 end = ::leaveTranscript,
@@ -892,7 +892,7 @@ private fun VoiceChatSessionScreen(
                 ),
                 actions = VoiceConversationActions(
                     selectProfile = { uid ->
-                        session.pause()
+                        session.pause("profile_changed")
                         model.selectVoiceProfile(uid) {}
                     },
                     openTranscript = { chatView = true },
@@ -900,7 +900,7 @@ private fun VoiceChatSessionScreen(
                         val currentState = session.states.value
                         val currentAdmission = model.voiceAdmission.value
                         if (currentState.shouldCheckpointDraft(currentAdmission?.requestId, currentAdmission?.stage)) model.checkpointVoiceDraft(currentState.transcript)
-                        session.pause()
+                        session.pause("settings_opened")
                         settingsOpen = true
                     },
                     showSettings = { settingsOpen = true },
@@ -917,11 +917,11 @@ private fun VoiceChatSessionScreen(
                         listen()
                     },
                     repair = { action ->
-                        session.pause()
+                        session.pause("repair_settings_opened")
                         if (action == VoiceRecoveryAction.LOCAL_MODEL) settingsOpen = true else openVoiceRepairSettings(context, action)
                     },
                     openVoiceConfiguration = {
-                        session.pause()
+                        session.pause("settings_opened")
                         settingsOpen = true
                     },
                     replay = { readResponse(VoiceMessageIdentity(retainedMessageId, retainedRunId, retainedRevision), state.reply) },
@@ -934,7 +934,7 @@ private fun VoiceChatSessionScreen(
                         }
                     },
                     openAudioRoute = {
-                        session.pause()
+                        session.pause("audio_route_opened")
                         if (buttonSounds) feedback.click()
                         routeOpen = true
                     },

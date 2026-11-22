@@ -184,6 +184,7 @@ class VoiceSessionTest {
         var done: (() -> Unit)? = null
         var audioError: ((String) -> Unit)? = null
         var stopped = 0
+        val stopReasons = mutableListOf<String>()
         var closed = false
         override var streamsReplies = false
         var opened = 0
@@ -213,6 +214,10 @@ class VoiceSessionTest {
         }
         override fun stop() {
             stopped++
+        }
+        override fun stop(reason: String) {
+            stopReasons += reason
+            stop()
         }
         override fun close() {
             closed = true
@@ -499,6 +504,7 @@ class VoiceSessionTest {
         session.reply("run", "Reply")
         val callback = audio.done
         session.access(true, true, false)
+        assertEquals("lifecycle_background", audio.stopReasons.last())
         callback?.invoke()
         assertEquals(1, audio.listeners.size)
         assertEquals(VoicePhase.PAUSED, session.state.phase)

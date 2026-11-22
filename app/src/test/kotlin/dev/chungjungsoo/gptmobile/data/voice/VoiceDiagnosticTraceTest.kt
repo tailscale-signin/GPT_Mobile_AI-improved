@@ -12,7 +12,7 @@ import org.junit.Test
 class VoiceDiagnosticTraceTest {
     @After fun clear() = VoiceDiagnosticTrace.clearAll()
 
-    @Test fun actualFallbackProviderOwnsPerformanceSamplesAndNeverBecomesExportedRawData() {
+    @Test fun actualFallbackProviderOwnsPerformanceSamplesAndExportsOnlyClosedIdentity() {
         var time = 100L
         val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})
         fun play(provider: String, duration: Long) {
@@ -31,6 +31,7 @@ class VoiceDiagnosticTraceTest {
         assertEquals(100L, rows.single { it.engine == "QNN_GPU" }.p50Ms)
         assertEquals(400L, rows.single { it.engine == "KOKORO_CPU" }.p50Ms)
         assertEquals("KOKORO", trace.incidentFields()["voice_engine"])
+        assertEquals("KOKORO_CPU", trace.incidentFields()["voice_effective_provider"])
         assertFalse(trace.incidentFields().values.contains("qnn-gpu"))
         assertFalse("voice_first_audio_basis" in trace.incidentFields())
         assertEquals(400L, trace.incidentFields()["voice_response_to_first_audio_ms"])
@@ -45,6 +46,64 @@ class VoiceDiagnosticTraceTest {
         val cold = trace.performance.snapshots.value.rows.single { it.metric == "text_to_audio" && it.warm == false }
         assertEquals("KOKORO_CPU", cold.engine)
         assertEquals(500L, cold.p50Ms)
+    }
+
+    @Test fun successfulAndroidRecoveryRetainsOriginalFailureAndProvider() {
+        val trace = VoiceDiagnosticTrace({ 100 }, { 1_100 }, { true }, {})
+        val probe = trace.beginReply(1)
+        probe.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        probe.selectedSpeechBackend("QNN_GPU")
+        probe.speechProvider("qnn-gpu")
+        val failure = VoicePlaybackFailure("Private utterance must never be a receipt", IllegalStateException("private path"), "SYNTHESIS_FAILED", "qnn-gpu")
+        probe.playbackFallback(failure, "STARTED")
+        probe.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
+        probe.playbackFallback(failure, "SUCCEEDED")
+        val fields = trace.incidentFields()
+        assertEquals("QNN_GPU", fields["voice_selected_backend"])
+        assertEquals("QNN_GPU", fields["voice_fallback_source"])
+        assertEquals("SYSTEM", fields["voice_fallback_target"])
+        assertEquals("SYSTEM", fields["voice_effective_provider"])
+        assertEquals("SUCCEEDED", fields["voice_fallback_outcome"])
+        assertEquals("SYNTHESIS_FAILED", fields["voice_fallback_failure"])
+        assertEquals(1L, fields["voice_fallback_count"])
+        assertFalse(fields.toString().contains("Private utterance"))
+        assertFalse(fields.toString().contains("private path"))
+    }
+
+    @Test fun firstTextPublishablePhrasePreparedPcmAndPresentedAudioHaveSeparateObservedTimings() {
+        var time = 100L
+        val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})
+        val probe = trace.beginReply(1)
+        probe.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        probe.speechProvider("cpu")
+        probe.responseText()
+        time = 250
+        probe.publishableSpeech()
+        time = 300
+        probe.queued()
+        time = 700
+        probe.firstPcm()
+        time = 900
+        probe.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
+        val rows = trace.performance.snapshots.value.rows.associateBy { it.metric }
+        assertEquals(150L, rows.getValue("text_to_publishable").p50Ms)
+        assertEquals(50L, rows.getValue("publishable_to_queue").p50Ms)
+        assertEquals(400L, rows.getValue("queue_to_pcm").p50Ms)
+        assertEquals(200L, rows.getValue("pcm_to_audio").p50Ms)
+        assertEquals("KOKORO_CPU", rows.getValue("pcm_to_audio").engine)
+    }
+
+    @Test fun explicitlySelectedGatewayRecoveryRetainsTheFailedRemoteProvider() {
+        val trace = VoiceDiagnosticTrace({ 100 }, { 1_100 }, { true }, {})
+        val probe = trace.beginReply(1)
+        probe.selectedSpeechBackend("GATEWAY_CUDA")
+        val failure = VoicePlaybackFailure("Gateway preparation failed", code = "SYNTHESIS_FAILED", sourceProvider = "gateway-cuda")
+        probe.playbackFallback(failure, "STARTED")
+        probe.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
+        probe.playbackFallback(failure, "SUCCEEDED")
+        assertEquals("GATEWAY_CUDA", trace.incidentFields()["voice_selected_backend"])
+        assertEquals("GATEWAY_CUDA", trace.incidentFields()["voice_fallback_source"])
+        assertEquals("SYSTEM", trace.incidentFields()["voice_effective_provider"])
     }
 
     @Test fun captureReadinessAndAcousticEndpointUseSeparateObservedClocks() {

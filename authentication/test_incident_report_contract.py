@@ -57,6 +57,30 @@ class IncidentReportContractTest(unittest.TestCase):
             self.assertIsNotNone(match, field)
             self.assertEqual(choices, set(re.findall(r'"([^"\n]+)"', match.group(1))))
 
+    def test_gateway_fallback_preserves_remote_source_after_system_recovery(self):
+        values = {
+            "voice_engine": "SYSTEM", "voice_phase": "SPEAKING",
+            "voice_selected_backend": "GATEWAY_CUDA", "voice_effective_provider": "SYSTEM",
+            "voice_fallback_source": "GATEWAY_CUDA", "voice_fallback_target": "SYSTEM",
+            "voice_fallback_outcome": "SUCCEEDED", "voice_fallback_failure": "SYNTHESIS_FAILED",
+            "voice_fallback_count": 1,
+        }
+        capture = self.capture("VOICE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        approved = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("| voice_fallback_source | `GATEWAY_CUDA` |", issue["body"])
+        self.assertIn("| voice_effective_provider | `SYSTEM` |", issue["body"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        for unclosed in ("gateway-cuda", "CUDA", "https://private.gateway.example/voice?request=private-id"):
+            with self.subTest(unclosed=unclosed), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {**values, "voice_fallback_source": unclosed}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("VOICE", {**values, "voice_fallback_target": "GATEWAY_CUDA"}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"voice_fallback_source": "GATEWAY_CUDA"}))
+
     def test_search_argument_rule_survives_submission_without_raw_query_or_exception(self):
         values = {
             "search_argument_field": "query", "search_argument_rule": "FUZZY_IDENTIFIER",

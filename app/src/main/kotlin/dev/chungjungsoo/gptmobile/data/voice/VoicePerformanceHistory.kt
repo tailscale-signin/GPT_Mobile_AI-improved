@@ -57,6 +57,6 @@ class VoicePerformanceHistory(private val capacity: Int = 64) {
 
     private companion object {
         val ENGINES = setOf("SESSION", "SYSTEM", "LOCAL", "KOKORO", "KOKORO_CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA")
-        val METRICS = setOf("capture_ready", "gate_wait", "verification", "model_load", "speech_end", "final_to_request", "request_to_text", "text_to_queue", "warmup", "queue_to_synthesis", "synthesis_to_audio", "text_to_audio", "frame_interval", "frame_duration", "gpu_duration")
+        val METRICS = setOf("capture_ready", "gate_wait", "verification", "model_load", "speech_end", "final_to_request", "request_to_text", "text_to_publishable", "publishable_to_queue", "text_to_queue", "warmup", "queue_to_synthesis", "queue_to_pcm", "pcm_to_audio", "synthesis_to_audio", "text_to_audio", "frame_interval", "frame_duration", "gpu_duration")
     }
 }

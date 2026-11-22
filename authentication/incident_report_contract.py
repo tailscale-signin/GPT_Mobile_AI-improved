@@ -358,7 +358,7 @@ VOICE_PLAYBACK_FAILURES = {
 VOICE_EXECUTION_ENUMS = {
     'voice_selected_backend': {'AUTO', 'CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
     'voice_effective_provider': {'SYSTEM', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
-    'voice_fallback_source': {'KOKORO', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP'},
+    'voice_fallback_source': {'KOKORO', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
     'voice_fallback_target': {'SYSTEM', 'KOKORO_CPU'},
     'voice_fallback_outcome': {'STARTED', 'SUCCEEDED', 'FAILED'},
     'voice_fallback_failure': VOICE_PLAYBACK_FAILURES,

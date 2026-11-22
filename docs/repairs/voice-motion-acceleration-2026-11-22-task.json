@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_pr": 2254,
+  "source_sha": "2fb4f4434fa80ef26455d84f09e45fc425c6b629",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "intent": "Implement the approved voice mode design, GPU/NPU execution repairs and remaining diagnostic gaps on the latest draft PR, preserve concurrent commits, merge only after exact-head required verification and publish exact-main signed Android and Gateway releases.",
+  "status": "IMPLEMENTING",
+  "authorization": "User explicitly authorized implementation, pushing a draft PR, merging after green checks and publishing after green main verification.",
+  "workers": [
+    {
+      "scope": "continuous caption motion and 250 ms word colour onset",
+      "branch": "work/voice-caption-motion-2026-11-22"
+    },
+    {
+      "scope": "Kokoro execution providers and capability evidence",
+      "branch": "agent/kokoro-acceleration-2026-11-22"
+    },
+    {
+      "scope": "remaining diagnostic provenance and execution method size",
+      "branch": "local/voice-update-diagnostic-gaps-2026-11-22"
+    },
+    {
+      "scope": "audio continuity, presentation clock, lifecycle, integration and publication",
+      "branch": "fix/diagnostic-execution-completion-2026-11-22"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "caption-motion",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Continuous stable lines, five-line scale/opacity, manual scrolling and return to live, reduced motion and Unicode-safe geometry"
+    },
+    {
+      "id": "caption-highlight",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Theme colour fades in for 250 ms at actual word presentation, one active bold word and bounded cosmetic release without reflow"
+    },
+    {
+      "id": "caption-clock",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Immutable frame timing, monotonic presentation progress, pause/refill freeze and route epoch"
+    },
+    {
+      "id": "audio-continuity",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Measured next-phrase reserve, bounded PCM queue, natural first clause, aligned phrase modes and truthful warm/fallback timing"
+    },
+    {
+      "id": "kokoro-gpu-npu",
+      "status": "IN_PROGRESS",
+      "title": "Correct concrete device selection, compatible partitions, PCM/duration qualification, bounded capability caches and selected/effective backend evidence"
+    },
+    {
+      "id": "lifecycle",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Worker preference reads, idempotent audio cleanup and explicit pause origins"
+    },
+    {
+      "id": "diagnostic-gaps",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Fix nested payload error provenance and remaining oversized execution method while preserving incoming diagnostic repairs"
+    },
+    {
+      "id": "release",
+      "status": "PENDING",
+      "title": "Exact-head CI, guarded merge, exact-main checks, signed publication and artifact readback"
+    }
+  ],
+  "validation": [
+    {
+      "suite": "voice synthesis, timing, PCM, speech buffer",
+      "result": "PASS",
+      "tests": 43,
+      "runtime": "Kotlin 2.4.20 host/JUnit 4.13.2; production helper sources"
+    },
+    {
+      "suite": "diagnostic nested receipt regression",
+      "result": "PASS",
+      "tests": 5,
+      "baseline_new_test_failures": 2
+    },
+    {
+      "suite": "coordinator packaged DEX guard Python",
+      "result": "PASS",
+      "tests": 15
+    },
+    {
+      "suite": "closed voice diagnostic contract and provenance Kotlin",
+      "result": "PASS",
+      "tests": 8
+    },
+    {
+      "suite": "authentication contract/config",
+      "result": "PASS",
+      "tests": 108
+    },
+    {
+      "suite": "authentication app",
+      "result": "PASS",
+      "tests": 69
+    },
+    {
+      "suite": "Android Gradle local",
+      "result": "UNAVAILABLE",
+      "reason": "No Android SDK; wrapper download direct JVM network unavailable. Exact-head hosted compile/test/packaged gates remain required."
+    },
+    {
+      "suite": "caption motion, highlights, layout and Unicode",
+      "result": "PASS",
+      "tests": 31,
+      "runtime": "Kotlin 2.4.20 host; production helpers"
+    },
+    {
+      "suite": "streaming fallback ownership",
+      "result": "PASS",
+      "tests": 3,
+      "baseline_regression": "duplicate offline utterance reproduced without guard",
+      "scope": "actual production wrapper and repository test bodies; Android/diagnostics boundary shims"
+    },
+    {
+      "suite": "Gateway fallback-source contract",
+      "result": "PASS",
+      "tests": 4
+    },
+    {
+      "suite": "authentication contract and reporter configuration after Gateway-source addition",
+      "result": "PASS",
+      "tests": 109
+    },
+    {
+      "suite": "extended and legacy reporter readiness",
+      "result": "PASS",
+      "tests": 2
+    },
+    {
+      "suite": "canonical fast validation after voice integration",
+      "result": "PASS",
+      "tests": 605,
+      "command": "bash scripts/validate-local.sh fast"
+    }
+  ],
+  "hardware_qualification": "Physical phone GPU/NPU performance and audio route calibration require device execution evidence; host tests and successful compilation alone are not qualification.",
+  "remote_observations": [
+    {
+      "event": "intake",
+      "pr": 2254,
+      "head": "2fb4f4434fa80ef26455d84f09e45fc425c6b629",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "draft": true
+    },
+    {
+      "event": "pre-integration recheck",
+      "head": "2fb4f4434fa80ef26455d84f09e45fc425c6b629",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "ruleset_id": 27005122,
+      "required_checks": [
+        "Required verification",
+        "Analyze (java-kotlin)"
+      ],
+      "bypass": "never"
+    },
+    {
+      "event": "concurrent commit preserved",
+      "head": "2d42f3970d65cf169c600c3d4cc3cccc949ef14a",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Merged firewall/profile observations and inherited test fixture fixes without overwriting them."
+    },
+    {
+      "event": "second concurrent commit preserved",
+      "head": "f225c208e80393f0232ba7849340461fd23901b9",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Merged verified Robolectric-cache workflow repair without overwriting it."
+    }
+  ]
+}

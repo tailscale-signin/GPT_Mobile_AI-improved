@@ -30,7 +30,7 @@ internal class VoiceSpeechBuffer(private val now: () -> Long = { System.nanoTime
                 val wordLimit = if (!startedSpeech) {
                     4
                 } else if (adaptive) {
-                    (feedback?.suggestedFollowUpWords ?: 12).coerceIn(6, 16)
+                    (feedback?.suggestedFollowUpWords ?: 12).coerceIn(6, 24)
                 } else {
                     followUpWords
                 }

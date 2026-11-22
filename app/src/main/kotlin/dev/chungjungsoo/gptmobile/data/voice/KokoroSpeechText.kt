@@ -38,6 +38,7 @@ internal object KokoroSpeechText {
     private const val MAX_INPUT = 12_000
     private const val MAX_PART_CHARS = 128
     private const val MAX_PART_WORDS = 16
+    private const val MAX_POLICY_WORDS = 24
 
     /** A null result requires a visible pronunciation failure, never silent engine fallback or omission. */
     fun parts(input: String, isKnown: (String) -> Boolean): List<String>? = project(input, markdown = true, isKnown).parts
@@ -51,7 +52,7 @@ internal object KokoroSpeechText {
         project(input, markdown = false, isKnown, timed = true)
 
     fun withPolicy(input: String, isKnown: (String) -> Boolean, overrides: Map<String, String>, wordLimit: Int, timed: Boolean): KokoroSpeechProjection =
-        project(input, markdown = false, isKnown, timed, overrides, wordLimit.coerceIn(4, MAX_PART_WORDS))
+        project(input, markdown = false, isKnown, timed, overrides, wordLimit.coerceIn(4, MAX_POLICY_WORDS))
 
     private fun project(input: String, markdown: Boolean, isKnown: (String) -> Boolean, timed: Boolean = false, overrides: Map<String, String> = emptyMap(), wordLimit: Int = MAX_PART_WORDS): KokoroSpeechProjection {
         val clipped = if (input.length <= MAX_INPUT) {

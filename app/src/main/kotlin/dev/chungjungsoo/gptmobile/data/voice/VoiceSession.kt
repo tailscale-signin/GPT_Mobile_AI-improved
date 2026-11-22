@@ -51,6 +51,7 @@ interface VoiceAudio {
     /** Snapshot this observer for each operation; cancelled operations must never invoke it. */
     fun bindPlaybackStarted(started: (() -> Unit)?) = Unit
     fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) = Unit
+    fun bindTimedSpokenRange(spoken: ((Int, String, IntRange, VoiceCaptionTiming) -> Unit)?) = Unit
     val streamsReplies: Boolean get() = false
     fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? = null
     fun openReplyWithFailure(complete: () -> Unit, error: (VoicePlaybackFailure) -> Unit): VoiceReplyPlayback? =
@@ -109,6 +110,7 @@ class VoiceSession(
     private val inputLevel = kotlinx.coroutines.flow.MutableStateFlow(VoiceInputLevel())
     val inputLevels: kotlinx.coroutines.flow.StateFlow<VoiceInputLevel> = inputLevel
     private val captionCursor = kotlinx.coroutines.flow.MutableStateFlow(VoiceCaptionCursor())
+    private var captionTiming: VoiceCaptionTiming? = null
     val captionCursors: kotlinx.coroutines.flow.StateFlow<VoiceCaptionCursor> = captionCursor
     val performanceHistory: VoicePerformanceHistory get() = diagnosticTrace.performance
     var state = VoiceState()
@@ -349,7 +351,8 @@ class VoiceSession(
         )
         val visible = state.presentationState()
         inputLevel.value = VoiceInputLevel(state.level, state.hasAudioLevel)
-        captionCursor.value = VoiceCaptionCursor(state.spokenRange, state.playbackCaption)
+        if (state.phase != VoicePhase.SPEAKING) captionTiming = null
+        captionCursor.value = VoiceCaptionCursor(state.spokenRange, state.playbackCaption, captionTiming)
         mutableState.value = state
         if (presentation.value != visible) {
             diagnosticProbe.phase(state.phase)
@@ -377,6 +380,8 @@ class VoiceSession(
         audio.stop(reason)
         audio.bindPlaybackStarted(null)
         audio.bindSpokenRange(null)
+        audio.bindTimedSpokenRange(null)
+        captionTiming = null
         captionSearchFrom = 0
         audio.bindDiagnostics(diagnosticProbe)
     }
@@ -389,7 +394,17 @@ class VoiceSession(
         this.permission = permission
         this.foreground = foreground
         diagnosticProbe.access(permission, foreground, state.muted)
-        if ((!accessAllowed() || !permission && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) && state.phase != VoicePhase.CLOSED) pause()
+        if ((!accessAllowed() || !permission && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) && state.phase != VoicePhase.CLOSED) {
+            pause(
+                if (!foreground) {
+                    "lifecycle_background"
+                } else if (!enabled) {
+                    "voice_disabled"
+                } else {
+                    "permission_changed"
+                }
+            )
+        }
     }
 
     fun resume() {
@@ -563,7 +578,10 @@ class VoiceSession(
             stopAudio("response_revised")
             update(state.copy(phase = VoicePhase.THINKING, notice = "The response was revised. The current answer is available in chat."))
         } else if (streamAudio) {
-            if (chunks.isNotEmpty()) diagnosticProbe.queued()
+            if (chunks.isNotEmpty()) {
+                diagnosticProbe.publishableSpeech()
+                diagnosticProbe.queued()
+            }
             queuedSpeech.addAll(chunks)
         }
         pumpSpeech()
@@ -637,13 +655,16 @@ class VoiceSession(
                 update(state.copy(phase = VoicePhase.SPEAKING))
             }
         }
-        audio.bindSpokenRange { index, utterance, range ->
+        fun spoken(index: Int, utterance: String, range: IntRange, timing: VoiceCaptionTiming?) {
             if (ticket == generation && sequence == playbackSequence && state.phase == VoicePhase.SPEAKING) {
                 if (range.isEmpty()) {
-                    if (index == activeUtterance) update(state.copy(spokenRange = null))
-                    return@bindSpokenRange
+                    if (index == activeUtterance) {
+                        captionTiming = timing
+                        update(state.copy(spokenRange = null))
+                    }
+                    return
                 }
-                if (index < activeUtterance || index == activeUtterance && range.first < lastRangeStart) return@bindSpokenRange
+                if (index < activeUtterance || index == activeUtterance && range.first < lastRangeStart) return
                 // Require an exact visible-text match. Pronunciation and Markdown transforms can change the source.
                 if (index != activeUtterance) {
                     val projected = VoiceSpeechText.project(state.reply)
@@ -660,10 +681,19 @@ class VoiceSession(
                     null
                 }
                 if (mapped != null) captionSearchFrom = utteranceStart + utterance.length
-                diagnosticProbe.captionAlignment(if (mapped == null) "TEXT_UNMAPPED" else "EXACT_RANGE")
-                update(state.copy(spokenRange = mapped, playbackCaption = playbackCaption))
+                captionTiming = timing.takeIf { mapped != null }
+                if (mapped == state.spokenRange && playbackCaption == state.playbackCaption) {
+                    // Only the light presentation stream sees clock refreshes. No transcript
+                    // projection, durable draft write or diagnostic event runs per refresh.
+                    captionCursor.value = VoiceCaptionCursor(mapped, playbackCaption, captionTiming)
+                } else {
+                    diagnosticProbe.captionAlignment(if (mapped == null) "TEXT_UNMAPPED" else "EXACT_RANGE")
+                    update(state.copy(spokenRange = mapped, playbackCaption = playbackCaption))
+                }
             }
         }
+        audio.bindSpokenRange { index, utterance, range -> spoken(index, utterance, range, null) }
+        audio.bindTimedSpokenRange(::spoken)
         diagnosticProbe.captionAlignment("NO_TIMING")
         return sequence
     }
@@ -789,6 +819,7 @@ class VoiceSession(
         stopAudio()
         val ticket = generation
         preparePlayback(ticket)
+        diagnosticProbe.publishableSpeech()
         diagnosticProbe.queued()
         audio.bindReply(streamDiagnosticId ?: id)
         val origin = diagnosticProbe
@@ -815,7 +846,7 @@ class VoiceSession(
         update(state.copy(speaker = !state.speaker))
         if (!state.speaker && !manualPlayback) stopSpeaking()
     }
-    fun pause() {
+    fun pause(reason: String = "user_pause") {
         if (state.phase == VoicePhase.CLOSED) return
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
         // A completed model response may still be draining audio. Once that playback is
@@ -823,14 +854,14 @@ class VoiceSession(
         if (streamComplete) waiting = false
         engaged = false
         automaticRetry = false
-        stopAudio("session_paused")
+        stopAudio(reason.takeIf { it.matches(Regex("[a-z_]{1,64}")) } ?: "session_paused")
         update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
     }
 
     /** A deliberate engine change invalidates old recovery UI; each engine retains its own gate. */
     fun recognitionConfigurationChanged() {
         if (state.phase == VoicePhase.CLOSED) return
-        pause()
+        pause("recognition_engine_changed")
         recognitionFailures = 0
         update(state.copy(retryAtMillis = 0, notice = null, recoveryAction = null))
     }

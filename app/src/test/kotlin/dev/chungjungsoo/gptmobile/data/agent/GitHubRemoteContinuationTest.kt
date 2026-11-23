@@ -19,6 +19,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubRemoteContinuationTest {
+    @Test fun standaloneQuantifiedAuditUsesItsIssuedDerivedSearchFrontier() {
+        val fixture = SearchScopeFixture("TODO", "literal")
+        for (task in listOf(
+            "Examine all issues and bugs",
+            "Examine all issues and bugs, offer solutions based on the latest pr branch. I need this audit benchmark to be able to tell a difference between models on which one is superior using GitHub integration and coding. Offer design solution. And fixes and upgrades",
+            "Please audit every remaining bug",
+            "Check all current issues",
+            "GitHub workspace: owner/repo\nBranch: feature\n\nExamine all issues and bugs",
+            "Examine all issues and bugs; take a sample of README matches"
+        )) {
+            assertEquals(task, fixture.nextArguments, fixture.next(task)?.arguments)
+        }
+    }
+
+    @Test fun standaloneAuditKeepsSamplesComponentQualifiersAndIncidentalInstructionsBounded() {
+        for ((task, query, mode) in listOf(
+            Triple("Examine all issues and bugs; take a sample of TODO matches", "TODO", "literal"),
+            Triple("Examine a sample of all issues and bugs", "TODO", "literal"),
+            Triple("Examine all issues and bugs in the login component", "TODO", "literal"),
+            Triple("Examine all issues and bugs affecting authentication", "TODO", "literal"),
+            Triple("Audit all current bugs in AuthController.kt", "TODO", "literal"),
+            Triple("Find every FIXME", "TODO", "literal"),
+            Triple("Examine all issues and bugs, then read CONTRIBUTING", "CONTRIBUTING", "paths"),
+            Triple("Examine all issues and bugs", "AGENTS.md", "paths")
+        )) {
+            assertNull(task, SearchScopeFixture(query, mode).next(task))
+        }
+    }
+
     @Test fun explicitlyExhaustiveInstructionSearchUsesItsIssuedFrontier() {
         val fixture = SearchScopeFixture("CONTRIBUTING", "paths")
         for (task in listOf(

@@ -13,6 +13,25 @@ internal object GitHubAnswerPresentation {
     private val runtimeSubject = Regex("""(?i)\b(?:tool[- ]?(?:call[s]?|budget|allowance|limit|access|availability)|(?:call|execution|current|remaining|request) (?:budget|allowance)|(?:tool|write|branch|commit|test[- ]execution|pull[- ]request) (?:tools?|capabilit(?:y|ies)|permissions?|access)|(?:available|remaining|more|no) (?:tool )?calls|(?:tools?|capabilities|permissions?) (?:are |were |remain )?(?:unavailable|missing|disabled|exhausted)|(?:environment|session|workspace) (?:that |which )?(?:with|without|lacks?|has|supports?|cannot)|(?:cannot|can't|unable to) (?:write|run tests|create (?:a )?branch|open (?:a )?pull request))\b""")
     fun runtimeClaim(text: String): Boolean = runtimeSubject.containsMatchIn(text)
 
+    private val repositoryRuntimeOwner = Regex("""(?i)\b(?:(?:app(?:lication)?|project|repository|codebase|workflow|pipeline)['’]s\s+(?:(?:configured|maximum|default|effective|remaining)\s+)*|(?:ci|workflow|pipeline|build|test)(?:\s+(?:runner|job|process|sandbox))?(?:['’]s)?\s+)$""")
+    private val repositoryRuntimeRelation = Regex("""(?i)\b(?:app(?:lication)?|project|repository|codebase|ci|workflow|pipeline)(?:['’]s\s+(?:[\p{L}_][\p{L}\p{N}_-]*\s+){1,5}|\s+)(?:(?:should|could|can|must|will)\s+)?(?:derive|report|show|display|expose|provide|preserve|define|configure|track|limit|enforce|use|require|support)s?\s+(?:(?:the|its|a|an|configured|remaining|available|maximum|effective|allowed|default)\s+)*$""")
+    private val currentExecutionSubject = Regex("""(?i)\b(?:(?:i|we) (?:(?:now|still|currently) )?(?:am|are|have|lack|need|cannot|can't|can|must|used|exhausted)|(?:can|could|should|may|must|will) (?:i|we)|(?:my|our) (?:tool[- ]?calls?|budget|allowance|permissions?|capabilities|environment|session|workspace)|(?:this|current|active) (?:agent|assistant|session|workspace|environment|run|round)(?:['’]s)?)\b""")
+    private val permissionHandoff = Regex("""(?i)\b(?:changes?|work|task|implementation|fix(?:es)?)\b.*\b(?:performed|done|continued|resumed|moved|switched)\b.*\b(?:environment|workspace|session)\b""")
+
+    /** Topic scope does not verify a claim; repository interpretations still need verified sources. */
+    fun repositoryRuntimeDiscussion(text: String): Boolean {
+        val clauses = text.split(Regex("""(?<=[.!?;])\s+|\r?\n"""))
+            .filter(::runtimeClaim)
+        return clauses.isNotEmpty() &&
+            clauses.all { clause ->
+                val runtimeStart = requireNotNull(runtimeSubject.find(clause)).range.first
+                val subject = clause.substring(0, runtimeStart)
+                (repositoryRuntimeOwner.containsMatchIn(subject) || repositoryRuntimeRelation.containsMatchIn(subject)) &&
+                    !currentExecutionSubject.containsMatchIn(clause) &&
+                    !permissionHandoff.containsMatchIn(clause)
+            }
+    }
+
     fun resources(budget: JsonObject, authorized: List<AgentToolDefinition>, advertised: List<AgentToolDefinition>): JsonObject = buildJsonObject {
         for (field in listOf("remaining_calls", "effective_call_limit", "used_calls", "remaining_source", "verification_reserve")) {
             budget[field]?.let { put(field, it) }

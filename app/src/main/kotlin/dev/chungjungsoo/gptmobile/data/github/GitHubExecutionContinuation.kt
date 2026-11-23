@@ -115,6 +115,9 @@ internal object GitHubExecutionContinuation {
     private val repositoryAudit = Regex(
         """(?i)\b(?:all|every)\s+(?:(?:known|current|remaining)\s+)*(?:issues?|bugs?)(?:\s+and\s+(?:issues?|bugs?))?\s+(?:in|across|throughout)\s+(?:(?:the|this|our|selected|entire|whole)\s+)*(?:repo(?:sitory)?|codebase)\b|\b(?:review|audit|examine|inspect|check|scan)\s+(?:(?:the|this|our|selected)\s+)*(?:whole|entire)\s+(?:repo(?:sitory)?|codebase)\b|\b(?:exhaustive|comprehensive|complete)\s+(?:repository|codebase)\s+(?:audit|review|check|scan)\b"""
     )
+    private val standaloneIssueAudit = Regex(
+        """(?i)^(?:please\s+)?(?:review|audit|examine|inspect|check|scan|find)\s+(?:all|every)\s+(?:(?:known|current|remaining)\s+)*(?:issues?|bugs?)(?:\s+and\s+(?:issues?|bugs?))?$"""
+    )
 
     fun instructionLookup(arguments: JsonObject): Boolean =
         arguments["mode"] == JsonPrimitive("paths") &&
@@ -138,9 +141,13 @@ internal object GitHubExecutionContinuation {
                     namedQuery &&
                     Regex("""(?i)\b(?:whole|entire)\s+(?:repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)
             }
-            // Repository-wide audits may derive source queries that are absent from the request.
-            namedQuery || repositoryAudit.containsMatchIn(clause) ||
-                query.isBlank() && Regex("""(?i)\b(?:files?|paths?|tree|repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)
+            // An unqualified issue audit covers the selected repository; a component qualifier
+            // must not grant exhaustive coverage to an unrelated derived query.
+            namedQuery ||
+                repositoryAudit.containsMatchIn(clause) ||
+                standaloneIssueAudit.matches(clause.trim()) ||
+                query.isBlank() &&
+                Regex("""(?i)\b(?:files?|paths?|tree|repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)
         }
     }
 

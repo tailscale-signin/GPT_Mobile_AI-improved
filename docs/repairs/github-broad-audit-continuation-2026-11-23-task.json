@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "task": "github-broad-audit-continuation-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "91bc80c36114fd1fe3e08d7693be69424246e35f",
+  "pullRequest": 2367,
+  "intent": "Retain explicitly broad issue-audit coverage when the accepted clause does not repeat the repository noun, and satisfy the pinned Kotlin formatter without weakening search authority or finite execution limits.",
+  "evidence": {
+    "sourceCase": "Examine all issues and bugs, offer solutions based on the latest PR branch",
+    "formattingRun": 45182005608,
+    "formattingJob": 137717941734,
+    "formattingRule": "standard:condition-wrapping",
+    "formattingViolations": 2
+  },
+  "acceptance": [
+    "Continue a derived non-instruction source query for the accepted standalone broad audit clause, including the exact reported request.",
+    "Preserve explicit query sampling, incidental instruction limits, unrelated narrow-query exclusions, exact issued repository/revision/query/cursor binding, duplicate prevention and the existing 32-attempt ceiling.",
+    "Retain the accepted task identity, authorization, deadline and call allowance; no source repair renews or expands them.",
+    "Add direct continuation behavior regression coverage and retain all previous search and restored-contract controls.",
+    "Apply pinned ktlint1.3.1, regenerate required source references, and pass canonical host validation before publishing the candidate."
+  ],
+  "qualification": {
+    "status": "FINAL_HEAD_QUALIFICATION_REQUIRED",
+    "incidentCause": "The source-level coverage case and formatting failure are established; the original device incident's exact cause remains unproven.",
+    "runtime": "Hosted Android behavior execution, all final PR/main gates and both published-package readbacks remain required."
+  }
+}

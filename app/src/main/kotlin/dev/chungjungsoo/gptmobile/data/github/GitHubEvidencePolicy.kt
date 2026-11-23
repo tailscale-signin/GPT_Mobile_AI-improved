@@ -183,7 +183,11 @@ internal object GitHubEvidencePolicy {
             val claim = raw as? JsonObject ?: error("Malformed claim")
             if (engineeringTask &&
                 claim.string("kind") in setOf("inferred", "recommendation", "not_measured") &&
-                GitHubAnswerPresentation.runtimeClaim(claim.string("text") + " " + claim.string("subject"))
+                GitHubAnswerPresentation.runtimeClaim(claim.string("text") + " " + claim.string("subject")) &&
+                !(
+                    claim.string("kind") in setOf("inferred", "recommendation") &&
+                        GitHubAnswerPresentation.repositoryRuntimeDiscussion(claim.string("text"))
+                    )
             ) {
                 checked += buildJsonObject {
                     put("kind", "not_measured")
@@ -301,7 +305,7 @@ internal object GitHubEvidencePolicy {
             completion.forEach { (key, value) -> put(key, value) }
         }
         val questions = (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-            .filterNot { engineeringTask && GitHubAnswerPresentation.runtimeClaim(it) }.take(4)
+            .filterNot { engineeringTask && GitHubAnswerPresentation.runtimeClaim(it) && !GitHubAnswerPresentation.repositoryRuntimeDiscussion(it) }.take(4)
         val facts = lines.filter { it.startsWith("| ") }.distinct()
         val notes = lines.filter { it.isNotBlank() && !it.startsWith("| ") }.distinct()
         val text = if (GitHubTaskCoverage.matches(task)) {

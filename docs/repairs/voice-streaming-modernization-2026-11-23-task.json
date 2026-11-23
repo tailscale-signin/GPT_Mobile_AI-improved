@@ -40,7 +40,7 @@
     "admission": "35 current-source JVM admission/policy/qualification tests passed. A manual-admission bypass negative control failed 5 of 11 new admission regressions, including 1075ms versus2450ms. Two additional Robolectric persistence/preparation-timeout tests remain required in CI.",
     "canonicalFast": "687 canonical host tests passed on the integrated ebda voice candidate. Pinned ktlint1.3.1 passed all64 changed Kotlin/Kotlin-script files. The independent TLS append is preserved; final combined-source gates remain required before merge. Full Android/model smoke remains pending normal CI."
   },
-  "latestObservedPublicHead": "1f84f33c0e00f65f25e2e1879261e868b370c8b0",
+  "latestObservedPublicHead": "9b355e21491225b6e4226d5a3a530d725117f837",
   "independentReview": {
     "sdkLifecycle": "Resolved cancellation/destructor lock contention and failed-native-retirement lease ownership; blocking-destructor regressions passed.",
     "entryAndPreview": "Resolved native-pack-only entry/saved-message gating and same-frame preview configuration ordering; actual Android tests are committed for CI.",
@@ -109,6 +109,41 @@
       "frozenTestSha256": "20461811081468a681e42d847b09c4bc211dd43b62e1df9504a0bd3513cccd68",
       "validation": "Exact reversal restores every original fixture byte. Root source trace and pinned ktlint1.3.1/diff checks pass. No local Android or standalone fixture execution. Both current-head API34/API36 matrices must execute all3entry methods unskipped.",
       "baselineOtherCoverage": "The third entry method and all21selected voice methods passed; the third overall failure is the historical bound-receipt assertion separately corrected at858. These are historical diagnostic results, not final-source qualification."
+    },
+    "failureNoticeFixture": {
+      "baselineSource": "858c17e871a920b7575e44aede7e10e0edc4b561",
+      "actualCheckout": "1c9f4db8183deb0c2667589cfce1f8dcf5fe88a2",
+      "base": "8095c1aee67b64584033289944eff1dfac7a7b48",
+      "baselineRun": 45269820235,
+      "baselineJob": 138028914484,
+      "artifact": 14866862214,
+      "artifactBytes": 1988108,
+      "artifactSha256": "8666a89b3f06468c7849ecf6eb14ae7127f4656c558a2ee371a4e59117dba52a",
+      "appUnitResults": {
+        "cases": 13909,
+        "passed": 13900,
+        "failed": 4,
+        "skipped": 5
+      },
+      "coreDomainResults": {
+        "cases": 4,
+        "passed": 4
+      },
+      "failedMethods": [
+        "freshPublicPlaybackCollectsOnlyItsOwnCauseAfterThePrivateOperationRetires",
+        "publicOriginStillReportsItsActualCauseForStreamingAndTerminalFailures",
+        "privateOriginRemainsUncollectableWhenPrivacyReopensWithoutANewPlaybackTicket"
+      ],
+      "failure": "Three VoicePlaybackFailureReportingTest cases stop at the shared obsolete Kokoro-only notice equality. Production intentionally uses the selected-voice notice for every engine. Their later privacy/cause checks and second complete=true iteration still require corrected-source execution. The fourth baseline failure is the independently corrected pre1f84 composed-authority regression.",
+      "change": "Replace only the shared exact expected notice with the exact selected-voice production message. All12methods, five-second deadline, polling, complete/streaming phases, awaitingReply, irreversible private origin, fresh-ticket behavior, report counts, run hashes, throwable type/fingerprint and raw-canary exclusions are preserved byte-for-byte. Production code is unchanged.",
+      "originalTestSha256": "0fd9b2ba54f86467af64448322f7e8bebe81ac72718e4708d7881631ee833d57",
+      "frozenTestSha256": "74aebb324699c081cad9258658140b8ec37b021b236ed46d86349b3c434cf27e",
+      "validation": "Root and independent peer source review are clear; reversing the single literal restores the complete original file. Pinned ktlint1.3.1 and diff checks pass. No local Android or standalone privacy fixture execution. Complete ordinary project XML on the final source remains mandatory.",
+      "changedClassInventory": {
+        "methods": 1007,
+        "classes": 88,
+        "note": "All995previously declared methods remain; the12pre-existing reporting methods enter changed-class scope. No test method was added or removed."
+      }
     }
   }
 }

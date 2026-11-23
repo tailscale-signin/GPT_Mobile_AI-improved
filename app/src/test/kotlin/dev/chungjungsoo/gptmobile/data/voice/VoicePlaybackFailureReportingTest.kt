@@ -386,7 +386,7 @@ class VoicePlaybackFailureReportingTest {
             }
             release.countDown()
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-            val notice = "Kokoro could not synthesize this reply. Your answer remains in chat."
+            val notice = "The selected voice could not synthesize this reply. Your answer remains in chat."
             while (session.state.notice != notice && System.nanoTime() < deadline) {
                 shadowOf(Looper.getMainLooper()).idle()
                 Thread.sleep(5)

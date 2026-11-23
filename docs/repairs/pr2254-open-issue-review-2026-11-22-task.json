@@ -174,9 +174,10 @@
       "issues": [
         2274,
         2299,
-        2328
+        2328,
+        2331
       ],
-      "action": "Verified the public action hash for agent_merge_status and the argument-shape digest for action, pull_number, expected_head_sha and verify_live in all three reports. The legacy request included the disallowed expected head. The current planner drops it only for that status read and keeps the original permission and repeat checks.",
+      "action": "Verified the public action hash for agent_merge_status and the argument-shape digest for action, pull_number, expected_head_sha and verify_live in the matched reports. The legacy request included the disallowed expected head. The current planner drops it only for that status read and keeps the original permission and repeat checks.",
       "regression_evidence": [
         "GitHubChecklistScheduleTest",
         "GitHubOperationArgumentsTest"
@@ -186,7 +187,8 @@
       "issues": [
         2275,
         2300,
-        2329
+        2329,
+        2332
       ],
       "action": "Matched each reported action hash against the public copilot_tasks enum. The current reader accepts a valid empty task list, rejects malformed collections and records whether more remote pages remain. The historical reports omit the response body, so an empty list is one covered case.",
       "regression_evidence": [
@@ -222,7 +224,8 @@
       "issues": [
         2296,
         2301,
-        2330
+        2330,
+        2333
       ],
       "action": "Require observed source, regression and acceptance evidence, advance admissible work, and retain the exact outstanding operation and blocker when completion cannot be certified.",
       "regression_evidence": [
@@ -230,7 +233,7 @@
         "GitHubCriterionAcceptanceRegressionTest",
         "GitHubChecklistScheduleTest"
       ],
-      "follow_up": "The latest report recorded four of eight criteria met, six prepared reads and conditional fixture approval. The scheduler regression executes all six independently admissible reads after a failed status request. A fixture continues to require its own authorization and allowance."
+      "follow_up": "Both later reports retained six available reads after an unrelated operation failed. Report 2330 verified four of eight criteria. Report 2333 verified four of six. The scheduler regression executes all six independently admissible reads. A fixture continues to require its own authorization and allowance."
     },
     {
       "issues": [
@@ -536,7 +539,7 @@
       ]
     }
   ],
-  "issue_count": 88,
+  "issue_count": 91,
   "validation": {
     "timestamp_regression": "Reproduced the ClassCastException on original production ranking code. Passed after the Long fallback repair. Included absent, malformed, null and populated timestamps and cross-operation priority.",
     "focused_host_suites": {
@@ -585,7 +588,15 @@
       "app_build": 147,
       "reported_revision": "deb6fba6c66f0b6509610c3202b7d517e2fc124a",
       "checklist_host_tests": 36,
-      "integration_status": "The three reports came from the same older run; each is linked to the action and regressions above."
+      "integration_status": "The three reports came from the same older run; each is linked to the action and regressions above.",
+      "additional_run": {
+        "reports": [
+          2331,
+          2332,
+          2333
+        ],
+        "match": "Distinct run on the same older build. The action and argument-shape digests match the documented merge-status and Copilot task-list cases. The acceptance receipt retains six available reads."
+      }
     },
     "benchmark_integration": {
       "commit": "e315be06e0c943c442f7f74b216930ee3f32aae4",
@@ -595,16 +606,34 @@
       "gateway_node_tests": 7
     },
     "kotlin_source_parse": {
-      "commit": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
-      "changed_kotlin_files": 686,
-      "function_declarations_scanned": 9439,
+      "commit": "de2f1ddaa75c0eea40388f93da4cd476616094f8",
+      "changed_kotlin_files": 687,
+      "function_declarations_scanned": 9465,
       "syntax_or_duplicate_declaration_findings": 0,
       "baseline_control": "The same scan flagged the original duplicate graphAction declaration."
+    },
+    "repository_fast_suite_latest": {
+      "commit": "2495c9df6a2b3ba0aaca7ac7f44073c6262a7a81",
+      "passed": 625,
+      "authentication_service_passed": 208
+    },
+    "gateway_scoped_suite": {
+      "commit": "6c5a70f733b3491366526dfd6b7641c8d027b8b1",
+      "python_passed": 1824,
+      "python_platform_skips": 35,
+      "node_passed": 7
+    },
+    "hosted_android_compile": {
+      "workflow_run": 45088632015,
+      "job": 137413911777,
+      "commit": "ac5030cbf0d82fcc9cc32bc845867befe03dda60",
+      "production_compile": "PASSED",
+      "unit_test_source_compile": "PASSED"
     }
   },
   "manifest_correction": "The integrated manifest contained both the superseded five-second speech reserve and the active 5.9-second reserve. Removed the superseded entry to agree with the playback implementation and release notes.",
   "later_feature_review": {
-    "reviewed_through": "6c5a70f733b3491366526dfd6b7641c8d027b8b1",
+    "reviewed_through": "de2f1ddaa75c0eea40388f93da4cd476616094f8",
     "branches_reviewed": 1,
     "changes": [
       {
@@ -642,6 +671,31 @@
           "gateway/v14/tools.py"
         ],
         "verification": "On the previous implementation, the allowed-call scope and cancelled discovery cases failed. On the integrated branch the same 7 cases passed, together with all 142 workspace tests. No external tool or account was used."
+      },
+      {
+        "area": "Saved-page recovery across replay and restart",
+        "commit": "5a930285",
+        "source_entry_points": [
+          "AgentRunner.kt",
+          "GitHubReplayRecovery.kt",
+          "GitHubSavedCursorContinuationTest.kt"
+        ],
+        "verification": "19 actual-source host tests passed for local saved pages, successful context-bearing reads, rejected or uncertain reads and continuation identity."
+      },
+      {
+        "area": "Benchmark cancellation, cleanup and verified-account ownership",
+        "commits": [
+          "f06624d7",
+          "6892a9ff"
+        ],
+        "source_entry_points": [
+          "BenchmarkEngineeringExternalExecutor.kt",
+          "BenchmarkStore.kt",
+          "gateway/benchmarks/store.py",
+          "gateway/benchmarks/live_github.py",
+          "gateway/v14/agent_process.py"
+        ],
+        "verification": "Checked that deleting a saved result with pending remote cleanup is refused using the canonical Room record. The 17 Gateway cleanup tests and 16 live-benchmark contract tests passed using fixtures. Verified the updated Android CI stage declarations with the repository suite."
       }
     ]
   }

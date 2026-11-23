@@ -173,6 +173,20 @@ class BenchmarkStore:
 
     @staticmethod
     def project_cleanup(db, run):
+        run = dict(run)
+        recorded_failure = dict(run.get('failure') or {})
+        key = lambda row: tuple(row.get(field) for field in ('kind', 'repository', 'revision', 'workflowPath'))
+        if run['state'] == 'INTERRUPTED' and recorded_failure.get('code') == 'PROCESS_INTERRUPTED':
+            # Earlier recovery terminalized the run without retaining GitHub
+            # ownership. Derive it from the immutable dispatch receipt for every
+            # reader; never rewrite the original failure/completion evidence.
+            cleanup = BenchmarkStore.interrupted_github_cleanup(run)
+            original = recorded_failure.get('cancellationReceipts', [])
+            if (cleanup is not None and cleanup['outcome'] == 'unknown'
+                    and not any(key(row) == key(cleanup) for row in original)):
+                run['recordedFailure'] = recorded_failure
+                run['failure'] = dict(recorded_failure, code='CANCELLATION_UNCONFIRMED',
+                                      interruption='PROCESS_INTERRUPTED', cancellationReceipts=[*original, cleanup])
         latest = db.execute('SELECT payload,observed FROM benchmark_cleanup_readbacks WHERE run_id=? ORDER BY ordinal DESC LIMIT 1', (run['id'],)).fetchone()
         if latest:
             receipt = json.loads(latest[0])
@@ -182,8 +196,7 @@ class BenchmarkStore:
             failure = dict(run.get('failure') or {})
             original = failure.get('cancellationReceipts', [])
             if isinstance(cleanup, dict):
-                run['recordedFailure'] = dict(failure)
-                key = lambda row: tuple(row.get(field) for field in ('kind', 'repository', 'revision', 'workflowPath'))
+                run['recordedFailure'] = recorded_failure
                 failure['initialCancellationReceipts'] = original
                 failure['cancellationReceipts'] = [cleanup if key(row) == key(cleanup) else row for row in original]
                 if failure.get('code') == 'CANCELLATION_UNCONFIRMED' and all(row.get('outcome') in {'confirmed', 'terminal', 'not_canceled'} for row in failure['cancellationReceipts']):
@@ -193,7 +206,7 @@ class BenchmarkStore:
 
     def pending_external_cleanups(self):
         with self.db() as db:
-            rows = db.execute("SELECT payload,principal FROM benchmark_runs WHERE state='INTERRUPTED' AND payload LIKE '%CANCELLATION_UNCONFIRMED%'").fetchall()
+            rows = db.execute("SELECT payload,principal FROM benchmark_runs WHERE state='INTERRUPTED' AND (payload LIKE '%CANCELLATION_UNCONFIRMED%' OR payload LIKE '%PROCESS_INTERRUPTED%')").fetchall()
             pending = []
             for payload, principal in rows:
                 run = self.project_cleanup(db, json.loads(payload))

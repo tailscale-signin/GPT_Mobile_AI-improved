@@ -219,6 +219,20 @@ class BenchmarkCleanupOwnershipTest(unittest.TestCase):
                                   'bodyDigest': digest({'ref': 'refs/heads/' + branch, 'sha': 'b' * 40})}]}
         return run, receipt
 
+    def legacy_interrupted_live(self, service, *, dispatch='COMPLETED', receipt_change=None):
+        run, receipt = self.admitted_live(service)
+        receipt['mutations'][0]['state'] = dispatch
+        if receipt_change:
+            receipt_change(receipt)
+        service.store.update(run['id'], state='RUNNING', liveGitHubReceipt=receipt)
+        # Exact terminal fields written by recover() before legacy ownership was retained.
+        service.store.update(run['id'], state='INTERRUPTED', endedAt=service.store.now(),
+                             progress='Gateway restarted. Retained evidence is available; start a new run to repeat.',
+                             failure={'code': 'PROCESS_INTERRUPTED', 'dispatched': None})
+        with service.store.db() as db:
+            raw = db.execute('SELECT payload FROM benchmark_runs WHERE id=?', (run['id'],)).fetchone()[0]
+        return run, receipt, raw
+
     def maintenance(self, service):
         with patch('v14.maintenance.pending_work', return_value=0):
             return prepare(service.runtime, service.runtime.gateway_service, service.engineering)
@@ -428,6 +442,124 @@ class BenchmarkCleanupOwnershipTest(unittest.TestCase):
                     with patch.object(BenchmarkRunner, 'execute', side_effect=AssertionError('Restart must not replay')) as execute:
                         restarted.run_one(run['id'])
                         execute.assert_not_called()
+
+    def test_legacy_terminal_interruption_retains_ownership_without_rewriting_completion(self):
+        for dispatch in ('DISPATCHED', 'UNKNOWN_OUTCOME', 'COMPLETED'):
+            with self.subTest(dispatch=dispatch):
+                root = self.root / dispatch
+                original = self.service(root=root)
+                run, receipt, raw = self.legacy_interrupted_live(original, dispatch=dispatch)
+                restarted = self.service(root=root)
+                with patch('benchmarks.live_github.reconcile_interrupted', side_effect=AssertionError('Recovery must not dispatch')) as remote:
+                    restarted.store.recover()
+                    restarted.store.recover()
+                    saved = restarted.store.get(run['id'], cases=False)
+                    self.assertEqual([{'run_id': run['id'], 'principal': self.principal.id}], restarted.external_cleanups())
+                    self.assertEqual(1, restarted.snapshot()['unconfirmedGitHubCleanups'])
+                    self.assertEqual('CANCELLATION_UNCONFIRMED', saved['failure']['code'])
+                    self.assertEqual('PROCESS_INTERRUPTED', saved['failure']['interruption'])
+                    self.assertEqual(json.loads(raw)['failure'], saved['recordedFailure'])
+                    self.assertEqual(receipt, saved['liveGitHubReceipt'])
+                    self.assertEqual(json.loads(raw)['completionReceipt'], saved['completionReceipt'])
+                    self.assertEqual(saved, restarted.store.history(self.principal.id)['runs'][0])
+                    retired = restarted.store.retire_request(self.principal.id, run['request']['request_id'])
+                    self.assertEqual(saved['failure'], retired['failure'])
+                    submission = restarted.store.submission(self.principal.id, run['request']['request_id'])
+                    self.assertEqual('OBSERVED', submission['submissionState'])
+                    self.assertFalse(submission['terminal'])
+                    with self.assertRaises(BenchmarkConflict):
+                        restarted.store.remove(run['id'], self.principal.id)
+                    with self.assertRaises(BenchmarkConflict):
+                        restarted.create(self.principal, self.request('must-wait'))
+                    old_store, old_root = restarted.store, restarted.root
+                    target = root / 'replacement/data/jobs.sqlite3'
+                    restarted.runtime.GATEWAY_JOB_DB_PATH = str(target)
+                    try:
+                        with self.assertRaises(RuntimeError):
+                            restarted.start()
+                    finally:
+                        if restarted.thread is not None:
+                            restarted.begin_drain()
+                            restarted.thread.join(2)
+                    self.assertIs(old_store, restarted.store)
+                    self.assertIs(old_store, restarted.qualifications.store)
+                    self.assertEqual(old_root, restarted.root)
+                    self.assertFalse(target.parent.exists())
+                    remote.assert_not_called()
+                with restarted.store.db() as db:
+                    self.assertEqual(raw, db.execute('SELECT payload FROM benchmark_runs WHERE id=?', (run['id'],)).fetchone()[0])
+                    self.assertEqual(0, db.execute('SELECT COUNT(*) FROM benchmark_cleanup_readbacks WHERE run_id=?', (run['id'],)).fetchone()[0])
+
+    def test_legacy_terminal_cleanup_settles_append_only_without_replaying_cancellation(self):
+        service = self.service()
+        run, receipt, raw = self.legacy_interrupted_live(service)
+        terminal, writes = [False], []
+        def api(path, method='GET', body=None, read_only=False, expected_actor=None, before_dispatch=None):
+            self.assertEqual(7, expected_actor)
+            if method != 'GET':
+                self.assertEqual('/repos/owner/fixture/actions/runs/41/cancel', path)
+                before_dispatch()
+                writes.append(path)
+                raise ConnectionError('Lost cancellation response')
+            owned = {'id': 41, 'head_sha': receipt['publishedRevision'], 'path': receipt['workflowPath'],
+                     'head_branch': receipt['branch'], 'event': 'push',
+                     'status': 'completed' if terminal[0] else 'in_progress',
+                     'conclusion': 'cancelled' if terminal[0] else None}
+            if path.endswith('/actions/runs?head_sha=' + receipt['publishedRevision'] + '&per_page=100'):
+                return {'total_count': 1, 'workflow_runs': [owned]}
+            self.assertEqual('/repos/owner/fixture/actions/runs/41', path)
+            return owned
+        counts = []
+        with patch('benchmarks.live_github.time.sleep'):
+            for settled in (False, False, True):
+                terminal[0] = settled
+                service = self.service()
+                service.engineering.backend = SimpleNamespace(api=api)
+                service.store.recover()
+                self.assertEqual(settled, service.reconcile_external(force=True))
+                self.assertEqual(1, len(writes), 'A restart cannot replay the uncertain cancellation')
+                saved = service.store.get(run['id'])
+                self.assertEqual(json.loads(raw)['failure'], saved['recordedFailure'])
+                self.assertEqual(json.loads(raw)['completionReceipt'], saved['completionReceipt'])
+                self.assertEqual(receipt['publishedRevision'], saved['liveGitHubReceipt']['publishedRevision'])
+                repeated = service.store.update(run['id'], liveGitHubReceipt=saved['liveGitHubReceipt'])
+                self.assertEqual(saved['recordedFailure'], repeated['recordedFailure'])
+                self.assertEqual(saved['failure'], repeated['failure'])
+                with service.store.db() as db:
+                    self.assertEqual(raw, db.execute('SELECT payload FROM benchmark_runs WHERE id=?', (run['id'],)).fetchone()[0])
+                    counts.append(db.execute('SELECT COUNT(*) FROM benchmark_cleanup_readbacks WHERE run_id=?', (run['id'],)).fetchone()[0])
+        self.assertEqual([1, 1, 2], counts)
+        self.assertEqual('BENCHMARK_STOPPED', saved['failure']['code'])
+        self.assertEqual('terminal', saved['failure']['cancellationReceipts'][0]['outcome'])
+        self.assertTrue(service.store.submission(self.principal.id, run['request']['request_id'])['terminal'])
+        self.assertEqual('QUEUED', service.create(self.principal, self.request('allowed-next'))['state'])
+        self.assertTrue(service.store.remove(run['id'], self.principal.id))
+
+    def test_legacy_terminal_no_dispatch_and_settled_controls_remain_usable(self):
+        for control in ('no-ref', 'confirmed', 'terminal', 'verified', 'ordinary'):
+            with self.subTest(control=control):
+                service = self.service(root=self.root / control)
+                if control == 'ordinary':
+                    run = service.create(self.principal, self.request('ordinary'))
+                    service.store.update(run['id'], state='COMPLETED', endedAt=service.store.now())
+                else:
+                    def changed(receipt):
+                        if control == 'no-ref':
+                            receipt['mutations'][0]['path'] = '/repos/owner/fixture/git/blobs'
+                        elif control == 'verified':
+                            receipt.update(remoteReadbackVerified=True, testedRevision=receipt['publishedRevision'],
+                                           workflowConclusion='success', workflowRunId=41, jobId=42)
+                        else:
+                            receipt['cleanup'] = {'kind': 'github_actions', 'outcome': control, 'workflowRunId': 41,
+                                                  'repository': receipt['repository'], 'revision': receipt['publishedRevision'],
+                                                  'workflowPath': receipt['workflowPath']}
+                    run, _, _ = self.legacy_interrupted_live(service, receipt_change=changed)
+                before = service.store.get(run['id'])
+                service.store.recover()
+                self.assertEqual(before, service.store.get(run['id']))
+                self.assertEqual([], service.external_cleanups())
+                self.assertTrue(service.store.submission(self.principal.id, run['request']['request_id'])['terminal'])
+                self.assertTrue(service.store.remove(run['id'], self.principal.id))
 
     def test_restarted_github_cleanup_is_exact_once_and_append_only_until_observed_terminal(self):
         original = self.service()

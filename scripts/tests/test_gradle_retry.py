@@ -1,18 +1,72 @@
 import importlib.util
+import json
 import os
 import pathlib
 import select
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / 'gradle_retry.py'
 SPEC = importlib.util.spec_from_file_location('gradle_retry', SCRIPT)
 retry = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(retry)
 
+CMAKE_INSTALL_LOG = (
+    'Warning: An error occurred while preparing SDK package CMake 3.22.1: Error reading Zip content from a SeekableByteChannel.:',
+    'Caused by: java.util.zip.ZipException: Archive is not a ZIP archive',
+    '"Install CMake 3.22.1 v.3.22.1" failed.',
+    "Execution failed for task ':local-gguf-runtime:configureCMakeDebug[arm64-v8a]' (registered by plugin 'com.android.internal.library').",
+    '> com.android.builder.sdk.InstallFailedException: Failed to install the following SDK components:',
+    '      cmake;3.22.1 CMake 3.22.1',
+)
+
 
 class GradleRetryTest(unittest.TestCase):
+    def test_android_cmake_retry_requires_a_matching_install_failure_and_native_task(self):
+        self.assertTrue(retry.retryable(iter(CMAKE_INSTALL_LOG)))
+        for index in range(len(CMAKE_INSTALL_LOG)):
+            with self.subTest(missing=CMAKE_INSTALL_LOG[index]):
+                self.assertFalse(retry.retryable(CMAKE_INSTALL_LOG[:index] + CMAKE_INSTALL_LOG[index + 1:]))
+        for wrong_version in ('3.22.10', '3.31.1'):
+            self.assertFalse(retry.retryable(line.replace('3.22.1', wrong_version) for line in CMAKE_INSTALL_LOG))
+        for blocker in (
+            'HTTP 403', 'HTTP 410', 'Dependency verification failed for configuration :app:release',
+            'Package checksum mismatch', 'The following licenses have not been accepted.',
+            'There were failing tests.', 'Compilation error', 'CMake Error at CMakeLists.txt:42',
+            "Execution failed for task ':app:packageDebug'.",
+        ):
+            with self.subTest(blocker=blocker):
+                self.assertFalse(retry.retryable((*CMAKE_INSTALL_LOG, blocker)))
+
+    def test_android_cmake_corruption_retries_the_same_build_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            record, fake = root / 'calls', root / 'gradlew'
+            failure_output = '\n'.join(CMAKE_INSTALL_LOG)
+            fake.write_text(
+                '#!/usr/bin/env python3\nimport json, os, pathlib, sys\n'
+                f'record = pathlib.Path({str(record)!r})\n'
+                'with record.open("a") as stream:\n'
+                '    print(json.dumps([os.environ.get("GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY"), *sys.argv[1:]]), file=stream)\n'
+                'if len(record.read_text().splitlines()) <= int(os.environ["FIXTURE_BAD_DOWNLOADS"]):\n'
+                f'    print({failure_output!r})\n'
+                '    sys.exit(17)\n'
+            )
+            fake.chmod(0o755)
+            args = [':app:assembleDebug', '--stacktrace', '-Pexample=one argument']
+            for failures, flags, expected_calls, expected_code in (
+                (0, [], 1, 0), (1, [], 2, 0), (4, [], 2, 17), (1, ['--offline'], 1, 17),
+            ):
+                with self.subTest(failures=failures, flags=flags):
+                    record.unlink(missing_ok=True)
+                    environment = {'FIXTURE_BAD_DOWNLOADS': str(failures), 'GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY': '0'}
+                    with mock.patch.dict(os.environ, environment):
+                        self.assertEqual(expected_code, retry.run(args + flags, executable=str(fake), delay_seconds=0))
+                    self.assertEqual([['0', *args, *flags]] * expected_calls,
+                                     [json.loads(line) for line in record.read_text().splitlines()])
+
     def test_plugin_markers_recover_only_for_matching_pinned_artifacts(self):
         for marker, version in retry.PUBLISHED_MARKERS:
             with self.subTest(marker=marker):

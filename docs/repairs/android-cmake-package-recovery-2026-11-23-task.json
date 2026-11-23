@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "task": "android-cmake-package-recovery-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "8b7cf411490d954bfbaff47f30288f051d53a119",
+  "pullRequest": 2367,
+  "intent": "Recover once when Android Gradle's SDK installer receives a non-ZIP CMake 3.22.1 package during native configuration. Preserve the original build and verification decisions.",
+  "evidence": {
+    "workflowRun": 45194207944,
+    "job": 137760389982,
+    "artifact": 14835729787,
+    "artifactSha256": "2019a43424f6f45ffe218810e6e63dcc6487e0d6a8a57a9b81d92b4ff04bac72",
+    "testedRevision": "f657a17a3c06cf0730590125ef68b26051098fcc",
+    "log": "audit-apk.log",
+    "failure": "The CMake SDK package preparation reported Error reading Zip content from a SeekableByteChannel and Archive is not a ZIP archive. The 3.22.1 install failed during :local-gguf-runtime:configureCMakeDebug[arm64-v8a]."
+  },
+  "acceptance": [
+    "Exercise the wrapper with the archived failure signature, a successful next attempt, repeated corruption and ordinary build failures.",
+    "Retain SDK and dependency verification, the original arguments, total timeout, offline behavior and original failure code on exhaustion.",
+    "Require a successful hosted diagnostic APK build and all applicable final-head and main checks for publication."
+  ]
+}

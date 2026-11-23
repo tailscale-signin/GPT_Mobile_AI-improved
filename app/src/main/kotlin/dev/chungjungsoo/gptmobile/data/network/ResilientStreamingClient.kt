@@ -50,10 +50,10 @@ object ResilientStreamingClient {
                 return block()
             } catch (e: Throwable) {
                 currentAttempt++
-                // Retry callbacks can change dispatch uncertainty; typed terminal failures
-                // must not reach either callback even when their messages suggest recovery.
-                val kind = networkFailureKind(e)
-                if (kind == NetworkFailureKind.TLS || kind == NetworkFailureKind.CANCELLED) throw e
+                // Retry callbacks can change dispatch uncertainty; unresolved chains and
+                // typed terminal failures must not reach either callback.
+                val classification = classifyNetworkFailure(e)
+                if (!classification.causeChainComplete || classification.kind == NetworkFailureKind.TLS || classification.kind == NetworkFailureKind.CANCELLED) throw e
                 val context = kotlinx.coroutines.currentCoroutineContext()
                 val durableRateLimit = context[ProviderWaitContext]?.durableRateLimits == true &&
                     generateSequence(e) { it.cause?.takeUnless { cause -> cause === it } }
@@ -96,8 +96,8 @@ object ResilientStreamingClient {
     fun isRetryable(throwable: Throwable): Boolean {
         // Keep retry admission aligned with the typed, cycle-safe 16-cause report
         // classifier before an outer HTTP status or IOException can authorize replay.
-        val kind = networkFailureKind(throwable)
-        if (kind == NetworkFailureKind.TLS || kind == NetworkFailureKind.CANCELLED) return false
+        val classification = classifyNetworkFailure(throwable)
+        if (!classification.causeChainComplete || classification.kind == NetworkFailureKind.TLS || classification.kind == NetworkFailureKind.CANCELLED) return false
         if (generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it is kotlinx.serialization.SerializationException }) return false
 
         val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()

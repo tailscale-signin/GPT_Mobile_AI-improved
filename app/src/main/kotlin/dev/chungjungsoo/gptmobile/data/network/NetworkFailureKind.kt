@@ -27,14 +27,25 @@ internal enum class NetworkFailureKind(val code: String, val failedStage: String
     UNKNOWN("TRANSPORT_UNKNOWN", "transport", false)
 }
 
-/** Engines wrap the socket error. Bound traversal and stop cycles rather than inspecting only the wrapper. */
-internal fun networkFailureKind(failure: Throwable): NetworkFailureKind {
+internal data class NetworkFailureClassification(val kind: NetworkFailureKind, val causeChainComplete: Boolean)
+
+internal fun networkFailureKind(failure: Throwable): NetworkFailureKind = classifyNetworkFailure(failure).kind
+
+/** A transient wrapper is insufficient evidence when its bounded cause chain does not terminate. */
+internal fun classifyNetworkFailure(failure: Throwable): NetworkFailureClassification {
     val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
-    val causes = generateSequence(failure) { it.cause }.takeWhile(seen::add).take(16).toList()
+    val causes = ArrayList<Throwable>(16)
+    var current: Throwable? = failure
+    while (current != null && causes.size < 16 && seen.add(current)) {
+        causes += current
+        current = current.cause
+    }
+    val complete = current == null
     val message = causes.joinToString(" ") { it.message.orEmpty().take(512) }.lowercase()
-    return when {
+    val kind = when {
         causes.any { it is CancellationException } -> NetworkFailureKind.CANCELLED
         causes.any { it is SSLException || it is CertificateException || it is java.security.cert.CertPathValidatorException } -> NetworkFailureKind.TLS
+        !complete -> NetworkFailureKind.UNKNOWN
         causes.any { it is UnknownHostException || it is UnresolvedAddressException } || "unable to resolve host" in message || "dns_recovery" in message -> NetworkFailureKind.DNS
         causes.any { it is SocketTimeoutException || it.javaClass.simpleName in setOf("HttpRequestTimeoutException", "ConnectTimeoutException", "SocketTimeoutException") } || "timed out" in message || "timeout" in message -> NetworkFailureKind.TIMEOUT
         causes.any { it is ConnectException || it is NoRouteToHostException } || "network is unreachable" in message || "network_disconnected" in message -> NetworkFailureKind.DISCONNECTED
@@ -45,6 +56,7 @@ internal fun networkFailureKind(failure: Throwable): NetworkFailureKind {
             ).any { it in message } -> NetworkFailureKind.ABORTED
         else -> NetworkFailureKind.UNKNOWN
     }
+    return NetworkFailureClassification(kind, complete)
 }
 
 internal enum class TlsFailureKind { CERTIFICATE, PROTOCOL, HANDSHAKE, OTHER }

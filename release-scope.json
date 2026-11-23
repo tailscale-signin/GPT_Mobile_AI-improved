@@ -580,6 +580,7 @@
     "docs/repairs/privacy-tool-result-projection-2026-11-23-task.json",
     "docs/repairs/release-lint-budget-2026-11-23-task.json",
     "docs/repairs/shared-release-integration-2026-11-23-task.json",
+    "docs/repairs/tls-cause-chain-completeness-2026-11-23-task.json",
     "docs/repairs/tls-retry-callback-order-2026-11-23-task.json",
     "docs/repairs/tls-transport-retry-policy-2026-11-23-task.json",
     "docs/repairs/verification-reserve-reporting-2026-11-23-task.json",

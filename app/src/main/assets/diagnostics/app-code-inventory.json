@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "274aa6ed185d23e39d5c83306b4651f1c7252d5e6691eac48e3855936416685c",
+  "source_digest": "1d7775a2a6f34e0ca19a71e22949c1dba5044e73662b0f3d63bcaa4b89aebf53",
   "file_count": 3049,
-  "indexed_line_count": 516307,
+  "indexed_line_count": 516319,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -101,7 +101,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 112,
-      "indexed_line_count": 11376
+      "indexed_line_count": 11388
     },
     {
       "id": "github",
@@ -10336,8 +10336,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/NetworkFailureKind.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "e32f9ab587dce9096fb048875a0407a84dc8836ecc33287ef00f5797e1bf6261",
-      "indexed_lines": 96
+      "sha256": "f1898bfee77548f2a36074132fcd1e9a3e9222e7f22fd34fa33950780d5dcd5c",
+      "indexed_lines": 108
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/NetworkRetryUtils.kt",
@@ -10560,7 +10560,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ResilientStreamingClient.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "adb5ac829c3486dcaba80b71f5e7ca6de1441deda7387ec9e67d841c4ec0d781",
+      "sha256": "f247df956fea4277fefea1afc4f296e607da71500e0959ae601826473bc666c5",
       "indexed_lines": 188
     },
     {

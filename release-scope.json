@@ -138,7 +138,8 @@
     "Suppress duplicate GitHub current-checkpoint writes caused only by the known recovery projection observation clock, retaining original persisted timestamps, meaningful evidence changes and immutable transitions.",
     "Protect original pending benchmark attempt IDs referenced by canonical legacy samples and events even when no separate attempt row was persisted; keep incoming foreign ownership from reusing those identities.",
     "Keep Android verification regressions aligned with protected provider identities, causal coroutine cancellation, exact issued acceptance batches and task-bound progress diagnostics without weakening replay or finite-budget contracts.",
-    "Fit only optional verification draft excerpts to the existing token limit using complete serialized-request estimates and Unicode codepoint boundaries, retaining the entire task, all criterion contracts and final budget recheck."
+    "Fit only optional verification draft excerpts to the existing token limit using complete serialized-request estimates and Unicode codepoint boundaries, retaining the entire task, all criterion contracts and final budget recheck.",
+    "Use actual native issued saved-result receipts in the suppressed CI-read regression while preserving its call counts, completion assertions and original finite budgets."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -605,6 +606,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensions.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/NotificationManager.kt",
     "app/src/main/res/values/strings.xml",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentGitHubResilienceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunExecutionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunProviderWaitTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt",
@@ -950,6 +952,7 @@
     "docs/repairs/review-voice-2026-11-22-task.json",
     "docs/repairs/saved-cursor-consumption-2026-11-22-task.json",
     "docs/repairs/saved-read-delivery-proof-2026-11-22-task.json",
+    "docs/repairs/suppressed-ci-cursor-fixture-2026-11-22-task.json",
     "docs/repairs/voice-caption-motion-2026-11-22-task.json",
     "docs/repairs/voice-motion-acceleration-2026-11-22-task.json",
     "docs/repairs/voice-reasoning-delimiters-2026-11-22-task.json",

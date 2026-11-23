@@ -22,6 +22,7 @@ from v14.workspace_context_pack import pack
 from v14.workspace_intelligence import act, snapshot, summary
 from v14.tools import install_exact_routing
 from v14.actions import ExternalOutcomeUnknown
+from v14.catalog import CatalogCache
 
 
 class Artifacts:
@@ -494,17 +495,20 @@ class IntegrationRoutingTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.calls = []
         schema = {'type': 'object', 'properties': {'query': {'type': 'string'}}, 'required': ['query'], 'additionalProperties': False}
+        self.advertised = [{'name': 'query-docs', 'inputSchema': schema}]
         config = {'docs': {'enabled': True, 'command': 'configured-context7'}}
         runtime = SimpleNamespace(GATEWAY_DURABLE_JOBS=True, durable_job_initialized=True, durable_job_lock=threading.RLock(),
                                   _durable_connect=lambda: sqlite3.connect(Path(self.temp.name) / 'ledger.db'),
                                   load_mcp_config=lambda: copy.deepcopy(config), mcp_cache_lock=threading.RLock(),
-                                  mcp_tool_metadata={'docs_query-docs': {'server': 'docs', 'tool': 'query-docs', 'inputSchema': schema}},
-                                  get_all_mcp_tools=lambda force=False: [{'type': 'function', 'function': {'name': 'docs_query-docs', 'parameters': schema}}],
-                                  gateway_catalogue=SimpleNamespace(task_readiness=lambda names: {'ready': True, 'requiredTools': names}))
+                                  mcp_tool_metadata={})
         def mcp_call(server, method, params, **kwargs):
+            if method == 'tools/list':
+                return {'tools': copy.deepcopy(self.advertised)}
             self.calls.append((server, method, params))
             return {'content': [{'type': 'text', 'text': 'Version-specific documentation'}]}
         runtime.mcp_call = mcp_call
+        runtime.gateway_catalogue = CatalogCache(runtime, interactive=1, total=2)
+        runtime.get_all_mcp_tools = runtime.gateway_catalogue.get
         install_exact_routing(runtime)
         self.backend.runtime = runtime
         self.config = {'context7': {'enabled': True, 'allow_remote': True, 'tools': ['docs_query-docs']}}
@@ -526,7 +530,9 @@ class IntegrationRoutingTests(unittest.TestCase):
         self.assertEqual(1, len(self.calls))
 
     def test_uncertain_mcp_dispatch_remains_blocked_after_restoring_job(self):
-        def failed(*args, **kwargs):
+        def failed(server, method, params, **kwargs):
+            if method == 'tools/list':
+                return {'tools': copy.deepcopy(self.advertised)}
             self.calls.append('dispatched')
             raise TimeoutError('lost response')
         self.backend.runtime.mcp_call = failed
@@ -609,8 +615,11 @@ class IntegrationRoutingTests(unittest.TestCase):
 
     def install_test_tool(self, name, operation, schema):
         runtime = self.backend.runtime
-        runtime.mcp_tool_metadata = {name: {'server': 'docs', 'tool': operation, 'inputSchema': schema}}
-        runtime.get_all_mcp_tools = lambda force=False: [{'type': 'function', 'function': {'name': name, 'parameters': schema}}]
+        self.assertEqual('docs_' + operation, name)
+        self.advertised = [{'name': operation, 'inputSchema': schema}]
+        runtime.mcp_tool_metadata = {}
+        runtime.gateway_catalogue = CatalogCache(runtime, interactive=1, total=2)
+        runtime.get_all_mcp_tools = runtime.gateway_catalogue.get
         install_exact_routing(runtime)
 
     def test_browser_navigation_uses_implementation_authority_without_github_write_gate(self):

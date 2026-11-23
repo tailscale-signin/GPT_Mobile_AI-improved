@@ -7,6 +7,7 @@
 - Add independent Python behavioral and input-preservation grading, distinct Kotlin/SQLite/CI defects, mandatory native controls and exact-revision disposable GitHub verification through Gateway or direct phone-to-Actions execution.
 - Preserve original request and cancellation identities across interruptions; retain all failed and repaired attempts, physical-request usage ownership, immutable evidence and unknown costs.
 - Check conversation privacy and exact integration permissions before discovering or calling optional workspace tools.
+- Restrict optional workspace discovery to each admitted tool's configured connection, preserve other callers when discovery is cancelled, and isolate concurrent exact-route bindings without replacing the global tool cache.
 - Add a source-bound Android/Windows agent workspace with actual optional SDK/API/ACP coding runtimes, scoped workers, dependency-ready task evidence, graph-ranked context, private review drafts, local next-edit validation and configured documentation/browser tools. Keep agent comparisons separate from model benchmarks and preserve unknown-command/cancellation evidence.
 
 - Keep automatic phone-map checks within supported native actions, while retaining explicitly selected Gateway analysis and source-bound recovery.

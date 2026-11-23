@@ -5,15 +5,142 @@ import json
 import threading
 import time
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar, copy_context
 from v14.contracts import validate_schema
+
+
+class _DiscoveryScope:
+    def __init__(self, catalog, tools, cancel, admit, parent):
+        self.catalog, self.tools, self.cancel, self.admit, self.parent = catalog, frozenset(tools), cancel, admit, parent
+        self.check_cancelled()
+        if parent is not None and not self.tools <= parent.tools:
+            raise PermissionError('Catalogue discovery cannot widen the admitted tool scope')
+        config = copy.deepcopy(catalog.runtime.load_mcp_config())
+        self.bindings = catalog._tool_bindings(self.tools, config)
+        self.check()
+
+    def check_cancelled(self):
+        if self.cancel is not None and self.cancel.is_set():
+            raise InterruptedError('Workspace discovery cancelled before dispatch')
+
+    def check(self):
+        self.check_cancelled()
+        if self.parent is not None:
+            self.parent.check()
+        if self.admit is not None:
+            self.admit()
+        config = copy.deepcopy(self.catalog.runtime.load_mcp_config())
+        if self.catalog._tool_bindings(self.tools, config) != self.bindings:
+            raise PermissionError('The admitted MCP connection changed before discovery')
+        return config
+
+
+class _ScopedDiscoveryCancellation:
+    """A producer stops for job cancellation only when no other caller owns it."""
+    def __init__(self, scope):
+        self.event = threading.Event()
+        self.lock = threading.RLock()
+        self.owners = [scope]
+        self.global_owner = False
+
+    def adopt(self, scope):
+        with self.lock:
+            if self.is_set():
+                return
+            if scope is None:
+                self.global_owner = True
+            elif scope not in self.owners:
+                self.owners.append(scope)
+
+    def set(self):
+        self.event.set()
+
+    def is_set(self):
+        with self.lock:
+            if not self.event.is_set() and not self.global_owner and all(
+                    owner.cancel is not None and owner.cancel.is_set() for owner in self.owners):
+                self.event.set()
+            return self.event.is_set()
+
+    def wait(self, timeout=None):
+        end = None if timeout is None else time.monotonic() + timeout
+        while not self.is_set():
+            remaining = None if end is None else end - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return False
+            self.event.wait(.05 if remaining is None else min(.05, remaining))
+        return True
+
+    def admit(self):
+        while True:
+            with self.lock:
+                if self.is_set():
+                    raise InterruptedError('Catalogue discovery cancelled')
+                if self.global_owner:
+                    return
+                owners = list(self.owners)
+            for owner in owners:
+                try:
+                    owner.check()
+                    return
+                except Exception:
+                    # A revoked owner cannot cancel a different, still-admitted owner.
+                    continue
+            with self.lock:
+                if self.global_owner:
+                    return
+                if len(self.owners) != len(owners):
+                    continue
+                self.set()
+                raise InterruptedError('No admitted caller still owns catalogue discovery')
+
 
 class CatalogCache:
     def __init__(self,runtime,interactive=2.0,total=8.0,ttl=300.0):
         self.runtime=runtime;self.interactive=interactive;self.total=total;self.ttl=ttl
         self.lock=threading.RLock();self.cache={};self.flights={};self.health={}
+        self._scope = ContextVar('mcp_catalogue_scope', default=None)
     @staticmethod
     def key(name,config):
         return name+':'+hashlib.sha256(json.dumps(config,sort_keys=True,separators=(',',':'),default=str).encode()).hexdigest()
+
+    def _tool_bindings(self, tools, config):
+        bindings = {}
+        for tool in tools:
+            if not isinstance(tool, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', tool):
+                raise PermissionError('Discovery requires exact configured tool names')
+            matches = [name for name in config if isinstance(name, str) and tool.startswith(name + '_') and len(tool) > len(name) + 1]
+            # A warm alias cannot make an ambiguous cold connection safe to probe.
+            if len(matches) != 1 or not config[matches[0]].get('enabled', True):
+                raise PermissionError('The exact tool does not identify one enabled MCP connection')
+            name = matches[0]
+            bindings[tool] = (name, self.key(name, config[name]))
+        return bindings
+
+    def tool_connection(self, tool):
+        """Resolve an unambiguous configured owner without starting discovery."""
+        name, _ = self._tool_bindings([tool], self.runtime.load_mcp_config())[tool]
+        return name, tool[len(name) + 1:]
+
+    @contextmanager
+    def discovery_scope(self, tools, *, cancel_event=None, admit=None):
+        """Constrain every nested catalogue refresh, including exact-router admission."""
+        scope = _DiscoveryScope(self, tools, cancel_event, admit, self._scope.get())
+        token = self._scope.set(scope)
+        try:
+            yield
+        finally:
+            self._scope.reset(token)
+
+    def has_discovery_scope(self):
+        return self._scope.get() is not None
+
+    def check_discovery_scope(self):
+        scope = self._scope.get()
+        if scope is not None:
+            scope.check()
+
     def readiness(self):
         """Read current evidence without starting discovery, processes, or a tool call."""
         config = self.runtime.load_mcp_config()
@@ -136,8 +263,11 @@ class CatalogCache:
                             'retryAt': float('inf') if unauthorized or invalid else time.monotonic() + min(300, 30 * 2 ** (failures - 1))}
 
     def get(self,force=False):
-        config=self.runtime.load_mcp_config();keys={name:self.key(name,cfg) for name,cfg in config.items()}
+        scope = self._scope.get()
+        config = scope.check() if scope is not None else self.runtime.load_mcp_config()
+        keys={name:self.key(name,cfg) for name,cfg in config.items()}
         if len(keys)>64: raise ValueError('MCP connection catalogue exceeds 64 connections')
+        selected = keys if scope is None else {name: key for name, key in keys.items() if (name, key) in scope.bindings.values()}
         waits=[]
         with self.lock:
             for key, (_, cancel) in self.flights.items():
@@ -148,31 +278,51 @@ class CatalogCache:
                     self.health.pop(key, None)
             for key in list(self.cache):
                 if key not in keys.values(): self.cache.pop(key,None);self.health.pop(key,None)
-            for name,key in keys.items():
+            for name,key in selected.items():
                 cached=self.cache.get(key);health=self.health.get(key,{})
                 if force or not cached or time.monotonic()-cached[0]>self.ttl or health.get('connectionHealthy') is False:
                     if key not in self.flights and (force or time.monotonic()>=health.get('retryAt',0)):
-                        event=threading.Event();cancel=threading.Event();self.flights[key]=(event,cancel)
-                        threading.Thread(target=self._load,args=(name,key,config[name],event,cancel),daemon=True).start()
+                        event=threading.Event();cancel=threading.Event() if scope is None else _ScopedDiscoveryCancellation(scope)
+                        self.flights[key]=(event,cancel)
+                        if scope is None:
+                            threading.Thread(target=self._load,args=(name,key,config[name],event,cancel),daemon=True).start()
+                        else:
+                            context = copy_context()
+                            threading.Thread(target=context.run,args=(self._load,name,key,config[name],event,cancel),daemon=True).start()
+                    elif key in self.flights and isinstance(self.flights[key][1], _ScopedDiscoveryCancellation):
+                        self.flights[key][1].adopt(scope)
                     if not cached and key in self.flights: waits.append(self.flights[key][0])
         end=time.monotonic()+self.interactive
-        for event in waits: event.wait(max(0,end-time.monotonic()))
+        for event in waits:
+            if scope is None:
+                event.wait(max(0,end-time.monotonic()))
+            else:
+                while not event.is_set() and time.monotonic() < end:
+                    scope.check_cancelled()
+                    event.wait(min(.05, max(0, end-time.monotonic())))
+        if scope is not None:
+            scope.check()
         result=[]
         with self.lock:
             current=self.runtime.load_mcp_config()
-            for name,key in keys.items():
+            for name,key in selected.items():
                 if name not in current or self.key(name,current[name])!=key: continue
                 cached=self.cache.get(key)
                 if cached and self.health.get(key,{}).get('authorized',True) and not self.health.get(key,{}).get('catalogRejected',False):
-                    result.extend(cached[1]);self.runtime.mcp_tool_metadata.update(cached[2])
+                    if scope is None:
+                        result.extend(cached[1]);self.runtime.mcp_tool_metadata.update(cached[2])
+                    else:
+                        result.extend(item for item in cached[1] if item['function']['name'] in scope.tools)
+                        self.runtime.mcp_tool_metadata.update({tool: meta for tool, meta in cached[2].items() if tool in scope.tools})
         return sorted(result,key=lambda item:item['function']['name'])
     def _load(self,name,key,cfg,event,cancel):
         started=time.monotonic();end=started+self.total
         def expired():
+            already_cancelled = cancel.is_set()
             cancel.set()
             with self.lock:
                 current = self.runtime.load_mcp_config().get(name)
-                if self.flights.get(key,(None,None))[0] is event and current is not None and self.key(name,current)==key:
+                if not already_cancelled and self.flights.get(key,(None,None))[0] is event and current is not None and self.key(name,current)==key:
                     self._discovery_failure(key, 'MCP_DISCOVERY_DEADLINE')
                     # Keep physical ownership until the producer exits, even if transport ignores cancellation.
                     # The completed event lets callers leave without starting duplicate hidden requests.
@@ -182,6 +332,13 @@ class CatalogCache:
             rows=[];cursor=None;seen=set();size=0
             for page in range(32):
                 if cancel.is_set() or time.monotonic()>=end: raise TimeoutError('Discovery total deadline')
+                if isinstance(cancel, _ScopedDiscoveryCancellation):
+                    cancel.admit()
+                    if self.runtime.load_mcp_config().get(name) != cfg:
+                        cancel.set()
+                        raise InterruptedError('The MCP connection changed before catalogue I/O')
+                    if cancel.is_set():
+                        raise InterruptedError('Catalogue discovery cancelled before I/O')
                 response=self.runtime.mcp_call(name,'tools/list',{'cursor':cursor} if cursor else {},cancel_event=cancel)
                 if not isinstance(response,dict) or response.get('isError') is True or not isinstance(response.get('tools'),list):
                     raise ValueError('Malformed MCP catalogue page')

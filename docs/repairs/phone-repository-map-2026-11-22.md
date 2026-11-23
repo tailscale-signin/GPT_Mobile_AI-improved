@@ -204,3 +204,51 @@ All shared implementation scopes and the exact final head must complete hosted
 qualification before merge. The resulting main commit and both coordinated
 release assets must then pass publication verification. Physical-device and
 live-service limitations above remain unchanged.
+
+## Scoped workspace discovery integration
+
+The concurrent agent workspace package introduced optional MCP integrations. An
+actual-cache regression showed that its global catalogue refresh could start
+configured servers before checking a private, local-only, disabled or denied job.
+An admitted call could also discover unrelated servers. These requests enumerate
+tool definitions; the regression does not establish repository-content disclosure.
+
+Workspace admission now precedes discovery, and an invocation-local scope binds
+each permitted tool to an unambiguous current connection. The same scope covers
+the exact router's refresh and physical dispatch. Principal, configuration, policy
+and cancellation are rechecked before I/O. A call checks its requested tool's
+readiness independently of other configured tools; aggregate status still covers
+the complete admitted integration set.
+
+Shared discovery retains ownership for other scoped and global callers. Revoking
+or cancelling one owner cannot stop a remaining valid caller, including a caller
+that adopts work during the final cancellation check. Nested scopes cannot widen
+authority. Ambiguous configured prefixes fail closed within the workspace scope.
+Global cache pruning, retry limits and ordinary catalogue behavior are retained.
+
+The router now consumes the definitions and exact bindings compiled for that
+invocation. A concurrent scoped refresh cannot replace another call's bindings or
+overwrite the public global tool cache. Existing schema, configuration, ledger,
+replay and mutation-authority checks remain in place.
+
+The unchanged `6f887cc3` production cache and router reproduced seven failures in
+seven initial controls. A separate deterministic probe reproduced the concurrent
+binding replacement. The final focused suite passes 86 cases: 26 new regressions,
+34 existing workspace-intelligence tests, 20 unchanged cache/readiness/upgrade
+cases and six exact-routing/replay cases. Incoming `3a7563e3` denial tests and
+assertions are preserved. The physical MCP boundary is controlled by fixtures;
+live external-provider qualification is not claimed. Independent final review
+found no remaining issue in the five changed source and test files.
+
+The combined source preserves the benchmark package through `e315be06`. Broader
+Gateway, canonical host and exact-head hosted validation are recorded separately
+in the paired task checkpoint; focused results alone do not qualify publication.
+
+The complete Gateway run on that frozen source passed all 142 Python suites:
+1,854 cases were reported, including 35 explicit platform/runtime skips. All seven
+browser tests passed. The incoming `a7698653` journal and adapter repair was then
+preserved, with independent adapter review and 168 current adapter, workspace,
+cache and exact-routing cases passing. The combined source passes the canonical
+623-test host checks, generated inventory and Kotlin formatting. The full final
+Android and native CI gates remain required; these source-bound local results do
+not qualify physical devices or paid external services.

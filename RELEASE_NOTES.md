@@ -136,6 +136,7 @@ Older provider-wait checkpoints without protected replay-content and result-sema
 - Delegate through configured Codex, Copilot cloud/SDK, Jules, Cursor, OpenHands, Cline, Claude SDK, Kiro/Devin ACP or Aider adapters. Explicit user commands and durable run receipts retain the accepted source and account; optional setup remains visible.
 - Use graph-ranked context, role-specific tool discovery, dependency-ready requirement plans, compact evidence summaries, selective context exports and optional local next-edit proposals. Approved checks and final validation remain required before publication.
 - Configure exact Context7, Playwright and complementary GitHub MCP tools in the existing host repository policy. Phone-only GitHub workflows remain available independently.
+- Check privacy, cancellation and exact tool permission before optional discovery. Discover only the permitted connections, recheck authority before dispatch, and preserve other callers when one request is cancelled. Concurrent calls retain their own exact routing and schema bindings.
 - Keep model benchmarks separate from complete agent-system comparisons. Unexecuted agent candidates have no test or model-quality score; candidate comparisons require the same actual executed check contract.
 - Recover interrupted workspace requests by original command identity. Unknown outcomes are retained without replay, safe maintenance can inspect paused tasks, and parent cancellation cleans up isolated runtimes through the existing controller.
 

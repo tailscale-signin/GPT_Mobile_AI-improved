@@ -23,15 +23,19 @@ def install_exact_routing(runtime):
     runtime.gateway_github_reads = immutable_reads
     original_catalog = runtime.get_all_mcp_tools
     compiled = {}
-    admitted = {}
     state_lock = threading.RLock()
     runtime.gateway_schema_rejections = {}
     runtime.gateway_schema_metrics = {'compiled': 0, 'cacheHits': 0, 'rejected': 0}
     def revision(servers):
         return hashlib.sha256(json.dumps(servers,sort_keys=True,separators=(',',':'),default=str).encode()).hexdigest()
-    def catalog(force_refresh=False):
-        nonlocal admitted
+    def check_scope():
+        check = getattr(getattr(runtime, 'gateway_catalogue', None), 'check_discovery_scope', None)
+        if callable(check):
+            check()
+
+    def compile_catalog(force_refresh=False):
         definitions = original_catalog(force_refresh)
+        check_scope()
         names = [item['function'].get('name') for item in definitions
                  if isinstance(item, dict) and isinstance(item.get('function'), dict)
                  and isinstance(item['function'].get('name'), str)]
@@ -74,17 +78,21 @@ def install_exact_routing(runtime):
             valid = select_equivalent(valid,runtime.mcp_tool_metadata)
             if revision(runtime.load_mcp_config()) != config_revision:
                 raise CatalogBindingError('Connection revision changed during catalogue compilation')
-            admitted = next_admitted
         with runtime.mcp_cache_lock:
-            runtime.mcp_tools_cache = list(valid)
-        return valid
+            scoped = getattr(getattr(runtime, 'gateway_catalogue', None), 'has_discovery_scope', None)
+            if not callable(scoped) or not scoped():
+                runtime.mcp_tools_cache = list(valid)
+        return valid, next_admitted
+
+    def catalog(force_refresh=False):
+        return compile_catalog(force_refresh)[0]
 
     def dispatch(name, arguments, progress_callback=None, cancel_event=None, call_id=None):
-        definitions = {item['function']['name']: item for item in catalog()}
+        definitions, bindings = compile_catalog()
+        definitions = {item['function']['name']: item for item in definitions}
         if name not in definitions:
             raise CatalogBindingError('Unknown, disabled, malformed or ambiguous gateway tool binding')
-        with state_lock:
-            snapshot = admitted.get(name)
+        snapshot = bindings.get(name)
         if snapshot is None:
             raise CatalogBindingError("Binding changed during dispatch admission")
         schema, config_revision, meta = snapshot
@@ -117,6 +125,7 @@ def install_exact_routing(runtime):
         try:
             def invoke():
                 # Recheck connection revision after queueing, immediately before I/O.
+                check_scope()
                 if revision(runtime.load_mcp_config()) != config_revision:
                     raise CatalogBindingError('Connection revision changed before tool I/O')
                 return runtime.mcp_call(meta['server'], 'tools/call', {'name': meta['tool'], 'arguments': arguments},

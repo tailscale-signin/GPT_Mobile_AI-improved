@@ -8,7 +8,7 @@
   "pull_request": 2254,
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "phone-repository-map-2026-11-22",
-  "state": "LOCAL_VALIDATION_COMPLETE_DRAFT_PUSH_PENDING",
+  "state": "IMPLEMENTED_AWAITING_EXACT_HEAD_CI",
   "intent": [
     "Display repository structure directly from the selected immutable GitHub revision without Gateway",
     "Progressively index cached source on the phone and expose definitions, imports and qualified relationship candidates",
@@ -21,7 +21,7 @@
   "authorization": "User explicitly requested all proposed repository-map changes on the latest PR, followed by merge after green checks and publication.",
   "validation": {
     "focused_tests": "PASS: 101 actual-component tests (24 engine, 10 session, 6 provider authorization, 31 ViewModel, 12 presentation, 7 facade, 3 model tool, 8 Gateway fallback); platform boundaries isolated",
-    "canonical_host": "PASS:616tests and all canonical fast checks on891e77cf plus current MCP/Gateway privacy/phone recipe repairs; generated inventories, dependencies, ICU, resources, provenance and whitespace pass.",
+    "canonical_host": "PASS: canonical validate-local.sh fast on a7698653 plus scoped discovery repair; 623 tests, 2023 literal Android regex patterns, 99 dynamic patterns explicitly skipped, 36 XML resources, generated inventories, dependency/provenance, secret and whitespace checks.",
     "android_ci": "PENDING: required exact final head validation",
     "physical_device": "NOT_RUN",
     "published_release": "PENDING",
@@ -34,7 +34,9 @@
     "hosted_integration_repair": "PASS: 42 focused repair cases; full current-head Android validation still required",
     "cause_chain_followup": "PASS:29unique focused MCP cases, exact18-method core union, actualSDK/CIO controls,4-filektlint. Full manager/Robolectric and physicalTLS not run.",
     "gateway_privacy_receipt": "PASS:8dedicated actual-component tests (unchanged baseline5failures),6-filektlint and independentreview; unused platform boundaries isolated.",
-    "phone_recipe_capabilities": "PASS:23focused actual-planner cases (8independent+15repository methods), including incoming typed-legacy/source controls. Baseline3522 reproduces2capabilityfailures. Three unchanged checklist integration methods remain outsidehost boundary and mandatoryinhostedCI."
+    "phone_recipe_capabilities": "PASS:23focused actual-planner cases (8independent+15repository methods), including incoming typed-legacy/source controls. Baseline3522 reproduces2capabilityfailures. Three unchanged checklist integration methods remain outsidehost boundary and mandatoryinhostedCI.",
+    "workspace_discovery": "PASS: 86 actual-component tests: 26 new scoped-discovery/cancellation/router regressions, 34 existing intelligence tests, 20 unchanged cache/readiness/upgrade cases and six exact routing/replay cases. Unchanged6f baseline reproduced seven of seven failures; separate actual-router probe reproduced concurrent binding replacement. All incoming3a denial assertions retained. Independent final review found no remaining finding. Physical MCP boundary controlled by fixtures; no live external-provider qualification.",
+    "workspace_discovery_integration": "PASS:168 combined cases on a7698653 plus this repair; full Gateway142suites/1854reportedcases/35skips plus7browser on e315 plus identical frozen repair."
   },
   "reconciled_remote_heads": [
     "e9148ab3dd6df0d1ffb67a630304c1a93c139aed",
@@ -56,7 +58,18 @@
     "35228794d6fb667a56f0ff97c80672852093d74b",
     "c14e2eb10ff90bf6da0f1f45734e9bc42c25f580",
     "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
-    "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e"
+    "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e",
+    "8504366c8edf4e1911284ea6426ccb53e449141c",
+    "57ee520c5b4d99947e724c4eff13e413ddc7ce78",
+    "368e9a8373cad17586de8b7287fa240097ab0352",
+    "6f887cc3f4e81deb497879c9f83cf773fc002189",
+    "3a7563e3cad2707dbe577470811ab05b5d67728b",
+    "5efa5446ddd644c119cbfdf86d77c2e4cf8d157b",
+    "e0915300b1f5413d105203da7abf28fc6c6b196e",
+    "b541378f5257c8f21d73fd4a7c0c18e4c7bcf83d",
+    "e315be06e0c943c442f7f74b216930ee3f32aae4",
+    "1c25a94dbf381dd6a575d2faad92573f8c9656ce",
+    "a7698653f8917f1b99043a4f2b0ad6a6519dd715"
   ],
   "privacy_integration": {
     "source_sha": "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
@@ -192,5 +205,55 @@
     "validation": "PASS:23focused actual-planner cases (8independent+15repository methods), including incoming typed-legacy/source controls. Baseline3522 reproduces2capabilityfailures. Three unchanged checklist integration methods remain outsidehost boundary and mandatoryinhostedCI.",
     "status": "FOCUSED_REPAIR_PASSED",
     "integrated_source_sha": "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e"
+  },
+  "workspace_discovery_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "source_sha": "8504366c8edf4e1911284ea6426ccb53e449141c",
+    "working_branch": "work/phone-repository-map-2026-11-22",
+    "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "finding": "New workspace integration status calls global MCP discovery before enabled/private/LOCAL_ONLY/allow_remote checks; CatalogCache.get starts configured server producers. Cancellation is checked only later in actual call. tools/list carries no repository content, but denied/unrelated discovery can occur.",
+    "intent": [
+      "Reproduce real discovery dispatch for denied and cancelled workspace jobs before correction.",
+      "Gate all discovery before I/O, keep denied status passive and restrict admitted discovery to exact configured integration connections.",
+      "Preserve catalogue caching/readiness/retry bounds and shared producer ownership; cancellation must stop newly owned work without cancelling another caller.",
+      "Retain actual successful allowed integration execution, existing durable mutation/call identity fences and all source-map work."
+    ],
+    "owned_paths": [
+      "gateway/v14/workspace_tool_integrations.py",
+      "gateway/v14/catalog.py",
+      "gateway/tests/test_gateway_workspace_intelligence.py",
+      "gateway/tests/test_gateway_workspace_integration_privacy.py",
+      "gateway/v14/tools.py"
+    ],
+    "validation": "PASS: 86 actual-component tests: 26 new scoped-discovery/cancellation/router regressions, 34 existing intelligence tests, 20 unchanged cache/readiness/upgrade cases and six exact routing/replay cases. Unchanged6f baseline reproduced seven of seven failures; separate actual-router probe reproduced concurrent binding replacement. All incoming3a denial assertions retained. Independent final review found no remaining finding. Physical MCP boundary controlled by fixtures; no live external-provider qualification.",
+    "integrated_source_sha": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+    "router_followup": "Independent actual-router probe reproduces concurrent scoped catalogue overwriting global admitted map before first caller consumes it. Add narrow invocation-local compiled binding snapshots for dispatch; retain public catalogue list API, exact schema/config checks, durable ledger/replay and no lock across network I/O.",
+    "concurrent_repair": "Preserved3a7563 early-denial implementation and all3newintelligence-test methods; resolved onlyworkspace module overlap.5efa canonicalmanifestrefresh ande091compile-onlyimports/duplicate-helper cleanup retained.",
+    "remaining": "No unpushed implementation slice remains after this guarded upload. Preserve other active workstreams, qualify final shared PR head, merge under current rules, qualify exact main and verify both releases.",
+    "source_sha256": {
+      "gateway/v14/catalog.py": "5fb31751f6c698c2e0a3eeb99b8cf8e022732fd27b628840ae5bdd50c5412f30",
+      "gateway/v14/tools.py": "9e471c799be48d79ca9ee2ba78e2a3a7c45d692298c162614ddd9c8f772d7f52",
+      "gateway/v14/workspace_tool_integrations.py": "c4350c54875c1fd75e58377fc1ff2e853f28e0b652ebe2fb8442ad49bcc8b92b"
+    },
+    "canonical_host": "PASS: canonical validate-local.sh fast on a7698653 plus scoped discovery repair; 623 tests, 2023 literal Android regex patterns, 99 dynamic patterns explicitly skipped, 36 XML resources, generated inventories, dependency/provenance, secret and whitespace checks.",
+    "generated_kotlin": "PASS: ktlint1.3.1 on regenerated AppAuditSourceInventory.kt.",
+    "gateway_full": {
+      "result": "PASS",
+      "source_parent": "e315be06e0c943c442f7f74b216930ee3f32aae4",
+      "python_suites": 142,
+      "python_tests": 1854,
+      "python_skipped": 35,
+      "browser_tests": 7,
+      "command": "PYTHONPATH=gateway:gateway/tests python gateway/check_gateway.py",
+      "scope": "Full Gateway suite on frozen e315 plus this repair; platform-specific skips explicit. Later a769 adapter integration receives focused follow-up and exact-head hosted qualification."
+    },
+    "integrated_focus": {
+      "result": "PASS",
+      "source_parent": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+      "tests": 168,
+      "scope": "Actual adapter, workspace intelligence/privacy/commands/lifecycle/HTTP, readiness/upgrade and exact routing/replay cases. Physical provider boundary controlled."
+    },
+    "independent_incoming_review": "a769 adapter operation-bound redaction and atomic cancellation/restart evidence: no concrete findings; exact-head hosted gates pending."
   }
 }

@@ -5,6 +5,7 @@ access, and catalogue annotations are not treated as mutation permissions.
 """
 import copy
 import re
+from contextlib import contextmanager
 
 from gateway_security import current_device
 from v14.actions import ActionContext
@@ -46,27 +47,75 @@ def _local_only(job):
     return 'LOCAL_ONLY' in binding.get('required_capability_policy', []) or job.get('request', {}).get('private') is True
 
 
-def status(backend, job, *, discover=False):
+def _cancellation(backend, job):
+    cancel = backend.cancellation(job)
+    if cancel.is_set():
+        raise InterruptedError('Integration cancelled before discovery')
+    return cancel
+
+
+def _tools(name, entry, catalog):
+    configured = entry.get('tools', [])
+    if name != 'github':
+        return configured
+    allowed = []
+    for tool in configured:
+        try:
+            _, operation = catalog.tool_connection(tool)
+        except (AttributeError, PermissionError):
+            continue
+        if operation in GITHUB_COMPLEMENTARY_READS:
+            allowed.append(tool)
+    return allowed
+
+
+@contextmanager
+def _discovery(backend, job, config, tools):
+    cancel = _cancellation(backend, job)
+    principal = job.get('principal')
+    if not principal:
+        raise PermissionError('The parent job principal is required before discovery')
+    catalog = getattr(backend.runtime, 'gateway_catalogue', None)
+    if not callable(getattr(catalog, 'discovery_scope', None)):
+        raise PermissionError('Scoped catalogue discovery is unavailable')
+    def admitted():
+        if job.get('principal') != principal or _local_only(job) or configuration(backend, job) != config:
+            raise PermissionError('The parent job or integration policy changed before discovery')
+    token = current_device.set(principal)
     try:
-        config = configuration(backend, job)
+        with catalog.discovery_scope(tools, cancel_event=cancel, admit=admitted):
+            # The exact router refreshes this same catalogue again during dispatch.
+            # Keep both refreshes inside the invocation-local connection scope.
+            backend.runtime.get_all_mcp_tools()
+            yield cancel
+    finally:
+        current_device.reset(token)
+
+
+def status(backend, job, *, discover=False):
+    if discover:
+        _cancellation(backend, job)
+    try:
+        config = copy.deepcopy(configuration(backend, job))
     except (OSError, ValueError, KeyError):
         return {'state': 'SETUP_REQUIRED', 'integrations': [dict(id=name, state='SETUP_REQUIRED', tools=[]) for name in INTEGRATIONS]}
     runtime = getattr(backend, 'runtime', None)
     catalog = getattr(runtime, 'gateway_catalogue', None)
     local_only = _local_only(job)
-    discovery_allowed = not local_only and any(
-        entry.get('enabled') and entry.get('allow_remote') and entry.get('tools') for entry in config.values())
     # Discovery can start processes and network reads before any tools/call.
     # A blocked job or host policy must remain passive at this boundary too.
-    if discover and discovery_allowed and callable(getattr(runtime, 'get_all_mcp_tools', None)):
-        runtime.get_all_mcp_tools()
+    if discover and not local_only and callable(getattr(runtime, 'get_all_mcp_tools', None)):
+        tools = [tool for name, entry in config.items() if entry.get('enabled') and entry.get('allow_remote')
+                 for tool in _tools(name, entry, catalog)]
+        if tools:
+            with _discovery(backend, job, config, tools):
+                pass
     metadata = copy.deepcopy(getattr(runtime, 'mcp_tool_metadata', {}))
     rows = []
     for name in INTEGRATIONS:
         entry = config.get(name, {})
         configured_names = entry.get('tools', [])
-        names = [tool for tool in configured_names if name != 'github' or
-                 metadata.get(tool, {}).get('tool') in GITHUB_COMPLEMENTARY_READS]
+        names = _tools(name, entry, catalog)
         if not entry.get('enabled'):
             state, readiness = 'DISABLED', {}
         elif name == 'github' and configured_names and not names:
@@ -94,15 +143,21 @@ def call(backend, job, action):
     invocation = identifier(action.get('invocation_id'))
     if name not in INTEGRATIONS or not isinstance(arguments, dict) or len(canonical(arguments).encode()) > 16384:
         raise ValueError('Choose a configured integration and at most 16 KiB of structured arguments')
-    configs = configuration(backend, job)
+    _cancellation(backend, job)
+    configs = copy.deepcopy(configuration(backend, job))
     entry = configs.get(name, {})
-    if (_local_only(job) or not entry.get('enabled') or not entry.get('allow_remote') or
-            tool not in entry.get('tools', [])):
+    catalog = getattr(backend.runtime, 'gateway_catalogue', None)
+    if (not entry.get('enabled') or not entry.get('allow_remote') or _local_only(job) or
+            tool not in _tools(name, entry, catalog)):
         raise PermissionError('This exact integration tool is not currently admitted for this job')
-    admitted = next(row for row in status(backend, job, discover=True)['integrations'] if row['id'] == name)
-    if admitted['state'] != 'READY_FOR_DISPATCH' or tool not in {row['name'] for row in admitted['tools']}:
-        raise PermissionError('This exact integration tool is not currently admitted for this job')
+    with _discovery(backend, job, configs, [tool]):
+        return _call_admitted(backend, job, configs, name, tool, arguments, invocation)
+
+
+def _call_admitted(backend, job, configs, name, tool, arguments, invocation):
     runtime = backend.runtime
+    if not runtime.gateway_catalogue.task_readiness([tool])['ready']:
+        raise PermissionError('This exact integration tool is not currently admitted for this job')
     if getattr(runtime, 'gateway_action_ledger', None) is None:
         raise ValueError('The exact durable MCP execution wrapper is required')
     metadata = copy.deepcopy(runtime.mcp_tool_metadata.get(tool, {}))

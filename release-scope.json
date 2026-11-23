@@ -241,7 +241,8 @@
     "Omit source-excerpt resource filenames in default diagnostic captures and extend the real retained-producer and staged checkpoint/resume canary coverage without changing forensic credential rules.",
     "Keep terminal free-form diagnostic detail and recognized continuation payload opaque in default export, preserving typed prefix evidence and explicit forensic content consent.",
     "Protect explicit whole-word is/at address colon forms while preserving ordinary-language exclusions, complete masking ranges and exact local restoration.",
-    "Use the supported Compose v2 rule for asynchronous assistant debug-visibility tests, preserving real background preparation and all five visibility, fallback, fragment and stable-node assertions."
+    "Use the supported Compose v2 rule for asynchronous assistant debug-visibility tests, preserving real background preparation and all five visibility, fallback, fragment and stable-node assertions.",
+    "Restore the voice thermal-negative fixture with valid audio evidence and a same-measurement normal-thermal positive control, preserving all production qualification rules."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -494,6 +495,7 @@
     "docs/repairs/release-lint-budget-2026-11-23-task.json",
     "docs/repairs/shared-release-integration-2026-11-23-task.json",
     "docs/repairs/verification-reserve-reporting-2026-11-23-task.json",
+    "docs/repairs/voice-thermal-qualification-review-2026-11-23-task.json",
     "gateway/contracts/v18/capabilities.json",
     "gateway/contracts/v18/gateway-v18-capabilities-full.json",
     "gateway/manifest-v14.json",

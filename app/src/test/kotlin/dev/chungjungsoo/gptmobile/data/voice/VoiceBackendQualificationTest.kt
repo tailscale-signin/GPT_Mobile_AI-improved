@@ -118,7 +118,7 @@ class VoiceBackendQualificationTest {
             var clock = 0L
             val measured = measureVoiceQualification(
                 VoiceSpeechWorkload.calibrationFixtures, VoiceSpeechBackend.QNN_HTP, 3, 1f,
-                0, { clock }, {}, 0, { if (++reads == 4) bad else 0 }
+                0, { clock }, {}, 0, { if (++reads == 4) bad else 0 }, ::speechReferenceFixture
             ) { _, _, _ ->
                 calls++
                 clock += 1_000_000L
@@ -128,6 +128,7 @@ class VoiceBackendQualificationTest {
             assertEquals(VoiceMeasuredBackendPolicy.FIXTURE_COUNT, measured.sampleMs.size)
             assertTrue(measured.thermalStatuses.contains(bad))
             org.junit.Assert.assertFalse(measured.rankingEligible)
+            assertTrue(measured.copy(thermalStatuses = measured.thermalStatuses.map { 0 }).rankingEligible)
         }
     }
 }

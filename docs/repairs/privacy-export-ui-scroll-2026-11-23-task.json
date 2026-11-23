@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-export-ui-scroll-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "d646f28fbb170e381c7788f51cf98c77f2973672",
+  "pullRequest": 2367,
+  "intent": "Bound export-consent UI test scrolling with measured progress and real viewport visibility while preserving every original consent assertion and production behavior.",
+  "observedEvidence": {
+    "run": 45231566882,
+    "artifact": 14851148175,
+    "testedCheckout": "fab7a7bc6655ec639376af5c949226babadb222e",
+    "testedTree": "d17d972f76145cc5fe2368dd3f749323fba729a1",
+    "sourceHead": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+    "uiResult": "ChatExportDialogPrivacyTest records one skipped method after586.952 seconds; the second declared method has no verdict. Gradle Test Executor26 exits1 following OutOfMemoryError; the job itself did not time out.",
+    "helperRisk": "Repository-checksummed Compose ui-test1.12.1 performScrollTo repeats nonzero scroll corrections without an iteration or progress guard and discards the ScrollBy action return. Non-progressing layout can loop; this establishes a concrete test-helper risk, not the historical allocation cause.",
+    "schedulerMismatch": "The cached Compose1.12.1 v1 rule passes useStandardTestDispatcherForComposition=false, and its idle resource skips scheduler.runCurrent before the idle check. Supplying a custom StandardTestDispatcher can leave an accepted ScrollBy queued while idle sees no frame/recomposition work. The v1 empty-context factory uses UnconfinedTestDispatcher, matching the existing AppAuditContentTest fixture."
+  },
+  "acceptance": [
+    "Use an explicit360x640dp mdpi phone viewport and a finite maximum of eight actual ScrollBy actions.",
+    "Use the Compose v1 rule default composition dispatcher so actual scroll actions execute under its idle synchronization; change only this test fixture, without sleeps or clock-budget allowances.",
+    "Observe the real vertical scroll range and require positive progress after each action; require the target to be fully within the clipped scroll viewport and displayed before clicking.",
+    "Require actual scrolling in the primary consent flow so the fixture cannot make all scrolling assertions vacuous.",
+    "Retain the existing default redacted export, separate forensic preview/confirmation, no-early-export, and backing-out/no-resume assertions.",
+    "Keep production code, resource limits, test forks, timeouts, skip behavior and final publication gates unchanged.",
+    "Require both declared methods to execute successfully in completed current-source hosted Android XML; source review, API inspection or helper compilation cannot replace that execution."
+  ],
+  "limits": [
+    "No heap dump or exact allocating stack was captured for the historical failure; its cause remains unproven.",
+    "The fixture tests local export-consent interactions, not physical device performance or every possible screen/font configuration."
+  ],
+  "integrationParent": "4bf01a98440ccc91b7ef2ab7ea4bb8adab86c583"
+}

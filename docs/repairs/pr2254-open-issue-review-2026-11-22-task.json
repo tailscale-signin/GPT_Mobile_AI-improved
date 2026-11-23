@@ -173,9 +173,10 @@
     {
       "issues": [
         2274,
-        2299
+        2299,
+        2328
       ],
-      "action": "Correct a recognized legacy merge-status recipe once using the active action schema. Preserve the original rejection if no valid recipe can be derived.",
+      "action": "Verified the public action hash for agent_merge_status and the argument-shape digest for action, pull_number, expected_head_sha and verify_live in all three reports. The legacy request included the disallowed expected head. The current planner drops it only for that status read and keeps the original permission and repeat checks.",
       "regression_evidence": [
         "GitHubChecklistScheduleTest",
         "GitHubOperationArgumentsTest"
@@ -184,9 +185,10 @@
     {
       "issues": [
         2275,
-        2300
+        2300,
+        2329
       ],
-      "action": "Honor remote page incompleteness and distinguish a valid empty PR task list from a malformed response. The reports omit the PR action value, so a specific server action cannot be identified.",
+      "action": "Matched each reported action hash against the public copilot_tasks enum. The current reader accepts a valid empty task list, rejects malformed collections and records whether more remote pages remain. The historical reports omit the response body, so an empty list is one covered case.",
       "regression_evidence": [
         "GitHubCopilotTasksTest",
         "GitHubChecklistPaginationTest"
@@ -219,14 +221,16 @@
     {
       "issues": [
         2296,
-        2301
+        2301,
+        2330
       ],
       "action": "Require observed source, regression and acceptance evidence, advance admissible work, and retain the exact outstanding operation and blocker when completion cannot be certified.",
       "regression_evidence": [
         "GitHubAcceptanceContractTest",
         "GitHubCriterionAcceptanceRegressionTest",
         "GitHubChecklistScheduleTest"
-      ]
+      ],
+      "follow_up": "The latest report recorded four of eight criteria met, six prepared reads and conditional fixture approval. The scheduler regression executes all six independently admissible reads after a failed status request. A fixture continues to require its own authorization and allowance."
     },
     {
       "issues": [
@@ -532,7 +536,7 @@
       ]
     }
   ],
-  "issue_count": 85,
+  "issue_count": 88,
   "validation": {
     "timestamp_regression": "Reproduced the ClassCastException on original production ranking code. Passed after the Long fallback repair. Included absent, malformed, null and populated timestamps and cross-operation priority.",
     "focused_host_suites": {
@@ -571,7 +575,74 @@
       "observed_at_commit": "57ee520c5b4d99947e724c4eff13e413ddc7ce78",
       "rechecked_on": "5efa5446ddd644c119cbfdf86d77c2e4cf8d157b",
       "fix": "Import Json and jsonObject at the four graph-result parsing sites and keep one graphAction helper with the same explicit Gateway source. All test cases and their assertions are preserved."
+    },
+    "late_intake": {
+      "reports": [
+        2328,
+        2329,
+        2330
+      ],
+      "app_build": 147,
+      "reported_revision": "deb6fba6c66f0b6509610c3202b7d517e2fc124a",
+      "checklist_host_tests": 36,
+      "integration_status": "The three reports came from the same older run; each is linked to the action and regressions above."
+    },
+    "benchmark_integration": {
+      "commit": "e315be06e0c943c442f7f74b216930ee3f32aae4",
+      "repository_fast_tests": 623,
+      "gateway_python_passed": 1793,
+      "gateway_python_platform_skips": 35,
+      "gateway_node_tests": 7
+    },
+    "kotlin_source_parse": {
+      "commit": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+      "changed_kotlin_files": 686,
+      "function_declarations_scanned": 9439,
+      "syntax_or_duplicate_declaration_findings": 0,
+      "baseline_control": "The same scan flagged the original duplicate graphAction declaration."
     }
   },
-  "manifest_correction": "The integrated manifest contained both the superseded five-second speech reserve and the active 5.9-second reserve. Removed the superseded entry to agree with the playback implementation and release notes."
+  "manifest_correction": "The integrated manifest contained both the superseded five-second speech reserve and the active 5.9-second reserve. Removed the superseded entry to agree with the playback implementation and release notes.",
+  "later_feature_review": {
+    "reviewed_through": "6c5a70f733b3491366526dfd6b7641c8d027b8b1",
+    "branches_reviewed": 1,
+    "changes": [
+      {
+        "area": "Independent coding and GitHub model comparisons",
+        "commit": "b541378f",
+        "source_entry_points": [
+          "ProfileBenchmarkScreen.kt",
+          "BenchmarkEngineeringWorkspace.kt",
+          "ProfileBenchmarkViewModel.kt",
+          "BenchmarkBatchRunner.kt",
+          "BenchmarkEngineeringComparison.kt",
+          "gateway/benchmarks/runner.py",
+          "gateway/benchmarks/grader_manifest.py"
+        ],
+        "verification": "Traced the profile selection through a frozen experiment and paired comparison results. Ran the independent grader, Gateway API, desktop and fixture tests within the Gateway suite. Unqualified or incomplete observations cannot establish a winning model."
+      },
+      {
+        "area": "Durable provider recovery and agent dispatch",
+        "commit": "1c25a94d",
+        "source_entry_points": [
+          "GitHubOutputContinuationSession.kt",
+          "GitHubProviderReplayEvidence.kt",
+          "ToolBatchCheckpoint.kt",
+          "gateway/v14/agent_runs.py",
+          "gateway/v14/agent_config.py"
+        ],
+        "verification": "123 focused Kotlin recovery tests and 55 Gateway agent tests passed; 20 OpenRouter privacy setup tests passed."
+      },
+      {
+        "area": "Per-connection workspace tool discovery",
+        "commit": "b3ef2afe",
+        "source_entry_points": [
+          "gateway/v14/workspace_tool_integrations.py",
+          "gateway/v14/catalog.py",
+          "gateway/v14/tools.py"
+        ],
+        "verification": "On the previous implementation, the allowed-call scope and cancelled discovery cases failed. On the integrated branch the same 7 cases passed, together with all 142 workspace tests. No external tool or account was used."
+      }
+    ]
+  }
 }

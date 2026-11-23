@@ -51,6 +51,9 @@ public final class KokoroNativeIntegration {
             require(!evidence.profileAvailable && evidence.profileId == 0 && !evidence.profileReused, "Unprofiled CPU claimed kernel measurements");
             require(evidence.cacheHit && !evidence.graphPreparedThisCall && evidence.currentPrepareMs == 0, "CPU reported cached compilation as current work");
             require(evidence.cachedShapeCount == 1 && evidence.cacheLimit == 1 && evidence.cacheEstimatedBytes > 0, "CPU cache was not bounded");
+            require(evidence.cacheBudgetBytes != null && evidence.cacheBudgetBytes == 640L * 1024 * 1024 &&
+                    evidence.activeShapeEstimatedBytes != null && evidence.activeShapeEstimatedBytes.equals(evidence.cacheEstimatedBytes) &&
+                    "CPU_SINGLE".equals(evidence.cacheAdmission), "Current memory-admission evidence was lost");
             require(evidence.audioRms > 0 && Double.isFinite(evidence.audioRms) && evidence.audioPeak > 0 &&
                     evidence.nonSilentSamples > 0 && evidence.clippedSamples >= 0, "Missing audio validation metrics");
             require(evidence.discoverySummary.matches("[A-Za-z0-9_.=,:;-]{1,512}"), "Unsafe discovery summary");

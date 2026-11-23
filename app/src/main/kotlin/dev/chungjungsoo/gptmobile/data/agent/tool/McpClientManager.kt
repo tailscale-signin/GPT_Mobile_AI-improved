@@ -237,8 +237,16 @@ class McpClientManager internal constructor(
         return McpCatalogueAvailability(snapshot != null, authorized.takeIf { sameConfiguration }, healthy, snapshot != null && healthy && authorized == true && discovered, catalogueProducers.containsKey(key), snapshot?.observedAt, state.executionVerified.takeIf { sameConfiguration }, state.executionObservedAtMs.takeIf { sameConfiguration })
     }
 
-    fun clearReadinessCache(cancelProducers: Boolean = true) {
-        AppLogRecorder.record("MCP", "CATALOGUE_INVALIDATED · reason=${dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.catalogueReason} · catalogueEpoch=${dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.catalogueEpoch} · connectionCount=${catalogueIdentities.size} · cancelProducers=$cancelProducers")
+    fun clearReadinessCache(cancelProducers: Boolean = true, trimSignal: Int? = null) {
+        val reason = trimSignal?.let { dev.chungjungsoo.gptmobile.data.memory.MemoryTrimPolicy.readinessEvictionReason(it) ?: "MEMORY_TRIM" }
+            ?: dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.catalogueReason
+        val connectionCount = catalogueIdentities.size
+        val producerCount = catalogueProducers.size
+        // Empty repeat trims still invalidate in-flight publication, but do not repeat an obsolete authority-change claim.
+        if (cancelProducers || connectionCount > 0 || validatedCatalogues.isNotEmpty() || restoredCatalogues.isNotEmpty() || producerCount > 0) {
+            val trim = trimSignal?.coerceIn(0, 100)?.let { " · trimSignal=$it" }.orEmpty()
+            AppLogRecorder.record("MCP", "CATALOGUE_INVALIDATED · reason=$reason · catalogueEpoch=${dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.catalogueEpoch} · connectionCount=$connectionCount · producerCount=$producerCount · cancelProducers=$cancelProducers$trim")
+        }
         catalogueIdentities.clear()
         validatedCatalogues.clear()
         _health.update { current ->

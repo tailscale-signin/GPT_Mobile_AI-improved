@@ -19,7 +19,12 @@ internal class HttpAttemptTrace(private val record: (RunDiagnosticKind, Long) ->
     private val callStarted = AtomicBoolean()
     private val connectionOrRequestStarted = AtomicBoolean()
     private val unsentDnsFailure = AtomicBoolean()
+    private val transport = HttpAttemptEvidenceCollector()
     val provenUnsent: Boolean get() = callStarted.get() && !connectionOrRequestStarted.get() && unsentDnsFailure.get()
+
+    fun evidence(): HttpAttemptEvidence = transport.snapshot()
+    fun phase(phase: HttpAttemptPhase) = transport.phase(phase)
+    fun connection(tlsVersion: String?, httpProtocol: String?) = transport.connection(tlsVersion, httpProtocol)
 
     fun connectionOrRequestStarted() {
         connectionOrRequestStarted.set(true)
@@ -41,6 +46,12 @@ internal class HttpAttemptTrace(private val record: (RunDiagnosticKind, Long) ->
     fun mark(kind: RunDiagnosticKind) {
         if (kind == RunDiagnosticKind.HTTP_CALL_START) callStarted.set(true)
         if (kind == RunDiagnosticKind.REQUEST_BODY_END || kind == RunDiagnosticKind.RESPONSE_HEADERS) connectionOrRequestStarted.set(true)
+        when (kind) {
+            RunDiagnosticKind.HTTP_CALL_START -> phase(HttpAttemptPhase.CALL_STARTED)
+            RunDiagnosticKind.REQUEST_BODY_END -> phase(HttpAttemptPhase.REQUEST_BODY_COMPLETE)
+            RunDiagnosticKind.RESPONSE_HEADERS -> phase(HttpAttemptPhase.RESPONSE_HEADERS)
+            else -> Unit
+        }
         runCatching { record(kind, ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(0)) }
     }
 }
@@ -67,15 +78,22 @@ internal object ReadinessHttpTrace {
             }
             override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) {
                 trace?.connectionOrRequestStarted()
+                trace?.phase(HttpAttemptPhase.CONNECTING)
+            }
+            override fun secureConnectStart(call: Call) {
+                trace?.phase(HttpAttemptPhase.TLS_HANDSHAKE)
             }
             override fun connectionAcquired(call: Call, connection: Connection) {
                 trace?.connectionOrRequestStarted()
+                trace?.connection(connection.handshake()?.tlsVersion?.javaName, connection.protocol().toString())
             }
             override fun requestHeadersStart(call: Call) {
                 trace?.connectionOrRequestStarted()
+                trace?.phase(HttpAttemptPhase.REQUEST_HEADERS)
             }
             override fun requestBodyStart(call: Call) {
                 trace?.connectionOrRequestStarted()
+                trace?.phase(HttpAttemptPhase.REQUEST_BODY)
             }
             override fun callFailed(call: Call, ioe: IOException) {
                 trace?.failed(ioe)

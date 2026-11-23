@@ -218,6 +218,31 @@ class GitHubTaskContextBundleTest {
         assertEquals(JsonPrimitive("SESSION_ONLY_MEMORY_POLICY"), result["semantic_fallback"])
     }
 
+    @Test fun aColdSharedReadBudgetHydratesImplementationAndTestBeforeOptionalDocuments() = runBlocking {
+        val attempts = mutableListOf<String>()
+        val result = build(GitHubContextVariant.TASK) { path ->
+            attempts += path
+            source(path).takeIf { attempts.size <= 3 }
+        }
+        assertEquals(listOf(GitHubTaskContextBundle.FEATURE_MAP, implementation, test), attempts.take(3))
+        val paths = (result["selected_paths"] as JsonArray).toSet()
+        assertTrue(paths.contains(JsonPrimitive(implementation)))
+        assertTrue(paths.contains(JsonPrimitive(test)))
+        assertEquals(JsonPrimitive("SOURCE_WINDOWS_PREPARED"), result["source_readiness"])
+        assertEquals(JsonPrimitive(false), result["source_complete"])
+    }
+
+    @Test fun referencesWithoutSourceRetainExactCandidateIdentitiesWithoutClaimingSourceReadiness() = runBlocking {
+        val result = build(GitHubContextVariant.TASK) { path -> source(path).takeUnless { path in setOf(implementation, test) } }
+        assertEquals(JsonPrimitive("REFERENCES_ONLY"), result["source_readiness"])
+        assertEquals(JsonArray(emptyList()), result["selected_ranges"])
+        val candidates = (result["source_read_candidates"] as JsonArray).map { it.jsonObject }.associateBy { it["path"] }
+        assertEquals(JsonPrimitive("b".repeat(40)), candidates[JsonPrimitive(implementation)]?.get("blob_sha"))
+        assertEquals(JsonPrimitive("c".repeat(40)), candidates[JsonPrimitive(test)]?.get("blob_sha"))
+        assertTrue(candidates.values.all { it["source_loaded"] == JsonPrimitive(false) })
+        assertEquals(JsonPrimitive(false), result["source_complete"])
+    }
+
     private suspend fun build(variant: GitHubContextVariant, query: String = "repairReceipt", load: suspend (String) -> GitHubContextSource? = ::source): JsonObject =
         GitHubTaskContextBundle.build("owner/repository", commit, "work", files(), query, variant, 24_000, load = load)
 

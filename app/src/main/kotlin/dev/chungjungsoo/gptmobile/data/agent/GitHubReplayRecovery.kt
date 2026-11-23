@@ -15,9 +15,9 @@ internal object GitHubReplayRecovery {
     private const val OMITTED_SAVED_RESULT = "GitHub result omitted from replay: its continuation exceeds the available replay budget. Do not invent a cursor or repeat a mutation; inspect retained evidence or request a narrower immutable read."
     private data class CapacityRefusal(val page: String, val bytes: Int, val source: String, val scope: String, val recovery: JsonObject?)
 
-    /** Keep the recovery allowance and consumed pages outside the evictable provider replay. */
+    /** Keep recovery allowance, native reads and delivery witnesses outside the evictable provider replay. */
     class State(calls: Collection<ProviderEvent.ToolCall> = emptyList(), results: Collection<AgentToolResult> = emptyList()) {
-        private data class VerifiedRead(val call: ProviderEvent.ToolCall, val page: String, val resultIdentity: JsonObject)
+        private data class VerifiedRead(val call: ProviderEvent.ToolCall, val page: String, val resultIdentity: JsonObject, val deliveryDigest: String?)
         private val automaticCalls = mutableSetOf<String>()
         private val readPages = mutableMapOf<String, String>()
         private val verifiedReads = mutableMapOf<String, VerifiedRead>()
@@ -63,11 +63,16 @@ internal object GitHubReplayRecovery {
                         result != null && it.call == call && it.resultIdentity == savedResultIdentity(result) && ordinarySavedProjection(call, result)
                     }
                     // A refusal releases only this call's provisional reservation;
-                    // another successful read of the same page remains consumed.
+                    // another successful native read of the same page remains admitted.
                     when {
                         page != null -> {
                             readPages[call.callId] = page
-                            verifiedReads[call.callId] = VerifiedRead(call, page, savedResultIdentity(requireNotNull(result)))
+                            val body = envelope(requireNotNull(result).content)
+                            val completeBody = body?.get("schema") == JsonPrimitive("github.operation.v1") &&
+                                body["replay_compacted"] != JsonPrimitive(true) &&
+                                body["observationTruncated"] != JsonPrimitive(true)
+                            val deliveryDigest = if (completeBody) ToolResultDeliveryProof.digest(result.content) else previous?.deliveryDigest
+                            verifiedReads[call.callId] = VerifiedRead(call, page, savedResultIdentity(result), deliveryDigest)
                         }
                         previous != null -> readPages[call.callId] = previous.page
                         else -> {
@@ -97,6 +102,33 @@ internal object GitHubReplayRecovery {
         fun hasRemoteRead(name: String, args: JsonObject) = remoteKey(name, args) in remoteReads
         fun observeDelivered(exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String>, cache: ToolExchangeCompactor.RenderCache? = null) = deliveredReads.observe(exchanges, deliveredResultDigests, cache)
         fun advanceSavedRead(call: ProviderEvent.ToolCall, tool: AgentToolDefinition?) = deliveredReads.advance(call, tool)
+
+        /** Native admission and provider delivery are separate facts. Projections cannot replace the full-body witness. */
+        fun pendingSavedPageDeliveries(exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String>): Map<String, String?> {
+            exchanges.forEach { record(it.calls, it.results) }
+            val deliveredPages = verifiedReads.filter { (id, read) -> read.deliveryDigest != null && deliveredResultDigests[id] == read.deliveryDigest }
+                .values.mapNotNull(::immutablePageIdentity).toSet()
+            // Legacy restored projections may establish native admission without
+            // retaining the original body. An unknown digest must block delivery,
+            // even if that projection has its own successful provider receipt.
+            // An exact later reread may satisfy the same immutable page obligation;
+            // this does not mark the older call or its unknown body as delivered.
+            return verifiedReads.filter { (id, read) ->
+                (read.deliveryDigest == null || deliveredResultDigests[id] != read.deliveryDigest) && immutablePageIdentity(read) !in deliveredPages
+            }
+                .mapValues { (_, read) -> read.deliveryDigest }
+        }
+
+        private fun immutablePageIdentity(read: VerifiedRead): List<String>? {
+            val receipt = read.resultIdentity["execution_receipt"] as? JsonObject ?: return null
+            val cursor = (read.call.arguments["view_cursor"] as? JsonPrimitive)?.content ?: return null
+            val source = ((receipt["saved_view_source_sha256"] ?: receipt["saved_view_source_hash"]) as? JsonPrimitive)?.content ?: return null
+            val scope = (receipt["saved_view_scope_hash"] as? JsonPrimitive)?.content ?: return null
+            if (!ToolResultDeliveryProof.valid(source) || !ToolResultDeliveryProof.valid(scope)) return null
+            // The complete cursor includes its byte size; a shorter page at the
+            // same offset cannot satisfy a larger original page's obligation.
+            return listOf(read.call.name, cursor, source, scope)
+        }
 
         private fun remoteKey(name: String, args: JsonObject) = remoteReadKey(name, args)
     }
@@ -337,10 +369,22 @@ internal object GitHubReplayRecovery {
     }
 
     /** Consume only an exact local read cursor issued by native replay recovery. */
-    fun nextSavedRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, maxReplayResultTokens: Int = 512, state: State? = null): ProviderEvent.ToolCall? {
+    fun nextSavedRead(
+        exchanges: List<AgentToolExchange>,
+        tools: Collection<AgentToolDefinition>,
+        maxReplayResultTokens: Int = 512,
+        state: State? = null,
+        admittedReplayTokens: Int = 0,
+        maxOutputBytes: Int = 8192
+    ): ProviderEvent.ToolCall? {
         exchanges.forEach { state?.record(it.calls, it.results) }
         val calls = exchanges.flatMap { it.calls }
         val maximumBytes = (maxReplayResultTokens.toLong().coerceAtLeast(0) * 3).coerceAtMost(8192).toInt()
+        // A proven native capacity refusal may use more of the existing round's
+        // allowance. Reserve room for its call, controls and other evidence; do
+        // not enlarge the accepted context or tool-output budget.
+        val capacityBytes = ((admittedReplayTokens.toLong() - 512).coerceAtLeast(0) * 3)
+            .coerceAtMost(8192).coerceAtMost(maxOutputBytes.toLong().coerceAtLeast(0)).toInt()
         if (state?.exhausted() == true || calls.count { it.callId.startsWith("saved-result-consume-") } >= 32) return null
         val readPages = exchanges.flatMap { exchange ->
             val results = exchange.results.groupBy { it.callId }
@@ -398,7 +442,7 @@ internal object GitHubReplayRecovery {
                     val cursor = ((recipe["arguments"] as? JsonObject)?.get("view_cursor") as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return@filter false
                     val parts = cursor.split(':')
                     val bytes = parts.getOrNull(2)?.toIntOrNull() ?: return@filter false
-                    parts.size == 3 && bytes in 1024..maximumBytes && parts.take(2) == primaryCursor.split(':').take(2)
+                    parts.size == 3 && bytes in 1024..(if (capacityRefused) maxOf(maximumBytes.coerceAtMost(maxOutputBytes), capacityBytes) else maximumBytes) && parts.take(2) == primaryCursor.split(':').take(2)
                 }.sortedByDescending { recipe -> ((recipe["arguments"] as JsonObject)["view_cursor"] as JsonPrimitive).content.substringAfterLast(':').toInt() }
                 for (recipe in recipes) {
                     val name = (recipe["tool"] as? JsonPrimitive)?.content ?: continue
@@ -433,6 +477,25 @@ internal object GitHubReplayRecovery {
             }
         }
         return null
+    }
+
+    /** Larger local pages get their admitted space only until their exact body was delivered. */
+    fun savedPageResultAllowances(exchanges: List<AgentToolExchange>, consumedCallIds: Set<String>, maxReplayTokens: Int, defaultResultTokens: Int): Map<String, Int> {
+        val available = (maxReplayTokens.toLong() - 512).coerceAtLeast(0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        if (available <= defaultResultTokens) return emptyMap()
+        return buildMap {
+            exchanges.forEach { exchange ->
+                val results = exchange.results.groupBy { it.callId }
+                exchange.calls.forEach callLoop@{ call ->
+                    if (!call.callId.startsWith("saved-result-consume-") || call.callId in consumedCallIds) return@callLoop
+                    val result = results[call.callId]?.singleOrNull() ?: return@callLoop
+                    if (savedPageKey(call, result) == null) return@callLoop
+                    val cursor = GitHubSavedReadProgress.cursor(call.arguments) ?: return@callLoop
+                    val required = (cursor.bytes + 2) / 3
+                    if (required > defaultResultTokens && required <= available) put(call.callId, required)
+                }
+            }
+        }
     }
 
     fun envelope(content: ToolResultContent): JsonObject? = when (content) {

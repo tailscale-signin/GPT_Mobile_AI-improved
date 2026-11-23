@@ -96,7 +96,8 @@ internal object ToolExchangeCompactor {
         maxReplayTokens: Int,
         maxResultTokens: Int,
         consumedCallIds: Set<String> = emptySet(),
-        renderCache: RenderCache? = null
+        renderCache: RenderCache? = null,
+        resultTokenAllowances: Map<String, Int> = emptyMap()
     ): List<AgentToolExchange> {
         if (exchanges.isEmpty() || maxReplayTokens == Int.MAX_VALUE) return exchanges
 
@@ -135,7 +136,10 @@ internal object ToolExchangeCompactor {
         val metadataCost = exchanges.sumOf { exchange ->
             exchange.calls.sumOf { call -> ContextTokenEstimate.estimate((call.originalInvocation?.name ?: call.name) + (call.originalInvocation?.arguments ?: call.arguments).toString()).toLong() + 24 }
         }
-        remaining = (remaining - minOf(metadataCost, hardBudget / 2L).toInt()).coerceAtLeast(0)
+        val largestAdmittedResult = flattenedResults.filter { it.callId !in consumedCallIds }
+            .maxOfOrNull { resultTokenAllowances[it.callId]?.coerceIn(0, hardBudget) ?: 0 } ?: 0
+        val metadataReserve = if (largestAdmittedResult == 0) hardBudget / 2L else minOf(hardBudget / 2L, (hardBudget.toLong() - largestAdmittedResult - 24).coerceAtLeast(0))
+        remaining = (remaining - minOf(metadataCost, metadataReserve).toInt()).coerceAtLeast(0)
 
         // Spend replay allowance newest-first. Once exhausted, older consumed
         // payloads become tiny placeholders instead of each receiving a minimum
@@ -145,7 +149,8 @@ internal object ToolExchangeCompactor {
             val duplicate = lastOccurrence[fingerprints[index]] != index
             if (duplicate || consumedPayloads[index] || remaining < MIN_RESULT_TOKENS) continue
             val actualCost = measurements[index].tokens.coerceAtLeast(1)
-            val allowance = minOf(perResultBudget, remaining, actualCost)
+            val admittedResult = resultTokenAllowances[flattenedResults[index].callId]?.coerceIn(0, hardBudget) ?: perResultBudget
+            val allowance = minOf(maxOf(perResultBudget, admittedResult), remaining, actualCost)
             resultBudgets[index] = allowance
             // Small successful results no longer reserve an entire 512/800-token slice.
             remaining = (remaining - allowance - 24).coerceAtLeast(0)

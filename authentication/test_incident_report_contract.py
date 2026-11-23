@@ -11,6 +11,37 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_tls_phase_reaches_public_report_with_only_closed_protocol_and_boundary_values(self):
+        values = {"tls_failure_kind": "PROTOCOL", "tls_last_observed_phase": "REQUEST_BODY_COMPLETE",
+                  "tls_request_body_completed": True, "tls_connection_reused": True,
+                  "tls_version": "TLSv1.3", "tls_http_protocol": "h2"}
+        capture = self.capture("PROVIDER", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        approved = self.report(capture)
+        before = json.dumps(approved, separators=(",", ":"))
+        _, issue = issue_from_report(approved)
+        for field in values:
+            self.assertIn(field, issue["body"])
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {**values, field: "private endpoint or certificate"}))
+        self.assertEqual(before, json.dumps(approved, separators=(",", ":")))
+        for field in ("tls_request_body_completed", "tls_connection_reused"):
+            for invalid in (0, 1, "true", None):
+                with self.subTest(field=field, value=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("PROVIDER", {**values, field: invalid}))
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        for field in ("tls_last_observed_phase", "tls_version", "tls_http_protocol"):
+            match = re.search(r'"' + field + r'" to setOf\(([^)]+)\)', source)
+            self.assertIsNotNone(match, field)
+            self.assertEqual(capsule.ENUMS[field], set(re.findall(r'"([^"\n]+)"', match.group(1))))
+
+    def test_read_revision_mismatch_is_a_fixed_reason_without_private_source_metadata(self):
+        capture = self.capture("TOOL", {"tool_error_code": "GITHUB_VALIDATION_FAILED", "tool_reason_code": "EVIDENCE_REVISION_MISMATCH"})
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        self.assertIn("EVIDENCE_REVISION_MISMATCH", issue_from_report(self.report(capture))[1]["body"])
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"tool_reason_code": "private ref or path"}))
+
     def test_visible_output_recovery_survives_approved_report_without_private_checkpoint_fields(self):
         for reason, action in (
             ("BOUNDED_VISIBLE_OUTPUT_REPAIR", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST"),

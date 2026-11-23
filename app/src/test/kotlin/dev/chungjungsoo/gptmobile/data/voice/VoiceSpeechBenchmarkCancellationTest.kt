@@ -12,6 +12,41 @@ import org.junit.Test
 
 class VoiceSpeechBenchmarkCancellationTest {
     @Test
+    fun cancellationRecordsObservedNativePhaseAndWaitsForCleanupWithoutBorrowingKernelEvidence() {
+        for (stage in listOf(VoiceSpeechStage.PREPARING, VoiceSpeechStage.SYNTHESIS)) {
+            val clock = Clock()
+            lateinit var runner: VoiceSpeechBenchmarkRunner
+            var active = false
+            var closed = false
+            val engine = object : VoicePhraseEngine {
+                override val executionProgress get() = VoiceSpeechProgress(stage, 1, 2, 5, 10, !active, active)
+                override val executionEvidence: VoiceSpeechExecutionEvidence? get() = error("Cancellation must not read mutable or earlier kernel evidence")
+                override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+                    active = true
+                    runner.cancel()
+                    clock.advance(40)
+                    active = false
+                    throw CancellationException("Native retirement")
+                }
+                override fun resetCancellation() = Unit
+                override fun cancel() = Unit
+                override fun close() {
+                    clock.advance(20)
+                    closed = true
+                }
+            }
+            runner = runner(clock) { engine }
+            val result = cancelledResult(runner.run(initial()) {})
+            assertTrue(closed)
+            assertEquals(stage, result.cancellationStage)
+            assertEquals(stage, result.cancellationNativeStage)
+            assertEquals(60L, result.cancellationNativeRetirementMs)
+            assertEquals(40L, result.failedAttemptMs)
+            assertNoFailureEvidence(result)
+        }
+    }
+
+    @Test
     fun preparationCancellationRetainsObservedPreparationExactlyOnce() {
         val clock = Clock()
         val runner = runner(clock) {

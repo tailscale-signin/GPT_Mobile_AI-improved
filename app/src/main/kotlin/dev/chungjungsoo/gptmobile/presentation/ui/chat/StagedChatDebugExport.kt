@@ -117,6 +117,16 @@ internal suspend fun writeStagedChatDiagnostics(
         val maximumSourceCharacters = if (useReducedMemory) 256 * 1024 else 1024 * 1024
         val json = Json { encodeDefaults = true }
         val redactor = DiagnosticContentRedactor(contentMode, profiles.mapNotNull { it.token })
+        // Never retain full forensic text. Reuse is local to this capture and cannot skip protected-source checks.
+        val redactionReuse = if (contentMode == DiagnosticContentMode.REDACTED) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticRedactionReuse(
+                redactor::redact,
+                maximumWeightBytes = if (useReducedMemory) 128 * 1024 else 512 * 1024,
+                maximumInputCharacters = if (useReducedMemory) 64 * 1024 else 256 * 1024
+            )
+        } else {
+            null
+        }
         val logs = mutableMapOf<Boolean, DiagnosticLogSnapshot>()
         var publishedFile: File? = null
         fun authorized() {
@@ -127,7 +137,17 @@ internal suspend fun writeStagedChatDiagnostics(
             authorized()
             checkBudget()
             val bounded = if (projected) value else DiagnosticValueProjector(maximumSourceCharacters) { omit(it) }.element(value)
-            val redacted = phaseTimings.measure(dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings.Phase.REDACTION) { redactor.redact(bounded) }
+            val redacted = phaseTimings.measure(dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings.Phase.REDACTION) {
+                val reusable = redactionReuse?.takeIf { projected && (bounded as? JsonObject)?.get("table") == JsonPrimitive("workspace_records") }
+                if (reusable == null) {
+                    redactor.redact(bounded)
+                } else {
+                    val result = reusable.apply(bounded, ::authorized)
+                    if (result.reused) phaseTimings.redactionReused()
+                    result.value
+                }
+            }
+            authorized()
             redactedRecord(redacted, maximumCharacters, evidence)
         }
         suspend fun captureLogs(sink: DiagnosticStageSink, critical: Boolean) {
@@ -530,6 +550,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 if (share.file != result.file) share.file.delete()
             }
         } finally {
+            redactionReuse?.clear()
             logs.values.forEach { it.close() }
             // Ordinary coroutine cancellation retains checkpoints. A privacy/context
             // invalidation must also remove files created during the final clear race.

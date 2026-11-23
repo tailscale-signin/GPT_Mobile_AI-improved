@@ -13,6 +13,39 @@ class RequestDispatchContextTest {
     private val runtime = RuntimeFingerprint("connection", "route", "credential", "model", "model", "epoch", "template", "allocation")
     private val receipt = RequestAdmission.prepare("payload", "primary", CapacitySnapshot(runtime, 10000), RequestMeasurement(1, 1, TokenMeasurementKind.UTF8_ESTIMATE), 1, "permissions").receipt
 
+    @Test fun queuePollOwnsItsTransportEvidenceWithoutChangingSubmittedInferenceReceipts() {
+        val research = dev.chungjungsoo.gptmobile.data.research.ResearchStageTrace("root", "stage", "attempt")
+        for (observer in listOf(null, research)) {
+            val context = RequestDispatchContext(emptySet(), researchTrace = observer)
+            context.receipts += receipt.copy(physicalAttemptId = "generation-post")
+            context.armHttp()
+            val post = requireNotNull(context.takeHttpTrace())
+            post.mark(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.HTTP_CALL_START)
+            post.mark(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_BODY_END)
+            assertTrue(requireNotNull(context.latestHttpAttemptEvidence()).requestBodyCompleted)
+            context.armQueuePoll("private-job")
+            val poll = requireNotNull(context.takeHttpTrace())
+            assertTrue(poll !== post)
+            poll.mark(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.HTTP_CALL_START)
+            poll.phase(dev.chungjungsoo.gptmobile.data.network.HttpAttemptPhase.CONNECTING)
+            poll.phase(dev.chungjungsoo.gptmobile.data.network.HttpAttemptPhase.TLS_HANDSHAKE)
+            poll.failed(javax.net.ssl.SSLProtocolException("private endpoint"))
+            val current = requireNotNull(context.latestHttpAttemptEvidence())
+            assertEquals(dev.chungjungsoo.gptmobile.data.network.HttpAttemptPhase.TLS_HANDSHAKE, current.phase)
+            assertFalse(current.requestBodyCompleted)
+            assertTrue(post.evidence().requestBodyCompleted)
+            assertFalse(context.provenEntirelyUnsent())
+            assertTrue(context.provenUnsentAttemptIds().isEmpty())
+            assertEquals(listOf("generation-post"), context.receipts.map { it.physicalAttemptId })
+            // A consumed ticket does not erase the active physical observation.
+            assertEquals(null, context.takeHttpTrace())
+            assertEquals(current, context.latestHttpAttemptEvidence())
+            context.receipts += receipt.copy(physicalAttemptId = null)
+            context.armHttp()
+            assertEquals(null, context.latestHttpAttemptEvidence())
+        }
+    }
+
     @Test fun physicalAttemptsKeepTheirOwnAdmittedProfileSnapshotsWithoutRetainingSecretsOrPromptBytes() {
         val context = RequestDispatchContext(emptySet())
         var config = dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(

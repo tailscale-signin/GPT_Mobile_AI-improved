@@ -274,7 +274,7 @@ internal class DiagnosticContentRedactor(
             "devicename", "devicelabel", "devicehostname", "deviceaddress", "deviceip", "tailscalehostname", "tailscaleip"
         )
         private val opaquePrivateFields = setOf(
-            "arguments", "toolarguments", "resolvedarguments", "requestbody", "responsebody",
+            "arguments", "toolarguments", "resolvedarguments", "canonicalarguments", "requestbody", "responsebody",
             "privateterms", "customprivateterms", "replacementmap", "replacements", "decryptedcontent",
             "recalledfacts", "recalledmemory", "attachments", "draftattachments", "labels",
             "query", "queries", "prompt", "userprompt", "systemprompt", "thoughts", "thinking",

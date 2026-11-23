@@ -2,6 +2,23 @@
 
 Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
+## Diagnostic and voice audit follow-up
+
+- Keep mismatched evidence bound to its original revision and offer explicit historical or current-revision reads; separate argument canonicalization from a verified semantic repair.
+- Prioritize task-relevant implementation and test windows before optional documents, retain unread pinned candidates, and separate useful-source acquisition from search traversal.
+- Replenish bounded changed-source review waves while retaining failed, partial and unverified coverage.
+- Admit only native-issued larger saved pages that fit the accepted replay and output limits, and require full delivery before automatically advancing to another page.
+- Explain fixture-specific authority and offer an existing-repository read-only integration mode without discarding completed reads.
+- Classify certificate, handshake and TLS protocol failures separately and retain bounded phase, request-body completion and connection evidence through compatible reporting.
+- Preserve small readiness catalogues on UI hiding and moderate trim signals, identify actual memory evictions, and keep authorization changes immediately authoritative.
+- Open the conversation database on its owned IO startup path before parallel recovery, with separate native-load, key, migration-lock and verification timings.
+- Reuse only exact already-redacted workspace rows within one bounded capture, rechecking capture authority on cache hits and clearing retained data at capture exit.
+- Require same-run CPU-reference duration, token-timing and signal consistency for speech benchmark and Auto ranking; retain explicit mismatch, missing-reference and cancellation evidence.
+- Use observed memory headroom for at most two exact accelerator token shapes, cap retained estimates at 1,280 MiB, preserve 512 MiB available reserve and prevent repeated RSS double-counting.
+- Expose total, retained and evicted voice measurement counts and explicit missing speech, accelerator-utilization and end-to-end latency evidence.
+
+CPU-reference speech checks establish bounded numerical consistency, not perceptual equivalence or physical GPU/NPU speedup. Capture-local reuse avoids repeated redaction only; device startup, database hydration and export latency still require measurement.
+
 ## Release validation
 
 - Keep the complete benchmark, context, privacy, speech and recovery changes from the prior Android 0.9.66.13 candidate.

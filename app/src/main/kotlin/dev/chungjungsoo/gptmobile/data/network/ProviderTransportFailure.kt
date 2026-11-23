@@ -16,16 +16,6 @@ internal fun sanitizedCauseTypes(error: Throwable): List<String> {
         .map { it.javaClass.name.take(160) }.filter { it.matches(Regex("[A-Za-z0-9_.$]+")) }.toList()
 }
 
-private fun tlsFailureKind(error: Throwable): String {
-    val types = sanitizedCauseTypes(error).map { it.substringAfterLast('.') }.toSet()
-    return when {
-        types.any { it in setOf("CertificateException", "CertificateExpiredException", "CertificateNotYetValidException", "CertPathValidatorException", "SSLPeerUnverifiedException") } -> "CERTIFICATE"
-        "SSLProtocolException" in types -> "PROTOCOL"
-        "SSLHandshakeException" in types -> "HANDSHAKE"
-        else -> "OTHER"
-    }
-}
-
 /** HTTP acceptance, generation completion and request replay are independent observations. */
 internal fun providerTransportFailureDetails(
     details: JsonObject?,
@@ -36,7 +26,8 @@ internal fun providerTransportFailureDetails(
     receivedVisibleText: Boolean,
     generationCompleted: Boolean,
     replayAllowed: Boolean,
-    requiresReconciliation: Boolean
+    requiresReconciliation: Boolean,
+    httpAttempt: HttpAttemptEvidence? = null
 ): JsonObject = JsonObject(
     details.orEmpty() + buildJsonObject {
         val kind = networkFailureKind(error)
@@ -66,8 +57,15 @@ internal fun providerTransportFailureDetails(
         // arbitrary provider/preparation exception into a network diagnosis.
         if (kind != NetworkFailureKind.UNKNOWN) put("failure_kind", kind.code)
         if (kind == NetworkFailureKind.TLS) {
-            put("tls_failure_kind", tlsFailureKind(error))
+            put("tls_failure_kind", tlsFailureKind(error).name)
             put("tls_response_started", attemptTiming?.httpStatus != null || receivedPayload)
+            httpAttempt?.takeUnless { effectiveDispatch == JsonPrimitive(false) }?.let { attempt ->
+                put("tls_last_observed_phase", attempt.phase.name)
+                put("tls_request_body_completed", attempt.requestBodyCompleted)
+                attempt.connectionReused?.let { put("tls_connection_reused", it) }
+                attempt.tlsVersion?.takeIf { it in HttpAttemptEvidenceCollector.TLS_VERSIONS }?.let { put("tls_version", it) }
+                attempt.httpProtocol?.takeIf { it in HttpAttemptEvidenceCollector.HTTP_PROTOCOLS }?.let { put("tls_http_protocol", it) }
+            }
         }
         if (kind == NetworkFailureKind.UNKNOWN && details?.get("code") == JsonPrimitive("PROVIDER_INVOCATION_FAILED")) {
             val captured = IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.OPENAI_ADAPTER_STREAM_CATCH)

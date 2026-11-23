@@ -10,31 +10,62 @@ import kotlinx.serialization.json.put
 
 /** Numeric observations and fixed labels only. No transcript, audio, model prompt or device identifier. */
 internal fun voicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: VoiceSynthesisFeedback? = null): String {
+    val rows = snapshot.rows.filter {
+        it.metric in VoicePerformanceHistory.METRICS &&
+            it.engine in VoicePerformanceHistory.ENGINES &&
+            it.count in 1..256 &&
+            it.observedSamples >= it.count &&
+            it.p50Ms in 0..86_400_000L &&
+            it.p95Ms in it.p50Ms..86_400_000L
+    }
+    val synthesis = latest?.takeIf { it.generatedAudioMs > 0 }
     val document = buildJsonObject {
-        put("schemaVersion", 2)
+        put("schemaVersion", 3)
         put("scope", "current_app_process")
         put("seriesWindow", "since_last_performance_reset")
         put("latestSynthesisWindow", "most_recent_synthesis_may_precede_series_reset")
         put("sampleWindow", "bounded_recent_samples_per_stage_provider_and_warm_state")
+        put("sampleCapacity", snapshot.sampleCapacity.coerceIn(8, 256))
+        put("percentileScope", "retained_recent_samples_only")
+        put("observedSamplesScope", "since_last_performance_reset")
         put("timingUnit", "milliseconds")
         put("pairedSpeedComparison", false)
         put("acousticSpeakerLatency", JsonNull)
         put("batteryEnergy", JsonNull)
+        put("cpuUtilization", JsonNull)
+        put("gpuUtilization", JsonNull)
+        put("npuUtilization", JsonNull)
+        put(
+            "availability",
+            buildJsonObject {
+                put("speechStageTimings", if (rows.any { it.metric !in VoicePerformanceHistory.FRAME_METRICS }) "OBSERVED" else "NO_RECORDED_SAMPLES")
+                put("latestSynthesis", if (synthesis != null) "OBSERVED" else "NO_RECORDED_SAMPLE")
+                put("graphicsGpuFrameDuration", if (rows.any { it.metric == "gpu_duration" }) "OBSERVED" else "NO_RECORDED_SAMPLES")
+                put("endToEndConversationLatency", "NOT_MEASURED")
+                put("cpuGpuNpuUtilization", "NOT_MEASURED")
+                put("acousticSpeakerLatency", "NOT_MEASURED")
+                put("batteryEnergy", "NOT_MEASURED")
+            }
+        )
+        put("gpuFrameDurationScope", "android_graphics_frame_metrics_not_speech_accelerator_execution")
         put("captureQueueMs", snapshot.captureQueueMs?.let(::JsonPrimitive) ?: JsonNull)
         put("thermalStatus", snapshot.thermalStatus?.let(::JsonPrimitive) ?: JsonNull)
         put("processMemoryKb", snapshot.processMemoryKb?.let(::JsonPrimitive) ?: JsonNull)
         put("observedFrameSamples", snapshot.sampledFrames)
+        put("frameSampleCountScope", "frame_duration_and_frame_interval_observations_since_last_reset")
+        put("droppedFrameMetricCallbacks", snapshot.droppedFrameSamples)
         put(
             "series",
             buildJsonArray {
-                for (row in snapshot.rows) {
-                    if (row.metric !in VoicePerformanceHistory.METRICS || row.engine !in VoicePerformanceHistory.ENGINES || row.count !in 1..256 || row.p50Ms !in 0..86_400_000L || row.p95Ms !in row.p50Ms..86_400_000L) continue
+                for (row in rows) {
                     add(
                         buildJsonObject {
                             put("metric", row.metric)
                             put("observedProvider", row.engine)
                             put("warm", row.warm?.let(::JsonPrimitive) ?: JsonNull)
                             put("samples", row.count)
+                            put("observedSamples", row.observedSamples)
+                            put("evictedSamples", row.observedSamples - row.count)
                             put("p50Ms", row.p50Ms)
                             put("p95Ms", row.p95Ms)
                         }
@@ -44,7 +75,7 @@ internal fun voicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: 
         )
         put(
             "latestSynthesis",
-            latest?.takeIf { it.generatedAudioMs > 0 }?.let { sample ->
+            synthesis?.let { sample ->
                 buildJsonObject {
                     put("observedProvider", sample.executionProvider.takeIf { it in setOf("cpu", "qnn-gpu", "qnn-htp", "gateway-cuda") }?.let(::JsonPrimitive) ?: JsonNull)
                     put("route", sample.route.takeIf { it in setOf("speaker", "earpiece", "bluetooth", "usb", "wired", "other") }?.let(::JsonPrimitive) ?: JsonNull)
@@ -59,6 +90,7 @@ internal fun voicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: 
                     put("bufferReserveMs", sample.bufferMs)
                     put("productionRatio", sample.productionRatio?.takeIf { it.isFinite() && it >= 0 }?.let(::JsonPrimitive) ?: JsonNull)
                     put("firstAudioMs", sample.firstAudioMs?.let(::JsonPrimitive) ?: JsonNull)
+                    put("firstAudioScope", "playback_operation_start_to_first_observed_presented_audio")
                     put("cancellationMs", sample.cancellationMs?.let(::JsonPrimitive) ?: JsonNull)
                     put(
                         "executionEvidence",
@@ -112,6 +144,10 @@ private fun performanceExecutionJson(evidence: VoiceSpeechExecutionEvidence) = b
     number("cachedShapeCount", evidence.cachedShapeCount?.toLong(), 32)
     number("cacheLimit", evidence.cacheLimit?.toLong(), 32)
     number("cacheEstimatedBytes", evidence.cacheEstimatedBytes, 16L * 1024 * 1024 * 1024)
+    number("cacheBudgetBytes", evidence.cacheBudgetBytes, 16L * 1024 * 1024 * 1024)
+    number("activeShapeEstimatedBytes", evidence.activeShapeEstimatedBytes, 16L * 1024 * 1024 * 1024)
+    number("availableMemoryBytes", evidence.availableMemoryBytes, 256L * 1024 * 1024 * 1024)
+    put("cacheAdmission", evidence.cacheAdmission?.takeIf { it in setOf("CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES") }?.let(::JsonPrimitive) ?: JsonNull)
     amplitude("audioRms", evidence.audioRms)
     amplitude("audioPeak", evidence.audioPeak)
     number("clippedSamples", evidence.clippedSamples, 720_000)

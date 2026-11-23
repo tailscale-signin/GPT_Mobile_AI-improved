@@ -23,6 +23,56 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IssueReportSubmissionTest {
+    @Test fun tlsPhaseAndReadRevisionReasonNegotiateTheirOwnCapabilitiesBeforePosting() {
+        val cases = listOf(
+            IssueReportIncidentCapsule.TLS_TRANSPORT_PHASE_FEATURE to mapOf<String, Any?>(
+                "diagnostic_area" to "PROVIDER",
+                "tls_failure_kind" to "PROTOCOL",
+                "tls_last_observed_phase" to "REQUEST_BODY_COMPLETE",
+                "tls_request_body_completed" to true,
+                "tls_connection_reused" to true,
+                "tls_version" to "TLSv1.3",
+                "tls_http_protocol" to "h2"
+            ),
+            IssueReportDiagnostics.GITHUB_READ_REVISION_FEATURE to mapOf<String, Any?>(
+                "diagnostic_area" to "TOOL",
+                "tool_error_code" to "GITHUB_VALIDATION_FAILED",
+                "tool_reason_code" to "EVIDENCE_REVISION_MISMATCH"
+            )
+        )
+        for ((feature, fields) in cases) {
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+            val needed = requireNotNull(context.diagnostics).requiredServiceFeatures()
+            assertTrue(feature in needed)
+            val approved = report.copy(context = context)
+            val payload = approved.approvedPayload()
+            var supported = false
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    assertEquals("extended", request.url.queryParameter("capabilities"))
+                    val features = JsonArray(needed.filter { supported || it != feature }.map(::JsonPrimitive))
+                    response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                } else {
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${approved.reportId}","number":941}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(approved.reportId, payload) as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+            assertFalse(blocked.automaticRetry)
+            assertEquals(listOf("GET"), methods)
+            assertTrue(posted.isEmpty())
+            supported = true
+            assertEquals(IssueReportSubmission.Confirmed(941), submission.send(approved.reportId, payload))
+            assertEquals(listOf(payload), posted)
+        }
+    }
+
     @Test fun repositoryProgressCodesNegotiateExtendedReadinessBeforePostingApprovedBytes() {
         val feature = RepositoryOperationReportContract.FEATURE
         for (code in listOf("PHONE_INDEX_INTERRUPTED", "GITHUB_PATH_IS_DIRECTORY", "GITHUB_PATH_NOT_REGULAR_FILE")) {

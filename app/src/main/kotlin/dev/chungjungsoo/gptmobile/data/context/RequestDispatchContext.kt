@@ -49,6 +49,9 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     }
 
     private val httpTrace = java.util.concurrent.atomic.AtomicReference<dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace?>()
+
+    @Volatile private var currentHttpTrace: dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace? = null
+
     private val attemptTraces = java.util.concurrent.ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace>()
     private val pollTraces = java.util.concurrent.ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace>()
 
@@ -92,14 +95,15 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     }
 
     fun armQueuePoll(jobId: String) {
-        val observer = researchTrace ?: return
+        armCurrentHttpTrace(null)
+        val observer = researchTrace
         val id = java.util.UUID.randomUUID().toString()
-        observer.prepared(id, invocationId, "QUEUE_POLL", jobId)
+        observer?.prepared(id, invocationId, "QUEUE_POLL", jobId)
         val trace = dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace { kind, elapsed ->
-            if (kind in setOf(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_BODY_END, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RESPONSE_HEADERS)) observer.transmitted(id, elapsed)
+            if (kind in setOf(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_BODY_END, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RESPONSE_HEADERS)) observer?.transmitted(id, elapsed)
         }
-        pollTraces[id] = trace
-        httpTrace.set(trace)
+        if (observer != null) pollTraces[id] = trace
+        armCurrentHttpTrace(trace)
     }
 
     fun queueJob(jobId: String, resumed: Boolean, cached: Boolean = false) {
@@ -118,6 +122,7 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     }
 
     fun armHttp() {
+        armCurrentHttpTrace(null)
         val receipt = receipts.lastOrNull() ?: return
         val owner = runId
         val invocation = invocationId
@@ -131,9 +136,16 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
             owner?.let { dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(it, kind, role, invocationId = invocation, physicalAttemptId = attempt, elapsedMillis = elapsed) }
         }
         attemptTraces[attempt] = trace
+        armCurrentHttpTrace(trace)
+    }
+
+    private fun armCurrentHttpTrace(trace: dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace?) {
+        currentHttpTrace = trace
         httpTrace.set(trace)
     }
     fun takeHttpTrace(): dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace? = httpTrace.getAndSet(null)
+    fun latestHttpAttemptEvidence(): dev.chungjungsoo.gptmobile.data.network.HttpAttemptEvidence? =
+        currentHttpTrace?.evidence()
     fun transportWait(kind: dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind, elapsed: Long) {
         runId?.let { owner -> dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(owner, kind, invocationId = invocationId, elapsedMillis = elapsed.coerceAtLeast(0)) }
     }

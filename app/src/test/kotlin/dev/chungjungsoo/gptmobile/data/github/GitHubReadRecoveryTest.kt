@@ -213,6 +213,26 @@ class GitHubReadRecoveryTest {
         assertEquals(2, fixture.blobs.get())
     }
 
+    @Test fun retainedRevisionMismatchDoesNotReadOrMoveTheSelectedBranch() = runBlocking {
+        val fixture = fixture()
+        val original = fixture.session.execute("read_ranges", "owner", "repo", read("README.md")).jsonObject
+        val selected = fixture.session.snapshot()
+        val request = buildJsonObject {
+            put("evidence_id", original.getValue("evidence_id"))
+            put("commit_sha", "c".repeat(40))
+            put("ranges", JsonArray(listOf(buildJsonObject { put("path", "README.md") })))
+        }
+        val failure = runCatching { fixture.session.execute("read_ranges", "owner", "repo", request) }.exceptionOrNull() as GitHubReadValidation
+        assertEquals("EVIDENCE_REVISION_MISMATCH", failure.code)
+        assertEquals(1, fixture.blobs.get())
+        assertEquals(selected, fixture.session.snapshot())
+        val historical = failure.details.getValue("corrective_actions").jsonArray.first().jsonObject.getValue("arguments").jsonObject
+        val reopened = fixture.session.execute("read_ranges", "owner", "repo", historical).jsonObject
+        assertEquals(original["items"], reopened["items"])
+        assertEquals(selected, fixture.session.snapshot())
+        assertEquals(1, fixture.blobs.get())
+    }
+
     @Test fun mixedReadKeepsPinnedSuccessesAndReportsOnlyTheAmbiguousPath() = runBlocking {
         val fixture = fixture(listOf("README.md", "src/Test.kt", "a/Config.kt", "b/Config.kt"))
         val args = buildJsonObject {

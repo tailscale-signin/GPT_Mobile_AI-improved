@@ -82,7 +82,11 @@ internal data class VoiceSpeechExecutionEvidence(
     val frontendMs: Long? = null,
     val validationMs: Long? = null,
     val cacheEvictions: Int? = null,
-    val profileFinalizeMs: Long? = null
+    val profileFinalizeMs: Long? = null,
+    val cacheBudgetBytes: Long? = null,
+    val activeShapeEstimatedBytes: Long? = null,
+    val availableMemoryBytes: Long? = null,
+    val cacheAdmission: String? = null
 ) {
     fun diagnostics(): Map<String, Any> = buildMap {
         put("speech_backend_selected", selectedBackend.name)
@@ -115,6 +119,10 @@ internal data class VoiceSpeechExecutionEvidence(
         cachedShapeCount?.let { put("speech_cached_shape_count", it) }
         cacheLimit?.let { put("speech_graph_cache_limit", it) }
         cacheEstimatedBytes?.let { put("speech_graph_cache_estimated_bytes", it) }
+        cacheBudgetBytes?.let { put("speech_graph_cache_budget_bytes", it) }
+        activeShapeEstimatedBytes?.let { put("speech_active_shape_estimated_bytes", it) }
+        availableMemoryBytes?.let { put("speech_cache_available_memory_bytes", it) }
+        safeSpeechCacheAdmission(cacheAdmission)?.let { put("speech_cache_admission", it) }
         frontendMs?.takeIf { it >= 0 }?.let { put("speech_frontend_ms", it) }
         validationMs?.takeIf { it >= 0 }?.let { put("speech_validation_ms", it) }
         cacheEvictions?.takeIf { it >= 0 }?.let { put("speech_graph_cache_evictions", it) }
@@ -147,15 +155,18 @@ internal fun safeSpeechDiscoverySummary(value: String?): String? = value?.takeIf
     it.length in 1..512 && it.all { character -> character.isLetterOrDigit() && character.code < 128 || character in "_.=,:;-" }
 }
 
+internal fun safeSpeechCacheAdmission(value: String?): String? = value?.takeIf { it in setOf("CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES") }
+
 /** Never reads the engine's previous success after a throw: this snapshot belongs to this failed native call. */
 internal fun speechFailureExecutionEvidence(error: Exception, requested: VoiceSpeechBackend, deviceKey: String): VoiceSpeechExecutionEvidence? {
     val failure = error as? TimedKokoro.Failure ?: return null
     val native = failure.currentEvidence ?: return null
     val stage = VoiceSpeechStage.entries.firstOrNull { it.name.equals(failure.stage, ignoreCase = true) }
-        ?.takeIf { it == VoiceSpeechStage.SYNTHESIS || it == VoiceSpeechStage.VALIDATING } ?: return null
+        ?.takeIf { it in setOf(VoiceSpeechStage.PREPARING, VoiceSpeechStage.SYNTHESIS, VoiceSpeechStage.VALIDATING) } ?: return null
+    if (stage == VoiceSpeechStage.PREPARING && (native.cacheBudgetBytes == null || native.profileAvailable || native.validatedAudio)) return null
     val provider = failure.provider.takeIf { it in setOf("cpu", "qnn-gpu", "qnn-htp") }
     val effective = when {
-        requested == VoiceSpeechBackend.CPU -> "cpu"
+        requested == VoiceSpeechBackend.CPU && stage != VoiceSpeechStage.PREPARING -> "cpu"
         native.profileAvailable && native.acceleratorKernels > 0 -> provider ?: "unverified"
         native.profileAvailable && native.cpuKernels > 0 -> "cpu"
         else -> "unverified"
@@ -179,7 +190,9 @@ internal fun speechFailureExecutionEvidence(error: Exception, requested: VoiceSp
         failedInputBytes = failure.inputBytes, failedInputByteLimit = failure.inputByteLimit,
         failedTokenLimit = failure.tokenLimit, failedDiscoverySummary = safeSpeechDiscoverySummary(failure.discoverySummary),
         frontendMs = native.frontendMs, validationMs = native.validationMs,
-        cacheEvictions = native.cacheEvictions, profileFinalizeMs = native.profileFinalizeMs
+        cacheEvictions = native.cacheEvictions, profileFinalizeMs = native.profileFinalizeMs,
+        cacheBudgetBytes = native.cacheBudgetBytes, activeShapeEstimatedBytes = native.activeShapeEstimatedBytes,
+        availableMemoryBytes = native.availableMemoryBytes, cacheAdmission = safeSpeechCacheAdmission(native.cacheAdmission)
     )
 }
 
@@ -228,7 +241,9 @@ internal data class VoiceBackendCapability(
     val inputByteLimit: Int? = null,
     val tokenLimit: Int? = null,
     val discoverySummary: String? = null,
-    val thermalStatuses: List<Int?> = emptyList()
+    val thermalStatuses: List<Int?> = emptyList(),
+    val comparisonId: String? = null,
+    val audioObservations: List<VoiceSpeechAudioObservation> = emptyList()
 ) {
     /** Invalid text or local setup cannot disable hardware that synthesized earlier text. */
     val cacheable: Boolean
@@ -237,6 +252,8 @@ internal data class VoiceBackendCapability(
     val scoreMs: Long?
         get() = sampleMs.takeIf {
             protocol == VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL &&
+                comparisonId?.matches(Regex("[0-9a-f]{32}")) == true &&
+                VoiceMeasuredBackendPolicy.validAudioObservations(audioObservations) &&
                 VoiceMeasuredBackendPolicy.thermalQualified(thermalStatuses) &&
                 it.size == VoiceMeasuredBackendPolicy.FIXTURE_COUNT &&
                 it.all { value -> value in 1..300_000 }
@@ -254,11 +271,17 @@ internal data class VoiceBackendCapability(
 
 internal object VoiceMeasuredBackendPolicy {
     // Bump whenever the fixed fixtures or their cost aggregation changes.
-    const val COMPARISON_PROTOCOL = VoiceSpeechWorkload.PROTOCOL + "-thermal-v1"
+    const val COMPARISON_PROTOCOL = VoiceSpeechWorkload.PROTOCOL + "-thermal-v2"
     const val FIXTURE_COUNT = VoiceSpeechWorkload.CALIBRATION_FIXTURE_COUNT
     val thermalSampleCount: Int get() = 1 + VoiceSpeechWorkload.calibrationPhrases.size * 2
 
     fun thermalQualified(statuses: List<Int?>): Boolean = statuses.size == thermalSampleCount && statuses.all { it != null && it in 0..1 }
+
+    fun validAudioObservations(observations: List<VoiceSpeechAudioObservation>): Boolean =
+        observations.size == VoiceSpeechWorkload.calibrationPhrases.size &&
+            observations.zip(VoiceSpeechWorkload.calibrationPhrases).all { (observation, phrase) ->
+                observation.valid && observation.inputSha256 == VoiceSpeechWorkload.digest(phrase) && observation.inputBytes == phrase.toByteArray(Charsets.UTF_8).size
+            }
 
     fun comparisonOrder(revision: Long): List<VoiceSpeechBackend> {
         val backends = listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP)
@@ -283,8 +306,10 @@ internal object VoiceMeasuredBackendPolicy {
             it.backend in setOf(VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP) &&
                 it.verifiedAccelerator &&
                 it.comparisonScope == cpu.comparisonScope &&
+                it.comparisonId == cpu.comparisonId &&
                 it.speakerId == cpu.speakerId &&
-                it.speechRate == cpu.speechRate
+                it.speechRate == cpu.speechRate &&
+                it.audioObservations.zip(cpu.audioObservations).all { (candidate, reference) -> VoiceSpeechAudioReference.compare(reference, candidate).status == VoiceSpeechAudioReferenceStatus.CONSISTENT }
         }.minByOrNull { it.sampleMs.sum() } ?: return VoiceSpeechBackend.CPU
         // Small/noisy differences do not justify slower graph preparation or a
         // backend switch. Rounding the means could admit a smaller gain or hide the faster engine.
@@ -293,8 +318,8 @@ internal object VoiceMeasuredBackendPolicy {
     }
 }
 
-internal data class VoiceQualificationMeasurement(val sampleMs: List<Long>, val thermalStatuses: List<Int?>) {
-    val rankingEligible: Boolean get() = VoiceMeasuredBackendPolicy.thermalQualified(thermalStatuses)
+internal data class VoiceQualificationMeasurement(val sampleMs: List<Long>, val thermalStatuses: List<Int?>, val audioObservations: List<VoiceSpeechAudioObservation> = emptyList()) {
+    val rankingEligible: Boolean get() = VoiceMeasuredBackendPolicy.thermalQualified(thermalStatuses) && VoiceMeasuredBackendPolicy.validAudioObservations(audioObservations)
 }
 
 /** The complete grouped workload is validated before its first native call. */
@@ -308,6 +333,7 @@ internal fun measureVoiceQualification(
     checkActive: () -> Unit,
     openedThermalStatus: Int? = null,
     thermalStatus: () -> Int? = { null },
+    audioObservation: (String) -> VoiceSpeechAudioObservation? = { null },
     generate: (String, Int, Float) -> VoiceSpeechExecutionEvidence
 ): VoiceQualificationMeasurement {
     check(fixtures.size == VoiceMeasuredBackendPolicy.FIXTURE_COUNT && fixtures.all { it.isNotEmpty() }) { "FRONTEND_INPUT_INVALID" }
@@ -315,6 +341,7 @@ internal fun measureVoiceQualification(
     check(speakerId >= 0) { "FRONTEND_INVALID_VOICE" }
     check(speechRate.isFinite() && speechRate in .5f..2f) { "FRONTEND_INVALID_SPEED" }
     val temperatures = mutableListOf(openedThermalStatus)
+    val observations = mutableListOf<VoiceSpeechAudioObservation>()
     val samples = fixtures.mapIndexed { index, phrases ->
         checkActive()
         val started = if (index == 0) openedAt else nanoTime()
@@ -322,6 +349,10 @@ internal fun measureVoiceQualification(
             checkActive()
             temperatures += thermalStatus()
             val receipt = generate(phrase, speakerId, speechRate)
+            audioObservation(phrase)?.let { observation ->
+                check(observation.valid && observation.inputSha256 == VoiceSpeechWorkload.digest(phrase) && observation.tokenDurations.size == receipt.tokenCount) { "OUTPUT_INVALID" }
+                observations += observation
+            }
             temperatures += thermalStatus()
             checkActive()
             check(receipt.verifiedAudio && receipt.nonSilentSamples?.let { it > 0 } == true) { "OUTPUT_INVALID" }
@@ -335,5 +366,5 @@ internal fun measureVoiceQualification(
         check(ended > started) { "EXECUTION_FAILED" }
         ((ended - started) / 1_000_000).coerceAtLeast(1)
     }
-    return VoiceQualificationMeasurement(samples, temperatures)
+    return VoiceQualificationMeasurement(samples, temperatures, observations)
 }

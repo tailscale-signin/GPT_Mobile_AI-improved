@@ -117,8 +117,7 @@ struct Frontend {
   mutable std::unordered_map<std::string, std::vector<int32_t>> predicted;
 };
 
-constexpr int64_t kCacheBudgetBytes = 640LL * 1024 * 1024;
-constexpr int64_t kMemoryHeadroomBytes = 512LL * 1024 * 1024;
+constexpr int64_t kCacheBudgetBytes = kokoro_runtime::kShapeCacheSingleBudgetBytes;
 
 int64_t FileBytes(const std::string &path) {
   std::ifstream input(path, std::ios::binary | std::ios::ate);
@@ -147,7 +146,7 @@ int64_t ResidentBytes() {
 
 struct ModelSession {
   std::unique_ptr<sherpa_onnx::OfflineTtsKokoroModel> model;
-  int64_t prepare_ms = 0, profile_id = 0, resident_before = 0;
+  int64_t prepare_ms = 0, profile_id = 0;
   bool reusable = true;
   kokoro_runtime::Qualification qualification;
   kokoro_runtime::SelectedDevice selected_device;
@@ -171,9 +170,6 @@ struct Model : Frontend {
 
   void EnsureSession(int64_t token_count) const {
     const auto key = config.provider == "cpu" ? 0 : token_count;
-    const bool room_for_idle = config.provider != "cpu" &&
-        AvailableMemoryBytes() > estimated_session_bytes + kMemoryHeadroomBytes;
-    sessions.SetLimit(room_for_idle ? 2 : 1);
     current_prepare_ms = 0;
     graph_prepared_this_call = false;
     cache_hit = false;
@@ -185,13 +181,18 @@ struct Model : Frontend {
       active = nullptr;
       sessions.Erase(key);
     }
+    // Promote the requested shape before reducing retention so memory pressure
+    // cannot evict the model we are about to use. A hit needs no new allocation.
+    ConfigureCache(sessions.Bytes(), active ? 0 : estimated_session_bytes);
     if (active) {
       cache_hit = true;
       RestoreEvidence();
       return;
     }
     SetStage("preparing", kokoro_runtime::SpeechPhase::Preparing);
-    const auto started = std::chrono::steady_clock::now();
+    // Include failed or cancelled construction in this attempt's preparation
+    // cost. ORT session construction is not interruptible by RunOptions.
+    kokoro_runtime::ElapsedMilliseconds preparation_timer(current_prepare_ms);
     sessions.Reserve(estimated_session_bytes);
     qualification = {};
     selected_device = {};
@@ -201,18 +202,31 @@ struct Model : Frontend {
     auto session = std::make_unique<ModelSession>();
     static std::atomic<int64_t> next_profile_id{1};
     session->profile_id = next_profile_id.fetch_add(1);
-    session->resident_before = ResidentBytes();
+    const auto resident_before = ResidentBytes();
+    const auto started = kokoro_runtime::SteadyMillis();
     session->model = std::make_unique<sherpa_onnx::OfflineTtsKokoroModel>(config, library_dir,
         profile_prefix + "-" + std::to_string(token_count) + "-" + std::to_string(session->profile_id), token_count);
     Require(session->model->GetMetaData().sample_rate == kSampleRate &&
             session->model->GetMetaData().max_token_len == max_tokens, "Unexpected Kokoro pack");
     session->selected_device = config.provider == "cpu" ? kokoro_runtime::SelectedDevice{} : kokoro_runtime::LastSelectedDevice();
     session->discovery = kokoro_runtime::LastDiscovery();
-    session->prepare_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
-    active = sessions.Insert(key, estimated_session_bytes, std::move(session));
+    session->prepare_ms = kokoro_runtime::SteadyMillis() - started;
+    const auto resident_after = ResidentBytes();
+    const auto resident_estimate = std::max(estimated_session_bytes,
+        resident_before > 0 && resident_after > resident_before ? resident_after - resident_before : int64_t{0});
+    ConfigureCache(sessions.Bytes() + resident_estimate, 0);
+    active = sessions.Insert(key, resident_estimate, std::move(session));
     current_prepare_ms = active->prepare_ms;
     graph_prepared_this_call = true;
     RestoreEvidence();
+  }
+
+  void ConfigureCache(int64_t retained, int64_t prospective) const {
+    available_memory_bytes = config.provider == "cpu" ? 0 : AvailableMemoryBytes();
+    const auto allowance = kokoro_runtime::AdmitShapeCache(config.provider != "cpu",
+        available_memory_bytes, retained, prospective);
+    cache_admission = allowance.reason;
+    sessions.Configure(allowance);
   }
 
   void SetStage(const char *name, kokoro_runtime::SpeechPhase phase) const {
@@ -249,6 +263,11 @@ struct Model : Frontend {
     cache_evictions_before = sessions.Evictions();
     audio_measurement = {};
     qualification = {};
+    active = nullptr;
+    prepare_ms = 0;
+    selected_device = {};
+    available_memory_bytes = 0;
+    cache_admission = kokoro_runtime::ShapeCacheAdmission::MemoryUnknown;
     cache_hit = false;
     profile_reused = false;
     current_prepare_ms = 0;
@@ -283,6 +302,7 @@ struct Model : Frontend {
     if (!profile_reused) kokoro_runtime::LastQualification() = {};
     kokoro_runtime::LastProfileFinalizeMs() = 0;
     const auto started = std::chrono::steady_clock::now();
+    const auto resident_before_run = ResidentBytes();
     std::vector<Ort::Value> out;
     try {
       out = active->model->Run(std::move(input), sid, speed, run_options);
@@ -306,8 +326,12 @@ struct Model : Frontend {
       active->qualification = qualification;
     }
     const auto resident_after = ResidentBytes();
-    if (active->resident_before > 0 && resident_after > active->resident_before)
-      sessions.UpdateActiveBytes(resident_after - active->resident_before);
+    // Only growth during this call belongs to the active estimate. Comparing
+    // against its original construction baseline would charge another cached
+    // shape to this one on every alternating hit and spuriously evict it.
+    const auto active_bytes = kokoro_runtime::AddResidentGrowth(sessions.ActiveBytes(), resident_before_run, resident_after);
+    ConfigureCache(sessions.Bytes() - sessions.ActiveBytes() + active_bytes, 0);
+    sessions.UpdateActiveBytes(active_bytes);
     SetStage("validating", kokoro_runtime::SpeechPhase::Validating);
     kokoro_runtime::ElapsedMilliseconds validation_timer(validation_ms);
     Require(!cancelled.load(), "Kokoro generation cancelled");
@@ -380,6 +404,8 @@ struct Model : Frontend {
   mutable int64_t current_prepare_ms = 0;
   mutable int64_t synthesis_ms = 0;
   mutable int64_t frontend_ms = 0, validation_ms = 0, profile_finalize_ms = 0, cache_evictions_before = 0;
+  mutable int64_t available_memory_bytes = 0;
+  mutable kokoro_runtime::ShapeCacheAdmission cache_admission = kokoro_runtime::ShapeCacheAdmission::MemoryUnknown;
   mutable kokoro_runtime::SpeechProgress progress;
   mutable bool cache_hit = false, profile_reused = false, graph_prepared_this_call = false;
   mutable kokoro_runtime::AudioMeasurement audio_measurement;
@@ -406,7 +432,7 @@ jlongArray ModelEvidence(JNIEnv *env, const Model *model) {
   std::memcpy(&rms_bits, &model->audio_measurement.rms, sizeof(rms_bits));
   std::memcpy(&peak_bits, &model->audio_measurement.peak, sizeof(peak_bits));
   const bool profiled = model->qualification.accelerator.kernels > 0 || model->qualification.cpu.kernels > 0;
-  const std::array<jlong, 29> values{3, model->qualification.accelerator.kernels,
+  const std::array<jlong, 33> values{4, model->qualification.accelerator.kernels,
       model->qualification.cpu.kernels, model->qualification.accelerator.microseconds,
       model->qualification.cpu.microseconds, model->prepare_ms, model->synthesis_ms,
       model->phrase_tokens, model->selected_device.type, model->selected_device.vendor,
@@ -417,7 +443,8 @@ jlongArray ModelEvidence(JNIEnv *env, const Model *model) {
       rms_bits, peak_bits, model->audio_measurement.clipped_samples, model->audio_measurement.non_silent_samples,
       model->profile_reused ? 1 : 0, model->graph_prepared_this_call ? 1 : 0,
       model->frontend_ms, model->validation_ms, model->sessions.Evictions() - model->cache_evictions_before,
-      model->profile_finalize_ms};
+      model->profile_finalize_ms, model->sessions.Budget(), model->active ? model->sessions.ActiveBytes() : -1,
+      model->available_memory_bytes, static_cast<jlong>(model->cache_admission)};
   auto result = env->NewLongArray(values.size());
   if (result) env->SetLongArrayRegion(result, 0, values.size(), values.data());
   return result;
@@ -461,12 +488,13 @@ void ReportModelFailure(JNIEnv *env, const Model *model, const std::exception &e
   else if (std::string(model->stage) == "validating") code = "OUTPUT_INVALID";
   else if (std::string(model->stage) == "preparing") code = "GRAPH_PREPARATION";
   else if (std::string(model->stage) == "frontend") code = "FRONTEND_INPUT_INVALID";
-  const bool inference_started = std::string(model->stage) == "synthesis" || std::string(model->stage) == "validating";
+  const bool attempted_model = std::string(model->stage) == "preparing" ||
+      std::string(model->stage) == "synthesis" || std::string(model->stage) == "validating";
   ReportFailure(env, model->stage, code, native_code, model->phrase_tokens, model->config.provider,
       model->input_bytes, model->max_tokens + 1,
       std::string(model->stage) == "preparing" ? kokoro_runtime::LastDiscovery() :
       std::string(model->stage) == "frontend" ? "stage=frontend" : model->discovery,
-      inference_started ? model : nullptr);
+      attempted_model ? model : nullptr);
 }
 
 }  // namespace

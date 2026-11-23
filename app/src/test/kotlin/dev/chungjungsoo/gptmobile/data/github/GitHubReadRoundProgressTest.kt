@@ -139,6 +139,30 @@ class GitHubReadRoundProgressTest {
         assertTrue(guard.replan(searchPage(6, 16, 20), 100))
     }
 
+    @Test fun metadataPresentationChangesDoNotRestartTheUsefulSourceBudget() {
+        val guard = GitHubReadRoundProgress()
+        repeat(4) { index ->
+            val call = ProviderEvent.ToolCall(
+                "resolve-$index",
+                if (index % 2 == 0) "github_context__selected" else "github_context_inspect__selected",
+                buildJsonObject {
+                    put("action", if (index % 2 == 0) "resolve" else "status")
+                    put("verify_live", index % 2 == 0)
+                    put("response_detail", if (index % 2 == 0) "full" else "compact")
+                }
+            )
+            val data = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("ref", "main")
+                put("commit_sha", commit)
+                put("tree_sha", "b".repeat(40))
+            }
+            val exchange = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Json(data), false)))
+            assertEquals(index == 3, guard.replan(exchange, 1))
+        }
+    }
+
     private fun searchPage(id: Int, start: Int, end: Int, items: String = "[]", query: String = "needle"): AgentToolExchange {
         val pageSearchId = if (query == "needle") searchId else GitHubRepositoryStateStore.digest(query)
         val rows = Json.parseToJsonElement(items) as JsonArray

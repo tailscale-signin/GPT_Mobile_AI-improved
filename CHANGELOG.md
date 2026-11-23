@@ -12,6 +12,10 @@
 - Redact retained request and cited-source text in default exports, and recheck inherited authority before each restored fallback stream event.
 - Close source-filename, terminal-detail and continuation-line privacy gaps in default exports, and preserve explicit colon forms for complete address separators.
 
+- Add explicit revision recovery and truthful normalization receipts, prioritize pinned source/test context, continue bounded review waves, and deliver admitted saved pages before further automatic reads.
+- Clarify fixture-specific approval with an existing-repository read-only mode. Retain precise TLS phase/cause, memory-trim and startup evidence and bounded capture-local redaction reuse.
+- Require CPU-reference audio consistency for speech ranking, fix exact-shape cache accounting and memory admission, and expose retained sample coverage and unmeasured voice evidence.
+
 # 0.9.66.14 — 2026-11-23 (earlier branch candidate)
 
 - Retain all benchmark, GitHub integration, context, speech, privacy and recovery changes from the prior 0.9.66.13 candidate.

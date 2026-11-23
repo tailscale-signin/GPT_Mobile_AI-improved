@@ -22,6 +22,7 @@ internal object GitHubExecutionContinuation {
             put("implementation_progress", implementationProgress(receipts))
             verdict?.get("execution_resources")?.let { put("execution_resources", it) }
             put("search_frontiers", searchFrontiers(receipts))
+            put("source_hydration_candidates", sourceHydrationCandidates(receipts))
             put(
                 "receipts",
                 JsonArray(
@@ -191,7 +192,7 @@ internal object GitHubExecutionContinuation {
             Regex("(?i)\\b(?:review|audit|examine|issues|bugs|solutions)\\b").containsMatchIn(request) -> "Use the retained source to report supported findings, their impact, and specific proposed solutions."
             else -> "Use the retained source to answer the requested explanation and identify the specific evidence still missing."
         }
-        return "Recent source reads and searches have stopped adding actionable evidence. $next Preserve established findings and distinguish searched coverage from the unsearched remainder. Resume an incomplete search only through its exact issued continuation when the accepted scope requires more coverage and the remaining budget allows it."
+        return "Recent source reads and searches have stopped adding actionable evidence. $next If a prepared task context has no source windows, read its pinned source/test candidates before another broad search. Prefer task-relevant authored source and tests over generated/vendor assets unless those assets are the requested target. Preserve established findings and distinguish searched coverage from the unsearched remainder. Resume an incomplete search only through its exact issued continuation when the accepted scope requires more coverage and the remaining budget allows it."
     }
 
     private fun continuationRequest(task: String, current: String) = GitHubTaskContinuity.request(if (GitHubTaskContinuity.control(current)) task else current)
@@ -238,6 +239,53 @@ internal object GitHubExecutionContinuation {
             put("omitted_search_count", frontiers.size - included.size)
             put("searches", JsonArray(included))
         }
+    }
+
+    /** Paths originate from a successful pinned context result, never inferred tool arguments. */
+    internal fun sourceHydrationCandidates(receipts: Map<String, JsonObject>): JsonArray {
+        fun eligible(receipt: JsonObject) = receipt["trusted"] == JsonPrimitive(true) && receipt["success"] == JsonPrimitive(true) && receipt["verification_eligible"] != JsonPrimitive(false)
+        fun identity(receipt: JsonObject, revision: String, path: String, blob: String) = "${receipt["binding"]}|${receipt["repository"]}|$revision|$path|$blob"
+        val captured = receipts.values.filter { eligible(it) && (it["tool"] as? JsonPrimitive)?.content.orEmpty().githubOperationFamily() == "github_read" }.flatMap { receipt ->
+            val data = GitHubSemanticSummary.data(receipt["result"] as? JsonObject ?: return@flatMap emptyList())
+            val revision = (data["commit_sha"] as? JsonPrimitive)?.content ?: return@flatMap emptyList()
+            (data["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["range_complete"] == JsonPrimitive(true) }.mapNotNull { row ->
+                val path = (row["path"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+                val blob = (row["sha"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+                identity(receipt, revision, path, blob)
+            }
+        }.toSet()
+        val candidates = linkedMapOf<String, JsonObject>()
+        for ((id, receipt) in receipts.entries.toList().asReversed()) {
+            if (!eligible(receipt)) continue
+            if ((receipt["tool"] as? JsonPrimitive)?.content.orEmpty().githubOperationFamily() != "repository_graph") continue
+            val data = GitHubSemanticSummary.data(receipt["result"] as? JsonObject ?: continue)
+            if (data["schema"] != JsonPrimitive(GitHubTaskContextBundle.SCHEMA) || data["source_identity_kind"] != JsonPrimitive("GIT_COMMIT")) continue
+            val revision = (data["source_sha"] as? JsonPrimitive)?.content?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: continue
+            val repository = data["repository"] as? JsonPrimitive ?: continue
+            if (receipt["repository"] != repository) continue
+            for (row in (data["source_read_candidates"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()) {
+                if (row["source_loaded"] != JsonPrimitive(false)) continue
+                val path = (row["path"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() && it.length <= 1024 && !it.startsWith('/') && it.split('/').none { part -> part in setOf(".", "..") } && it.none(Char::isISOControl) } ?: continue
+                val blob = (row["blob_sha"] as? JsonPrimitive)?.content?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: continue
+                val key = identity(receipt, revision, path, blob)
+                if (key in captured) continue
+                candidates.putIfAbsent(
+                    key,
+                    buildJsonObject {
+                        put("receipt_id", id)
+                        put("repository", repository)
+                        receipt["binding"]?.let { put("binding", it) }
+                        put("commit_sha", revision)
+                        put("path", path)
+                        put("blob_sha", blob)
+                        put("source_loaded", false)
+                        put("scope", "CANDIDATE_ONLY_REVALIDATE_CURRENT_READ_AUTHORITY")
+                    }
+                )
+                if (candidates.size >= 8) return JsonArray(candidates.values.toList())
+            }
+        }
+        return JsonArray(candidates.values.toList())
     }
 
     /** These are observed operations, never a substitute for authorization or feature acceptance. */
@@ -420,7 +468,13 @@ internal class GitHubReadRoundProgress {
                 continue
             }
             val revision = data["commit_sha"] ?: continue
-            if (issuer.name.githubOperationFamily() == "github_context" && sources.add("${issuer.name}|${issuer.arguments}|$revision")) advanced = true
+            if (issuer.name.githubOperationFamily() == "github_context") {
+                val resource = result.executionReceipt?.get("resource_context") as? JsonObject
+                val owner = data["owner"] ?: resource?.get("owner") ?: issuer.arguments["owner"]
+                val repository = data["repo"] ?: resource?.get("repo") ?: issuer.arguments["repo"]
+                val ref = data["ref"] ?: data["branch"] ?: resource?.get("selected_ref")
+                if (sources.add("context|${issuer.name.substringAfter("__", "")}|$owner|$repository|$ref|$revision|${data["tree_sha"]}")) advanced = true
+            }
             // Cursor movement certifies traversal, not useful source acquisition. The
             // continuation prompt retains the exact search frontier separately, so a
             // replan can continue required pagination without restarting the scan.

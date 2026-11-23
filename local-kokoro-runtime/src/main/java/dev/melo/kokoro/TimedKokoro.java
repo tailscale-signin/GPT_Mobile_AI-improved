@@ -5,7 +5,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /** One synthesis worker owns this model and closes it after its final phrase. */
 public final class TimedKokoro implements AutoCloseable {
     public static final int SAMPLE_RATE = 24000;
-    public static final String RUNTIME_ID = "ort1.28.2-qnn2.7-qairt2.51-convex2-profile3-progress1";
+    public static final String RUNTIME_ID = "ort1.28.2-qnn2.7-qairt2.51-convex2-profile4-cache2-progress1";
     public static final int MAX_INPUT_BYTES = 128;
     static { System.loadLibrary("timed_kokoro"); }
 
@@ -31,7 +31,7 @@ public final class TimedKokoro implements AutoCloseable {
         public final String provider;
         public final int inputBytes, inputByteLimit, tokenLimit;
         public final String discoverySummary;
-        /** Immutable evidence from this failed inference only; absent for frontend/preparation failures. */
+        /** Immutable evidence from this failed attempt only; absent before a model is opened. */
         public final Evidence currentEvidence;
 
         private Failure(String stage, String code, int nativeCode, int tokenCount, String provider,
@@ -63,9 +63,12 @@ public final class TimedKokoro implements AutoCloseable {
         /** Current-call phase costs; null when reading the historical v2 snapshot. */
         public final Long frontendMs, validationMs, profileFinalizeMs;
         public final Integer cacheEvictions;
+        /** Nullable for historical snapshots; retention estimates are not allocator limits. */
+        public final Long cacheBudgetBytes, activeShapeEstimatedBytes, availableMemoryBytes;
+        public final String cacheAdmission;
 
         private Evidence(long[] data, String discoverySummary) {
-            if (data == null || !((data.length == 25 && data[0] == 2) || (data.length == 29 && data[0] == 3)))
+            if (data == null || !((data.length == 25 && data[0] == 2) || (data.length == 29 && data[0] == 3) || (data.length == 33 && data[0] == 4)))
                 throw new IllegalStateException("Invalid speech execution evidence");
             acceleratorKernels = (int) data[1];
             cpuKernels = (int) data[2];
@@ -92,10 +95,15 @@ public final class TimedKokoro implements AutoCloseable {
             profileReused = data[23] == 1;
             graphPreparedThisCall = data[24] == 1;
             this.discoverySummary = discoverySummary;
-            frontendMs = data.length == 29 ? data[25] : null;
-            validationMs = data.length == 29 ? data[26] : null;
-            cacheEvictions = data.length == 29 ? (int) data[27] : null;
-            profileFinalizeMs = data.length == 29 ? data[28] : null;
+            frontendMs = data.length >= 29 ? data[25] : null;
+            validationMs = data.length >= 29 ? data[26] : null;
+            cacheEvictions = data.length >= 29 ? (int) data[27] : null;
+            profileFinalizeMs = data.length >= 29 ? data[28] : null;
+            cacheBudgetBytes = data.length >= 33 ? data[29] : null;
+            activeShapeEstimatedBytes = data.length >= 33 && data[30] >= 0 ? data[30] : null;
+            availableMemoryBytes = data.length >= 33 && data[31] > 0 ? data[31] : null;
+            cacheAdmission = data.length >= 33 && data[32] >= 0 && data[32] <= 3 ?
+                    new String[] {"CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES"}[(int) data[32]] : null;
         }
     }
 

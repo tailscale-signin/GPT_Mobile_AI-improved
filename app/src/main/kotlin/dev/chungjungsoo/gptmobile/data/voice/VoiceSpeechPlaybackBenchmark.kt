@@ -87,7 +87,9 @@ internal class VoiceSpeechPlaybackBenchmark(
                                 val attemptMeasurement = relay.current
                                 attemptMeasurement?.attemptStarted(text)
                                 return try {
-                                    created.generate(text, speaker, speed)
+                                    created.generate(text, speaker, speed).also { audio ->
+                                        attemptMeasurement?.audioGenerated(VoiceSpeechAudioObservation.measure(text, audio))
+                                    }
                                 } catch (failure: Throwable) {
                                     attemptMeasurement?.nativeFailure(failure, configuration.deviceKey)
                                     throw failure

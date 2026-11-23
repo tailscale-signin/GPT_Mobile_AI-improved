@@ -105,7 +105,12 @@ internal data class VoiceSpeechBenchmarkChunk(
     val validationMs: Long? = null,
     val cacheEvictions: Int? = null,
     val profileFinalizeMs: Long? = null,
-    val nativeSynthesisMs: Long? = null
+    val nativeSynthesisMs: Long? = null,
+    val audioObservation: VoiceSpeechAudioObservation? = null,
+    val cacheBudgetBytes: Long? = null,
+    val activeShapeEstimatedBytes: Long? = null,
+    val availableMemoryBytes: Long? = null,
+    val cacheAdmission: String? = null
 ) {
     val realTimeFactor: Double? get() = (generationMs / audioMs).takeIf { audioMs > 0 && it.isFinite() }
 }
@@ -158,13 +163,18 @@ internal data class VoiceSpeechBenchmarkFailureObservation(
     val frontendMs: Long? = null,
     val validationMs: Long? = null,
     val cacheEvictions: Int? = null,
-    val profileFinalizeMs: Long? = null
+    val profileFinalizeMs: Long? = null,
+    val cacheBudgetBytes: Long? = null,
+    val activeShapeEstimatedBytes: Long? = null,
+    val availableMemoryBytes: Long? = null,
+    val cacheAdmission: String? = null
 ) {
     companion object {
         fun from(e: VoiceSpeechExecutionEvidence) = VoiceSpeechBenchmarkFailureObservation(
             e.profileAvailable, e.profileId, e.profileReused, e.acceleratorMicros, e.cpuMicros, e.prepareMs, e.currentPrepareMs,
             e.synthesisMs, e.tokenCount, e.hardwareType, e.cacheHit, e.cachedShapeCount, e.cacheLimit, e.cacheEstimatedBytes,
-            e.audioRms, e.audioPeak, e.clippedSamples, e.nonSilentSamples, e.frontendMs, e.validationMs, e.cacheEvictions, e.profileFinalizeMs
+            e.audioRms, e.audioPeak, e.clippedSamples, e.nonSilentSamples, e.frontendMs, e.validationMs, e.cacheEvictions, e.profileFinalizeMs,
+            e.cacheBudgetBytes, e.activeShapeEstimatedBytes, e.availableMemoryBytes, e.cacheAdmission
         )
     }
 }
@@ -195,7 +205,10 @@ internal data class VoiceSpeechBenchmarkBackendResult(
     val incompleteRepeat: Int? = null,
     val incompleteChunks: List<VoiceSpeechBenchmarkChunk> = emptyList(),
     val failureObservation: VoiceSpeechBenchmarkFailureObservation? = null,
-    val preparationThermalBefore: Int? = null
+    val preparationThermalBefore: Int? = null,
+    val cancellationStage: VoiceSpeechStage? = null,
+    val cancellationNativeRetirementMs: Long? = null,
+    val cancellationNativeStage: VoiceSpeechStage? = null
 ) {
     val warmSamples: List<VoiceSpeechBenchmarkSample> get() = samples.filter { it.warm }
     val medianMs: Double? get() = median(warmSamples.map { it.generationMs.toDouble() })
@@ -255,6 +268,15 @@ internal data class VoiceSpeechBenchmarkFixtureStatistics(
     val completedChunks: Int
 )
 
+internal data class VoiceSpeechBenchmarkAudioReference(
+    val comparison: VoiceSpeechAudioComparison,
+    val comparedChunks: Int = 0,
+    val observedChunks: Int = 0,
+    val fixture: VoiceSpeechBenchmarkFixture? = null,
+    val repeat: Int? = null,
+    val chunk: Int? = null
+)
+
 internal data class VoiceSpeechBenchmarkReport(
     val startedAtMillis: Long,
     val configuration: VoiceSpeechBenchmarkConfiguration,
@@ -280,7 +302,7 @@ internal data class VoiceSpeechBenchmarkReport(
             !configuration.currentProtocol -> VoiceSpeechBenchmarkOutcome.HISTORICAL
             configuration.playback -> playbackOutcome()
             qualifiedResults().isEmpty() -> VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON
-            results.any { it.state == VoiceSpeechBenchmarkBackendState.FAILED || it.state == VoiceSpeechBenchmarkBackendState.NOT_RUN } -> VoiceSpeechBenchmarkOutcome.PARTIAL
+            results.any { it !in qualifiedResults() } -> VoiceSpeechBenchmarkOutcome.PARTIAL
             else -> VoiceSpeechBenchmarkOutcome.QUALIFIED
         }
 
@@ -288,6 +310,7 @@ internal data class VoiceSpeechBenchmarkReport(
         if (playbackResults.isEmpty()) return VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON
         if (playbackResults.none { it.state == VoiceSpeechPlaybackState.COMPLETE && it.chunks > 0 || it.quality == VoiceSpeechPlaybackQuality.CANCELLATION_VALIDATED }) return VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON
         if (playbackResults.any { it.state in setOf(VoiceSpeechPlaybackState.FAILED, VoiceSpeechPlaybackState.UNSUPPORTED) || it.quality in setOf(VoiceSpeechPlaybackQuality.COMPLETE_WITH_STALLS, VoiceSpeechPlaybackQuality.SLOW_START, VoiceSpeechPlaybackQuality.INCOMPLETE, VoiceSpeechPlaybackQuality.CANCELLATION_TARGET_NOT_REACHED) }) return VoiceSpeechBenchmarkOutcome.PARTIAL
+        if (configuration.backends.any { playbackAudioReference(it) == VoiceSpeechAudioReferenceStatus.MISMATCH }) return VoiceSpeechBenchmarkOutcome.PARTIAL
         return if (qualifiedPlaybackBackends().size == configuration.backends.size) VoiceSpeechBenchmarkOutcome.QUALIFIED else VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON
     }
 
@@ -304,7 +327,7 @@ internal data class VoiceSpeechBenchmarkReport(
             return emptyList()
         }
         val plans = VoiceSpeechPlaybackProtocol.plans(configuration)
-        return configuration.backends.filter { backend ->
+        val complete = configuration.backends.filter { backend ->
             val rows = playbackResults.filter { it.requestedBackend == backend }
             results.singleOrNull { it.requestedBackend == backend }?.let { it.state == VoiceSpeechBenchmarkBackendState.COMPLETE && it.failure == null } == true &&
                 rows.size == plans.size &&
@@ -328,12 +351,39 @@ internal data class VoiceSpeechBenchmarkReport(
                         (plan.cancellationTarget != null || row.calibrations.isNotEmpty())
                 }
         }
+        if (VoiceSpeechBackend.CPU !in complete) return emptyList()
+        return complete.filter { playbackAudioReference(it) in setOf(VoiceSpeechAudioReferenceStatus.CPU_REFERENCE, VoiceSpeechAudioReferenceStatus.CONSISTENT) }
+    }
+
+    fun playbackAudioReference(backend: VoiceSpeechBackend): VoiceSpeechAudioReferenceStatus {
+        val rows = playbackResults.filter { it.requestedBackend == backend && it.cancellationTarget == null }
+        if (rows.isEmpty()) return VoiceSpeechAudioReferenceStatus.UNOBSERVED
+        val comparisons = rows.flatMap { row ->
+            val cpu = playbackResults.singleOrNull { it.requestedBackend == VoiceSpeechBackend.CPU && it.scenario == row.scenario && it.repeat == row.repeat && it.fixtureHash == row.fixtureHash }
+            if (row.chunkRecords.isEmpty() || cpu == null || row.chunkRecords.size != cpu.chunkRecords.size) {
+                listOf(VoiceSpeechAudioReferenceStatus.UNOBSERVED)
+            } else {
+                row.chunkRecords.zip(cpu.chunkRecords).map { (candidate, reference) ->
+                    if (candidate.inputSha256 != candidate.audioObservation?.inputSha256 || reference.inputSha256 != reference.audioObservation?.inputSha256) {
+                        VoiceSpeechAudioReferenceStatus.UNOBSERVED
+                    } else {
+                        VoiceSpeechAudioReference.compare(reference.audioObservation, candidate.audioObservation).status
+                    }
+                }
+            }
+        }
+        return when {
+            VoiceSpeechAudioReferenceStatus.MISMATCH in comparisons -> VoiceSpeechAudioReferenceStatus.MISMATCH
+            VoiceSpeechAudioReferenceStatus.UNOBSERVED in comparisons -> VoiceSpeechAudioReferenceStatus.UNOBSERVED
+            backend == VoiceSpeechBackend.CPU -> VoiceSpeechAudioReferenceStatus.CPU_REFERENCE
+            else -> VoiceSpeechAudioReferenceStatus.CONSISTENT
+        }
     }
 
     fun qualifiedResults(): List<VoiceSpeechBenchmarkBackendResult> {
         if (state != VoiceSpeechBenchmarkRunState.COMPLETE || issue != null || !configuration.currentProtocol || configuration.playback) return emptyList()
         val expected = VoiceSpeechBenchmarkFixture.entries.size * (configuration.mode.warmRepeats + 1)
-        return results.filter { result ->
+        val complete = results.filter { result ->
             result.verified &&
                 result.samples.size == expected &&
                 result.sessionPrepareMs != null &&
@@ -348,6 +398,7 @@ internal data class VoiceSpeechBenchmarkReport(
                             chunk.index == index &&
                                 chunk.inputBytes == phrase.toByteArray(Charsets.UTF_8).size &&
                                 chunk.inputSha256 == VoiceSpeechWorkload.digest(phrase) &&
+                                chunk.audioObservation?.let { it.valid && it.inputSha256 == chunk.inputSha256 && it.inputBytes == chunk.inputBytes && it.tokenDurations.size == chunk.tokenCount && it.audioMs == chunk.audioMs } == true &&
                                 chunk.validatedAudio &&
                                 chunk.effectiveProvider == VoiceSpeechBenchmarkBackendResult.provider(result.requestedBackend) &&
                                 (result.requestedBackend == VoiceSpeechBackend.CPU || (chunk.profileAvailable == true && chunk.acceleratorKernels > 0)) &&
@@ -359,6 +410,34 @@ internal data class VoiceSpeechBenchmarkReport(
                     result.samples.filter { it.fixture == fixture }.map { it.repeat }.sorted() == (0..configuration.mode.warmRepeats).toList()
                 }
         }
+        if (complete.none { it.requestedBackend == VoiceSpeechBackend.CPU }) return emptyList()
+        return complete.filter { audioReference(it).comparison.status in setOf(VoiceSpeechAudioReferenceStatus.CPU_REFERENCE, VoiceSpeechAudioReferenceStatus.CONSISTENT) }
+    }
+
+    /** Match only this run's frozen configuration and exact fixture/repeat/chunk. */
+    fun audioReference(result: VoiceSpeechBenchmarkBackendResult): VoiceSpeechBenchmarkAudioReference {
+        val cpu = results.singleOrNull { it.requestedBackend == VoiceSpeechBackend.CPU }
+        val rows = result.samples.flatMap { sample -> sample.chunks.map { Triple(sample.fixture, sample.repeat, it) } } +
+            result.incompleteChunks.mapNotNull { chunk -> result.incompleteFixture?.let { fixture -> result.incompleteRepeat?.let { Triple(fixture, it, chunk) } } }
+        if (rows.isEmpty()) return VoiceSpeechBenchmarkAudioReference(VoiceSpeechAudioComparison(VoiceSpeechAudioReferenceStatus.UNOBSERVED, VoiceSpeechAudioReferenceReason.MEASUREMENT_MISSING))
+        val comparisons = rows.map { (fixture, repeat, chunk) ->
+            val reference = cpu?.samples?.singleOrNull { it.fixture == fixture && it.repeat == repeat }?.chunks?.singleOrNull { it.index == chunk.index }
+            VoiceSpeechBenchmarkAudioReference(
+                VoiceSpeechAudioReference.compare(reference?.audioObservation, chunk.audioObservation),
+                fixture = fixture,
+                repeat = repeat,
+                chunk = chunk.index
+            )
+        }
+        val compared = comparisons.count { it.comparison.status in setOf(VoiceSpeechAudioReferenceStatus.CONSISTENT, VoiceSpeechAudioReferenceStatus.MISMATCH) }
+        val first = comparisons.firstOrNull { it.comparison.status == VoiceSpeechAudioReferenceStatus.MISMATCH }
+            ?: comparisons.firstOrNull { it.comparison.status == VoiceSpeechAudioReferenceStatus.UNOBSERVED }
+        return first?.copy(comparedChunks = compared, observedChunks = rows.size)
+            ?: VoiceSpeechBenchmarkAudioReference(
+                VoiceSpeechAudioComparison(if (result.requestedBackend == VoiceSpeechBackend.CPU) VoiceSpeechAudioReferenceStatus.CPU_REFERENCE else VoiceSpeechAudioReferenceStatus.CONSISTENT),
+                compared,
+                rows.size
+            )
     }
 
     /** An accelerator must win the same three-shape workload by >=10%, including setup. */

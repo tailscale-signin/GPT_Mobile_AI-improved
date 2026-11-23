@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation
+import dev.chungjungsoo.gptmobile.data.github.GitHubSearchFrontier
 import dev.chungjungsoo.gptmobile.data.github.GitHubSemanticSummary
 import dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy
 import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
@@ -8,21 +10,44 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 
 /** Bounded working state; bulk receipts remain in the durable task/evidence stores. */
-internal class GitHubInvestigationProgress {
+internal class GitHubInvestigationProgress(private val acceptedTask: String = "") {
     private val observed = linkedSetOf<String>()
+    private val requiredSearchCalls = linkedSetOf<JsonObject>()
+    private val requiredSearchEnds = linkedMapOf<String, Int>()
     private val recentPageFailures = ArrayDeque<Boolean>()
     private var staleRounds = 0
     private var alternateReadReplanUsed = false
 
     fun observe(exchange: AgentToolExchange): String? {
         var acquired = false
+        var requiredCoverageAdvanced = false
         val calls = exchange.calls.associateBy { it.callId }
         for (result in exchange.results) {
             val call = calls[result.callId] ?: continue
             val payload = (result.content as? ToolResultContent.Json)?.value as? JsonObject
             if (result.isError || payload?.get("schema") == JsonPrimitive("github.repeat.v1")) continue
+            // Native search pagination is traversal evidence. A changed response hash,
+            // query or cursor alone must not restart the useful-source progress budget.
+            val raw = ((result.retainedContent ?: result.content) as? ToolResultContent.Json)?.value as? JsonObject
+            val data = raw?.let(GitHubSemanticSummary::data)
+            if (call.name.githubOperationFamily() == "github_search" && "view_cursor" !in call.arguments && data?.get("items") is JsonArray) {
+                if (advancesRequiredCoverage(call, result, data)) requiredCoverageAdvanced = true
+                val scope = listOf(call.name.substringAfter("__", ""), call.arguments["owner"], call.arguments["repo"], data["commit_sha"])
+                for (row in (data["items"] as JsonArray).filterIsInstance<JsonObject>()) {
+                    val path = (row["path"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank) ?: continue
+                    val key = "search-source|$scope|$path|${row["sha"]}"
+                    if (observed.add(key)) acquired = true
+                    for (match in (row["matches"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()) {
+                        val line = (match["line"] as? JsonPrimitive)?.contentOrNull ?: continue
+                        if (observed.add("$key|$line|${match["text"]}")) acquired = true
+                    }
+                }
+                while (observed.size > 256) observed.remove(observed.first())
+                continue
+            }
             val source = ((result.executionReceipt?.get("saved_view_source_sha256") ?: result.executionReceipt?.get("source_result_sha256")) as? JsonPrimitive)?.contentOrNull
             val cursor = (call.arguments["view_cursor"] as? JsonPrimitive)?.contentOrNull
             val key = resolvedRevision(call, result) ?: if (source != null && source.matches(Regex("[a-f0-9]{64}"))) {
@@ -43,9 +68,37 @@ internal class GitHubInvestigationProgress {
         while (recentPageFailures.size > 8) recentPageFailures.removeFirst()
         return when {
             recentPageFailures.count { it } >= 4 -> "Repeated saved-page failures prevented further progress. Report the retained findings, exact failures and remaining source-recovery actions."
-            staleRounds >= 4 -> "Four rounds added no new evidence. Report the retained findings and remaining blockers without repeating the investigation."
+            staleRounds >= 4 && !requiredCoverageAdvanced -> "Four rounds added no new source or result evidence. Retain the exact search frontier; replan the next task-relevant source read or report the concrete remaining blocker. Cursor movement alone is not source inspection."
             else -> null
         }
+    }
+
+    /** Required traversal can continue its issued frontier without becoming useful-source progress. */
+    private fun advancesRequiredCoverage(call: ProviderEvent.ToolCall, result: AgentToolResult, data: JsonObject): Boolean {
+        if (!GitHubExecutionContinuation.requiresExhaustiveSearch(acceptedTask, call.arguments)) return false
+        val issued = requiredSearchCalls.remove(JsonObject(mapOf("tool" to JsonPrimitive(call.name), "arguments" to call.arguments)))
+        val next = GitHubSearchFrontier.continuation(call.name, call.arguments, result.executionReceipt)?.takeIf { recipe ->
+            val arguments = recipe["arguments"] as JsonObject
+            val frontier = result.executionReceipt?.get("search_frontier") as JsonObject
+            val key = "${call.name}|${arguments["owner"]}|${arguments["repo"]}|${frontier["commit_sha"]}|${frontier["search_id"]}|${frontier["query_identity_sha256"]}"
+            val end = (arguments["index_cursor"] as JsonPrimitive).intOrNull ?: return@takeIf false
+            (end > (requiredSearchEnds[key] ?: -1)).also { advanced -> if (advanced) requiredSearchEnds[key] = end }
+        }
+        if (next != null) requiredSearchCalls += next
+        while (requiredSearchCalls.size > 16) requiredSearchCalls.remove(requiredSearchCalls.first())
+        while (requiredSearchEnds.size > 16) requiredSearchEnds.remove(requiredSearchEnds.keys.first())
+        if (!issued) return false
+        if (next != null) return true
+        // A complete final page may have no next recipe. It must close the exact
+        // issued pinned search interval; a repeated or newly invented cursor cannot.
+        val terminal = GitHubSearchFrontier.capture(call.name, call.arguments, data, emptyList()) ?: return false
+        return terminal["complete"] == JsonPrimitive(true) &&
+            terminal["has_more"] == JsonPrimitive(false) &&
+            terminal["commit_sha"] == call.arguments["commit_sha"] &&
+            terminal["search_id"] == call.arguments["search_id"] &&
+            terminal["interval_start"] == call.arguments["index_cursor"] &&
+            terminal["interval_end"] == terminal["total_candidate_files"] &&
+            terminal["interval_end"] != terminal["interval_start"]
     }
 
     /** Give unused read actions one bounded correction; the original guard still ends another stall. */

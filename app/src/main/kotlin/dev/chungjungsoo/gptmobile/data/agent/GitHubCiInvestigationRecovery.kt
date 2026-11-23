@@ -39,7 +39,7 @@ internal class GitHubCiInvestigationRecovery(task: String?) {
             val data = source?.let(GitHubSemanticSummary::data).orEmpty()
             val summary = result.executionReceipt?.get("semantic_summary") as? JsonObject
             val scope = result.executionReceipt?.get("resource_context") as? JsonObject
-            val resolved = (result.executionReceipt?.get("corrected_arguments") ?: result.executionReceipt?.get("resolved_arguments")) as? JsonObject
+            val resolved = (result.executionReceipt?.get("corrected_arguments") ?: result.executionReceipt?.get("canonical_arguments") ?: result.executionReceipt?.get("resolved_arguments")) as? JsonObject
             val bounded = buildJsonObject {
                 for (key in listOf("commit_sha", "head_sha", "branch", "run_id", "run_attempt", "job_id", "status", "conclusion", "total_lines")) {
                     (data[key] ?: summary?.get(key))?.let { put(key, it) }

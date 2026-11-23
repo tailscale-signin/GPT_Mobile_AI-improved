@@ -34,6 +34,7 @@ class VoiceSpeechPlaybackProtocolTest {
         measurement.underrunObserved(0, "active")
         measurement.underrunObserved(0, "draining")
         measurement.attemptStarted("the voice")
+        measurement.audioGenerated(speechReferenceFixture("the voice"))
         clock = 100_000_000L
         measurement.pcmReady(70, 24_000, 24_000, evidence())
         clock = 110_000_000L
@@ -186,6 +187,36 @@ class VoiceSpeechPlaybackProtocolTest {
         assertNull(report.copy(results = report.results.map { it.copy(state = VoiceSpeechBenchmarkBackendState.FAILED) }).recommendation())
     }
 
+    @Test fun playbackRankingRejectsFastShortenedNativeAudioAndUnobservedLegacySignals() {
+        val configuration = configuration(full = true).copy(backends = listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU), playbackScenarios = VoiceSpeechPlaybackScenario.entries)
+        val cpu = VoiceSpeechPlaybackProtocol.plans(configuration).map { plan ->
+            observed(plan).let { if (plan.cancellationTarget == null) it else it.copy(state = VoiceSpeechPlaybackState.CANCELLED, cancellationMs = 7, cancellationTargetReached = true) }
+        }
+        val gpu = cpu.map { row ->
+            row.copy(
+                requestedBackend = VoiceSpeechBackend.QNN_GPU,
+                effectiveProvider = "qnn-gpu",
+                acceleratorExecutionObserved = true,
+                elapsedMs = 300,
+                chunkRecords = row.chunkRecords.map { it.copy(effectiveProvider = "qnn-gpu", acceleratorKernels = 40, audioObservation = speechReferenceFixture("the voice", 43)) }
+            )
+        }
+        val report = VoiceSpeechBenchmarkReport(
+            1,
+            configuration,
+            VoiceSpeechBenchmarkRunState.COMPLETE,
+            results = configuration.backends.map { VoiceSpeechBenchmarkBackendResult(it, VoiceSpeechBenchmarkBackendState.COMPLETE) },
+            playbackResults = cpu + gpu
+        )
+        assertEquals(VoiceSpeechAudioReferenceStatus.MISMATCH, report.playbackAudioReference(VoiceSpeechBackend.QNN_GPU))
+        assertEquals(listOf(VoiceSpeechBackend.CPU), report.qualifiedPlaybackBackends())
+        assertEquals(VoiceSpeechBackend.CPU, report.recommendation())
+        assertEquals(report, speechBenchmarkReportFromJson(speechBenchmarkJson(report, local = true)))
+        val missing = report.copy(playbackResults = report.playbackResults.map { row -> row.copy(chunkRecords = row.chunkRecords.map { it.copy(audioObservation = null) }) })
+        assertNull(missing.recommendation())
+        assertEquals(VoiceSpeechAudioReferenceStatus.UNOBSERVED, missing.playbackAudioReference(VoiceSpeechBackend.CPU))
+    }
+
     @Test fun runtimeSetupFailureCannotBeMisclassifiedAsAnInvalidFixedFixture() {
         for (code in listOf(VoiceSpeechFailureCode.FRONTEND_LOAD, VoiceSpeechFailureCode.MODEL_CONFIGURATION, VoiceSpeechFailureCode.MODEL_OPEN)) {
             val report = VoiceSpeechBenchmarkRunner(create = { throw IllegalStateException(code.name) }, thermalStatus = { 0 })
@@ -236,7 +267,7 @@ class VoiceSpeechPlaybackProtocolTest {
             playbackResults = listOf(result)
         )
         val json = speechBenchmarkJson(report, local = true)
-        assertEquals(3, (json.getValue("schemaVersion") as JsonPrimitive).content.toInt())
+        assertEquals(4, (json.getValue("schemaVersion") as JsonPrimitive).content.toInt())
         assertTrue(json.getValue("results").jsonArray.isEmpty())
         assertEquals(1, json.getValue("backendStates").jsonArray.size)
         assertFalse(json.getValue("backendStates").toString().contains("measuredCostMs"))

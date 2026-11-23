@@ -59,7 +59,7 @@ internal fun VoicePerformanceExportControl(snapshot: VoicePerformanceSnapshot, l
                 // Freeze this observation before the document picker pauses the screen.
                 captured = voicePerformanceExport(snapshot, latest)
                 notice = null
-                export.launch("voice-performance-v1.json")
+                export.launch("voice-performance-v3.json")
             },
             enabled = !writing && captured == null && (snapshot.rows.isNotEmpty() || latest?.generatedAudioMs?.let { it > 0 } == true),
             modifier = Modifier.testTag("voice_export_performance")

@@ -26,6 +26,7 @@ class IssueReportPrecheckTest {
             "WORKFLOW_SELECTION_REQUIRED" to "INVALID_ARGUMENTS",
             "SAVED_VIEW_PAGE_CAPACITY" to "OUTPUT_LIMIT",
             "EVIDENCE_UNAVAILABLE" to "GITHUB_EVIDENCE_REQUIRED",
+            "EVIDENCE_REVISION_MISMATCH" to "GITHUB_VALIDATION_FAILED",
             "GITHUB_TOOL_CONTRACT_UNSUPPORTED" to "TOOL_UNAVAILABLE",
             "GITHUB_STATE_UNAVAILABLE" to "GITHUB_OPERATION_FAILED"
         )
@@ -55,6 +56,7 @@ class IssueReportPrecheckTest {
             precheck.copy(remoteAcceptance = "YES")
         )) {
             assertNull(IssueReportCodes.nativeGitHubPrecheck(IssueReportCodes.toolResult("GITHUB_REPOSITORY_TARGET_MISMATCH"), context))
+            assertNull(IssueReportCodes.nativeGitHubPrecheck(IssueReportCodes.toolResult("EVIDENCE_REVISION_MISMATCH"), context))
         }
     }
 }

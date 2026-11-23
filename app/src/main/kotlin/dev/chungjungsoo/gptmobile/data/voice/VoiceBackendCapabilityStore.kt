@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Build
 import dev.melo.kokoro.TimedKokoro
 import java.security.MessageDigest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -56,12 +58,22 @@ internal class VoiceBackendCapabilityStore(context: Context) {
                     .put("inputBytes", it.inputBytes).put("inputByteLimit", it.inputByteLimit).put("tokenLimit", it.tokenLimit)
                     .put("discovery", safeSpeechDiscoverySummary(it.discoverySummary))
                     .put("thermals", JSONArray(it.thermalStatuses))
+                    .put("comparisonId", it.comparisonId)
+                    .put("audioObservations", JSONArray().also { rows -> it.audioObservations.forEach { observation -> rows.put(JSONObject(speechAudioObservationJson(observation).toString())) } })
             )
         }
+        var payload = encoded.toString()
+        // Keep whole measured receipts; never truncate an audio timing
+        // vector to make it look complete. Older receipts retire first.
+        while (payload.length > MAX_STORED_CHARACTERS && encoded.length() > 1) {
+            encoded.remove(encoded.length() - 1)
+            payload = encoded.toString()
+        }
+        if (payload.length > MAX_STORED_CHARACTERS) return
         // Cache persistence never interrupts valid speech. A failed write means
         // the next session measures again; it cannot manufacture qualification.
         runCatching {
-            val editor = preferences.edit().putString("receipts", encoded.toString())
+            val editor = preferences.edit().putString("receipts", payload)
             if (revision != null) editor.putLong("revision", revision)
             editor.commit()
         }
@@ -77,7 +89,7 @@ internal class VoiceBackendCapabilityStore(context: Context) {
 
     private fun records(): List<VoiceBackendCapability> = runCatching {
         val raw = preferences.getString("receipts", null) ?: return emptyList()
-        if (raw.length > 32_768) return emptyList()
+        if (raw.length > MAX_STORED_CHARACTERS) return emptyList()
         val entries = JSONArray(raw)
         if (entries.length() > 24) return emptyList()
         (0 until entries.length()).mapNotNull { index ->
@@ -120,13 +132,19 @@ internal class VoiceBackendCapabilityStore(context: Context) {
                     integer("inputByteLimit", 1..1_000_000),
                     integer("tokenLimit", 1..1_000_000),
                     safeSpeechDiscoverySummary(item.optString("discovery")),
-                    temperatures
+                    temperatures,
+                    item.optString("comparisonId").takeIf { it.matches(Regex("[0-9a-f]{32}")) },
+                    (item.optJSONArray("audioObservations") ?: JSONArray()).let { observations ->
+                        require(observations.length() <= VoiceSpeechWorkload.calibrationPhrases.size)
+                        (0 until observations.length()).map { observation -> readSpeechAudioObservation(Json.parseToJsonElement(observations.getJSONObject(observation).toString()).jsonObject) }
+                    }
                 )
             }.getOrNull()
         }
     }.getOrDefault(emptyList())
 
     companion object {
+        private const val MAX_STORED_CHARACTERS = 262_144
         private val lock = Any()
         private fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

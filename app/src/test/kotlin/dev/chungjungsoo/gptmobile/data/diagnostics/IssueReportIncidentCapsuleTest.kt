@@ -28,6 +28,30 @@ import org.robolectric.annotation.Config
 class IssueReportIncidentCapsuleTest {
     private val time = 1_800_000_000_000L
 
+    @Test fun tlsPhaseSurvivesApprovedReportWithClosedTypesAndExplicitReceiverSupport() {
+        val values = mapOf(
+            "diagnostic_area" to "PROVIDER",
+            "tls_failure_kind" to "PROTOCOL",
+            "tls_last_observed_phase" to "REQUEST_BODY_COMPLETE",
+            "tls_request_body_completed" to true,
+            "tls_connection_reused" to true,
+            "tls_version" to "TLSv1.3",
+            "tls_http_protocol" to "h2"
+        )
+        val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "TLS_FAILURE", values)
+        val diagnostics = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive("PROTOCOL"), diagnostics.values["tls_failure_kind"])
+        assertEquals(JsonPrimitive("REQUEST_BODY_COMPLETE"), diagnostics.values["tls_last_observed_phase"])
+        assertTrue(IssueReportIncidentCapsule.TLS_TRANSPORT_PHASE_FEATURE in diagnostics.requiredServiceFeatures())
+        val approved = report(context).approvedPayload()
+        assertTrue(approved.contains("\"tls_request_body_completed\":true"))
+        for (field in IssueReportIncidentCapsule.tlsTransportPhaseFields) {
+            assertNull(diagnostics.copy(values = diagnostics.values + (field to JsonPrimitive("private endpoint or certificate"))).validated())
+        }
+        val legacy = capture(ReportFeature.CHAT, "CHAT_FAILURE", "TLS_FAILURE", mapOf("diagnostic_area" to "PROVIDER", "tls_failure_kind" to "PROTOCOL"))
+        assertFalse(IssueReportIncidentCapsule.TLS_TRANSPORT_PHASE_FEATURE in requireNotNull(legacy.diagnostics).requiredServiceFeatures())
+    }
+
     @Test fun modelInvocationSurvivesGenericErrorWithoutReplacingToolCausality() {
         val boundary = IssueReportIncidentCapsule.boundaryFields(IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE)
         val linked = IssueReportIncidentCapsule.invocationFields("model-one", boundary)

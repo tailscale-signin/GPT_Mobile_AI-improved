@@ -61,7 +61,36 @@ class VoiceSpeechFailureEvidenceTest {
         assertNull(speechFailureExecutionEvidence(failure("frontend", "FRONTEND_INPUT_TOO_LONG", null), VoiceSpeechBackend.QNN_HTP, "device"))
         assertNull(speechFailureExecutionEvidence(failure("preparing", "GRAPH_PREPARATION", null), VoiceSpeechBackend.QNN_HTP, "device"))
         assertNull(speechFailureExecutionEvidence(failure("frontend", "FRONTEND_INPUT_INVALID", profile()), VoiceSpeechBackend.QNN_HTP, "device"))
+        assertNull(speechFailureExecutionEvidence(failure("preparing", "GRAPH_PREPARATION", profile()), VoiceSpeechBackend.QNN_HTP, "device"))
         assertNull(speechFailureExecutionEvidence(IllegalStateException("CPU_ONLY"), VoiceSpeechBackend.QNN_HTP, "device"))
+    }
+
+    @Test fun currentPreparationFailureRetainsElapsedCompilationWithoutInventingExecutionOrActiveResidency() {
+        val current = LongArray(33).also {
+            it[0] = 4
+            it[7] = 21
+            it[15] = 7632
+            it[16] = 1
+            it[17] = 2
+            it[18] = 323715810
+            it[29] = 1280L * 1024 * 1024
+            it[30] = -1
+            it[31] = 0
+            it[32] = 1
+        }
+        val receipt = checkNotNull(speechFailureExecutionEvidence(failure("preparing", "GRAPH_PREPARATION", current), VoiceSpeechBackend.QNN_HTP, "device"))
+        assertEquals(VoiceSpeechStage.PREPARING, receipt.stage)
+        assertEquals("unverified", receipt.effectiveProvider)
+        assertEquals(7632L, receipt.currentPrepareMs)
+        assertEquals(1280L * 1024 * 1024, receipt.cacheBudgetBytes)
+        assertEquals("MEMORY_UNKNOWN", receipt.cacheAdmission)
+        assertNull(receipt.activeShapeEstimatedBytes)
+        assertNull(receipt.availableMemoryBytes)
+        assertFalse(receipt.verifiedAudio)
+        assertFalse(receipt.diagnostics().containsKey("speech_cpu_kernels"))
+        assertEquals("MEMORY_UNKNOWN", receipt.diagnostics()["speech_cache_admission"])
+        current[12] = 1
+        assertNull(speechFailureExecutionEvidence(failure("preparing", "GRAPH_PREPARATION", current), VoiceSpeechBackend.QNN_HTP, "device"))
     }
 
     @Test fun typedOpenFailuresDoNotMislabelTheBenchmarkWorkloadOrDisableHardware() {

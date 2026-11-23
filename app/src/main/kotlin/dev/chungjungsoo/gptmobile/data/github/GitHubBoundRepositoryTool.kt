@@ -79,8 +79,8 @@ internal class GitHubBoundRepositoryTool(
     /** Verification must see the exact normalized target supplied to the executor. */
     private fun retainBinding(result: AgentToolResult, original: JsonObject, bounded: JsonObject): AgentToolResult {
         val observed = dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.rebindRepositoryArguments(result, definition.name, bounded, original)
-        if (bounded == original || observed.executionReceipt?.get("corrected_arguments") is JsonObject) return observed
-        return observed.copy(executionReceipt = JsonObject(observed.executionReceipt.orEmpty() + ("corrected_arguments" to bounded)))
+        if (bounded == original) return observed
+        return dev.chungjungsoo.gptmobile.data.agent.ToolArgumentNormalization.retain(observed, bounded, dev.chungjungsoo.gptmobile.data.agent.ToolArgumentNormalization.Kind.REPOSITORY_BINDING)
     }
 
     private fun boundArguments(arguments: JsonObject): JsonObject {

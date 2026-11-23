@@ -305,8 +305,8 @@ internal class GitHubRepositorySession(
         if (action == "read_ranges" && args.s("evidence_id").isNotEmpty()) {
             val retained = retainedEvidence(args.s("evidence_id")) ?: error("EVIDENCE_UNAVAILABLE: This source handle is unavailable in the current account, connection and conversation. Use github_context action=recovery to find retained source handles, or read exact ranges at the observed commit_sha. Do not repeat the unavailable handle.")
             require(retained.s("owner").equals(owner, true) && retained.s("repo").equals(repo, true)) { "Evidence belongs to another repository." }
-            require(args.s("commit_sha").isBlank() || args.s("commit_sha").equals(retained.s("commit_sha"), true)) { "Evidence belongs to a different commit_sha. Omit commit_sha to reopen its pinned source." }
             require(retained.s("commit_sha").sha() && retained.s("tree_sha").sha()) { "Retained source identity is unavailable." }
+            GitHubEvidenceRevisionGuard.validate(owner, repo, args, retained)
             // Pin the new turn to its selected branch before reopening older evidence.
             // Historical reads must not change the conversation's selected revision.
             val current = snapshot()?.takeIf { it.owner.equals(owner, true) && it.repo.equals(repo, true) }
@@ -765,9 +765,10 @@ internal class GitHubRepositorySession(
 
     /** UI diagnostics retain identities and counts, never task text or source excerpts. */
     private suspend fun retainTaskContextSummary(context: GitHubTaskSnapshot, packet: JsonObject) {
-        val scalarKeys = setOf("schema", "repository", "source_sha", "variant", "reference_digest", "index_digest", "manifest_status", "freshness", "ranking", "semantic_applied", "semantic_fallback", "cache_hit", "cache_status", "cached_files", "loaded_files", "coverage", "cache", "preparation_ms", "content_bytes", "bytes", "token_count", "token_count_basis", "token_estimate", "token_estimate_basis", "selection_truncated", "selected_paths", "test_candidates", "unavailable_files", "source_complete", "delivery_status")
+        val scalarKeys = setOf("schema", "repository", "source_sha", "variant", "reference_digest", "index_digest", "manifest_status", "freshness", "ranking", "semantic_applied", "semantic_fallback", "cache_hit", "cache_status", "cached_files", "loaded_files", "coverage", "cache", "preparation_ms", "content_bytes", "bytes", "token_count", "token_count_basis", "token_estimate", "token_estimate_basis", "selection_truncated", "selected_paths", "test_candidates", "unavailable_files", "source_complete", "source_identity_kind", "source_readiness", "delivery_status")
         val summary = buildJsonObject {
             packet.filterKeys { it in scalarKeys }.forEach { (key, value) -> put(key, value) }
+            put("source_read_candidates", JsonArray((packet["source_read_candidates"] as? JsonArray).orEmpty().mapNotNull { row -> (row as? JsonObject)?.let { JsonObject(it.filterKeys { name -> name in setOf("path", "blob_sha", "source_loaded") }) } }))
             put("selected_ranges", JsonArray((packet["selected_ranges"] as? JsonArray).orEmpty().mapNotNull { row -> (row as? JsonObject)?.let { JsonObject(it.filterKeys { name -> name in setOf("path", "blob_sha", "start_line", "end_line", "reason") }) } }))
             put("documents", JsonArray((packet["documents"] as? JsonArray).orEmpty().mapNotNull { row -> (row as? JsonObject)?.let { JsonObject(it.filterKeys { name -> name in setOf("path", "blob_sha", "start_line", "end_line") }) } }))
             put("source_current", packet.s("source_sha") == context.commitSha)

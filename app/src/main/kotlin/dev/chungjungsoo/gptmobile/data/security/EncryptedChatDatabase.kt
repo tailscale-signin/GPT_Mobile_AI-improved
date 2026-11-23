@@ -57,35 +57,39 @@ internal class EncryptedChatDatabase(context: Context) : SupportSQLiteOpenHelper
 
         @Synchronized
         internal fun prepare(database: File, vault: SecretVault): ByteArray {
-            System.loadLibrary("sqlcipher")
+            CombinedOperationTrace.measure("database_native_load", CombinedOperationOwner(screen = "Database")) { System.loadLibrary("sqlcipher") }
             val directory = requireNotNull(database.parentFile)
             check(directory.isDirectory || directory.mkdirs())
             RandomAccessFile(File(directory, "${database.name}.migration.lock"), "rw").use { guard ->
-                guard.channel.lock().use {
+                CombinedOperationTrace.measure("database_migration_lock", CombinedOperationOwner(screen = "Database")) { guard.channel.lock() }.use {
                     val plaintext = database.length() >= sqliteHeader.size &&
                         DataInputStream(database.inputStream()).use { stream ->
                             val header = ByteArray(sqliteHeader.size)
                             stream.readFully(header)
                             header.contentEquals(sqliteHeader)
                         }
-                    val key = runBlocking {
-                        vault.read(KEY) ?: run {
-                            check(!database.exists() || database.length() == 0L || plaintext) {
-                                "The database key is missing. The encrypted conversation history has been preserved."
-                            }
-                            val random = ByteArray(32).also(SecureRandom()::nextBytes)
-                            try {
-                                Base64.encode(random, Base64.NO_WRAP).also { vault.put(KEY, it) }
-                            } finally {
-                                random.fill(0)
+                    val key = CombinedOperationTrace.measure("database_vault_key", CombinedOperationOwner(screen = "Database")) {
+                        runBlocking {
+                            vault.read(KEY) ?: run {
+                                check(!database.exists() || database.length() == 0L || plaintext) {
+                                    "The database key is missing. The encrypted conversation history has been preserved."
+                                }
+                                val random = ByteArray(32).also(SecureRandom()::nextBytes)
+                                try {
+                                    Base64.encode(random, Base64.NO_WRAP).also { vault.put(KEY, it) }
+                                } finally {
+                                    random.fill(0)
+                                }
                             }
                         }
                     }
                     try {
-                        if (plaintext) migrate(database, key)
+                        if (plaintext) CombinedOperationTrace.measure("database_plaintext_migration", CombinedOperationOwner(screen = "Database")) { migrate(database, key) }
                         if (database.length() > 0) {
                             // A wrong key must never reach a helper that can delete a corrupt database.
-                            open(database, key, SQLiteDatabase.OPEN_READONLY).use { it.version }
+                            CombinedOperationTrace.measure("database_key_verification", CombinedOperationOwner(screen = "Database")) {
+                                open(database, key, SQLiteDatabase.OPEN_READONLY).use { it.version }
+                            }
                         }
                         return key
                     } catch (failure: Throwable) {

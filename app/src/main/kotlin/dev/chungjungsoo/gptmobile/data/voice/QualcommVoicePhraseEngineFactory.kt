@@ -85,6 +85,7 @@ internal class QualcommVoicePhraseEngineFactory(
         if (backend == VoiceSpeechBackend.AUTO && calibrateAll && calibrated.compareAndSet(false, true)) {
             // Reject a broken workload before opening a provider or writing any hardware receipt.
             val probes = VoiceSpeechWorkload.calibrationFixtures
+            val comparisonId = UUID.randomUUID().toString().replace("-", "")
             for (candidate in VoiceMeasuredBackendPolicy.comparisonOrder(store?.revision() ?: 0)) {
                 checkTicket(ticket)
                 var trial: TimedKokoro? = null
@@ -93,7 +94,7 @@ internal class QualcommVoicePhraseEngineFactory(
                     val openedThermalStatus = thermalStatus()
                     val started = System.nanoTime()
                     trial = open(directory, lexicon, threads, candidate)
-                    measure(trial, candidate, lexicon, threads, ticket, started, probes, openedThermalStatus)
+                    measure(trial, candidate, lexicon, threads, ticket, started, probes, openedThermalStatus, comparisonId)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
@@ -255,7 +256,8 @@ internal class QualcommVoicePhraseEngineFactory(
         ).also { pending.set(it) }
     }
 
-    private fun measure(native: TimedKokoro, selected: VoiceSpeechBackend, lexicon: String, threads: Int, ticket: Long, openedAt: Long, probes: List<List<String>>, openedThermalStatus: Int?) {
+    private fun measure(native: TimedKokoro, selected: VoiceSpeechBackend, lexicon: String, threads: Int, ticket: Long, openedAt: Long, probes: List<List<String>>, openedThermalStatus: Int?, comparisonId: String) {
+        var latestAudio: VoiceSpeechAudioObservation? = null
         val measurement = measureVoiceQualification(
             probes,
             selected,
@@ -265,9 +267,11 @@ internal class QualcommVoicePhraseEngineFactory(
             System::nanoTime,
             { checkTicket(ticket) },
             openedThermalStatus,
-            ::thermalStatus
+            ::thermalStatus,
+            { latestAudio }
         ) { phrase, speaker, rate ->
-            native.generate(phrase, speaker, rate)
+            val audio = native.generate(phrase, speaker, rate)
+            latestAudio = VoiceSpeechAudioObservation.measure(phrase, VoicePhraseAudio(audio.samples, audio.durations, audio.wordTokens))
             evidence(native.evidence(), provider(selected), null)
         }
         store?.save(
@@ -280,7 +284,9 @@ internal class QualcommVoicePhraseEngineFactory(
                 comparisonScope = store.comparisonScope(lexicon, threads, voice, speechRate),
                 speakerId = voice.speakerId,
                 speechRate = speechRate,
-                thermalStatuses = measurement.thermalStatuses
+                thermalStatuses = measurement.thermalStatuses,
+                comparisonId = comparisonId,
+                audioObservations = measurement.audioObservations
             )
         )
         if (!measurement.rankingEligible) notify("${selected.label} execution was validated. A performance ranking needs known, cool thermal readings throughout the comparison.")
@@ -347,7 +353,11 @@ internal class QualcommVoicePhraseEngineFactory(
         frontendMs = native.frontendMs,
         validationMs = native.validationMs,
         cacheEvictions = native.cacheEvictions,
-        profileFinalizeMs = native.profileFinalizeMs
+        profileFinalizeMs = native.profileFinalizeMs,
+        cacheBudgetBytes = native.cacheBudgetBytes,
+        activeShapeEstimatedBytes = native.activeShapeEstimatedBytes,
+        availableMemoryBytes = native.availableMemoryBytes,
+        cacheAdmission = safeSpeechCacheAdmission(native.cacheAdmission)
     )
 
     private fun failureEvidence(failure: VoiceBackendCapability) = VoiceSpeechExecutionEvidence(

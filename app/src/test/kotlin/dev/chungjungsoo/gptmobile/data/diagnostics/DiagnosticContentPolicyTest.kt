@@ -18,6 +18,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticContentPolicyTest {
+    @Test fun canonicalArgumentsRemainPrivateWhileNormalizationReceiptsSurvive() {
+        val fixture = buildJsonObject {
+            put("canonical_arguments", buildJsonObject { put("selector", "PRIVATE SELECTOR synthetic-credential") })
+            put(
+                "argument_normalization",
+                buildJsonObject {
+                    put("kind", "SCHEMA_CANONICALIZATION")
+                    put("status", "APPLIED_BEFORE_DISPATCH")
+                    put("semantic_repair", false)
+                    put("outcome", "FAILED")
+                }
+            )
+        }
+        val safe = DiagnosticContentRedactor(credentials = listOf("synthetic-credential")).redact(fixture) as JsonObject
+        assertEquals(JsonPrimitive(DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED), safe["canonical_arguments"])
+        val normalization = safe["argument_normalization"] as JsonObject
+        assertEquals(JsonPrimitive("SCHEMA_CANONICALIZATION"), normalization["kind"])
+        assertEquals(JsonPrimitive("APPLIED_BEFORE_DISPATCH"), normalization["status"])
+        assertEquals(JsonPrimitive(false), normalization["semantic_repair"])
+        assertEquals(JsonPrimitive("FAILED"), normalization["outcome"])
+        assertFalse(safe.toString().contains("PRIVATE SELECTOR"))
+        val forensic = DiagnosticContentRedactor(DiagnosticContentMode.FULL_FORENSIC, listOf("synthetic-credential")).redact(fixture)
+        assertTrue(forensic.toString().contains("PRIVATE SELECTOR"))
+        assertFalse(forensic.toString().contains("synthetic-credential"))
+    }
+
     @Test fun defaultExportRemovesPrivateFieldsRecursivelyWithoutLosingReceipts() {
         val fixture = Json.parseToJsonElement(
             """{"table":"messages_v2","rowId":42,"fields":{"message_id":42,"content":"PRIVATE ORIGINAL","thoughts":["PRIVATE REASONING"],"revisions":[{"content":"PRIVATE REVISION"}],"timeline":[{"content":"PRIVATE NOTICE","privacyProtection":{"confirmed":true,"contentDigest":"digest","ranges":[{"start":1,"endExclusive":4}]}}],"embedded":"{\"sourceText\":\"PRIVATE EMBEDDED\",\"outcome\":\"WAITING_FOR_MODEL\"}","arguments":{"unusualKey":"PRIVATE ARGUMENT"}},"privacy_dispatch_receipts":[{"outcome":"VALIDATED","policy_revision":"r1","detector_revision":"d1","coverage":"KNOWN_VALUES","payload_hmac":"proof","wire_bytes":128,"validation_elapsed_us":12,"surface_counts":{"history":2}}]}"""

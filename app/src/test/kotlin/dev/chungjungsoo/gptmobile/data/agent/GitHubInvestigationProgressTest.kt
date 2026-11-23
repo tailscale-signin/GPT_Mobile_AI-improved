@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertNotNull
@@ -100,5 +102,130 @@ class GitHubInvestigationProgressTest {
         val replan = requireNotNull(progress.replan(listOf(resolved(0)), listOf(GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__github_api"))))
         assertTrue(!replan.contains("action=resolve"))
         assertTrue(replan.contains("action=checks"))
+    }
+    private fun search(index: Int, path: String? = null, line: Int = 1): AgentToolExchange {
+        val call = ProviderEvent.ToolCall(
+            "search-$index",
+            "github_search__github_api",
+            buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("query", "TODO")
+                put("index_cursor", index * 10)
+            }
+        )
+        val result = buildJsonObject {
+            put("commit_sha", "a".repeat(40))
+            put("interval_end", (index + 1) * 10)
+            put(
+                "items",
+                kotlinx.serialization.json.JsonArray(
+                    if (path == null) {
+                        emptyList()
+                    } else {
+                        listOf(
+                            buildJsonObject {
+                                put("path", path)
+                                put("sha", "b".repeat(40))
+                                put(
+                                    "matches",
+                                    kotlinx.serialization.json.JsonArray(
+                                        listOf(
+                                            buildJsonObject {
+                                                put("line", line)
+                                                put("text", "TODO repair")
+                                            }
+                                        )
+                                    )
+                                )
+                            }
+                        )
+                    }
+                )
+            )
+        }
+        val receipt = buildJsonObject { put("source_result_sha256", index.toString(16).padStart(64, '0')) }
+        return AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Json(result), false, executionReceipt = receipt)))
+    }
+
+    @Test fun advancingEmptySearchCursorsAndResponseDigestsDoNotConcealNoSourceProgress() {
+        val progress = GitHubInvestigationProgress()
+        repeat(3) { assertNull(progress.observe(search(it))) }
+        assertNotNull(progress.observe(search(3)))
+    }
+
+    @Test fun newSearchMatchesRemainUsefulButRepeatedSourceCannotResetTheGuard() {
+        val progress = GitHubInvestigationProgress()
+        repeat(10) { assertNull(progress.observe(search(it, "src/Repair.kt", it + 1))) }
+        repeat(3) { assertNull(progress.observe(search(10 + it, "src/Repair.kt", 10))) }
+        assertNotNull(progress.observe(search(13, "src/Repair.kt", 10)))
+    }
+
+    @Test fun exhaustiveSearchConsumesOnlyExactIssuedFrontiersWithoutResettingSourceStaleness() {
+        val progress = GitHubInvestigationProgress("Find every TODO in this repository")
+        repeat(6) { assertNull(progress.observe(nativeSearch(it))) }
+        // A completed required search is an allowed coverage result, but does not
+        // refresh the source counter or authorize replay of its final interval.
+        assertNotNull(progress.observe(nativeSearch(5)))
+    }
+
+    @Test fun broadAuditCannotEvadeTheGuardWithNewQueriesOrUnrelatedInstructionScope() {
+        val changedQueries = GitHubInvestigationProgress("Examine all issues and bugs")
+        repeat(3) { assertNull(changedQueries.observe(nativeSearch(0, "needle-$it"))) }
+        assertNotNull(changedQueries.observe(nativeSearch(0, "needle-3")))
+        val instructions = GitHubInvestigationProgress("Read all repository instructions")
+        repeat(3) { assertNull(instructions.observe(nativeSearch(it))) }
+        assertNotNull(instructions.observe(nativeSearch(3)))
+    }
+
+    @Test fun replayingAnEarlierFrontierCannotReissueItsConsumedExhaustiveSearchAllowance() {
+        val progress = GitHubInvestigationProgress("Find every TODO in this repository")
+        assertNull(progress.observe(nativeSearch(0)))
+        assertNull(progress.observe(nativeSearch(1)))
+        assertNull(progress.observe(nativeSearch(0)))
+        assertNotNull(progress.observe(nativeSearch(1)))
+    }
+
+    private fun nativeSearch(index: Int, query: String = "TODO"): AgentToolExchange {
+        val arguments = buildJsonObject {
+            put("owner", "owner")
+            put("repo", "repo")
+            put("query", query)
+            put("index_cursor", index * 10)
+            if (index > 0) {
+                put("commit_sha", "a".repeat(40))
+                put("search_id", "c".repeat(64))
+            }
+        }
+        val call = ProviderEvent.ToolCall("native-$index-$query", "github_search__github_api", arguments)
+        val data = buildJsonObject {
+            put("commit_sha", "a".repeat(40))
+            put("search_id", "c".repeat(64))
+            put("interval_start", index * 10)
+            put("interval_end", (index + 1) * 10)
+            put("total_candidate_files", 60)
+            put("has_more", index < 5)
+            put("complete", index == 5)
+            put("items", kotlinx.serialization.json.JsonArray(emptyList()))
+        }
+        val recipe = buildJsonObject {
+            put("tool", call.name)
+            put("arguments", JsonObject(arguments + mapOf("commit_sha" to data.getValue("commit_sha"), "search_id" to data.getValue("search_id"), "index_cursor" to data.getValue("interval_end"))))
+        }
+        val frontier = requireNotNull(dev.chungjungsoo.gptmobile.data.github.GitHubSearchFrontier.capture(call.name, arguments, data, listOf(recipe)))
+        val execution = buildJsonObject {
+            put("schema", "github.dispatch.v1")
+            put("resolved_arguments", JsonObject(arguments + ("action" to JsonPrimitive("search_repository"))))
+            put(
+                "resource_context",
+                buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repo")
+                }
+            )
+            put("search_frontier", frontier)
+            put("source_result_sha256", index.toString(16).padStart(64, '0'))
+        }
+        return AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Json(data), false, executionReceipt = execution)))
     }
 }

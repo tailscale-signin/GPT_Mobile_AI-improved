@@ -13,6 +13,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadinessHttpTraceTest {
+    @Test fun listenerPreservesProtocolFailureAfterBodyAsObservedTransportWithoutRemoteAcceptance() {
+        val trace = HttpAttemptTrace { _, _ -> }
+        val ticket = ReadinessHttpTrace.register(trace)
+        val request = Request.Builder().url("https://example.com").header(ReadinessHttpTrace.HEADER, ticket).build()
+        val call = Proxy.newProxyInstance(Call::class.java.classLoader, arrayOf(Call::class.java)) { _, method, _ ->
+            if (method.name == "request") request else null
+        } as Call
+        val listener = ReadinessHttpTrace.listener.create(call)
+        listener.callStart(call)
+        listener.requestHeadersStart(call)
+        listener.requestBodyStart(call)
+        listener.requestBodyEnd(call, 100)
+        listener.callFailed(call, javax.net.ssl.SSLProtocolException("private endpoint"))
+        assertEquals(HttpAttemptPhase.REQUEST_BODY_COMPLETE, trace.evidence().phase)
+        assertTrue(trace.evidence().requestBodyCompleted)
+        org.junit.Assert.assertFalse(trace.provenUnsent)
+        // A redirect on this same Call starts a new exchange before another handshake fails.
+        listener.connectStart(call, java.net.InetSocketAddress("localhost", 443), java.net.Proxy.NO_PROXY)
+        listener.secureConnectStart(call)
+        assertEquals(HttpAttemptPhase.TLS_HANDSHAKE, trace.evidence().phase)
+        org.junit.Assert.assertFalse(trace.evidence().requestBodyCompleted)
+    }
+
     @Test fun internalCorrelationNeverLeavesTheApplicationInterceptor() {
         val events = mutableListOf<RunDiagnosticKind>()
         val ticket = ReadinessHttpTrace.register(

@@ -52,7 +52,11 @@ class ToolCatalogSelectorRecoveryTest {
             assertEquals("query-search-$index", result.callId)
             assertEquals(result.callId, observed?.callId)
             assertEquals(original, observed?.arguments)
-            assertEquals(canonical, result.executionReceipt?.get("corrected_arguments"))
+            assertEquals(canonical, result.executionReceipt?.get("canonical_arguments"))
+            assertFalse(result.executionReceipt.orEmpty().containsKey("corrected_arguments"))
+            val normalization = result.executionReceipt?.get("argument_normalization")?.jsonObject
+            assertEquals(JsonPrimitive(false), normalization?.get("semantic_repair"))
+            assertEquals(JsonPrimitive("SUCCEEDED"), normalization?.get("outcome"))
             val selected = catalog.selected(definitions + catalog.definition).map { it.name }.toSet()
             assertTrue("read_document" in selected)
             assertFalse("private_reader" in selected)
@@ -250,7 +254,7 @@ class ToolCatalogSelectorRecoveryTest {
         assertFalse(result.toString(), result.isError)
         assertFalse(result.dispatched)
         assertEquals("catalog-alias", result.callId)
-        assertEquals(canonical, result.executionReceipt?.get("corrected_arguments"))
+        assertEquals(canonical, result.executionReceipt?.get("canonical_arguments"))
         assertEquals(0, coldCalls)
         val selected = catalog.selected(definitions + catalog.definition).map { it.name }.toSet()
         assertTrue(selected.containsAll(listOf("github_read", "github_search", "github_context")))
@@ -297,7 +301,7 @@ class ToolCatalogSelectorRecoveryTest {
         assertEquals("same-provider-call", observed?.callId)
         assertEquals(ProgressiveToolCatalog.NAME, observed?.name)
         assertEquals(original, observed?.arguments)
-        assertEquals(buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(definition.name)))) }, result.executionReceipt?.get("corrected_arguments"))
+        assertEquals(buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(definition.name)))) }, result.executionReceipt?.get("canonical_arguments"))
         assertTrue(definition in catalog.selected(listOf(definition, catalog.definition)))
     }
 
@@ -319,7 +323,7 @@ class ToolCatalogSelectorRecoveryTest {
         val result = budgeted.execute("same-projected-call", original)
         assertFalse(result.toString(), result.isError)
         assertFalse(result.dispatched)
-        assertEquals(selectedArguments("list"), result.executionReceipt?.get("corrected_arguments"))
+        assertEquals(selectedArguments("list"), result.executionReceipt?.get("canonical_arguments"))
         assertEquals(listProjection, catalog.selected(allowed))
 
         assertFalse(catalog.execute("select-context", selectedArguments("context")).isError)
@@ -368,7 +372,7 @@ class ToolCatalogSelectorRecoveryTest {
         }
         val result = budgeted.execute("inventory", inventory)
         assertFalse(result.toString(), result.isError)
-        assertEquals(JsonObject(emptyMap()), result.executionReceipt?.get("corrected_arguments"))
+        assertEquals(JsonObject(emptyMap()), result.executionReceipt?.get("canonical_arguments"))
         assertTrue("authorized_inventory" in (result.content as ToolResultContent.Json).value.jsonObject)
         for ((index, raw) in listOf(
             """{"action":"status","names":null}""",

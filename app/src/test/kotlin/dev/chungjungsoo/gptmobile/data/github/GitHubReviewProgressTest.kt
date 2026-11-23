@@ -75,7 +75,7 @@ class GitHubReviewProgressTest {
         assertEquals(JsonPrimitive("STALE"), GitHubEvidencePolicy.verify(json("""{"receipt_id":"checks","pointer":"/status","value":"success"}"""), mapOf("checks" to check), 300_000, 9)["status"])
     }
 
-    @Test fun sourceSeedIsDeterministicBoundedAndStopsAtTheVerificationReserve() {
+    @Test fun sourceWavesAreDeterministicBoundedAndStopAtTheVerificationReserve() {
         val files = (1..30).map { json("""{"filename":"src/File$it.kt","status":"modified","patch":"@@ -400,4 +500,5 @@"}""") }
         val rows = linkedMapOf("status" to status(), "compare" to comparison(files))
         val first = requireNotNull(GitHubReviewComparison.plan(task, tools, rows)?.nextCall)
@@ -91,10 +91,39 @@ class GitHubReviewProgressTest {
         assertEquals(JsonPrimitive(base), second.arguments["commit_sha"])
         rows["base-read-failed"] = receipt(second.name, second.arguments, json("{}"), success = false)
         val completeSeed = requireNotNull(GitHubReviewComparison.plan(task, tools, rows))
-        assertNull(completeSeed.nextCall)
+        val nextWave = requireNotNull(completeSeed.nextCall)
+        assertEquals(JsonPrimitive(head), nextWave.arguments["commit_sha"])
+        val nextRanges = nextWave.arguments["ranges"] as JsonArray
+        assertEquals(4, nextRanges.size)
+        assertTrue(nextRanges.none { it in ranges })
+        assertNull(GitHubReviewComparison.plan(task, tools, rows, acquireSource = false)?.nextCall)
+        assertEquals(JsonPrimitive(52), completeSeed.checkpoint["source_work_queue"]?.jsonObject?.get("remaining_windows"))
         assertEquals(JsonPrimitive(8), completeSeed.checkpoint["source_work_queue"]?.jsonObject?.get("attempted_windows"))
         assertEquals(JsonPrimitive(false), completeSeed.checkpoint["source_review_verified"])
         assertEquals(JsonPrimitive(30), completeSeed.checkpoint["comparison_coverage"]?.jsonObject?.get("changed_files_without_source_observation"))
+        assertNotNull(GitHubReviewComparison.incompleteReason(task, rows))
+    }
+
+    @Test fun restoredReviewReplenishesAllWavesWithoutAcceptingForeignReadsOrClaimingCompletion() {
+        val files = (1..12).map { json("""{"filename":"src/File$it.kt","status":"modified"}""") }
+        val rows = linkedMapOf("status" to status(), "compare" to comparison(files))
+        val attempted = mutableSetOf<Pair<String, String>>()
+        repeat(6) { index ->
+            val planned = requireNotNull(GitHubReviewComparison.plan(task, tools, rows.toMap()))
+            val call = requireNotNull(planned.nextCall)
+            val ranges = call.arguments["ranges"] as JsonArray
+            assertTrue(ranges.size in 1..4)
+            val foreign = JsonObject(receipt(call.name, call.arguments, json("{}")) + ("binding" to JsonPrimitive("another-task")))
+            assertEquals(call.arguments, GitHubReviewComparison.plan(task, tools, rows + ("foreign" to foreign))?.nextCall?.arguments)
+            for (range in ranges) assertTrue(attempted.add(call.arguments["commit_sha"].toString() to range.jsonObject["path"].toString()))
+            rows["read-$index"] = receipt(call.name, call.arguments, json("{}"))
+        }
+        val exhausted = requireNotNull(GitHubReviewComparison.plan(task, tools, rows.toMap()))
+        assertEquals(24, attempted.size)
+        assertNull(exhausted.nextCall)
+        assertEquals(JsonPrimitive(24), exhausted.checkpoint["source_work_queue"]?.jsonObject?.get("attempted_windows"))
+        assertEquals(JsonPrimitive(0), exhausted.checkpoint["source_work_queue"]?.jsonObject?.get("remaining_windows"))
+        assertEquals(JsonPrimitive(false), exhausted.checkpoint["source_review_verified"])
         assertNotNull(GitHubReviewComparison.incompleteReason(task, rows))
     }
 

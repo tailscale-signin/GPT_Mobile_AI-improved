@@ -14,6 +14,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NetworkFailureKindTest {
+    @Test fun unspecifiedTlsDoesNotInventACertificateFailureOrRecommendReplaying() {
+        val message = NetworkFailureKind.TLS.userMessage(partialOutput = false)
+        assertFalse(message.contains("certificate"))
+        assertFalse(message.contains("could not be verified"))
+        assertTrue(message.contains("not automatically retried"))
+    }
+
+    @Test fun tlsPresentationUsesTypedCausesAndPreservesSavedWork() {
+        val protocol = IOException("secret", javax.net.ssl.SSLProtocolException("private endpoint"))
+        assertEquals(TlsFailureKind.PROTOCOL, tlsFailureKind(protocol))
+        val message = NetworkFailureKind.TLS.userMessage(true, true, protocol)
+        assertTrue(message.contains("protocol error"))
+        assertTrue(message.contains("partial response is saved"))
+        assertFalse(message.contains("certificate"))
+        assertFalse(message.contains("secret"))
+        val certificate = SSLHandshakeException("private").apply { initCause(java.security.cert.CertificateExpiredException()) }
+        assertEquals(TlsFailureKind.CERTIFICATE, tlsFailureKind(certificate))
+        assertTrue(NetworkFailureKind.TLS.userMessage(false, failure = certificate).contains("certificate could not be verified"))
+        assertEquals(TlsFailureKind.HANDSHAKE, tlsFailureKind(SSLHandshakeException("protocol unknown")))
+        assertFalse(NetworkFailureKind.TLS.retryable)
+    }
+
     @Test fun wrappersRetainTheActualFailureCategory() {
         assertEquals(NetworkFailureKind.DNS, networkFailureKind(IllegalStateException("provider failed", UnknownHostException("private host"))))
         assertEquals(NetworkFailureKind.DNS, networkFailureKind(UnresolvedAddressException()))

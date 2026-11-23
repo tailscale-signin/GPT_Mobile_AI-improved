@@ -170,10 +170,10 @@ class GitHubSearchValidationPipelineTest {
                 val result = if (prepared) tool.prepareExecution("repository-$prepared", arguments).invoke() else tool.execute("repository-$prepared", arguments)
                 val event = searchValidationEvent(result.callId, fixture.name, arguments)
                 assertEquals(listOf("max_new_blobs"), ToolReportDiagnostics.fields(event, result)["search_validation_field_names"])
-                val corrected = result.executionReceipt?.get("corrected_arguments") as? JsonObject
+                val corrected = result.executionReceipt?.get("canonical_arguments") as? JsonObject
                 assertTrue(corrected != null && corrected != arguments)
                 assertFalse("search_validation_field_names" in ToolReportDiagnostics.fields(event.copy(arguments = requireNotNull(corrected).toString()), result))
-                val forged = result.copy(executionReceipt = JsonObject(result.executionReceipt.orEmpty() + ("corrected_arguments" to JsonObject(arguments + ("max_new_blobs" to JsonPrimitive(1))))))
+                val forged = result.copy(executionReceipt = JsonObject(result.executionReceipt.orEmpty() + ("canonical_arguments" to JsonObject(arguments + ("max_new_blobs" to JsonPrimitive(1))))))
                 assertEquals(listOf("max_new_blobs"), ToolReportDiagnostics.fields(event, forged)["search_validation_field_names"])
                 assertFalse(result.dispatched)
             }

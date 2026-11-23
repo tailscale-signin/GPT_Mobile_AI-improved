@@ -35,6 +35,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceStatus
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkAudioReference
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBackendResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBackendState
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkConfiguration
@@ -218,6 +220,7 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
     if (report.configuration.playback) {
         Text("${report.completedSamples}/${report.totalSamples} samples · ${report.configuration.calibrationPolicy.label} · configured offset ${report.configuration.captionOffsetMs} ms", style = MaterialTheme.typography.bodySmall)
         for (backend in report.configuration.plannedBackendOrder) {
+            Text("${backend.label} audio consistency: ${report.playbackAudioReference(backend).name.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
             val rows = report.playbackResults.filter { it.requestedBackend == backend }
             var expanded by remember(report.startedAtMillis, backend) { mutableStateOf(false) }
             if (rows.isNotEmpty()) {
@@ -234,13 +237,13 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
         }
     } else {
         Text("${report.configuration.workload.label} · ${report.completedSamples}/${report.totalSamples} fixture iterations · ${report.completedChunks} native chunks", style = MaterialTheme.typography.bodySmall)
-        for (result in report.results) VoiceSpeechBenchmarkResultCard(result)
+        for (result in report.results) VoiceSpeechBenchmarkResultCard(result, report.audioReference(result), result in report.qualifiedResults())
     }
     Text(
         if (report.configuration.playback) {
             "Presented audio uses the production AudioTrack timestamp or playback head. Caption checks validate that clock, not perceptual word accuracy. Independent fixture manifests detect missing caption sections. Acoustic speaker latency, acoustic word alignment, CPU/GPU/NPU utilization and battery energy remain unmeasured."
         } else {
-            "First PCM is the first complete native chunk; total synthesis includes every chunk. Playback and acoustic latency, underruns and battery energy are unmeasured. First use retains the phone's file cache. Medians average the middle pair; p95 is withheld below twenty samples."
+            "First PCM is the first complete native chunk; total synthesis includes every chunk. Accelerator ranking requires comparable duration, token timing and signal against CPU for the same input and settings. This numerical check does not establish listening quality. Playback and acoustic latency, underruns and battery energy are unmeasured. First use retains the phone's file cache. Medians average the middle pair; p95 is withheld below twenty samples."
         },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -248,7 +251,7 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
 }
 
 @Composable
-private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendResult) {
+private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendResult, reference: VoiceSpeechBenchmarkAudioReference, qualified: Boolean) {
     var expanded by remember(result.requestedBackend) { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -266,6 +269,21 @@ private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendRe
                 result.failureEffectiveProvider?.let { Text("Observed provider: $it. This is not a successful ${result.requestedBackend.label} measurement.", style = MaterialTheme.typography.bodySmall) }
             }
             Text(if (result.executionVerified) "Requested processor execution observed" else "Requested processor execution not established", style = MaterialTheme.typography.bodySmall)
+            val comparison = reference.comparison
+            Text(
+                when (comparison.status) {
+                    VoiceSpeechAudioReferenceStatus.CPU_REFERENCE -> "CPU audio reference recorded"
+                    VoiceSpeechAudioReferenceStatus.CONSISTENT -> "Audio passed duration, token timing and signal consistency checks against CPU"
+                    VoiceSpeechAudioReferenceStatus.MISMATCH -> "Audio differs from CPU: ${comparison.reason?.name?.lowercase()?.replace('_', ' ')}"
+                    VoiceSpeechAudioReferenceStatus.UNOBSERVED -> "CPU audio comparison unavailable: ${comparison.reason?.name?.lowercase()?.replace('_', ' ')}"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (comparison.status == VoiceSpeechAudioReferenceStatus.MISMATCH) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (!qualified) Text("Diagnostic timings only · this result is ineligible for ranking", style = MaterialTheme.typography.bodySmall)
+            comparison.durationRatio?.let { Text("${reference.fixture?.label} · repeat ${reference.repeat} · chunk ${reference.chunk?.plus(1)}: audio ${comparison.candidateAudioMs?.let(::format)} ms / CPU ${comparison.referenceAudioMs?.let(::format)} ms", style = MaterialTheme.typography.bodySmall) }
+            result.cancellationStage?.let { Text("Stop requested during ${it.name.lowercase()}", style = MaterialTheme.typography.bodySmall) }
+            result.cancellationNativeRetirementMs?.let { Text("Native cleanup finished $it ms after the stop request. Graph preparation may need to finish before it can retire.", style = MaterialTheme.typography.bodySmall) }
             result.sessionPrepareMs?.let { Text("Fresh session: $it ms", style = MaterialTheme.typography.bodySmall) }
             result.samples.firstOrNull()?.prepareToFirstPcmMs?.let { Text("Prepare to first PCM: $it ms", style = MaterialTheme.typography.bodySmall) }
             if (result.incompleteChunks.isNotEmpty()) Text("${result.incompleteChunks.size} successful chunks retained from the unfinished ${result.incompleteFixture?.label?.lowercase() ?: "current"} iteration.", style = MaterialTheme.typography.bodySmall)
@@ -290,6 +308,7 @@ private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendRe
                     Text("Profiled kernel time: ${format(chunk.acceleratorMicros / 1000.0)} ms accelerator · ${format(chunk.cpuMicros / 1000.0)} ms CPU", style = MaterialTheme.typography.bodySmall)
                 }
                 chunk?.cacheHit?.let { Text("Latest graph: ${if (it) "reused" else "prepared"} · current preparation ${chunk.currentPrepareMs ?: "—"} ms · ${chunk.cachedShapeCount ?: "—"}/${chunk.cacheLimit ?: "—"} shapes retained", style = MaterialTheme.typography.bodySmall) }
+                chunk?.cacheBudgetBytes?.let { Text("Graph retention: ${chunk.cacheEstimatedBytes?.div(1024 * 1024) ?: "—"} / ${it / (1024 * 1024)} MiB estimated · ${chunk.cacheAdmission?.lowercase()?.replace('_', ' ')}. The count limit does not guarantee that two shapes fit.", style = MaterialTheme.typography.bodySmall) }
                 chunk?.audioRms?.let { Text("PCM RMS ${format(it)} · peak ${chunk.audioPeak?.let(::format) ?: "—"} · clipped samples ${chunk.clippedSamples ?: "—"}. Structural checks do not establish listening quality.", style = MaterialTheme.typography.bodySmall) }
                 TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide samples" else "View all samples") }
                 if (expanded) {

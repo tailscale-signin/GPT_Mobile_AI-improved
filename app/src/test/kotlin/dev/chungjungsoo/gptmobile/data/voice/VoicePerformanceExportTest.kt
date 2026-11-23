@@ -15,9 +15,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePerformanceExportTest {
+    @Test fun graphicsOnlyExportIdentifiesMissingSpeechAndUtilizationWithoutInventingZeros() {
+        val history = VoicePerformanceHistory()
+        repeat(6295) {
+            history.observe("frame_duration", 5, publish = false)
+            history.observe("gpu_duration", 0, publish = false)
+        }
+        history.framesDropped(3)
+        history.publish()
+        val json = Json.parseToJsonElement(voicePerformanceExport(history.snapshots.value)).jsonObject
+        val availability = json.getValue("availability").jsonObject
+        assertEquals("NO_RECORDED_SAMPLES", availability.getValue("speechStageTimings").jsonPrimitive.content)
+        assertEquals("OBSERVED", availability.getValue("graphicsGpuFrameDuration").jsonPrimitive.content)
+        assertEquals("NOT_MEASURED", availability.getValue("cpuGpuNpuUtilization").jsonPrimitive.content)
+        assertEquals("NOT_MEASURED", availability.getValue("endToEndConversationLatency").jsonPrimitive.content)
+        for (field in listOf("cpuUtilization", "gpuUtilization", "npuUtilization", "latestSynthesis")) assertEquals(JsonNull, json[field])
+        assertEquals(6295L, json.getValue("observedFrameSamples").jsonPrimitive.long)
+        assertEquals(3L, json.getValue("droppedFrameMetricCallbacks").jsonPrimitive.long)
+        for (row in json.getValue("series").jsonArray.map { it.jsonObject }) {
+            assertEquals(64, row.getValue("samples").jsonPrimitive.int)
+            assertEquals(6295L, row.getValue("observedSamples").jsonPrimitive.long)
+            assertEquals(6231L, row.getValue("evictedSamples").jsonPrimitive.long)
+        }
+    }
+
     @Test fun absentMeasurementsStayUnknownAndDoNotCertifyPhysicalPerformance() {
         val json = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot())).jsonObject
-        assertEquals(2, json.getValue("schemaVersion").jsonPrimitive.int)
+        assertEquals(3, json.getValue("schemaVersion").jsonPrimitive.int)
         assertEquals(JsonNull, json["captureQueueMs"])
         assertEquals(JsonNull, json["thermalStatus"])
         assertEquals(JsonNull, json["latestSynthesis"])
@@ -42,6 +66,7 @@ class VoicePerformanceExportTest {
         assertEquals(120L, warm.getValue("p95Ms").jsonPrimitive.long)
         assertEquals("qnn-gpu", json.getValue("latestSynthesis").jsonObject.getValue("observedProvider").jsonPrimitive.content)
         assertEquals(JsonNull, json.getValue("latestSynthesis").jsonObject["firstAudioMs"])
+        assertEquals("playback_operation_start_to_first_observed_presented_audio", json.getValue("latestSynthesis").jsonObject.getValue("firstAudioScope").jsonPrimitive.content)
     }
 
     @Test fun unknownLabelsCannotExportConversationTextOrDeviceNames() {
@@ -90,6 +115,25 @@ class VoicePerformanceExportTest {
         assertEquals(JsonNull, observed["cpuKernelEvents"])
         assertEquals("not_collected", observed.getValue("profileScope").jsonPrimitive.content)
         assertTrue(observed.getValue("audioTimingValidated").jsonPrimitive.boolean)
+    }
+
+    @Test fun cacheAdmissionReportsBudgetAndUnknownMemoryWithoutClaimingUtilization() {
+        val evidence = VoiceSpeechExecutionEvidence(
+            VoiceSpeechBackend.QNN_HTP, "qnn-htp", "private-model", "private-runtime", "private-device", VoiceSpeechStage.READY,
+            observedAtMillis = 1000, cacheBudgetBytes = 536870912, activeShapeEstimatedBytes = 240000000,
+            availableMemoryBytes = null, cacheAdmission = "MEMORY_UNKNOWN"
+        )
+        fun exported(value: VoiceSpeechExecutionEvidence) = Json.parseToJsonElement(
+            voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionEvidence = value))
+        ).jsonObject.getValue("latestSynthesis").jsonObject.getValue("executionEvidence").jsonObject
+        val observed = exported(evidence)
+        assertEquals(536870912L, observed.getValue("cacheBudgetBytes").jsonPrimitive.long)
+        assertEquals(240000000L, observed.getValue("activeShapeEstimatedBytes").jsonPrimitive.long)
+        assertEquals(JsonNull, observed["availableMemoryBytes"])
+        assertEquals("MEMORY_UNKNOWN", observed.getValue("cacheAdmission").jsonPrimitive.content)
+        assertFalse(observed.toString().contains("private"))
+        val invalid = exported(evidence.copy(cacheBudgetBytes = -1, activeShapeEstimatedBytes = Long.MAX_VALUE, availableMemoryBytes = -1, cacheAdmission = "private device details"))
+        for (field in listOf("cacheBudgetBytes", "activeShapeEstimatedBytes", "availableMemoryBytes", "cacheAdmission")) assertEquals(JsonNull, invalid[field])
     }
 
     @Test fun collectedProfileKeepsCachedEvidenceDistinctFromCurrentPreparation() {

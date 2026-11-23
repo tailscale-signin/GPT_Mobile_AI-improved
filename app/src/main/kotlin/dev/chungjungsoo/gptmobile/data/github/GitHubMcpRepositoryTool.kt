@@ -112,12 +112,10 @@ internal class GitHubMcpRepositoryTool(
     }
 
     private fun receipt(result: AgentToolResult, original: JsonObject, bounded: JsonObject): AgentToolResult =
-        if (original == bounded || result.executionReceipt?.get("corrected_arguments") is JsonObject) {
+        if (original == bounded) {
             result
         } else {
-            result.copy(
-                executionReceipt = JsonObject(result.executionReceipt.orEmpty() + ("corrected_arguments" to bounded))
-            )
+            dev.chungjungsoo.gptmobile.data.agent.ToolArgumentNormalization.retain(result, bounded, dev.chungjungsoo.gptmobile.data.agent.ToolArgumentNormalization.Kind.REPOSITORY_BINDING)
         }
 
     private class Rejected(val code: String, message: String) : IllegalArgumentException(message) {

@@ -35,7 +35,9 @@ class VoiceBackendCapabilityStoreTest {
     ) = VoiceBackendCapability(
         key, backend, at, samples, verified, failure, failureStage, nativeCode, tokenCount,
         comparisonScope = "a".repeat(64), speakerId = 3, speechRate = 1f,
-        thermalStatuses = List(VoiceMeasuredBackendPolicy.thermalSampleCount) { 0 }
+        thermalStatuses = List(VoiceMeasuredBackendPolicy.thermalSampleCount) { 0 },
+        comparisonId = "c".repeat(32),
+        audioObservations = VoiceSpeechWorkload.calibrationPhrases.map(::speechReferenceFixture)
     )
 
     @Before fun clear() {
@@ -205,5 +207,20 @@ class VoiceBackendCapabilityStoreTest {
             preferences.edit().putString("receipts", raw.toString()).commit()
             assertNull(store.read(key, now))
         }
+    }
+
+    @Test fun measuredAudioRetentionEvictsWholeOlderReceiptsWithinTheByteBound() {
+        val store = VoiceBackendCapabilityStore(context)
+        val observations = VoiceSpeechWorkload.calibrationPhrases.map {
+            speechReferenceFixture(it).copy(sampleCount = 511 * 600, tokenDurations = List(511) { 1L }, nonSilentSamples = 511 * 600L)
+        }
+        val keys = (0 until 24).map { store.key(VoiceSpeechBackend.QNN_GPU, "bounded-$it", 2) }
+        keys.forEachIndexed { index, key ->
+            store.save(record(key, VoiceSpeechBackend.QNN_GPU, now + index, List(6) { 50L }, true).copy(audioObservations = observations))
+        }
+        val encoded = context.getSharedPreferences("voice_backend_capabilities_v1", Context.MODE_PRIVATE).getString("receipts", null)!!
+        assertTrue(encoded.length <= 262_144)
+        assertEquals(observations, store.read(keys.last(), now + 24)?.audioObservations)
+        assertTrue(keys.count { store.read(it, now + 24) != null } in 1..23)
     }
 }

@@ -139,6 +139,7 @@ ENUMS["provider_failure_code"].update({"SELECTED_MODEL_LOADING", "SELECTED_MODEL
 ENUMS["provider_failure_code"].update({"GATEWAY_CAPABILITY_UNAVAILABLE", "GATEWAY_ISOLATION_UNAVAILABLE"})
 # Bounded diagnostic additions for open issue recovery.
 ENUMS["tool_reason_code"].update({"SAVED_VIEW_CONTEXT_MISMATCH", "SAVED_VIEW_CURSOR_MALFORMED", "GITHUB_PATH_NOT_FOUND"})
+ENUMS["tool_reason_code"].add("EVIDENCE_REVISION_MISMATCH")
 ENUMS["tool_action"].update(repository_operations.TOOL_ACTIONS)
 ENUMS["tool_error_code"].update(repository_operations.ERROR_CODES)
 ENUMS["tool_reason_code"].update(repository_operations.TOOL_REASON_CODES)

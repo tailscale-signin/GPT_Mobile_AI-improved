@@ -359,7 +359,7 @@ class ToolExecutionBudget(
                     // even if that unrelated receipt claims it was not dispatched.
                     val receipt = AgentContractValidation.receipt(callId, observed)
                     val result = if (arguments != submittedArguments) {
-                        receipt.copy(executionReceipt = JsonObject(mapOf("corrected_arguments" to arguments) + receipt.executionReceipt.orEmpty()))
+                        ToolArgumentNormalization.retain(receipt, arguments, ToolArgumentNormalization.Kind.SCHEMA_CANONICALIZATION)
                     } else {
                         receipt
                     }

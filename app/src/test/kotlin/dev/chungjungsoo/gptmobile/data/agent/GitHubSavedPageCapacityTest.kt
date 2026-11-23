@@ -171,7 +171,107 @@ class GitHubSavedPageCapacityTest {
         assertNull(fixture.next(tokens = 1400))
     }
 
-    private class Fixture {
+    @Test fun issuedCapacityRecoveryUsesExistingRoundAllowanceAndDeliversTheWholePage() {
+        val fixture = Fixture()
+        val call = requireNotNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 4000, maxOutputBytes = 8192))
+        assertEquals(fixture.body.getValue("recovery_call").jsonObject.getValue("arguments"), call.arguments)
+        val result = fixture.read(call)
+        assertFalse(result.isError)
+        assertFalse(result.dispatched)
+        val history = fixture.history + AgentToolExchange(listOf(call), listOf(result))
+        val allowances = GitHubReplayRecovery.savedPageResultAllowances(history, emptySet(), 4000, 512)
+        assertTrue(requireNotNull(allowances[call.callId]) > 512)
+        val compacted = ToolExchangeCompactor.compact(history, 4000, 512, resultTokenAllowances = allowances)
+        assertEquals(result.content, compacted.flatMap { it.results }.single { it.callId == call.callId }.content)
+        assertTrue(ToolExchangeCompactor.estimateTokens(compacted) <= 4000)
+        assertFalse(call.callId in GitHubReplayRecovery.savedPageResultAllowances(history, setOf(call.callId), 4000, 512))
+    }
+
+    @Test fun capacityAdmissionCannotIncreaseContextOutputOrAttemptBudgets() {
+        val fixture = Fixture()
+        assertNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 2000, maxOutputBytes = 8192))
+        assertNull(GitHubReplayRecovery.nextSavedRead(fixture.history, fixture.tools, 512, fixture.state, admittedReplayTokens = 4000, maxOutputBytes = 4096))
+        assertFalse(fixture.state.hasRead(fixture.route, fixture.cursor))
+        val call = requireNotNull(fixture.next(tokens = 3000))
+        val refusal = fixture.refused.copy(callId = call.callId)
+        assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(call), listOf(refusal))), emptySet(), 4000, 512).isEmpty())
+    }
+
+    @Test fun multipleAdmittedPagesWaitForExactSuccessfulDeliveryBeforeFurtherAutomaticWork() {
+        val fixtures = List(6) { Fixture("source-$it") }
+        val history = fixtures.mapIndexed { index, fixture ->
+            val id = "provider-page-$index"
+            AgentToolExchange(listOf(fixture.blocked.copy(callId = id)), listOf(fixture.refused.copy(callId = id)))
+        }.toMutableList()
+        val state = GitHubReplayRecovery.State()
+        val delivered = mutableMapOf<String, String>()
+        val completePages = mutableMapOf<String, ToolResultContent>()
+        repeat(fixtures.size) {
+            assertTrue(state.pendingSavedPageDeliveries(history, delivered).isEmpty())
+            val call = requireNotNull(GitHubReplayRecovery.nextSavedRead(history, fixtures.first().tools, 512, state, 4000, 8192))
+            val fixture = fixtures.single { call.arguments.getValue("view_cursor").jsonPrimitive.content.substringBefore(':') == it.cursor.substringBefore(':') }
+            val result = fixture.read(call)
+            assertFalse(result.isError)
+            val exchange = AgentToolExchange(listOf(call), listOf(result))
+            state.record(exchange.calls, exchange.results)
+            history += exchange
+            completePages[call.callId] = result.content
+            val pending = state.pendingSavedPageDeliveries(history, delivered)
+            assertEquals(setOf(call.callId), pending.keys)
+
+            // Neither a failed provider round nor delivery of a compacted wrapper
+            // may establish the full-page witness, even after replay eviction.
+            val compactedResult = result.copy(content = requireNotNull(GitHubReplayRecovery.compact(result.content, 512)))
+            val compactedExchange = AgentToolExchange(listOf(call), listOf(compactedResult))
+            assertEquals(pending, state.pendingSavedPageDeliveries(listOf(compactedExchange), delivered))
+            assertEquals(pending, state.pendingSavedPageDeliveries(emptyList(), delivered + ToolResultDeliveryProof.capture(listOf(compactedResult))))
+
+            val allowances = GitHubReplayRecovery.savedPageResultAllowances(history, delivered.keys, 4000, 512)
+            val replay = ToolExchangeCompactor.compact(history, 4000, 512, delivered.keys, resultTokenAllowances = allowances)
+            val exactPage = replay.flatMap { it.results }.single { it.callId == call.callId }
+            assertEquals(result.content, exactPage.content)
+            assertTrue(ToolExchangeCompactor.estimateTokens(replay) <= 4000)
+            delivered += ToolResultDeliveryProof.capture(listOf(exactPage))
+            assertTrue(state.pendingSavedPageDeliveries(history, delivered).isEmpty())
+        }
+        assertEquals(fixtures.size, completePages.size)
+        assertNull(GitHubReplayRecovery.nextSavedRead(history, fixtures.first().tools, 512, state, 4000, 8192))
+    }
+
+    @Test fun restoredAdmissionOnlyProjectionCannotEstablishFullPageDelivery() {
+        val fixture = Fixture()
+        val call = requireNotNull(fixture.next(tokens = 3000))
+        val original = fixture.read(call)
+        val projected = original.copy(content = requireNotNull(GitHubReplayRecovery.compact(original.content, 512)))
+        val exchange = AgentToolExchange(listOf(call), listOf(projected))
+        val state = GitHubReplayRecovery.State(exchange.calls, exchange.results)
+        assertTrue(state.hasRead(call.name, call.arguments.getValue("view_cursor").jsonPrimitive.content))
+        val pending = state.pendingSavedPageDeliveries(listOf(exchange), ToolResultDeliveryProof.capture(listOf(projected)))
+        assertEquals(setOf(call.callId), pending.keys)
+        assertNull(pending.getValue(call.callId))
+        assertTrue(state.pendingSavedPageDeliveries(listOf(AgentToolExchange(listOf(call), listOf(original))), ToolResultDeliveryProof.capture(listOf(original))).isEmpty())
+    }
+
+    @Test fun exactDeliveredRereadResolvesAnOldUnknownPageWithoutInventingItsBodyProof() {
+        val fixture = Fixture()
+        val call = requireNotNull(fixture.next(tokens = 3000))
+        val original = fixture.read(call)
+        val projected = original.copy(content = requireNotNull(GitHubReplayRecovery.compact(original.content, 512)))
+        val exchange = AgentToolExchange(listOf(call), listOf(projected))
+        val rereadCall = call.copy(callId = "explicit-reread")
+        val reread = fixture.read(rereadCall)
+        val proof = ToolResultDeliveryProof.capture(listOf(reread))
+        val rereadExchange = AgentToolExchange(listOf(rereadCall), listOf(reread))
+        val state = GitHubReplayRecovery.State(exchange.calls, exchange.results)
+        assertTrue(state.pendingSavedPageDeliveries(listOf(exchange, rereadExchange), proof).isEmpty())
+        assertFalse(call.callId in proof)
+
+        val foreign = projected.copy(executionReceipt = JsonObject(requireNotNull(projected.executionReceipt) + ("saved_view_scope_hash" to JsonPrimitive("f".repeat(64)))))
+        val isolated = GitHubReplayRecovery.State(listOf(call), listOf(foreign))
+        assertEquals(setOf(call.callId), isolated.pendingSavedPageDeliveries(listOf(rereadExchange), proof).keys)
+    }
+
+    internal class Fixture(sourceLabel: String = "") {
         val route = "github_context__" + "a".repeat(140)
         private val views = GitHubResultViews(pageBytes = 8192)
         val tools = listOf(GitHubOperationTool.definition("github_context", route))
@@ -196,7 +296,7 @@ class GitHubSavedPageCapacityTest {
                     "initial",
                     ToolResultContent.Json(
                         buildJsonObject {
-                            put("body", "value ".repeat(200))
+                            put("body", "value ".repeat(200) + sourceLabel)
                             for ((field, page) in listOf("next_continuation" to 2, "other_continuation" to 3)) {
                                 put(
                                     field,

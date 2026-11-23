@@ -12,14 +12,14 @@ class VoiceBackendQualificationTest {
         backend, VoiceSpeechBenchmarkBackendResult.provider(backend), "model", "runtime", "device", VoiceSpeechStage.READY,
         acceleratorKernels = if (backend == VoiceSpeechBackend.CPU) 0 else 39,
         verifiedAudio = true, observedAtMillis = 1,
-        profileAvailable = backend != VoiceSpeechBackend.CPU, nonSilentSamples = 100
+        profileAvailable = backend != VoiceSpeechBackend.CPU, nonSilentSamples = 100, tokenCount = 43
     )
 
     @Test fun completeProductionWorkloadUsesActiveVoiceRateAndEveryPreparationCost() {
         val groups = VoiceSpeechWorkload.calibrationFixtures
         val phrases = mutableListOf<String>()
         var clock = 500_000_000L
-        val measured = measureVoiceQualification(groups, VoiceSpeechBackend.QNN_HTP, 21, 1.25f, 0, { clock }, {}, 0, { 0 }) { phrase, speaker, rate ->
+        val measured = measureVoiceQualification(groups, VoiceSpeechBackend.QNN_HTP, 21, 1.25f, 0, { clock }, {}, 0, { 0 }, ::speechReferenceFixture) { phrase, speaker, rate ->
             assertEquals(21, speaker)
             assertEquals(1.25f, rate)
             phrases += phrase

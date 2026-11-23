@@ -24,7 +24,7 @@ data class GitHubContextSource(val path: String, val blobSha: String, val text: 
 /** Bounded, source-pinned retrieval. Documents and commands are data; this class never executes them. */
 object GitHubTaskContextBundle {
     const val SCHEMA = "repository.task_context.v1"
-    const val VERSION = 2
+    const val VERSION = 3
     const val FEATURE_MAP = "docs/architecture/feature-map.json"
     private const val MAX_FILE_BYTES = 2 * 1024 * 1024
     private val sha = Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")
@@ -142,15 +142,6 @@ object GitHubTaskContextBundle {
             }
         }
         val documents = mutableListOf<JsonObject>()
-        if (variant != GitHubContextVariant.CURRENT) {
-            val defaults = listOf("docs/architecture/repository-guide.md", "AGENTS.md", "README.md")
-            val docPaths = (featureDocuments + defaults.filter { it in accepted }).take(4)
-            for (path in docPaths) {
-                val value = source(path) ?: continue
-                if (value.text.isBlank()) continue
-                documents += documentSections(value, queryTerms).take(2)
-            }
-        }
         val selectedRanges = mutableListOf<JsonObject>()
         val wiring = mutableListOf<JsonObject>()
         var semanticApplied = false
@@ -166,7 +157,10 @@ object GitHubTaskContextBundle {
                     entry.path to score
                 }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first }).take(12).toList()
             // Reserve related test slots even when implementation files dominate path ranking.
-            val primary = (rankedPaths.take(6).map { it.first } + featureTests.take(2)).distinct().take(8)
+            // The loader shares one deadline. Hydrate an implementation and its test
+            // before optional references or more implementation candidates consume it.
+            val implementation = rankedPaths.firstOrNull { it.first !in featureTests }?.first ?: rankedPaths.firstOrNull()?.first
+            val primary = (listOfNotNull(implementation) + featureTests.take(1) + rankedPaths.take(6).map { it.first } + featureTests.take(2)).distinct().take(8)
             for (path in primary) source(path)
             val sources = loaded.filterKeys { it in primary }.mapValues { it.value.text }
             val graph = GitHubCodeContext.build(sources, accepted.keys.toList(), sourceSha)
@@ -206,6 +200,24 @@ object GitHubTaskContextBundle {
                 wiring += wiringCandidates(value, queryTerms)
             }
         }
+        // Source windows take precedence for TASK/SEMANTIC; REFERENCE retains its
+        // document-only behavior. No additional calls or deadline are granted.
+        if (variant != GitHubContextVariant.CURRENT) {
+            val defaults = listOf("docs/architecture/repository-guide.md", "AGENTS.md", "README.md")
+            val docPaths = (featureDocuments + defaults.filter { it in accepted }).take(4)
+            for (path in docPaths) {
+                val value = source(path) ?: continue
+                if (value.text.isBlank()) continue
+                documents += documentSections(value, queryTerms).take(2)
+            }
+        }
+        val sourceCandidates = missing.filter { it != FEATURE_MAP && !it.endsWith(".md", true) }.take(8).map { path ->
+            buildJsonObject {
+                put("path", path)
+                put("blob_sha", accepted.getValue(path).blobSha)
+                put("source_loaded", false)
+            }
+        }.toMutableList()
         val knownTests = featureTests.filter { it in accepted }.take(16).toMutableList()
         val referenceDigest = digest(loaded.filterKeys { it == FEATURE_MAP || it.endsWith(".md", true) }.values.joinToString("\n") { "${it.path}:${it.blobSha}" })
         val indexDigest = digest("$VERSION|${PhoneRepositoryGraph.PARSER_VERSION}|$sourceSha|" + accepted.values.joinToString("\n") { "${it.path}:${it.blobSha}" })
@@ -221,6 +233,16 @@ object GitHubTaskContextBundle {
             put("enabled", variant != GitHubContextVariant.CURRENT)
             put("freshness", if (sourceIdentityKind == "FROZEN_FIXTURE_MANIFEST") "FROZEN_FIXTURE" else "PINNED_SOURCE")
             put("delivery_status", "PREPARED")
+            put(
+                "source_readiness",
+                when {
+                    variant == GitHubContextVariant.CURRENT -> "DISABLED"
+                    selectedRanges.isNotEmpty() -> "SOURCE_WINDOWS_PREPARED"
+                    documents.isNotEmpty() -> "REFERENCES_ONLY"
+                    else -> "SOURCE_UNAVAILABLE"
+                }
+            )
+            put("source_read_candidates", JsonArray(sourceCandidates))
             put("reference_digest", referenceDigest)
             put("index_digest", indexDigest)
             put("parser_version", PhoneRepositoryGraph.PARSER_VERSION)
@@ -271,7 +293,7 @@ object GitHubTaskContextBundle {
         }
         var result = packet()
         var truncated = false
-        while (result.toString().toByteArray(Charsets.UTF_8).size + 256 > budget && (selectedRanges.isNotEmpty() || documents.isNotEmpty() || selectedFeatures.isNotEmpty() || wiring.isNotEmpty() || knownTests.isNotEmpty() || missing.isNotEmpty() || staleManifestPaths.isNotEmpty())) {
+        while (result.toString().toByteArray(Charsets.UTF_8).size + 256 > budget && (selectedRanges.isNotEmpty() || documents.isNotEmpty() || selectedFeatures.isNotEmpty() || wiring.isNotEmpty() || knownTests.isNotEmpty() || missing.isNotEmpty() || staleManifestPaths.isNotEmpty() || sourceCandidates.isNotEmpty())) {
             truncated = true
             when {
                 selectedRanges.size > 2 -> selectedRanges.removeAt(selectedRanges.lastIndex)
@@ -281,6 +303,7 @@ object GitHubTaskContextBundle {
                 selectedRanges.isNotEmpty() -> selectedRanges.removeAt(selectedRanges.lastIndex)
                 documents.isNotEmpty() -> documents.clear()
                 knownTests.isNotEmpty() -> knownTests.removeAt(knownTests.lastIndex)
+                sourceCandidates.isNotEmpty() -> sourceCandidates.removeAt(sourceCandidates.lastIndex)
                 missing.isNotEmpty() -> missing.remove(missing.last())
                 else -> staleManifestPaths.remove(staleManifestPaths.last())
             }

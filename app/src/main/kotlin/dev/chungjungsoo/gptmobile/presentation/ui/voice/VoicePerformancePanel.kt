@@ -49,7 +49,8 @@ internal fun VoiceHealthObservation(history: VoicePerformanceHistory, sampleMemo
         } else {
             // Observe frames the app actually renders; never request extra frames to measure them.
             val thread = HandlerThread("VoiceFrameMetrics").apply { start() }
-            val listener = Window.OnFrameMetricsAvailableListener { _, metrics, _ ->
+            val listener = Window.OnFrameMetricsAvailableListener { _, metrics, dropped ->
+                history.framesDropped(dropped)
                 val total = metrics.getMetric(FrameMetrics.TOTAL_DURATION)
                 if (total >= 0) history.observe("frame_duration", total / 1_000_000, publish = false)
                 val gpu = metrics.getMetric(FrameMetrics.GPU_DURATION)
@@ -86,25 +87,26 @@ internal fun VoicePerformancePanel(history: VoicePerformanceHistory, latest: Voi
             Text("Measured performance", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             TextButton(onClick = history::clear) { Text("Reset") }
         }
-        Text("Latest 64 samples per stage · milliseconds · median / slower 95th percentile", style = MaterialTheme.typography.bodySmall)
+        Text("Latest ${snapshot.sampleCapacity} samples per stage · milliseconds · median / slower 95th percentile", style = MaterialTheme.typography.bodySmall)
         Text("Speech stage timings follow your local diagnostics privacy settings.", style = MaterialTheme.typography.bodySmall)
         Text("To compare engines, use the same phrase and audio route. Reset between runs, collect a cold start and several warm turns, then save each set of measurements.", style = MaterialTheme.typography.bodySmall)
-        if (snapshot.rows.none { it.metric !in setOf("frame_interval", "frame_duration", "gpu_duration") }) Text("Speak a few turns to collect speech timings. Missing measurements remain unreported.", style = MaterialTheme.typography.bodyMedium)
+        if (snapshot.rows.none { it.metric !in VoicePerformanceHistory.FRAME_METRICS }) Text("No speech timings are recorded in this sample window. Missing measurements remain unreported.", style = MaterialTheme.typography.bodyMedium)
         snapshot.rows.forEach { row ->
             val title = metricLabel(row.metric)
             val condition = listOfNotNull(engineLabel(row.engine), row.warm?.let { if (it) "warm" else "cold" }).joinToString(" · ")
             Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
                 Column(Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.bodyMedium)
-                    Text(listOf(condition.takeIf(String::isNotEmpty), "${row.count} samples").filterNotNull().joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(listOf(condition.takeIf(String::isNotEmpty), "${row.count} recent / ${row.observedSamples} observed").filterNotNull().joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text("${row.p50Ms} / ${row.p95Ms} ms", style = MaterialTheme.typography.labelLarge)
             }
         }
         HorizontalDivider()
+        Text("Frame timing samples since reset: ${snapshot.sampledFrames} · dropped metrics callbacks: ${snapshot.droppedFrameSamples}", style = MaterialTheme.typography.bodySmall)
         Text("Capture queue: ${snapshot.captureQueueMs?.let { "$it ms" } ?: "Not measured"}", style = MaterialTheme.typography.bodySmall)
         Text("App memory: ${snapshot.processMemoryKb?.let { "${it / 1024} MB PSS" } ?: "Not measured"} · Thermal: ${thermalLabel(snapshot.thermalStatus)}", style = MaterialTheme.typography.bodySmall)
-        Text("Frame and GPU durations come from Android FrameMetrics when available. Speech end uses the detector’s audio boundary, including its smoothing window. Playback timing identifies the output clock; acoustic speaker delay requires a device loopback measurement.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Frame and GPU durations describe Android graphics. CPU, GPU and NPU utilization and full conversation latency are not measured. Speech end uses the detector’s audio boundary, including its smoothing window. Playback timing identifies the output clock; acoustic speaker delay requires a device loopback measurement.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         VoicePerformanceExportControl(snapshot, latest)
     }
 }

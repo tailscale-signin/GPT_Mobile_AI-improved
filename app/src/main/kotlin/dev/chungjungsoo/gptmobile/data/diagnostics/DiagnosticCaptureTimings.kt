@@ -10,6 +10,11 @@ internal class DiagnosticCaptureTimings(private val nanoTime: () -> Long = Syste
 
     private data class Sample(var calls: Long = 0, var nanos: Long = 0)
     private val samples = linkedMapOf<Phase, Sample>()
+    private var redactionReuseHits = 0L
+
+    fun redactionReused() {
+        redactionReuseHits++
+    }
 
     fun <T> measure(phase: Phase, action: () -> T): T {
         val start = nanoTime()
@@ -37,6 +42,7 @@ internal class DiagnosticCaptureTimings(private val nanoTime: () -> Long = Syste
 
     fun json(): JsonObject = buildJsonObject {
         put("scope", "Current stage attempt only; excludes earlier resumed parts. Query includes bounded cursor materialization; hydration includes protected projection. Timings are elapsed observations, not CPU time or a complete stage sum.")
+        put("redactionReuseHits", redactionReuseHits)
         put(
             "phases",
             buildJsonObject {

@@ -68,6 +68,35 @@ int main() {
   Require(cache.Size() == 0 && cache.Bytes() == 0);
   Require(cache.Evictions() == 4);
 
+  // The reported 25/93-token HTP pair exceeds the old 640 MiB budget. With
+  // observed free headroom both exact sessions survive alternating hits.
+  constexpr int64_t mib = 1024 * 1024;
+  constexpr int64_t short_bytes = 323715810, medium_bytes = 410095616;
+  auto allowance = kokoro_runtime::AdmitShapeCache(true, 2 * 1024 * mib, short_bytes, medium_bytes);
+  Require(allowance.limit == 2 && allowance.budget <= kokoro_runtime::kShapeCacheMaximumBudgetBytes);
+  kokoro_runtime::ShapeCache<Session> alternating(1, kokoro_runtime::kShapeCacheSingleBudgetBytes);
+  alternating.Configure(allowance);
+  alternating.Insert(25, short_bytes, std::make_unique<Session>(25));
+  alternating.Insert(93, medium_bytes, std::make_unique<Session>(93));
+  for (int repeat = 0; repeat < 6; ++repeat) {
+    Require(alternating.Find(25)->value == 25 && alternating.Find(93)->value == 93);
+    // No new resident growth on a hit must not count the other cached model.
+    const auto before = alternating.Bytes();
+    alternating.UpdateActiveBytes(kokoro_runtime::AddResidentGrowth(medium_bytes, before, before));
+  }
+  Require(alternating.Size() == 2 && alternating.Evictions() == 0);
+  Require(kokoro_runtime::AddResidentGrowth(medium_bytes, 700 * mib, 710 * mib) == medium_bytes + 10 * mib);
+  Require(kokoro_runtime::AddResidentGrowth(medium_bytes, 0, 710 * mib) == medium_bytes);
+  Require(kokoro_runtime::AddResidentGrowth(INT64_MAX - 2, 1, 10) == INT64_MAX);
+  alternating.Configure(kokoro_runtime::AdmitShapeCache(true, 400 * mib, alternating.Bytes(), 0));
+  Require(alternating.Size() == 1 && alternating.Find(93)->value == 93);
+  Require(kokoro_runtime::AdmitShapeCache(true, 0, short_bytes, medium_bytes).reason == kokoro_runtime::ShapeCacheAdmission::MemoryUnknown);
+  Require(kokoro_runtime::AdmitShapeCache(true, 600 * mib, short_bytes, medium_bytes).limit == 1);
+  Require(kokoro_runtime::AdmitShapeCache(false, 8 * 1024 * mib, 0, short_bytes).limit == 1);
+  alternating.Configure(kokoro_runtime::AdmitShapeCache(true, 8 * 1024 * mib, medium_bytes, 1400 * mib));
+  alternating.Insert(117, 1400 * mib, std::make_unique<Session>(117));
+  Require(alternating.Size() == 1 && alternating.Bytes() > alternating.Budget());
+
   using Code = kokoro_runtime::GpuDiscoveryCode;
   Require(kokoro_runtime::ProbeQualcommGpu({}).code == Code::ApiUnavailable);
   Require(kokoro_runtime::ProbeQualcommGpu(Api()).code == Code::Available);

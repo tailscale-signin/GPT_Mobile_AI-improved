@@ -8,7 +8,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
-/** A bounded, restart-safe source seed, never a claim that every changed file was reviewed. */
+/** Bounded, restart-safe source waves, never a claim that every changed file was reviewed. */
 internal object GitHubReviewSourceQueue {
     const val MAX_WINDOWS = 8
     private const val MAX_LOCAL_PAGES = 4
@@ -41,7 +41,7 @@ internal object GitHubReviewSourceQueue {
                     add(Window(base, previous, start(1)))
                 }
             }
-        }.distinct().take(MAX_WINDOWS)
+        }.distinct()
         val roots = GitHubTestChecklist.paginationReceipts(receipts) { row ->
             val args = row["arguments"] as? JsonObject ?: JsonObject(emptyMap())
             row.text("tool").githubOperationFamily() == "github_read" &&
@@ -56,7 +56,11 @@ internal object GitHubReviewSourceQueue {
             args.text("commit_sha") == window.revision &&
                 (args["ranges"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any { requestedWindow(it, window) }
         }
-        val pending = windows.filterNot(::attempted)
+        val unattempted = windows.filterNot(::attempted)
+        // Advance past the initial seed while retaining the same task, revision pair
+        // and caller-owned budget. A failed window stays a separate unresolved item.
+        val pending = unattempted.take(MAX_WINDOWS)
+        val selected = (windows.take(MAX_WINDOWS).filter(::attempted) + pending).takeLast(MAX_WINDOWS)
         val localPages = roots.values.count { (it["arguments"] as? JsonObject)?.containsKey("view_cursor") == true }
         val continuations = if (localPages < MAX_LOCAL_PAGES) {
             GitHubTestChecklist.pendingPages(roots).filter { recipe -> (recipe["arguments"] as? JsonObject)?.keys == setOf("view_cursor") }
@@ -89,16 +93,18 @@ internal object GitHubReviewSourceQueue {
         return Work(
             recipes,
             buildJsonObject {
-                put("policy", "BOUNDED_CHANGED_SOURCE_SEED")
+                put("policy", "BOUNDED_CHANGED_SOURCE_WAVES")
                 put("maximum_windows", MAX_WINDOWS)
-                put("selected_windows", windows.size)
+                put("selected_windows", selected.size)
+                put("total_windows", windows.size)
+                put("remaining_windows", unattempted.size)
                 put("attempted_windows", windows.count(::attempted))
                 put("pending_windows", pending.size)
-                put("selected_paths", JsonArray(windows.map { it.path }.distinct().filter { it.length <= 384 }.map(::JsonPrimitive)))
-                put("selected_path_preview_complete", windows.all { it.path.length <= 384 })
+                put("selected_paths", JsonArray(selected.map { it.path }.distinct().filter { it.length <= 384 }.map(::JsonPrimitive)))
+                put("selected_path_preview_complete", selected.all { it.path.length <= 384 })
                 put("issued_local_pages_pending", GitHubTestChecklist.pendingPages(roots).count { (it["arguments"] as? JsonObject)?.containsKey("view_cursor") == true })
                 put("automatic_local_page_limit_reached", localPages >= MAX_LOCAL_PAGES)
-                put("scope", "Initial changed-source windows only. Further source inspection and correctness findings remain separate review obligations.")
+                put("scope", "Next bounded changed-source wave within the accepted task budget. Attempted windows, source observations and correctness review are separate; failed or partial reads remain unverified.")
             }
         )
     }

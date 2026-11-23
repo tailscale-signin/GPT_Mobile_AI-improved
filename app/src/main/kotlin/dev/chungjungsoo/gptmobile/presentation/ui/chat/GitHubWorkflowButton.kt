@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import dev.chungjungsoo.gptmobile.data.github.GitHubFixtureTestMode
 import dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon
@@ -32,12 +33,23 @@ internal fun GitHubWorkflowButton(workflows: List<GitHubQuickWorkflow>, enabled:
         val review = dev.chungjungsoo.gptmobile.data.github.GitHubReviewComparison.matches(workflow.prompt)
         var baseline by remember(workflow) { mutableStateOf("") }
         var criteria by remember(workflow) { mutableStateOf("") }
+        var fixtureMode by remember(workflow) { mutableStateOf(GitHubFixtureTestMode.SUPPORTED_FIXTURES) }
         val valid = baseline.isBlank() || baseline.trim().matches(Regex("[A-Za-z0-9_][A-Za-z0-9._/+@-]{0,254}"))
         AlertDialog(
             onDismissRequest = { configured = null },
             title = { Text(workflow.title) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (workflow.id == "integration") {
+                        Text("Fixture test scope", style = MaterialTheme.typography.titleSmall)
+                        GitHubFixtureTestMode.entries.forEach { mode ->
+                            TextButton(onClick = { fixtureMode = mode }, modifier = Modifier.testTag("github_fixture_mode_${mode.name.lowercase()}")) {
+                                Text(mode.label + if (fixtureMode == mode) " ✓" else "")
+                            }
+                        }
+                        Text(fixtureMode.description, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("github_fixture_preflight"))
+                        Text("Fixture-only automatic approval is configured in GitHub settings > Chat decisions. A running task retains the policy accepted when it started.", style = MaterialTheme.typography.bodySmall)
+                    }
                     if (review) {
                         OutlinedTextField(
                             value = baseline,
@@ -60,7 +72,7 @@ internal fun GitHubWorkflowButton(workflows: List<GitHubQuickWorkflow>, enabled:
             confirmButton = {
                 TextButton(enabled = enabled && valid, onClick = {
                     val prompt = buildString {
-                        append(workflow.prompt)
+                        append(if (workflow.id == "integration") fixtureMode.prompt(workflow.prompt) else workflow.prompt)
                         if (review && baseline.isNotBlank()) append("\nBaseline: ").append(baseline.trim())
                         if (criteria.isNotBlank()) {
                             append("\nAcceptance criteria")

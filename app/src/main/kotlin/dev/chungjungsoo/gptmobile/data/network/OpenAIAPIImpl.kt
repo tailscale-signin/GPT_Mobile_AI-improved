@@ -724,7 +724,7 @@ class OpenAIAPIImpl @Inject constructor(
             } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
                 e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
             } else if (transportFailure != NetworkFailureKind.UNKNOWN) {
-                transportFailure.userMessage(receivedVisibleText, activeResponseObserver?.snapshot()?.httpStatus in 200..299)
+                transportFailure.userMessage(receivedVisibleText, activeResponseObserver?.snapshot()?.httpStatus in 200..299, e)
             } else {
                 when (e) {
                     is java.net.UnknownHostException -> config.freeProvider?.let { "${it.displayName}: DNS could not resolve ${java.net.URI(it.apiUrl).host}. Check this provider's availability and your connection; no alternate host was contacted." } ?: "Network error: Unable to resolve host."
@@ -816,7 +816,8 @@ class OpenAIAPIImpl @Inject constructor(
                             receivedVisibleText = receivedVisibleText,
                             generationCompleted = receivedTerminal,
                             replayAllowed = failureRetryable,
-                            requiresReconciliation = gatewayOutcomeUnknown
+                            requiresReconciliation = gatewayOutcomeUnknown,
+                            httpAttempt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.latestHttpAttemptEvidence()
                         ),
                         providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, e)
                             ?: providerConnectivityWait(config, request.model, e, anyRequestDispatched, receivedAssistantPayload || receivedGatewayToolActivity)
@@ -1151,7 +1152,7 @@ class OpenAIAPIImpl @Inject constructor(
             } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
                 e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
             } else if (transportFailure != NetworkFailureKind.UNKNOWN) {
-                transportFailure.userMessage(receivedVisibleText, activeResponseObserver?.snapshot()?.httpStatus in 200..299)
+                transportFailure.userMessage(receivedVisibleText, activeResponseObserver?.snapshot()?.httpStatus in 200..299, e)
             } else {
                 when (e) {
                     is java.net.UnknownHostException -> "Network error: Unable to resolve host."
@@ -1219,7 +1220,8 @@ class OpenAIAPIImpl @Inject constructor(
                         receivedVisibleText = receivedVisibleText,
                         generationCompleted = receivedTerminal,
                         replayAllowed = failureRetryable,
-                        requiresReconciliation = gatewayOutcomeUnknown
+                        requiresReconciliation = gatewayOutcomeUnknown,
+                        httpAttempt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.latestHttpAttemptEvidence()
                     ),
                     providerLimit = providerLimitDecision(effectiveConfig, request.model, receivedResponsePayload, e)
                         ?: providerConnectivityWait(effectiveConfig, request.model, e, anyRequestDispatched, receivedResponsePayload)

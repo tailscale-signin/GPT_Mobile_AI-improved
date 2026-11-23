@@ -13,7 +13,8 @@ internal data class VoiceSpeechPlaybackChunk(
     val verifiedAudio: Boolean,
     val acceleratorKernels: Int?,
     val cpuKernels: Int?,
-    val observation: VoiceSpeechBenchmarkFailureObservation?
+    val observation: VoiceSpeechBenchmarkFailureObservation?,
+    val audioObservation: VoiceSpeechAudioObservation? = null
 )
 
 internal data class VoiceSpeechReserveObservation(val phase: String, val elapsedMs: Long, val targetMs: Long, val acceptedMs: Long, val exitReason: String, val startMs: Long? = null, val endMs: Long? = null)
@@ -198,6 +199,7 @@ internal class VoiceSpeechPlaybackMeasurement(
     private var attemptStarted: Long? = null
     private var attemptBytes: Int? = null
     private var attemptHash: String? = null
+    private var attemptAudio: VoiceSpeechAudioObservation? = null
     private val expectedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
     private val observedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
     private val chunkRecords = mutableListOf<VoiceSpeechPlaybackChunk>()
@@ -223,6 +225,14 @@ internal class VoiceSpeechPlaybackMeasurement(
         attemptStarted = elapsed()
         attemptBytes = text.toByteArray(Charsets.UTF_8).size
         attemptHash = VoiceSpeechWorkload.digest(text)
+        attemptAudio = null
+    }
+
+    /** Called only by the fixed-fixture benchmark engine, before optional playback trimming. */
+    @Synchronized fun audioGenerated(observation: VoiceSpeechAudioObservation) {
+        if (stoppedAt != null) return
+        require(observation.valid && observation.inputSha256 == attemptHash && observation.inputBytes == attemptBytes)
+        attemptAudio = observation
     }
 
     @Synchronized fun nativeFailure(error: Throwable, deviceKey: String) {
@@ -268,7 +278,8 @@ internal class VoiceSpeechPlaybackMeasurement(
         if (chunkRecords.size < VoiceSpeechPlaybackProtocol.MAX_CHUNKS_PER_SAMPLE) {
             chunkRecords += VoiceSpeechPlaybackChunk(
                 chunks - 1, elapsed(), synthesisMs.coerceAtLeast(0), duration, attemptBytes, attemptHash, evidence?.effectiveProvider?.takeIf { it in PROVIDERS }, valid,
-                evidence?.acceleratorKernels?.takeIf { evidence.profileAvailable == true }, evidence?.cpuKernels?.takeIf { evidence.profileAvailable == true }, evidence?.let(VoiceSpeechBenchmarkFailureObservation::from)
+                evidence?.acceleratorKernels?.takeIf { evidence.profileAvailable == true }, evidence?.cpuKernels?.takeIf { evidence.profileAvailable == true }, evidence?.let(VoiceSpeechBenchmarkFailureObservation::from),
+                attemptAudio
             )
         } else {
             violations++

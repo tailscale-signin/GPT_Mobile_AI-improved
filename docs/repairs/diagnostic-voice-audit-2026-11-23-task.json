@@ -1,0 +1,68 @@
+{
+  "schema": "engineering-task-checkpoint.v1",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "source_sha": "4bf01a98440ccc91b7ef2ab7ea4bb8adab86c583",
+  "pull_request": 2367,
+  "intent": "Implement diagnostic recovery, runtime performance and voice qualification findings; qualify final combined source, normal merge, exact-main checks and joint publication while preserving concurrent commits.",
+  "status": "SOURCE_IMPLEMENTED_AND_HOST_QUALIFIED_PENDING_FINAL_HOSTED_GATES",
+  "privacy": "Synthetic regression inputs only; supplied diagnostic and speech files remain private.",
+  "workstreams": {
+    "source_recovery": "IMPLEMENTED_AND_INDEPENDENTLY_REVIEWED",
+    "context_progress_review": "IMPLEMENTED_AND_INDEPENDENTLY_REVIEWED",
+    "runtime_diagnostics": "IMPLEMENTED_AND_INDEPENDENTLY_REVIEWED",
+    "voice_qualification_cache": "IMPLEMENTED_AND_INDEPENDENTLY_REVIEWED",
+    "final_combined_validation": "CANONICAL_FAST_PASS_HOSTED_ANDROID_PENDING",
+    "merge": "PENDING_CURRENT_HEAD_GATES_AND_PREDECESSOR_PUBLICATION",
+    "publication": "PENDING_EXACT_MAIN_GATES_AND_JOINT_SIGNED_PUBLICATION"
+  },
+  "latest_observed_public_head": "be2f918d3138b6ee84473d392846d83ff8d606e4",
+  "validation": {
+    "recovery": "110 focused actual-source JVM tests pass, covering native issued capacity recovery, exact delivery barriers, compaction/restoration, immutable revision choices and fixture mode. Full AgentRunner and operation/session integration are committed for hosted CI, not claimed locally executed.",
+    "context_progress_review": "111 focused tests pass: 44 review/comparison and CI summary, 56 context/source/progress/continuation and full conditional CI report, 8 preparation and 3 catalog alias. Existing no-failure and catalog fixes are retained; cursor traversal is not source progress.",
+    "voice": "107 JVM behavior tests, 21 Robolectric persistence/runtime/factory tests, 6 freshly built native CTest cases and actual CPU JNI audio/timing/frontend/reset/in-flight cancellation pass. Numerical consistency does not establish perceptual equivalence or physical GPU/NPU performance.",
+    "runtime": "35 focused JVM tests pass again on integrated source after public privacy corrections; 179 receiver/readiness tests pass. Full actual current-trace context regression passes independently for queue polls with and without research observation.",
+    "privacy_and_report_projection": "New canonical-arguments privacy method passes actual integrated policy/credential helpers and fails unchanged parent; 3 actual report-code projection tests pass with context declaration boundaries. Full context serialization/report submission and Android remain hosted obligations.",
+    "canonical_fast": "673 script tests, CI policy, generated metadata/contracts, dependency catalogue, secret scan, Android regex and resource checks pass on integrated source.",
+    "preservation": "Independent review preserves all 31 be2 diagnostic policy methods unchanged plus the new canonical method, all 25 voice component files exactly, all concurrent privacy/address changes and both parents release scope entries.",
+    "pending": "Actual final-head full Android/Room/Compose/AgentRunner/provider/report integration, all applicable PR gates and other active owners, both predecessor public packages/readbacks, guarded normal merge, all eight exact-main workflows and complete signed Android/Gateway publication.",
+    "formatting": "Pinned ktlint1.3.1 passes all98 Kotlin files changed from latest public be2, including generated inventory; exact release-scope and git diff checks pass."
+  },
+  "integration_source_commit": "94205907e1fe4b7a0d31715b873e7fb9128f3ad5",
+  "local_validation_log_sha256": {
+    "recovery": "9bf715440a6565c48c4399f021e90ee83a0a93b27d9af512f9beac25ecefa174",
+    "context_review": "70fd8d50c5990e08fa86ad1ba9f165cf841ec298bfbdd23bc5be01edc0d0097c",
+    "context_core": "17625297ab4aa0f0fce4343658d0d13a0a10ef8d80243870f0264b925fd201b0",
+    "context_preparation": "576facb01fdf65a0368c9461d35507fb423d31368720d03313ce2a827293aed7",
+    "voice_behavior": "9d17d149ab53fb79f6ef0fe88356cf9467cd9e8beaa5a42c15d8bbbdee599799",
+    "voice_store": "3fc7feb83247491052a1c08555ac53665180fad6122ff90595e451b47c01c716",
+    "native": "7429896b7fb00e3c12de4cc26223f2491b8ee8e9a9efdf41a9fd7f5150c5644d",
+    "runtime_integrated": "b37554fa03a0b10dd1ed33adc9da50b37fa29ce93dd6c23a24f446f51c3592ac",
+    "report_receiver": "2003ed6fe0500a96bb4b19d598f6581847d326670060a5acdb6e7ab6db5464b8",
+    "queue_poll": "90cf3980c37e5593ed28803eeaccaad4e996b071de6b7a25120721ee55c0b14e",
+    "revision_projection": "b1e042aaa70486cc92cc22394292aeb8a964cd48c26b4734f43503b3512ec7fc",
+    "canonical_fast": "8cd109a82e433d7032af7dd7d7ff5db2f04c72e8120d85c118a2634e432ab397",
+    "canonical_arguments_privacy": "142db22c66f509c4818fff4c6894c71f9d3f0cb78caf00c58040a7d9427cca6c"
+  },
+  "publication_requirements": {
+    "predecessor_android": "0.9.66.14/148",
+    "predecessor_gateway": "18.1.2",
+    "successor_android": "0.9.66.15/149",
+    "successor_gateway": "18.1.3",
+    "merge_method": "merge",
+    "preserve_concurrent_commits": true,
+    "required_main_workflows": [
+      "Build Android APK",
+      "CodeQL Advanced",
+      "PR Validation",
+      "Post-merge correctness",
+      "v0.9.50 Android acceptance",
+      "Gateway stability",
+      "Gateway Windows installer",
+      "Development environments"
+    ],
+    "readback": "Published tag/source, complete expected asset set, downloaded bytes/checksums, Android signer and workflow attestations; retain explicit platform-signing and physical-device limits."
+  }
+}

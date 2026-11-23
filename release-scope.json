@@ -153,6 +153,7 @@
     "Add separate production playback measurements for PCM and presented-audio latency, refills, underruns, audio-stop acknowledgement and complete caption word coverage without inferring acoustic alignment or battery benefits.",
     "Verify task-context cancellation provenance across coroutine recovery copies, retaining the exact original cause and one native map call with no semantic replay.",
     "Retain nullable preparation thermal evidence and interrupted speech-benchmark cost, preserve unknown playback observations and retire unfinished native profiles before reuse while keeping successfully qualified cached sessions.",
+    "Retain measured speech benchmark preparation and interrupted-generation cost and context through cancellation without borrowing prior chunk evidence or qualifying an incomplete comparison.",
     "Keep completed speech playback receipts immutable when cancellation arrives after terminal, retaining unknown cancellation latency and any earlier measured cancellation latency.",
     "Prevent empty protected cache-key files on secure entropy failure and preserve OS runtime settings while isolating Gateway semantic fixtures and closing their SQLite handles.",
     "Bound isolated production Kotlin compilation to6GiB only after observed RAM/cgroup headroom, release KSP/KAPT heaps before compilation on cold CI/publication runners, and retain bounded memory/GC receipts without weakening non-production limits or qualification gates.",

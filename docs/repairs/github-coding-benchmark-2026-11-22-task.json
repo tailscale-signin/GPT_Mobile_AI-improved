@@ -9,7 +9,7 @@
   "working_branch": "work/github-coding-benchmark-2026-11-22",
   "intent": "Implement the complete GitHub and coding model benchmark audit design, preserve concurrent changes, qualify the current PR and main commits, and publish the signed application and scoped Gateway release.",
   "authorization": "User explicitly requested every feature, a draft PR, merge after green checks, and publication after green main checks.",
-  "status": "INTEGRATING_FINAL_CI_CORRECTIONS",
+  "status": "IMPLEMENTED_COMPONENT_VERIFIED_PENDING_FINAL_HOSTED_QUALIFICATION",
   "requirements": [
     {
       "id": "B01",
@@ -295,7 +295,7 @@
     "gateway": "18.1.1",
     "status": "PENDING_EXACT_HEAD_AND_MAIN_GATES"
   },
-  "last_reconciled_remote_head": "2f1afbf3180508b8326a9cc0b1b6c2dd640b34fc",
+  "last_reconciled_remote_head": "1e624737fb9ebd30e4a2b9b20a8ea94d9f37dff1",
   "qualification_limits": [
     "No claim of physical-phone, real selected-provider or live disposable GitHub execution from host fixtures.",
     "Python language support is the bounded interpreter; native fixtures do not claim Compose instrumentation or Room annotation-processing coverage.",
@@ -304,7 +304,7 @@
     "Unified Reliability v2 remains incomplete; existing scoped release gates and disclosures remain mandatory."
   ],
   "backup_ownership_followup": {
-    "status": "DIRECT_COMPONENT_PUBLISHED_WIDER_POLICY_PUBLISHED_REVIEWING",
+    "status": "CLOSED_COMPONENT_REVIEW_FINAL_HOSTED_PENDING",
     "source_parent": "087e312de01e2df0d08be71728957d0835bc47fa",
     "paths": [
       "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
@@ -361,6 +361,18 @@
       {
         "source": "7ede6c33/087e312d",
         "result": "48 Gateway cleanup/live/API cases and eight legacy actual-SQLite combinations pass. Original payload/completion bytes stay unchanged; repeated recovery and lost cancellation do not replay mutation; confirmed settlement remains append-only."
+      },
+      {
+        "source": "2f1afbf3180508b8326a9cc0b1b6c2dd640b34fc",
+        "result": "Wider backup preflight, committed whole-section retention, cold initialization and permanent privacy locks independently reviewed; four actual Store/Room regressions pass."
+      },
+      {
+        "source": "71db6456e094397dc062be8bfcbcdb85778101c9",
+        "result": "Canonical sample/event attempt identities retained even without separate attempt rows; eleven unchanged helper controls pass."
+      },
+      {
+        "source": "8f2ba28c3f9d0a26602923fc28cc5421ad40d604",
+        "result": "Ordinary Store load and score publication transactions independently reviewed; four unchanged actual Room regressions pass."
       }
     ],
     "wider_policy_owner": "phone-map/integration workstream; no further benchmark-team production edits reserved",
@@ -447,7 +459,7 @@
   "native_receipt_independent_review": {
     "source_commit": "f261446103518ad9dc97ac239bae5f47a7c4cbb6",
     "package_commit": "bcf1c4523f4b615390f3cecdf8ab436ea4023e7d",
-    "result": "ENVELOPE_CLOSURE_CLEAR_TYPED_OUTPUT_CONSISTENCY_OPEN",
+    "result": "CLOSED_ENVELOPE_TYPED_OUTPUT_AND_HOST_FRAMING",
     "owner_suite": {
       "passed": 37,
       "skipped": 1,
@@ -457,9 +469,233 @@
     "limits": "No independent Docker/native Windows or live-provider claim; separate Windows host CRLF framing is retained as an acceptance-owned follow-up.",
     "typed_output_followup": {
       "owner": "acceptance workstream",
-      "status": "REPRODUCED_REPAIR_PENDING",
+      "status": "CLOSED_INDEPENDENTLY_VERIFIED",
       "defect": "Local coding.same rejects integer/float substitution while exported verifier Python equality accepts it. Actual shipped SQLite repository-room-add-default controls with candidate cell 1 changed to 1.0 produce qualified MODEL failure locally versus qualified PASS remotely.",
-      "required_behavior": "Use the same declared typed JSON comparison for local and exported grading; preserve valid-output controls, malformed envelope refusal and calibrated model-failure accounting."
+      "required_behavior": "Use the same declared typed JSON comparison for local and exported grading; preserve valid-output controls, malformed envelope refusal and calibrated model-failure accounting.",
+      "source_commit": "5073b216146a4a14b4c250de41097838b91f7528",
+      "package_commit": "83e7929512444ad60e2586797f87364c743c873f",
+      "result": "Eight frozen actual local/exported receipt cases agree: three malformed envelopes unqualified, integer-to-float substitution qualified model failure in both consumers, Boolean/integer substitution rejected, and valid correct/broken controls preserved."
+    },
+    "host_framing_followup": {
+      "status": "CLOSED_INDEPENDENTLY_VERIFIED",
+      "source_commit": "5073b216146a4a14b4c250de41097838b91f7528",
+      "driver_sha256": "9c8e76c0f0693490303063436673c4d72770a81eea59d259e0536e4aef3aabca",
+      "result": "All sixteen actual shipped SQLite LF/initial-CRLF host processes preserve correct/broken outcomes with exact host LF framing. Raw CRLF production container receipts remain rejected."
     }
-  }
+  },
+  "repository_context_independent_review": {
+    "source_commit": "5073b216146a4a14b4c250de41097838b91f7528",
+    "package_commit": "83e7929512444ad60e2586797f87364c743c873f",
+    "status": "CLOSED_COMPONENT_REVIEW_FINAL_HOSTED_PENDING",
+    "c14_source_sha256": "95ab7a5746926ed1aadb9022697f5f5ecbddcc52909de1a48d04919d39f96ff3",
+    "c14_inputs_matched": 9,
+    "c14_results": [
+      "Missing or falsified execution/settings/selector/task/grader identities suppress paired estimates.",
+      "Delivered task and grader identities match the frozen manifest; caller planned24 cannot shrink36 expected pairs.",
+      "Unknown or divergent recorded requested output caps retain outcomes and effort but withhold paired estimates.",
+      "Separate actual-runner positive control completes72 cases/72 requests,36 pairs/12 families; partial24 cases remain incomplete12/36."
+    ],
+    "ui_review": "Accepted context Start retains its exact profile; per-task receipts show arm, frozen budget, source identities, bytes and explicitly estimated tokens without a context winner claim. Actual Compose regressions remain hosted.",
+    "lsp_review": "Twenty actual Linux LSP cases pass, zero skips. Production SessionPool belongs to Linux-container PID1; seventeen POSIX-only process tests and three portable protocol tests preserve the actual Windows host boundary.",
+    "limits": "Provider/usage boundaries are substituted in context probes. Recorded caps precede profile clamping and do not identify provider-effective limits. No model-superiority or physical-device claim."
+  },
+  "speech_integration_review": {
+    "speech_source_commit": "7daf0a2d275e298c5fe5fcfbc133bf85d0a9dc54",
+    "combined_commit": "672ab1b7b3e3e0afe0b0cdde9d3ec623b0578400",
+    "context_fixture_followup": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
+    "source_binding": "All committed speech source hashes matched the combined package; twenty-six reviewed voice/runtime/test inputs remain unchanged through160d.",
+    "playback_ui_review": "Actual planner, native phrase, PCM queue, AudioTrack presented-clock, caption span and cancellation retirement wiring independently reviewed. Every chunk and expected span is required; unknown thermal observations cannot qualify playback. This is source review, not physical-device performance. A separately reproduced initial before-AudioTrack route/clock default remains under external repair; this review does not waive that contrary observation.",
+    "native_component_review": "Three independent C++17 measurement/cache/discovery, profile parser and partition suites pass. Owner native/JNI/QNN-emulator evidence is separately attributed; first-run canceled-profile isolation remains externally owned below.",
+    "context_fixture_review": "Seven focused preparation cases pass in both coroutine recovery modes, with exact original causal identity, map/connection call counts and no semantic fallback retained."
+  },
+  "speech_cancellation_accounting_followup": {
+    "status": "PUBLIC_929_INDEPENDENTLY_BOUND_PENDING_FINAL_HOSTED_QUALIFICATION",
+    "implementation_commit": "4eb53b0fe8fff72dc0820e7978176e8069678e07",
+    "base_commit": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
+    "paths": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkCancellationTest.kt"
+    ],
+    "behavior": [
+      "Record completed preparation before the post-create cancellation checkpoint.",
+      "Retain timed preparation or interrupted generation exactly once, with only the current live attempt identity.",
+      "Keep completed samples and partial chunks; between-call cancellation cannot borrow the previous chunk context.",
+      "Never infer native provider/profile evidence from a cancelled call; cancellation remains ineligible for recommendation.",
+      "Retain interrupted time and context through local history and public export without a schema change."
+    ],
+    "frozen_probe_sha256": "9de682399e8d16912b588fe33a2e689826cdc42f6855ddc8bddfb2ce6ff6fe7b",
+    "frozen_between_calls_sha256": "d4b375831e92537e6f772fbe41fc3ad6dac6f3f53157a66bfdef3422de2d18e2",
+    "baseline": {
+      "tests": 5,
+      "expected_failures": 4,
+      "ordinary_failure_control_passed": true,
+      "observed_ms": [
+        0,
+        0,
+        10,
+        210
+      ],
+      "expected_ms": [
+        100,
+        10,
+        60,
+        260
+      ],
+      "qualified_cancelled_results": 0
+    },
+    "corrected": {
+      "tests": 58,
+      "failures": 0,
+      "frozen_probe_cases": 5,
+      "frozen_between_call_controls": 2,
+      "new_committed_regressions": 9,
+      "unchanged_component_cases": 42,
+      "independent_rerun_passed": 58,
+      "compiler_heap_mib": 500,
+      "runtime_heap_mib": 384,
+      "assertions_enabled": true,
+      "ktlint_version": "1.3.1"
+    },
+    "source_sha256": {
+      "runner": "67b86502de2fac2b422f5a75cb6d49a4a04bb8d86058d57c5084f5e17bd568cf",
+      "regression": "90d89ebefe24632b1939fc1050ee5df65a94839ebf77c2f8d7f30aeebc58e208"
+    },
+    "limits": "Actual runner/models/exporter with twenty-one matched production inputs, deterministic clock/engine and declared native/platform boundaries. No real inference, audio, device or full Android qualification. Preparation thermal policy and first-run native profile lifecycle belong to separate owners."
+  },
+  "historical_source_holds_at_cancellation_candidate": [
+    {
+      "owner": "acceptance workstream",
+      "scope": "Retain preparation thermal observations and exclude unknown preparation temperature from performance ranking."
+    },
+    {
+      "owner": "acceptance native workstream",
+      "scope": "Retire an unqualified session/profile after first accelerator cancellation; prove clean cancel/reset/reuse without clamped kernel counts."
+    },
+    {
+      "owner": "acceptance playback workstream",
+      "scope": "Keep route and clock unknown until an actual AudioTrack observation exists; frozen actual-output probe and narrow repair pending."
+    }
+  ],
+  "final_source_reconciliation": {
+    "observed_public_head": "1e624737fb9ebd30e4a2b9b20a8ea94d9f37dff1",
+    "speech_union": "9298610bab2e4cb90ef7d38d9c95753689a5acdc",
+    "terminal_playback_guard": "6227953bcd4bc3579466789fc405743fce913837",
+    "combined_thermal_cancellation": {
+      "methods_passed": 62,
+      "source_inputs_bound": 25,
+      "dependency_classes_bound": 113,
+      "public_runner_sha256": "93edafc55271748666c5a13d169be5d17a58740b518e865436d21d63b6971f2e",
+      "qualification": "Actual runner, model and exporter source with deterministic clock/engine boundaries. No native inference, physical device or full Android qualification."
+    },
+    "native_profile_review": "Failed first-session evidence remains immutable, only an unfinished exact-shape session is retired, and successfully qualified sessions remain reusable. Author and independent JNI/ORT/QNN fault-barrier proofs are host/emulator-qualified; physical interruption/performance is not inferred.",
+    "android_fixture_corrections": {
+      "public_commit": "056399c8349c4975facc8f3c2226ede348a17e28",
+      "prior_hosted_tests": 13277,
+      "prior_hosted_passed": 13270,
+      "prior_hosted_failed": 2,
+      "prior_hosted_skipped": 5,
+      "review": "Backup fixture requires the complete bounded sanitized exception chain and unchanged canonical rows. Session fixture seeds one real retained receipt while preserving the 512-to-128 input-limit transition, exactly two measurements, zero extraction, unchanged receipts and private-output exclusion. Production is unchanged.",
+      "limits": "Focused actual Room recovery-on/off and leak controls passed. The whole actual Session fixture remains a final-head hosted Android gate; no local whole-session execution is claimed."
+    },
+    "native_capability_identity": {
+      "public_commit": "48bf1217bcdc816c7c29f3d4c4f037d63fb4d4db",
+      "reviewed_candidate": "c830dbff7f7289c9dddae707add1595dee4d23fa",
+      "production_delta": "Append the profile2 runtime identity revision; current capability keys and factory reuse identity change, while saved historical records remain preserved.",
+      "source_inputs_independently_bound": 17,
+      "original_store_cases_retained": 9,
+      "new_migration_cases": 4,
+      "candidate_cases_passed": 13,
+      "baseline_expected_failures": 2,
+      "qualification": "Independent source/input/log/class binding, not an independent JVM/JNI rerun. Actual final-head Android remains required."
+    },
+    "platform_source": "8937e12437daa90cabe29d6c10f70968fd50d0d4"
+  },
+  "production_compiler_memory_followup": {
+    "shared_helper_candidate": "f9d31a5c90a086c0074744be660e2979a540d2a7",
+    "additional_exact_stage_expectations": "c9705d3f58a245cb6c05565193b7d329594bc039",
+    "development_wrapper_candidate": "c9cb03c34c59bb7f1a12060b1a45ac0276fb1000",
+    "basis": "Repeated fresh compileDebugKotlin failures exhaust the 4 GiB heap after separate completed KSP and KAPT processes. Equivalent production boundaries use the same isolated allowance. No compiler source diagnostic or device failure is inferred.",
+    "policy": "Only isolated production compilation receives 6144 MiB heap and 768 MiB metaspace. Require another 2048 MiB observed reserve, exclude swap, retain other stage caps, selectors, worker counts and deadlines. UNKNOWN or INSUFFICIENT headroom stops without a smaller-heap retry or limit increase.",
+    "helper_sha256": "234d03a8f70e9f9d69ae903dc93b6570f456dd15947541657d4d130f98bec53b",
+    "required_headroom_bytes": 9395240960,
+    "independent_workflow_contracts_passed": 47,
+    "independent_shell_boundary_cases_passed": 48,
+    "shell_boundary_scope": "Twelve direct production stages from nine source-hashed workflows. GitHub-equivalent shell execution uses substituted compiler/checker boundaries: refusal starts no compiler, success starts one, and original failure status survives. This is not a Gradle compilation result.",
+    "development_wrapper_tests_passed": 9,
+    "development_wrapper_policy": "Embed the byte-identical trusted helper in the installed wrapper through python3 -I -, never execute a candidate repository checker. Preserve generic repository pass-through, four original GPT stages and offline flags. Existing 8 GiB containers explicitly fail the 8960 MiB prerequisite; operator limits are not silently raised.",
+    "limits": "Memory receipts cover visible Linux RAM and cgroup ancestry, not hidden Docker ancestors or guaranteed future allocation. Actual hosted Android and prepared-image compilation remain required.",
+    "public_workflow_commit": "60a9997b47b07757e9ba1df242a254cfa6f46f3e",
+    "combined_canonical": {
+      "passed": 650,
+      "seconds": 24.713,
+      "literal_regex_patterns": 2038,
+      "dynamic_patterns_excluded": 100,
+      "resource_xml": 36,
+      "generated_metadata": "PASS",
+      "qualification": "Host checks on combined public60a source plus trusted DevEnv c9cb and retained benchmark evidence. Full hosted Android and signed publication remain mandatory."
+    },
+    "development_wrapper_public_source": "8937e12437daa90cabe29d6c10f70968fd50d0d4"
+  },
+  "history_scan_independent_diagnosis": {
+    "scanner_version": "8.30.1",
+    "exact_ci160_commits_scanned": 8834,
+    "exact_ci160_findings": 2,
+    "current929_commits_scanned": 8835,
+    "current929_findings": 3,
+    "classification": "The two original matches are a fixed token-accounting schema label in task_context.py at source5073 and its observed CI merge. The third is a public tokens.txt SHA256 pin in the native lifecycle harness at929. Source-hashed definition/use inspection establishes metadata and file-integrity roles; no credential material was found.",
+    "correction_owner": "Map/provider workstream",
+    "required_verification": "Allow only the exact affected path and complete proven public literal line together. Retain scanner detection for synthetic credential controls in both paths and matching literals outside those paths, then re-scan the complete reachable history. No broad exclusion, bypass or history rewrite.",
+    "candidate_config_sha256": "2d370b508466e9e0416f65919ed00efae271ccc13bbb34617da0c68145773f82",
+    "frozen_control_cases_passed": 6,
+    "corrected_full_history_commits": 8837,
+    "corrected_full_history_findings": 0,
+    "corrected_full_history_exit_code": 0,
+    "qualification": "Public60a configuration is byte-identical to the frozen independently tested candidate. Full-history8837-commit replay and six actual-scanner controls pass. Actual final-head hosted scan remains a separate required gate.",
+    "public_config_commit": "60a9997b47b07757e9ba1df242a254cfa6f46f3e"
+  },
+  "remaining_source_holds": [],
+  "latest_package_readback": {
+    "head": "1e624737fb9ebd30e4a2b9b20a8ea94d9f37dff1",
+    "gateway_source": "8937e12437daa90cabe29d6c10f70968fd50d0d4",
+    "gateway_files_verified": 513,
+    "canonical_at_672": {
+      "passed": 635,
+      "seconds": 31.185,
+      "literal_regex_patterns": 2038,
+      "dynamic_patterns_excluded": 100,
+      "resource_xml": 36
+    },
+    "current_followup_canonical": {
+      "passed": 650,
+      "seconds": 24.103,
+      "literal_regex_patterns": 2038,
+      "dynamic_patterns_excluded": 100,
+      "resources_xml": 36,
+      "generated_metadata": "PASS",
+      "scope": "Final integrated public1e platform/native/compiler source plus only the three benchmark metadata files. No full Android or Windows qualification inferred."
+    },
+    "source_is_reachable_ancestor": true,
+    "root_combined_gateway_tests": {
+      "workspace_profiles": 9,
+      "semantic_context": 12,
+      "engineering_memory": 17,
+      "failed": 0,
+      "scope": "Actual Python source on Linux; all513 package hashes and declared source ancestry also verified. Full current-head Windows and prepared-image runs remain required."
+    }
+  },
+  "windows_key_lifecycle_independent_review": {
+    "candidate": "d722cad6a6634b2062ab6e90fa373f281df6bc8e",
+    "fixture_candidate": "3a9ef2985e0383e72693d729b86b48a30611384b",
+    "status": "INDEPENDENT_SOURCE_AND_FAILURE_CONTROLS_CLEAR",
+    "baseline": "The same entropy failure creates an empty protected key file; a subsequent retry cannot use it.",
+    "corrected": "Generate the secure OS-backed 32-byte key before exclusive file creation. Entropy failure opens no file and leaves no empty key; a fresh retry succeeds. Preserve AES-GCM, nonce size, AAD, version, winning-key reuse and lost-key refusal.",
+    "independent_actual_source_cases_passed": 30,
+    "additional_controls": "Exact entropy exception, no file opens on failure, successful retry, encryption round-trip, tamper/wrong-owner refusal, existing-key reuse, exclusive-create race and lost-key refusal. Exact Windows fixture preserves OS variables, removes inherited GATEWAY settings, restores environment and explicitly closes successful/failed SQLite connections.",
+    "limits": "Linux source/failure controls, not actual Windows qualification. This repairs entropy-before-exclusive-create ordering; general crash, disk-write and fsync atomicity is not claimed.",
+    "public_source": "8937e12437daa90cabe29d6c10f70968fd50d0d4"
+  },
+  "remaining_integration_gates": [
+    "Preserve every concurrent public commit and verify all applicable latest final-head checks plus active main rules.",
+    "Expected-head merge, all applicable exact-main checks and signed Android/Gateway publication with exact tag/source, downloaded assets and attestation readback."
+  ]
 }

@@ -825,7 +825,7 @@ internal class KokoroVoiceOutput(
                     val plan = VoiceStreamingPhrasePlan(segment, pronunciations, speed)
                     while (active === playback) {
                         val phrase = plan.next(playback.adaptive.phraseWords(bufferedAudioMs(playback))) ?: break
-                        if (!streamPhrase(playback, model.engine, segmentIndex, segment, phrase.text, null, speed, phrase.sourceCharacters)) return
+                        if (!streamPhrase(playback, model.engine, segmentIndex, segment, phrase.text, null, speed, silence, phrase.sourceCharacters)) return
                     }
                     if (active !== playback) return
                     if (playback.sealed && playback.segments.isEmpty()) break
@@ -870,7 +870,7 @@ internal class KokoroVoiceOutput(
                     val phrase = plan.next(playback.adaptive.phraseWords(bufferedAudioMs(playback))) ?: break
                     if (model.engine.supportsStreaming) {
                         val ranges = phrase.wordRanges.takeIf { playback.onRange != null || playback.onTimedRange != null }
-                        if (!streamPhrase(playback, model.engine, segmentIndex, segment, phrase.speech, ranges, speed)) return
+                        if (!streamPhrase(playback, model.engine, segmentIndex, segment, phrase.speech, ranges, speed, silence)) return
                         continue
                     }
                     playback.diagnostics?.synthesisStarted()
@@ -932,8 +932,8 @@ internal class KokoroVoiceOutput(
     }
 
     /** Pull-style engines cannot outrun the bounded PCM queue; no complete streamed waveform is retained. */
-    private fun streamPhrase(playback: Playback, engine: VoicePhraseEngine, segmentIndex: Int, segment: String, text: String, ranges: List<IntRange>?, speed: Float, sourceCharacters: List<IntRange>? = null): Boolean {
-        val frames = VoiceStreamFrames(text, ranges, sourceCharacters)
+    private fun streamPhrase(playback: Playback, engine: VoicePhraseEngine, segmentIndex: Int, segment: String, text: String, ranges: List<IntRange>?, speed: Float, silence: VoiceQuietLimiter?, sourceCharacters: List<IntRange>? = null): Boolean {
+        val stream = VoiceStreamPause(VoiceStreamFrames(text, ranges, sourceCharacters), silence)
         val streamStart = playback.captions.streamStart()
         val timedCaptions = playback.onRange != null || playback.onTimedRange != null
         val started = SystemClock.elapsedRealtime()
@@ -943,16 +943,16 @@ internal class KokoroVoiceOutput(
         consumeVoiceStream(engine, text, playback.voice.speakerId, speed, { active === playback }) { chunk ->
             val callbackStarted = SystemClock.elapsedRealtime()
             val productionMs = (callbackStarted - lastProducedAt).coerceAtLeast(0)
-            val cues = frames.accept(chunk)
+            val retained = stream.accept(chunk)
             // Native text projection omits source ranges when captions are disabled. Its
             // expanded speech offsets then belong to the normalized input, not the segment.
-            playback.captions.appendStream(segmentIndex, segment, streamStart, if (timedCaptions) cues else emptyList(), chunk.samples.size)
-            val accepted = if (chunk.samples.isNotEmpty()) {
-                runCatching { playback.measurements?.pcmReady(productionMs, chunk.samples.size, chunk.sampleRate, engine.executionEvidence) }
-                measuredSynthesis.update {
-                    it.copy(synthesisMs = (callbackStarted - started - callbackMs).coerceAtLeast(0), generatedAudioMs = frames.frames * 1_000 / chunk.sampleRate, executionProvider = engine.executionProvider)
-                }
-                queuePcm(playback, chunk.samples, chunk.sampleRate, text.length)
+            playback.captions.appendStream(segmentIndex, segment, streamStart, if (timedCaptions) retained.cues else emptyList(), retained.samples.size)
+            measuredSynthesis.update {
+                it.copy(synthesisMs = (callbackStarted - started - callbackMs).coerceAtLeast(0), generatedAudioMs = stream.retainedFrames * 1_000 / chunk.sampleRate, executionProvider = engine.executionProvider)
+            }
+            val accepted = if (retained.samples.isNotEmpty()) {
+                runCatching { playback.measurements?.pcmReady(productionMs, retained.samples.size, chunk.sampleRate, engine.executionEvidence) }
+                queuePcm(playback, retained.samples, chunk.sampleRate, text.length)
             } else {
                 active === playback
             }
@@ -962,9 +962,9 @@ internal class KokoroVoiceOutput(
             accepted
         }
         if (active !== playback) return false
-        frames.finish()
+        stream.finish()
         val synthesisMs = (SystemClock.elapsedRealtime() - started - callbackMs).coerceAtLeast(1)
-        val audioMs = frames.frames * 1_000 / VOICE_PCM_SAMPLE_RATE
+        val audioMs = stream.retainedFrames * 1_000 / VOICE_PCM_SAMPLE_RATE
         playback.adaptive.observe(synthesisMs, audioMs, spokenWords = Regex("\\S+").findAll(text).count())
         publishExecution(playback, engine, completedPhrase = true)
         publishFeedback(playback)
@@ -1362,8 +1362,9 @@ internal class KokoroVoiceOutput(
         }
         playback.lastCaptionFrame = captionFrames
         // Neither an ahead calibration offset nor newly generated PCM may move a
-        // paused word. Do not consume the first cue before the actual first frame.
-        val changedCue = playback.captions.consumed(captionFrames, advancing)
+        // paused word. A refill may only clear an already-presented finalized word;
+        // an explicit focus pause retains its current caption until focus returns.
+        val changedCue = playback.captions.consumed(captionFrames, advancing, completedThrough = minOf(captionFrames, presented).takeIf { playback.refilling && !playback.focusState.paused })
         val canAdvance = VoicePlaybackClock.captionsAdvancing(trackPlaying, presented, captionFrames, accepted, playback.drainAt != null)
         val refresh = changedCue != null || playback.captionPlaying != canAdvance || canAdvance && now - playback.lastCaptionUpdate >= 100
         playback.captionPlaying = canAdvance

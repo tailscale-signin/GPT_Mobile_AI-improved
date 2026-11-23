@@ -65,7 +65,12 @@ internal class PrivateLocalToolSession(
         val turn = context[PrivateTurn]
         val inherited = context[RequestAuthorizationGuard]
         var denied = false
+        var generationCompleted = false
         streamPrivateRound(tools, exchanges).transformWhile { event ->
+            // Generation and authorized delivery are distinct observations. Keep
+            // the actual terminal fact even if its receiving permission expired;
+            // an upstream Failed payload cannot supply this local observation.
+            if (event == ProviderEvent.Completed) generationCompleted = true
             val allowed = try {
                 // A producer check can precede a suspended channel send. Validate
                 // the received event under this session's captured conversation,
@@ -96,7 +101,7 @@ internal class PrivateLocalToolSession(
         }.collect { emit(it) }
         // The terminating collector has unwound the producer before this local
         // denial is published. An upstream error code never grants a bypass.
-        if (denied) emit(publicationDenied())
+        if (denied) emit(publicationDenied(generationCompleted))
     }
 
     // The rendezvous boundary keeps the captured thread context on the producer
@@ -213,12 +218,13 @@ internal class PrivateLocalToolSession(
         emit(ProviderEvent.Completed)
     }.flowOn(privacy).buffer(0)
 
-    private fun publicationDenied() = ProviderEvent.Failed(
+    private fun publicationDenied(generationCompleted: Boolean) = ProviderEvent.Failed(
         "Privacy settings or request permissions changed. The response was stopped; resend with the current settings.",
         errorCode = "DISPATCH_POLICY_CHANGED",
         taskOutcome = "PARTIAL",
         failureDetails = buildJsonObject {
             put("failed_stage", "generation_permission")
+            put("generation_completed", generationCompleted)
             put("request_replay_allowed", false)
             put("logical_continuation_allowed", false)
         }

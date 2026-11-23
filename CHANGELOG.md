@@ -1,6 +1,7 @@
 # 0.9.66.15 — 2026-11-23 (integration candidate)
 
 - Add verified LiteRT Kokoro, Phonon and Pocket voice packs with real incremental PCM playback, explicit native cancellation, bounded text/cache planning and estimated caption provenance.
+- Apply Natural, Short and Minimal pause settings consistently to streaming speech across callback and phrase boundaries; keep captions aligned to retained audio and clear a completed word during a refill pause without starting an unplayed word or advancing through lost audio focus.
 - Prepare local speech earlier, calibrate the selected native voice/rate across one through four threads, adapt pending phrase size to available audio, and prevent stale voice/rate previews and warmup generations.
 - Add compatible binary Gateway speech transport and bounded native profile parsing; enforce TTS JNI retention and keep unverified processor requests separate from observed execution.
 - Bind each Gateway PCM response to its exact admitted request, preserve replacement streams during stale cleanup, and retire cancelled or stalled sends within one fixed timeout-plus-audio-duration budget while preserving synthesis limits and exact binary framing.
@@ -17,6 +18,7 @@
 - Redact retained request and cited-source text in default exports, and recheck inherited authority before each restored fallback stream event.
 - Close source-filename, terminal-detail and continuation-line privacy gaps in default exports, and preserve explicit colon forms for complete address separators.
 - Recheck privacy and inherited request authority at the receiving side of the private stream handoff, stopping revoked pending events without changing producer completion evidence or replaying output.
+- Retain the observed provider-completion fact in final accounting when receiving authority suppresses a private completion event, while keeping delivery partial, transport incomplete and replay disabled.
 
 - Add explicit revision recovery and truthful normalization receipts, prioritize pinned source/test context, continue bounded review waves, and deliver admitted saved pages before further automatic reads.
 - Preserve complete native saved pages requested by ordinary provider calls, account for app-added instructions within the unchanged replay ceiling and reserve, and retain exact delivery proof and matching-context admission.

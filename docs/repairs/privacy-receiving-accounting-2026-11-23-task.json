@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSha": "dab2d2308ae3d26a8b5614a7733107a20a6b9a14",
+  "latestObservedPublicHeadBeforeEdit": "5a63fb7370a7fbf451f76ac4fef9e69a34def029",
+  "mainSha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "task/receiver-completion-accounting-dab",
+  "parentPullRequest": 2367,
+  "owner": "speech-live-publication-coordination root",
+  "status": "IMPLEMENTED_INDEPENDENTLY_SOURCE_REVIEWED_PENDING_FINAL_PROJECT_CI",
+  "intent": "Preserve the content-free observed provider completion fact when the receiving authority suppresses a pending Completed event, without allowing completed delivery, transport success, replay, or private payloads through the denied boundary.",
+  "finding": "PrivateLocalToolSession can consume and then suppress an already-produced Completed event. Its content-free denial omits generation_completed, so real outer InvocationRoundAccounting writes generationCompleted=false despite the retained private-stream completed=true proof.",
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSession.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateReceiverGuardContractTest.kt",
+    "docs/repairs/privacy-receiving-accounting-2026-11-23-task.json"
+  ],
+  "plannedCorrection": "Observe only the private producer's actual Completed event before validating its receiving authority. Carry that Boolean in the locally constructed denial's existing generation_completed field. Never inherit completion claims from an upstream Failed payload. Preserve transportComplete=false, taskOutcome=PARTIAL, both no-replay flags, cancellation/exception identity, producer code and all original controls.",
+  "plannedRegression": "Ordinary committed tests feed actual composed private-wrapper outcomes into real InvocationRoundAccounting, inspect its final provider receipt and persisted failure evidence, and cover completed-authority denial, completed-privacy-revision denial, earlier interruption and forged upstream completion metadata. Existing nine method bodies and the original composed test remain unchanged.",
+  "qualification": {
+    "newKotlinTests": "NOT_RUN; ordinary final project CI mandatory",
+    "route": "Ordinary committed project CI; no standalone privacy runtime or local Gradle retry",
+    "finalCombinedSourceRequired": true,
+    "canonicalHostValidation": "PENDING",
+    "independentSourceReview": "SCOPED_CLEAR tls_review at exact production/test bytes; no runtime",
+    "productionImplementation": "IMPLEMENTED_INDEPENDENTLY_SOURCE_REVIEWED_PENDING_NORMAL_CI",
+    "originalNineTestMethodBodies": "BYTE_IDENTICAL independently verified",
+    "unchangedProducerBlockSha256": "8294c7b156f85856b632a4d62e7d6b233236f535eed71e6db9701c408c42c28b",
+    "testSourceFormatting": "PASS pinned ktlint1.3.1"
+  },
+  "concurrency": "Pillow source belongs to diagnostic owner; locked advisory inventory belongs to benchmark coordinator; pause/caption source is in the separate root-owned task/voice-stream-pause-577. Reconcile all public successors before the guarded append.",
+  "ledgerWrittenBeforeSourceEdit": true,
+  "updatedAt": "2026-11-23T22:03:11.957338+00:00",
+  "sourceSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSession.kt": "c847c549a81e257ceefd6ec74e8c9e7c95ef221837af9ed8ee5e44dbe088ec3e",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateReceiverGuardContractTest.kt": "98259b19e424f46ea758352466cc2db87899cf13850c6d4485be27a6a39226d7"
+  },
+  "integration": {
+    "recordedBeforeCopyAt": "2026-11-23T22:12:15.115121+00:00",
+    "publicBase": "8f84696ad0b61b805892ad9c7fbe412a2dca7359",
+    "workingBranch": "task/final-source-integration-5a63",
+    "testHandoffSha256": "4587cb7c64b0ef9ef0cc595463714464e221e09f66fd8476acdd3d59642682ee",
+    "intent": "Compose exact reviewed accounting correction with all concurrent source and final pause follow-up, preserve every guard and final gate.",
+    "plannedMetadataEditsBeforeEdit": [
+      "CHANGELOG.md",
+      "RELEASE_NOTES.md",
+      "release-scope.json",
+      "docs/architecture/feature-map.json",
+      "docs/architecture/repository-index.json",
+      "docs/architecture/repository-guide.md",
+      "app/src/main/assets/diagnostics/app-code-inventory.json",
+      "AI-Memory.md",
+      "CLAUDE.md",
+      "AGENTS.md",
+      "docs/architecture/feature-map.source.json"
+    ],
+    "metadataIntent": "Update only release15 disclosure/feature navigation and generated references for the reviewed pause and receiving-accounting source; retain all existing changes, limitations, versions, required workflows and Gateway public manifest ancestry."
+  }
+}

@@ -50,6 +50,7 @@ Production accelerator admission establishes numerical consistency on the fixed 
 
 ### Speech playback and benchmarks
 
+- Apply Natural, Short and Minimal pause settings consistently to streaming speech across callback and phrase boundaries; keep captions aligned to retained audio and clear a completed word during a refill pause without starting an unplayed word or advancing through lost audio focus.
 - Bind each Gateway PCM response to its exact admitted request, preserve replacement streams during stale cleanup, and retire cancelled or stalled sends within one fixed timeout-plus-audio-duration budget while preserving synthesis limits and exact binary framing. The default maximum transport window is 55 seconds for 30 seconds of validated PCM; it is never renewed by chunk progress.
 - Preserve typed native model-open and playback failures, including their stage, safe code, failed attempt and timeout budget. Local model setup failures remain distinct from invalid fixture text and accelerator failures.
 - Expose safely polled native attempt progress and bounded phase deadlines. Retain per-chunk frontend, preparation, synthesis, profile-finalization, validation, cache and actual CPU/accelerator evidence.
@@ -65,6 +66,7 @@ Production accelerator admission establishes numerical consistency on the fixed 
 
 ## Privacy detection, streaming and exports
 
+- Retain the observed provider-completion fact in final accounting when receiving authority suppresses a private completion event, while keeping delivery partial, transport incomplete and replay disabled.
 - Revalidate captured privacy and inherited request authority after the private stream rendezvous, suppress pending events after revocation and emit one content-free partial failure without replay while preserving producer cleanup and the collecting conversation context.
 - Omit retained source filenames, terminal error detail and free-form persisted continuation text from default diagnostic exports. Preserve typed HTTP methods, record identifiers, source revisions and line spans, with original content available through explicit forensic consent.
 - Recognize explicit address `is:` and `at:` separators while retaining ordinary address-related instructions, exact protected ranges and local restoration.

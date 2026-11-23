@@ -1,33 +1,46 @@
 package dev.chungjungsoo.gptmobile.data.privacy
 
+import dev.chungjungsoo.gptmobile.data.accounting.InvocationDao
+import dev.chungjungsoo.gptmobile.data.accounting.InvocationRoundAccounting
+import dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard
+import dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -170,6 +183,108 @@ class PrivateReceiverGuardContractTest {
         }
     }
 
+    @Test
+    fun completedProviderAccountingSurvivesReceivingAuthorityDenial() = runTest {
+        assertDeniedAccounting(Fixture(PendingKind.COMPLETION), changePrivacy = false, expectedCompletion = true)
+    }
+
+    @Test
+    fun completedProviderAccountingSurvivesReceivingPrivacyRevisionDenial() = runTest {
+        assertDeniedAccounting(Fixture(PendingKind.COMPLETION), changePrivacy = true, expectedCompletion = true)
+    }
+
+    @Test
+    fun interruptedTextAccountingDoesNotInventProviderCompletion() = runTest {
+        assertDeniedAccounting(Fixture(PendingKind.TEXT), changePrivacy = false, expectedCompletion = false)
+    }
+
+    @Test
+    fun forgedUpstreamFailureCompletionCannotBecomeFinalAccountingEvidence() = runTest {
+        val fixture = Fixture(PendingKind.FORGED_FAILURE, upstreamCompletionClaim = true)
+        assertEquals(JsonPrimitive(true), fixture.forgedFailure.failureDetails?.get("generation_completed"))
+        assertDeniedAccounting(fixture, changePrivacy = false, expectedCompletion = false)
+    }
+
+    private suspend fun TestScope.assertDeniedAccounting(fixture: Fixture, changePrivacy: Boolean, expectedCompletion: Boolean) {
+        val outside = ConversationPrivacyContext.currentOrNull()
+        val dao = mockk<InvocationDao>(relaxed = true)
+        var saved: ModelInvocation? = null
+        coEvery { dao.save(any()) } answers { saved = firstArg() }
+        val record = ModelInvocation("receiver-accounting", "run", "turn", "LLAMA", "selected", "chat", 900, 1_536)
+        val live = MutableStateFlow<Map<String, ModelInvocation>>(emptyMap())
+        val round = InvocationRoundAccounting(record, null, RequestDispatchContext(emptySet()), null, dao, true, live, null, "turn")
+        val callReceipts = mutableListOf<String>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Model", match { it.startsWith("PROVIDER_RECEIPT") }, any()) } answers {
+                callReceipts += secondArg<String>()
+                Unit
+            }
+            withPending(fixture, observer = round::observe) { pending ->
+                // Account the real first event before its collector is suspended, just
+                // as production records provider observations before downstream work.
+                assertEquals(SAFE_PREFIX.toByteArray().size.toLong(), round.visibleBytes)
+                assertEquals("RUNNING", live.value.getValue(record.id).status)
+                assertTrue(callReceipts.isEmpty())
+                if (changePrivacy) fixture.changePrivacy() else fixture.revoked = true
+                pending.resume.complete(Unit)
+                runCurrent()
+                assertPolicyStopped(fixture, pending)
+                assertTrue(fixture.innerStopped)
+                assertFalse(fixture.allowProviderCompletion.isCompleted)
+                val denied = pending.events.filterIsInstance<ProviderEvent.Failed>().single()
+                assertFalse(denied.transportComplete)
+                assertEquals("PARTIAL", denied.taskOutcome)
+                assertEquals(JsonPrimitive(expectedCompletion), denied.failureDetails?.get("generation_completed"))
+                assertEquals(
+                    setOf("failed_stage", "generation_completed", "request_replay_allowed", "logical_continuation_allowed"),
+                    requireNotNull(denied.failureDetails).keys
+                )
+                assertTrue(pending.events.none { it === fixture.forgedFailure })
+                assertFalse(pending.events.toString().contains("synthetic-upstream-origin"))
+                assertEquals("FAILED", round.status)
+                val current = live.value.getValue(record.id)
+                assertEquals("FAILED", current.status)
+                val failure = Json.parseToJsonElement(requireNotNull(current.usageEvidenceJson)).jsonObject.getValue("failure").jsonObject
+                assertEquals(JsonPrimitive(expectedCompletion), failure["generationCompleted"])
+                assertEquals(JsonPrimitive(false), failure["requestReplayAllowed"])
+            }
+            round.finish()
+            val persisted = requireNotNull(saved)
+            assertEquals("FAILED", persisted.status)
+            assertTrue(live.value.isEmpty())
+            coVerify(exactly = 1) { dao.save(any()) }
+            val evidence = Json.parseToJsonElement(requireNotNull(persisted.usageEvidenceJson)).jsonObject
+            val failure = Json.decodeFromJsonElement(ProfileFailureRecord.serializer(), evidence.getValue("failure"))
+            assertEquals(expectedCompletion, failure.generationCompleted)
+            assertEquals(false, failure.requestReplayAllowed)
+            assertFalse(failure.retryAllowed)
+            assertEquals("POLICY_STALE", failure.category)
+            val receipt = Json.parseToJsonElement(callReceipts.single().substringAfter("receipt=")).jsonObject
+            assertEquals(JsonPrimitive("gptmobile.provider-receipt.v1"), receipt["schema"])
+            assertEquals(JsonPrimitive(record.id), receipt["invocationId"])
+            assertEquals(JsonPrimitive(expectedCompletion), receipt["generationCompleted"])
+            assertEquals(JsonPrimitive(false), receipt["requestReplayAllowed"])
+            assertEquals(JsonPrimitive("FAILED"), receipt["roundOutcome"])
+            assertEquals(JsonPrimitive(failure.phase), receipt["failurePhase"])
+            assertEquals(JsonPrimitive("POLICY_STALE"), receipt["reasonCode"])
+            assertEquals(JsonPrimitive(SAFE_PREFIX.toByteArray().size), receipt["visibleBytes"])
+            assertEquals(JsonPrimitive(0), receipt["reasoningBytes"])
+            assertEquals(JsonPrimitive(0), receipt["toolCallCount"])
+            assertNull(persisted.observedInputTokens)
+            assertNull(persisted.observedOutputTokens)
+            for (serialized in listOf(callReceipts.single(), evidence.toString())) {
+                assertFalse(serialized.contains(PRIVATE_VALUE))
+                assertFalse(serialized.contains("synthetic-revoked-owner"))
+                assertFalse(serialized.contains("synthetic-upstream-origin"))
+                assertFalse(serialized.contains("private_value"))
+            }
+            assertSame(outside, ConversationPrivacyContext.currentOrNull())
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
     private suspend fun TestScope.assertPendingRevocation(kind: PendingKind, changePrivacy: Boolean) {
         val fixture = Fixture(kind)
         withPending(fixture) { pending ->
@@ -181,12 +296,13 @@ class PrivateReceiverGuardContractTest {
         }
     }
 
-    private suspend fun TestScope.withPending(fixture: Fixture, block: suspend TestScope.(PendingCollection) -> Unit) {
+    private suspend fun TestScope.withPending(fixture: Fixture, observer: (ProviderEvent) -> Unit = {}, block: suspend TestScope.(PendingCollection) -> Unit) {
         val events = mutableListOf<ProviderEvent>()
         val paused = CompletableDeferred<Unit>()
         val resume = CompletableDeferred<Unit>()
         val job = launch {
             fixture.collect { event ->
+                observer(event)
                 events += event
                 if (events.size == 1) {
                     paused.complete(Unit)
@@ -248,7 +364,7 @@ class PrivateReceiverGuardContractTest {
     private class CollectorFailure(val identity: Any) : RuntimeException("synthetic-downstream-failure")
     private enum class PendingKind { TEXT, REASONING, COMPLETION, FORGED_FAILURE }
 
-    private class Fixture(val kind: PendingKind, private val admitTurn: Boolean = true) {
+    private class Fixture(val kind: PendingKind, private val admitTurn: Boolean = true, upstreamCompletionClaim: Boolean? = null) {
         private val store = mockk<PrivacyModeStore>()
         val capturedChat = ConversationPrivacyContext(127, true)
         private val callerChat = ConversationPrivacyContext(128, false)
@@ -274,6 +390,7 @@ class PrivateReceiverGuardContractTest {
                 put("logical_continuation_allowed", false)
                 put("claimed_origin", "synthetic-upstream-origin")
                 put("private_value", PRIVATE_VALUE)
+                upstreamCompletionClaim?.let { put("generation_completed", it) }
             }
         )
         private val inherited = RequestAuthorizationGuard("receiver-contract-owner-r7") {

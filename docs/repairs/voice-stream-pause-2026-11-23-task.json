@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSHA": "577ea512252b89f41fdfd1b90470b250700c0b0a",
+  "baseTree": "600b2c30f52c40ebe4e8dff9211b82fb32c10242",
+  "workingBranch": "task/voice-stream-pause-577",
+  "parentPR": 2367,
+  "recordedBeforeSourceEditAt": "2026-11-23T21:18:16.228628+00:00",
+  "intent": "Restore playback-scoped pause-duration limiting in Gateway and MediaPipe streaming output while preserving incremental PCM, native validation, bounded backpressure and accurate cues/queued-frame/adaptive-duration accounting.",
+  "observation": "Confirmed at pinned 577ea512252b89f41fdfd1b90470b250700c0b0a: synthesize creates one playback-scoped limiter, but both streaming branches omit it and streamPhrase accounts raw samples/frames. Existing complete-phrase filtering already carries quiet state across phrases.",
+  "ownership": "Root coordinator reserves this integration follow-up; original streaming owner retains its separate GitHubBoundTransport canonical-argument fixture.",
+  "constraints": [
+    "Use one playback-scoped limiter across callback and phrase boundaries; do not buffer complete neural output.",
+    "Validate raw PCM before trimming and preserve requested/effective engine, private dispatch and cancellation fences.",
+    "Remap phrase-global cues onto retained audio; handle future/late cues, fully trimmed chunks and natural identity.",
+    "Preserve all previous tests, bounded memory/backpressure and truthful captions/frames/duration.",
+    "No model download/execution, build-memory admission bypass, privacy harness, refs, pushes or publications in delegated source task."
+  ],
+  "validation": {
+    "sourceReview": "SCOPED_CLEAR_BY_ROOT_AND_INDEPENDENT_REVIEWER_AT_FINAL_SHA256",
+    "ordinaryAudioRegressions": {
+      "status": "PASS",
+      "suite": "dev.chungjungsoo.gptmobile.data.voice.VoiceQuietLimiterTest",
+      "tests": 3,
+      "failures": 0,
+      "junitSeconds": 0.034,
+      "source": "Full actual KokoroPcmBatches.kt and full ordinary VoiceQuietLimiterTest.kt; no stubs or extracted declarations.",
+      "compiler": "Kotlin2.4.20",
+      "junit": "JUnit4.13.2",
+      "java": "OpenJDK21.0.13",
+      "dependencies": "All ten compiler/runtime/test artifacts SHA256-match gradle/verification-metadata.xml. Compiler dependency versions match its pinned POM.",
+      "manifestPath": "/workspace/scratch/da4162210969/voice-stream-pause-validation/quiet-test-manifest.json",
+      "manifestSha256": "ca4663b5900f2784b21a9feb968f521b08c481c52144caaf15a7f2ebfdc1d44c",
+      "compileExit": 0,
+      "testExit": 0
+    },
+    "kotlinStyle": {
+      "status": "PASS",
+      "version": "ktlint1.3.1",
+      "files": 9,
+      "followUpRecheckedFiles": 4,
+      "unchangedPreviouslyCheckedFiles": 5
+    },
+    "diffCheck": "PASS",
+    "mapperCaptionOutputRuntime": "NOT_RUN_LOCALLY_REQUIRED_NORMAL_CI",
+    "canonicalComposed": "ROOT_REQUIRED",
+    "finalProjectCI": "REQUIRED",
+    "originalMethodPreservation": {
+      "status": "PASS",
+      "VoicePcmCaptionsTest": 5,
+      "KokoroStreamingOutputTest": 3,
+      "detail": "All eight baseline ordinary test method bodies remain byte-identical to pinned577 source."
+    }
+  },
+  "status": "SOURCE_FROZEN_REVIEWED_READY_FOR_ROOT_INTEGRATION_REQUIRED_CI",
+  "ownedPathsBeforeSourceEdit": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPauseTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt",
+    "docs/repairs/voice-stream-pause-2026-11-23-task.json"
+  ],
+  "design": [
+    "Pass the existing playback-scoped limiter into both streaming paths; preserve the complete-phrase filter and its boundary remapping.",
+    "Validate each raw chunk and cue sequence through VoiceStreamFrames before changing limiter or timing state.",
+    "A per-phrase mapper retains 135004 bytes of primitive removed-frame/rank storage at the existing 720000-frame limit, plus bounded object headers and at most 2048 raw cue objects; never complete-phrase PCM. Natural allocates no rank arrays. One displayed open cue is revised in place rather than queued per callback.",
+    "For trimmed modes, release complete cues and the one straddling cue's observed retained prefix. Update that single caption in place with stable start/source/provenance and bounded nondecreasing end. Omit fully removed words. Natural preserves immediate raw cue/sample identity.",
+    "Use retained samples and cumulative frames for captions, numeric PCM observations, queueing and adaptive duration; preserve callback cancellation and backpressure."
+  ],
+  "additionalOwnedPathsBeforeSourceEdit": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceQuietLimiterTest.kt"
+  ],
+  "reviewCorrection": "Root and independent review rejected deferring each future cue until its complete end: a slow producer can already be playing its beginning. Instead expose the observed retained prefix with one internal incomplete marker and monotonically extend the same pending/current caption in place. Finalize once even with zero PCM and unchanged end; preserve Natural and raw provider validation.",
+  "focusedLocalValidationIntent": "Compile the complete unmodified-in-extraction KokoroPcmBatches.kt and complete ordinary VoiceQuietLimiterTest.kt using cached Kotlin 2.4.20/JUnit 4.13.2 artifacts verified against this revision's dependency metadata. No stubs, partial source ports, Gradle or Android/privacy runtime. Mapper/caption/output tests remain required normal CI.",
+  "sourceFreezeSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": "73c96062dc3f40bc988e7037b40bc17f5192e240681639501c971eaca1dc101b",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt": "36990d41041060bfe3060e0fc3ec22eaf444ad36cdad43cb4a3974a1aa4695eb",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt": "cc6814d5b9ad30aa47401ff65ff0ad0b11ec9fc25c6423c45e584b9b5ad19644",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPauseTest.kt": "45d852372f10f206004e26a93e48e305b6ee3dbe724cee3ac20f9acd21131276",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt": "35561ad52b4dd1f15c5374336428f1281e62f6dd1dad1db930de9470967fb888",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt": "c5424cb99866a2e70b204eb1fae6637e8e3d4308673a614cee860576389949a9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt": "91a94d9a4bcadb46dbb0f6cbd01e054e0e0c2d8e5d7434f8c0572082f62927ab",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt": "f18df32ee99938b70945b40d7514c64ea7ace8211dd39f4a751c1f62bc7b1cd0",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceQuietLimiterTest.kt": "02a7de2b5f3fe82c52d2a5023a46012b528a0545accc0e3ff37e933b0300bb9e"
+  },
+  "regressions": {
+    "VoiceStreamPauseTest": {
+      "methods": 12,
+      "status": "NOT_RUN_LOCALLY_REQUIRED_NORMAL_CI",
+      "covers": [
+        "Short140/Minimal70 exact caps",
+        "Natural sample/frame/cue identity including future metadata",
+        "observed prefix and next-word finalization",
+        "fully trimmed completion at unchanged end",
+        "late and metadata-only cues",
+        "fully removed intervals",
+        "cross-phrase limiter state with per-phrase cue origin",
+        "raw validation before shared limiter mutation",
+        "raw silent/incomplete limits",
+        "rank 0/63/64/65/MAX frame boundaries",
+        "30-second raw ceiling despite trimming",
+        "cancellation on a zero-output callback"
+      ]
+    },
+    "VoicePcmCaptionsTest": {
+      "methods": 13,
+      "newMethods": 8,
+      "status": "NOT_RUN_LOCALLY_REQUIRED_NORMAL_CI",
+      "covers": [
+        "all existing native boundary/source tests preserved",
+        "queued/current prefix replacement with stable start and provenance",
+        "one clear on metadata-only unchanged-end finalization",
+        "completion plus next prefix in same callback",
+        "invalid identity/backward/future revisions and overlap/reopen rejection",
+        "empty source ranges do not own an open caption",
+        "refill-only current-word completion without starting a queued next word or moving lastConsumed",
+        "completion remains bounded by actual measured presentation despite ahead caption calibration",
+        "refill cannot publish an unpresented first cue or repeat its completion"
+      ]
+    },
+    "KokoroStreamingOutputTest": {
+      "methods": 11,
+      "newMethods": 8,
+      "status": "NOT_RUN_LOCALLY_REQUIRED_NORMAL_CI",
+      "covers": [
+        "all existing output/retirement/privacy controls preserved unchanged",
+        "real output workers/caption queue with deterministic synthetic engines for both requiresKokoroAssets branches",
+        "all three pause modes through actual recorded AudioTrack writes",
+        "cross-segment quiet continuity and fully trimmed final phrase",
+        "numeric PCM counts and final zero-retained feedback",
+        "producer stalled until actual first spoken caption, then until exact7200-frame clear; includes Short/Minimal/Natural controls",
+        "first-caption write assertion allows legitimate first-slice scheduling",
+        "both streaming branches and Short/Minimal drain into actual refill pause before accepting a1000-frame wholly trimmed tail; producer remains open until one exact paused clear with no additional writes",
+        "both branches and Short/Minimal retain caption through transient focus loss across repeated head polls, then clear on focus gain without new PCM or producer completion"
+      ]
+    },
+    "VoiceQuietLimiterTest": {
+      "methods": 3,
+      "status": "PASS",
+      "covers": [
+        "Short140ms continuity",
+        "Minimal70ms continuity",
+        "complete-phrase boundaries agree with grouped removed spans without mutating input"
+      ]
+    }
+  },
+  "limits": [
+    "No refs/fetch/commits/push/publication or generated reference/manifest edits by this worker.",
+    "No local Android/Gradle/privacy harness, SDK/model execution/download, or hardware/acoustic/performance claim.",
+    "Local3-test execution covers the actual shared limiter/span callback only; it is not mapper/caption/output or final-project qualification.",
+    "Output branch regressions use synthetic engines and deterministic AudioTrack writes; actual Gateway decoder, MediaPipe adapter and model/JNI smokes remain separate normal CI.",
+    "Current numeric pcmReady observer omits wholly trimmed callback production time because it records positive PCM events; final adaptive/feedback synthesis includes all producer time. The existing benchmark selects Natural. No claim of full engine time from trimmed pcmReady totals."
+  ],
+  "independentReview": {
+    "reviewer": "/root/tls_review",
+    "result": "SCOPED_CLEAR",
+    "scope": "All five production and four test files at sourceFreezeSha256; four reopened consumer/test files independently reviewed in full and other five hashes verified unchanged. Root also reports source clear.",
+    "resolvedFindings": [
+      "Deferred future cue onset replaced by observed retained-prefix/in-place extension.",
+      "First-caption write assertion permits first-slice scheduling while retaining exact final7200-frame clear and total.",
+      "Zero-retained finalization during refill now emits only the current word completion bounded by caption cursor, last advancing consumption and measured presentation; no next onset or clock movement; explicit focus pause remains authoritative."
+    ],
+    "runtime": "NOT_EXECUTED_BY_REVIEWER"
+  },
+  "refillCompletionFollowUpBeforeSourceEdit": {
+    "recordedAt": "2026-11-23T22:13:55.066705+00:00",
+    "finding": "After the track drains and enters refill pause, a zero-retained callback can finalize the active word but consumed(advancing=false) defers its due clear until refill/completion. Earlier finalization worker test supplied positive PCM and did not cover this.",
+    "source": "Root and peer PR2367 comment7115384919; initial source clear superseded for this newly identified consumer path.",
+    "previousFrozenSha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": "6fcead523712dde5eb73eb301242a7afda5786210a27704db65ca9cc7d6b0e4a",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt": "36990d41041060bfe3060e0fc3ec22eaf444ad36cdad43cb4a3974a1aa4695eb",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt": "cc6814d5b9ad30aa47401ff65ff0ad0b11ec9fc25c6423c45e584b9b5ad19644",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPauseTest.kt": "45d852372f10f206004e26a93e48e305b6ee3dbe724cee3ac20f9acd21131276",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt": "853afbcf2a04b7ca6a18eb24d44943f4370ce91f96450eda8638fac455eef5e7",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt": "c5424cb99866a2e70b204eb1fae6637e8e3d4308673a614cee860576389949a9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt": "a7104ffa3734f749c1600104f7564743ecfdfe85bb30cda954bcf9ccdef86783",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt": "da587fb35d07359f078eed9064f7ae15af70a2581d09e737c3e898df26d016c0",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceQuietLimiterTest.kt": "02a7de2b5f3fe82c52d2a5023a46012b528a0545accc0e3ff37e933b0300bb9e"
+    },
+    "ownedFollowUpPaths": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt",
+      "docs/repairs/voice-stream-pause-2026-11-23-task.json"
+    ],
+    "intent": "Publish only an already-due completed-word clear during refill pause, never advance the frozen caption clock or consume a next-word start. Keep explicit focus pause authoritative. Add actual worker tests for both streaming branches and Short/Minimal with producer held open after a fully trimmed final tail."
+  },
+  "previousIndependentReview": {
+    "reviewer": "/root/tls_review",
+    "result": "SCOPED_CLEAR",
+    "scope": "All five production and four test files at sourceFreezeSha256; no remaining concrete production or regression blocker.",
+    "resolvedFindings": [
+      "Deferred future cue onset replaced by observed retained-prefix/in-place extension.",
+      "First-caption write assertion permits first-slice scheduling while retaining exact final7200-frame clear and total."
+    ],
+    "runtime": "NOT_EXECUTED_BY_REVIEWER"
+  },
+  "refillCompletionFollowUp": {
+    "frozenAt": "2026-11-23T22:24:53.265023+00:00",
+    "productionChange": "A stopped caption consumer may consume only its current word first queued empty completion marker, and only through min(frames,lastConsumed,completedThrough). It resets currentRevised and leaves lastConsumed/next-word starts unchanged. Output supplies min(captionFrames,presented) only during refill without focus pause. Existing advancing and drain behavior is unchanged.",
+    "changedKotlinFiles": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt"
+    ],
+    "newOrdinaryMethods": {
+      "VoicePcmCaptionsTest": 3,
+      "KokoroStreamingOutputTest": 4
+    },
+    "workerScenarios": 8,
+    "workerFixture": "Actual output workers with deterministic synthetic streaming engines and AudioTrack shadow; Short retains5760 frames, Minimal4080, followed by1000 fully trimmed raw frames. Producer held open until exact single clear before completion; focus variants require repeated paused head polls and later gain.",
+    "runtime": "NOT_RUN_LOCALLY_REQUIRED_NORMAL_CI",
+    "review": "SCOPED_CLEAR_BY_ROOT_AND_INDEPENDENT_REVIEWER",
+    "totalMethodsInFourTestFiles": 39,
+    "newMethodsAgainstPinnedBase": 31,
+    "locallyExecutedMethods": 3,
+    "localExecutionScope": "Unchanged full actual shared limiter source and three ordinary limiter tests only; no mapper/caption/Android/output/runtime execution."
+  },
+  "integration": {
+    "recordedBeforeCopy": true,
+    "recordedAt": "2026-11-23T22:05:00.267943+00:00",
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "publicBase": "8f84696ad0b61b805892ad9c7fbe412a2dca7359",
+    "workingBranch": "task/final-source-integration-5a63",
+    "intent": "Compose the final independently reviewed pause/refill caption correction and completion accounting with all public successors; separate owner implements paired fictional privacy comparison before final qualification.",
+    "handoffSha256": "32b458f510801f4e9810449caf8a7ba9e195f723b0da4750219ee934c4419d67",
+    "originalLedgerSha256": "f07c991c2444bf7200a68c9f9226212783d8872c8a8e0c29dfb9ff5c6d480528",
+    "sourceAndTestHashesUnchanged": true,
+    "qualification": "PENDING_FINAL_COMPOSED_TREE",
+    "preservedConcurrentUpdates": [
+      "dab2 voice-entry scrolling",
+      "5a63 Pillow13 pin",
+      "9b locked advisory coverage",
+      "dc53 selected-voice notice fixture",
+      "8f FontTools4.60.2 pin"
+    ],
+    "plannedMetadataEditsBeforeEdit": [
+      "CHANGELOG.md",
+      "RELEASE_NOTES.md",
+      "release-scope.json",
+      "docs/architecture/feature-map.json",
+      "docs/architecture/repository-index.json",
+      "docs/architecture/repository-guide.md",
+      "app/src/main/assets/diagnostics/app-code-inventory.json",
+      "AI-Memory.md",
+      "CLAUDE.md",
+      "AGENTS.md",
+      "docs/architecture/feature-map.source.json"
+    ],
+    "metadataIntent": "Update only release15 disclosure/feature navigation and generated references for the reviewed pause and receiving-accounting source; retain all existing changes, limitations, versions, required workflows and Gateway public manifest ancestry.",
+    "followupRecordedBeforeCopyAt": "2026-11-23T22:25:43.486285+00:00"
+  }
+}

@@ -2,7 +2,8 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 import java.util.concurrent.CancellationException
 
-internal data class VoiceStreamCue(val range: IntRange, val startFrame: Long, val endFrame: Long, val provenance: VoiceWordCueProvenance)
+/** finalEnd is false only for an internally mapped, observed prefix; provider cues have a fixed end. */
+internal data class VoiceStreamCue(val range: IntRange, val startFrame: Long, val endFrame: Long, val provenance: VoiceWordCueProvenance, val finalEnd: Boolean = true)
 
 /** Never close a producer from a playback callback; its synthesis owner retires it after this returns. */
 internal fun consumeVoiceStream(engine: VoicePhraseEngine, text: String, speaker: Int, speed: Float, active: () -> Boolean, emit: (VoicePcmChunk) -> Boolean) {

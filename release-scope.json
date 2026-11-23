@@ -38,7 +38,8 @@
     "Align GitHub verification fixtures with physical dispatch ownership, selected-connection continuations, revision/blob/range receipts and the test scheduler while preserving production acceptance and timeout policies.",
     "Refresh current Gateway 18.1.2 capability fixtures from the actual HTTP response, preserve all non-version fields and historical contracts, and bind the strict package manifest to the immutable fixture source.",
     "Bind the concurrent graph revision fixture to the complete native resolve-context result, including the separately owned commit and recursive-tree reads, while preserving revision rejection, authorization and zero-mutation assertions.",
-    "Reuse the independently verified public model-checksum history correction with exact path, field and digest matching and six real-scanner controls; preserve the pinned scanner, full reachable-history gate and complete redaction."
+    "Reuse the independently verified public model-checksum history correction with exact path, field and digest matching and six real-scanner controls; preserve the pinned scanner, full reachable-history gate and complete redaction.",
+    "Reuse the reviewed direct PowerShell producer fixture deadline of 30 seconds after an observed 15-second shared-runner timeout, preserving all scenarios and assertions, the production 12-second probe limit, the 120-second test-module bound, and strict package-manifest source integrity."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -222,6 +223,7 @@
     "docs/repairs/markdown-cache-jvm-boundary-2026-11-23-task.json",
     "docs/repairs/phone-index-deadline-order-fixtures-2026-11-23-task.json",
     "docs/repairs/pr2363-model-pin-history-scan-2026-11-23-task.json",
+    "docs/repairs/pr2363-powershell-producer-deadline-2026-11-23-task.json",
     "docs/repairs/release-lint-main-timeout-2026-11-23-task.json",
     "docs/repairs/speech-fresh-cancellation-progress-2026-11-23-task.json",
     "docs/repairs/speech-playback-reliability-2026-11-23-task.json",
@@ -229,6 +231,7 @@
     "gateway/contracts/v18/capabilities.json",
     "gateway/contracts/v18/gateway-v18-capabilities-full.json",
     "gateway/manifest-v14.json",
+    "gateway/tests/test_gateway_connection_diagnostics.py",
     "gateway/v14/__init__.py",
     "local-kokoro-runtime/src/main/cpp/CMakeLists.txt",
     "local-kokoro-runtime/src/main/cpp/kokoro_execution_provider.h",

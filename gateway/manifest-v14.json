@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "18.1.2",
   "schemaVersion": 1,
-  "sourceCommit": "681f2707eef4ce4d63ecb8c42455aee7dc0a7da5",
+  "sourceCommit": "b20d90872341bedf0b70b73657297360e9335542",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -253,7 +253,7 @@
     "tests/test_gateway_capabilities.py": "07004e429de289a6c6bc1fe6328de1a7c8aa7790a185878986948464ffc70b2f",
     "tests/test_gateway_command_outcomes.py": "af672663eca137a980de6cf98dbd9cef253fc8fa019cfbfc79fde2946e9d771a",
     "tests/test_gateway_completion_recovery.py": "769c6bc17c452598d93bd5b9e27a2a78215c59deb1875390852ecfaab732e9a4",
-    "tests/test_gateway_connection_diagnostics.py": "0b237db0f445f5eebfb0d0c91f3e8d0ca1bd4c2c1bc6f8dba0a0bc6ef7cc0361",
+    "tests/test_gateway_connection_diagnostics.py": "ec7003819ea5ab14fde13b718c704d892a66a563563a50d57af03cf32bec3634",
     "tests/test_gateway_connection_soak.py": "621c4034ee248f665ef1f04ddd2d78dcb129885f9bb3772121d429841333a607",
     "tests/test_gateway_context_completion.py": "e28ba3ffe79457d3912b9de40e9a954a1402eeca379a90385746b05c2cc95d73",
     "tests/test_gateway_context_experiment.py": "5cf1d2bddd8279fc1b021c59778e01f0ec52dc02ca228efe7f6ecad563014d19",

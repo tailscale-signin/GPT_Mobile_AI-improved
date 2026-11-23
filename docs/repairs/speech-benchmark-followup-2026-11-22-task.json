@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "starting_head": "12b34b08ce5a8bb8ff3535b25d2d2b0d730ccd9e",
+  "parent_pr": 2254,
+  "intent": "Implement all reviewed speech benchmark, native qualification, diagnostics, shape reuse, statistics/history, settings and production playback measurement changes; integrate concurrent work and complete exact-head/main validation and signed publication.",
+  "authorization": "User explicitly authorized every proposed feature, draft push, green-check merge, exact-main verification and publication; preserve concurrent commits.",
+  "status": "IMPLEMENTED_INTEGRATED_LOCAL_GREEN_AWAITING_FINAL_HEAD_CI",
+  "requirements": [
+    "S01 Shared native-bounded production phrase workload with complete long utterance coverage",
+    "S02 Versioned qualification with invalid-input isolation and obsolete failure invalidation",
+    "S03 Typed per-attempt fixture, repeat, chunk and safe input diagnostics",
+    "S04 Separate run lifecycle, comparison outcome and actual execution evidence",
+    "S05 Per-fixture statistics and explicit percentile/sample-count semantics",
+    "S06 Version-aware history with source commit identity",
+    "S07 Voice/rate-bound Auto qualification and settings identity",
+    "S08 Bounded exact-shape session reuse and varied-shape benchmark",
+    "S09 Bounded actual GPU discovery evidence and supported hardware selection",
+    "S10 Explicit profiling availability and shape-scoped profile identity",
+    "S11 Structural/non-silent/level/clipping validation with truthful measurement limits",
+    "S12 Production playback measurements using the normal queue and presented-audio caption clock",
+    "S13 Balanced-order metadata, unknown-thermal policy and partial result retention",
+    "S14 Real native contract and regression coverage, all applicable CI, merge and publication"
+  ],
+  "validation": [
+    {
+      "scope": "Native C++ CTest",
+      "result": "passed",
+      "tests": 5,
+      "runtime": "pinnedORT1.28.2; actualQNN-emulator tests separately identified"
+    },
+    {
+      "scope": "Pinned-model JNI integration",
+      "result": "passed",
+      "details": "128/129/268-byte frontend boundaries, immutable failure evidence, non-silent PCM/timing, cancellation/reset"
+    },
+    {
+      "scope": "Production Kotlin planner plus actual pinned CPUJNI",
+      "result": "passed",
+      "fixtures": 3,
+      "native_chunks": 7,
+      "voice": "HEART speaker3",
+      "rate": 1.25,
+      "threads": 2,
+      "details": "all planned words/token duration-to-PCM contracts; positive finite RMS; original rawLONG still correctly refuses128-byte limit"
+    },
+    {
+      "scope": "Final actual QNN HTP emulator",
+      "result": "passed",
+      "token_shapes": [
+        17,
+        31,
+        83
+      ],
+      "qnn_kernels_per_shape": 39,
+      "physical_device_qualified": false,
+      "adapter_sha256": "f16e5183d2264f17ccea9bae6db7acd68c55ab7361524cebeafcca127168db6a",
+      "jni_sha256": "aec85737384db8237ebe5107f03ad290d655e9c704fcac512a41d7b26d6b63e3",
+      "known_limit": "83-token QNN output is50ms longer than CPU; eachdurationarraymatchesitsownPCM; no perceptual equivalence asserted"
+    },
+    {
+      "scope": "Factory/cache/failover/qualification Kotlin and Robolectric",
+      "result": "passed",
+      "tests": 46
+    },
+    {
+      "scope": "Benchmark core/playback collector and live performance export",
+      "result": "passed",
+      "tests": 42
+    },
+    {
+      "scope": "AtomicFile history store Robolectric",
+      "result": "passed",
+      "tests": 5
+    },
+    {
+      "scope": "Backend ViewModel and preference ownership Robolectric",
+      "result": "passed",
+      "tests": 5,
+      "boundaries": "unrelated repository and Gateway transport; actual ViewModel/preferences/factory/cache and Android APIs"
+    },
+    {
+      "scope": "Production audio/player plus benchmarkViewModel/ComposeSettings",
+      "result": "passed",
+      "details": "Kotlin2.4.20, AndroidAPI37, actualproduction source; unrelated installer/diagnostic/logging sinks explicit boundaries;23 actual normalization tests; affected advanced tuning status compiled; final source hashes stable"
+    },
+    {
+      "scope": "Androidarm64 source syntax",
+      "result": "passed",
+      "details": "NDK29/API31 actual runtime and adapter"
+    },
+    {
+      "scope": "Canonical local fast",
+      "result": "passed",
+      "details": "Passed combined speech/context tree after preserving5073b216 and83e792: all635 repository tests, reference/audit regeneration, policy, dependencies, secret scan, regex, resources and whitespace.",
+      "tests": 635
+    },
+    {
+      "scope": "Exact final-head PR checks / exact-main verification / signedAndroid+Gateway publication readback",
+      "result": "pending"
+    }
+  ],
+  "limitations": [
+    "Physical GPU availability, target-phone latency, acoustic output, energy and perceptual quality require actual measurements; host checks cannot manufacture those results."
+  ],
+  "concurrency": "Separate owned source areas in an isolated checkout; compare remote head before guarded publication and reconcile every incoming commit.",
+  "integrated_concurrent_heads": [
+    "8f2ba28c3f9d0a26602923fc28cc5421ad40d604",
+    "753d07cde88fd58f8c90ca266c5450c66838a6c6",
+    "5073b216146a4a14b4c250de41097838b91f7528",
+    "83e7929512444ad60e2586797f87364c743c873f"
+  ],
+  "implementation": {
+    "S01": "One/two/four production chunks preserve SHORT/MEDIUM/LONG;128-byte strict preflight;separate native/changing-shape workloads.",
+    "S02": "Versioned workload/runtime and exact fixture identity; input faults neither blacklist hardware nor replay invalid input on CPU.",
+    "S03": "Typed native byte/token/provider/stage context and immutable current failed-attempt profile/cache/audio evidence; no phrase or PCM export.",
+    "S04": "Lifecycle, execution observation and comparison qualification are independent; completed invalid comparisons do not imply success.",
+    "S05": "Per-fixture cold/warm totals, first chunk PCM, conventional median and descriptive nearest-rank p95; exact10percent complete-cost threshold.",
+    "S06": "Schema2 fixture protocol/hash/source identity; historical schema1 readable and ineligible for current qualification.",
+    "S07": "Selected voice/rate plus model/runtime/device/lexicon/threads/workload-bound capabilities; ordinary startup validates actual first requested phrase.",
+    "S08": "Exact-shape LRU max2 with640MiB estimated retention budget and512MiB available headroom; one model when memory unknown/insufficient; no token padding.",
+    "S09": "Actual available Qualcomm OpenCL GPU proof; ORT hardware record uses original QNN factory vendor namespace; still requires real QNN kernels and valid audio.",
+    "S10": "Explicit profile availability, ID/reuse, cached versus current preparation; null counters for uncollected/unknown profiles across diagnostics, benchmarks and performance export.",
+    "S11": "Finite, aligned and non-silent audio, RMS/peak/clipping/non-silent counts; no fabricated perceptual/acoustic/energy equivalence.",
+    "S12": "Separate fixed-fixture production queue/AudioTrack/caption-clock test; all chunks and distinct expected/observed word spans checked; audio-stop timing separated from native retirement.",
+    "S13": "Retained cyclic backend order; all known cool thermal observations required for rankings; successful partial chunks persist; explicit Auto comparison360s, ordinary startup30s.",
+    "S14": "Component/native/actual planned-utterance regressions implemented; exact final-head/main/release gates remain required."
+  },
+  "independent_review": [
+    "Core reviewer found and root fixed missing per-chunk playback proof, missing/extra caption word coverage, and empty clear-cue false failure.",
+    "Factory reviewer found and root fixed the production watchdog120s clamp for explicit360s comparison.",
+    "Independent native reviewer found wrong OpenCL-versus-QNN vendor namespace and cross-shape stale failed-attempt profile; native owner corrected and added real vendor-filter regression.",
+    "Root confirmed concurrent source commits retained; normal startup does not run hidden full qualification; full publish remains gated.",
+    "Native reviewer read back both final fixes and real QCOM-filter regression; findings closed. Live performance export and advanced status now share explicit profiling availability semantics."
+  ],
+  "publication_plan": [
+    "Guarded append to existing draft PR preserving concurrent HEAD",
+    "All applicable exact-final-head checks and source holds cleared",
+    "Expected-head merge under current strictmainrules",
+    "Exact-main verification",
+    "Coordinated signedAndroid0.9.66.13/code147 and Gateway18.1.1 publication and asset/provenance readback"
+  ],
+  "implemented_source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "c15c2c40fb272a6d33eced7e8a2701c5300c6b8b42c0a8016cd6b48f74b775e6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": "f98874c5dbcfed93cac8d8b37a10238d1b3032a6ee497fd0dc95cfeea8f5ee83",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt": "ccaaa37a588814f05243d57e06955dda19ccd4e4bf0ec91802d0ef4d5c7e6701",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStore.kt": "9cf98e614e9e4f9c696569bcd45472debcfbaca1a2209b8b835026bd06383b1b",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailoverPhraseEngine.kt": "b41bbcc077e2660be2976d48faa9fc1df1bfa27fa3085337307e3a782106e431",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt": "7ae1d32926abdc3f608c2406ab859e5e9a1285e8fbbe353117a65c95fb209175",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt": "f81e4d615347703b2bc8fc0cdcec56b72f244f2f883d29bd00b9cecbf7c64bd6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt": "72d97766b473c5ecdfe84e79c122c3900d40b68138671d499c722570a7fb6911",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt": "0394760b1dce4bff2c20f1121095b07fff7872015e1a69579d06c235a91bdac4",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt": "85ed5c8095e18dafc7c9ff8fe249d9ba397b7db50170c869974286486ce87629",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt": "784f3b1a6ff7a43085ba7638ca86a08a6d3f41342a127e15bd1ec1ab0486b731",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt": "fe24e804a4b6ca4c0501b85d493f6a9491486a4304be3d4edcb3ab7dc7c79723",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkload.kt": "d74e8f8bb10822f9bbc0117eae2b04f0a533c22dc4b9217924f2cc58733cd513",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModel.kt": "8273b281cb442eb7db108929d9e08cceb14ba18f1b54a4b335c1b3cb86ef5f8b",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": "0eb30c0ac7fecce0aa60855c4219e414ae2f3d2c13f43f30208de0da49df6748",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt": "cc4d1e92ace97fcd81b476a406da1faecc59d0670bf7d3f3b1fdcf2a9d2f6113",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkViewModel.kt": "63b107cddc5d47c920c4c80cd4c77b3490aef9500944c27e7087b77f07641cef",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningSettings.kt": "54bc4d7bbc41bdd4b0f751c74831d9e8689d55fd247d2fe09b784c82b245f027",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStoreTest.kt": "1c3a8124f762dbda76da297b20b02ff25fb77c25c4a3446f29e5edc915e62de4",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendQualificationTest.kt": "862dd5216b59109b7dcaa3a4d33e89221d0174f0d6eb0dcd8150db97f97f0e85",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailoverPhraseEngineTest.kt": "8dda3d7fcc9a04f120c3e98edd69c4f5a51aa607f0f6a1c0a731ec7e70c3a0a5",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceMeasuredBackendPolicyTest.kt": "62cf958b0842fa5cbe13e2ca7d40ab9e9bfcca66645194b9f2fe42a06dc27dbb",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt": "4d6526d482fe3a116c4c3a99bc1d2d19733e22e4cd034e7411b21974e5d877bd",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStoreTest.kt": "3a78bc594b676c0859555894ae4c945a8415a9c360be5717c89e41c18a75f8b4",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt": "61ec6239f04b7f4287ff8c58acb8d60fe5e2b87466b93c927c1b966b8441a5e5",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt": "b618d477d0f16a4acca122b704dfa0dbbda0a63cbef109b787559bf2feef404e",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackMeasurementTest.kt": "d756e6c1952c9605743e69332760956dbda925623a78962a21c913d77973fbb1",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkloadTest.kt": "9b792db5928a0b1ae581f8fb1f292308f5d9ceb3e694c0b621709edc560441c1",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModelTest.kt": "a86d8aacfe40012c6be7e6ae8d947b98547bcbde1e86543ac965d8ee1448c981",
+    "local-kokoro-runtime/src/main/cpp/kokoro_execution_provider.h": "bb398dc39660a36b9cc83ea8aad3020ed9564f3629cc8457a248121a8fb6e410",
+    "local-kokoro-runtime/src/main/cpp/kokoro_gpu_discovery.h": "b1507081fb7578f90a4bbb4e51724162fa6359145f848af5adcee415b53851d3",
+    "local-kokoro-runtime/src/main/cpp/kokoro_measurement.h": "04f77d08a9c855774a6bfde5ea41d42df0f89bdf446b55c36d075e7539348116",
+    "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp": "baba00c3811d9ac5676de338ca5a048d042f608d8b63d72f6a0bfb0f1a276bb1",
+    "local-kokoro-runtime/src/main/cpp/kokoro_qnn_adapter.cpp": "287da2c914e2c0d82864360578ae1fd0e3707cdf11faaf7f157c8f6fae3fb0c7",
+    "local-kokoro-runtime/src/main/cpp/kokoro_qnn_adapter_test.cpp": "ad4529a26e63fd3438e799941202c28166fe72f2c3fb82a48c08293281933d89",
+    "local-kokoro-runtime/src/main/cpp/kokoro_shape_cache.h": "9d9b3463fff97920f2f1a1478b68448ace0e225bfec347018496a32e3b7b90c4",
+    "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp": "6a8cc8cdd0bc29d093f204b407e00423276cdde7202d59041e517b444fd09301",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java": "61586f26f1d8533a9ab8760624223c5f4fc8b0ee4e01baf78e1f5f2949548c8e",
+    "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeIntegration.java": "3bce4d3ff67b7f40a1db4359d5615b62523fb1bd022e9d31d64cf572e4a8ee17"
+  },
+  "prepared_speech_commit": "7daf0a2d275e298c5fe5fcfbc133bf85d0a9dc54",
+  "concurrent_publication_reconciliation": "Expected-head update encountered concurrent83e792. Read back branch/parents before retry; merge both histories and regenerate union metadata. No force push."
+}

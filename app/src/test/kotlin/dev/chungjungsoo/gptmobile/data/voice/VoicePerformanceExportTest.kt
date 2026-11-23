@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -16,6 +17,7 @@ import org.junit.Test
 class VoicePerformanceExportTest {
     @Test fun absentMeasurementsStayUnknownAndDoNotCertifyPhysicalPerformance() {
         val json = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot())).jsonObject
+        assertEquals(2, json.getValue("schemaVersion").jsonPrimitive.int)
         assertEquals(JsonNull, json["captureQueueMs"])
         assertEquals(JsonNull, json["thermalStatus"])
         assertEquals(JsonNull, json["latestSynthesis"])
@@ -74,9 +76,9 @@ class VoicePerformanceExportTest {
             deviceKey = secret,
             stage = VoiceSpeechStage.CPU_FALLBACK,
             failure = VoiceSpeechFailureCode.GRAPH_PARTITION,
-            cpuKernels = 14,
             verifiedAudio = true,
-            observedAtMillis = 1000
+            observedAtMillis = 1000,
+            profileAvailable = false
         )
         val exported = voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionProvider = "cpu", executionEvidence = evidence))
         assertFalse(exported.contains(secret))
@@ -84,7 +86,60 @@ class VoicePerformanceExportTest {
         assertEquals("QNN_HTP", observed.getValue("selectedBackend").jsonPrimitive.content)
         assertEquals("cpu", observed.getValue("effectiveProvider").jsonPrimitive.content)
         assertEquals("GRAPH_PARTITION", observed.getValue("failure").jsonPrimitive.content)
-        assertEquals(0, observed.getValue("acceleratorKernelEvents").jsonPrimitive.int)
+        assertEquals(JsonNull, observed["acceleratorKernelEvents"])
+        assertEquals(JsonNull, observed["cpuKernelEvents"])
+        assertEquals("not_collected", observed.getValue("profileScope").jsonPrimitive.content)
         assertTrue(observed.getValue("audioTimingValidated").jsonPrimitive.boolean)
+    }
+
+    @Test fun collectedProfileKeepsCachedEvidenceDistinctFromCurrentPreparation() {
+        val evidence = VoiceSpeechExecutionEvidence(
+            VoiceSpeechBackend.QNN_HTP, "qnn-htp", "model", "runtime", "device", VoiceSpeechStage.READY,
+            acceleratorKernels = 39, cpuKernels = 50, acceleratorMicros = 120, cpuMicros = 30,
+            prepareMs = 300, synthesisMs = 100, tokenCount = 41, verifiedAudio = true, observedAtMillis = 1000,
+            profileAvailable = true, profileId = 7, profileReused = true, cacheHit = true, currentPrepareMs = 0,
+            graphPreparedThisCall = false, cachedShapeCount = 2, cacheLimit = 2, cacheEstimatedBytes = 1024,
+            audioRms = .1, audioPeak = .2, clippedSamples = 0, nonSilentSamples = 1200
+        )
+        val observed = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionEvidence = evidence)))
+            .jsonObject.getValue("latestSynthesis").jsonObject.getValue("executionEvidence").jsonObject
+        assertTrue(observed.getValue("profileAvailable").jsonPrimitive.boolean)
+        assertEquals("first_inference_of_exact_graph_shape", observed.getValue("profileScope").jsonPrimitive.content)
+        assertEquals(7L, observed.getValue("profileId").jsonPrimitive.long)
+        assertTrue(observed.getValue("profileReused").jsonPrimitive.boolean)
+        assertEquals(39, observed.getValue("acceleratorKernelEvents").jsonPrimitive.int)
+        assertEquals(50, observed.getValue("cpuKernelEvents").jsonPrimitive.int)
+        assertEquals(120L, observed.getValue("acceleratorMicros").jsonPrimitive.long)
+        assertEquals(30L, observed.getValue("cpuMicros").jsonPrimitive.long)
+        assertEquals(300L, observed.getValue("prepareMs").jsonPrimitive.long)
+        assertEquals(0L, observed.getValue("currentPrepareMs").jsonPrimitive.long)
+        assertFalse(observed.getValue("graphPreparedThisCall").jsonPrimitive.boolean)
+        assertTrue(observed.getValue("cacheHit").jsonPrimitive.boolean)
+        assertEquals(2, observed.getValue("cachedShapeCount").jsonPrimitive.int)
+        assertEquals(2, observed.getValue("cacheLimit").jsonPrimitive.int)
+        assertEquals(1024L, observed.getValue("cacheEstimatedBytes").jsonPrimitive.long)
+        assertEquals(.1, observed.getValue("audioRms").jsonPrimitive.double, .0001)
+        assertEquals(.2, observed.getValue("audioPeak").jsonPrimitive.double, .0001)
+        assertEquals(0L, observed.getValue("clippedSamples").jsonPrimitive.long)
+        assertEquals(1200L, observed.getValue("nonSilentSamples").jsonPrimitive.long)
+    }
+
+    @Test fun unknownOrUnavailableProfilesCannotExportCountersAndInvalidNumbersStayUnknown() {
+        for (profile in listOf(null, false)) {
+            val evidence = VoiceSpeechExecutionEvidence(
+                VoiceSpeechBackend.CPU, "cpu", "model", "runtime", "device", VoiceSpeechStage.READY,
+                acceleratorKernels = 39, cpuKernels = 50, acceleratorMicros = 120, cpuMicros = 30, observedAtMillis = 1000,
+                profileAvailable = profile, profileId = 7, profileReused = true,
+                currentPrepareMs = -1, cachedShapeCount = -1, cacheLimit = 100, cacheEstimatedBytes = Long.MAX_VALUE,
+                audioRms = Double.NaN, audioPeak = Double.POSITIVE_INFINITY, clippedSamples = -1, nonSilentSamples = Long.MAX_VALUE
+            )
+            val observed = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionEvidence = evidence)))
+                .jsonObject.getValue("latestSynthesis").jsonObject.getValue("executionEvidence").jsonObject
+            assertEquals(if (profile == null) "unknown" else "not_collected", observed.getValue("profileScope").jsonPrimitive.content)
+            if (profile == null) assertEquals(JsonNull, observed["profileAvailable"]) else assertFalse(observed.getValue("profileAvailable").jsonPrimitive.boolean)
+            for (field in listOf("acceleratorKernelEvents", "cpuKernelEvents", "acceleratorMicros", "cpuMicros", "profileId", "profileReused", "currentPrepareMs", "cachedShapeCount", "cacheLimit", "cacheEstimatedBytes", "audioRms", "audioPeak", "clippedSamples", "nonSilentSamples")) {
+                assertEquals(field, JsonNull, observed[field])
+            }
+        }
     }
 }

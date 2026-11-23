@@ -230,7 +230,8 @@ internal class KokoroVoiceOutput(
     private val rate: () -> Float,
     private val measuredOutput: kotlinx.coroutines.flow.MutableStateFlow<Float?> = kotlinx.coroutines.flow.MutableStateFlow(null),
     private val measuredSynthesis: kotlinx.coroutines.flow.MutableStateFlow<VoiceSynthesisFeedback> = kotlinx.coroutines.flow.MutableStateFlow(VoiceSynthesisFeedback()),
-    private val privacy: () -> ConversationPrivacyContext? = ConversationPrivacyContext::capture
+    private val privacy: () -> ConversationPrivacyContext? = ConversationPrivacyContext::capture,
+    private val measurements: VoicePlaybackMeasurementObserver? = null
 ) : KokoroOutput {
     private val application = context.applicationContext
     private val audioManager = application.getSystemService(AudioManager::class.java)
@@ -633,7 +634,8 @@ internal class KokoroVoiceOutput(
                     }
                     return
                 }
-                val deadline = if (playback.preparing) playback.key.factory.preparationTimeoutMs.coerceIn(WATCHDOG_MS, 120_000) else WATCHDOG_MS
+                // Explicit Auto comparison spans complete changing-shape workloads; ordinary startup remains 30 seconds.
+                val deadline = if (playback.preparing) playback.key.factory.preparationTimeoutMs.coerceIn(WATCHDOG_MS, 360_000) else WATCHDOG_MS
                 if ((playback.synthesizing || playback.sealed || playback.segments.isNotEmpty()) &&
                     SystemClock.elapsedRealtime() - playback.lastProgress >= deadline
                 ) {
@@ -795,13 +797,17 @@ internal class KokoroVoiceOutput(
                     val boundaries = if (timedCaptions) measuredBoundaries else IntArray(0)
                     val samples = silence?.filter(generated.samples, boundaries) ?: generated.samples
                     val audioMs = samples.size.toLong() * 1_000 / sampleRate
+                    runCatching { measurements?.pcmReady(synthesisMs, samples.size, sampleRate, model.engine.executionEvidence) }
                     // Reserve against the retained PCM duration, since trimming silence also
                     // removes time during which the following phrase could be synthesized.
                     playback.adaptive.observe(synthesisMs, audioMs)
                     measuredSynthesis.update {
                         it.copy(synthesisMs = synthesisMs, generatedAudioMs = audioMs, warm = it.warm && it.executionProvider == provider, engineReused = it.engineReused && it.executionProvider == provider, executionProvider = provider)
                     }
-                    if (timedCaptions) playback.captions.append(segmentIndex, segment, phrase.wordRanges, boundaries, samples.size)
+                    if (timedCaptions) {
+                        playback.captions.append(segmentIndex, segment, phrase.wordRanges, boundaries, samples.size)
+                        runCatching { measurements?.captionsPrepared(segmentIndex, phrase.wordRanges) }
+                    }
                     publishFeedback(playback)
                     if (!queuePcm(playback, samples, sampleRate, phrase.speech.length)) return
                 }
@@ -843,6 +849,7 @@ internal class KokoroVoiceOutput(
                     playback.lastProgress = SystemClock.elapsedRealtime()
                     if (!playback.firstPcm) {
                         playback.firstPcm = true
+                        runCatching { measurements?.pcmQueued() }
                         playback.diagnostics?.firstPcm()
                         timing("first_pcm", playback, "segmentChars=$segmentChars · pcmQueueLimitMs=${KokoroPcmBatches.QUEUE_LIMIT_MS}")
                     }
@@ -1163,6 +1170,7 @@ internal class KokoroVoiceOutput(
         }
         if (presented > 0 && !playback.firstFrame) {
             playback.firstFrame = true
+            runCatching { measurements?.firstPresented(position.basis, playback.route) }
             playback.diagnostics?.firstAudio(if (position.basis == "audio_timestamp") VoiceDiagnosticTrace.FirstAudio.AUDIO_TIMESTAMP else VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
             measuredSynthesis.update { it.copy(firstAudioMs = now - playback.startedAt, clockBasis = position.basis, route = playback.route) }
             timing("first_audio", playback, "clockBasis=${position.basis}")
@@ -1284,6 +1292,7 @@ internal class KokoroVoiceOutput(
             playback.underruns
         }
         runCatching { audioManager?.abandonAudioFocusRequest(playback.focus) }
+        runCatching { measurements?.terminal(underruns, playback.bufferRestarts, playback.longestRefillMs, playback.clockBasis, playback.route) }
         timing("terminal", playback, "reason=$reason · cancellationOrigin=${cancellationOrigin ?: "none"} · textChars=${playback.inputChars} · firstPcm=${playback.firstPcm} · firstOutputFrame=${playback.firstFrame} · inputComplete=${playback.sealed} · drainComplete=${reason == "complete"} · underruns=${underruns ?: "unmeasured"} · bufferRestarts=${playback.bufferRestarts} · longestRefillMs=${playback.longestRefillMs} · rate=${playback.rate} · performance=${playback.performance.name} · pause=${playback.pause.name} · knownWords=${playback.knownWords} · initialisms=${playback.initialisms} · unknownWords=${playback.unknownWords} · spelledLetters=${playback.spelledLetters} · normalizedFormats=${playback.removedFormatCharacters}")
     }
 
@@ -1317,6 +1326,14 @@ internal class KokoroVoiceOutput(
         application.unregisterComponentCallbacks(memoryCallbacks)
         synthesis.shutdown()
         output.shutdown()
+    }
+
+    /** A benchmark keeps its audio lease until both native synthesis and playback have actually retired. */
+    internal fun awaitClosed(timeoutMs: Long): Boolean {
+        check(closed)
+        val synthesisStopped = synthesis.awaitTermination(timeoutMs.coerceIn(1, 1_000), TimeUnit.MILLISECONDS)
+        val playbackStopped = output.awaitTermination(timeoutMs.coerceIn(1, 1_000), TimeUnit.MILLISECONDS)
+        return synthesisStopped && playbackStopped
     }
 
     private companion object {

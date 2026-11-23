@@ -112,7 +112,9 @@
         "audio buffering",
         "speech benchmark",
         "gpu speech",
-        "npu speech"
+        "npu speech",
+        "audible playback",
+        "Kokoro GPU NPU"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
@@ -120,13 +122,25 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotion.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkload.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+        "local-kokoro-runtime/src/main/cpp/kokoro_qnn_adapter.cpp"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTimingTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackStartTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkloadTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackMeasurementTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendQualificationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStoreTest.kt",
+        "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -137,7 +151,9 @@
       "invariants": [
         "Presented audio and reply identity own caption position.",
         "Synthesis completion does not imply playback completion.",
-        "Physical acceleration and latency require device measurements."
+        "Physical acceleration and latency require device measurements.",
+        "Plan complete utterances within native bounds and distinguish current execution, profile availability and qualified comparisons.",
+        "Retain exact workload, voice, rate, source and thermal identity; playback measurements do not establish acoustic latency or battery benefits."
       ]
     },
     {
@@ -474,6 +490,16 @@
       "bytes": 602255,
       "sha256": "b016f1f0d27e2c90035b01e3b46418b1b879f1595b46257b31070476e85ece84"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": {
+      "blob_sha": "6d3b04ec71d6eadfba20a7267e672be5ee2fdc91",
+      "bytes": 69094,
+      "sha256": "f98874c5dbcfed93cac8d8b37a10238d1b3032a6ee497fd0dc95cfeea8f5ee83"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt": {
+      "blob_sha": "43363484c96e2faf32005e3e5e1bb4de9de1cf94",
+      "bytes": 20952,
+      "sha256": "ccaaa37a588814f05243d57e06955dda19ccd4e4bf0ec91802d0ef4d5c7e6701"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt": {
       "blob_sha": "46557bd3b80a07e20236ab88f80359c96ad1871b",
       "bytes": 1102,
@@ -490,9 +516,24 @@
       "sha256": "5171ff68f2d07188478bce871c40004ef913d30871fb711db37fe1ac9d5bf0ae"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt": {
-      "blob_sha": "eb8862df629e89b1cc3748b4af8ab652efaf148a",
-      "bytes": 6957,
-      "sha256": "b0346ce76db719a545ca9891da459826f1ae4bab749beba75ed296802b2a92f1"
+      "blob_sha": "f45caeeb247c56f1e748d0c2d14a8fe90251df90",
+      "bytes": 17138,
+      "sha256": "f81e4d615347703b2bc8fc0cdcec56b72f244f2f883d29bd00b9cecbf7c64bd6"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt": {
+      "blob_sha": "3a3d1da87582f5b701dd8894fb87f3db2eed3519",
+      "bytes": 18602,
+      "sha256": "0394760b1dce4bff2c20f1121095b07fff7872015e1a69579d06c235a91bdac4"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt": {
+      "blob_sha": "709eceeb536d0412d3ae18026937f7617254a9f5",
+      "bytes": 6731,
+      "sha256": "784f3b1a6ff7a43085ba7638ca86a08a6d3f41342a127e15bd1ec1ab0486b731"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkload.kt": {
+      "blob_sha": "b660ff0d6e427ad7b4d313873d88fcc322b33580",
+      "bytes": 4399,
+      "sha256": "d74e8f8bb10822f9bbc0117eae2b04f0a533c22dc4b9217924f2cc58733cd513"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GatewayAgentWorkspacePanel.kt": {
       "blob_sha": "b882bf61073811bede485ee9ceeb644b6215b331",
@@ -679,6 +720,16 @@
       "bytes": 9291,
       "sha256": "3762cccfa313e5b08af60a92214c6c6b9d36ed8cee62b4a1e83896057d232dcb"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStoreTest.kt": {
+      "blob_sha": "96b1f7ad74c4bbdfbeabee682d41cfa6841b8727",
+      "bytes": 11682,
+      "sha256": "1c3a8124f762dbda76da297b20b02ff25fb77c25c4a3446f29e5edc915e62de4"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendQualificationTest.kt": {
+      "blob_sha": "445361453ef84d2769231f6c564b8e8050eb2810",
+      "bytes": 5737,
+      "sha256": "862dd5216b59109b7dcaa3a4d33e89221d0174f0d6eb0dcd8150db97f97f0e85"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTimingTest.kt": {
       "blob_sha": "ff8e33714de31ec6f942822f8418e3ade6a0d73a",
       "bytes": 2683,
@@ -690,9 +741,19 @@
       "sha256": "7badd71f1238388969aa29ac7e5c0afa94f9b041ffec985ace4cbffbde94437d"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt": {
-      "blob_sha": "fb0b5dd5f4687887c360f2e4157f2c36a4abfdc7",
-      "bytes": 14379,
-      "sha256": "74e6b43e3b81705de8faec93e8dcbc9a84188f7ee01ad25cdc2b04f5ef7a3d23"
+      "blob_sha": "b779018c03dd5a9849d1a0caf641eff826e26b11",
+      "bytes": 15078,
+      "sha256": "61ec6239f04b7f4287ff8c58acb8d60fe5e2b87466b93c927c1b966b8441a5e5"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackMeasurementTest.kt": {
+      "blob_sha": "99836a169401dbcda1a872c10e99d358d772e4be",
+      "bytes": 6146,
+      "sha256": "d756e6c1952c9605743e69332760956dbda925623a78962a21c913d77973fbb1"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkloadTest.kt": {
+      "blob_sha": "8658e23a32499b45eba36923f0957115e21bb70e",
+      "bytes": 20890,
+      "sha256": "9b792db5928a0b1ae581f8fb1f292308f5d9ceb3e694c0b621709edc560441c1"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/PrivacyChatPresentationTest.kt": {
       "blob_sha": "203016cbefd301477def110619934a9c82bd8a3e",
@@ -868,6 +929,21 @@
       "blob_sha": "7ce16a7b935d867da4f451f7dd9155a1da69c71f",
       "bytes": 11893,
       "sha256": "ab782ced924658c66e8a348f62b9af5358ea59732eab77b112e9c1dc70b5e34b"
+    },
+    "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp": {
+      "blob_sha": "15478bb0fe5011a060a3eeb33ee797b355108325",
+      "bytes": 4142,
+      "sha256": "baba00c3811d9ac5676de338ca5a048d042f608d8b63d72f6a0bfb0f1a276bb1"
+    },
+    "local-kokoro-runtime/src/main/cpp/kokoro_qnn_adapter.cpp": {
+      "blob_sha": "198524f7e629e79323a9f28de1039d66ce47f710",
+      "bytes": 15302,
+      "sha256": "287da2c914e2c0d82864360578ae1fd0e3707cdf11faaf7f157c8f6fae3fb0c7"
+    },
+    "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp": {
+      "blob_sha": "113b1d9bdaaf82e3264bb42890465eaeadbf177a",
+      "bytes": 25930,
+      "sha256": "6a8cc8cdd0bc29d093f204b407e00423276cdde7202d59041e517b444fd09301"
     }
   }
 }

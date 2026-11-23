@@ -1,5 +1,8 @@
 # 0.9.66.13 — 2026-11-22
 
+- Run complete long speech benchmarks through bounded production phrases, retain exact failed-chunk context, and distinguish completed execution from a qualified comparison. Add separate native-phrase and changing-shape workloads with per-fixture statistics and versioned history.
+- Bind Auto comparison receipts to the selected voice and rate, invalidate old broken workloads, and validate ordinary accelerator startup on its first requested phrase. Reuse a bounded exact-shape cache, require real GPU discovery, and report current preparation, available profiles and non-silent audio evidence.
+- Add an audible production playback benchmark for first queued and presented audio, refills, underruns, cancellation acknowledgement and complete caption word coverage; preserve partial measurements without claiming acoustic latency or battery benefits.
 - Add maintained revision-checked repository/feature references and automatic source-range/document context in GitHub mode, with independent encrypted phone index retention and incremental blob reuse.
 - Expose context choices and source/coverage/cache receipts on Android and Gateway, exact-range private context exports, selected-tokenizer limits, bounded warm language-server reuse and run-scoped adaptive read feedback.
 - Add structured feature/symbol discovery and controlled same-model context comparisons with frozen public fixtures, explicit semantic fallback and independent grading evidence.

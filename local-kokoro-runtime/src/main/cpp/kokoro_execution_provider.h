@@ -10,7 +10,10 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <dlfcn.h>
 #include "onnxruntime_cxx_api.h"
+#include "kokoro_gpu_discovery.h"
+#include "kokoro_measurement.h"
 #include "kokoro_profile.h"
 
 namespace kokoro_runtime {
@@ -22,6 +25,28 @@ struct Qualification {
 inline Qualification &LastQualification() { static thread_local Qualification value; return value; }
 struct SelectedDevice { int type = -1; uint32_t vendor = 0; uint32_t id = 0; };
 inline SelectedDevice &LastSelectedDevice() { static thread_local SelectedDevice value; return value; }
+inline std::string &LastDiscovery() { static thread_local std::string value{"stage=not_started"}; return value; }
+
+inline std::string DeviceDiscovery(const char *stage, const std::vector<Ort::ConstEpDevice> &devices,
+    const std::string &library_dir) {
+  std::string summary = std::string("stage=") + stage;
+  // The adapter's scalar status has no device label, path or driver log.
+  void *adapter = dlopen((library_dir + "/libkokoro_qnn_adapter.so").c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_NOLOAD);
+  if (adapter) {
+    using Status = int (*)();
+    auto status = reinterpret_cast<Status>(dlsym(adapter, "KokoroQnnGpuDiscoveryCode"));
+    if (status) summary += std::string(";gpuProbe=") + GpuDiscoveryName(static_cast<GpuDiscoveryCode>(status()));
+    dlclose(adapter);
+  }
+  for (const auto &device : devices) {
+    const auto item = ";ep=" + SafeDiscoveryAtom(device.EpName()) + ",type=" +
+        std::to_string(static_cast<int>(device.Device().Type())) + ",vendor=" +
+        std::to_string(device.Device().VendorId()) + ",id=" + std::to_string(device.Device().DeviceId());
+    if (summary.size() + item.size() > 500) { summary += ";truncated=1"; break; }
+    summary += item;
+  }
+  return summary;
+}
 
 // ORT keeps a process-wide environment. Keep the plugin registered for its whole
 // lifetime so another warm session cannot unload a provider still in use.
@@ -38,11 +63,21 @@ inline Ort::SessionOptions Options(Ort::Env &env, int threads,
   options.SetInterOpNumThreads(1);
   options.AddConfigEntry("session.intra_op.allow_spinning", "0");
   options.AddConfigEntry("session.inter_op.allow_spinning", "0");
-  if (provider == "cpu") return options;
+  if (provider == "cpu") { LastDiscovery() = "stage=cpu;profile=unavailable"; return options; }
   if ((provider != "qnn-gpu" && provider != "qnn-htp") ||
       library_dir.empty() || library_dir.front() != '/' || profile_prefix.empty())
     throw std::runtime_error("Invalid Kokoro execution provider configuration");
 #if defined(__ANDROID__) && defined(__aarch64__)
+  LastSelectedDevice() = {};
+  LastDiscovery() = "stage=library_preflight";
+  for (const auto &name : {"libkokoro_qnn_adapter.so", "libonnxruntime_providers_qnn.so",
+      provider == "qnn-gpu" ? "libQnnGpu.so" : "libQnnHtp.so"}) {
+    if (!std::ifstream(library_dir + "/" + name).good()) {
+      LastDiscovery() += std::string(";missing=") + name;
+      throw std::runtime_error("PROVIDER_LOAD");
+    }
+  }
+  LastDiscovery() = "stage=register;libraries=present";
   static std::once_flag registered;
   std::call_once(registered, [&] {
     env.RegisterExecutionProviderLibrary("QNNExecutionProvider",
@@ -50,7 +85,9 @@ inline Ort::SessionOptions Options(Ort::Env &env, int threads,
   });
   std::vector<Ort::ConstEpDevice> selected;
   const auto requested_type = provider == "qnn-gpu" ? OrtHardwareDeviceType_GPU : OrtHardwareDeviceType_NPU;
-  for (const auto &device : env.GetEpDevices()) {
+  const auto devices = env.GetEpDevices();
+  LastDiscovery() = DeviceDiscovery("enumerated", devices, library_dir);
+  for (const auto &device : devices) {
     if (std::string(device.EpName()) == "QNNExecutionProvider" && device.Device().Type() == requested_type) {
       selected.push_back(device);
       LastSelectedDevice() = {static_cast<int>(device.Device().Type()), device.Device().VendorId(), device.Device().DeviceId()};
@@ -58,6 +95,7 @@ inline Ort::SessionOptions Options(Ort::Env &env, int threads,
     }
   }
   if (selected.empty()) throw std::runtime_error("No Qualcomm speech device");
+  LastDiscovery() = DeviceDiscovery("selected", devices, library_dir);
   // QAIRT 2.51 and the plugin 2.7.0 are pinned together in Gradle. Explicit
   // backend paths ensure the GPU selection cannot accidentally use HTP or CPU.
   std::unordered_map<std::string, std::string> settings{
@@ -72,6 +110,7 @@ inline Ort::SessionOptions Options(Ort::Env &env, int threads,
   options.EnableProfiling(profile_prefix.c_str());
   return options;
 #else
+  LastDiscovery() = "stage=platform;androidArm64=0";
   throw std::runtime_error("Qualcomm speech requires Android arm64");
 #endif
 }

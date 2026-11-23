@@ -6,6 +6,7 @@ import java.util.concurrent.CancellationException
 internal class VoiceFailoverPhraseEngine(
     initial: VoicePhraseEngine,
     allowFallback: Boolean,
+    private val canRecover: (IllegalStateException) -> Boolean = { true },
     private val fallback: (IllegalStateException) -> VoicePhraseEngine
 ) : VoicePhraseEngine {
     private val lifetime = Any()
@@ -32,7 +33,7 @@ internal class VoiceFailoverPhraseEngine(
         } catch (error: IllegalStateException) {
             if (error is CancellationException) throw error
             checkActive()
-            if (!canFallback) throw error
+            if (!canFallback || !canRecover(error)) throw error
             canFallback = false
             retired = true
             active.close()

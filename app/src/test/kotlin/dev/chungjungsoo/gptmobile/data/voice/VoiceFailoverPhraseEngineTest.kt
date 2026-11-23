@@ -149,4 +149,45 @@ class VoiceFailoverPhraseEngineTest {
             worker.shutdownNow()
         }
     }
+
+    @Test fun rejectedInputDoesNotRetireHardwareSpendFallbackOrReplayOnCpu() {
+        val invalid = IllegalStateException("FRONTEND_INPUT_TOO_LONG")
+        var closes = 0
+        var calls = 0
+        var cpuLoads = 0
+        val gpu = object : VoicePhraseEngine {
+            override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+                calls++
+                if (calls == 1) throw invalid
+                if (calls == 3) error("GRAPH_PREPARATION")
+                return VoicePhraseAudio(floatArrayOf(.5f), longArrayOf(1), intArrayOf(0, 1))
+            }
+            override fun resetCancellation() = Unit
+            override fun cancel() = Unit
+            override fun close() {
+                closes++
+            }
+        }
+        val cpu = Engine()
+        val engine = VoiceFailoverPhraseEngine(gpu, true, canRecover = { it !== invalid }) {
+            cpuLoads++
+            cpu
+        }
+        try {
+            engine.generate("oversized", 3, 1.25f)
+            fail("Expected exact input failure")
+        } catch (actual: IllegalStateException) {
+            assertSame(invalid, actual)
+        }
+        assertTrue(engine.canReuse)
+        assertEquals(0, closes)
+        assertEquals(0, cpuLoads)
+        engine.generate("supported next input", 3, 1.25f)
+        assertEquals(0, cpuLoads)
+        engine.generate("unplayed graph failure", 3, 1.25f)
+        assertEquals(1, closes)
+        assertEquals(1, cpuLoads)
+        assertEquals(listOf("unplayed graph failure"), cpu.phrases)
+        engine.close()
+    }
 }

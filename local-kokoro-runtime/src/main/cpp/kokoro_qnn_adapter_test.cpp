@@ -13,6 +13,8 @@ struct OrtNode {
   std::vector<const OrtValueInfo *> outputs;
 };
 struct OrtGraph { std::vector<const OrtNode *> nodes; };
+struct OrtHardwareDevice { OrtHardwareDeviceType type; uint32_t vendor, id; };
+struct OrtKeyValuePairs {};
 
 namespace {
 OrtApi fixture_api{};
@@ -24,12 +26,44 @@ const OrtNode *const *last_nodes = nullptr;
 const OrtNodeFusionOptions *last_options = nullptr;
 std::vector<std::vector<const OrtNode *>> submitted;
 int created = 0, released = 0;
+int discovered = 0, hardware_created = 0, hardware_released = 0;
+constexpr uint32_t kQnnVendorId = static_cast<uint32_t>('Q') | (static_cast<uint32_t>('C') << 8) |
+    (static_cast<uint32_t>('O') << 16) | (static_cast<uint32_t>('M') << 24);
+kokoro_runtime::GpuDiscovery probe_result{kokoro_runtime::GpuDiscoveryCode::NoAvailableQualcommGpu};
+std::vector<const OrtHardwareDevice *> passed_devices;
+std::vector<const OrtHardwareDevice *> supported_devices;
 bool reject_group = false;
-void Require(bool value) { if (!value) throw std::runtime_error("QNN adapter ABI regression"); }
+void Require(bool value, const char *message = "QNN adapter ABI regression") { if (!value) throw std::runtime_error(message); }
 
 void SetUp() {
   fixture_api.CreateStatus = [](OrtErrorCode code, const char *) noexcept -> OrtStatus * { return new OrtStatus{code}; };
   fixture_api.ReleaseStatus = [](OrtStatus *status) noexcept { delete status; };
+  fixture_api.HardwareDevice_Type = [](const OrtHardwareDevice *device) noexcept { return device->type; };
+  fixture_api.HardwareDevice_VendorId = [](const OrtHardwareDevice *device) noexcept { return device->vendor; };
+  fixture_api.CreateKeyValuePairs = [](OrtKeyValuePairs **pairs) noexcept { *pairs = new OrtKeyValuePairs; };
+  fixture_api.AddKeyValuePair = [](OrtKeyValuePairs *, const char *, const char *) noexcept {};
+  fixture_api.ReleaseKeyValuePairs = [](OrtKeyValuePairs *pairs) noexcept { delete pairs; };
+  fixture_ep_api.CreateHardwareDevice = [](OrtHardwareDeviceType type, uint32_t vendor, uint32_t id,
+      const char *, const OrtKeyValuePairs *, OrtHardwareDevice **device) noexcept -> OrtStatus * {
+    *device = new OrtHardwareDevice{type, vendor, id}; ++hardware_created; return nullptr;
+  };
+  fixture_ep_api.ReleaseHardwareDevice = [](OrtHardwareDevice *device) noexcept { delete device; ++hardware_released; };
+  fixture_factory.GetVendorId = [](const OrtEpFactory *) noexcept -> uint32_t { return kQnnVendorId; };
+  fixture_factory.GetSupportedDevices = [](OrtEpFactory *factory, const OrtHardwareDevice *const *devices,
+      size_t count, OrtEpDevice **, size_t maximum, size_t *returned) noexcept -> OrtStatus * {
+    Require(factory == &fixture_factory);
+    passed_devices.clear();
+    supported_devices.clear();
+    for (size_t i = 0; i < count; ++i) {
+      passed_devices.push_back(devices[i]);
+      // The pinned QNN factory accepts GPU hardware only when its ORT vendor
+      // matches GetVendorId (packed QCOM), not the OpenCL vendor value 0x5143.
+      if (devices[i]->type == OrtHardwareDeviceType_GPU && devices[i]->vendor == factory->GetVendorId(factory) &&
+          supported_devices.size() < maximum) supported_devices.push_back(devices[i]);
+    }
+    *returned = supported_devices.size(); ++discovered; return nullptr;
+  };
+  probe_gpu = []() { return probe_result; };
   fixture_api.GetValueInfoTypeInfo = [](const OrtValueInfo *value, const OrtTypeInfo **type) noexcept -> OrtStatus * {
     *type = &value->type; return nullptr;
   };
@@ -115,7 +149,29 @@ int main() {
   size_t count = 0;
   Require(CreateEpFactories("QNNExecutionProvider", &fixture_base, nullptr, &factory, 1, &count) == nullptr);
   Require(factory == &fixture_factory && count == 1 && created == 1);
+  size_t returned = 99;
+  Require(factory->GetSupportedDevices(factory, nullptr, 0, nullptr, 1, &returned) == nullptr);
+  Require(discovered == 1 && returned == 0 && passed_devices.empty() && hardware_created == 0);
+  OrtHardwareDevice wrong_vendor{OrtHardwareDeviceType_GPU, 0x5143, 7};
+  const OrtHardwareDevice *opencl_identity[] = {&wrong_vendor};
+  Require(factory->GetSupportedDevices(factory, opencl_identity, 1, nullptr, 1, &returned) == nullptr);
+  Require(returned == 0 && supported_devices.empty() && hardware_created == 0);
+  OrtHardwareDevice already{OrtHardwareDeviceType_GPU, kQnnVendorId, 7};
+  const OrtHardwareDevice *existing[] = {&already};
+  Require(factory->GetSupportedDevices(factory, existing, 1, nullptr, 1, &returned) == nullptr);
+  Require(returned == 1 && passed_devices == std::vector<const OrtHardwareDevice *>{&already} && hardware_created == 0);
+  probe_result = {kokoro_runtime::GpuDiscoveryCode::Available, 0x5143, 3};
+  Require(factory->GetSupportedDevices(factory, nullptr, 0, nullptr, 1, &returned) == nullptr);
+  Require(returned == 1 && passed_devices.size() == 1 && passed_devices[0]->type == OrtHardwareDeviceType_GPU &&
+      passed_devices[0]->vendor == kQnnVendorId && passed_devices[0]->id == 3 && hardware_created == 1,
+      "OpenCL-proven GPU was rejected by original QNN vendor filter");
+  Require(factory->GetSupportedDevices(factory, nullptr, 0, nullptr, 1, &returned) == nullptr);
+  Require(hardware_created == 1 && hardware_released == 0);  // Stable borrowed device lifetime.
+  Require(factory->GetSupportedDevices(factory, existing, 1, nullptr, 1, &returned) == nullptr);
+  Require(returned == 1 && passed_devices == std::vector<const OrtHardwareDevice *>{&already} && hardware_created == 1);
+  Require(KokoroQnnGpuDiscoveryCode() == static_cast<int>(kokoro_runtime::GpuDiscoveryCode::AlreadyEnumerated));
   Require(ReleaseEpFactory(factory) == nullptr && released == 1);
+  Require(hardware_released == 1 && fixture_factory.GetSupportedDevices != SupportedDevicesWithGpu);
 
   OrtGraph graph, outer;
   OrtNode a{&graph, {}, {}, {}}, b{&graph, {}, {}, {}}, c{&graph, {}, {}, {}}, capture{&outer, {}, {}, {}};

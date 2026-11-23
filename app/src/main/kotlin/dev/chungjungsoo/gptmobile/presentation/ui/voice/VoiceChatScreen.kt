@@ -406,6 +406,9 @@ private fun VoiceChatSessionScreen(
     SideEffect {
         if (preferencesApplied) applyAudioConfiguration()
     }
+    LaunchedEffect(preferencesApplied, kokoroVoice, rate) {
+        if (preferencesApplied) backendOwner.configureSpeech(kokoroVoice, rate)
+    }
     var route by remember { mutableStateOf(systemAudio.routeName()) }
     var routeOpen by remember { mutableStateOf(false) }
     var remaining by remember { mutableIntStateOf(0) }

@@ -108,7 +108,9 @@
         "audio buffering",
         "speech benchmark",
         "gpu speech",
-        "npu speech"
+        "npu speech",
+        "audible playback",
+        "Kokoro GPU NPU"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
@@ -116,13 +118,25 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotion.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkload.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+        "local-kokoro-runtime/src/main/cpp/kokoro_qnn_adapter.cpp"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTimingTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackStartTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkloadTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackMeasurementTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendQualificationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStoreTest.kt",
+        "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -133,7 +147,9 @@
       "invariants": [
         "Presented audio and reply identity own caption position.",
         "Synthesis completion does not imply playback completion.",
-        "Physical acceleration and latency require device measurements."
+        "Physical acceleration and latency require device measurements.",
+        "Plan complete utterances within native bounds and distinguish current execution, profile availability and qualified comparisons.",
+        "Retain exact workload, voice, rate, source and thermal identity; playback measurements do not establish acoustic latency or battery benefits."
       ]
     },
     {

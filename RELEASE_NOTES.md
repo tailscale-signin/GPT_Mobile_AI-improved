@@ -15,6 +15,7 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 
 ## Recovery and request consistency
 
+- Prevent an unusable encrypted-cache key file after secure entropy fails, preserving existing protected keys and refusing lost-key access.
 - Avoid redundant GitHub checkpoint writes caused by copied observation times, while retaining meaningful evidence and recovery-state changes. Legacy backup samples and events keep their original pending attempt identities even when an older backup lacks separate attempt rows.
 - Shorten optional verification draft excerpts to fit the available input budget while preserving the full task, all acceptance criteria and Unicode characters. Requests still stop when required content cannot fit or the budget shrinks before dispatch.
 - Keep already read result pages recognized after recovery and retain exact unread pages after a rejected cursor; repeated automatic reads retain their original finite limit.
@@ -220,3 +221,5 @@ The exact release commit must pass the required main workflows, artifact identit
 - Keep indicators conservative across retry, edits, selected revisions, mixed masking policies and later unmasked sends. The prior diagnostic export lacks raw request bodies, so historical words are not retroactively claimed to have stayed local. Automatic category detection remains heuristic; custom private terms remain available.
 
 Silent inference and audible playback are separate speech measurements. First PCM records a completed native chunk; presented audio uses the production AudioTrack timestamp or playback head. Caption checks measure observed word coverage and clock consistency. Acoustic speaker latency, perceptual word alignment, battery energy and hardware utilization percentages remain unmeasured. GPU/NPU results require compatible real hardware and actual accelerator execution; unsupported or failed trials retain their observed status.
+
+Prepared Android compilation requires at least 8,960 MiB of observed RAM/cgroup headroom for its fixed 6 GiB heap. The existing 8 GiB container default is refused; an operator must explicitly approve sufficient resources. The preflight does not reserve future memory.

@@ -1,4 +1,5 @@
 """Configured local semantic arms through real cache, scheduler and benchmark paths."""
+from contextlib import closing
 from copy import deepcopy
 import json
 import os
@@ -11,6 +12,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+from cryptography.exceptions import InternalError
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmarks import context_experiment, context_semantic, fixtures, sandbox
@@ -19,6 +22,7 @@ from benchmarks.contracts import digest, validate_request
 from benchmarks.runner import BenchmarkRunner
 from benchmarks.service import BenchmarkService
 from benchmarks.verified_python import evaluate
+from v14.engineering_crypto import AESGCM, EngineeringCipher
 from v14.engineering_memory import EngineeringMemory
 from v14.identity import Principal
 from v14.inference_scheduler import FairInferenceScheduler
@@ -42,7 +46,7 @@ class CacheStore:
 
     def tx(self, callback):
         self.transactions += 1
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             return callback(db)
 
 
@@ -78,7 +82,10 @@ class ContextSemanticTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
-        self.environment = patch.dict(os.environ, ENCODER, clear=True)
+        # Isolate Gateway settings while preserving OS/runtime variables such as
+        # Windows SystemRoot used by native cryptographic providers.
+        environment = {key: value for key, value in os.environ.items() if not key.startswith('GATEWAY_')}
+        self.environment = patch.dict(os.environ, {**environment, **ENCODER}, clear=True)
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.cache = CacheStore(self.root / 'engineering.sqlite3')
@@ -149,6 +156,20 @@ class ContextSemanticTests(unittest.TestCase):
         self.assertEqual(0, self.cache.transactions)
         self.assertEqual(0, self.scheduler.snapshot()['completed'])
 
+    def test_encrypted_semantic_cache_does_not_depend_on_openssl_key_generation(self):
+        ranker = self.ranker()
+        unavailable = InternalError('seed_get_seed: entropy source strength too weak', [])
+        with patch.object(AESGCM, 'generate_key', side_effect=unavailable), \
+                patch('requests.Session.post', side_effect=self.embed) as network:
+            for _ in range(2):
+                _, receipt = context_experiment.prepare(self.task, 'SEMANTIC', 12000, semantic_ranker=ranker)
+                self.assertEqual('LOCAL_SEMANTIC_AND_LEXICAL', receipt['retrievalMode'])
+                self.assertEqual(['RANKED', 'RANKED'], [probe['status'] for probe in receipt['semanticPreparation']])
+        self.assertEqual(1, network.call_count)
+        self.assertEqual(32, len(self.cache.path.with_suffix('.engineering.key').read_bytes()))
+        self.assertNotIn(self.task['sources']['core.py'].encode(), self.cache.path.read_bytes())
+        self.assertEqual(0, self.scheduler.snapshot()['active'])
+
     def test_encoder_changes_fail_before_cached_read_or_model_dispatch(self):
         ranker = self.ranker()
         frozen = context_experiment.freeze([self.task], self.run, SETTINGS, semantic_identity=ranker.identity)
@@ -196,7 +217,7 @@ class ContextSemanticTests(unittest.TestCase):
         with patch('requests.Session.post', side_effect=cancelled_response), self.assertRaises(InterruptedError):
             context_experiment.prepare(self.task, 'SEMANTIC', 12000, semantic_ranker=ranker)
         self.assertEqual(0, self.scheduler.snapshot()['active'])
-        with sqlite3.connect(self.cache.path) as db:
+        with closing(sqlite3.connect(self.cache.path)) as db:
             self.assertEqual(0, db.execute('SELECT COUNT(*) FROM engineering_embedding_cache').fetchone()[0])
 
     def test_no_valid_ranking_is_lexical_fallback(self):
@@ -260,6 +281,79 @@ class ContextSemanticTests(unittest.TestCase):
         changed[1]['contextReceipt']['encoderIdentityDigest'] = '0' * 64
         report = context_experiment.summary(changed, 2, run['request'], frozen)
         self.assertEqual(0, report['contextComparisons'][0]['matchedPairs'])
+
+
+class CacheBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / 'engineering.sqlite3'
+
+    def test_secure_entropy_failure_does_not_create_an_unusable_key_file(self):
+        unavailable = OSError('Secure operating-system entropy unavailable')
+        with closing(sqlite3.connect(self.path)) as db, db:
+            key_path = EngineeringCipher.key_path(db)
+            with patch('secrets.token_bytes', side_effect=unavailable), \
+                    patch.object(AESGCM, 'generate_key', side_effect=unavailable):
+                with self.assertRaises(OSError) as observed:
+                    EngineeringCipher.key(db, True)
+            self.assertIs(unavailable, observed.exception)
+            self.assertFalse(key_path.exists())
+            key = EngineeringCipher.key(db, True)
+            self.assertEqual(32, len(key))
+            self.assertEqual(key, key_path.read_bytes())
+
+    def test_existing_protected_key_is_reused_when_random_generation_is_unavailable(self):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            original = EngineeringCipher.key(db, True)
+            key_path = EngineeringCipher.key_path(db)
+            with patch('secrets.token_bytes', side_effect=OSError('No new keys')), \
+                    patch.object(AESGCM, 'generate_key', side_effect=OSError('No new keys')):
+                envelope = EngineeringCipher.encrypt(db, 'selected-owner', 'private persisted source')
+                self.assertEqual(original, EngineeringCipher.key(db, True))
+                self.assertEqual('private persisted source', EngineeringCipher.decrypt(db, 'selected-owner', envelope))
+            self.assertEqual(original, key_path.read_bytes())
+
+    def transaction_closure(self, fail):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute('CREATE TABLE receipt(value TEXT)')
+        retained = []
+        connect = sqlite3.connect
+        failure = RuntimeError('Transaction callback failed')
+
+        def capture(*args, **kwargs):
+            connection = connect(*args, **kwargs)
+            retained.append(connection)
+            return connection
+
+        def callback(connection):
+            connection.execute('INSERT INTO receipt VALUES(?)', ('committed',))
+            if fail:
+                raise failure
+            return 'result'
+
+        try:
+            with patch('sqlite3.connect', side_effect=capture):
+                if fail:
+                    with self.assertRaises(RuntimeError) as observed:
+                        CacheStore(self.path).tx(callback)
+                    self.assertIs(failure, observed.exception)
+                else:
+                    self.assertEqual('result', CacheStore(self.path).tx(callback))
+            self.assertEqual(1, len(retained))
+            with self.assertRaises(sqlite3.ProgrammingError):
+                retained[0].execute('SELECT 1')
+            with closing(connect(self.path)) as db:
+                self.assertEqual([] if fail else [('committed',)], db.execute('SELECT value FROM receipt').fetchall())
+        finally:
+            for connection in retained:
+                connection.close()
+
+    def test_successful_transaction_commits_and_closes_before_return(self):
+        self.transaction_closure(False)
+
+    def test_failed_transaction_rolls_back_and_closes_before_raising(self):
+        self.transaction_closure(True)
 
 
 if __name__ == '__main__':

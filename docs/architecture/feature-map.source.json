@@ -142,7 +142,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPlaybackObservationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkCancellationTest.kt",
         "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeProfileLifecycleIntegration.java",
-        "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py"
+        "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityRuntimeIdentityTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"

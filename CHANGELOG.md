@@ -135,6 +135,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.66.5] - 2026-11-05
 
+- Prevent an empty protected cache-key file after secure entropy fails, preserving encryption and lost-key safeguards; isolate Windows semantic-test settings without removing OS runtime variables and close every fixture SQLite connection.
+
 - Preserve GitHub tasks, objective evidence and review state across branch changes and approved operations; improve workspace admission, bounded final review, task history, recovery presentation and the Status dashboard.
 - Add and repair bounded repository graph navigation and cumulative audit evidence, while retaining explicit limitations for external Graphify and compiler-resolved semantics.
 - Improve event-driven GitHub chat progress, prompt anchoring, workflow budgets, voice ownership/preferences and reproducible self-test/retry routing.

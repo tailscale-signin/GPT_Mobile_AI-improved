@@ -1158,10 +1158,10 @@
     }
   },
   "remaining_shared_holds": [
-    "Voice-response team owns two failures from exact753d Android unit run45098738048: BenchmarkStoreTest unreadable ownership and GitHubVerifiedSession input-limit recheck after excerpt fitting. No duplicate acceptance edits.",
-    "Benchmark team owns proven fresh-process production compiler heap failures in Android acceptance, diagnostic audit and GenieX preview, preserving stages, selectors and bounded job/resource policy. Independent review required.",
-    "Preserve subsequent worker commits and require all applicable latest final-head run/attempt/matrix outcomes and current main rules before expected-head merge.",
-    "Require every exact-main prerequisite and actual signed Android0.9.66.13/build147 and Gateway18.1.1 release publication with asset/provenance readback."
+    "Reconcile any remaining worker metadata/package append while preserving current source; no known implementation hold remains after the reviewed Windows/compiler/security/runtime-identity union.",
+    "Publish the Windows and trusted development-wrapper union with Gateway provenance bound to acknowledged reachable source bytes.",
+    "Require every applicable latest final-head run/attempt/matrix, including the newly triggered Publish Signed Release PR validation lane, and current main rules before expected-head merge.",
+    "Require every exact-main prerequisite and actual Android0.9.66.13/build147 plus Gateway18.1.1 publication with downloaded asset/provenance readback."
   ],
   "android_nine_review": {
     "source": "71db6456e094397dc062be8bfcbcdb85778101c9",
@@ -1417,5 +1417,119 @@
     "consulted_excerpts": 10,
     "dependencies": 20,
     "cause_loss_control": "Owner isolated cause-loss mutation has exactly one intended case and one probe failure in each mode; its exact corrected test and unchanged production hashes match the independent public-source replay."
+  },
+  "status": "IMPLEMENTED_REVIEWED_FINAL_HOSTED_GATES_PENDING",
+  "latest_integration_source": "5cff7a9fcfd626c49d2a5bef8039eb4357d478d0",
+  "latest_published_shared_source": "48bf1217bcdc816c7c29f3d4c4f037d63fb4d4db",
+  "final_platform_followups": {
+    "windows": {
+      "source": "6dd4c63ce9427b36e9204922316a09bfa7f6138c",
+      "environment_fixture": "3a9ef2985e0383e72693d729b86b48a30611384b",
+      "combined": "d722cad6a6634b2062ab6e90fa373f281df6bc8e",
+      "status": "INDEPENDENT_SCOPED_CLEAR",
+      "change": "Acquire secure OS key bytes after lost-key guards and before O_EXCL so entropy failure cannot strand an empty protected file. Retain AES-GCM, nonce/AAD and existing-key protections. Close semantic fixture SQLite connections; preserve OS runtime environment while isolating inherited Gateway settings.",
+      "validation": {
+        "tracked_and_unchanged_probes": 34,
+        "failures": 0,
+        "skips": 0,
+        "semantic_methods_repeated_with_inherited_setting_canaries": 12,
+        "unchanged_map_boundary_checks": 10,
+        "archived_files_bound": 516,
+        "runtime_dependencies_bound": 81,
+        "negative_controls": "Original OS-variable/connection-lifetime failures and intermediate inherited-Gateway invalid-port failure reproduced.",
+        "boundary": "Linux exact-source execution; Windows3.12 and3.13 hosted qualification remains mandatory."
+      }
+    },
+    "compiler_prerequisite": {
+      "candidate": "f9d31a5c90a086c0074744be660e2979a540d2a7",
+      "status": "INDEPENDENT_SCOPED_CLEAR",
+      "tracked_tests": 47,
+      "independent_probe_methods": 3,
+      "exact_workflow_shell_scenarios": 6,
+      "source_dependencies_bound": 25,
+      "preservation": "Only acceptance/audit production heap6144MiB,768MiB metaspace, one worker; all selectors/deadlines/non-production settings retained. Unknown/insufficient headroom stops before Gradle. Shared helper observations are bounded numeric-only and exclude swap. Broader Map workflow candidate reviewed separately.",
+      "hosted_compilation": "REQUIRED_NOT_ESTABLISHED_BY_HOST_PROBES"
+    },
+    "development_wrapper": {
+      "candidate": "c9cb03c34c59bb7f1a12060b1a45ac0276fb1000",
+      "status": "INDEPENDENT_SCOPED_CLEAR_WITH_EXPLICIT_RESOURCE_PREREQUISITE",
+      "tests": 9,
+      "failures": 0,
+      "skips": 0,
+      "source_files_bound": 515,
+      "change": "Install byte-identical reviewed observer in trusted wrapper under Python isolated mode. Preserve generic pass-through, offline arguments, separated stages and all existing operator/default limits. Production heap alone6144MiB.",
+      "resource_boundary": "Requires8960MiB observed RAM/cgroup headroom. Existing8GiB default is refused; no silent increase or smaller retry. CI image preparation/offline smoke has no explicit8GiB docker cap, but actual hosted success remains required."
+    },
+    "backup_fixture": {
+      "candidate": "286e38569c9f6a44c375462d0ae9cc2fa9caf861",
+      "published": "056399c8349c4975facc8f3c2226ede348a17e28",
+      "status": "INDEPENDENT_COMPONENT_CLEAR",
+      "target_methods": 1,
+      "coroutine_modes": 2,
+      "baseline": "Default recovery reproduces original null-cause failure; recovery-off control passes.",
+      "negative": "Parser-cause leak fails in both modes.",
+      "boundary": "Actual Store/Room with retained component serializers and declared unrelated ports; complete exact-head Android remains required."
+    },
+    "verification_budget_fixture": {
+      "candidate": "ecf6b5acdb519493fc2daf7f9cf5cc4423c2e5ed",
+      "published": "056399c8349c4975facc8f3c2226ede348a17e28",
+      "status": "INDEPENDENT_SOURCE_CLEAR_RUNTIME_PENDING_HOSTED",
+      "change": "Seed real retained Book status receipt; preserve512-to128 budget, two measurements,129-to512 required input, zero extraction, unchanged receipt, incomplete failure and private-text protections.",
+      "archived_files_bound": 263,
+      "production_changed": false,
+      "local_full_session_pass": false
+    },
+    "compiler_complete": {
+      "candidate": "abc16b0b264179bf70a9646a31742444cda94c7f",
+      "public_identical_tree": "60a9997b47b07757e9ba1df242a254cfa6f46f3e",
+      "tree": "86c4e3f6178bf866dba39d33451d9910a083ada1",
+      "status": "INDEPENDENT_SCOPED_CLEAR",
+      "tracked_methods": 54,
+      "independent_methods": 6,
+      "controlled_shell_wrapper_scenarios": 79,
+      "direct_compile_steps": 14,
+      "cold_pipeline_steps": 6,
+      "workflow_files": 14,
+      "qualification": "Actual Bash/Python dispatch, failure and resource-admission behavior with controlled Gradle and resource observations. All variants, selectors, non-production settings, deadlines and CodeQL tracing/forced-compiler order preserved. Actual hosted Android compilation is not established by these checks."
+    },
+    "history_scanner": {
+      "candidate": "abc16b0b264179bf70a9646a31742444cda94c7f",
+      "config_sha256": "2d370b508466e9e0416f65919ed00efae271ccc13bbb34617da0c68145773f82",
+      "scanner": "8.30.1",
+      "status": "EXACT_LITERAL_CONTROLS_CLEAR_FINAL_HISTORY_SCAN_REQUIRED",
+      "independent_cases": 6,
+      "baseline_detections": 6,
+      "corrected_detections": 4,
+      "interpretation": "Only two exact public metadata literals at exact paths are suppressed. Both same-path synthetic credential values and both outside-path metadata controls remain detected; owner12case/24execution adjacent-field/value/path controls also retain detection. No history rewriting or broad exclusion."
+    },
+    "native_runtime_identity": {
+      "candidate": "c830dbff7f7289c9dddae707add1595dee4d23fa",
+      "published": "48bf1217bcdc816c7c29f3d4c4f037d63fb4d4db",
+      "status": "INDEPENDENT_SCOPED_CLEAR",
+      "previous": "ort1.28.2-qnn2.7-qairt2.51-convex2",
+      "current": "ort1.28.2-qnn2.7-qairt2.51-convex2-profile2",
+      "distinct_methods": 62,
+      "failures": 0,
+      "skips": 0,
+      "baseline": "Same58-method suite has four intended identity-collision failures and54 passes. Only Java runtime-ID input differs;28 other actual inputs,3 declaration origins and74 dependencies are identical.",
+      "preservation": "Old positive/negative capability receipts no longer hit current scope; fresh receipts retain ranking/provenance; resident factory identities separate; complete nine-sample history and export remain byte-identical on read. C++20955 source unchanged.",
+      "qualification": "Actual JVM/Robolectric SharedPreferences/AtomicFile and source-bound policy/factory/export paths; no new native or physical execution claim."
+    },
+    "combined_local_validation": {
+      "source": "554066c2e9cd476a7c444559f5755095146c0821",
+      "canonical_host_tests": 650,
+      "seconds": 22.765,
+      "failures": 0,
+      "changed_kotlin_format": {
+        "files": 4,
+        "version": "1.3.1",
+        "result": "PASS"
+      },
+      "literal_regexes": 2038,
+      "dynamic_exclusions": 100,
+      "xml_resources": 36,
+      "generated_reference_scope_whitespace": "PASS",
+      "boundary": "Subsequent48bf reconciliation retains identical production/test bytes and adds its final native integration metadata. Final publication binding and hosted gates remain required."
+    }
   }
 }

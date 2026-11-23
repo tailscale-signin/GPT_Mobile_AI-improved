@@ -311,6 +311,51 @@ class PrivateTextMaskCorpusTest {
         assertEquals(name.length, result.receipt.ranges.single().endExclusive - result.receipt.ranges.single().start)
     }
 
+    @Test
+    fun familyHealthClausesStayPrivateWithoutConsumingRequestText() {
+        val cases = listOf(
+            Triple("My girlfriend is expecting a child. My brother needs care.", listOf("expecting", "needs care"), emptyList()),
+            Triple("My partner needs personal care, but I want to ask for a schedule change.", listOf("personal care"), listOf("I want to ask for a schedule change")),
+            Triple("Our sister is expecting twins; please draft a short leave request.", listOf("expecting twins"), listOf("please draft a short leave request")),
+            Triple("Draft a note because my father requires nursing care.", listOf("nursing care"), listOf("Draft a note because")),
+            Triple("My mother requires medical care today, so please draft a leave note.", listOf("medical care"), listOf("please draft a leave note"))
+        )
+        for ((input, privateValues, taskPhrases) in cases) {
+            val mask = PrivateTextMask(setOf(PrivacyCategory.HEALTH), emptyList())
+            val protected = mask.protectWithReceipt(input)
+            hidden(protected, *privateValues.toTypedArray())
+            retained(protected, *taskPhrases.toTypedArray())
+            assertTrue(protected.receipt.validFor(input))
+            assertTrue(protected.receipt.ranges.isNotEmpty())
+            val restored = mask.sealWithReceipts()(protected.text)
+            assertEquals(input, restored.text)
+            assertTrue(restored.receipt.validFor(input))
+        }
+    }
+
+    @Test
+    fun ordinaryExpectationsAndCareLanguageStayPublic() {
+        val publicInputs = listOf(
+            "My girlfriend is expecting a package.",
+            "My brother needs help with the printer.",
+            "My car needs care.",
+            "Our parser is expecting a child node.",
+            "My child process needs care after the migration.",
+            "My brother is expecting a child process to finish.",
+            "My sister needs care instructions for a plant.",
+            "My sister requires care instructions for a plant.",
+            "My girlfriend and I need a reply.",
+            "Teach how family caregiving works in general."
+        )
+        for (input in publicInputs) {
+            val mask = PrivateTextMask(setOf(PrivacyCategory.HEALTH), emptyList())
+            val protected = mask.protectWithReceipt(input)
+            assertEquals(input, protected.text)
+            assertTrue(protected.receipt.ranges.isEmpty())
+            assertEquals(input, mask.sealWithReceipts()(protected.text).text)
+        }
+    }
+
     private fun allCategories() = PrivateTextMask(PrivacyCategory.entries.toSet(), emptyList())
 
     private fun roundTrip(input: String): PrivateProtectedText {

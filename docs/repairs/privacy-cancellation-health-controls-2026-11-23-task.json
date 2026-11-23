@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-cancellation-health-controls-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "bd503c2de077900150daea8ee63270eb2a472879",
+  "integrationParent": "3a98cf1ae64847e2640d3c70d3605c7a1f5a2c71",
+  "pullRequest": 2367,
+  "intent": "Compose the independently reproduced cancellation repair and contextual family-health regression with current shared source, retaining strict authority assertions and source-bound qualification.",
+  "observations": [
+    "The bd503 incomplete-marker cancellation test leaves an ambient private chat context; the ordered wrapper/turn harness reproduces three unchanged PrivateTurn failures. The isolated PrivateTurn class passes all ten methods.",
+    "A rendezvous channel at the enclosing PrivateLocalToolSession flow boundary clears the leaked context and passes the same74-test order; changing only the masked provider boundary does not. Adopt the equivalent independently published3a98 fix without changing it.",
+    "The public3a98 family-health predicate repairs the original pregnancy/care fixture and preserves child-process/care-instruction language. Explicit personal and nursing care remain missing in the additional corpus regression."
+  ],
+  "acceptance": [
+    "Preserve every public3a98 production change and test augmentation. Add repeated cancellation without ambient resets, confirm producer cancellation, check subsequent ordinary/private caller contexts and verify null ambient context outside runBlocking.",
+    "Broaden only the explicit human family-care predicate to needs/requires and medical/nursing/personal care while retaining the public complete-predicate boundary and existing task split.",
+    "Keep meaningful positive and ordinary-language controls, original exact restoration and receipt checks, and every unchanged PrivateTurn authorization assertion.",
+    "Retain original failed CI evidence. Incomplete test-worker OOM/timeout without final XML is not a passing suite or an attributed infrastructure failure.",
+    "Qualify the final integrated source with required hosted Android, aggregate/main and both publication readback gates. No heap, timeout, dispatcher, authority or queue-capacity expansion."
+  ],
+  "limits": [
+    "The rendezvous boundary adds a coroutine handoff; it does not establish the cause of the separate historical JVM memory exhaustion.",
+    "Focused actual-source JVM controls do not qualify the full Android, Room, Compose or published-device behavior."
+  ]
+}

@@ -45,6 +45,7 @@ internal class DiagnosticContentRedactor(
             val fields = value.keys.map(::normalize).toSet()
             val configuredConnection = "apiurl" in fields && "compatibletype" in fields || "endpointurl" in fields && "connectionuid" in fields
             val researchJob = "jobid" in fields && "stage" in fields
+            val toolEventFields = (value["fields"] as? JsonObject)?.takeIf { value["table"] == JsonPrimitive("tool_events") && "result_type" in it }
             val observationPointer = if ("receiptid" in fields && "pointer" in fields) {
                 (value.entries.firstOrNull { normalize(it.key) == "pointer" }?.value as? JsonPrimitive)?.takeIf { it.isString }?.content
             } else {
@@ -56,6 +57,7 @@ internal class DiagnosticContentRedactor(
                     val normalized = normalize(key)
                     when {
                         child == JsonNull -> child
+                        key == "fields" && toolEventFields != null -> cleanToolEventFields(toolEventFields)
                         surfaceCounts && normalized in privateDispatchSurfaces && child is JsonPrimitive && !child.isString && child.content.toLongOrNull()?.let { it >= 0 } == true -> child
                         normalized in retainedPrivateTextFields -> omitRetainedText(child)
                         sourceExcerpt && normalized == "value" -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
@@ -64,6 +66,7 @@ internal class DiagnosticContentRedactor(
                         configuredConnection && normalized in setOf("name", "alias") -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
                         researchJob && normalized == "reason" -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
                         normalized in opaquePrivateFields || normalized in configuredTopologyFields -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                        normalized in privateRepositoryPathFields -> cleanRepositoryPaths(child)
                         privateTextField.matches(normalized) && (child is JsonArray || child is JsonPrimitive && child.isString) -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
                         normalized == "line" && child is JsonPrimitive && child.isString -> JsonPrimitive(logLine(child.content))
                         else -> clean(child, surfaceCounts = normalized == "surfacecounts")
@@ -108,6 +111,63 @@ internal class DiagnosticContentRedactor(
         val status = field in setOf("status", "state", "conclusion", "outcome") && primitive.isString && primitive.content.uppercase(Locale.ROOT) in observationStatuses
         val code = field in setOf("errorcode", "reasoncode") && primitive.isString && observationCode.matches(primitive.content)
         return if (numeric || boolean || hash || status || code) primitive else JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+    }
+
+    private fun cleanRepositoryPaths(value: JsonElement): JsonElement = when (value) {
+        is JsonArray -> JsonArray(value.map(::cleanRepositoryPaths))
+        is JsonPrimitive -> if (value.isString) JsonPrimitive(PRIVATE_CONTENT_OMITTED) else value
+        else -> clean(value)
+    }
+
+    /** A projected JSON tool response is still original content, not a diagnostic schema. */
+    private fun cleanToolEventFields(fields: JsonObject): JsonObject = clean(
+        JsonObject(
+            fields.mapValues { (key, value) ->
+                when (key) {
+                    "connection_name_snapshot" -> if (value == JsonNull) value else JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                    "result" -> when {
+                        value == JsonNull -> value
+                        fields["result_type"] == JsonPrimitive("CHECKPOINT_V1") -> cleanToolCheckpoint(value)
+                        else -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                    }
+                    else -> value
+                }
+            }
+        )
+    ) as JsonObject
+
+    private fun cleanToolCheckpoint(value: JsonElement): JsonElement {
+        val saved = value as? JsonObject ?: (value as? JsonPrimitive)?.takeIf { it.isString }?.let {
+            runCatching { Json.parseToJsonElement(it.content) as? JsonObject }.getOrNull()
+        } ?: return JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+        if (saved["payload_type"] !in toolPayloadTypes || "payload" !in saved || "display" !in saved) return JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+        return JsonObject(
+            buildMap {
+                put("payload_type", saved.getValue("payload_type"))
+                put("payload", JsonPrimitive(PRIVATE_CONTENT_OMITTED))
+                put("display", JsonPrimitive(PRIVATE_CONTENT_OMITTED))
+                (saved["execution"] as? JsonObject)?.let { put("execution", clean(it)) }
+                (saved["personal_data"] as? JsonArray)?.let { labels -> put("personal_data", JsonArray(labels.map(::cleanToolProvenance))) }
+            }
+        )
+    }
+
+    private fun cleanToolProvenance(value: JsonElement): JsonElement {
+        val label = value as? JsonObject ?: return JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+        return JsonObject(
+            label.filterKeys { normalize(it) in toolProvenanceFields }.mapValues { (key, child) ->
+                val primitive = child as? JsonPrimitive
+                when {
+                    child == JsonNull -> child
+                    normalize(key) in setOf("sourcetoolid", "sourceprofileuid", "sourceconnectionuid") && primitive?.isString == true && diagnosticOwnerId.matches(primitive.content) -> child
+                    normalize(key) in setOf("version", "retentionchatid", "rangestart", "rangeend") && primitive?.isString == false && primitive.content.toLongOrNull()?.let { it >= 0 } == true -> child
+                    normalize(key) == "localonly" && child in setOf(JsonPrimitive(true), JsonPrimitive(false)) -> child
+                    normalize(key) == "categories" && child is JsonArray -> JsonArray(child.map { if (it in personalDataCategories) it else JsonPrimitive(PRIVATE_CONTENT_OMITTED) })
+                    normalize(key) == "sourcerecipients" && child is JsonArray -> JsonArray(child.map { JsonPrimitive(PRIVATE_CONTENT_OMITTED) })
+                    else -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                }
+            }
+        )
     }
 
     /** A log prefix can contain assignments before a complete JSON evidence object. */
@@ -180,6 +240,14 @@ internal class DiagnosticContentRedactor(
             "OPEN", "CLOSED", "QUEUED", "PENDING", "WAITING", "REQUESTED", "IN_PROGRESS", "COMPLETED", "SUCCESS", "FAILURE", "FAILED", "NEUTRAL", "CANCELLED", "SKIPPED", "TIMED_OUT", "ACTION_REQUIRED", "STALE",
             "VERIFIED", "HISTORICAL", "CONTRADICTED", "NOT_MEASURED", "INFERRED", "PARTIAL", "COMPLETE", "UNAVAILABLE", "BLOCKED", "PASSED"
         )
+        private val toolPayloadTypes = setOf("TEXT", "JSON", "RESOURCE_LINKS").map(::JsonPrimitive).toSet()
+        private val diagnosticOwnerId = Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,191}")
+        private val toolProvenanceFields = setOf("version", "sourcetoolid", "sourceprofileuid", "sourceconnectionuid", "sourceref", "categories", "sourcerecipients", "retentionchatid", "rangestart", "rangeend", "localonly")
+        private val personalDataCategories = setOf("MEMORY", "HEALTH", "COARSE_LOCATION", "PRECISE_LOCATION", "PRIVATE_CONTENT", "UNCLASSIFIED").map(::JsonPrimitive).toSet()
+
+        // Repository checkpoints contain relative paths that local filesystem
+        // matching cannot identify. Keep schema objects and numeric evidence.
+        private val privateRepositoryPathFields = setOf("path", "filename", "previousfilename", "pathprefix", "selectedpaths", "pendingsourcepaths")
         private val configuredTopologyFields = setOf(
             "apiurl", "batchapiurl", "baseurl", "apibaseurl", "gatewaybaseurl", "endpoint", "endpointurl", "serverurl", "gatewayurl", "connectionurl",
             "host", "hostname", "hostaddress", "serverhost", "serverhostname", "localhostname", "remotehost", "bindhost", "bindaddress",

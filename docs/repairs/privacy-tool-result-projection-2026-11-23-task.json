@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-tool-result-projection-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "observedMainCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+  "pullRequest": 2367,
+  "intent": "Separate original tool output from structural execution evidence in default diagnostic export, including actual checkpoint and database JSON hydration routes.",
+  "observedRoutes": [
+    "ToolEventRecorder persists arbitrary MCP/tool output as ToolResultCheckpoint payload and display; errors, retained personal-data provenance and separate traces can force the checkpoint form.",
+    "DiagnosticValueProjector recursively decodes JSON strings into objects, including JSON-looking TEXT results. Generic scalar field omission then misses arbitrary original values in hydrated checkpoint and non-checkpoint results.",
+    "DiagnosticDatabaseSource captures actual tool_events rows in latest_state and tool_receipts, including configured connection_name_snapshot labels."
+  ],
+  "acceptance": [
+    "Recognize the actual tool-event row context and omit arbitrary original result content in REDACTED mode regardless declared content type or hydrated JSON shape.",
+    "For recognized checkpoints, omit payload/display content while retaining the separately typed execution evidence and safe ownership/scope metadata; malformed or unknown result structures fail closed.",
+    "Omit configured connection labels and free-form personal source references while retaining row identity, counts, timing, codes, and source ownership/scope evidence.",
+    "Preserve unrelated typed workspace/verification objects, the path correction, explicit forensic selection and credential redaction in both modes.",
+    "Exercise real production-helper negative controls plus a Room-backed staged ZIP regression for latest-state and full-history output, forensic content preservation and manifest verification.",
+    "Compose concurrent shared-branch fixes without overwriting prior source, require exact integrated-head/main checks and both verified publications before completion."
+  ],
+  "qualification": {
+    "roomRegression": "DiagnosticDatabaseSourceTest.stagedToolResultsOmitOriginalContentAndRetainExecutionEvidenceByDefault",
+    "androidExecution": "Required on the final integrated hosted source; local helper tests do not qualify Room or staged ZIP execution.",
+    "scope": "Original tool-event content and evidenced metadata fields; no claim to discover arbitrary sensitive data in all possible future producer schemas."
+  },
+  "integrationParent": "3a98cf1ae64847e2640d3c70d3605c7a1f5a2c71"
+}

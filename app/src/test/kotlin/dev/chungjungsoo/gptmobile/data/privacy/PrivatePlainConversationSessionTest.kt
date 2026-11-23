@@ -25,6 +25,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -114,6 +115,66 @@ class PrivatePlainConversationSessionTest {
             assertEquals("A reply", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
             assertEquals(1, events.count { it == ProviderEvent.Completed })
         }
+    }
+
+    @Test
+    fun repeatedCancellationRestoresAmbientPrivacyForFollowingConversationScopes() {
+        assertNull(ConversationPrivacyContext.currentOrNull())
+        runBlocking {
+            suspend fun cancelledRound(expected: ConversationPrivacyContext?) {
+                val fixture = Fixture()
+                val waiting = CompletableDeferred<Unit>()
+                var upstreamStopped = false
+                fixture.response = { token ->
+                    flow {
+                        try {
+                            emit(ProviderEvent.TextDelta(token.dropLast(1)))
+                            waiting.complete(Unit)
+                            awaitCancellation()
+                        } finally {
+                            upstreamStopped = true
+                        }
+                    }
+                }
+                val events = mutableListOf<ProviderEvent>()
+                val job = launch { fixture.session().streamRound(emptyList(), emptyList()).collect { events += it } }
+                try {
+                    withTimeout(2_000) { waiting.await() }
+                } finally {
+                    job.cancelAndJoin()
+                }
+                assertTrue(job.isCancelled)
+                assertTrue(upstreamStopped)
+                assertEquals(1, fixture.dispatches)
+                assertTrue(events.isEmpty())
+                assertSame(expected, currentCoroutineContext()[ConversationPrivacyContext])
+                assertSame(expected, ConversationPrivacyContext.currentOrNull())
+            }
+
+            repeat(4) { cancelledRound(null) }
+            for (caller in listOf(ConversationPrivacyContext(28, false), ConversationPrivacyContext(29, true))) {
+                withContext(caller) {
+                    repeat(2) { cancelledRound(caller) }
+                    val fixture = Fixture()
+                    fixture.response = { token ->
+                        flow {
+                            emit(ProviderEvent.TextDelta(token))
+                            emit(ProviderEvent.Completed)
+                        }
+                    }
+                    val events = mutableListOf<ProviderEvent>()
+                    fixture.session().streamRound(emptyList(), emptyList()).collect { event ->
+                        assertSame(caller, ConversationPrivacyContext.currentOrNull())
+                        events += event
+                    }
+                    assertEquals(SECRET, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+                    assertEquals(1, events.count { it == ProviderEvent.Completed })
+                    assertSame(caller, ConversationPrivacyContext.currentOrNull())
+                }
+                assertNull(ConversationPrivacyContext.currentOrNull())
+            }
+        }
+        assertNull(ConversationPrivacyContext.currentOrNull())
     }
 
     @Test

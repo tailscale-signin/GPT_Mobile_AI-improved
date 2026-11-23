@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "5324c6c28186aed359a5da55ad7b64a7c69dfd80e99d01e30e247432b897c40f",
+  "source_digest": "0da17db1ded0fcf150f398b4a2fdf954c345b082d7c2550c29146309a31ef3aa",
   "file_count": 3028,
-  "indexed_line_count": 512720,
+  "indexed_line_count": 512788,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -131,7 +131,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 104,
-      "indexed_line_count": 16376
+      "indexed_line_count": 16444
     },
     {
       "id": "benchmark",
@@ -5751,8 +5751,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticContentPolicy.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "4bfd03a3e57585ac515ebdbb182e87d6e6e35a6170b67064a237ff590831e060",
-      "indexed_lines": 223
+      "sha256": "b89115da1d8cd2363c7a776270ad9b77bc95a7b5a4e4c009497eaae29c655e2f",
+      "indexed_lines": 291
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticCrashCorrelation.kt",
@@ -11414,7 +11414,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextDetection.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "12912f07c32f063ed4284b697327b97d045b62b3e0ebbe26a5c6c1acd0c5b4bc",
+      "sha256": "d18032958b8810ae2b79141a4609c7252ec29daa564abb3ccf24278250bf3e76",
       "indexed_lines": 224
     },
     {

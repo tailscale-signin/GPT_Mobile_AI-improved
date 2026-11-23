@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-repository-path-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "observedMainCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+  "incomingProducerCommit": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+  "pullRequest": 2367,
+  "intent": "Omit repository-relative filenames from default diagnostic capture of retained GitHub checkpoints and tool results while preserving structural evidence and the separately selected forensic mode.",
+  "observedRoutes": [
+    "GitHubReviewSourceQueue selected_paths and GitHubReviewComparison pending_source_paths reach persisted checklist and verification objects hydrated into staged latest_state.",
+    "Repository preparation and path resolution retain deferred_files[].path, path, filename, previous_filename and path_prefix in structured tool results and JSON checkpoint displays."
+  ],
+  "acceptance": [
+    "Apply the central policy to actual structured path fields and nested JSON before staged snapshot, chunking, hashing and checkpointing; use fictional repository-relative paths in regressions.",
+    "Retain object and array containers, booleans, numeric counters, typed states and codes, source hashes and schema definitions; omit string path leaves.",
+    "Preserve credential redaction in both modes, explicit forensic content selection and redaction idempotence.",
+    "Preserve all preceding shared commits and compose the independently owned detail, producer-schema, authorization and trusted-protocol corrections before final qualification.",
+    "Require the final integrated source to pass applicable hosted Android and staged-export checks; focused helper tests do not substitute for those gates.",
+    "Respect predecessor publication sequencing, reconcile unused Android and Gateway versions, and qualify the actual merged main and both published packages."
+  ],
+  "limits": [
+    "The exact-key correction covers the evidenced structured path values; it does not claim to remove arbitrary unlabelled paths embedded in prose."
+  ],
+  "integrationParent": "3a98cf1ae64847e2640d3c70d3605c7a1f5a2c71"
+}

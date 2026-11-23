@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.voice
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.geometry.Offset
@@ -17,8 +18,11 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.presentation.common.Route
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -32,10 +36,16 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             state.route?.let { route -> navController.navigate(route) { popUpTo(Route.VOICE_ENTRY) { inclusive = true } } }
         }
         val voiceSettings: VoicePreferencesViewModel = hiltViewModel()
+        val backendOwner: VoiceBackendViewModel = hiltViewModel()
+        val backend by backendOwner.state.collectAsStateWithLifecycle()
+        val preferences by voiceSettings.preferences.collectAsStateWithLifecycle()
+        LaunchedEffect(backendOwner, preferences?.kokoroVoice, preferences?.rate) {
+            preferences?.let { backendOwner.configureSpeech(it.kokoroVoice ?: KokoroVoice.HEART, it.rate) }
+        }
         val stores by voiceSettings.modelStores.collectAsStateWithLifecycle()
         val moonshine = stores?.moonshine?.state?.collectAsStateWithLifecycle()?.value
         val kokoro = stores?.kokoro?.state?.collectAsStateWithLifecycle()?.value
-        val modelsReady = moonshine?.status == LocalVoiceModelStatus.READY && kokoro?.status == LocalVoiceModelStatus.READY
+        val modelsReady = preferences != null && voiceEntryModelsReady(moonshine, kokoro, backend, preferences?.spokenReplies != false)
         val context = LocalContext.current
         val installation by VoicePluginInstall.state.collectAsStateWithLifecycle()
         val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -58,11 +68,38 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             recheckModel = { model.recheckGatewayModel(state.selected) },
             modelsReady = modelsReady,
             setup = {
+                VoiceEntrySpeechSettings(backend, backendOwner::selectBackend, backendOwner::selectGateway)
                 if (moonshine != null && kokoro != null) {
-                    VoicePluginSetup(moonshine, kokoro, installation, { VoicePluginInstall.start(context) }, { VoicePluginInstall.cancel(context) }) {
-                        VoicePluginInstall.refresh(context)
-                        VoicePluginInstall.captureReportObservation(moonshine.status, kokoro.status)
-                        onReportDownload()
+                    val engine = backend.backend.streamingEngine()
+                    if (engine != null || preferences?.spokenReplies == false) {
+                        LocalVoiceSetupCard(
+                            moonshine,
+                            voiceSettings::installLocalModel,
+                            voiceSettings::cancelLocalModelInstall,
+                            voiceSettings::removeLocalModel,
+                            compact = true
+                        )
+                        if (engine != null && preferences?.spokenReplies != false) {
+                            StreamingVoiceModelCard(
+                                engine = engine,
+                                state = backend.streamingModels[engine],
+                                voice = preferences?.kokoroVoice ?: KokoroVoice.HEART,
+                                enabled = backend.loaded,
+                                selectVoice = {},
+                                install = backendOwner::installStreamingModel,
+                                cancel = backendOwner::cancelStreamingInstall,
+                                remove = backendOwner::removeStreamingModel,
+                                preview = {},
+                                previewError = null,
+                                setup = true
+                            )
+                        }
+                    } else {
+                        VoicePluginSetup(moonshine, kokoro, installation, { VoicePluginInstall.start(context) }, { VoicePluginInstall.cancel(context) }) {
+                            VoicePluginInstall.refresh(context)
+                            VoicePluginInstall.captureReportObservation(moonshine.status, kokoro.status)
+                            onReportDownload()
+                        }
                     }
                 }
             }
@@ -103,6 +140,29 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             )
         }
     }
+}
+
+/** Model availability follows the selected engine; SDK packs never depend on native Kokoro. */
+internal fun VoiceBackendSettings.speechModelReady(nativePlayback: LocalVoiceModelState?): Boolean =
+    loaded && factory.isReady() && (!factory.requiresKokoroAssets || nativePlayback?.status == LocalVoiceModelStatus.READY)
+
+internal fun voiceEntryModelsReady(recognition: LocalVoiceModelState?, nativePlayback: LocalVoiceModelState?, backend: VoiceBackendSettings, spokenReplies: Boolean = true): Boolean =
+    recognition?.status == LocalVoiceModelStatus.READY && (!spokenReplies || backend.speechModelReady(nativePlayback))
+
+/** Entry setup exposes engine selection before any speech model download is required. */
+@Composable
+internal fun VoiceEntrySpeechSettings(value: VoiceBackendSettings, selectBackend: (VoiceSpeechBackend) -> Unit, selectGateway: (String) -> Unit) {
+    VoiceChoice(
+        "Speech engine",
+        value.backend.name,
+        VoiceSpeechBackend.entries.map { it.name to it.label },
+        { selectBackend(VoiceSpeechBackend.valueOf(it)) },
+        enabled = value.loaded
+    )
+    if (value.backend == VoiceSpeechBackend.GATEWAY_CUDA) {
+        VoiceChoice("Speech Gateway", value.gatewayUid, value.gateways.map { it.uid to it.name }, selectGateway, enabled = value.loaded)
+    }
+    androidx.compose.material3.Text(value.status, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
 }
 
 @androidx.compose.runtime.Composable

@@ -16,6 +16,10 @@ class VoiceExecutionDiagnosticsTest {
         assertEquals(JsonPrimitive("KOKORO_CPU"), VoiceExecutionDiagnostics.validValue("voice_effective_provider", JsonPrimitive("KOKORO_CPU")))
         assertEquals(JsonPrimitive("KOKORO"), VoiceExecutionDiagnostics.validValue("voice_fallback_source", JsonPrimitive("KOKORO")))
         assertNull(VoiceExecutionDiagnostics.validValue("voice_effective_provider", JsonPrimitive("KOKORO")))
+        for (selected in listOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU")) {
+            assertEquals(JsonPrimitive(selected), VoiceExecutionDiagnostics.validValue("voice_selected_backend", JsonPrimitive(selected)))
+            assertNull(VoiceExecutionDiagnostics.validValue("voice_effective_provider", JsonPrimitive(selected)))
+        }
     }
 
     @Test fun fallbackFailureAndOutcomeAreIndependentClosedObservations() {

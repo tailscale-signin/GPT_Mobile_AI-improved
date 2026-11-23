@@ -15,6 +15,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePerformanceExportTest {
+    @Test fun streamingModelAndDelegateRequestNeverBecomeProcessorOrThreadEvidence() {
+        for ((family, provider, delegate) in listOf(
+            Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-cpu-requested", "CPU"),
+            Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-gpu-requested", "GPU"),
+            Triple("MEDIAPIPE_PHONON", "mediapipe-phonon-cpu-requested", "CPU"),
+            Triple("MEDIAPIPE_POCKET", "mediapipe-pocket-cpu-requested", "CPU")
+        )) {
+            val history = VoicePerformanceHistory()
+            history.observe("text_to_audio", 125, family, true)
+            val sample = VoiceSynthesisFeedback(generatedAudioMs = 1000, synthesisMs = 100, executionProvider = provider, threads = 4)
+            val document = Json.parseToJsonElement(voicePerformanceExport(history.snapshots.value, sample)).jsonObject
+            val row = document.getValue("series").jsonArray.single().jsonObject
+            assertEquals(family, row.getValue("modelFamily").jsonPrimitive.content)
+            assertEquals(JsonNull, row["observedProvider"])
+            val synthesis = document.getValue("latestSynthesis").jsonObject
+            assertEquals(family, synthesis.getValue("modelFamily").jsonPrimitive.content)
+            assertEquals(delegate, synthesis.getValue("requestedDelegate").jsonPrimitive.content)
+            assertEquals(JsonNull, synthesis["observedProvider"])
+            assertEquals(JsonNull, synthesis["threads"])
+            assertEquals("not_exposed_by_sdk", synthesis.getValue("threadsScope").jsonPrimitive.content)
+            assertEquals(JsonNull, synthesis["executionEvidence"])
+        }
+    }
+
     @Test fun graphicsOnlyExportIdentifiesMissingSpeechAndUtilizationWithoutInventingZeros() {
         val history = VoicePerformanceHistory()
         repeat(6295) {

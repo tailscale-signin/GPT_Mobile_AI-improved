@@ -496,7 +496,7 @@ internal data class IssueReportDiagnostics(
                 "provider_reported_initial", "provider_reported_interim", "runtime_reported_initial", "runtime_reported_interim", "gateway_reported_initial", "gateway_reported_interim", "mixed_reported_initial", "mixed_reported_interim"
             ),
             "acceptance_evidence_scope" to setOf("CURRENT_VERDICT", "RETAINED_VERDICT"),
-            "voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO"),
+            "voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE"),
             "voice_phase" to setOf("PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"),
             "voice_playback_failure" to VoiceExecutionDiagnostics.playbackFailures,
             "voice_install_recognition_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),

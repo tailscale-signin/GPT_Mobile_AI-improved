@@ -1,5 +1,9 @@
 # 0.9.66.15 — 2026-11-23 (integration candidate)
 
+- Add verified LiteRT Kokoro, Phonon and Pocket voice packs with real incremental PCM playback, explicit native cancellation, bounded text/cache planning and estimated caption provenance.
+- Prepare local speech earlier, calibrate the selected native voice/rate across one through four threads, adapt pending phrase size to available audio, and prevent stale voice/rate previews and warmup generations.
+- Add compatible binary Gateway speech transport and bounded native profile parsing; enforce TTS JNI retention and keep unverified processor requests separate from observed execution.
+
 - Combine the retained continuation, source-evidence and runtime-reporting repairs with the repository-recovery and speech-playback work from the preceding candidate.
 - Preserve completed baseline decisions and required review questions while filtering unsupported answer-derived runtime claims; retain source-review, authorization and finite-budget controls.
 - Run release compatibility and lint with a fixed 4 GiB heap/1 GiB metaspace, observed 7,168 MiB admission, dedicated diagnostics and the combined 65-minute/3,840-second limits.

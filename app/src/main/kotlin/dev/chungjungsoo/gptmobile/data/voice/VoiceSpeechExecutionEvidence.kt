@@ -271,7 +271,7 @@ internal data class VoiceBackendCapability(
 
 internal object VoiceMeasuredBackendPolicy {
     // Bump whenever the fixed fixtures or their cost aggregation changes.
-    const val COMPARISON_PROTOCOL = VoiceSpeechWorkload.PROTOCOL + "-thermal-v2"
+    const val COMPARISON_PROTOCOL = VoiceSpeechWorkload.PROTOCOL + "-thermal-v2-audio-admission-v1"
     const val FIXTURE_COUNT = VoiceSpeechWorkload.CALIBRATION_FIXTURE_COUNT
     val thermalSampleCount: Int get() = 1 + VoiceSpeechWorkload.calibrationPhrases.size * 2
 
@@ -305,11 +305,7 @@ internal object VoiceMeasuredBackendPolicy {
         val accelerated = eligible.filter {
             it.backend in setOf(VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP) &&
                 it.verifiedAccelerator &&
-                it.comparisonScope == cpu.comparisonScope &&
-                it.comparisonId == cpu.comparisonId &&
-                it.speakerId == cpu.speakerId &&
-                it.speechRate == cpu.speechRate &&
-                it.audioObservations.zip(cpu.audioObservations).all { (candidate, reference) -> VoiceSpeechAudioReference.compare(reference, candidate).status == VoiceSpeechAudioReferenceStatus.CONSISTENT }
+                VoiceBackendAudioAdmission.compare(it, cpu, now).status == VoiceSpeechAudioReferenceStatus.CONSISTENT
         }.minByOrNull { it.sampleMs.sum() } ?: return VoiceSpeechBackend.CPU
         // Small/noisy differences do not justify slower graph preparation or a
         // backend switch. Rounding the means could admit a smaller gain or hide the faster engine.

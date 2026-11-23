@@ -57,6 +57,29 @@ class VoiceBackendCapabilityStoreTest {
         assertNotEquals(store.key(VoiceSpeechBackend.QNN_GPU, "us", 2), store.key(VoiceSpeechBackend.QNN_GPU, "us", 3))
     }
 
+    @Test fun completedComparisonPersistsItsPairedMismatchAndRejectsMixedRunPublication() {
+        val store = VoiceBackendCapabilityStore(context)
+        val cpu = record(store.key(VoiceSpeechBackend.CPU, "us", 2), VoiceSpeechBackend.CPU, now, List(6) { 100L })
+        val gpu = record(store.key(VoiceSpeechBackend.QNN_GPU, "us", 2), VoiceSpeechBackend.QNN_GPU, now, List(6) { 40L }, true)
+            .copy(audioObservations = VoiceSpeechWorkload.calibrationPhrases.map { speechReferenceFixture(it, 43) })
+        store.saveComparison(VoiceBackendAudioAdmission.finalized(listOf(gpu, cpu), now))
+        val recovered = listOfNotNull(store.read(cpu.key, now), store.read(gpu.key, now))
+        assertEquals(2, recovered.size)
+        assertEquals(VoiceSpeechFailureCode.OUTPUT_INVALID, recovered.single { it.backend == VoiceSpeechBackend.QNN_GPU }.failure)
+        assertEquals(VoiceSpeechBackend.CPU, VoiceBackendAudioAdmission.select(VoiceSpeechBackend.QNN_GPU, recovered, now).selected)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            store.saveComparison(listOf(cpu, gpu.copy(comparisonId = "d".repeat(32))))
+        }
+        assertEquals(recovered, listOfNotNull(store.read(cpu.key, now), store.read(gpu.key, now)))
+    }
+
+    @Test fun explicitManualAndAutoRecheckHaveBoundedPreparationWhileOrdinaryOpenStaysShort() {
+        for (backend in listOf(VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP, VoiceSpeechBackend.AUTO)) {
+            assertEquals(360_000L, QualcommVoicePhraseEngineFactory(context, backend, {}, calibrateAll = true).preparationTimeoutMs)
+            assertEquals(30_000L, QualcommVoicePhraseEngineFactory(context, backend, {}).preparationTimeoutMs)
+        }
+    }
+
     @Test fun recheckInvalidatesOnlyTheSelectedBackendAndPreservesFailureProvenance() {
         val store = VoiceBackendCapabilityStore(context)
         val cpu = store.key(VoiceSpeechBackend.CPU, "us", 2)

@@ -33,7 +33,8 @@ internal fun KokoroPlaybackCard(
     cancel: () -> Unit,
     remove: () -> Unit,
     preview: (KokoroVoice) -> Unit,
-    setup: Boolean = false
+    setup: Boolean = false,
+    showThreads: Boolean = true
 ) {
     val ready = state.status == LocalVoiceModelStatus.READY
     val downloadMiB = (state.totalBytes + 524_288) / 1_048_576
@@ -63,10 +64,10 @@ internal fun KokoroPlaybackCard(
                 KokoroVoice.entries.forEach { option ->
                     FilterChip(selected = voice == option, onClick = { select(option) }, label = { Text(option.label) }, enabled = english)
                 }
-                if (voice != null) {
+                if (voice != null && showThreads) {
                     Text("Synthesis threads", style = MaterialTheme.typography.labelMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        (2..4).forEach { count ->
+                        (1..4).forEach { count ->
                             FilterChip(selected = threads == count, onClick = { selectThreads(count) }, label = { Text(count.toString()) })
                         }
                     }

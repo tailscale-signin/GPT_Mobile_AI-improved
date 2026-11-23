@@ -31,8 +31,9 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     private var refillPenalty = 0
     private val recentSynthesisMs = ArrayDeque<Long>()
     private val recentRecurringMs = ArrayDeque<Long>()
+    private val recentWordCostMs = ArrayDeque<Double>()
 
-    @Synchronized fun observe(synthesisMs: Long, audioMs: Long, recurringMs: Long? = null) {
+    @Synchronized fun observe(synthesisMs: Long, audioMs: Long, recurringMs: Long? = null, spokenWords: Int = 0) {
         if (synthesisMs < 0 || audioMs <= 0) return
         val ratio = (synthesisMs.toDouble() / audioMs).coerceIn(0.01, 10.0)
         productionRatio = if (observations++ == 0) ratio else productionRatio * .75 + ratio * .25
@@ -40,6 +41,10 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
         recentRecurringMs.addLast(recurringMs?.takeIf { it in 1..synthesisMs } ?: synthesisMs.coerceAtLeast(1))
         while (recentSynthesisMs.size > 8) recentSynthesisMs.removeFirst()
         while (recentRecurringMs.size > 8) recentRecurringMs.removeFirst()
+        if (spokenWords > 0) {
+            recentWordCostMs.addLast(recentRecurringMs.last().toDouble() / spokenWords)
+            while (recentWordCostMs.size > 8) recentWordCostMs.removeFirst()
+        }
     }
 
     @Synchronized fun underrun() {
@@ -66,8 +71,13 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
 
     @Synchronized fun phraseWords(bufferedMs: Long): Int {
         if (mode != VoicePerformanceMode.AUTO) return mode.followUpWords
+        if (observations == 0) return 8
+        val wordCost = recentWordCostMs.maxOrNull()
+        if (wordCost != null && bufferedMs >= 300) {
+            val continuityBudget = (bufferedMs / (wordCost * 1.2)).toInt().coerceIn(6, 16)
+            return if (productionRatio >= 1.0) minOf(8, continuityBudget) else continuityBudget
+        }
         return when {
-            observations == 0 -> 12
             bufferedMs < 300 -> 6
             productionRatio >= 1.0 -> 8
             bufferedMs < 1_000 -> 12
@@ -85,8 +95,8 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
 /** Chooses from actual warm, repeated measurements; never infers a speedup from core count. */
 internal object VoiceCpuCalibration {
     fun select(samples: Map<Int, List<Long>>, fallback: Int = 2): Int {
-        val qualified = samples.filter { (threads, times) -> threads in 2..4 && times.size >= 3 && times.all { it > 0 } }
-        if (qualified.isEmpty()) return fallback.coerceIn(2, 4)
+        val qualified = samples.filter { (threads, times) -> threads in 1..4 && times.size >= 3 && times.all { it > 0 } }
+        if (qualified.isEmpty()) return fallback.coerceIn(1, 4)
         fun score(times: List<Long>): Long = times.sorted()[(times.size * .95).toInt().coerceAtMost(times.lastIndex)]
         val best = qualified.minWith(compareBy<Map.Entry<Int, List<Long>>> { score(it.value) }.thenBy { it.key }).key
         val baseline = qualified[fallback] ?: return best

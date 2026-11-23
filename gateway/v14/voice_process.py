@@ -15,7 +15,7 @@ import threading
 import time
 
 from .voice import (FRONTEND, MAX_AUDIO_FRAMES, MAX_BODY_BYTES, PROTOCOL, PROVIDER, SAMPLE_RATE,
-                    SHA256, VoiceError)
+                    SHA256, BinarySpeech, VoiceError)
 
 MAX_RESPONSE_BYTES = MAX_AUDIO_FRAMES * 4 * 4 // 3 + 65536
 _DLL_LOCK = threading.Lock()
@@ -137,8 +137,19 @@ class SidecarCudaBackend:
                 if not line or len(line) > MAX_RESPONSE_BYTES or not line.endswith(b'\n'):
                     raise ValueError()
                 response = json.loads(line)
-                if not isinstance(response, dict):
+                if not isinstance(response, dict) or '_pcm' in response:
                     raise ValueError()
+                if '_binary_pcm_bytes' in response:
+                    count = response.pop('_binary_pcm_bytes')
+                    if type(count) is not int or not 0 < count <= MAX_AUDIO_FRAMES * 4 or count % 4 or len(line) > MAX_BODY_BYTES:
+                        raise ValueError()
+                    pcm = bytearray()
+                    while len(pcm) < count:
+                        chunk = self.process.stdout.read(min(65536, count - len(pcm)))
+                        if not chunk:
+                            raise ValueError()
+                        pcm.extend(chunk)
+                    response['_pcm'] = bytes(pcm)
                 self._responses.put(response, timeout=1)
         except (OSError, ValueError, RecursionError, queue.Full):
             try:
@@ -195,6 +206,14 @@ class SidecarCudaBackend:
         return result
 
     def synthesize(self, payload, work):
+        return self._synthesize(payload, work, binary=False)
+
+    def synthesize_binary(self, payload, work):
+        result = self._synthesize(payload, work, binary=True)
+        pcm = result.pop('_pcm', None)
+        return BinarySpeech(result, pcm)
+
+    def _synthesize(self, payload, work, binary):
         backend = self
         identifier = payload['request_id']
         class Cancellation:
@@ -208,7 +227,7 @@ class SidecarCudaBackend:
                         backend._send({'command': 'cancel', 'request_id': identifier})
                     except VoiceError:
                         pass
-        self._send({'command': 'synthesize', 'payload': payload})
+        self._send({'command': 'synthesize_binary' if binary else 'synthesize', 'payload': payload})
         work.options(Cancellation())
         try:
             result = self._receive(work.deadline - time.monotonic())
@@ -218,7 +237,9 @@ class SidecarCudaBackend:
                 or result.get('request_id') != identifier or result.get('model_sha256') != self.model_sha256
                 or result.get('execution_provider') != PROVIDER or result.get('sample_rate') != SAMPLE_RATE
                 or result.get('executed_cuda_nodes') != self.executed_cuda_nodes
-                or result.get('word_tokens') != payload['word_tokens']):
+                or result.get('word_tokens') != payload['word_tokens']
+                or (binary and not isinstance(result.get('_pcm'), bytes))
+                or (not binary and '_pcm' in result)):
             self.close()
             raise VoiceError('VOICE_WORKER_UNAVAILABLE')
         return result

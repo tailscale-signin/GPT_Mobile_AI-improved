@@ -6,6 +6,27 @@ import java.io.File
 /** All backends return durations and audio from the same inference operation. */
 internal data class VoicePhraseAudio(val samples: FloatArray, val durations: LongArray, val wordTokens: IntArray)
 
+internal const val VOICE_PCM_SAMPLE_RATE = 24_000
+
+/** Timing provenance is independent of the measured audio presentation clock. */
+enum class VoiceWordCueProvenance { NATIVE_DURATION, ESTIMATED }
+
+/** UTF-8 byte offsets are end-exclusive in the exact stream input; frames are relative to that call. */
+internal data class VoiceWordCue(
+    val startByte: Int,
+    val endByte: Int,
+    val startFrame: Long,
+    val endFrame: Long,
+    val provenance: VoiceWordCueProvenance = VoiceWordCueProvenance.ESTIMATED
+)
+
+/** Mono float PCM. The producer must not mutate samples after handing them to the consumer. */
+internal data class VoicePcmChunk(
+    val samples: FloatArray,
+    val sampleRate: Int = VOICE_PCM_SAMPLE_RATE,
+    val wordCues: List<VoiceWordCue> = emptyList()
+)
+
 /** Safe to poll while native work is running; elapsed times belong to this attempt and phase. */
 internal data class VoiceSpeechProgress(
     val stage: VoiceSpeechStage,
@@ -26,7 +47,16 @@ internal interface VoicePhraseEngine : AutoCloseable {
     val executionProvider: String get() = "cpu"
     val executionEvidence: VoiceSpeechExecutionEvidence? get() = null
     val executionProgress: VoiceSpeechProgress? get() = null
-    fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio
+    val supportsStreaming: Boolean get() = false
+    fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio = throw UnsupportedOperationException("This engine streams PCM")
+
+    /**
+     * Runs on the synthesis owner. emit blocks for bounded playback backpressure;
+     * false requires prompt cancellation. Only 24 kHz mono PCM is currently accepted.
+     * cancel() may interrupt this call; close() runs only after the owner returns.
+     */
+    fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean): Unit =
+        throw UnsupportedOperationException("This engine generates complete phrases")
     fun resetCancellation()
     fun cancel()
 }
@@ -34,6 +64,8 @@ internal interface VoicePhraseEngine : AutoCloseable {
 internal interface VoicePhraseEngineFactory {
     val selectedBackend: VoiceSpeechBackend get() = VoiceSpeechBackend.CPU
     val preparationTimeoutMs: Long get() = 30_000
+    val requiresKokoroAssets: Boolean get() = true
+    fun isReady(): Boolean = true
 
     /** Includes model/runtime/configuration revision; changing it invalidates the warm engine. */
     val identity: String

@@ -28,6 +28,11 @@ internal fun VoiceSpeechBackendSettings(
         VoiceChoice("Speech Gateway", value.gatewayUid, value.gateways.map { it.uid to it.name }, selectGateway, enabled = enabled && value.loaded)
         Text("Gateway speech sends reply text/tokens to your selected PC.", style = MaterialTheme.typography.bodySmall)
         if (value.gateways.isEmpty()) Text("Add a Gateway connection in Settings to use PC speech.", style = MaterialTheme.typography.bodySmall)
+    } else if (value.backend.isStreamingLocal) {
+        Text("These engines stream audio locally. Each model has its own voice quality and speed; try a preview on this phone.", style = MaterialTheme.typography.bodySmall)
+        if (value.backend == VoiceSpeechBackend.LITERT_KOKORO_GPU) {
+            Text("GPU execution is unverified. This option is excluded from the verified native CPU/GPU/NPU ranking.", style = MaterialTheme.typography.bodySmall)
+        }
     } else {
         if (value.backend == VoiceSpeechBackend.AUTO) {
             Text("Auto uses saved measurements from this phone. Compare engines to time CPU, GPU and NPU before the next reply.", style = MaterialTheme.typography.bodySmall)

@@ -61,7 +61,9 @@ internal fun voicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: 
                     add(
                         buildJsonObject {
                             put("metric", row.metric)
-                            put("observedProvider", row.engine)
+                            val sdkFamily = row.engine.takeIf { it in MEDIAPIPE_FAMILIES }
+                            put("observedProvider", row.engine.takeIf { sdkFamily == null }?.let(::JsonPrimitive) ?: JsonNull)
+                            put("modelFamily", sdkFamily?.let(::JsonPrimitive) ?: JsonNull)
                             put("warm", row.warm?.let(::JsonPrimitive) ?: JsonNull)
                             put("samples", row.count)
                             put("observedSamples", row.observedSamples)
@@ -77,14 +79,27 @@ internal fun voicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: 
             "latestSynthesis",
             synthesis?.let { sample ->
                 buildJsonObject {
+                    val sdk = mediaPipeExecution(sample.executionProvider)
+                    val nativeThreads = sample.executionProvider in setOf("cpu", "qnn-gpu", "qnn-htp")
                     put("observedProvider", sample.executionProvider.takeIf { it in setOf("cpu", "qnn-gpu", "qnn-htp", "gateway-cuda") }?.let(::JsonPrimitive) ?: JsonNull)
+                    put("modelFamily", sdk?.first?.let(::JsonPrimitive) ?: JsonNull)
+                    put("requestedDelegate", sdk?.second?.let(::JsonPrimitive) ?: JsonNull)
                     put("route", sample.route.takeIf { it in setOf("speaker", "earpiece", "bluetooth", "usb", "wired", "other") }?.let(::JsonPrimitive) ?: JsonNull)
                     put("clockBasis", sample.clockBasis.takeIf { it in setOf("audio_timestamp", "playback_head") }?.let(::JsonPrimitive) ?: JsonNull)
                     put("warm", sample.warm)
                     put("synthesisMs", sample.synthesisMs)
                     put("generatedAudioMs", sample.generatedAudioMs)
                     put("bufferedAudioMs", sample.bufferedAudioMs)
-                    put("threads", sample.threads)
+                    put("threads", sample.threads.takeIf { nativeThreads }?.let(::JsonPrimitive) ?: JsonNull)
+                    put(
+                        "threadsScope",
+                        when {
+                            nativeThreads -> "configured_native_cpu_threads"
+                            sdk != null -> "not_exposed_by_sdk"
+                            sample.executionProvider == "gateway-cuda" -> "managed_by_gateway"
+                            else -> "unknown"
+                        }
+                    )
                     put("underruns", sample.underruns)
                     put("captionOffsetMs", sample.captionOffsetMs)
                     put("bufferReserveMs", sample.bufferMs)
@@ -101,6 +116,16 @@ internal fun voicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: 
         )
     }
     return Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), document)
+}
+
+private val MEDIAPIPE_FAMILIES = setOf("MEDIAPIPE", "MEDIAPIPE_KOKORO", "MEDIAPIPE_PHONON", "MEDIAPIPE_POCKET")
+
+private fun mediaPipeExecution(provider: String): Pair<String, String>? = when (provider) {
+    "mediapipe-kokoro-cpu-requested" -> "MEDIAPIPE_KOKORO" to "CPU"
+    "mediapipe-kokoro-gpu-requested" -> "MEDIAPIPE_KOKORO" to "GPU"
+    "mediapipe-phonon-cpu-requested" -> "MEDIAPIPE_PHONON" to "CPU"
+    "mediapipe-pocket-cpu-requested" -> "MEDIAPIPE_POCKET" to "CPU"
+    else -> null
 }
 
 private fun performanceExecutionJson(evidence: VoiceSpeechExecutionEvidence) = buildJsonObject {

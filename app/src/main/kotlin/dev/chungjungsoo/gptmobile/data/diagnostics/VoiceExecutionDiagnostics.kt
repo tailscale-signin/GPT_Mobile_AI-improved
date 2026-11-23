@@ -14,9 +14,9 @@ internal object VoiceExecutionDiagnostics {
         "PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE"
     )
     val enums = mapOf(
-        "voice_selected_backend" to setOf("AUTO", "CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA"),
+        "voice_selected_backend" to setOf("AUTO", "CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA", "LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"),
         "voice_effective_provider" to setOf("SYSTEM", "KOKORO_CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA"),
-        "voice_fallback_source" to setOf("KOKORO", "KOKORO_CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA"),
+        "voice_fallback_source" to setOf("KOKORO", "KOKORO_CPU", "QNN_GPU", "QNN_HTP", "GATEWAY_CUDA", "LITERT_KOKORO", "PHONON", "POCKET"),
         "voice_fallback_target" to setOf("SYSTEM", "KOKORO_CPU"),
         "voice_fallback_outcome" to setOf("STARTED", "SUCCEEDED", "FAILED"),
         "voice_fallback_failure" to playbackFailures

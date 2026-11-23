@@ -90,7 +90,7 @@ internal fun readVoicePreferences(saved: Map<String, *>): VoicePreferences {
         recognitionBackend = VoiceRecognitionBackend.fromSaved(saved["recognition_backend"] as? String),
         kokoroVoice = KokoroVoice.fromSaved(saved["kokoro_voice"] as? String),
         spokenReplies = saved["spoken_replies"] as? Boolean ?: defaults.spokenReplies,
-        kokoroThreads = (saved["kokoro_threads"] as? Int)?.coerceIn(2, 4) ?: defaults.kokoroThreads,
+        kokoroThreads = (saved["kokoro_threads"] as? Int)?.coerceIn(1, 4) ?: defaults.kokoroThreads,
         buttonSounds = saved["button_sounds"] as? Boolean ?: defaults.buttonSounds,
         pause = VoicePauseDuration.entries.firstOrNull { it.name == saved["pause_duration"] } ?: defaults.pause,
         performance = VoicePerformanceMode.entries.firstOrNull { it.name == saved["performance_mode"] } ?: defaults.performance,

@@ -6,6 +6,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.prepareRequest
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
@@ -13,6 +14,20 @@ import org.json.JSONObject
 
 /** Pronunciation tokens encode reply content and obey the same privacy guard as text. */
 internal class GatewayVoiceTransport(private val http: HttpClient, private val endpoint: String, private val credential: String?) {
+    suspend fun stream(payload: JSONObject, tokenCount: Int, words: IntArray, text: String, emit: (VoicePcmChunk) -> Boolean) {
+        PrivacyModeStore.requireUnprotectedTransport()
+        http.prepareRequest(endpoint + GatewayVoicePcmStream.PATH) {
+            method = HttpMethod.Post
+            if (!credential.isNullOrBlank()) bearerAuth(credential)
+            contentType(ContentType.Application.Json)
+            setBody(payload.toString())
+        }.execute { response ->
+            check(response.status.value in 200..299) { "Gateway speech request failed (" + response.status.value + ")" }
+            check(response.contentType()?.withoutParameters()?.toString() == GatewayVoicePcmStream.CONTENT_TYPE) { "Unexpected Gateway speech format" }
+            GatewayVoicePcmStream.read(response.bodyAsChannel(), payload.getString("request_id"), payload.getString("model_sha256"), tokenCount, words, text, emit)
+        }
+    }
+
     suspend fun exchange(method: String, path: String, payload: JSONObject?, limit: Int): JSONObject {
         require((method to path) in setOf("GET" to "/gateway/voice/capabilities", "POST" to "/gateway/voice/synthesize", "POST" to "/gateway/voice/cancel"))
         if (path == "/gateway/voice/synthesize") PrivacyModeStore.requireUnprotectedTransport()

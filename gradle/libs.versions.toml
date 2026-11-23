@@ -38,6 +38,7 @@ qnn = "2.51.0" # Must match the packaged QAIRT runtime and model compatibility a
 objectbox = "5.4.2"
 langchain4j = "1.21.0"
 mediapipeText = "1.0.0"
+mediapipeAudio = "1.2.3"
 playServicesLocation = "21.4.0"
 mockk = "1.14.11"
 mockito = "5.24.0"
@@ -75,6 +76,7 @@ androidx-benchmark-macro = { module = "androidx.benchmark:benchmark-macro-junit4
 geniex-android = { module = "com.qualcomm.qti:geniex-android", version.ref = "geniex" }
 langchain4j-memory = { group = "dev.langchain4j", name = "langchain4j", version.ref = "langchain4j" }
 mediapipe-text = { group = "com.google.mediapipe", name = "tasks-text", version.ref = "mediapipeText" }
+mediapipe-audio = { group = "com.google.mediapipe", name = "tasks-audio", version.ref = "mediapipeAudio" }
 material-views = { group = "com.google.android.material", name = "material", version.ref = "materialViews" }
 maplibre = { group = "org.maplibre.gl", name = "android-sdk-opengl", version.ref = "maplibre" }
 pdfbox = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfbox" }

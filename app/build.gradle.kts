@@ -546,6 +546,7 @@ dependencies {
         exclude(group = "io.smallrye.reactive", module = "mutiny-zero")
     }
     implementation(libs.mediapipe.text)
+    implementation(libs.mediapipe.audio)
     // Android
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

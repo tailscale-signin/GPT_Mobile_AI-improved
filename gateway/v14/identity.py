@@ -181,7 +181,7 @@ class Admission:
         diagnostics_write = path == "/gateway/debug/events" and scope["method"] == "POST"
         model_preparation_write = path == '/gateway/models/prepare' and scope['method'] == 'POST'
         voice_read = path == '/gateway/voice/capabilities' and scope['method'] in {'GET', 'HEAD'}
-        voice_write = path in {'/gateway/voice/synthesize', '/gateway/voice/cancel'} and scope['method'] == 'POST'
+        voice_write = path in {'/gateway/voice/synthesize', '/gateway/voice/synthesize/stream', '/gateway/voice/cancel'} and scope['method'] == 'POST'
         if engineering_path and not principal.engineering_allowed and not (public_map_path and 'tools' in principal.scopes):
             return await deny("engineering_scope_required")
         if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:

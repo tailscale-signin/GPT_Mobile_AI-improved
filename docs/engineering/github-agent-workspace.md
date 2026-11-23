@@ -28,11 +28,17 @@ Gateway when the user chooses those workflows.
 | Environment | Host mirror, exact source, validation policy and pinned image readiness | No model runs during qualification; optional language servers stay `NOT_PROBED` until a real query demonstrates support |
 | Integrations | Configured Context7, Playwright and complementary GitHub MCP operations | Exact runtime tool schema and host allowlist are checked at execution; native GitHub operations remain the existing publication route |
 
-The dedicated model benchmark workflow remains separate. Model-only comparison
-controls, independent preservation grading, executable/live qualification and
-their coverage/measurement labels are documented by the benchmark workstream.
+The dedicated model benchmark workflow remains separate. Its Overview, Compare,
+Tasks, Evidence and History views keep frozen paired model tasks, independent
+behavior/input-preservation grading and execution qualification together. See
+[model benchmark design and setup](../../gateway/benchmarks/README.md) and
+[direct phone-to-GitHub Actions verification](../../gateway/benchmarks/PHONE_ACTIONS.md).
+The model benchmark can use the selected Gateway or the explicitly configured
+phone GitHub connection. Its four evidence lanes distinguish simulated checks,
+restricted Python grading, repository-native execution and live GitHub verification.
 An agent comparison does not reuse a model score as evidence of a complete
-agent system's quality.
+agent system's quality. Missing execution, cost or settings observations remain
+unqualified or inconclusive.
 
 ## Configure an optional coding runtime
 

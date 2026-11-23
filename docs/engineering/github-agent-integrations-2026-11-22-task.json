@@ -7,16 +7,16 @@
   "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
   "starting_head": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
   "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
-  "working_branch": "work/github-agent-integrations-2026-11-22",
+  "working_branch": "work/github-agent-integrations-published-2026-11-22",
   "intent": "Implement every feature from the GitHub agent integration research, preserve concurrent scopes, publish a draft, verify the combined current PR head, merge through active rules, verify exact main and publish signed Android and Gateway releases.",
   "authorization": "User explicitly authorized implementation, draft integration, merge after green and full publication on 2026-11-22.",
-  "state": "IMPLEMENTED_AWAITING_COMBINED_CI",
+  "state": "ALL_FEATURES_IMPLEMENTED_PENDING_HOSTED_QUALIFICATION",
   "requirements": [
     {
       "id": "G01",
       "name": "Fair model and complete agent-system comparisons, independent preservation qualification",
       "owner": "concurrent github-coding-benchmark task + integration",
-      "state": "AGENT_COMPARISON_IMPLEMENTED_BENCHMARK_INTEGRATION_PENDING"
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
     },
     {
       "id": "G02",
@@ -181,21 +181,50 @@
       "check": "Kotlin formatting",
       "result": "PASSED",
       "details": "Complete PR changed Kotlin sources passed against the full main SHA; incoming map/recovery changes were checked against the full adapter-freeze SHA separately."
+    },
+    {
+      "check": "Combined source and final integration documentation",
+      "command": "bash scripts/validate-local.sh fast; python3 scripts/check_release_scope.py",
+      "result": "PASSED",
+      "tests": 623,
+      "source_parent": "5a9302855e1a65f8ac30174fae319c4dd2088370",
+      "details": "Canonical repository checks, generated inventories, dependency and secret policies, 2023 literal regex patterns, resources, whitespace and exact scoped-release checks passed. Both relative benchmark guide links resolve. This is local host validation, not final hosted qualification."
     }
   ],
   "publication": {
-    "state": "READY_FOR_DRAFT_UPLOAD_AWAITING_COMBINED_GATES",
+    "state": "AWAITING_FINAL_HEAD_AND_EXACT_MAIN_GATES",
     "android_version": "0.9.66.13",
     "version_code": 147,
     "gateway_version": "18.1.1",
     "merge_commit": null,
     "android_release": null,
-    "gateway_release": null
+    "gateway_release": null,
+    "receipt_source": "Exact-head GitHub Actions checks, release-checks.json, release-upload.json and release-publication.json; immutable publication readback is recorded by the release workflows and final PR status."
   },
   "review_followup": "Fixed artifact-backed review-draft admission before the SQLite writer lock; exact source-tree identity remains bound at admission. Successful hydration, same-revision replacement and cancellation races pass.",
   "qualification_limits": [
     "Optional provider accounts, SDK images and installed runtimes were not live-qualified; protocol fixtures do not certify paid execution, model quality or unsupported remote cancellation.",
-    "Model benchmarking remains a separately owned concurrent workstream; its final integrated commit and current-head hosted validation are pending.",
+    "Model-only comparison and complete agent-system comparison remain distinct. Missing execution, cost or settings observations remain unqualified or inconclusive.",
     "The repository release remains scoped and does not claim completion of unexecuted physical-device or wider Unified Reliability v2 scenarios."
-  ]
+  ],
+  "integrated_public_sources": {
+    "agent_workspace": {
+      "source": "368e9a8373cad17586de8b7287fa240097ab0352",
+      "metadata": "8504366c8edf4e1911284ea6426ccb53e449141c"
+    },
+    "model_benchmark": {
+      "source": "b541378f5257c8f21d73fd4a7c0c18e4c7bcf83d",
+      "metadata": "e315be06e0c943c442f7f74b216930ee3f32aae4"
+    },
+    "journal_and_credential_recovery": {
+      "source": "1c25a94dbf381dd6a575d2faad92573f8c9656ce",
+      "metadata": "a7698653f8917f1b99043a4f2b0ad6a6519dd715"
+    },
+    "scoped_mcp_discovery": {
+      "source": "b3ef2afea46521d10afcbaaf5925f27ad9a21072",
+      "metadata": "6c5a70f733b3491366526dfd6b7641c8d027b8b1"
+    }
+  },
+  "validation_source_convention": "Component source_parent values are local integration checkpoints. Public source and metadata commits are listed separately; each upload was reconciled against the validated tree. Final merge and publication require current-head hosted gates, not these historical component results.",
+  "completion_scope": "All G01-G15 implementation slices are public. The shared PR remains draft while independently owned context and recovery changes are integrated; this task status does not approve a mutable branch or supersede final-head gates."
 }

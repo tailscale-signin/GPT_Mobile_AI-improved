@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -85,6 +86,7 @@ class VoiceSpeechBenchmarkTest {
         }
         val cpu = report.results.first()
         assertEquals(10L, cpu.sessionPrepareMs)
+        assertEquals(0, cpu.preparationThermalBefore)
         assertEquals(110L, cpu.samples.first().prepareToFirstPcmMs)
         val fixtureCosts = VoiceSpeechBenchmarkFixture.entries.flatMap { fixture -> List(2) { VoiceSpeechWorkload.phrases(fixture).size * 100.0 } }
         assertEquals(VoiceSpeechBenchmarkBackendResult.median(fixtureCosts), cpu.medianMs)
@@ -193,6 +195,79 @@ class VoiceSpeechBenchmarkTest {
         assertEquals(VoiceSpeechBenchmarkIssue.THERMAL_LIMIT, report.issue)
         assertEquals(1, report.completedSamples)
         assertNull(report.recommendation())
+    }
+
+    @Test fun unknownPreparationThermalRetainsExecutionButCannotQualifyAComparison() {
+        val clock = Clock()
+        var active: Engine? = null
+        val report = VoiceSpeechBenchmarkRunner(
+            create = { backend -> Engine(backend, clock, if (backend == VoiceSpeechBackend.CPU) 100 else 50).also { active = it } },
+            nanoTime = { clock.nanos },
+            thermalStatus = { if (active?.closed != false) null else 0 }
+        ).run(VoiceSpeechBenchmarkReport(1, configuration(listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU)))) {}
+        assertEquals(VoiceSpeechBenchmarkRunState.COMPLETE, report.state)
+        assertEquals(18, report.completedSamples)
+        assertTrue(report.results.all { it.preparationThermalBefore == null && it.executionVerified })
+        assertTrue(report.qualifiedResults().isEmpty())
+        assertNull(report.recommendation())
+        assertEquals(VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON, report.outcome)
+        assertEquals(report, speechBenchmarkReportFromJson(speechBenchmarkJson(report, local = true)))
+        val exported = Json.parseToJsonElement(voiceSpeechBenchmarkExport(report)).jsonObject
+        assertTrue(exported.getValue("results").jsonArray.all { it.jsonObject["preparationThermalBefore"] == JsonNull })
+    }
+
+    @Test fun hotPreparationIsRetainedWithoutOpeningAnEngine() {
+        var opens = 0
+        val report = VoiceSpeechBenchmarkRunner(
+            create = {
+                opens++
+                error("An overheated backend must not open")
+            },
+            thermalStatus = { 2 }
+        ).run(VoiceSpeechBenchmarkReport(1, configuration())) {}
+        assertEquals(0, opens)
+        assertEquals(VoiceSpeechBenchmarkRunState.INTERRUPTED, report.state)
+        assertEquals(VoiceSpeechBenchmarkIssue.THERMAL_LIMIT, report.issue)
+        assertEquals(2, report.results.first().preparationThermalBefore)
+        assertTrue(report.results.all { it.state == VoiceSpeechBenchmarkBackendState.NOT_RUN && it.samples.isEmpty() })
+        assertNull(report.recommendation())
+        assertEquals(report, speechBenchmarkReportFromJson(speechBenchmarkJson(report, local = true)))
+    }
+
+    @Test fun historyWithoutPreparationThermalRecomputesStaleQualificationAndRetainsSamples() {
+        val clock = Clock()
+        val report = VoiceSpeechBenchmarkRunner(create = { Engine(it, clock) }, nanoTime = { clock.nanos }, thermalStatus = { 0 })
+            .run(VoiceSpeechBenchmarkReport(1, configuration(listOf(VoiceSpeechBackend.CPU)))) {}
+        assertEquals(VoiceSpeechBackend.CPU, report.recommendation())
+        val original = speechBenchmarkJson(report, local = true)
+        assertEquals(JsonPrimitive("QUALIFIED"), original["outcome"])
+        assertEquals(JsonPrimitive(true), original.getValue("results").jsonArray.single().jsonObject["qualifiedComparison"])
+        for (missing in listOf(true, false)) {
+            val rows = original.getValue("results").jsonArray.map { raw ->
+                val row = raw.jsonObject
+                JsonObject(if (missing) row - "preparationThermalBefore" else row + ("preparationThermalBefore" to JsonNull))
+            }
+            val stored = JsonObject(original + ("results" to JsonArray(rows)))
+            val restored = checkNotNull(speechBenchmarkReportFromJson(stored))
+            assertEquals(report.results.single().samples, restored.results.single().samples)
+            assertTrue(restored.results.single().executionVerified)
+            assertNull(restored.results.single().preparationThermalBefore)
+            assertNull(restored.recommendation())
+            assertEquals(VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON, restored.outcome)
+            val saved = speechBenchmarkJson(restored, local = true)
+            assertEquals(JsonNull, saved["recommendedBackend"])
+            assertEquals(JsonPrimitive(false), saved.getValue("results").jsonArray.single().jsonObject["qualifiedComparison"])
+            assertEquals(restored, speechBenchmarkReportFromJson(saved))
+        }
+    }
+
+    @Test fun historyRejectsInvalidPreparationThermalObservations() {
+        val original = speechBenchmarkJson(VoiceSpeechBenchmarkReport(1, configuration(listOf(VoiceSpeechBackend.CPU))), local = true)
+        val row = original.getValue("results").jsonArray.single().jsonObject
+        for (invalid in listOf(JsonPrimitive(-1), JsonPrimitive(7), JsonPrimitive("unknown"))) {
+            val stored = JsonObject(original + ("results" to JsonArray(listOf(JsonObject(row + ("preparationThermalBefore" to invalid))))))
+            assertNull(speechBenchmarkReportFromJson(stored))
+        }
     }
 
     @Test fun nativeCancellationRetainsCompletedBackendWithoutRecommendingAnUnfinishedComparison() {

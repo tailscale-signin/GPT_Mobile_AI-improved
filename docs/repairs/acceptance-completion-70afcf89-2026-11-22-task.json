@@ -9,7 +9,7 @@
   "working_branch": "work/acceptance-published-70afcf89",
   "intent": "Implement all 16 diagnostic review findings, preserve other workers changes, validate the current PR head, merge after required checks pass, validate the exact main commit and publish the scoped release.",
   "authorization": "User explicitly authorized implementation, draft PR push, merge after green, and publication after green on 2026-11-22.",
-  "state": "CONTEXT_SOURCE_LOCAL_GATES_PASSED_READY_FOR_GUARDED_DRAFT_PUSH_SPEECH_HOLD_ACTIVE",
+  "state": "SPEECH_SOURCE_QUALIFIED_READY_FOR_GUARDED_DRAFT_PUSH_HOSTED_FOLLOWUPS_ACTIVE",
   "guardrails": [
     "Preserve concurrent commits; never force push",
     "Never substitute earlier-head checks for current-head evidence",
@@ -654,7 +654,7 @@
     "release": null,
     "status_receipt": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254"
   },
-  "integrated_remote_head": "753d07cde88fd58f8c90ca266c5450c66838a6c6",
+  "integrated_remote_head": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
   "preserved_concurrent_commits": [
     "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
     "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
@@ -1158,9 +1158,10 @@
     }
   },
   "remaining_shared_holds": [
-    "Speech S01-S14 benchmark/qualification/playback package remains implementing in its isolated owner checkout.",
-    "Final regenerated combined references/format/scope gate and guarded draft upload of originalC01package plus all scoped followups.",
-    "Every applicable exact-final-head check and current main rule, expected-head merge, exact-main qualification, signed Android/Gateway publication and downloaded asset/provenance readback."
+    "Voice-response team owns two failures from exact753d Android unit run45098738048: BenchmarkStoreTest unreadable ownership and GitHubVerifiedSession input-limit recheck after excerpt fitting. No duplicate acceptance edits.",
+    "Benchmark team owns proven fresh-process production compiler heap failures in Android acceptance, diagnostic audit and GenieX preview, preserving stages, selectors and bounded job/resource policy. Independent review required.",
+    "Preserve subsequent worker commits and require all applicable latest final-head run/attempt/matrix outcomes and current main rules before expected-head merge.",
+    "Require every exact-main prerequisite and actual signed Android0.9.66.13/build147 and Gateway18.1.1 release publication with asset/provenance readback."
   ],
   "android_nine_review": {
     "source": "71db6456e094397dc062be8bfcbcdb85778101c9",
@@ -1259,5 +1260,162 @@
     "required_main_prerequisites": 8,
     "note": "Recompute after all source changes. Latest applicable run/attempt and complete pagination are mandatory. PR body/readiness events trigger validation; avoid unnecessary metadata edits during final settling.",
     "documentation_repair": "Correct workflow inventory to all32 entry points and document actual cancellation/readiness behavior; no executable workflow policy changed."
+  },
+  "context_draft_publication": {
+    "code_commit": "5073b216146a4a14b4c250de41097838b91f7528",
+    "manifest_commit": "83e7929512444ad60e2586797f87364c743c873f",
+    "files_verified": 513,
+    "readback": "Actual ref, commit parents, trees and reachable package source bytes verified. Preserved by speech/context union672ab1b7 and context fixture160d54fc."
+  },
+  "speech_measurement_followups": {
+    "reviewed_original": "7daf0a2d275e298c5fe5fcfbc133bf85d0a9dc54",
+    "published_union": "672ab1b7b3e3e0afe0b0cdde9d3ec623b0578400",
+    "combined_source_before_native": "87a31ae6f27b29a57fab3065360d1f0f43352751",
+    "thermal": {
+      "candidate": "41be7a453b154f6b385dbd8acd778c462de81c2f",
+      "integration": "0e80846ad14ecaa645652046bd2bd630ebb44e09",
+      "status": "INDEPENDENT_SCOPED_CLEAR",
+      "change": "Retain the nullable pre-preparation thermal observation, require known cool preparation for complete-cost ranking, retain hot refusal and completed/partial execution observations. Older schema2 rows lacking the field stay readable and unqualified; no shared protocol or Auto invalidation change.",
+      "tests": {
+        "core": 46,
+        "history": 5,
+        "unchanged_independent_runner_and_legacy_history_probes": 4,
+        "failures": 0,
+        "skips": 0
+      },
+      "compiler_repository_inputs": 28,
+      "dependencies": 52,
+      "frozen_probe_sha256": "d74c0eaa45d2ab00427003cdc204636947ac9ce4414a271001aa215424a06d32"
+    },
+    "playback_observations": {
+      "candidate": "1a2bd5bfb345ddab68c083ec6de9d8297f11eae4",
+      "integration": "a5f0752a27bd80dd1e2e5d824afcc534b1899baa",
+      "status": "INDEPENDENT_SCOPED_CLEAR_AND_FRESH_COMBINED_COMPILE_CLEAR",
+      "change": "Do not invent a playback-head clock or other route before AudioTrack observation. Preserve unknowns, previously recorded observations and genuinely observed other routes. Late callbacks stay frozen.",
+      "tests": {
+        "tracked": 55,
+        "unchanged_actual_output_probes": 2,
+        "failures": 0,
+        "skips": 0
+      },
+      "compiler_repository_inputs": 49,
+      "dependencies": 162,
+      "declared_boundaries": 8,
+      "compiled_outputs": 207,
+      "scope": "Actual production output/ViewModel/Compose settings compile; controlled native engine and Robolectric output lifetime. No physical AudioTrack route, acoustic or hardware qualification.",
+      "combined_rebuild": {
+        "source": "87a31ae6f27b29a57fab3065360d1f0f43352751",
+        "tests": 57,
+        "failures": 0,
+        "skips": 0,
+        "repository_inputs": 49,
+        "dependencies": 162,
+        "declared_boundaries": 8,
+        "compiled_outputs": 207,
+        "scope": "Fresh actual output, current benchmark model/runner/export, ViewModel and Compose settings compiled; all retained tracked and byte-identical actual-output probes pass.",
+        "rebound_identical_to": "872815f8aa0089050d0f5fd89c27909c06c8c8d9"
+      }
+    },
+    "cancellation_accounting": {
+      "candidate": "4eb53b0fe8fff72dc0820e7978176e8069678e07",
+      "integration": "87a31ae6f27b29a57fab3065360d1f0f43352751",
+      "owner": "coding benchmark team",
+      "status": "INDEPENDENT_STANDALONE_AND_COMBINED_CLEAR",
+      "change": "Retain measured interrupted preparation/inference cost exactly once and current attempt fixture/repeat/chunk, without borrowing stale previous-chunk execution evidence.",
+      "standalone_tests": {
+        "existing_core": 42,
+        "tracked_cancellation": 9,
+        "unchanged_original_fault_probes": 5,
+        "between_call_controls": 2,
+        "failures": 0,
+        "skips": 0
+      }
+    },
+    "native_first_profile": {
+      "owner": "acceptance native worker",
+      "status": "INDEPENDENT_REAL_MODEL_AND_UNPORTED_COMPONENT_CLEAR",
+      "finding": "An interrupted unqualified first accelerator run leaves profiling open; reset/reuse can include cancelled kernels in the next shape receipt. Actual QNN emulator reproduction reports40/1521 QNN/CPU kernels versus39/1513 in the successful current span.",
+      "candidate": "20955bc2f3b55f5650fda7ea68ed6d1c974a533a",
+      "integration": "872815f8aa0089050d0f5fd89c27909c06c8c8d9",
+      "change": "Retain the failed first session through its failure snapshot, mark it non-reusable, then retire that exact shape before next reuse. Successfully qualified cached shapes remain available; destructor closes/removes unfinished profiling.",
+      "validation": {
+        "owner_and_independent_regression": {
+          "baseline": {
+            "unqualified_cancel": 1,
+            "unqualified_failure": 1,
+            "qualified_cancel": 0
+          },
+          "candidate": {
+            "unqualified_cancel": 0,
+            "unqualified_failure": 0,
+            "qualified_cancel": 0
+          },
+          "baseline_resumed_kernels": {
+            "qnn": 78,
+            "cpu": 2954
+          },
+          "candidate_resumed_kernels": {
+            "qnn": 39,
+            "cpu": 1477
+          },
+          "interrupted_first_session_rebuilt": true,
+          "already_qualified_session_retained": true,
+          "failure_snapshot_immutable": true,
+          "unfinished_profile_files_removed": true
+        },
+        "unported_production": {
+          "ctest": 5,
+          "actual_ort_1_28_2_cpu_jni": "PASS",
+          "compiler_inputs_hashed": 436
+        },
+        "runtime": "Pinned application ORT1.28.2, official QNN2.7 x86 HTP emulator; explicit host device/static-STL boundary and deterministic fault after actual kernels. No physical Android qualification."
+      }
+    },
+    "combined_core": {
+      "source": "87a31ae6f27b29a57fab3065360d1f0f43352751",
+      "current_core_export_collector": 49,
+      "tracked_cancellation": 9,
+      "unchanged_cancellation_and_between_call_probes": 7,
+      "unchanged_thermal_and_history_probes": 4,
+      "total": 69,
+      "failures": 0,
+      "skips": 0,
+      "atomic_file_history": {
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0
+      },
+      "total_including_history": 74,
+      "repository_compiler_inputs": 29,
+      "dependency_jars": 52,
+      "bound_source_with_native": "872815f8aa0089050d0f5fd89c27909c06c8c8d9"
+    },
+    "combined_source_with_native": "872815f8aa0089050d0f5fd89c27909c06c8c8d9",
+    "final_local_checks": {
+      "canonical_tests": 635,
+      "seconds": 25.92,
+      "changed_kotlin_formatted": 741,
+      "literal_regexes": 2038,
+      "dynamic_regexes_excluded": 100,
+      "xml_resources": 36,
+      "generated_references_and_scope": "PASS",
+      "initial_documentation_check": "New native host qualification limit was initially absent from RELEASE_NOTES; added the exact disclosure and reran the canonical gate successfully."
+    }
+  },
+  "context_cancellation_fixture_review": {
+    "source": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
+    "production_changed": false,
+    "independently_rebuilt_methods": 8,
+    "executions": 16,
+    "modes": [
+      "default coroutine recovery",
+      "stacktrace recovery disabled"
+    ],
+    "failures": 0,
+    "skips": 0,
+    "full_repository_inputs": 8,
+    "consulted_excerpts": 10,
+    "dependencies": 20,
+    "cause_loss_control": "Owner isolated cause-loss mutation has exactly one intended case and one probe failure in each mode; its exact corrected test and unchanged production hashes match the independent public-source replay."
   }
 }

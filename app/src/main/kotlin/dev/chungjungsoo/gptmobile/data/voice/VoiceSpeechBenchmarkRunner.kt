@@ -76,11 +76,14 @@ internal class VoiceSpeechBenchmarkRunner(
         for (backend in report.configuration.plannedBackendOrder) {
             val index = report.results.indexOfFirst { it.requestedBackend == backend }
             if (cancelled.get()) break
-            if ((thermalStatus() ?: -1) >= 2) {
+            val preparationThermalBefore = thermalStatus()
+            var result = report.results[index].copy(preparationThermalBefore = preparationThermalBefore)
+            if ((preparationThermalBefore ?: -1) >= 2) {
                 report = report.copy(issue = VoiceSpeechBenchmarkIssue.THERMAL_LIMIT)
+                update(index, result)
                 break
             }
-            var result = report.results[index].copy(state = VoiceSpeechBenchmarkBackendState.PREPARING)
+            result = result.copy(state = VoiceSpeechBenchmarkBackendState.PREPARING)
             report = report.copy(activeFixture = null, activeRepeat = null, activeChunk = null)
             update(index, result)
             var engine: VoicePhraseEngine? = null
@@ -97,12 +100,14 @@ internal class VoiceSpeechBenchmarkRunner(
                     attemptStarted = preparedAt
                     create(result.requestedBackend).also {
                         preparationMs = elapsed(preparedAt)
-                        attemptStarted = null
                         currentEngine.set(it)
                     }
                 }
+                // Preparation has completed even if cancellation wins the next checkpoint.
+                result = result.copy(sessionPrepareMs = preparationMs)
+                attemptStarted = null
                 checkActive()
-                result = result.copy(sessionPrepareMs = preparationMs, state = VoiceSpeechBenchmarkBackendState.RUNNING)
+                result = result.copy(state = VoiceSpeechBenchmarkBackendState.RUNNING)
                 update(index, result)
                 for (fixture in VoiceSpeechBenchmarkFixture.entries) {
                     val phrases = plans.getValue(fixture)
@@ -202,7 +207,20 @@ internal class VoiceSpeechBenchmarkRunner(
                 }
                 result = result.copy(state = VoiceSpeechBenchmarkBackendState.COMPLETE)
             } catch (_: CancellationException) {
-                result = result.copy(state = VoiceSpeechBenchmarkBackendState.CANCELLED)
+                val interruptedMs = attemptStarted?.let(::elapsed)
+                val interruptedGeneration = interruptedMs != null && attemptedInputBytes != null
+                // Active UI fields can still name the previous completed chunk. Only a
+                // live timed call may contribute interrupted-attempt context or duration.
+                result = result.copy(
+                    state = VoiceSpeechBenchmarkBackendState.CANCELLED,
+                    sessionPrepareMs = result.sessionPrepareMs ?: interruptedMs.takeUnless { interruptedGeneration },
+                    failedFixture = report.activeFixture.takeIf { interruptedGeneration },
+                    failedRepeat = report.activeRepeat.takeIf { interruptedGeneration },
+                    failedChunk = report.activeChunk.takeIf { interruptedGeneration },
+                    failedInputBytes = attemptedInputBytes.takeIf { interruptedGeneration },
+                    failedInputByteLimit = VoiceSpeechWorkload.MAX_PHRASE_BYTES.takeIf { interruptedGeneration },
+                    failedAttemptMs = interruptedMs.takeIf { interruptedGeneration }
+                )
             } catch (error: Exception) {
                 val failure = speechBenchmarkFailure(error)
                 if (failure.code.name.startsWith("FRONTEND_")) report = report.copy(issue = VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD)

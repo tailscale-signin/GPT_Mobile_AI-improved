@@ -420,7 +420,7 @@ internal class KokoroVoiceOutput(
         var routeId = -1
 
         @Volatile var route = "unknown"
-        var clockBasis = "playback_head"
+        var clockBasis = "unknown"
 
         @Volatile var captionOffsetMs = 0
         var drainAt: Long? = null

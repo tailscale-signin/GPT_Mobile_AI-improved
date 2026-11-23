@@ -125,7 +125,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
         "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
-        "local-kokoro-runtime/src/main/cpp/kokoro_qnn_adapter.cpp"
+        "local-kokoro-runtime/src/main/cpp/kokoro_qnn_adapter.cpp",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTimingTest.kt",
@@ -136,7 +138,11 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackMeasurementTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendQualificationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStoreTest.kt",
-        "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp"
+        "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPlaybackObservationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkCancellationTest.kt",
+        "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeProfileLifecycleIntegration.java",
+        "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"

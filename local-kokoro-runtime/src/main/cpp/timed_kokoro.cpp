@@ -146,6 +146,7 @@ int64_t ResidentBytes() {
 struct ModelSession {
   std::unique_ptr<sherpa_onnx::OfflineTtsKokoroModel> model;
   int64_t prepare_ms = 0, profile_id = 0, resident_before = 0;
+  bool reusable = true;
   kokoro_runtime::Qualification qualification;
   kokoro_runtime::SelectedDevice selected_device;
   std::string discovery;
@@ -174,6 +175,13 @@ struct Model : Frontend {
     graph_prepared_this_call = false;
     cache_hit = false;
     active = sessions.Find(key);
+    if (active && !active->reusable) {
+      // Keep a failed attempt alive until its evidence has been copied. On its
+      // next use, destruction ends/removes any unfinished ORT profile before a
+      // new session starts. Other successfully qualified shapes remain cached.
+      active = nullptr;
+      sessions.Erase(key);
+    }
     if (active) {
       cache_hit = true;
       RestoreEvidence();
@@ -249,7 +257,13 @@ struct Model : Frontend {
     } catch (...) {
       synthesis_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
       // CPU-only qualification failures still have a useful actual profile.
-      if (config.provider != "cpu" && !profile_reused) qualification = kokoro_runtime::LastQualification();
+      if (config.provider != "cpu" && !profile_reused) {
+        qualification = kokoro_runtime::LastQualification();
+        // ORT retains events when Run throws before EndProfiling. A later run
+        // must not label those interrupted kernels as its first-inference
+        // profile. Preserve this failure's session identity until next use.
+        active->reusable = false;
+      }
       throw;
     }
     synthesis_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();

@@ -100,8 +100,8 @@ internal class VoiceSpeechPlaybackMeasurement(
     @Synchronized override fun firstPresented(clockBasis: String, route: String) {
         if (stoppedAt != null) return
         if (firstPresented == null) firstPresented = elapsed()
-        this.clock = clockBasis.takeIf { it in setOf("audio_timestamp", "playback_head") }
-        this.route = safeRoute(route)
+        this.clock = clockBasis.takeIf { it in setOf("audio_timestamp", "playback_head") } ?: this.clock
+        this.route = safeRoute(route) ?: this.route
     }
 
     @Synchronized override fun captionsPrepared(segment: Int, ranges: List<IntRange>) {
@@ -134,8 +134,8 @@ internal class VoiceSpeechPlaybackMeasurement(
         this.underruns = underruns?.coerceAtLeast(0)
         restarts = bufferRestarts.coerceAtLeast(0)
         refill = longestRefillMs.coerceAtLeast(0)
-        clock = clockBasis.takeIf { it in setOf("audio_timestamp", "playback_head") }
-        this.route = safeRoute(route)
+        clock = clockBasis.takeIf { it in setOf("audio_timestamp", "playback_head") } ?: clock
+        this.route = safeRoute(route) ?: this.route
         stoppedAt = elapsed()
     }
 
@@ -152,7 +152,11 @@ internal class VoiceSpeechPlaybackMeasurement(
     }
 
     private fun elapsed() = ((nanoTime() - started).coerceAtLeast(0) / 1_000_000)
-    private fun safeRoute(value: String) = value.takeIf { it in setOf("speaker", "earpiece", "bluetooth", "usb", "wired") } ?: "other"
+    private fun safeRoute(value: String): String? = when {
+        value.isBlank() || value == "unknown" -> null
+        value in setOf("speaker", "earpiece", "bluetooth", "usb", "wired") -> value
+        else -> "other"
+    }
 
     private companion object {
         const val MAX_CAPTION_WORDS = 256

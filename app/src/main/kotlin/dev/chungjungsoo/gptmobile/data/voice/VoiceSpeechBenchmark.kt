@@ -153,6 +153,7 @@ internal data class VoiceSpeechBenchmarkFailureObservation(
     }
 }
 
+/** Missing preparation thermal evidence remains unknown, including in older retained runs. */
 internal data class VoiceSpeechBenchmarkBackendResult(
     val requestedBackend: VoiceSpeechBackend,
     val state: VoiceSpeechBenchmarkBackendState = VoiceSpeechBenchmarkBackendState.PENDING,
@@ -177,7 +178,8 @@ internal data class VoiceSpeechBenchmarkBackendResult(
     val incompleteFixture: VoiceSpeechBenchmarkFixture? = null,
     val incompleteRepeat: Int? = null,
     val incompleteChunks: List<VoiceSpeechBenchmarkChunk> = emptyList(),
-    val failureObservation: VoiceSpeechBenchmarkFailureObservation? = null
+    val failureObservation: VoiceSpeechBenchmarkFailureObservation? = null,
+    val preparationThermalBefore: Int? = null
 ) {
     val warmSamples: List<VoiceSpeechBenchmarkSample> get() = samples.filter { it.warm }
     val medianMs: Double? get() = median(warmSamples.map { it.generationMs.toDouble() })
@@ -297,6 +299,7 @@ internal data class VoiceSpeechBenchmarkReport(
             result.verified &&
                 result.samples.size == expected &&
                 result.sessionPrepareMs != null &&
+                result.preparationThermalBefore in 0..1 &&
                 result.incompleteChunks.isEmpty() &&
                 result.samples.all { sample ->
                     sample.thermalBefore in 0..1 &&

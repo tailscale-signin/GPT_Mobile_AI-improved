@@ -80,6 +80,7 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
                         put("requestedBackend", r.requestedBackend.name)
                         put("state", r.state.name)
                         nullable("sessionPrepareMs", r.sessionPrepareMs)
+                        nullable("preparationThermalBefore", r.preparationThermalBefore)
                         nullable("failure", r.failure?.name)
                         nullable("failureStage", r.failureStage?.name)
                         nullable("nativeCode", r.nativeCode)
@@ -298,6 +299,7 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
             requestedBackend = VoiceSpeechBackend.valueOf(r.string("requestedBackend")),
             state = VoiceSpeechBenchmarkBackendState.valueOf(r.string("state")),
             sessionPrepareMs = r.optionalBoundedLong("sessionPrepareMs"),
+            preparationThermalBefore = r.thermal("preparationThermalBefore"),
             samples = r.getValue("samples").jsonArray.also { require(it.size <= 18) }.map { sample ->
                 val s = sample.jsonObject
                 val chunks = s.readChunks("chunks")

@@ -73,6 +73,39 @@ class VoiceSpeechPlaybackMeasurementTest {
         assertNull(result.firstPcmMs)
     }
 
+    @Test fun unobservedTerminalMetadataStaysUnknown() {
+        for (route in listOf("unknown", "")) {
+            val receipt = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.CPU, null) { 0 }
+            receipt.cancelRequested()
+            receipt.terminal(null, 0, 0, "unknown", route)
+            val result = receipt.result(VoiceSpeechPlaybackState.CANCELLED, null)
+            assertNull(result.firstPresentedAudioMs)
+            assertNull(result.clockBasis)
+            assertNull(result.route)
+            assertEquals(0L, result.cancellationMs)
+        }
+    }
+
+    @Test fun missingTerminalMetadataPreservesPreviouslyObservedClockAndRoute() {
+        val receipt = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.CPU, 0) { 0 }
+        receipt.firstPresented("audio_timestamp", "speaker")
+        receipt.firstPresented("unknown", "unknown")
+        receipt.terminal(null, 0, 0, "unknown", "unknown")
+        val result = receipt.result(VoiceSpeechPlaybackState.COMPLETE, 0)
+        assertEquals("audio_timestamp", result.clockBasis)
+        assertEquals("speaker", result.route)
+        assertEquals(0L, result.firstPresentedAudioMs)
+    }
+
+    @Test fun observedOtherRouteRemainsDistinctFromAnUnknownRoute() {
+        val receipt = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.CPU, 0) { 0 }
+        receipt.firstPresented("playback_head", "other")
+        receipt.terminal(null, 0, 0, "playback_head", "other")
+        val result = receipt.result(VoiceSpeechPlaybackState.COMPLETE, 0)
+        assertEquals("playback_head", result.clockBasis)
+        assertEquals("other", result.route)
+    }
+
     @Test fun missingOrMismatchedProcessorEvidenceCannotBecomeAnAcceleratorObservation() {
         val receipt = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.QNN_GPU, 0) { 0 }
         receipt.pcmReady(1, 100, 24_000, null)

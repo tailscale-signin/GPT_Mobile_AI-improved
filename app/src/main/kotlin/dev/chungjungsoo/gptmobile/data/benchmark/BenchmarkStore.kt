@@ -154,7 +154,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         enrollmentLoaded = true
     }
 
-    private suspend fun loadLocked() {
+    private suspend fun loadLocked(refreshScores: Boolean = true) {
         if (loaded) return
         loadEnrollmentLocked()
         // Canonical rows are read independently of optional preferences recovery.
@@ -199,7 +199,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         mutableRuntimeTrials.value = dao.runtimeTrials().map { json.decodeFromString<RuntimeTrial>(it.payload) }
         mutableQualifications.value = dao.runtimeQualifications().map { json.decodeFromString<RuntimeQualificationResult>(it.payload) }
         loaded = true
-        publishBestEffort(source)
+        if (refreshScores) publishBestEffort(source)
     }
 
     internal suspend fun updateEnrollment(revisions: Map<String, String>) = withContext(Dispatchers.IO) {
@@ -720,7 +720,9 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     suspend fun importBackupJson(payload: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val bundle = decodeBackup(payload)
-            loadLocked()
+            // Import publishes one merged score snapshot below; loading must not rewrite
+            // canonical receipt payloads through a derived-score refresh before preserving them.
+            loadLocked(refreshScores = false)
             val restoredRuns = bundle.runs.distinctBy { it.id }.map { run ->
                 if (run.finished) run else run.copy(finished = true, canceled = false, state = "INTERRUPTED", cancellationOrigin = BenchmarkStopOrigin.PROCESS_INTERRUPTION, stoppedReason = run.stoppedReason ?: "Benchmark was in progress at export; restored without replaying requests.")
             }.sortedByDescending { it.startedAt }
@@ -740,23 +742,60 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 }
             }
             val restoredAttempts = bundle.attempts.map { if (it.state == "STARTED") it.copy(state = "INTERRUPTED", dispatchUncertain = true) else it }
-            val next = DynamicScoreEngine.snapshot(restoredRuns, (dao.current()?.generation ?: 0) + 1, System.currentTimeMillis(), activeRevisions)
-            dao.restoreAll(
-                restoredRuns.map { BenchmarkRunRecord(it.id, it.startedAt, json.encodeToString(it)) },
-                BenchmarkSnapshotRecord(next.generation, next.createdAt, json.encodeToString(next)),
-                trials.map { RuntimeTrialRecord(it.id, it.timestamp, json.encodeToString(it)) },
-                qualifications.map { RuntimeQualificationRecord(it.plan.id, json.encodeToString(it)) },
-                bundle.runtimeDecisions.take(500).map { RuntimeDecisionRecord(it.id, it.timestamp, json.encodeToString(it.copy(historical = true))) },
-                restoredBatches.map { BenchmarkBatchRecord(it.id, it.createdAt, it.state.name, json.encodeToString(it)) },
-                restoredBatches.flatMap { batch -> batch.items.map { BenchmarkQueueRecord(batch.id, it.ordinal, it.runId, it.state.name, json.encodeToString(it)) } },
-                restoredAttempts.map { BenchmarkAttemptRecord(it.id, it.batchId, it.ordinal, it.caseId, json.encodeToString(it)) },
-                bundle.batchEvents.map { BenchmarkEventRecord(it.batchId, it.sequence, json.encodeToString(it)) }
-            )
+            val (mergedRuns, mergedBatches, next) = database.withTransaction {
+                // These records may be newer than the published flows or a backup's saved history.
+                // Read and preserve original owners atomically with replacement, including rollback replay.
+                val localRuns = dao.runs()
+                val localBatches = dao.batches()
+                val canonical = BenchmarkRestoreState(
+                    runs = localRuns.map { json.decodeFromString<BenchmarkRun>(it.payload) },
+                    batches = localBatches.map { json.decodeFromString<BenchmarkBatch>(it.payload) }
+                )
+                val ownership = benchmarkRestoreOwnership(canonical)
+                val localAttempts = ownership.batchIds.flatMap { dao.attempts(it) }
+                val localEvents = ownership.batchIds.flatMap { dao.events(it) }
+                val localQueue = ownership.batchIds.flatMap { batchId ->
+                    database.openHelper.readableDatabase.query(
+                        "SELECT batchId, ordinal, runId, state, payload FROM benchmark_queue WHERE batchId = ? ORDER BY ordinal",
+                        arrayOf<Any>(batchId)
+                    ).use { cursor ->
+                        buildList {
+                            while (cursor.moveToNext()) add(BenchmarkQueueRecord(cursor.getString(0), cursor.getInt(1), cursor.getString(2), cursor.getString(3), cursor.getString(4)))
+                        }
+                    }
+                }
+                val merged = benchmarkMergeRestoreOwnership(
+                    canonical.copy(
+                        attempts = localAttempts.map { json.decodeFromString<BenchmarkAttempt>(it.payload) },
+                        events = localEvents.map { json.decodeFromString<BenchmarkBatchEvent>(it.payload) }
+                    ),
+                    BenchmarkRestoreState(restoredRuns, restoredBatches, restoredAttempts, bundle.batchEvents),
+                    ownership
+                )
+                val retainedRuns = localRuns.filter { it.id in ownership.runIds }.associateBy { it.id }
+                val retainedBatches = localBatches.filter { it.id in ownership.batchIds }.associateBy { it.id }
+                val retainedAttempts = localAttempts.associateBy { it.id }
+                val retainedEvents = localEvents.associateBy { it.batchId to it.sequence }
+                val snapshot = DynamicScoreEngine.snapshot(merged.runs, (dao.current()?.generation ?: 0) + 1, System.currentTimeMillis(), activeRevisions)
+                dao.restoreAll(
+                    merged.runs.map { retainedRuns[it.id] ?: BenchmarkRunRecord(it.id, it.startedAt, json.encodeToString(it)) },
+                    BenchmarkSnapshotRecord(snapshot.generation, snapshot.createdAt, json.encodeToString(snapshot)),
+                    trials.map { RuntimeTrialRecord(it.id, it.timestamp, json.encodeToString(it)) },
+                    qualifications.map { RuntimeQualificationRecord(it.plan.id, json.encodeToString(it)) },
+                    bundle.runtimeDecisions.take(500).map { RuntimeDecisionRecord(it.id, it.timestamp, json.encodeToString(it.copy(historical = true))) },
+                    merged.batches.map { retainedBatches[it.id] ?: BenchmarkBatchRecord(it.id, it.createdAt, it.state.name, json.encodeToString(it)) },
+                    merged.batches.filterNot { it.id in ownership.batchIds }.flatMap { batch -> batch.items.map { BenchmarkQueueRecord(batch.id, it.ordinal, it.runId, it.state.name, json.encodeToString(it)) } } + localQueue,
+                    merged.attempts.map { retainedAttempts[it.id] ?: BenchmarkAttemptRecord(it.id, it.batchId, it.ordinal, it.caseId, json.encodeToString(it)) },
+                    merged.events.map { retainedEvents[it.batchId to it.sequence] ?: BenchmarkEventRecord(it.batchId, it.sequence, json.encodeToString(it)) }
+                )
+                // Publish precisely what committed, not the incoming list or a stale pre-transaction flow.
+                Triple(dao.runs().map { json.decodeFromString<BenchmarkRun>(it.payload) }, dao.batches().map { json.decodeFromString<BenchmarkBatch>(it.payload) }, snapshot)
+            }
             mutableRuntimeTrials.value = trials
             mutableQualifications.value = qualifications
-            mutableHistory.value = restoredRuns
+            mutableHistory.value = mergedRuns
             mutableSnapshot.value = next
-            mutableBatches.value = restoredBatches
+            mutableBatches.value = mergedBatches
             scheduleMirror()
         }
     }

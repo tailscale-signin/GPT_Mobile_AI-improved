@@ -905,6 +905,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkProfile.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkReadinessRunner.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkResourceRecorder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRestoreOwnership.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRetest.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRunSelection.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRunner.kt",

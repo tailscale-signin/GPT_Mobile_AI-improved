@@ -154,8 +154,12 @@
       "status": "IMPLEMENTED",
       "evidence": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringRecovery.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt"
-      ]
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRestoreOwnership.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkPendingBackupOwnershipRegressionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRestoreOwnershipTest.kt"
+      ],
+      "verification": "Canonical deletion, restart/rebinding and verified-account fixes are integrated. Backup import now preserves original unresolved ownership in one Room transaction and cannot rewrite it through a derived-score refresh or connected imported identifiers."
     },
     {
       "id": "B15",
@@ -291,12 +295,73 @@
     "gateway": "18.1.1",
     "status": "PENDING_EXACT_HEAD_AND_MAIN_GATES"
   },
-  "last_reconciled_remote_head": "e0915300b1f5413d105203da7abf28fc6c6b196e",
+  "last_reconciled_remote_head": "087e312de01e2df0d08be71728957d0835bc47fa",
   "qualification_limits": [
     "No claim of physical-phone, real selected-provider or live disposable GitHub execution from host fixtures.",
     "Python language support is the bounded interpreter; native fixtures do not claim Compose instrumentation or Room annotation-processing coverage.",
     "Authenticated client generation observations do not independently identify the provider internal model.",
     "Incomplete usage, settings, infrastructure and remote settlement remain explicit; no guessed cost or winner.",
     "Unified Reliability v2 remains incomplete; existing scoped release gates and disclosures remain mandatory."
-  ]
+  ],
+  "backup_ownership_followup": {
+    "status": "IMPLEMENTED_AND_COMPONENT_VERIFIED",
+    "source_parent": "087e312de01e2df0d08be71728957d0835bc47fa",
+    "paths": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRestoreOwnership.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkPendingBackupOwnershipRegressionTest.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRestoreOwnershipTest.kt"
+    ],
+    "behavior": [
+      "Read canonical pending engineering receipts inside the same Room transaction as restore replacement.",
+      "Retain the entire original batch membership, including unstarted sibling IDs and exact original run/batch/queue/attempt/event payload bytes.",
+      "Reject imported connected components that alias retained run, batch or attempt ownership while restoring unrelated and settled results normally.",
+      "Skip pre-import derived-score publication, rebuild one merged score snapshot and publish exactly the rows committed.",
+      "Cover direct Store import, user backup, complete backup and complete-restore journal recovery through the central import entry point without replaying remote work."
+    ],
+    "component_evidence": [
+      {
+        "check": "Actual-source domain and ownership cases",
+        "passed": 99,
+        "new_ownership_cases": 9,
+        "scope": "Kotlin/serialization source with declared platform, native and unrelated suite boundaries; compiler capped at500MiB."
+      },
+      {
+        "check": "Actual Store/Room backup regression",
+        "passed": 4,
+        "scope": "Entire production Store and ownership helper, actual DAO/database and real KSP-generated implementations, Room2.8.5 and Robolectric Android35. Unrelated scoring/export/audit/native runtime boundaries are substituted; not a complete Android Gradle suite.",
+        "cases": [
+          "empty replacement and restart",
+          "newer canonical ownership, incoming ID collisions and byte-exact five-table receipts",
+          "initial load before derived-score refresh",
+          "confirmed-settled normal replacement"
+        ]
+      },
+      {
+        "check": "Negative control on original de2f Store",
+        "expected_failures": 1,
+        "scope": "Same actual Room pending-owner regression compiles and fails because the original backup replacement erases the unresolved local owner."
+      },
+      {
+        "check": "Pinned ktlint1.3.1 and whitespace",
+        "result": "PASS",
+        "scope": "Four changed Kotlin files; final test formatting only changes layout after the focused Room run."
+      }
+    ],
+    "hosted_qualification": "PENDING_EXACT_FINAL_HEAD",
+    "independent_integration_reviews": [
+      {
+        "source": "6892a9ff/de2f1dda",
+        "result": "45 Gateway cleanup/live/API cases and seven additional actual-SQLite journal rebind controls pass; captured-credential ref-write rejection is verified before dispatch."
+      },
+      {
+        "source": "030345b5/08be45dc",
+        "result": "66 adapter lifecycle cases and49 focused saved-cursor cases pass; three process-start negative controls fail on prior source as expected. Full Android remains hosted."
+      },
+      {
+        "source": "7ede6c33/087e312d",
+        "result": "48 Gateway cleanup/live/API cases and eight legacy actual-SQLite combinations pass. Original payload/completion bytes stay unchanged; repeated recovery and lost cancellation do not replay mutation; confirmed settlement remains append-only."
+      }
+    ]
+  }
 }

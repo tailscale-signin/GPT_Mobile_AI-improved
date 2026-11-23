@@ -1,5 +1,8 @@
 # 0.9.66.13 — 2026-11-22
 
+- Run complete long speech benchmarks through bounded production phrases, retain exact failed-chunk context, and distinguish completed execution from a qualified comparison. Add separate native-phrase and changing-shape workloads with per-fixture statistics and versioned history.
+- Bind Auto comparison receipts to the selected voice and rate, invalidate old broken workloads, and validate ordinary accelerator startup on its first requested phrase. Reuse a bounded exact-shape cache, require real GPU discovery, and report current preparation, available profiles and non-silent audio evidence.
+- Add an audible production playback benchmark for first queued and presented audio, refills, underruns, cancellation acknowledgement and complete caption word coverage; preserve partial measurements without claiming acoustic latency or battery benefits.
 - Avoid duplicate GitHub checkpoint writes when only the copied observation time changes; preserve receipt timestamps, recovery authority and immutable state transitions.
 - Fit optional verification draft context within the original token budget without dropping the task or acceptance criteria, splitting Unicode characters or bypassing a later budget change.
 - Protect original pending benchmark attempt identities referenced by legacy samples and events even when their separate attempt rows are absent from a backup.

@@ -107,12 +107,13 @@ private fun VoiceSynthesisStatus(feedback: StateFlow<VoiceSynthesisFeedback>?) {
     Text("${sample.executionProvider} · ${sample.threads} threads · ${if (sample.warm) "warm" else "cold"}", style = MaterialTheme.typography.labelLarge)
     sample.executionEvidence?.let { evidence ->
         Text("Selected ${evidence.selectedBackend.label} · ${if (evidence.verifiedAudio) "audio and timing validated" else "validation pending"}", style = MaterialTheme.typography.bodySmall)
-        if (evidence.acceleratorKernels > 0) {
+        if (evidence.profileAvailable == true) {
             Text("${evidence.acceleratorKernels} accelerator / ${evidence.cpuKernels} CPU kernel events", style = MaterialTheme.typography.bodySmall)
-            Text("Preparation ${evidence.prepareMs} ms · profile is the first inference of this phrase shape", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Shape preparation ${evidence.prepareMs} ms · profile ${evidence.profileId ?: "—"}${if (evidence.profileReused == true) " reused from this shape's first inference" else " from this shape's first inference"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            Text("Preparation ${evidence.prepareMs} ms · operator profile not collected", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Kernel profile ${if (evidence.profileAvailable == false) "not collected" else "unavailable"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        evidence.currentPrepareMs?.let { Text("Current preparation $it ms · ${evidence.cachedShapeCount ?: "—"}/${evidence.cacheLimit ?: "—"} exact shapes retained", style = MaterialTheme.typography.bodySmall) }
     }
     Text("${sample.synthesisMs} ms synthesis / ${sample.generatedAudioMs} ms audio · ${sample.bufferedAudioMs} ms queued · ${sample.underruns} underruns", style = MaterialTheme.typography.bodySmall)
     Text("${sample.bufferMs} ms reserve · ${sample.bufferState}", style = MaterialTheme.typography.bodySmall)

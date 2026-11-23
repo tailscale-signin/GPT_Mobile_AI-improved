@@ -1,7 +1,8 @@
 // QNN keeps ownership of every factory, EP, graph and compute callback. This
-// adapter changes only proposed fusion groups; ORT still validates and compiles
-// every resulting group through the original provider API.
+// adapter narrows proposed fusion groups and supplements driver-proven GPU
+// discovery; ORT still validates and compiles through the original provider API.
 #include <dlfcn.h>
+#include <atomic>
 #include <cstring>
 #include <mutex>
 #include <stdexcept>
@@ -10,6 +11,7 @@
 #include <vector>
 
 #include "onnxruntime_c_api.h"
+#include "kokoro_gpu_discovery.h"
 #include "kokoro_partition.h"
 
 namespace {
@@ -22,6 +24,105 @@ OrtApiBase adapted_base{};
 CreateEpApiFactoriesFn create_factories = nullptr;
 ReleaseEpApiFactoryFn release_factory = nullptr;
 std::once_flag initialized;
+using SupportedDevices = decltype(OrtEpFactory::GetSupportedDevices);
+struct DeviceFactory {
+  SupportedDevices original = nullptr;
+  OrtHardwareDevice *gpu = nullptr;
+};
+std::mutex device_factories_lock;
+std::unordered_map<OrtEpFactory *, DeviceFactory> device_factories;
+std::atomic<int> gpu_discovery_code{static_cast<int>(kokoro_runtime::GpuDiscoveryCode::NotAttempted)};
+
+kokoro_runtime::GpuDiscovery ProbeGpuHardware() {
+#if defined(__ANDROID__) && defined(__aarch64__)
+  void *library = dlopen("libOpenCL.so", RTLD_NOW | RTLD_LOCAL);
+  if (!library) return {kokoro_runtime::GpuDiscoveryCode::LibraryUnavailable};
+  kokoro_runtime::OpenClApi api;
+  api.platforms = reinterpret_cast<decltype(api.platforms)>(dlsym(library, "clGetPlatformIDs"));
+  api.devices = reinterpret_cast<decltype(api.devices)>(dlsym(library, "clGetDeviceIDs"));
+  api.info = reinterpret_cast<decltype(api.info)>(dlsym(library, "clGetDeviceInfo"));
+  const auto result = kokoro_runtime::ProbeQualcommGpu(api);
+  dlclose(library);
+  return result;
+#else
+  return {kokoro_runtime::GpuDiscoveryCode::NotAttempted};
+#endif
+}
+auto probe_gpu = ProbeGpuHardware;
+
+OrtStatus *ORT_API_CALL SupportedDevicesWithGpu(OrtEpFactory *factory,
+    const OrtHardwareDevice *const *devices, size_t count, OrtEpDevice **ep_devices,
+    size_t maximum, size_t *returned) noexcept {
+  try {
+    std::lock_guard<std::mutex> lock(device_factories_lock);
+    const auto found = device_factories.find(factory);
+    if (found == device_factories.end() || !found->second.original || count > 256 || (count && !devices))
+      return original_api->CreateStatus(ORT_INVALID_ARGUMENT, "Invalid speech device enumeration");
+    auto &owner = found->second;
+    // QNN uses its ORT factory vendor namespace (packed QCOM in the pinned
+    // plugin). OpenCL's Qualcomm ID 0x5143 proves physical hardware but is not
+    // an accepted ORT vendor ID. Let the real provider supply its identity.
+    const auto provider_vendor = factory->GetVendorId(factory);
+    for (size_t i = 0; i < count; ++i) {
+      if (devices[i] && original_api->HardwareDevice_Type(devices[i]) == OrtHardwareDeviceType_GPU &&
+          original_api->HardwareDevice_VendorId(devices[i]) == provider_vendor) {
+        gpu_discovery_code.store(static_cast<int>(kokoro_runtime::GpuDiscoveryCode::AlreadyEnumerated));
+        return owner.original(factory, devices, count, ep_devices, maximum, returned);
+      }
+    }
+    // The pinned QNN factory repairs missing NPU discovery but has no Android
+    // GPU repair. Add a device only after the vendor OpenCL driver returned an
+    // available Qualcomm GPU. A phone model, SoC or NPU is never GPU evidence.
+    if (!owner.gpu) {
+      const auto probe = probe_gpu();
+      gpu_discovery_code.store(static_cast<int>(probe.code));
+      if (probe.code == kokoro_runtime::GpuDiscoveryCode::Available) {
+        OrtKeyValuePairs *metadata = nullptr;
+        original_api->CreateKeyValuePairs(&metadata);
+        original_api->AddKeyValuePair(metadata, "is_virtual", "0");
+        original_api->AddKeyValuePair(metadata, "discovery_source", "opencl");
+        const auto status = original_ep_api->CreateHardwareDevice(OrtHardwareDeviceType_GPU,
+            provider_vendor, probe.ordinal, "Qualcomm", metadata, &owner.gpu);
+        original_api->ReleaseKeyValuePairs(metadata);
+        if (status) return status;
+      }
+    }
+    if (!owner.gpu) return owner.original(factory, devices, count, ep_devices, maximum, returned);
+    gpu_discovery_code.store(static_cast<int>(kokoro_runtime::GpuDiscoveryCode::Available));
+    std::vector<const OrtHardwareDevice *> actual_devices;
+    actual_devices.reserve(count + 1);
+    for (size_t i = 0; i < count; ++i) actual_devices.push_back(devices[i]);
+    actual_devices.push_back(owner.gpu);
+    return owner.original(factory, actual_devices.data(), actual_devices.size(), ep_devices, maximum, returned);
+  } catch (const std::exception &) {
+    return original_api->CreateStatus(ORT_EP_FAIL, "Speech device discovery failed");
+  }
+}
+
+void AdaptDeviceDiscovery(OrtEpFactory *factory) {
+  if (!factory || !factory->GetSupportedDevices || !factory->GetVendorId) return;
+  std::lock_guard<std::mutex> lock(device_factories_lock);
+  device_factories.emplace(factory, DeviceFactory{factory->GetSupportedDevices, nullptr});
+  factory->GetSupportedDevices = SupportedDevicesWithGpu;
+}
+
+OrtStatus *ReleaseAdaptedFactory(OrtEpFactory *factory) {
+  OrtHardwareDevice *gpu = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(device_factories_lock);
+    const auto found = device_factories.find(factory);
+    if (found != device_factories.end()) {
+      factory->GetSupportedDevices = found->second.original;
+      gpu = found->second.gpu;
+      device_factories.erase(found);
+    }
+  }
+  const auto status = release_factory ? release_factory(factory) : nullptr;
+  // Provider/session users are finished before the factory is released. Keep
+  // its hardware record alive through the original factory's destructor.
+  if (gpu) original_ep_api->ReleaseHardwareDevice(gpu);
+  return status;
+}
 
 void Check(OrtStatus *status) {
   if (!status) return;
@@ -185,12 +286,25 @@ extern "C" __attribute__((visibility("default"))) OrtStatus *CreateEpFactories(
     std::call_once(initialized, [base] { Initialize(base); });
     if (original_base != base)
       return api->CreateStatus(ORT_EP_FAIL, "Speech adapter cannot share different ORT runtimes");
-    return create_factories(name, &adapted_base, logger, factories, maximum, count);
+    const auto status = create_factories(name, &adapted_base, logger, factories, maximum, count);
+    if (status) return status;
+    for (size_t i = 0; i < *count; ++i) AdaptDeviceDiscovery(factories[i]);
+    return nullptr;
   } catch (const std::exception &) {
+    if (factories) for (size_t i = 0; i < std::min(*count, maximum); ++i) {
+      const auto status = ReleaseAdaptedFactory(factories[i]);
+      if (status) api->ReleaseStatus(status);
+      factories[i] = nullptr;
+    }
+    *count = 0;
     return api->CreateStatus(ORT_EP_FAIL, "Speech QNN adapter could not initialize");
   }
 }
 
 extern "C" __attribute__((visibility("default"))) OrtStatus *ReleaseEpFactory(OrtEpFactory *factory) noexcept {
-  return release_factory ? release_factory(factory) : nullptr;
+  return ReleaseAdaptedFactory(factory);
+}
+
+extern "C" __attribute__((visibility("default"))) int KokoroQnnGpuDiscoveryCode() noexcept {
+  return gpu_discovery_code.load();
 }

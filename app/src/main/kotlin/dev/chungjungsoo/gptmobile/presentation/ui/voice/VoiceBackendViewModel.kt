@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.voice.GatewayVoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.QualcommVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.TimedKokoroPhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.UnavailableVoicePhraseEngineFactory
@@ -57,7 +58,10 @@ internal class VoiceBackendViewModel internal constructor(
     private var catalogLoaded = false
     private var catalogError: String? = null
     private var backendStatus = "Loading speech settings…"
-    private var configuration: Pair<VoiceBackendPreference, ProviderConnection?>? = null
+    private data class Configuration(val preference: VoiceBackendPreference, val connection: ProviderConnection?, val voice: KokoroVoice, val rate: Float)
+    private var configuration: Configuration? = null
+    private var voice = KokoroVoice.HEART
+    private var speechRate = 1f
 
     init {
         viewModelScope.launch {
@@ -100,6 +104,15 @@ internal class VoiceBackendViewModel internal constructor(
         reconcile(force = true)
     }
 
+    fun configureSpeech(voice: KokoroVoice?, rate: Float) {
+        voice ?: return
+        val bounded = rate.takeIf(Float::isFinite)?.coerceIn(.5f, 2f) ?: 1f
+        if (this.voice == voice && speechRate == bounded) return
+        this.voice = voice
+        speechRate = bounded
+        reconcile()
+    }
+
     fun recheckBackend() {
         val state = mutable.value
         if (state.loaded && state.backend != VoiceSpeechBackend.GATEWAY_CUDA) {
@@ -124,7 +137,7 @@ internal class VoiceBackendViewModel internal constructor(
         }
         val connection = mutable.value.gateways.firstOrNull { it.uid == preference.gatewayUid }
             .takeIf { preference.backend == VoiceSpeechBackend.GATEWAY_CUDA }
-        val next = preference to connection
+        val next = Configuration(preference, connection, voice, speechRate)
         if (!force && configuration == next) {
             publishStatus()
             return
@@ -135,6 +148,8 @@ internal class VoiceBackendViewModel internal constructor(
 
     private fun rebuild(preference: VoiceBackendPreference, retest: Boolean) {
         val epoch = ++generation
+        val capturedVoice = voice
+        val capturedRate = speechRate
         update?.cancel()
         backendStatus = "Preparing speech settings…"
         mutable.value = mutable.value.copy(loaded = false)
@@ -151,7 +166,7 @@ internal class VoiceBackendViewModel internal constructor(
             try {
                 val prepared = withContext(io) {
                     if (retest) QualcommVoicePhraseEngineFactory.requestRetest(context, preference.backend)
-                    prepare(preference, report, retest)
+                    prepare(preference, report, retest, capturedVoice, capturedRate)
                 }
                 if (generation == epoch) {
                     backendStatus = prepared.status
@@ -172,19 +187,19 @@ internal class VoiceBackendViewModel internal constructor(
 
     private data class Prepared(val factory: VoicePhraseEngineFactory, val status: String)
 
-    private suspend fun prepare(value: VoiceBackendPreference, report: (String) -> Unit, retest: Boolean): Prepared = when (value.backend) {
-        VoiceSpeechBackend.CPU -> Prepared(QualcommVoicePhraseEngineFactory(context, value.backend, report), "Speech runs on this phone's CPU.")
+    private suspend fun prepare(value: VoiceBackendPreference, report: (String) -> Unit, retest: Boolean, voice: KokoroVoice, rate: Float): Prepared = when (value.backend) {
+        VoiceSpeechBackend.CPU -> Prepared(QualcommVoicePhraseEngineFactory(context, value.backend, report, voice = voice, speechRate = rate), "Speech runs on this phone's CPU.")
         VoiceSpeechBackend.AUTO -> Prepared(
-            QualcommVoicePhraseEngineFactory(context, value.backend, report, calibrateAll = retest),
+            QualcommVoicePhraseEngineFactory(context, value.backend, report, calibrateAll = retest, voice = voice, speechRate = rate),
             if (retest) {
-                "The next reply compares CPU, GPU and NPU with three speech samples. Playback starts after the comparison."
+                "The next reply compares CPU, GPU and NPU with the selected voice and rate across varied phrase lengths. This may take several minutes; playback starts after the comparison. You can cancel while it runs."
             } else {
                 "Auto uses the fastest verified measurement on this phone, or CPU until you compare engines."
             }
         )
         VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP -> Prepared(
-            QualcommVoicePhraseEngineFactory(context, value.backend, report),
-            "Hardware execution and aligned audio are checked when speech starts. The result is saved for this model, runtime and phone."
+            QualcommVoicePhraseEngineFactory(context, value.backend, report, voice = voice, speechRate = rate),
+            "Hardware execution and aligned audio are checked when speech starts. The result is saved for this voice, rate, model, runtime and phone."
         )
         VoiceSpeechBackend.GATEWAY_CUDA -> {
             val connection = settings.getProviderConnection(value.gatewayUid)

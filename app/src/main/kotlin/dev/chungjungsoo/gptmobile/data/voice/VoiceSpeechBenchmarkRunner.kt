@@ -10,7 +10,8 @@ internal class VoiceSpeechBenchmarkRunner(
     private val cancelPreparation: () -> Unit = {},
     private val thermalStatus: () -> Int? = { null },
     private val nanoTime: () -> Long = System::nanoTime,
-    private val wallTime: () -> Long = System::currentTimeMillis
+    private val wallTime: () -> Long = System::currentTimeMillis,
+    private val plan: (VoiceSpeechBenchmarkFixture, VoiceSpeechBenchmarkWorkload) -> List<String> = VoiceSpeechWorkload::phrases
 ) {
     private val cancelled = AtomicBoolean(false)
     private val currentEngine = AtomicReference<VoicePhraseEngine?>(null)
@@ -29,16 +30,63 @@ internal class VoiceSpeechBenchmarkRunner(
             emit()
         }
         emit()
-        for (index in report.results.indices) {
+        val plans = linkedMapOf<VoiceSpeechBenchmarkFixture, List<String>>()
+        var invalidFixture: VoiceSpeechBenchmarkFixture? = null
+        var invalidChunk: Int? = null
+        var invalidBytes: Int? = null
+        try {
+            check(initial.configuration.currentProtocol) { "FRONTEND_INPUT_INVALID" }
+            for (fixture in VoiceSpeechBenchmarkFixture.entries) {
+                invalidFixture = fixture
+                invalidChunk = null
+                invalidBytes = null
+                val chunks = plan(fixture, report.configuration.workload)
+                if (chunks.isEmpty() || chunks.size > VoiceSpeechWorkload.MAX_CHUNKS) throw VoiceSpeechWorkloadFailure("FRONTEND_INPUT_INVALID", 0)
+                chunks.forEachIndexed { index, text ->
+                    invalidChunk = index
+                    invalidBytes = text.toByteArray(Charsets.UTF_8).size
+                    VoiceSpeechWorkload.validate(text)
+                }
+                plans[fixture] = chunks
+            }
+        } catch (error: Exception) {
+            val failure = speechBenchmarkFailure(error)
+            val workload = error as? VoiceSpeechWorkloadFailure
+            return report.copy(
+                state = VoiceSpeechBenchmarkRunState.FAILED,
+                issue = VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD,
+                finishedAtMillis = wallTime(),
+                results = report.results.mapIndexed { index, result ->
+                    if (index == 0) {
+                        result.copy(
+                            state = VoiceSpeechBenchmarkBackendState.NOT_RUN,
+                            failure = failure.code,
+                            failureStage = VoiceSpeechStage.FRONTEND,
+                            failedFixture = invalidFixture,
+                            failedChunk = invalidChunk,
+                            failedInputBytes = workload?.inputBytes ?: invalidBytes,
+                            failedInputByteLimit = workload?.inputByteLimit ?: VoiceSpeechWorkload.MAX_PHRASE_BYTES
+                        )
+                    } else {
+                        result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN)
+                    }
+                }
+            ).also(publish)
+        }
+        for (backend in report.configuration.plannedBackendOrder) {
+            val index = report.results.indexOfFirst { it.requestedBackend == backend }
             if (cancelled.get()) break
-            if ((thermalStatus() ?: 0) >= 2) {
+            if ((thermalStatus() ?: -1) >= 2) {
                 report = report.copy(issue = VoiceSpeechBenchmarkIssue.THERMAL_LIMIT)
                 break
             }
             var result = report.results[index].copy(state = VoiceSpeechBenchmarkBackendState.PREPARING)
+            report = report.copy(activeFixture = null, activeRepeat = null, activeChunk = null)
             update(index, result)
             var engine: VoicePhraseEngine? = null
             var attemptEvidence: VoiceSpeechExecutionEvidence? = null
+            var attemptStarted: Long? = null
+            var attemptedInputBytes: Int? = null
             try {
                 checkActive()
                 var preparedAt = 0L
@@ -46,8 +94,10 @@ internal class VoiceSpeechBenchmarkRunner(
                 engine = VoiceNativeEngineGate.exclusive {
                     checkActive()
                     preparedAt = nanoTime()
+                    attemptStarted = preparedAt
                     create(result.requestedBackend).also {
                         preparationMs = elapsed(preparedAt)
+                        attemptStarted = null
                         currentEngine.set(it)
                     }
                 }
@@ -55,60 +105,98 @@ internal class VoiceSpeechBenchmarkRunner(
                 result = result.copy(sessionPrepareMs = preparationMs, state = VoiceSpeechBenchmarkBackendState.RUNNING)
                 update(index, result)
                 for (fixture in VoiceSpeechBenchmarkFixture.entries) {
+                    val phrases = plans.getValue(fixture)
                     for (iteration in 0..report.configuration.mode.warmRepeats) {
-                        // A throwing native generate can leave the engine's preceding
-                        // receipt intact. Only this returned attempt may explain a failure.
-                        attemptEvidence = null
                         checkActive()
-                        val before = thermalStatus()
-                        if ((before ?: 0) >= 2) {
-                            report = report.copy(issue = VoiceSpeechBenchmarkIssue.THERMAL_LIMIT)
-                            throw CancellationException("Thermal limit")
-                        }
-                        report = report.copy(activeFixture = fixture, activeRepeat = iteration)
-                        emit()
-                        val ready = checkNotNull(engine)
-                        val sample = VoiceNativeEngineGate.exclusive {
+                        var prepareToFirstPcmMs: Long? = null
+                        result = result.copy(incompleteFixture = fixture, incompleteRepeat = iteration, incompleteChunks = emptyList())
+                        for ((chunkIndex, phrase) in phrases.withIndex()) {
+                            // A throwing generate may retain an earlier native receipt. Only this
+                            // returned call's observation can identify its actual execution provider.
+                            attemptEvidence = null
+                            attemptStarted = null
+                            attemptedInputBytes = phrase.toByteArray(Charsets.UTF_8).size
                             checkActive()
-                            ready.resetCancellation()
-                            checkActive()
-                            val started = nanoTime()
-                            val audio = ready.generate(fixture.text, report.configuration.voice.speakerId, report.configuration.speechRate)
-                            val firstPcmMs = elapsed(started)
-                            checkActive()
-                            val evidence = ready.executionEvidence
-                            attemptEvidence = evidence
-                            check(audio.samples.isNotEmpty() && audio.samples.all { it.isFinite() }) { "OUTPUT_INVALID" }
-                            try {
-                                kokoroWordFrames(audio.durations, audio.wordTokens, audio.wordTokens.size / 2, audio.samples.size)
-                            } catch (_: IllegalArgumentException) {
-                                error("OUTPUT_INVALID")
+                            val before = thermalStatus()
+                            if ((before ?: -1) >= 2) {
+                                report = report.copy(issue = VoiceSpeechBenchmarkIssue.THERMAL_LIMIT)
+                                throw CancellationException("Thermal limit")
                             }
-                            check(evidence?.verifiedAudio == true) { "OUTPUT_INVALID" }
-                            val observed = checkNotNull(evidence)
-                            check(observed.effectiveProvider == VoiceSpeechBenchmarkBackendResult.provider(result.requestedBackend)) { "CPU_ONLY" }
-                            if (result.requestedBackend != VoiceSpeechBackend.CPU) check(observed.acceleratorKernels > 0) { "CPU_ONLY" }
-                            VoiceSpeechBenchmarkSample(
-                                fixture = fixture,
-                                repeat = iteration,
-                                generationMs = firstPcmMs,
-                                firstPcmMs = firstPcmMs,
-                                prepareToFirstPcmMs = elapsed(preparedAt).takeIf { result.samples.isEmpty() },
-                                audioMs = audio.samples.size * 1000.0 / SAMPLE_RATE,
-                                effectiveProvider = observed.effectiveProvider,
-                                acceleratorKernels = observed.acceleratorKernels,
-                                cpuKernels = observed.cpuKernels,
-                                acceleratorMicros = observed.acceleratorMicros,
-                                cpuMicros = observed.cpuMicros,
-                                graphPrepareMs = observed.prepareMs,
-                                tokenCount = observed.tokenCount,
-                                validatedAudio = observed.verifiedAudio,
-                                thermalBefore = before,
-                                thermalAfter = thermalStatus(),
-                                hardwareType = observed.hardwareType
-                            )
+                            report = report.copy(activeFixture = fixture, activeRepeat = iteration, activeChunk = chunkIndex)
+                            emit()
+                            val ready = checkNotNull(engine)
+                            val chunk = VoiceNativeEngineGate.exclusive {
+                                checkActive()
+                                ready.resetCancellation()
+                                checkActive()
+                                val started = nanoTime()
+                                attemptStarted = started
+                                val audio = ready.generate(phrase, report.configuration.voice.speakerId, report.configuration.speechRate)
+                                val generationMs = elapsed(started)
+                                if (chunkIndex == 0 && result.samples.isEmpty()) prepareToFirstPcmMs = elapsed(preparedAt)
+                                checkActive()
+                                val evidence = ready.executionEvidence
+                                attemptEvidence = evidence
+                                check(audio.samples.isNotEmpty() && audio.samples.all { it.isFinite() } && audio.samples.any { it != 0f }) { "OUTPUT_INVALID" }
+                                try {
+                                    kokoroWordFrames(audio.durations, audio.wordTokens, audio.wordTokens.size / 2, audio.samples.size)
+                                } catch (_: IllegalArgumentException) {
+                                    error("OUTPUT_INVALID")
+                                }
+                                check(evidence?.verifiedAudio == true) { "OUTPUT_INVALID" }
+                                val observed = checkNotNull(evidence)
+                                check(observed.effectiveProvider == VoiceSpeechBenchmarkBackendResult.provider(result.requestedBackend)) { "CPU_ONLY" }
+                                if (result.requestedBackend != VoiceSpeechBackend.CPU) {
+                                    check(observed.profileAvailable == true) { "EXECUTION_EVIDENCE_MISSING" }
+                                    check(observed.acceleratorKernels > 0) { "CPU_ONLY" }
+                                }
+                                VoiceSpeechBenchmarkChunk(
+                                    index = chunkIndex,
+                                    inputBytes = attemptedInputBytes,
+                                    inputSha256 = VoiceSpeechWorkload.digest(phrase),
+                                    generationMs = generationMs,
+                                    audioMs = audio.samples.size * 1000.0 / SAMPLE_RATE,
+                                    effectiveProvider = observed.effectiveProvider,
+                                    acceleratorKernels = observed.acceleratorKernels,
+                                    cpuKernels = observed.cpuKernels,
+                                    acceleratorMicros = observed.acceleratorMicros,
+                                    cpuMicros = observed.cpuMicros,
+                                    graphPrepareMs = observed.prepareMs,
+                                    tokenCount = observed.tokenCount,
+                                    validatedAudio = observed.verifiedAudio,
+                                    thermalBefore = before,
+                                    thermalAfter = thermalStatus(),
+                                    hardwareType = observed.hardwareType,
+                                    profileAvailable = observed.profileAvailable,
+                                    profileId = observed.profileId,
+                                    profileReused = observed.profileReused,
+                                    cacheHit = observed.cacheHit,
+                                    currentPrepareMs = observed.currentPrepareMs,
+                                    graphPreparedThisCall = observed.graphPreparedThisCall,
+                                    cachedShapeCount = observed.cachedShapeCount,
+                                    cacheLimit = observed.cacheLimit,
+                                    cacheEstimatedBytes = observed.cacheEstimatedBytes,
+                                    audioRms = observed.audioRms,
+                                    audioPeak = observed.audioPeak,
+                                    clippedSamples = observed.clippedSamples,
+                                    nonSilentSamples = observed.nonSilentSamples,
+                                    discoverySummary = observed.discoverySummary
+                                ).also { attemptStarted = null }
+                            }
+                            result = result.copy(incompleteChunks = result.incompleteChunks + chunk)
+                            update(index, result)
                         }
-                        result = result.copy(samples = result.samples + sample)
+                        val chunks = result.incompleteChunks
+                        val first = chunks.first()
+                        val last = chunks.last()
+                        val sample = VoiceSpeechBenchmarkSample(
+                            fixture, iteration, chunks.sumOf { it.generationMs }, first.generationMs, prepareToFirstPcmMs,
+                            chunks.sumOf { it.audioMs }, last.effectiveProvider,
+                            last.acceleratorKernels, last.cpuKernels, last.acceleratorMicros, last.cpuMicros,
+                            chunks.sumOf { it.currentPrepareMs ?: 0 }, chunks.sumOf { it.tokenCount }, chunks.all { it.validatedAudio },
+                            first.thermalBefore, last.thermalAfter, last.hardwareType, chunks
+                        )
+                        result = result.copy(samples = result.samples + sample, incompleteFixture = null, incompleteRepeat = null, incompleteChunks = emptyList())
                         update(index, result)
                     }
                 }
@@ -117,27 +205,55 @@ internal class VoiceSpeechBenchmarkRunner(
                 result = result.copy(state = VoiceSpeechBenchmarkBackendState.CANCELLED)
             } catch (error: Exception) {
                 val failure = speechBenchmarkFailure(error)
-                val observed = attemptEvidence
+                if (failure.code.name.startsWith("FRONTEND_")) report = report.copy(issue = VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD)
+                val native = error as? dev.melo.kokoro.TimedKokoro.Failure
+                val workload = error as? VoiceSpeechWorkloadFailure
+                val observed = attemptEvidence ?: speechFailureExecutionEvidence(error, result.requestedBackend, report.configuration.deviceKey)
                 result = result.copy(
                     state = failure.state,
                     failure = failure.code,
-                    failureStage = failure.stage,
+                    failureStage = failure.stage ?: when {
+                        report.activeFixture == null -> VoiceSpeechStage.PREPARING
+                        observed != null -> VoiceSpeechStage.VALIDATING
+                        else -> null
+                    },
                     nativeCode = failure.nativeCode,
-                    failureEffectiveProvider = observed?.effectiveProvider,
-                    failureAcceleratorKernels = observed?.acceleratorKernels,
-                    failureCpuKernels = observed?.cpuKernels
+                    failureEffectiveProvider = observed?.effectiveProvider?.takeIf { it in setOf("cpu", "qnn-gpu", "qnn-htp") },
+                    failureAcceleratorKernels = observed?.takeIf { it.profileAvailable == true }?.acceleratorKernels,
+                    failureCpuKernels = observed?.takeIf { it.profileAvailable == true }?.cpuKernels,
+                    failedFixture = report.activeFixture,
+                    failedRepeat = report.activeRepeat,
+                    failedChunk = report.activeChunk,
+                    failedInputBytes = native?.inputBytes?.takeIf { it >= 0 } ?: workload?.inputBytes ?: attemptedInputBytes,
+                    failedInputByteLimit = native?.inputByteLimit?.takeIf { it > 0 } ?: workload?.inputByteLimit ?: VoiceSpeechWorkload.MAX_PHRASE_BYTES.takeIf { attemptedInputBytes != null },
+                    failedTokenCount = native?.tokenCount?.takeIf { it >= 0 },
+                    failedTokenLimit = native?.tokenLimit?.takeIf { it > 0 },
+                    failedRequestedProvider = native?.provider ?: VoiceSpeechBenchmarkBackendResult.provider(result.requestedBackend),
+                    failedDiscoverySummary = native?.discoverySummary,
+                    failedAttemptMs = attemptStarted?.let(::elapsed),
+                    failureObservation = observed?.let(VoiceSpeechBenchmarkFailureObservation::from)
                 )
             } catch (_: LinkageError) {
-                result = result.copy(state = VoiceSpeechBenchmarkBackendState.UNSUPPORTED, failure = VoiceSpeechFailureCode.PROVIDER_LOAD)
+                result = result.copy(
+                    state = VoiceSpeechBenchmarkBackendState.UNSUPPORTED,
+                    failure = VoiceSpeechFailureCode.PROVIDER_LOAD,
+                    failureStage = VoiceSpeechStage.PREPARING,
+                    failedFixture = report.activeFixture,
+                    failedRepeat = report.activeRepeat,
+                    failedChunk = report.activeChunk,
+                    failedInputBytes = attemptedInputBytes,
+                    failedAttemptMs = attemptStarted?.let(::elapsed)
+                )
             } finally {
                 currentEngine.compareAndSet(engine, null)
                 VoiceNativeEngineGate.exclusive { runCatching { engine?.close() } }
                 update(index, result)
             }
-            if (result.state == VoiceSpeechBenchmarkBackendState.CANCELLED) break
+            if (result.state == VoiceSpeechBenchmarkBackendState.CANCELLED || report.issue == VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD) break
         }
         val finalState = when {
             cancelled.get() -> VoiceSpeechBenchmarkRunState.CANCELLED
+            report.issue == VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD -> VoiceSpeechBenchmarkRunState.FAILED
             report.issue != null -> VoiceSpeechBenchmarkRunState.INTERRUPTED
             // Native cancellation and an interrupted worker also stop the run,
             // even when they did not originate from this runner's cancel button.
@@ -150,6 +266,7 @@ internal class VoiceSpeechBenchmarkRunner(
             issue = if (cancelled.get()) VoiceSpeechBenchmarkIssue.CANCELLED else report.issue,
             activeFixture = null,
             activeRepeat = null,
+            activeChunk = null,
             results = report.results.map { if (it.state == VoiceSpeechBenchmarkBackendState.PENDING) it.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN) else it }
         )
         emit()
@@ -183,7 +300,8 @@ internal fun speechBenchmarkFailure(error: Exception): VoiceSpeechBenchmarkFailu
         } else {
             VoiceSpeechBenchmarkBackendState.FAILED
         },
-        native?.stage?.uppercase()?.let { stage -> VoiceSpeechStage.entries.firstOrNull { it.name == stage } },
+        native?.stage?.uppercase()?.let { stage -> VoiceSpeechStage.entries.firstOrNull { it.name == stage } }
+            ?: VoiceSpeechStage.FRONTEND.takeIf { error is VoiceSpeechWorkloadFailure || code.name.startsWith("FRONTEND_") },
         native?.nativeCode
     )
 }

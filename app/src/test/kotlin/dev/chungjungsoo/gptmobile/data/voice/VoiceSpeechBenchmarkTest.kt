@@ -40,9 +40,16 @@ class VoiceSpeechBenchmarkTest {
             acceleratorKernels = if (effective == "cpu") 0 else 10,
             cpuKernels = 20,
             verifiedAudio = true,
-            observedAtMillis = 1
+            observedAtMillis = 1,
+            tokenCount = 3,
+            profileAvailable = true,
+            profileId = 1,
+            profileReused = true,
+            currentPrepareMs = 0,
+            cacheHit = true
         )
         override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+            VoiceSpeechWorkload.validate(text)
             calls += Triple(text, speaker, speed)
             clock.advance(duration)
             return VoicePhraseAudio(FloatArray(1800) { .1f }, if (validDuration) longArrayOf(1, 1, 1) else longArrayOf(1), intArrayOf(1, 2))
@@ -71,7 +78,7 @@ class VoiceSpeechBenchmarkTest {
         assertEquals(VoiceSpeechBenchmarkRunState.COMPLETE, report.state)
         assertEquals(27, report.completedSamples)
         assertEquals(VoiceSpeechBackend.QNN_GPU, report.recommendation())
-        val expected = VoiceSpeechBenchmarkFixture.entries.flatMap { fixture -> List(3) { Triple(fixture.text, KokoroVoice.EMMA.speakerId, 1.1f) } }
+        val expected = VoiceSpeechBenchmarkFixture.entries.flatMap { fixture -> List(3) { VoiceSpeechWorkload.phrases(fixture) }.flatten().map { Triple(it, KokoroVoice.EMMA.speakerId, 1.1f) } }
         for (engine in engines.values) {
             assertEquals(expected, engine.calls)
             assertTrue(engine.closed)
@@ -79,8 +86,9 @@ class VoiceSpeechBenchmarkTest {
         val cpu = report.results.first()
         assertEquals(10L, cpu.sessionPrepareMs)
         assertEquals(110L, cpu.samples.first().prepareToFirstPcmMs)
-        assertEquals(100L, cpu.medianMs)
-        assertEquals(100L, cpu.p95Ms)
+        val fixtureCosts = VoiceSpeechBenchmarkFixture.entries.flatMap { fixture -> List(2) { VoiceSpeechWorkload.phrases(fixture).size * 100.0 } }
+        assertEquals(VoiceSpeechBenchmarkBackendResult.median(fixtureCosts), cpu.medianMs)
+        assertEquals(fixtureCosts.max().toLong(), cpu.p95Ms)
         assertEquals(75.0, cpu.samples.first().audioMs, .001)
         assertEquals(100.0 / 75, cpu.medianRtf!!, .001)
         assertEquals(6, cpu.warmSamples.size)
@@ -92,7 +100,8 @@ class VoiceSpeechBenchmarkTest {
         val clock = Clock()
         val report = VoiceSpeechBenchmarkRunner(
             create = { backend -> Engine(backend, clock, effective = if (backend == VoiceSpeechBackend.QNN_GPU) "cpu" else VoiceSpeechBenchmarkBackendResult.provider(backend)) },
-            nanoTime = { clock.nanos }
+            nanoTime = { clock.nanos },
+            thermalStatus = { 0 }
         ).run(VoiceSpeechBenchmarkReport(1, configuration())) {}
         val gpu = report.results[1]
         assertEquals(VoiceSpeechBenchmarkBackendState.UNSUPPORTED, gpu.state)
@@ -117,7 +126,7 @@ class VoiceSpeechBenchmarkTest {
     @Test fun invalidPcmDurationsDoNotQualifyEvenWhenProviderSaysValidated() {
         val clock = Clock()
         val engine = Engine(VoiceSpeechBackend.CPU, clock, validDuration = false)
-        val report = VoiceSpeechBenchmarkRunner(create = { engine }, nanoTime = { clock.nanos })
+        val report = VoiceSpeechBenchmarkRunner(create = { engine }, nanoTime = { clock.nanos }, thermalStatus = { 0 })
             .run(VoiceSpeechBenchmarkReport(1, configuration(listOf(VoiceSpeechBackend.CPU)))) {}
         assertEquals(VoiceSpeechFailureCode.OUTPUT_INVALID, report.results.single().failure)
         assertEquals("cpu", report.results.single().failureEffectiveProvider)
@@ -137,7 +146,7 @@ class VoiceSpeechBenchmarkTest {
                 return engine.generate(text, speaker, speed)
             }
         }
-        val report = VoiceSpeechBenchmarkRunner(create = { failing }, nanoTime = { clock.nanos })
+        val report = VoiceSpeechBenchmarkRunner(create = { failing }, nanoTime = { clock.nanos }, thermalStatus = { 0 })
             .run(VoiceSpeechBenchmarkReport(1, configuration(listOf(VoiceSpeechBackend.QNN_GPU)))) {}
         val result = report.results.single()
         assertEquals(2, attempts)
@@ -163,7 +172,7 @@ class VoiceSpeechBenchmarkTest {
         val runner = VoiceSpeechBenchmarkRunner(create = {
             opens++
             engine
-        }, nanoTime = { clock.nanos })
+        }, nanoTime = { clock.nanos }, thermalStatus = { 0 })
         val report = runner.run(VoiceSpeechBenchmarkReport(1, configuration())) { if (it.completedSamples == 1) runner.cancel() }
         assertEquals(VoiceSpeechBenchmarkRunState.CANCELLED, report.state)
         assertEquals(1, report.completedSamples)
@@ -196,7 +205,8 @@ class VoiceSpeechBenchmarkTest {
                 opened += backend
                 if (backend == VoiceSpeechBackend.CPU) engine else throw java.util.concurrent.CancellationException("Native preparation cancelled")
             },
-            nanoTime = { clock.nanos }
+            nanoTime = { clock.nanos },
+            thermalStatus = { 0 }
         ).run(VoiceSpeechBenchmarkReport(1, configuration()), published::add)
         assertEquals(listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU), opened)
         assertEquals(VoiceSpeechBenchmarkRunState.CANCELLED, report.state)
@@ -244,7 +254,8 @@ class VoiceSpeechBenchmarkTest {
                 clock.advance(if (backend == VoiceSpeechBackend.CPU) 10 else 2000)
                 Engine(backend, clock, if (backend == VoiceSpeechBackend.CPU) 100 else 50)
             },
-            nanoTime = { clock.nanos }
+            nanoTime = { clock.nanos },
+            thermalStatus = { 0 }
         ).run(VoiceSpeechBenchmarkReport(1, configuration())) {}
         assertEquals(VoiceSpeechBackend.CPU, report.recommendation())
         val incomplete = report.copy(results = report.results.map { if (it.requestedBackend == VoiceSpeechBackend.CPU) it.copy(samples = it.samples.dropLast(1)) else it })
@@ -253,7 +264,7 @@ class VoiceSpeechBenchmarkTest {
 
     @Test fun exportIsNumericSafeAndLocalHistoryRoundTripsWithoutLeakingDeviceBinding() {
         val clock = Clock()
-        val report = VoiceSpeechBenchmarkRunner(create = { Engine(it, clock) }, nanoTime = { clock.nanos })
+        val report = VoiceSpeechBenchmarkRunner(create = { Engine(it, clock) }, nanoTime = { clock.nanos }, thermalStatus = { 0 })
             .run(VoiceSpeechBenchmarkReport(1, configuration(listOf(VoiceSpeechBackend.CPU)))) {}
         val export = voiceSpeechBenchmarkExport(report)
         val json = Json.parseToJsonElement(export).jsonObject

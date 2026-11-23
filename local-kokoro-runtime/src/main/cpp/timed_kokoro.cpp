@@ -13,9 +13,12 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <unistd.h>
 
+#include "kokoro_measurement.h"
 #include "kokoro_pronunciation.h"
 #include "kokoro_execution_provider.h"
+#include "kokoro_shape_cache.h"
 #include "sherpa-onnx/csrc/offline-tts-kokoro-model.h"
 #include "sherpa-onnx/csrc/symbol-table.h"
 #include "sherpa-onnx/csrc/text-utils.h"
@@ -61,7 +64,10 @@ struct Frontend {
   }
 
   Phrase Encode(const std::string &text) const {
-    Require(!text.empty() && text.size() <= 128, "Invalid Kokoro phrase length");
+    const int bytes = static_cast<int>(std::min<size_t>(text.size(), INT32_MAX));
+    if (text.empty()) throw kokoro_runtime::InputFailure("FRONTEND_INPUT_EMPTY", bytes);
+    if (text.size() > kokoro_runtime::kInputByteLimit)
+      throw kokoro_runtime::InputFailure("FRONTEND_INPUT_TOO_LONG", bytes);
     Phrase phrase;
     for (size_t i = 0; i < text.size();) {
       const auto word_char = [](char c) { return (c >= 'a' && c <= 'z') || c == '\''; };
@@ -88,13 +94,16 @@ struct Frontend {
         phrase.word_tokens.push_back(static_cast<jint>(phrase.tokens.size()));
       } else {
         char c = text[i++];
-        Require(std::string(" ,.:;!?").find(c) != std::string::npos, "Invalid Kokoro separator");
+        if (std::string(" ,.:;!?").find(c) == std::string::npos)
+          throw kokoro_runtime::InputFailure("FRONTEND_INVALID_SEPARATOR", bytes, phrase.tokens.size());
         // Sherpa's English frontend normalizes a colon to a comma.
         phrase.tokens.push_back(symbols.at(std::string(1, c == ':' ? ',' : c)));
       }
     }
-    Require(!phrase.word_tokens.empty() && phrase.tokens.size() - 1 <
-            static_cast<size_t>(max_tokens), "Invalid Kokoro token count");
+    if (phrase.word_tokens.empty())
+      throw kokoro_runtime::InputFailure("FRONTEND_NO_WORDS", bytes, phrase.tokens.size());
+    if (phrase.tokens.size() - 1 >= static_cast<size_t>(max_tokens))
+      throw kokoro_runtime::InputFailure("FRONTEND_TOKEN_LIMIT", bytes, phrase.tokens.size() + 1, max_tokens + 1);
     phrase.tokens.push_back(0);  // End PAD.
     return phrase;
   }
@@ -106,50 +115,151 @@ struct Frontend {
   mutable std::unordered_map<std::string, std::vector<int32_t>> predicted;
 };
 
+constexpr int64_t kCacheBudgetBytes = 640LL * 1024 * 1024;
+constexpr int64_t kMemoryHeadroomBytes = 512LL * 1024 * 1024;
+
+int64_t FileBytes(const std::string &path) {
+  std::ifstream input(path, std::ios::binary | std::ios::ate);
+  const auto size = input ? static_cast<int64_t>(input.tellg()) : 0;
+  return std::max<int64_t>(0, size);
+}
+
+int64_t AvailableMemoryBytes() {
+  std::ifstream input("/proc/meminfo");
+  std::string key, unit;
+  int64_t kb = 0;
+  // /proc contains no phrase data; unavailable readings conservatively disable
+  // the additional cached shape. Do not retain the contents in diagnostics.
+  for (int i = 0; i < 128 && input >> key >> kb >> unit; ++i)
+    if (key == "MemAvailable:" && unit == "kB" && kb > 0 && kb < INT64_MAX / 1024) return kb * 1024;
+  return 0;
+}
+
+int64_t ResidentBytes() {
+  std::ifstream input("/proc/self/statm");
+  int64_t pages = 0, resident = 0;
+  const auto page_size = sysconf(_SC_PAGESIZE);
+  return input >> pages >> resident && resident > 0 && page_size > 0 && resident < INT64_MAX / page_size ?
+      resident * page_size : 0;
+}
+
+struct ModelSession {
+  std::unique_ptr<sherpa_onnx::OfflineTtsKokoroModel> model;
+  int64_t prepare_ms = 0, profile_id = 0, resident_before = 0;
+  kokoro_runtime::Qualification qualification;
+  kokoro_runtime::SelectedDevice selected_device;
+  std::string discovery;
+};
+
 struct Model : Frontend {
   Model(const sherpa_onnx::OfflineTtsModelConfig &config, const std::string &library_dir,
       const std::string &profile_prefix) : Frontend(config.kokoro.tokens, config.kokoro.lexicon),
       config(config), library_dir(library_dir), profile_prefix(profile_prefix) {
+    // Include model transformation/workspace headroom and per-session voices.
+    // This estimate is disclosed, supplemented by observed RSS growth, and is
+    // never described as an allocator-enforced RAM bound.
+    const auto model_bytes = FileBytes(config.kokoro.model);
+    const auto voice_bytes = FileBytes(config.kokoro.voices);
+    estimated_session_bytes = model_bytes > 0 && model_bytes < kCacheBudgetBytes && voice_bytes < kCacheBudgetBytes ?
+        2 * model_bytes + voice_bytes + 64LL * 1024 * 1024 : kCacheBudgetBytes;
     if (config.provider == "cpu") EnsureSession(0);
   }
 
   void EnsureSession(int64_t token_count) const {
-    if (kokoro && (config.provider == "cpu" || specialized_tokens == token_count)) return;
-    // Bound native model residency to one exact token shape. Preparation is
-    // included in the backend comparison instead of being hidden as a speedup.
+    const auto key = config.provider == "cpu" ? 0 : token_count;
+    const bool room_for_idle = config.provider != "cpu" &&
+        AvailableMemoryBytes() > estimated_session_bytes + kMemoryHeadroomBytes;
+    sessions.SetLimit(room_for_idle ? 2 : 1);
+    current_prepare_ms = 0;
+    graph_prepared_this_call = false;
+    cache_hit = false;
+    active = sessions.Find(key);
+    if (active) {
+      cache_hit = true;
+      RestoreEvidence();
+      return;
+    }
     stage = "preparing";
     const auto started = std::chrono::steady_clock::now();
-    kokoro.reset();
+    sessions.Reserve(estimated_session_bytes);
     qualification = {};
+    selected_device = {};
     kokoro_runtime::LastQualification() = {};
-    kokoro = std::make_unique<sherpa_onnx::OfflineTtsKokoroModel>(config, library_dir,
-        profile_prefix + "-" + std::to_string(token_count), token_count);
-    Require(kokoro->GetMetaData().sample_rate == kSampleRate &&
-            kokoro->GetMetaData().max_token_len == max_tokens, "Unexpected Kokoro pack");
-    specialized_tokens = token_count;
-    selected_device = config.provider == "cpu" ? kokoro_runtime::SelectedDevice{} : kokoro_runtime::LastSelectedDevice();
-    prepare_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    kokoro_runtime::LastSelectedDevice() = {};
+    kokoro_runtime::LastDiscovery() = "stage=preparing";
+    auto session = std::make_unique<ModelSession>();
+    static std::atomic<int64_t> next_profile_id{1};
+    session->profile_id = next_profile_id.fetch_add(1);
+    session->resident_before = ResidentBytes();
+    session->model = std::make_unique<sherpa_onnx::OfflineTtsKokoroModel>(config, library_dir,
+        profile_prefix + "-" + std::to_string(token_count) + "-" + std::to_string(session->profile_id), token_count);
+    Require(session->model->GetMetaData().sample_rate == kSampleRate &&
+            session->model->GetMetaData().max_token_len == max_tokens, "Unexpected Kokoro pack");
+    session->selected_device = config.provider == "cpu" ? kokoro_runtime::SelectedDevice{} : kokoro_runtime::LastSelectedDevice();
+    session->discovery = kokoro_runtime::LastDiscovery();
+    session->prepare_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    active = sessions.Insert(key, estimated_session_bytes, std::move(session));
+    current_prepare_ms = active->prepare_ms;
+    graph_prepared_this_call = true;
+    RestoreEvidence();
+  }
+
+  void RestoreEvidence() const {
+    qualification = active->qualification;
+    selected_device = active->selected_device;
+    prepare_ms = active->prepare_ms;
+    discovery = active->discovery;
   }
 
   jobject Generate(JNIEnv *env, const std::string &text, jint sid, jfloat speed) const {
     Require(!cancelled.load(), "Kokoro generation cancelled");
     stage = "frontend";
     phrase_tokens = 0;
+    input_bytes = std::min<size_t>(text.size(), INT32_MAX);
+    synthesis_ms = 0;
+    audio_measurement = {};
+    qualification = {};
+    cache_hit = false;
+    profile_reused = false;
+    current_prepare_ms = 0;
+    graph_prepared_this_call = false;
+    if (!std::isfinite(speed) || speed < .5f || speed > 2.f)
+      throw kokoro_runtime::InputFailure("FRONTEND_INVALID_SPEED", input_bytes);
     Phrase phrase = Encode(text);
     phrase_tokens = phrase.tokens.size();
+    if (sid < 0) throw kokoro_runtime::InputFailure("FRONTEND_INVALID_VOICE", input_bytes, phrase_tokens);
     EnsureSession(phrase.tokens.size());
-    Require(sid >= 0 && sid < kokoro->GetMetaData().num_speakers &&
-            std::isfinite(speed) && speed >= .5f && speed <= 2.f, "Invalid Kokoro voice or speed");
+    stage = "frontend";
+    if (sid >= active->model->GetMetaData().num_speakers)
+      throw kokoro_runtime::InputFailure("FRONTEND_INVALID_VOICE", input_bytes, phrase_tokens);
     auto memory = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
     std::array<int64_t, 2> shape{1, static_cast<int64_t>(phrase.tokens.size())};
     auto input = Ort::Value::CreateTensor<int64_t>(memory, phrase.tokens.data(), phrase.tokens.size(),
                                                     shape.data(), shape.size());
     stage = "synthesis";
+    profile_reused = qualification.accelerator.kernels > 0;
+    // A cached shape can exist before its first inference (for example after an
+    // invalid voice). A run that throws before profiling must not borrow the
+    // thread's completed profile from another shape or model.
+    if (!profile_reused) kokoro_runtime::LastQualification() = {};
     const auto started = std::chrono::steady_clock::now();
-    auto out = kokoro->Run(std::move(input), sid, speed, run_options);
+    std::vector<Ort::Value> out;
+    try {
+      out = active->model->Run(std::move(input), sid, speed, run_options);
+    } catch (...) {
+      synthesis_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+      // CPU-only qualification failures still have a useful actual profile.
+      if (config.provider != "cpu" && !profile_reused) qualification = kokoro_runtime::LastQualification();
+      throw;
+    }
     synthesis_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
-    if (config.provider != "cpu" && qualification.accelerator.kernels == 0)
+    if (config.provider != "cpu" && qualification.accelerator.kernels == 0) {
       qualification = kokoro_runtime::LastQualification();
+      active->qualification = qualification;
+    }
+    const auto resident_after = ResidentBytes();
+    if (active->resident_before > 0 && resident_after > active->resident_before)
+      sessions.UpdateActiveBytes(resident_after - active->resident_before);
     stage = "validating";
     Require(!cancelled.load(), "Kokoro generation cancelled");
     Require(out.size() == 2, "Kokoro timing output missing");
@@ -169,8 +279,9 @@ struct Model : Frontend {
     }
     Require(units * kSamplesPerUnit == static_cast<int64_t>(frames), "Kokoro timing and PCM disagree");
     const auto *pcm = out[0].GetTensorData<float>();
-    for (size_t i = 0; i < frames; ++i)
-      Require(std::isfinite(pcm[i]), "Kokoro returned non-finite PCM");
+    audio_measurement = kokoro_runtime::MeasureAudio(pcm, frames);
+    Require(audio_measurement.finite, "Kokoro returned non-finite PCM");
+    Require(audio_measurement.NonSilent(), "Kokoro returned silent PCM");
 
     auto cls = env->FindClass("dev/melo/kokoro/TimedKokoro$Audio");
     if (!cls) return nullptr;
@@ -206,11 +317,17 @@ struct Model : Frontend {
   sherpa_onnx::OfflineTtsModelConfig config;
   std::string library_dir;
   std::string profile_prefix;
-  mutable std::unique_ptr<sherpa_onnx::OfflineTtsKokoroModel> kokoro;
-  mutable int64_t specialized_tokens = 0;
+  mutable kokoro_runtime::ShapeCache<ModelSession> sessions{1, kCacheBudgetBytes};
+  mutable ModelSession *active = nullptr;
+  int64_t estimated_session_bytes = kCacheBudgetBytes;
   mutable int64_t phrase_tokens = 0;
+  mutable int64_t input_bytes = 0;
   mutable int64_t prepare_ms = 0;
+  mutable int64_t current_prepare_ms = 0;
   mutable int64_t synthesis_ms = 0;
+  mutable bool cache_hit = false, profile_reused = false, graph_prepared_this_call = false;
+  mutable kokoro_runtime::AudioMeasurement audio_measurement;
+  mutable std::string discovery;
   mutable kokoro_runtime::Qualification qualification;
   mutable kokoro_runtime::SelectedDevice selected_device;
   mutable const char *stage = "frontend";
@@ -225,29 +342,73 @@ void ReportError(JNIEnv *env, const char *kind, const char *message) {
   if (auto cls = env->FindClass(kind)) env->ThrowNew(cls, message);
 }
 
-void ReportModelFailure(JNIEnv *env, const Model *model, const std::exception &error, int native_code) {
+jlongArray ModelEvidence(JNIEnv *env, const Model *model) {
+  // Profile metadata is tied to the compiled session; times/audio refer only to
+  // the latest attempt. The snapshot is also used inside an inference failure.
+  jlong rms_bits = 0, peak_bits = 0;
+  static_assert(sizeof(double) == sizeof(jlong));
+  std::memcpy(&rms_bits, &model->audio_measurement.rms, sizeof(rms_bits));
+  std::memcpy(&peak_bits, &model->audio_measurement.peak, sizeof(peak_bits));
+  const bool profiled = model->qualification.accelerator.kernels > 0 || model->qualification.cpu.kernels > 0;
+  const std::array<jlong, 25> values{2, model->qualification.accelerator.kernels,
+      model->qualification.cpu.kernels, model->qualification.accelerator.microseconds,
+      model->qualification.cpu.microseconds, model->prepare_ms, model->synthesis_ms,
+      model->phrase_tokens, model->selected_device.type, model->selected_device.vendor,
+      model->selected_device.id, std::strcmp(model->stage, "ready") == 0 ? 1 : 0,
+      profiled ? 1 : 0, profiled && model->active ? model->active->profile_id : 0,
+      model->cache_hit ? 1 : 0, model->current_prepare_ms,
+      static_cast<jlong>(model->sessions.Size()), static_cast<jlong>(model->sessions.Limit()), model->sessions.Bytes(),
+      rms_bits, peak_bits, model->audio_measurement.clipped_samples, model->audio_measurement.non_silent_samples,
+      model->profile_reused ? 1 : 0, model->graph_prepared_this_call ? 1 : 0};
+  auto result = env->NewLongArray(values.size());
+  if (result) env->SetLongArrayRegion(result, 0, values.size(), values.data());
+  return result;
+}
+
+void ReportFailure(JNIEnv *env, const char *stage_name, const char *code, int native_code,
+    int token_count, const std::string &provider_name, int bytes, int token_limit, const std::string &discovery,
+    const Model *current_attempt = nullptr) {
   if (env->ExceptionCheck()) return;
+  const auto cls = env->FindClass("dev/melo/kokoro/TimedKokoro$Failure");
+  if (!cls) return;
+  const auto constructor = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;IIILjava/lang/String;[J)V");
+  if (!constructor) return;
+  auto stage = env->NewStringUTF(stage_name);
+  auto reason = env->NewStringUTF(code);
+  auto provider = env->NewStringUTF(provider_name.c_str());
+  auto device_info = env->NewStringUTF(discovery.c_str());
+  if (!stage || !reason || !provider || !device_info) return;
+  const auto evidence = current_attempt ? ModelEvidence(env, current_attempt) : nullptr;
+  if (env->ExceptionCheck()) return;
+  auto failure = static_cast<jthrowable>(env->NewObject(cls, constructor, stage, reason,
+      static_cast<jint>(native_code), static_cast<jint>(token_count), provider,
+      static_cast<jint>(bytes), static_cast<jint>(kokoro_runtime::kInputByteLimit), static_cast<jint>(token_limit), device_info, evidence));
+  if (failure) env->Throw(failure);
+}
+
+void ReportModelFailure(JNIEnv *env, const Model *model, const std::exception &error, int native_code) {
+  if (const auto *input = dynamic_cast<const kokoro_runtime::InputFailure *>(&error)) {
+    ReportFailure(env, "frontend", input->code, native_code, input->tokens, model->config.provider,
+        input->bytes, input->token_limit, "stage=frontend");
+    return;
+  }
   const std::string detail(error.what());
   const char *code = "EXECUTION_FAILED";
   if (detail.find("fused together") != std::string::npos || detail.find("partition") != std::string::npos)
     code = "GRAPH_PARTITION";
   else if (detail.find("CPU only") != std::string::npos) code = "CPU_ONLY";
   else if (detail.find("No Qualcomm speech device") != std::string::npos) code = "DEVICE_UNAVAILABLE";
-  else if (detail.find("could not load") != std::string::npos || detail.find("register") != std::string::npos)
-    code = "PROVIDER_LOAD";
+  else if (detail.find("could not load") != std::string::npos || detail.find("register") != std::string::npos ||
+      detail.find("PROVIDER_LOAD") != std::string::npos) code = "PROVIDER_LOAD";
   else if (std::string(model->stage) == "validating") code = "OUTPUT_INVALID";
   else if (std::string(model->stage) == "preparing") code = "GRAPH_PREPARATION";
-  const auto cls = env->FindClass("dev/melo/kokoro/TimedKokoro$Failure");
-  if (!cls) return;
-  const auto constructor = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;)V");
-  if (!constructor) return;
-  auto stage = env->NewStringUTF(model->stage);
-  auto reason = env->NewStringUTF(code);
-  auto provider = env->NewStringUTF(model->config.provider.c_str());
-  if (!stage || !reason || !provider) return;
-  auto failure = static_cast<jthrowable>(env->NewObject(cls, constructor, stage, reason,
-      static_cast<jint>(native_code), static_cast<jint>(model->phrase_tokens), provider));
-  if (failure) env->Throw(failure);
+  else if (std::string(model->stage) == "frontend") code = "FRONTEND_INPUT_INVALID";
+  const bool inference_started = std::string(model->stage) == "synthesis" || std::string(model->stage) == "validating";
+  ReportFailure(env, model->stage, code, native_code, model->phrase_tokens, model->config.provider,
+      model->input_bytes, model->max_tokens + 1,
+      std::string(model->stage) == "preparing" ? kokoro_runtime::LastDiscovery() :
+      std::string(model->stage) == "frontend" ? "stage=frontend" : model->discovery,
+      inference_started ? model : nullptr);
 }
 
 }  // namespace
@@ -309,23 +470,18 @@ extern "C" JNIEXPORT void JNICALL Java_dev_melo_kokoro_TimedKokoro_release(JNIEn
 
 extern "C" JNIEXPORT jint JNICALL Java_dev_melo_kokoro_TimedKokoro_executedAcceleratorNodes(
     JNIEnv *, jclass, jlong handle) {
-  const auto &model = reinterpret_cast<Model *>(handle)->kokoro;
-  return model ? model->ExecutedAcceleratorNodes() : 0;
+  const auto *model = reinterpret_cast<Model *>(handle);
+  return model->active ? model->active->model->ExecutedAcceleratorNodes() : 0;
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_kokoro_TimedKokoro_executionEvidence(
     JNIEnv *env, jclass, jlong handle) {
-  const auto *model = reinterpret_cast<Model *>(handle);
-  // Kernel profile belongs to the first completed inference of this exact
-  // compiled shape. Synthesis time belongs to the most recent inference.
-  const std::array<jlong, 12> values{1, model->qualification.accelerator.kernels,
-      model->qualification.cpu.kernels, model->qualification.accelerator.microseconds,
-      model->qualification.cpu.microseconds, model->prepare_ms, model->synthesis_ms,
-      model->phrase_tokens, model->selected_device.type, model->selected_device.vendor,
-      model->selected_device.id, std::strcmp(model->stage, "ready") == 0 ? 1 : 0};
-  auto result = env->NewLongArray(values.size());
-  if (result) env->SetLongArrayRegion(result, 0, values.size(), values.data());
-  return result;
+  return ModelEvidence(env, reinterpret_cast<Model *>(handle));
+}
+
+extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_kokoro_TimedKokoro_executionDiscovery(
+    JNIEnv *env, jclass, jlong handle) {
+  return env->NewStringUTF(reinterpret_cast<Model *>(handle)->discovery.c_str());
 }
 
 extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_KokoroFrontend_open(
@@ -356,6 +512,8 @@ extern "C" JNIEXPORT jobject JNICALL Java_dev_melo_kokoro_KokoroFrontend_encodeP
     env->SetLongArrayRegion(tokens, 0, java_tokens.size(), java_tokens.data());
     env->SetIntArrayRegion(words, 0, phrase.word_tokens.size(), phrase.word_tokens.data());
     return env->NewObject(cls, constructor, tokens, words);
+  } catch (const kokoro_runtime::InputFailure &error) {
+    ReportFailure(env, "frontend", error.code, -1, error.tokens, "frontend", error.bytes, error.token_limit, "stage=frontend");
   } catch (const std::bad_alloc &) {
     ReportError(env, "java/lang/OutOfMemoryError", "Kokoro frontend allocation failed");
   } catch (const std::exception &) {

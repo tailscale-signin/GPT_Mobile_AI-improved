@@ -28,6 +28,7 @@ from gateway_security import DeviceStore
 from v14.config import Config
 from v14.identity import Admission
 from v14.voice import (BASE, FRONTEND, FRONTEND_SYMBOLS_SHA256, PROTOCOL, PROVIDER, KokoroCudaBackend, VoiceError, VoiceService,
+                       BinarySpeech, PCM_CHUNK_FRAMES, PCM_STREAM_MAGIC, PCM_STREAM_PROTOCOL, PCM_STREAM_TYPE,
                        Work, executed_cuda_nodes, frontend_symbols, install_voice_routes, load_pack, token_request)
 from v14.voice_process import SidecarCudaBackend, child_environment, configuration
 from prepare_voice_pack import prepare
@@ -165,11 +166,16 @@ class SyntheticBackend:
             if work.cancelled.is_set():
                 raise VoiceError('VOICE_CANCELLED', 409)
             return dict(protocol=PROTOCOL, frontend_id=FRONTEND, request_id=request['request_id'],
+                        frontend_symbols_sha256=FRONTEND_SYMBOLS_SHA256, frames_per_duration=600,
                         sample_rate=24000, pcm_f32le=base64.b64encode(struct.pack('<f', .25) * 2400).decode(),
                         durations=[1] * 4, word_tokens=list(request['word_tokens']), model_sha256=self.model_sha256,
                         execution_provider=PROVIDER, executed_cuda_nodes=self.executed_cuda_nodes)
         finally:
             work.options(None)
+
+    def synthesize_binary(self, request, work):
+        response = self.synthesize(request, work)
+        return BinarySpeech(response, base64.b64decode(response.pop('pcm_f32le')))
 
     def close(self):
         self.closed = True
@@ -300,6 +306,67 @@ class VoiceQueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(warming.closed)
         self.assertTrue(backend.closed)
 
+    async def test_binary_transport_retains_bounded_admission_until_drain_and_uses_same_cancel_scope(self):
+        self.backend.release.set()
+        first, second = payload(), payload()
+        for request in (first, second):
+            result = await self.service.synthesize('owner', request, binary=True)
+            self.assertIsInstance(result, BinarySpeech)
+        self.assertFalse(self.service.pending)
+        self.assertEqual(len(self.service.streams), 2)
+        with self.assertRaises(VoiceError) as full:
+            await self.service.synthesize('owner', payload(), binary=True)
+        self.assertEqual(full.exception.code, 'VOICE_QUEUE_FULL')
+        self.service.cancel('other', first['request_id'])
+        self.assertFalse(self.service.stream_cancelled('owner', first['request_id']))
+        self.service.cancel('owner', first['request_id'])
+        self.assertTrue(self.service.stream_cancelled('owner', first['request_id']))
+        self.service.release_stream('owner', first['request_id'])
+        third = payload()
+        await self.service.synthesize('owner', third, binary=True)
+        self.assertEqual(len(self.service.streams), 2)
+        self.service.release_stream('owner', second['request_id'])
+        self.service.release_stream('owner', third['request_id'])
+
+    async def test_binary_native_cancellation_retires_admission_without_delivering_pcm(self):
+        request = payload()
+        task = asyncio.create_task(self.service.synthesize('owner', request, binary=True))
+        await self.started()
+        self.service.cancel('owner', request['request_id'])
+        with self.assertRaises(VoiceError) as cancelled:
+            await task
+        self.assertEqual(cancelled.exception.code, 'VOICE_CANCELLED')
+        await self.service.queue.join()
+        self.assertFalse(self.service.streams)
+        self.assertTrue(self.backend.last_options.terminate)
+
+    async def test_route_disconnect_or_cancellation_stops_pcm_and_releases_stream_admission(self):
+        self.backend.release.set()
+        app = FastAPI()
+        install_voice_routes(app, self.service)
+        endpoint = next(route.endpoint for route in app.routes if route.path == BASE + '/synthesize/stream')
+        for cancel in (False, True):
+            request_payload = payload()
+            class Request:
+                state = SimpleNamespace(principal=SimpleNamespace(id='owner', scopes={'chat'}))
+                async def stream(self):
+                    yield json.dumps(request_payload).encode()
+                async def is_disconnected(self):
+                    return False
+            response = await endpoint(Request())
+            iterator = response.body_iterator
+            header = await anext(iterator)
+            self.assertTrue(header.startswith(PCM_STREAM_MAGIC))
+            self.assertEqual(len(self.service.streams), 1)
+            if cancel:
+                self.service.cancel('owner', request_payload['request_id'])
+                with self.assertRaises(StopAsyncIteration):
+                    await anext(iterator)
+            else:
+                # StreamingResponse closes its iterator when the client drops.
+                await iterator.aclose()
+            self.assertFalse(self.service.streams)
+
 
 class VoiceAdmissionTests(unittest.TestCase):
     def setUp(self):
@@ -361,6 +428,66 @@ class VoiceAdmissionTests(unittest.TestCase):
             self.assertEqual(client.post(BASE + '/cancel', content='{"request_id":"a","request_id":"b"}', headers=headers).status_code, 400)
             self.assertEqual(client.post(BASE + '/cancel', json={'request_id': 'not-a-uuid'}, headers=headers).status_code, 400)
             self.assertEqual(len(self.backend.calls), 0)
+
+    def test_binary_route_uses_existing_admission_and_streams_exact_bounded_pcm(self):
+        headers = {'Tailscale-User-Login': 'voice@example.com'}
+        with self.client() as client:
+            self.ready(client)
+            capabilities = client.get(BASE + '/capabilities', headers=headers).json()
+            self.assertEqual(capabilities['stream_protocol'], PCM_STREAM_PROTOCOL)
+            self.assertEqual(capabilities['generation_mode'], 'complete_phrase')
+            route = BASE + '/synthesize/stream'
+            self.assertEqual(client.post(route, json=payload()).status_code, 401)
+            self.assertEqual(client.post(route, json=payload(), headers={'Tailscale-User-Login': 'tools@example.com'}).status_code, 403)
+            self.assertEqual(client.post(route, json=payload(), headers=dict(headers, Origin='http://127.0.0.1:8090')).status_code, 403)
+            self.assertEqual(client.post(route, content=b' ' * 16385, headers=headers).status_code, 413)
+            request = payload()
+            response = client.post(route, json=request, headers=headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers['content-type'], PCM_STREAM_TYPE)
+            self.assertEqual(response.headers['cache-control'], 'no-store')
+            metadata, frames = decode_pcm_stream(response.content)
+            self.assertEqual(metadata['request_id'], request['request_id'])
+            self.assertEqual(metadata['generation_mode'], 'complete_phrase')
+            self.assertNotIn('pcm_f32le', metadata)
+            self.assertEqual(frames, struct.pack('<f', .25) * 2400)
+            self.assertFalse(self.service.streams)
+            self.assertEqual(client.post(route + '/extra', headers=headers).status_code, 403)
+
+
+def decode_pcm_stream(data):
+    assert data[:8] == PCM_STREAM_MAGIC
+    size = struct.unpack_from('<I', data, 8)[0]
+    metadata = json.loads(data[12:12 + size])
+    assert metadata['stream_protocol'] == PCM_STREAM_PROTOCOL
+    offset, pcm = 12 + size, bytearray()
+    while True:
+        count = struct.unpack_from('<I', data, offset)[0]
+        offset += 4
+        if not count:
+            break
+        assert count <= PCM_CHUNK_FRAMES
+        pcm.extend(data[offset:offset + count * 4])
+        offset += count * 4
+    assert offset == len(data)
+    assert len(pcm) == metadata['audio_frames'] * 4
+    return metadata, bytes(pcm)
+
+
+class BinaryVoiceFramingTests(unittest.TestCase):
+    def test_transport_chunks_do_not_change_native_phrase_timing_or_audio(self):
+        pcm = struct.pack('<f', .25) * 12000
+        speech = BinarySpeech({'durations': [2, 3, 5, 10]}, pcm)
+        metadata, actual = decode_pcm_stream(speech.header() + b''.join(speech.chunks()))
+        self.assertEqual(actual, pcm)
+        self.assertEqual(metadata['durations'], [2, 3, 5, 10])
+        self.assertEqual([len(chunk) for chunk in speech.chunks()], [4 + 4096 * 4, 4 + 4096 * 4, 4 + 3808 * 4, 4])
+
+    def test_invalid_sizes_and_duration_bounds_fail_before_response_headers(self):
+        for times, pcm in (([1, 1, 1], b''), ([1, 1, 1], b'x' * 7199), ([1, 1, 2], b'x' * 7200),
+                           ([1, 0, 2], b'x' * 7200), ([1, True, 1], b'x' * 7200)):
+            with self.subTest(times=times), self.assertRaises(VoiceError):
+                BinarySpeech({'durations': times}, pcm)
 
 
 @unittest.skipIf(np is None, 'Install optional Voice NumPy dependency to exercise ORT boundary validation')
@@ -434,7 +561,7 @@ class VoiceSidecarTests(unittest.TestCase):
 from pathlib import Path
 sys.path.insert(0, SOURCE)
 from voice_worker import serve
-from v14.voice import VoiceError, PROTOCOL, FRONTEND, PROVIDER
+from v14.voice import VoiceError, BinarySpeech, PROTOCOL, FRONTEND, PROVIDER
 class Synthetic:
     model_sha256, executed_cuda_nodes, speakers = 'a' * 64, 2, 2
     def __init__(self, directory): pass
@@ -449,6 +576,9 @@ class Synthetic:
             model_sha256=self.model_sha256, execution_provider=PROVIDER, executed_cuda_nodes=2,
             sample_rate=24000, durations=[1]*4, word_tokens=request['word_tokens'],
             pcm_f32le=base64.b64encode(struct.pack('<f', .25)*2400).decode())
+    def synthesize_binary(self, request, work):
+        response = self.synthesize(request, work)
+        return BinarySpeech(response, base64.b64decode(response.pop('pcm_f32le')))
 parser=argparse.ArgumentParser()
 parser.add_argument('--directory')
 serve(parser.parse_args().directory, factory=Synthetic)
@@ -491,6 +621,22 @@ serve(parser.parse_args().directory, factory=Synthetic)
             self.assertEqual(timeout.exception.code, 'VOICE_TIMEOUT')
             backend.process.wait(timeout=2)
             self.assertFalse(backend.ready)
+        finally:
+            backend.close()
+
+    def test_binary_sidecar_frames_remain_aligned_across_binary_and_legacy_requests(self):
+        backend = SidecarCudaBackend(self.temp.name, sys.executable, self.worker)
+        try:
+            for _ in range(3):
+                request = payload()
+                result = backend.synthesize_binary(request, Work('owner', request, None, time.monotonic() + 5))
+                self.assertEqual(result.metadata['request_id'], request['request_id'])
+                self.assertNotIn('pcm_f32le', result.metadata)
+                self.assertNotIn('_binary_pcm_bytes', result.metadata)
+                self.assertEqual(result.pcm, struct.pack('<f', .25) * 2400)
+                legacy = payload()
+                response = backend.synthesize(legacy, Work('owner', legacy, None, time.monotonic() + 5))
+                self.assertEqual(response['request_id'], legacy['request_id'])
         finally:
             backend.close()
 

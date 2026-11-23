@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-streaming-modernization-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "localWorkingBranch": "voice-modernization-work",
+  "startingHead": "0aef39b01bfc565083899dd7aebecd1981b9150b",
+  "pullRequest": 2367,
+  "status": "SOURCE_IMPLEMENTED_AND_INDEPENDENTLY_REVIEWED_PENDING_FINAL_CI",
+  "intent": "Implement the supplied voice latency audit follow-up: genuine incremental PCM engines, verified model installation and selection, selected-rate CPU calibration, continuity-aware chunks, safe early preparation, bounded profile parsing and Gateway binary audio streaming. Compose the separately owned accelerator output qualification, memory-aware exact-shape cache and complete benchmark evidence before final verification and joint publication.",
+  "acceptance": [
+    "Preserve current native Kokoro and privacy/admission behavior while adding real MediaPipe 1.2.3 Kokoro, Phonon and Pocket adapters using immutable model revisions, byte lengths and SHA-256 verification.",
+    "Queue incremental PCM as it arrives with bounded backpressure, explicit native cancellation, correctly converted estimated word cues and no fabricated native phoneme timings or provider proof.",
+    "Calibrate native CPU with the selected voice/rate, balanced 1-4 thread candidates, cancellation and thermal guards; adapt follow-up chunks to observed synthesis cost and buffered audio.",
+    "Prepare local speech after a completed spoken turn and before admission completes while retaining recognition teardown, privacy and warmup-generation fences; keep remote preparation admission-gated.",
+    "Offer compatible bounded binary Gateway streaming while retaining the existing JSON endpoint and validating framing, cancellation and privacy.",
+    "Preserve every concurrent branch commit and reservation; qualify the final immutable PR and actual main source without bypassing required checks.",
+    "Verify predecessor publication before successor merge and verify public Android and Gateway release assets before completion."
+  ],
+  "qualification": {
+    "local": "Focused actual-source checks passed: 31 planning/calibration JVM, 21 SDK/model/lifecycle JVM, 13 Gateway decoder/protocol JVM, actual Ktor transport checks, 30 Gateway Python, 15 JNI gate Python and compiled C++ parser. Actual AAR metadata compatibility passes. Full app compilation refused by the unchanged 8960 MiB memory-admission requirement; ordinary CI remains mandatory.",
+    "hosted": "PENDING_FINAL_COMBINED_HEAD",
+    "publication": "NOT_PUBLISHED",
+    "physicalDeviceClaims": "NOT_MEASURED",
+    "checkpointSmoke": "Official wheel requirements and Phonon model bytes verified. Linux inference is blocked by missing runtime-required sysfs CPU topology; no local inference claimed. Three real model jobs plus packaged minified Android instrumentation are required on ordinary CI.",
+    "requiredMainWorkflows": [
+      "Build Android APK",
+      "CodeQL Advanced",
+      "PR Validation",
+      "Post-merge correctness",
+      "v0.9.50 Android acceptance",
+      "Gateway stability",
+      "Gateway Windows installer",
+      "Development environments",
+      "Speech engine model smoke",
+      "Minified native memory smoke"
+    ],
+    "admission": "35 current-source JVM admission/policy/qualification tests passed. A manual-admission bypass negative control failed 5 of 11 new admission regressions, including 1075ms versus2450ms. Two additional Robolectric persistence/preparation-timeout tests remain required in CI.",
+    "canonicalFast": "687 canonical host tests passed on the integrated ebda voice candidate. Pinned ktlint1.3.1 passed all64 changed Kotlin/Kotlin-script files. The independent TLS append is preserved; final combined-source gates remain required before merge. Full Android/model smoke remains pending normal CI."
+  },
+  "latestObservedPublicHead": "2630db65b9df55143f2fd61b1cd16dc9c60d2254",
+  "independentReview": {
+    "sdkLifecycle": "Resolved cancellation/destructor lock contention and failed-native-retirement lease ownership; blocking-destructor regressions passed.",
+    "entryAndPreview": "Resolved native-pack-only entry/saved-message gating and same-frame preview configuration ordering; actual Android tests are committed for CI.",
+    "acceleratorAdmission": "Resolved manual playback bypass of CPU-reference qualification and staged both successful and negative Recheck receipts; independent review clear and 35 focused JVM tests passed.",
+    "modelSmoke": "Resolved tee pipeline false-green exit behavior and required exact native CancellationException; model/Android proofs remain pending real CI execution.",
+    "composition": "All incoming changes through e056 preserved. Native profile4/cache2/progress1 identity also includes parser2; SDK family exports cannot claim an observed processor or exposed CPU thread count."
+  },
+  "compositionHeads": [
+    "537794706b93611e501bdc763f84f24ad44679ba",
+    "2630db65b9df55143f2fd61b1cd16dc9c60d2254"
+  ]
+}

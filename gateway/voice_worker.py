@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 # The host uses -I, so only this validated bundled source directory is added.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from v14.voice import (FRONTEND, MAX_BODY_BYTES, PROTOCOL, PROVIDER, SAMPLE_RATE, KokoroCudaBackend,
-                       VoiceError, Work, request_id, token_request)
+                       BinarySpeech, VoiceError, Work, request_id, token_request)
 
 
 def serve(directory, factory=KokoroCudaBackend, source=None, target=None):
@@ -17,9 +17,15 @@ def serve(directory, factory=KokoroCudaBackend, source=None, target=None):
     lock, writer = threading.Lock(), threading.Lock()
     active = [None]
     def send(payload):
-        encoded = json.dumps(payload, separators=(',', ':'), allow_nan=False).encode('utf-8') + b'\n'
+        binary = payload if isinstance(payload, BinarySpeech) else None
+        metadata = dict(binary.metadata, _binary_pcm_bytes=len(binary.pcm)) if binary is not None else payload
+        encoded = json.dumps(metadata, separators=(',', ':'), allow_nan=False).encode('utf-8') + b'\n'
+        if binary is not None and len(encoded) > MAX_BODY_BYTES:
+            raise VoiceError('VOICE_TIMING_INVALID')
         with writer:
             target.write(encoded)
+            if binary is not None:
+                target.write(binary.pcm)
             target.flush()
     backend = None
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='voice-cuda-native')
@@ -30,7 +36,7 @@ def serve(directory, factory=KokoroCudaBackend, source=None, target=None):
                   executed_cuda_nodes=backend.executed_cuda_nodes))
         def generate(work):
             try:
-                result = backend.synthesize(work.payload, work)
+                result = (backend.synthesize_binary if work.binary else backend.synthesize)(work.payload, work)
             except Exception as error:
                 result = {'error': 'VOICE_CANCELLED' if work.cancelled.is_set() else
                           error.code if isinstance(error, VoiceError) else 'VOICE_INFERENCE_FAILED',
@@ -57,12 +63,12 @@ def serve(directory, factory=KokoroCudaBackend, source=None, target=None):
                 with lock:
                     if active[0] is not None and active[0].payload['request_id'] == identifier:
                         active[0].cancel()
-            elif command == 'synthesize' and set(message) == {'command', 'payload'}:
+            elif command in {'synthesize', 'synthesize_binary'} and set(message) == {'command', 'payload'}:
                 payload = token_request(message['payload'], backend.model_sha256, backend.speakers)
                 with lock:
                     if active[0] is not None:
                         raise VoiceError('VOICE_QUEUE_FULL', 429)
-                    active[0] = work = Work('', payload, None, float('inf'))
+                    active[0] = work = Work('', payload, None, float('inf'), binary=command == 'synthesize_binary')
                 executor.submit(generate, work)
             else:
                 raise VoiceError('VOICE_INVALID_REQUEST', 400)

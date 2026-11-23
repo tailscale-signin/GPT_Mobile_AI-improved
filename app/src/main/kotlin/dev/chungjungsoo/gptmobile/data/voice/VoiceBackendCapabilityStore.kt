@@ -45,6 +45,22 @@ internal class VoiceBackendCapabilityStore(context: Context) {
         write(values)
     }
 
+    /** One completed Recheck publishes its paired cohort together, never half a comparison. */
+    fun saveComparison(comparison: List<VoiceBackendCapability>) = synchronized(lock) {
+        if (comparison.isEmpty()) return@synchronized
+        require(comparison.size <= 3 && comparison.map { it.key }.distinct().size == comparison.size)
+        require(comparison.map { it.backend }.distinct().size == comparison.size)
+        require(comparison.all { it.cacheable && it.protocol == VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL })
+        require(comparison.map { it.comparisonId }.distinct().singleOrNull()?.matches(Regex("[0-9a-f]{32}")) == true)
+        require(comparison.map { it.comparisonScope }.distinct().singleOrNull()?.matches(Regex("[0-9a-f]{64}")) == true)
+        require(comparison.map { it.speakerId }.distinct().size == 1 && comparison.map { it.speechRate }.distinct().size == 1)
+        val keys = comparison.mapTo(mutableSetOf()) { it.key }
+        val at = comparison.maxOf { it.observedAtMillis }
+        val values = records().filter { it.key !in keys && it.current(at) }
+            .plus(comparison).sortedByDescending { it.observedAtMillis }.take(24)
+        write(values)
+    }
+
     private fun write(values: List<VoiceBackendCapability>, revision: Long? = null) {
         val encoded = JSONArray()
         values.forEach {

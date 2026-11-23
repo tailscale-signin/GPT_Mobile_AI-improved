@@ -13,6 +13,10 @@ from zipfile import ZipFile
 
 
 FRAMEWORK = "Lcom/google/mediapipe/framework/"
+TTS = "Lcom/google/mediapipe/tasks/audio/texttospeech/"
+# Only the static/native bits affect this contract; visibility may legitimately
+# differ between framework callbacks and the Kotlin object's native methods.
+METHOD_BINDING_FLAGS = 0x8 | 0x100
 REQUIRED_METHODS = {
     FRAMEWORK + "Packet;": {
         ("create", "(J)" + FRAMEWORK + "Packet;"): 0x8,
@@ -21,6 +25,32 @@ REQUIRED_METHODS = {
     },
     FRAMEWORK + "PacketListCallback;": {("process", "(Ljava/util/List;)V"): 0},
     FRAMEWORK + "MediaPipeException;": {("<init>", "(I[B)V"): 0},
+    # com.google.mediapipe:tasks-audio:1.2.3. These four constructors are loaded
+    # by exact name/descriptor from libmediapipe_tasks_audio_jni.so. Kotlin's
+    # default-argument overloads or a lingering method_id do not satisfy JNI.
+    TTS + "AudioResult;": {("<init>", "([FILjava/util/List;)V"): 0},
+    TTS + "AudioChunk;": {("<init>", "([FIIZLjava/util/List;)V"): 0},
+    TTS + "WordTimestamp;": {("<init>", "(Ljava/lang/String;IIFF)V"): 0},
+    TTS + "VoiceInfo;": {("<init>", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IZ)V"): 0},
+    # Descriptors verified with javap -s on the publisher's 1.2.3 classes.jar;
+    # each entry has a matching exported Java_* symbol in the ARM64 library.
+    TTS + "MediaPipeTtsJni;": {
+        ("nativeCreate", "(Ljava/lang/String;IFILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)J"): 0x100,
+        ("nativeListVoices", "(J)[" + TTS + "VoiceInfo;"): 0x100,
+        ("nativeSynthesize", "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)" + TTS + "AudioResult;"): 0x100,
+        ("nativeStartStream", "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)J"): 0x100,
+        ("nativeStreamReadNext", "(J)" + TTS + "AudioChunk;"): 0x100,
+        ("nativeStreamPushText", "(JLjava/lang/String;)V"): 0x100,
+        ("nativeStreamFinishInput", "(J)V"): 0x100,
+        ("nativeStreamCancel", "(J)V"): 0x100,
+        ("nativeStreamDestroy", "(J)V"): 0x100,
+        ("nativeCancel", "(J)V"): 0x100,
+        ("nativeDestroy", "(J)V"): 0x100,
+        ("nativeComputeWordTimestamps", "(Ljava/lang/String;[FIF)Ljava/util/List;"): 0x100,
+    },
+    "Lcom/google/mediapipe/tasks/core/BaseOptionsUtils;": {
+        ("nativeGetDirectBufferAddress", "(Ljava/nio/ByteBuffer;)J"): 0x108,
+    },
 }
 REQUIRED_FIELDS = {
     FRAMEWORK + "ProtoUtil$SerializedMessage;": {
@@ -135,12 +165,12 @@ def archive_definitions(archive, label, extra_classes=()):
 
 
 def check_bindings(archive, label):
-    definitions, dex_count = archive_definitions(archive, label)
+    definitions, dex_count = archive_definitions(archive, label, REQUIRED_METHODS.keys() | REQUIRED_FIELDS.keys())
     missing = []
     for owner, required in REQUIRED_METHODS.items():
         methods = definitions.get(owner, {}).get("methods", {})
-        for signature, static in required.items():
-            if signature not in methods or methods[signature] & 0x8 != static:
+        for signature, flags in required.items():
+            if signature not in methods or methods[signature] & METHOD_BINDING_FLAGS != flags:
                 missing.append(owner + "->" + "".join(signature))
     for owner, fields in REQUIRED_FIELDS.items():
         for name, descriptor in sorted(fields - definitions.get(owner, {}).get("fields", set())):

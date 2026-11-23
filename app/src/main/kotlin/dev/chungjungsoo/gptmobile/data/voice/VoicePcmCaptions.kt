@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 internal typealias SpokenRangeObserver = (Int, String, IntRange) -> Unit
 
-internal data class VoicePcmCue(val frame: Long, val segment: Int, val text: String, val range: IntRange, val endFrame: Long = frame)
+internal data class VoicePcmCue(val frame: Long, val segment: Int, val text: String, val range: IntRange, val endFrame: Long = frame, val provenance: VoiceWordCueProvenance = VoiceWordCueProvenance.NATIVE_DURATION)
 
 /** The pinned pack produces 600 PCM samples per predicted duration unit, at the requested speed. */
 internal fun kokoroWordFrames(durations: LongArray, wordTokens: IntArray, wordCount: Int, samples: Int): IntArray {
@@ -26,6 +26,21 @@ internal class VoicePcmCaptions {
     private var produced = 0L
     private var current: VoicePcmCue? = null
     private var lastConsumed = 0L
+
+    @Synchronized fun streamStart(): Long = produced
+
+    /** Register cue metadata before accepting each PCM chunk, without buffering an entire utterance. */
+    @Synchronized fun appendStream(segment: Int, text: String, streamStart: Long, cues: List<VoiceStreamCue>, frames: Int) {
+        require(streamStart in 0..produced && frames >= 0)
+        for (cue in cues) {
+            require(cue.range.isEmpty() || cue.range.first >= 0 && cue.range.last < text.length)
+            if (!cue.range.isEmpty()) {
+                pending.addLast(VoicePcmCue(streamStart + cue.startFrame, segment, text, cue.range, streamStart + cue.endFrame, cue.provenance))
+                pending.addLast(VoicePcmCue(streamStart + cue.endFrame, segment, text, IntRange.EMPTY, provenance = cue.provenance))
+            }
+        }
+        produced += frames
+    }
 
     @Synchronized fun append(segment: Int, text: String, ranges: List<IntRange>, boundaries: IntArray, frames: Int) {
         require(boundaries.size == ranges.size * 2)

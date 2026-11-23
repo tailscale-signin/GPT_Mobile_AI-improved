@@ -1,0 +1,39 @@
+MediaPipe speech models
+======================
+
+The application downloads these optional models only after an explicit install action.
+Model files are not included in the APK. Immutable source revisions, expected sizes and
+SHA-256 hashes are recorded in MediaPipeSpeechCatalog.kt.
+
+Kokoro-82M
+Original model: hexgrad/Kokoro-82M, https://huggingface.co/hexgrad/Kokoro-82M
+Conversion: litert-community/Kokoro-82M
+https://huggingface.co/litert-community/Kokoro-82M/tree/bf1c2405642aa310bd210205c22d3ae1abc253fb
+License: Apache License 2.0, https://www.apache.org/licenses/LICENSE-2.0
+The LiteRT community converted and quantized the original weights and packaged the
+frontends and voice assets. This app uses the CPU/GPU-compatible bundle unchanged.
+
+Phonon 31M English
+Original model: Gradium, https://huggingface.co/gradium/phonon-31m-en
+Conversion: litert-community/phonon-31m-en
+https://huggingface.co/litert-community/phonon-31m-en/tree/ee374c33f0f6f8ed1d9f761e21cdb97df6accfe8
+License: Apache License 2.0, https://www.apache.org/licenses/LICENSE-2.0
+The LiteRT community converted and quantized the original model and packaged its
+tokenizer, codec and voice conditioning. This app uses the converted bundle unchanged.
+
+Pocket TTS English
+Original project and voice assets: Kyutai, https://github.com/kyutai-labs/pocket-tts
+and https://huggingface.co/kyutai/tts-voices
+Conversion: litert-community/pocket-tts
+https://huggingface.co/litert-community/pocket-tts/tree/00c866f2397788f514ab6bbcb931be22afc3b58f
+Model license: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+https://creativecommons.org/licenses/by/4.0/legalcode
+The LiteRT community converted and quantized the model, codec, tokenizer and voice
+conditioning into a single English bundle. This app uses that bundle unchanged.
+Attribution does not imply endorsement by Kyutai or the conversion authors.
+
+Runtime
+MediaPipe Tasks Audio 1.2.3, Google MediaPipe Authors
+https://github.com/google-ai-edge/mediapipe/releases/tag/v1.2.3
+Apache License 2.0, https://www.apache.org/licenses/LICENSE-2.0

@@ -3,3 +3,4 @@
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 -keep class dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest { *; }
 -keep class dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeInstrumentedTest { *; }
+-keep class dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechNativeSmokeTest { *; }

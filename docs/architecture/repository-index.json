@@ -1029,6 +1029,7 @@
         ".github/workflows/release-build.yml",
         ".github/workflows/remote-diagnostics.yml",
         ".github/workflows/scoreboard.yml",
+        ".github/workflows/speech-engine-smoke.yml",
         ".github/workflows/ui-review-apk.yml",
         ".github/workflows/unsigned-release-build.yml",
         ".github/workflows/workflow-health.yml"

@@ -81,8 +81,10 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoicePreparationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import dev.chungjungsoo.gptmobile.data.voice.shouldCheckpointDraft
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
@@ -435,15 +437,33 @@ private fun VoiceChatSessionScreen(
             session.flushSpeech()
         }
     }
-    LaunchedEffect(preferencesApplied, enabled, voiceReady, spokenReplies, language, kokoroVoice, kokoroThreads, kokoroModel.status, lifecycleState, state.phase, state.awaitingReply, admission?.stage, settingsOpen, benchmarkRunning) {
-        if (!preferencesApplied) return@LaunchedEffect
-        if (settingsOpen || benchmarkOwnership.value != null) return@LaunchedEffect
+    LaunchedEffect(preferencesApplied, enabled, voiceReady, spokenReplies, language, kokoroVoice, kokoroThreads, kokoroModel.status, backend.factory, backend.streamingModels, lifecycleState, state.phase, state.awaitingReply, state.hasDraft, admission?.stage, settingsOpen, benchmarkRunning) {
+        if (!preferencesApplied || settingsOpen || benchmarkOwnership.value != null) {
+            kokoroOutput?.cancelPrewarm()
+            return@LaunchedEffect
+        }
         if (enabled && loaded && roomReady && LocalVoiceModelStore.supportsLanguage(language) && lifecycleState == Lifecycle.State.RESUMED) {
-            // Opening the route only starts recognition. Native warmup begins after decoder release,
-            // while an accepted reply is generating; the worker gate also fences preview/retry races.
-            if (spokenReplies && voiceReady && state.phase == VoicePhase.THINKING && state.awaitingReply && admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.ACCEPTED) kokoroVoice?.let { kokoroOutput?.prewarm(it) }
-        } else if (!enabled || !loaded || !roomReady || !LocalVoiceModelStore.supportsLanguage(language)) {
-            kokoroOutput?.releaseWarmModel()
+            val modelReady = backend.speechModelReady(kokoroModel)
+            // Local preparation may overlap turn admission after speech ends. The native gate
+            // still waits for decoder teardown; remote preparation retains admission consent.
+            if (spokenReplies &&
+                voiceReady &&
+                modelReady &&
+                VoicePreparationPolicy.shouldPrepare(
+                    phase = state.phase,
+                    awaitingReply = state.awaitingReply,
+                    hasDraft = state.hasDraft,
+                    local = backend.backend != VoiceSpeechBackend.GATEWAY_CUDA,
+                    admitted = admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.ACCEPTED
+                )
+            ) {
+                kokoroVoice?.let { kokoroOutput?.prewarm(it) }
+            } else {
+                kokoroOutput?.cancelPrewarm()
+            }
+        } else {
+            kokoroOutput?.cancelPrewarm()
+            if (!enabled || !loaded || !roomReady || !LocalVoiceModelStore.supportsLanguage(language)) kokoroOutput?.releaseWarmModel()
         }
     }
     LaunchedEffect(settingsOpen, routeOpen, recognitionReady, preferencesApplied, listeningEnabled, benchmarkRunning) {
@@ -475,6 +495,20 @@ private fun VoiceChatSessionScreen(
     }
     fun savePreferences() {
         voiceSettings.save(VoicePreferences(language = language, captions = captions, review = editBeforeSend, rate = rate, kokoroVoice = kokoroVoice, spokenReplies = spokenReplies, kokoroThreads = kokoroThreads, buttonSounds = buttonSounds, pause = pause, performance = performance, speakWhileGenerating = speakWhileGenerating, tuning = tuning))
+    }
+    fun previewSpeech(selected: KokoroVoice, report: (String?) -> Unit) {
+        audio.stop()
+        backendOwner.configureSpeech(selected, rate)
+        val selectedBackend = backendOwner.state.value
+        if (!selectedBackend.loaded) {
+            report("Speech settings are updating. Try the preview again shortly.")
+        } else if (kokoroOutput == null) {
+            report("Speech playback is unavailable on this device.")
+        } else {
+            report(null)
+            kokoroOutput.configureEngine(selectedBackend.factory)
+            playKokoroPreview(kokoroOutput, selected, ::applyAudioConfiguration) { message, _ -> report(message) }
+        }
     }
     fun setSpokenReplies(value: Boolean) {
         spokenReplies = value
@@ -715,7 +749,7 @@ private fun VoiceChatSessionScreen(
     }
     val latestStop = rememberUpdatedState(::stopMessage)
     val latestPauseCapture = rememberUpdatedState(::pauseCapture)
-    val outputAvailable = !benchmarkRunning && enabled && preferencesApplied && loaded && roomReady && backend.loaded && kokoroModel.status == LocalVoiceModelStatus.READY
+    val outputAvailable = !benchmarkRunning && enabled && preferencesApplied && loaded && roomReady && backend.speechModelReady(kokoroModel)
     // Meter ticks do not replace controls or invalidate every transcript message.
     val messageControls = remember(activeMessage, state.phase, outputAvailable) {
         VoiceMessageControls(
@@ -753,7 +787,8 @@ private fun VoiceChatSessionScreen(
                     pause = pause,
                     performance = performance,
                     speakWhileGenerating = speakWhileGenerating,
-                    benchmarkRunning = benchmarkRunning
+                    benchmarkRunning = benchmarkRunning,
+                    speechBackend = backend.backend
                 ),
                 actions = VoiceSettingsActions(
                     done = ::closeSettings,
@@ -786,8 +821,10 @@ private fun VoiceChatSessionScreen(
                         savePreferences()
                     },
                     selectKokoroVoice = {
+                        audio.stop()
                         kokoroVoice = it
                         audio.kokoroVoice = it
+                        backendOwner.configureSpeech(it, rate)
                         savePreferences()
                     },
                     selectKokoroThreads = {
@@ -803,17 +840,11 @@ private fun VoiceChatSessionScreen(
                         kokoroOutput?.releaseWarmModel()
                         voiceSettings.removeKokoroModel()
                     },
-                    previewKokoro = { selected, report ->
-                        audio.stop()
-                        if (kokoroOutput == null) {
-                            report("Kokoro playback is unavailable on this device.")
-                        } else {
-                            report(null)
-                            playKokoroPreview(kokoroOutput, selected) { message, _ -> report(message) }
-                        }
-                    },
+                    previewKokoro = ::previewSpeech,
                     changeRate = {
+                        audio.stop()
                         rate = it
+                        backendOwner.configureSpeech(kokoroVoice, rate)
                         savePreferences()
                     },
                     changePause = {
@@ -825,14 +856,18 @@ private fun VoiceChatSessionScreen(
                         savePreferences()
                     },
                     useConversationalFast = {
+                        audio.stop()
                         rate = 1.25f
+                        backendOwner.configureSpeech(kokoroVoice, rate)
                         pause = VoicePauseDuration.SHORT
                         performance = VoicePerformanceMode.FAST
                         speakWhileGenerating = true
                         savePreferences()
                     },
                     useNaturalSpeech = {
+                        audio.stop()
                         rate = 1.1f
+                        backendOwner.configureSpeech(kokoroVoice, rate)
                         pause = VoicePauseDuration.NATURAL
                         performance = VoicePerformanceMode.AUTO
                         speakWhileGenerating = true
@@ -843,14 +878,47 @@ private fun VoiceChatSessionScreen(
                         savePreferences()
                     }
                 ),
-                tuningContent = {
+                engineContent = {
                     VoiceSpeechBackendSettings(
                         value = backend,
-                        selectBackend = backendOwner::selectBackend,
+                        selectBackend = {
+                            audio.stop()
+                            kokoroOutput?.releaseWarmModel()
+                            backendOwner.selectBackend(it)
+                        },
                         selectGateway = backendOwner::selectGateway,
                         recheckBackend = backendOwner::recheckBackend,
                         enabled = !benchmarkRunning && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING)
                     )
+                    backend.backend.streamingEngine()?.let { engine ->
+                        var streamingPreviewError by remember(engine) { mutableStateOf<String?>(null) }
+                        StreamingVoiceModelCard(
+                            engine = engine,
+                            state = backend.streamingModels[engine],
+                            voice = kokoroVoice,
+                            enabled = backend.loaded && !benchmarkRunning && !state.awaitingReply && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
+                            selectVoice = {
+                                audio.stop()
+                                kokoroVoice = it
+                                audio.kokoroVoice = it
+                                backendOwner.configureSpeech(it, rate)
+                                savePreferences()
+                            },
+                            install = backendOwner::installStreamingModel,
+                            cancel = backendOwner::cancelStreamingInstall,
+                            remove = {
+                                audio.stop()
+                                kokoroOutput?.releaseWarmModel()
+                                backendOwner.removeStreamingModel()
+                            },
+                            preview = {
+                                previewSpeech(kokoroVoice ?: KokoroVoice.HEART) { streamingPreviewError = it }
+                            },
+                            previewError = streamingPreviewError
+                        )
+                    }
+                },
+                tuningContent = {
                     VoiceSpeechBenchmarkSettings(
                         voice = kokoroVoice,
                         threads = kokoroThreads,
@@ -873,7 +941,7 @@ private fun VoiceChatSessionScreen(
                             },
                             session.performanceHistory,
                             kokoroOutput?.synthesisFeedback,
-                            if (kokoroOutput != null && kokoroVoice != null && kokoroModel.status == LocalVoiceModelStatus.READY) {
+                            if (backend.backend.supportsCpuThreadCalibration && kokoroOutput != null && kokoroVoice != null && kokoroModel.status == LocalVoiceModelStatus.READY) {
                                 { completed -> kokoroOutput.benchmark(requireNotNull(kokoroVoice), completed) }
                             } else {
                                 null
@@ -882,7 +950,8 @@ private fun VoiceChatSessionScreen(
                                 kokoroOutput?.configureCaptionOffset(milliseconds)
                                 tuning = tuning.copy(captionOffsetMs = milliseconds)
                                 savePreferences()
-                            }
+                            },
+                            supportsCpuThreads = !backend.backend.isStreamingLocal
                         )
                     }
                 }
@@ -1035,11 +1104,14 @@ private fun VoiceChatSessionPresentation(
     if (routeOpen) audioRoute()
 }
 
-internal fun playKokoroPreview(output: KokoroOutput, voice: KokoroVoice, error: (String, Boolean) -> Unit) {
+internal fun playKokoroPreview(output: KokoroOutput, voice: KokoroVoice, configure: () -> Unit = {}, error: (String, Boolean) -> Unit) {
+    // A settings click can precede Compose's next SideEffect. Apply its rate before the
+    // deferred output is initialized or compared with an SDK task's immutable rate.
+    configure()
     // Settings previews do not belong to the previous conversation reply.
     output.bindDiagnostics(null)
     output.bindReply("")
-    output.speak("Hello. This is your Kokoro voice. I am ready when you are.", voice, {}, error)
+    output.speak("Hello. This is your selected voice. I am ready when you are.", voice, {}, error)
 }
 
 private data class VoiceSettingsUiState(
@@ -1060,7 +1132,8 @@ private data class VoiceSettingsUiState(
     val pause: VoicePauseDuration,
     val performance: VoicePerformanceMode,
     val speakWhileGenerating: Boolean,
-    val benchmarkRunning: Boolean = false
+    val benchmarkRunning: Boolean = false,
+    val speechBackend: VoiceSpeechBackend = VoiceSpeechBackend.CPU
 )
 
 private class VoiceSettingsActions(
@@ -1092,6 +1165,7 @@ private class VoiceSettingsActions(
 private fun VoiceSettingsScreen(
     state: VoiceSettingsUiState,
     actions: VoiceSettingsActions,
+    engineContent: @Composable () -> Unit,
     tuningContent: @Composable () -> Unit
 ) {
     var previewError by remember { mutableStateOf<String?>(null) }
@@ -1124,25 +1198,29 @@ private fun VoiceSettingsScreen(
             VoiceSettingSwitch("Spoken replies", state.spokenReplies, actions.changeSpokenReplies)
             VoiceSettingSwitch("Button sounds", state.buttonSounds, actions.changeButtonSounds)
             VoiceSettingsSection("Playback")
-            KokoroPlaybackCard(
-                state = state.kokoroModel,
-                voice = state.kokoroVoice,
-                threads = state.kokoroThreads,
-                english = LocalVoiceModelStore.supportsLanguage(state.language),
-                previewError = previewError,
-                select = {
-                    previewError = null
-                    actions.selectKokoroVoice(it)
-                },
-                selectThreads = actions.selectKokoroThreads,
-                install = actions.installKokoroModel,
-                cancel = actions.cancelKokoroInstall,
-                remove = {
-                    previewError = null
-                    actions.removeKokoroModel()
-                },
-                preview = { selected -> actions.previewKokoro(selected) { previewError = it } }
-            )
+            engineContent()
+            if (!state.speechBackend.isStreamingLocal) {
+                KokoroPlaybackCard(
+                    state = state.kokoroModel,
+                    voice = state.kokoroVoice,
+                    threads = state.kokoroThreads,
+                    english = LocalVoiceModelStore.supportsLanguage(state.language),
+                    previewError = previewError,
+                    select = {
+                        previewError = null
+                        actions.selectKokoroVoice(it)
+                    },
+                    selectThreads = actions.selectKokoroThreads,
+                    install = actions.installKokoroModel,
+                    cancel = actions.cancelKokoroInstall,
+                    remove = {
+                        previewError = null
+                        actions.removeKokoroModel()
+                    },
+                    preview = { selected -> actions.previewKokoro(selected) { previewError = it } },
+                    showThreads = state.speechBackend.supportsCpuThreadCalibration
+                )
+            }
             Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.2f", state.rate)}×")
             Text("Speech rate changes how quickly the voice talks. Performance mode changes how soon speech starts.", style = MaterialTheme.typography.bodySmall)
             Slider(state.rate, actions.changeRate, valueRange = .5f..2f)

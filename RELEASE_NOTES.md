@@ -19,6 +19,8 @@ Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains 
 
 CPU-reference speech checks establish bounded numerical consistency, not perceptual equivalence or physical GPU/NPU speedup. Capture-local reuse avoids repeated redaction only; device startup, database hydration and export latency still require measurement.
 
+Production accelerator admission establishes numerical consistency on the fixed representative CPU-reference workload. It does not prove perceptual equivalence or correctness for every future utterance; native per-phrase validation remains required.
+
 ## Release validation
 
 - Keep the complete benchmark, context, privacy, speech and recovery changes from the prior Android 0.9.66.13 candidate.
@@ -121,16 +123,32 @@ CPU-reference speech checks establish bounded numerical consistency, not percept
 - Separate first visible text, publishable phrase, queued speech, prepared PCM and presented audio timings; distinguish warm-at-request from engine reuse and show measured buffering, refill and effective-provider evidence.
 - Save a frozen voice measurement report through the document picker with bounded timing series and selected/effective backend evidence, excluding conversation text, audio and device identifiers. Correct outer-caption row spacing during fractional transitions and explain the shipped English voice and measurement boundaries.
 
+## Streaming speech engines and earlier preparation
+
+- Add independently installed, hash-verified MediaPipe 1.2.3 voice packs for LiteRT Kokoro, Phonon English and Pocket English. Keep native CPU as the default, provide an explicit GPU-requested Kokoro option, retain model attribution, and never download a pack merely because an engine is selected.
+- Send incremental PCM directly into the bounded playback queue, with native cancellation and retirement ownership. Preserve original caption ranges, pronunciation overrides and Unicode boundaries across bounded long-reply phrases; identify SDK word timing as estimated.
+- Bind resident engines and bounded compiled caches to their model, runtime, delegate, voice and selected rate. Configure preview settings synchronously and keep model-use leases until native destruction completes.
+- Prepare eligible local speech during finalization and draft review while retaining microphone teardown, captured privacy and generation fences. Cancel queued preparation when eligibility changes without discarding a resident idle model; keep remote preparation admission-gated.
+- Calibrate native CPU with the selected voice/rate and balanced one-through-four thread candidates, preserve previous results on heat or interruption, and replan AUTO follow-up phrases from measured production cost and queued audio.
+- Replace repeated native profile regular-expression scans with a bounded structured parser. Add negotiated Gateway binary PCM transport, bounded private-sidecar framing, slow-reader admission ownership and exact-route privacy/cancellation controls while preserving older JSON servers.
+- Enforce the released TTS Java/JNI contracts in packaged DEX checks and exercise the real pinned checkpoints in dedicated smoke qualification. Keep requested delegates, model-family timing observations and verified processor execution separate.
+
+### Qualification limits for the new speech engines
+
+- MediaPipe delegate selection is a request; the SDK exposes no executed-kernel receipt or CPU thread control. Its GPU option is excluded from the native ONNX CPU/GPU/NPU verified ranking.
+- MediaPipe word timestamps are estimated. Host checkpoint smoke and Android runtime compatibility do not establish target-phone speed, perceptual speech quality, acoustic word alignment, battery savings or physical GPU execution.
+- Gateway binary streaming transports the current CUDA model's completed neural phrase. It removes Base64 delivery overhead but does not claim incremental CUDA neural generation.
+
 ## Kokoro GPU, NPU and recovery
 
-- Choosing an accelerator validates its first requested phrase without a hidden full benchmark. Auto's explicit comparison measures complete production workloads for the selected voice and rate; ordinary support checks cannot become performance rankings.
+- Manual and Auto accelerator playback require a complete, current, same-run CPU-reference audio qualification for the selected voice and rate. Unqualified or mismatching devices use CPU until an explicit Recheck succeeds; ordinary first-phrase self-validation cannot promote a capability receipt. Recheck is explicit, so normal speech does not perform hidden comparison synthesis.
 - Repair Kokoro QNN partition proposals with a convex, static-interface graph adapter; select the concrete GPU or NPU device and keep dynamic duration/alignment sections on CPU within the same audio-and-timing inference.
 - Qualify backend execution from non-silent PCM, aligned durations and actual kernel profiles for each prepared token shape; retain bounded device/model/runtime/lexicon/thread/voice/rate capability receipts and explicit rechecks. Auto retains CPU unless measured accelerator cost, including preparation, is at least 10% lower.
 - Reuse at most two exact token-shape sessions within a conservative estimated memory budget and available-memory guard. Report cache hits, current compilation, original profile identity and reuse, RMS, peaks and clipped/non-silent samples. Discover GPU candidates through actual runtime devices or an available Qualcomm OpenCL driver; the requested GPU must still execute real kernels.
 - Retire a failed accelerator and retry only its current unplayed phrase on CPU; preserve typed source, target, outcome and original failure when CPU or permitted Android system speech recovery occurs, including optional Gateway CUDA failures. Fence duplicate and stale fallback callbacks.
 - Move deferred speech preference reads off the UI path and retain explicit cancellation origins, bounded cleanup and separate synthesis/playback ownership.
 
-Capability receipts are limited to 24 entries. Successful measurements expire after seven days and failed hardware qualifications after six hours; clock rollback invalidates the receipt. **Compare engines on next reply** measures CPU, GPU and NPU across two complete short/medium/long traversals, including preparation and shape changes. Every phrase obeys the native 128-byte limit. Saved comparisons include their workload protocol, voice and rate; older oversized or incompatible measurements cannot affect Auto. Input-validation failures do not blacklist hardware or trigger the same invalid phrase on CPU. **Recheck engine on next reply** retries the selected backend. Profiles identify actual accelerator and CPU participation; selecting an engine alone does not qualify it.
+Capability receipts are limited to 24 entries. Successful measurements expire after seven days and failed hardware qualifications after six hours; clock rollback invalidates the receipt. **Compare engines on next reply** measures CPU, GPU and NPU across two complete short/medium/long traversals, including preparation and shape changes. Every phrase obeys the native 128-byte limit. Saved comparisons include their workload protocol, voice and rate; older oversized or incompatible measurements cannot affect Auto. Input-validation failures do not blacklist hardware or trigger the same invalid phrase on CPU. **Recheck engine on next reply** compares the selected accelerator with CPU before enabling its playback. Profiles identify actual accelerator and CPU participation; selecting an engine alone does not qualify it.
 
 ## CPU, GPU and NPU speech benchmark
 

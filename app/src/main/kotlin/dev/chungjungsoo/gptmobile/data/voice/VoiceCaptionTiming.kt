@@ -10,7 +10,8 @@ data class VoiceCaptionTiming(
     val observedAtNanos: Long,
     val playing: Boolean,
     val routeEpoch: Long = 0,
-    val bufferedEndFrame: Long = wordEndFrame
+    val bufferedEndFrame: Long = wordEndFrame,
+    val cueProvenance: VoiceWordCueProvenance = VoiceWordCueProvenance.NATIVE_DURATION
 ) {
     init {
         require(sampleRate > 0 && wordStartFrame >= 0 && wordEndFrame >= wordStartFrame && presentedFrame >= 0)

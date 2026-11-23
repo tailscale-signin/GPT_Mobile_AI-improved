@@ -9,6 +9,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeferredKokoroOutputTest {
+    @Test fun settingsPreviewAppliesItsRateBeforeDeferredInitializationAndEveryPlayback() {
+        var outputRate = 1f
+        val constructedRates = mutableListOf<Float>()
+        val spokenRates = mutableListOf<Float>()
+        val output = DeferredKokoroOutput {
+            constructedRates += outputRate
+            object : KokoroOutput {
+                override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
+                    spokenRates += outputRate
+                    complete()
+                }
+                override fun stop() = Unit
+                override fun close() = Unit
+            }
+        }
+        playKokoroPreview(output, KokoroVoice.HEART, { outputRate = 1.25f }) { message, _ -> error(message) }
+        playKokoroPreview(output, KokoroVoice.HEART, { outputRate = 1.1f }) { message, _ -> error(message) }
+        assertEquals(listOf(1.25f), constructedRates)
+        assertEquals(listOf(1.25f, 1.1f), spokenRates)
+        output.close()
+    }
+
     @Test fun aPendingReplyIdentityAndCancellationOriginReachTheLazyBackend() {
         val delegate = FakeKokoro()
         var constructions = 0
@@ -159,7 +181,7 @@ class DeferredKokoroOutputTest {
         assertTrue(playedWith.last() != null)
         assertTrue(playedReplies.drop(1).all { it?.startsWith("replay:") == true })
         assertEquals(100L, trace.incidentFields()["voice_response_to_first_audio_ms"])
-        assertEquals("Hello. This is your Kokoro voice. I am ready when you are.", spoken.first())
+        assertEquals("Hello. This is your selected voice. I am ready when you are.", spoken.first())
         assertEquals(caption, spoken.drop(1).joinToString(""))
         assertEquals(caption, session.state.reply)
         session.resume()

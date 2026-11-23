@@ -12,6 +12,28 @@ import org.junit.Test
 class VoiceDiagnosticTraceTest {
     @After fun clear() = VoiceDiagnosticTrace.clearAll()
 
+    @Test fun streamingDelegateRequestCannotInheritObservedNativeExecution() {
+        var time = 100L
+        val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})
+        val probe = trace.beginReply(1)
+        probe.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        probe.speechProvider("cpu")
+        assertEquals("KOKORO_CPU", trace.incidentFields()["voice_effective_provider"])
+        probe.engine(VoiceDiagnosticTrace.Engine.MEDIAPIPE)
+        assertNull(trace.incidentFields()["voice_effective_provider"])
+        probe.selectedSpeechBackend("LITERT_KOKORO_GPU")
+        probe.speechProvider("mediapipe-kokoro-gpu-requested")
+        assertEquals("LITERT_KOKORO_GPU", trace.incidentFields()["voice_selected_backend"])
+        assertNull(trace.incidentFields()["voice_effective_provider"])
+        probe.responseText()
+        time += 200
+        probe.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
+        assertEquals("MEDIAPIPE_KOKORO", trace.performance.snapshots.value.rows.single { it.metric == "text_to_audio" }.engine)
+        probe.playbackFallback(VoicePlaybackFailure("Engine failed", code = "ENGINE_FAILED", sourceProvider = "mediapipe-kokoro-gpu-requested"), "STARTED")
+        assertEquals("LITERT_KOKORO", trace.incidentFields()["voice_fallback_source"])
+        assertEquals("SYSTEM", trace.incidentFields()["voice_fallback_target"])
+    }
+
     @Test fun actualFallbackProviderOwnsPerformanceSamplesAndExportsOnlyClosedIdentity() {
         var time = 100L
         val trace = VoiceDiagnosticTrace({ time }, { 1_000 + time }, { true }, {})

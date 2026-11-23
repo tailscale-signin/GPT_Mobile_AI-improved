@@ -230,6 +230,12 @@ class VoicePreferenceStoreTest {
         }
     }
 
+    @Test fun singleThreadCalibrationChoiceSurvivesPreferenceRestore() {
+        assertEquals(1, readVoicePreferences(mapOf("kokoro_threads" to 1)).kokoroThreads)
+        assertEquals(1, readVoicePreferences(mapOf("kokoro_threads" to 0)).kokoroThreads)
+        assertEquals(4, readVoicePreferences(mapOf("kokoro_threads" to 99)).kokoroThreads)
+    }
+
     @Test fun malformedFieldsDoNotDiscardValidChoicesOrGrantOnlineSpeech() {
         val value = readVoicePreferences(
             mapOf(

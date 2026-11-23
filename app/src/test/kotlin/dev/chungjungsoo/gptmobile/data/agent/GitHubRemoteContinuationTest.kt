@@ -19,6 +19,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubRemoteContinuationTest {
+    @Test fun detachedComponentAndUnqualifiedSampleRestrictionsStayWithTheirAudit() {
+        val fixture = SearchScopeFixture("TODO", "literal")
+        for (task in listOf(
+            "Examine all issues and bugs, but only in the login component",
+            "Examine all issues and bugs; only within the login component",
+            "Examine all issues and bugs;\nonly within the login component",
+            "Examine all issues and bugs.\n\nTake only a sample",
+            "Examine all issues and bugs, affecting authentication",
+            "Examine all issues and bugs; focus only on authentication",
+            "Examine all issues and bugs; do not inspect outside authentication",
+            "Examine all issues and bugs; take only a sample",
+            "Examine all issues and bugs. Take only a sample",
+            "Examine all issues and bugs; take a sample of those issues"
+        )) {
+            assertNull(task, fixture.next(task))
+        }
+    }
+
+    @Test fun detachedRestrictionsDoNotSuppressIndependentAuditsNamedSamplesOrPublicationConditions() {
+        val fixture = SearchScopeFixture("TODO", "literal")
+        for (task in listOf(
+            "Examine all issues and bugs, but only in the login component; examine all issues and bugs",
+            "Examine all issues and bugs; take only a sample; examine all issues and bugs",
+            "Examine all issues and bugs; take a sample of README matches",
+            "Examine all issues and bugs; in the report, include proposed solutions",
+            "Examine all issues and bugs; focus on explaining proposed solutions",
+            "Examine all issues and bugs; publish only after the tests pass",
+            "Examine all issues and bugs; only publish after the tests pass",
+            "Examine all issues and bugs, offer solutions based on the latest PR branch"
+        )) {
+            assertEquals(task, fixture.nextArguments, fixture.next(task)?.arguments)
+        }
+    }
+
     @Test fun standaloneQuantifiedAuditUsesItsIssuedDerivedSearchFrontier() {
         val fixture = SearchScopeFixture("TODO", "literal")
         for (task in listOf(

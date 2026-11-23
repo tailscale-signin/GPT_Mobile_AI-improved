@@ -118,6 +118,12 @@ internal object GitHubExecutionContinuation {
     private val standaloneIssueAudit = Regex(
         """(?i)^(?:please\s+)?(?:review|audit|examine|inspect|check|scan|find)\s+(?:all|every)\s+(?:(?:known|current|remaining)\s+)*(?:issues?|bugs?)(?:\s+and\s+(?:issues?|bugs?))?$"""
     )
+    private val detachedAuditComponent = Regex(
+        """(?i)^(?:(?:but|and|however)\s+)?(?:(?:only|just)\s+(?:in|within|for|on)\b|affecting\b|(?:limited|restricted)\s+to\b|focus\s+(?:only|just)\s+on\b|(?:do not|don't)\s+(?:search|scan|read|review|inspect|examine|check)\s+(?:outside|beyond)\b)"""
+    )
+    private val detachedAuditSample = Regex(
+        """(?i)^(?:(?:but|and|however)\s+)?(?:(?:take|use|review|inspect|examine|check|consider)\s+)?(?:(?:only|just)\s+)?(?:a\s+)?(?:sample|spot.check|quick look)(?:\s+of\s+(?:(?:the|these|those|all)\s+)?(?:issues?|bugs?|results?|matches?|files?))?$"""
+    )
     private val negatedRepositoryAudit = Regex("""(?i)\b(?:do\s+not|don't)\s+(?:review|audit|examine|inspect|check|scan)\b""")
 
     fun instructionLookup(arguments: JsonObject): Boolean =
@@ -126,7 +132,20 @@ internal object GitHubExecutionContinuation {
 
     fun requiresExhaustiveSearch(task: String, arguments: JsonObject? = null): Boolean {
         val query = (arguments?.get("query") as? JsonPrimitive)?.content.orEmpty().trim('*', '/')
-        val clauses = GitHubTaskContinuity.request(task).split(Regex("""[\n;!?]|\.(?:\s|$)|,\s*(?:and\s+)?(?:then\s+)?(?=[a-z])"""))
+        val clauses = mutableListOf<String>()
+        for (clause in GitHubTaskContinuity.request(task).split(Regex("""[\n;!?]|\.(?:\s|$)|,\s*(?:and\s+)?(?:then\s+)?(?=[a-z])"""))) {
+            if (clause.isBlank()) continue
+            // Punctuation does not separate an audit from its attached scope restriction.
+            // Named samples and independent operations keep their own clauses.
+            if (clauses.isNotEmpty() &&
+                standaloneIssueAudit.matches(clauses.last().trim()) &&
+                (detachedAuditComponent.containsMatchIn(clause.trim()) || detachedAuditSample.matches(clause.trim()))
+            ) {
+                clauses[clauses.lastIndex] = "${clauses.last()}; $clause"
+            } else {
+                clauses += clause
+            }
+        }
         // An explicit sample of this query stays bounded even alongside a broad audit.
         if (query.isNotBlank() && clauses.any { sampleScope.containsMatchIn(it) && it.contains(query, ignoreCase = true) }) return false
         return clauses.any { clause ->

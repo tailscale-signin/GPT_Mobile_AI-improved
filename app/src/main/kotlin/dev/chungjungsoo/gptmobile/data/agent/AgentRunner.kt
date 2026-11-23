@@ -686,7 +686,10 @@ class AgentRunner(
         val unknownOutcomes = java.util.concurrent.ConcurrentHashMap<String, JsonObject>()
         val consumedCallIds = recovery?.consumedCallIds.orEmpty().toMutableSet()
         val deliveredResultDigests = recovery?.deliveredResultDigests.orEmpty().toMutableMap()
-        val savedResultRecovery = GitHubReplayRecovery.State(recovery?.completedExchanges.orEmpty().flatMap { it.calls } + recovery?.pending.orEmpty())
+        val savedResultRecovery = GitHubReplayRecovery.State(
+            recovery?.completedExchanges.orEmpty().flatMap { it.calls } + recovery?.pending.orEmpty(),
+            recovery?.completedExchanges.orEmpty().flatMap { it.results } + recovery?.pendingCompletedExchange?.results.orEmpty()
+        )
     }
 
     /** Deliver retained receipts before provider work without expanding the loop coroutine. */
@@ -1318,6 +1321,8 @@ class AgentRunner(
             }
         }
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
+        // Retain successful saved-page admission before replay compaction can evict it.
+        savedResultRecovery?.record(calls, executedResults + deferredResults)
         val savedReadAvailable = savedResultRecovery != null &&
             GitHubReplayRecovery.nextSavedRead(
                 exchanges + AgentToolExchange(calls, executedResults + deferredResults),

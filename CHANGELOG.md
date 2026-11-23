@@ -1,5 +1,6 @@
 # 0.9.66.13 — 2026-11-22
 
+- Retain successful saved-page reads with matching request context across replay compaction and recovery, preserving cursor authority and explicit rereads.
 - Preserve operation-bound credential redaction across account rotation and persist cancellation dispatch atomically for truthful restart recovery.
 - Bind resumed provider waits to a versioned complete journal covering original source identity, stored replay bytes, payload type, error state, budget flags and execution metadata; preserve settled writes and reject unproven legacy semantics.
 - Make OpenRouter preview-cancellation coverage deterministic at the IO-to-caller boundary, retaining all four reusable session slots and the unchanged cancellation cleanup contract.

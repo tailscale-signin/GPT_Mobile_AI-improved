@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -11,21 +12,22 @@ import kotlinx.serialization.json.put
 /** Keep executable continuation arguments intact when replaying a large GitHub result. */
 internal object GitHubReplayRecovery {
     /** Keep the recovery allowance and consumed pages outside the evictable provider replay. */
-    class State(calls: Collection<ProviderEvent.ToolCall> = emptyList()) {
+    class State(calls: Collection<ProviderEvent.ToolCall> = emptyList(), results: Collection<AgentToolResult> = emptyList()) {
         private val automaticCalls = mutableSetOf<String>()
         private val readPages = mutableSetOf<String>()
         private val remoteReads = mutableSetOf<String>()
         private val deliveredReads = GitHubSavedReadProgress()
 
         init {
-            record(calls)
+            record(calls, results)
         }
 
-        fun record(calls: Collection<ProviderEvent.ToolCall>) {
+        fun record(calls: Collection<ProviderEvent.ToolCall>, results: Collection<AgentToolResult> = emptyList()) {
+            val completed = results.associateBy { it.callId }
             calls.forEach { call ->
                 if (call.callId.startsWith("saved-result-consume-") || call.callId.startsWith("remote-result-consume-")) automaticCalls += call.callId
                 remoteReads += remoteKey(call.name, call.arguments)
-                savedPageKey(call)?.let(readPages::add)
+                savedPageKey(call, completed[call.callId])?.let(readPages::add)
             }
         }
 
@@ -38,11 +40,26 @@ internal object GitHubReplayRecovery {
         private fun remoteKey(name: String, args: JsonObject) = remoteReadKey(name, args)
     }
 
-    // Mixed arguments are rejected before a saved page can be read. They cannot
-    // consume that offset in either the live replay or the restored journal.
-    private fun savedPageKey(call: ProviderEvent.ToolCall): String? {
-        if (call.arguments.keys != setOf("view_cursor")) return null
+    // Native automatic reads reserve their cursor before execution. Carried-over
+    // selectors require a completed native read: only the retained view can prove
+    // that their repository, action and revision context actually matched.
+    private fun savedPageKey(call: ProviderEvent.ToolCall, result: AgentToolResult? = null): String? {
         val cursor = (call.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        val contextKeys = call.arguments.keys - "view_cursor"
+        if (contextKeys.isNotEmpty() &&
+            (
+                GitHubOperationTool.operationName(call.name) == null ||
+                    !GitHubResultViews.SAVED_CONTEXT_KEYS.containsAll(contextKeys) ||
+                    result == null ||
+                    result.callId != call.callId ||
+                    result.isError ||
+                    result.dispatched ||
+                    result.errorCode in ToolResultEnvelope.unknownOutcomeCodes ||
+                    listOf("requires_reconciliation", "requiresReconciliation").any { result.executionReceipt?.get(it) == JsonPrimitive(true) }
+                )
+        ) {
+            return null
+        }
         return pageKey(call.name, cursor)
     }
 
@@ -140,6 +157,10 @@ internal object GitHubReplayRecovery {
         val calls = exchanges.flatMap { it.calls }
         val maximumBytes = (maxReplayResultTokens.toLong().coerceAtLeast(0) * 3).coerceAtMost(8192).toInt()
         if (state?.exhausted() == true || calls.count { it.callId.startsWith("saved-result-consume-") } >= 32) return null
+        val readPages = exchanges.flatMap { exchange ->
+            val results = exchange.results.associateBy { it.callId }
+            exchange.calls.mapNotNull { savedPageKey(it, results[it.callId]) }
+        }.toSet()
         val recoverySources = exchanges.flatMap { exchange ->
             exchange.results.mapNotNull { result ->
                 val call = exchange.calls.firstOrNull { it.callId == result.callId } ?: return@mapNotNull null
@@ -185,7 +206,7 @@ internal object GitHubReplayRecovery {
                     val cursor = (arguments["view_cursor"] as JsonPrimitive).content
                     if (ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty() ||
                         state?.hasRead(name, cursor) == true ||
-                        calls.any { savedPageKey(it) == pageKey(name, cursor) }
+                        pageKey(name, cursor) in readPages
                     ) {
                         continue
                     }

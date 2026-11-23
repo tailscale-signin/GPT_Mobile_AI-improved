@@ -95,7 +95,7 @@
     "Separate full agent-system comparisons from model benchmarks, reject comparison of unexecuted checks, and retain optional-runtime and provider qualification limits.",
     "Start speech when all bounded PCM queue slots are occupied even when partial phrase tails leave accepted duration below the measured reserve; retain queue and reserve limits, lifecycle fences and deadline behavior.",
     "Report invalid retained journal projections as typed recovery-integrity failures while omitting unverified observed digests and counts; preserve legacy file decoding and provable recovery, settled-call deduplication and prior budget refusal checks.",
-    "Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.",
+    "Apply the same evidence requirements to requests beginning with \u201cPlease,\u201d preserving their original wording and source references.",
     "Keep automatic phone-map recipes within native capabilities while retaining explicit Gateway analysis and source provenance.",
     "Preserve actual Gateway graph exchange evidence through local privacy rejection and clear only a proven unsent new index attempt.",
     "Propagate wrapped MCP cancellation before reconnect or replay while retaining earlier response and interruption facts.",
@@ -117,7 +117,8 @@
     "Recheck the three exported local audit regressions with privacy enabled and disabled while preserving truthful dispatch-attempt, confirmation and uncertainty evidence.",
     "Preserve publisher-pinned runtime downloads with independent per-host cooldowns and separate bounded Android acceptance code-generation and compilation processes while retaining every device and artifact gate.",
     "Preserve operation-bound credential redaction across account rotation and persist cancellation dispatch atomically for truthful restart recovery.",
-    "Scope optional workspace discovery to the admitted tool's exact configured connection, retain other discovery owners during cancellation, and isolate concurrent router bindings without replacing the public global catalogue."
+    "Scope optional workspace discovery to the admitted tool's exact configured connection, retain other discovery owners during cancellation, and isolate concurrent router bindings without replacing the public global catalogue.",
+    "Retain successful native saved-page reads carrying supported matching context across replay compaction and restoration, while preserving cursor-only reservations, authorization, exact call-result identity, uncertain-outcome exclusions and delivery proofs."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -908,6 +909,7 @@
     "docs/repairs/review-diagnostics-2026-11-22-task.json",
     "docs/repairs/review-pagination-2026-11-22-task.json",
     "docs/repairs/review-voice-2026-11-22-task.json",
+    "docs/repairs/saved-cursor-consumption-2026-11-22-task.json",
     "docs/repairs/saved-read-delivery-proof-2026-11-22-task.json",
     "docs/repairs/voice-caption-motion-2026-11-22-task.json",
     "docs/repairs/voice-motion-acceleration-2026-11-22-task.json",

@@ -147,7 +147,7 @@ class PreparedProfileTests(TestCase):
 
     def test_embedded_memory_probe_matches_reviewed_source_and_keeps_resource_policy(self):
         source = Path(__file__).resolve().parents[2]/'scripts/check_android_compile_memory.py'
-        self.assertEqual(source.read_bytes(), profiles.PRODUCTION_MEMORY_CHECK.encode())
+        self.assertEqual(source.read_text(encoding='utf-8'), profiles.PRODUCTION_MEMORY_CHECK)
         from v14.workspace_environment import read
         self.assertEqual(8, read({'prepared_environment': {'image_id': 'sha256:' + 'a' * 64}})[2]['memory_gib'])
         self.assertEqual(6, read({})[2]['memory_gib'])

@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "18.1.1",
   "schemaVersion": 1,
-  "sourceCommit": "8937e12437daa90cabe29d6c10f70968fd50d0d4",
+  "sourceCommit": "b7c3245370338013996ab317156af5bd9efbc06c",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -375,7 +375,7 @@
     "tests/test_gateway_workspace_lifecycle.py": "1da3d3f8b0f31cb88d194c34eae47adbec7e4753de94055550d399269163597e",
     "tests/test_gateway_workspace_lsp.py": "3a7e98e7f1c35a529f81d0b7ba273e8eee3c921715604251d1d3cc84526a0d89",
     "tests/test_gateway_workspace_outputs.py": "3bb8b8e0c478260843a12325eec8f9eaf7f69516fcb1ab045d13f981ac34d8f2",
-    "tests/test_gateway_workspace_profiles.py": "80504566a1f7accd2f668069784a11dbe46813eba6719401ab6d4ffe6f1c0d30",
+    "tests/test_gateway_workspace_profiles.py": "5117fb9d68f4d18b78e9dacfc5ef7ecd8cbbc1c749d013da081ffded4da3bc20",
     "tests/test_gateway_workspace_qualification.py": "2c39c3f92b2929934fcaed778f7ac6dc2d989f7541fdd834d6f7bf19eefc5620",
     "tests/test_gateway_workspace_terminal.py": "58d3cea0bdc18a6f9fea703574fa24159c90ffb5a6931c8e60a6f6341adaf19d",
     "tests/test_gateway_workspace_timeline.py": "505a5cee08d2f4270090613cc06f7c9a2e1b25f99a1883914171b1a3b98f6205",

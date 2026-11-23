@@ -1158,10 +1158,9 @@
     }
   },
   "remaining_shared_holds": [
-    "Reconcile any remaining worker metadata/package append while preserving current source; no known implementation hold remains after the reviewed Windows/compiler/security/runtime-identity union.",
-    "Publish the Windows and trusted development-wrapper union with Gateway provenance bound to acknowledged reachable source bytes.",
-    "Require every applicable latest final-head run/attempt/matrix, including the newly triggered Publish Signed Release PR validation lane, and current main rules before expected-head merge.",
-    "Require every exact-main prerequisite and actual Android0.9.66.13/build147 plus Gateway18.1.1 publication with downloaded asset/provenance readback."
+    "Publish reviewed Windows checkout framing correction with refreshed acknowledged-source Gateway manifest.",
+    "Preserve any new worker commit and require every applicable latest final-head workflow/attempt/matrix and current main rules before expected-head merge.",
+    "Require exact-main success and actual Android/Gateway release publication with downloaded asset/provenance readback."
   ],
   "android_nine_review": {
     "source": "71db6456e094397dc062be8bfcbcdb85778101c9",
@@ -1418,9 +1417,9 @@
     "dependencies": 20,
     "cause_loss_control": "Owner isolated cause-loss mutation has exactly one intended case and one probe failure in each mode; its exact corrected test and unchanged production hashes match the independent public-source replay."
   },
-  "status": "IMPLEMENTED_REVIEWED_FINAL_HOSTED_GATES_PENDING",
+  "status": "WINDOWS_CHECKOUT_FIXTURE_CORRECTED_FINAL_HOSTED_GATES_PENDING",
   "latest_integration_source": "5cff7a9fcfd626c49d2a5bef8039eb4357d478d0",
-  "latest_published_shared_source": "48bf1217bcdc816c7c29f3d4c4f037d63fb4d4db",
+  "latest_published_shared_source": "719805d847816dbb7f1fda8fb21316ded84b9e09",
   "final_platform_followups": {
     "windows": {
       "source": "6dd4c63ce9427b36e9204922316a09bfa7f6138c",
@@ -1530,6 +1529,61 @@
       "xml_resources": 36,
       "generated_reference_scope_whitespace": "PASS",
       "boundary": "Subsequent48bf reconciliation retains identical production/test bytes and adds its final native integration metadata. Final publication binding and hosted gates remain required."
+    },
+    "unit_call_signatures": {
+      "published": "719805d847816dbb7f1fda8fb21316ded84b9e09",
+      "status": "INDEPENDENT_SCOPED_CLEAR",
+      "observed_failed_head": "1988acea98323346fbd836f1a6e0b3952c9d4450",
+      "job": 137470551816,
+      "change": "Name required planning context fields and benchmark callbacks explicitly, retaining null repository/contextVariant and all prior assertions.",
+      "test_methods_preserved": 59,
+      "assertion_verification_lines_preserved": 290,
+      "actual_planning_schema_probe": 1,
+      "boundary": "Actual full planning context/catalog/estimator plus target method; benchmark callback signature reviewed, complete17-method test execution remains hosted."
+    },
+    "workspace_profile_checkout_framing": {
+      "candidate": "27d41d0d6f4956a4d07c3a57f458098da3e0a3c8",
+      "base": "719805d847816dbb7f1fda8fb21316ded84b9e09",
+      "status": "AUTHOR_AND_ROOT_INDEPENDENT_REPLAY_CLEAR",
+      "hosted_job": 137470628427,
+      "finding": "Windows3.12 log records actual raw-CRLF versus embedded-LF equality failure before its job was cancelled; cancelled status alone did not establish no failure.",
+      "change": "Compare canonical UTF-8 source text using universal newline decoding with the identical embedded string. Exactly one equality assertion changes; every other fixture byte/assertion and all helper/production bytes are preserved.",
+      "controls": {
+        "baseline_lf": "PASS",
+        "baseline_crlf": "EXPECTED_FAILURE",
+        "candidate_lf": "PASS",
+        "candidate_crlf": "PASS",
+        "semantic_heap_change_lf": "EXPECTED_ASSERTION_FAILURE",
+        "semantic_heap_change_crlf": "EXPECTED_ASSERTION_FAILURE"
+      },
+      "root_archive_files_bound": 515,
+      "qualification": "Actual existing test and production imports; Linux materialization of Windows checkout line endings. Actual Windows3.12/3.13 hosted success remains required.",
+      "canonical_gate": {
+        "tests": 650,
+        "seconds": 22.157,
+        "result": "PASS",
+        "literal_regexes": 2038,
+        "dynamic_exclusions": 100,
+        "xml_resources": 36,
+        "generated_scope_whitespace": "PASS"
+      }
+    },
+    "hosted_production_compile_evidence": {
+      "source": "1988acea98323346fbd836f1a6e0b3952c9d4450",
+      "actual_checkout": "fec8b021e4c7ae40a1df0242f8d3eddc5ea3513f",
+      "build_apk": "Production PASSED in4m52s",
+      "marketplace": "Production PASSED in5m2s; later unit compilation failed at the two corrected fixture callsites",
+      "downloads": "Production PASSED in5m28s; downstream checks cancelled by newer source",
+      "marketplace_headroom": {
+        "status": "SUFFICIENT",
+        "heap_mib": 6144,
+        "metaspace_mib": 768,
+        "reserve_mib": 2048,
+        "available_bytes": 15437295616,
+        "required_bytes": 9395240960,
+        "swap_counts": false
+      },
+      "qualification": "Actual source-bound compilation/memory receipts, not complete final-head workflow success."
     }
   }
 }

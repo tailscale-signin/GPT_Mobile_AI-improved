@@ -15,6 +15,7 @@
 - Improve contextual privacy masking and streamed local restoration; add content-free final-request evidence, redacted diagnostic exports with a separate forensic choice, accurate private-memory readiness and an offline fictional privacy/intent/timing check.
 - Redact retained request and cited-source text in default exports, and recheck inherited authority before each restored fallback stream event.
 - Close source-filename, terminal-detail and continuation-line privacy gaps in default exports, and preserve explicit colon forms for complete address separators.
+- Recheck privacy and inherited request authority at the receiving side of the private stream handoff, stopping revoked pending events without changing producer completion evidence or replaying output.
 
 - Add explicit revision recovery and truthful normalization receipts, prioritize pinned source/test context, continue bounded review waves, and deliver admitted saved pages before further automatic reads.
 - Clarify fixture-specific approval with an existing-repository read-only mode. Retain precise TLS phase/cause, memory-trim and startup evidence and bounded capture-local redaction reuse.

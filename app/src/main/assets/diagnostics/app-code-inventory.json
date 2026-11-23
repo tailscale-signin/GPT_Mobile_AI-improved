@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "a04cd39054f5d05cdd88b30708129add0de64ed01bf71455f1956bbc089e2ceb",
+  "source_digest": "edc276011c39c11b4289120510316d5a28048b389ba1cb692575eb6434c6ae40",
   "file_count": 3049,
-  "indexed_line_count": 516291,
+  "indexed_line_count": 516345,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -143,7 +143,7 @@
       "id": "auth_and_security",
       "label": "Permissions, privacy and credentials",
       "file_count": 50,
-      "indexed_line_count": 7229
+      "indexed_line_count": 7283
     },
     {
       "id": "voice_and_media",
@@ -11400,8 +11400,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSession.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "3d98e1228ebd7b8e25134c14d840fc04a1ae035e10e057b334a96170bd89f950",
-      "indexed_lines": 355
+      "sha256": "0b72ea28d288b747bcc3c7a5e6d7f98206adb7b1a9d776968daf3d556c1b0ddb",
+      "indexed_lines": 409
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateMarkerProtocol.kt",

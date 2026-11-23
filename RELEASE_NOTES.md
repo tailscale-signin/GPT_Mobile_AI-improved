@@ -64,6 +64,7 @@ Production accelerator admission establishes numerical consistency on the fixed 
 
 ## Privacy detection, streaming and exports
 
+- Revalidate captured privacy and inherited request authority after the private stream rendezvous, suppress pending events after revocation and emit one content-free partial failure without replay while preserving producer cleanup and the collecting conversation context.
 - Omit retained source filenames, terminal error detail and free-form persisted continuation text from default diagnostic exports. Preserve typed HTTP methods, record identifiers, source revisions and line spans, with original content available through explicit forensic consent.
 - Recognize explicit address `is:` and `at:` separators while retaining ordinary address-related instructions, exact protected ranges and local restoration.
 - Remove provider and memory free-form failure details from default diagnostic captures, while retaining typed failure evidence and credential-redacted forensic content.

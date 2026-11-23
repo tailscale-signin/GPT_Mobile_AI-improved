@@ -252,7 +252,8 @@
     "Require complete paired CPU-reference audio qualification before manual or Auto accelerator playback; use CPU for unqualified or inconsistent receipts and prevent ordinary self-validation from granting accelerator admission.",
     "Initialize the native speech smoke staging paths on the assigned runner before downloading the minified APKs and provisioning each speech model.",
     "Correct runner-context availability in native speech CI and require ordinary Android acceptance to execute every voice entry method without skips.",
-    "Reject typed TLS and cancellation before retry callbacks can clear dispatch uncertainty, preserving ordinary DNS recovery ordering and every existing retry/ownership fence."
+    "Reject typed TLS and cancellation before retry callbacks can clear dispatch uncertainty, preserving ordinary DNS recovery ordering and every existing retry/ownership fence.",
+    "Revalidate captured privacy and inherited request authority after the private stream rendezvous, suppress pending events after revocation and emit one content-free partial failure without replay while preserving producer cleanup and the collecting conversation context."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -494,6 +495,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivatePlainConversationSessionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProtectionContextTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderStreamTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateReceiverGuardContractTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateStreamingRestorerTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMaskCorpusTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparationTest.kt",
@@ -568,6 +570,7 @@
     "docs/repairs/privacy-mode-audit-2026-11-23-task.json",
     "docs/repairs/privacy-mode-audit-2026-11-23.md",
     "docs/repairs/privacy-protocol-review-2026-11-23-task.json",
+    "docs/repairs/privacy-receiving-authority-2026-11-23-task.json",
     "docs/repairs/privacy-repository-path-2026-11-23-task.json",
     "docs/repairs/privacy-review-followup-2026-11-23-task.json",
     "docs/repairs/privacy-stream-backpressure-review-2026-11-23-task.json",

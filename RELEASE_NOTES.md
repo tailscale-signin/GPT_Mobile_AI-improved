@@ -4,6 +4,8 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 
 ## Recovery and request consistency
 
+- Avoid redundant GitHub checkpoint writes caused by copied observation times, while retaining meaningful evidence and recovery-state changes. Legacy backup samples and events keep their original pending attempt identities even when an older backup lacks separate attempt rows.
+- Shorten optional verification draft excerpts to fit the available input budget while preserving the full task, all acceptance criteria and Unicode characters. Requests still stop when required content cannot fit or the budget shrinks before dispatch.
 - Keep already read result pages recognized after recovery and retain exact unread pages after a rejected cursor; repeated automatic reads retain their original finite limit.
 - Fix a verification crash when GitHub evidence contains missing or malformed timestamps. Keep unread saved pages eligible for recovery after an invalid cursor call. Retain completed saved reads that carry matching request context across replay compaction and restoration.
 - Show token shortfalls after generation and offer a valid discovery query for an unavailable URL or evidence tool. Incident reports now distinguish unsent budget and prerequisite refusals and record the single-pass Combined repair stop when observed.

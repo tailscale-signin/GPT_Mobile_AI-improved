@@ -11,7 +11,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -80,15 +79,25 @@ class RepositoryGraphFallbackTest {
 
     @Test fun indexingAndCancellationAreNeverReplayed() = runTest {
         var nativeReads = 0
+        val queries = mutableListOf<JsonObject>()
         val cancelled = CancellationException("cancel")
         val tool = RepositoryGraphTool("repository_graph", nativeStatus = { call ->
             nativeReads++
             AgentToolResult(call, ToolResultContent.Text("status"), false)
-        }) { arguments -> if (arguments["action"] == JsonPrimitive("status")) throw cancelled else throw IOException("interrupted") }
+        }) { arguments ->
+            queries += arguments
+            if (arguments["action"] == JsonPrimitive("status")) throw cancelled else throw IOException("interrupted")
+        }
         val index = tool.execute("index", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("index"))))
         assertTrue(index.isError)
         assertFalse(((index.content as ToolResultContent.Json).value as JsonObject).containsKey("native_fallback"))
-        assertSame(cancelled, runCatching { tool.execute("status", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("status")))) }.exceptionOrNull())
+        val propagated = runCatching { tool.execute("status", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("status")))) }.exceptionOrNull()
+        assertTrue(propagated is CancellationException)
+        assertEquals(cancelled.message, propagated?.message)
+        // Coroutine stack-trace recovery may copy the exception while retaining its original cause.
+        assertTrue("The original cancellation must remain in its cause chain", generateSequence(propagated) { it.cause }.take(16).any { it === cancelled })
+        assertEquals(listOf(JsonPrimitive("index"), JsonPrimitive("status")), queries.map { it["action"] })
+        assertTrue(queries.all { it["map_source"] == JsonPrimitive("gateway") })
         assertEquals(0, nativeReads)
     }
 

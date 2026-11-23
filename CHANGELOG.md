@@ -1,5 +1,8 @@
 # 0.9.66.13 — 2026-11-22
 
+- Avoid duplicate GitHub checkpoint writes when only the copied observation time changes; preserve receipt timestamps, recovery authority and immutable state transitions.
+- Fit optional verification draft context within the original token budget without dropping the task or acceptance criteria, splitting Unicode characters or bypassing a later budget change.
+- Protect original pending benchmark attempt identities referenced by legacy samples and events even when their separate attempt rows are absent from a backup.
 - Retain exact admitted saved-page proof through replay compaction and recovery, release rejected cursor reservations, and count every automatic attempt within the existing 32-call limit.
 - Retain successful saved-page reads with matching request context across replay compaction and recovery, preserving cursor authority and explicit rereads.
 - Preserve the original benchmark request, usage, attempts and cleanup receipt when an enclosing task deadline interrupts remote verification.

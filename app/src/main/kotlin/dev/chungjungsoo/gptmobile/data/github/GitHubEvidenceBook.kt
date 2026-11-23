@@ -1208,7 +1208,18 @@ internal class GitHubEvidenceBook(
         }
         val id = "${kind}_current_" + digest(binding).take(24)
         val previous = load(id)
-        if (previous?.filterKeys { it != "observed_at_ms" } == value.filterKeys { it != "observed_at_ms" }) return
+        fun comparisonContent(snapshot: JsonObject): JsonObject {
+            val fields = snapshot.filterKeys { it != "observed_at_ms" }
+            val observed = snapshot["observed_at_ms"]
+            val recovery = snapshot["task_recovery_checkpoint"] as? JsonObject
+            // GitHubEffectiveRecovery.attach copies this exact enclosing observation time.
+            return if (observed != null && recovery?.get("schema") == JsonPrimitive("github.task-recovery-checkpoint.v1") && recovery["observed_at_ms"] == observed) {
+                JsonObject(fields + ("task_recovery_checkpoint" to JsonObject(recovery.filterKeys { it != "observed_at_ms" })))
+            } else {
+                JsonObject(fields)
+            }
+        }
+        if (previous != null && comparisonContent(previous) == comparisonContent(value)) return
         fun summary(snapshot: JsonObject): JsonObject = buildJsonObject {
             put("schema", "github.verification-event.v1")
             put("binding", binding)

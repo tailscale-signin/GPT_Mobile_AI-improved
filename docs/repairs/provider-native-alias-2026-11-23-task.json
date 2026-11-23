@@ -1,0 +1,89 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "provider-native-alias-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+  "working_branch": "fix/provider-native-alias-20261123",
+  "parent_pr": 2254,
+  "intent": "Reproduce and minimally correct the three hosted provider/native-alias invocation failures while preserving original provider invocation, native tool authority, and versioned full-journal recovery integrity.",
+  "authorization": "Root delegated isolated implementation and a local commit only; no remote writes or changes to root/other workers' files.",
+  "state": "IMPLEMENTATION_COMPLETE_COMPONENT_VERIFIED_PENDING_FULL_HEAD_CI",
+  "hosted_evidence": {
+    "run_id": 45088632015,
+    "source": "ac5030cbf0d82fcc9cc32bc845867befe03dda60",
+    "failures": [
+      "GitHubContinuationInvocationTest.authorizedAliasAndCompactedResultPreserveTheOriginalHandoff",
+      "GitHubContinuationInvocationTest.irreducibleAliasedInvocationBlocksReplayWithoutLosingItsReceipt",
+      "ProviderToolReplayRunnerTest.runnerExecutesCanonicalActionOnceAndReturnsTheOriginalInvocation"
+    ],
+    "observed": "Each expected one execution and observed zero."
+  },
+  "guardrails": [
+    "Do not weaken native alias authority or admit arbitrary suffixes.",
+    "Preserve original invocation bytes and fingerprints at provider handoff.",
+    "Preserve v2 full-journal integrity, unknown-outcome and no-redispatch gates.",
+    "Run actual affected production sources with explicit platform boundaries; do not claim a full Android result from a component harness."
+  ],
+  "validation": [
+    {
+      "gate": "Causal baseline against actual replay/journal/checkpoint code and exact runner capture slice",
+      "result": "EXPECTED_RED",
+      "cases": 45,
+      "failures": 3,
+      "other_controls_passed": 42,
+      "evidence": "/workspace/scratch/6b5c8b09c56b/provider-alias-proof/baseline/tests.log",
+      "limits": "This reproduces the admission cause using exact fixture constructors and the unchanged capture line; it does not execute the full AgentRunner."
+    },
+    {
+      "gate": "Corrected focused component suite",
+      "result": "PASS",
+      "cases": 45,
+      "evidence": "/workspace/scratch/6b5c8b09c56b/provider-alias-proof/tests.log",
+      "limits": "Includes actual ProviderToolReplayTest, GitHubProviderJournalRecoveryTest and GitHubProviderToolCheckpointTest plus three extracted-boundary fixture cases. Android AtomicFile and unrelated transport/diagnostic services are explicit host boundaries."
+    },
+    {
+      "gate": "Edited runner test source compilation",
+      "result": "PASS",
+      "evidence": "/workspace/scratch/6b5c8b09c56b/provider-alias-proof/runner-compile-boundary/inputs.json",
+      "limits": "Compile-only against actual replay/core APIs and the exact AgentRunner constructor/limits declaration; the full runner implementation is an explicit non-executable boundary. The new full-runner rejection matrix has not been executed locally."
+    },
+    {
+      "gate": "Pinned ktlint 1.3.1 on both edited tests",
+      "result": "PASS",
+      "evidence": "/workspace/scratch/6b5c8b09c56b/provider-alias-proof/ktlint.log"
+    },
+    {
+      "gate": "bash scripts/validate-local.sh fast",
+      "result": "PASS",
+      "host_tests": 625,
+      "evidence": "/workspace/scratch/6b5c8b09c56b/provider-alias-proof/validate-fast.log"
+    },
+    {
+      "gate": "Final source hash comparison",
+      "result": "PASS",
+      "production_matches_base": true,
+      "evidence": "/workspace/scratch/6b5c8b09c56b/provider-alias-proof/qualification.json"
+    },
+    {
+      "gate": "Independent read-only peer review",
+      "result": "CLEAR",
+      "reviewer": "/root/voice_design_review",
+      "scope": "Two changed test files; no reduced positive assertions or weakened production guard. Full-runner qualification limit confirmed."
+    }
+  ],
+  "finding": "All three positive fixtures supplied forged protected originalInvocationFingerprint metadata; one also supplied a forged originalInvocation. The current trusted-session capture contract validates existing protected identity, correctly rejecting these events before alias resolution or dispatch. Genuine raw provider calls have neither protected field until captured by the runner.",
+  "changes": [
+    "Remove forged protected metadata from the three positive fixture constructors; preserve all existing execution-count, alias, exact original-wire arguments, compaction, original handoff, blocked replay, and retained receipt assertions.",
+    "Add a runner rejection matrix for both formerly injected forged forms, an altered captured call ID, an altered original name, and a missing captured fingerprint. Require zero tool execution/events, failure without Completed, and no dispatched, completed, queued or unknown checkpoint state.",
+    "Leave all production source, native authority, privacy, versioned journal and unknown-outcome guards unchanged."
+  ],
+  "remaining_gates": [
+    "Root integration and exact integrated-head hosted Android unit/full validation, including both edited test classes; component proof is not full runner or merge qualification."
+  ],
+  "source_files": {
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubContinuationInvocationTest.kt": "e38e6cebd3ff2089c4ed1207e14ebe9d09697fb72f04c5939ede9bd812b25bd3",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderToolReplayRunnerTest.kt": "5f7a8903b27868ab7b9872a891685277b4bf557dd89d322d779f14157fda0f29"
+  },
+  "qualification_receipt": "/workspace/scratch/6b5c8b09c56b/provider-alias-proof/qualification.json"
+}

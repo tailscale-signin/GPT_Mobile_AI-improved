@@ -16,7 +16,6 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -138,8 +137,24 @@ class RepositoryMapToolTest {
 
     @Test fun phoneCancellationPropagatesWithoutChangingSource() = runTest {
         val cancelled = CancellationException("cancel phone map")
-        val tool = RepositoryGraphTool("repository_graph", nativeStatus = { error("Cancellation cannot dispatch fallback") }) { throw cancelled }
-        assertSame(cancelled, runCatching { tool.execute("phone-cancelled", status()) }.exceptionOrNull())
+        var fallbackCalls = 0
+        val queries = mutableListOf<JsonObject>()
+        val tool = RepositoryGraphTool("repository_graph", nativeStatus = {
+            fallbackCalls++
+            error("Cancellation cannot dispatch fallback")
+        }) { arguments ->
+            queries += arguments
+            throw cancelled
+        }
+        val propagated = runCatching { tool.execute("phone-cancelled", status()) }.exceptionOrNull()
+        assertTrue(propagated is CancellationException)
+        assertEquals(cancelled.message, propagated?.message)
+        // Coroutine stack-trace recovery may copy the exception while retaining its original cause.
+        assertTrue("The original cancellation must remain in its cause chain", generateSequence(propagated) { it.cause }.take(16).any { it === cancelled })
+        assertEquals(1, queries.size)
+        assertEquals(JsonPrimitive("phone"), queries.single()["map_source"])
+        assertEquals(JsonPrimitive("status"), queries.single()["action"])
+        assertEquals(0, fallbackCalls)
     }
 
     @Test fun defaultToolRouteIsPhoneAndRetainsPartialEvidence() = runTest {

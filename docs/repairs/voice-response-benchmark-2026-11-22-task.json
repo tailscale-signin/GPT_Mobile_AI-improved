@@ -65,7 +65,7 @@
     "host": "PASS: canonical fast validation (616 Python tests plus policy, metadata, inventory, dependency, secret, regex, resource and provenance checks); 80 integrated Session/caption/buffer tests; 27 parser/send-trace and 7 durable policy tests; 43 projection/pronunciation tests; 15 benchmark/Auto tests; 3 real AtomicFile Robolectric tests; ktlint on56 changed Kotlin files; scoped-release validation and diff check.",
     "android": "PASS: focused Android37/Compose signature compilation for benchmark runtime/UI, spoken answer and message controls (four instrumentation methods compiled only), and actual Kokoro output/context/privacy bridge. Whole local Gradle daemon disappeared after KSP while entering KAPT; this is not a successful whole-app build. Full exact-head hosted Android/Hilt/Room/Compose/native gates remain required.",
     "physical_device": "NOT_RUN: no physical phone is attached. The in-app benchmark records actual CPU/GPU/NPU observations when run on a compatible device; no device speedup or acoustic/battery result is claimed.",
-    "publication": "PENDING: expected-head push to draft PR2254, exact-current-head PR checks, rules-compliant merge, green main and signed Android0.9.66.13/Gateway18.1.1 publication. Final hosted gate and publication receipts belong to the PR and release workflows, not this pre-publication source snapshot."
+    "publication": "PENDING: initial draft and requested voice features are published in PR2254. Remaining combined source, exact-final-head PR checks, rules-compliant merge, green main and signed Android0.9.66.13/Gateway18.1.1 publication remain mandatory. Final hosted and publication receipts belong to the PR and release workflows."
   },
   "concurrency": "Preserved original0885 and diagnostic fea1a6 work; merged permanent conversation privacy6e788 with both scopes and instructions retained. Root compares the remote head before every ref update and merge, uses expected-head leases without force pushes, and never edits another worker checkout. Preserved concurrent MCP/read-recovery and phone-map integration commitdda6f5; voice source hashes and tested behavior remain unchanged.",
   "integrated_remote_head": "2f95744ca528f23ae23bf822ac1e8e022b8f5835",
@@ -126,5 +126,18 @@
       "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e",
       "2f95744ca528f23ae23bf822ac1e8e022b8f5835"
     ]
+  },
+  "hosted_unit_integration_follow_up": {
+    "checkpoint": "docs/repairs/hosted-unit-ac503-2026-11-22-task.json",
+    "shared_head_preserved": "12b34b08ce5a8bb8ff3535b25d2d2b0d730ccd9e",
+    "status": "SOURCE_COMPLETE_LOCAL_VALIDATION_PASSED_HOSTED_PENDING",
+    "scope": "All nine source-qualified Android failures corrected with original authority, cancellation and finite-budget contracts retained, plus canonical legacy backup attempt-ID protection. Broader source packages and final hosted/main/publication gates remain pending.",
+    "combined_validation": {
+      "canonical_tests": 627,
+      "changed_kotlin_files": 12,
+      "matched_source_method_inputs": 14,
+      "gateway_package_files": 505,
+      "release_scope": "scoped"
+    }
   }
 }

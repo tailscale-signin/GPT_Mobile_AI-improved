@@ -1,0 +1,52 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "checkpoint-current-timestamps-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+  "working_branch": "fix/checkpoint-current-timestamps-20261123",
+  "parent_pr": 2254,
+  "intent": "Avoid duplicate current-checkpoint writes when only the snapshot observation time and its exact task-recovery projection change; preserve semantic changes, nested evidence times and immutable transition records.",
+  "state": "IMPLEMENTED_FOCUSED_REGRESSIONS_PASSED",
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckpointCompactionTest.kt"
+  ],
+  "constraints": [
+    "Ignore only root observed_at_ms and its exact copy inside the known github.task-recovery-checkpoint.v1 projection during equality comparison.",
+    "Do not alter persisted snapshot values, arbitrary nested timestamps, recovery authority, immutable receipts or transition summaries.",
+    "No root or foreign worktree edits and no remote writes."
+  ],
+  "validation": {
+    "regression_suite": {
+      "baseline": {
+        "tests": 4,
+        "failures": 1,
+        "expected_failure": "identicalCurrentSnapshotsDoNotAppendJournalWrites: expected 2 writes, got 7; all three preservation controls passed."
+      },
+      "after": {
+        "tests": 4,
+        "failures": 0
+      },
+      "same_test_method_bytes": true,
+      "jvm_max_heap_mb": 512,
+      "scope": "Verbatim actual saveCurrent/digest/currentSnapshot and selected committed-source test method bodies, plus full actual GitHubEffectiveRecovery. Checklist adapter replaces upstream acceptance/execution-ledger aggregation; verification-only decoration and diagnostics fail closed. ProviderRecoveryFailure.CODES copied verbatim."
+    },
+    "formatting": "Pinned ktlint 1.3.1 and git diff --check passed.",
+    "tested_source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt": "6a29e0cf801ab9bd0b00bc66ca36e860a86d3b4eef25975dfb17434673ac362c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEffectiveRecovery.kt": "401e42753e484cacc321d16945e4e27968e9744b8fac012e1afd3aba2df51715",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt": "2404b49497dc25f27e0db2f15a61122d822bae0d0f5d0403dbc95410f2cf7794",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckpointCompactionTest.kt": "08636e8c81c5ee378f556834dbd4cd16e3e4885c3c5d38241ef6cef9da0139c5"
+    },
+    "tested_saveCurrent_body_sha256": "618c9a0e858abe8aa2a4a8595e757991c41c442897d405f101a38bba3f700fad",
+    "limits": "No complete EvidenceBook aggregation, receipt acquisition, Room, Android or full hosted test-class claim.",
+    "canonical_validation": "Parent integration owns canonical and final-head hosted gates.",
+    "independent_review": "Read-only peer review clear at exact tested source hashes: comparison-only normalization preserves other timestamps, unknown-schema/absent-copy cases, authority/state fields, persisted values and immutable transitions; public retainChecklist controls remain meaningful through actual aggregation."
+  },
+  "behavior": [
+    "Repeated current snapshots ignore only the top-level observation time and its exact copy in the known task-recovery schema.",
+    "Comparison normalization does not modify persisted snapshots; independent recovery times, nested receipt times and authority/content changes remain significant.",
+    "Immutable receipt handling and compact transition summaries remain unchanged."
+  ]
+}

@@ -98,7 +98,16 @@ class GitHubProgressContinuationTest {
             }
         }
         val saved = linkedMapOf<String, JsonObject>()
-        val book = GitHubEvidenceBook("progressing-work", "owner/repo", "feature", setOf(reader.definition.name), load = { saved[it] }, save = { id, value -> saved[id] = value })
+        val currentVerdictId = "verification_current_" + GitHubEvidenceBook.digest("progressing-work").take(24)
+        val book = GitHubEvidenceBook(
+            "progressing-work",
+            "owner/repo",
+            "feature",
+            setOf(reader.definition.name),
+            load = { saved[it] },
+            save = { id, value -> saved[id] = value },
+            latestVerdict = { saved[currentVerdictId] }
+        )
         val task = "Fix the repository implementation and test the change"
         book.retainTaskContract(task, 1, listOf(reader.definition), originalAllowance)
         val session = GitHubVerifiedSession(
@@ -137,6 +146,7 @@ class GitHubProgressContinuationTest {
             assertEquals("PARTIAL", failures.single().taskOutcome)
             assertEquals(dispatches, book.snapshot().first.size)
             assertEquals(JsonPrimitive(false), book.diagnostic()?.get("completion_verified"))
+            assertEquals(saved.getValue(currentVerdictId), book.diagnostic())
         } finally {
             directory.deleteRecursively()
         }

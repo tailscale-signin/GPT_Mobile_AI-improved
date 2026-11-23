@@ -30,7 +30,8 @@ class GitHubContinuationInvocationTest {
 
     @Test fun authorizedAliasAndCompactedResultPreserveTheOriginalHandoff() = runBlocking {
         // The original arguments fit replay; only the larger result may be compacted.
-        val call = ProviderEvent.ToolCall("read", "github_read", buildJsonObject { put("path", "original-path-".repeat(600)) }, originalInvocationFingerprint = "untrusted-provider-value")
+        // Raw provider calls have no protected identity until the runner captures them.
+        val call = ProviderEvent.ToolCall("read", "github_read", buildJsonObject { put("path", "original-path-".repeat(600)) })
         assertTrue("The fixture must reach the authorized tool before replay compaction.", ToolRoundAdmission().admit(call))
         val originalResult = "Confirmed read receipt. ".repeat(600)
         var executions = 0
@@ -67,7 +68,7 @@ class GitHubContinuationInvocationTest {
     }
 
     @Test fun irreducibleAliasedInvocationBlocksReplayWithoutLosingItsReceipt() = runBlocking {
-        val call = ProviderEvent.ToolCall("read", "github_read", buildJsonObject { put("path", "original-path-".repeat(600)) }, originalInvocationFingerprint = "untrusted-provider-value")
+        val call = ProviderEvent.ToolCall("read", "github_read", buildJsonObject { put("path", "original-path-".repeat(600)) })
         val batch = ToolBatchCheckpoint(null, "aliased-replay-admission")
         var saved: JsonObject? = null
         var executions = 0

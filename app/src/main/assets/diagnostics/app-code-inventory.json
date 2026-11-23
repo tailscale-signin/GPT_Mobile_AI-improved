@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "3980521b5cb7492379e6980b1fc150ce89c44d48000da65148d1c8f390d48ef9",
+  "source_digest": "52b115b3dcf676c64c364e66a9e325533d0985541b6032ecc291d17679a77610",
   "file_count": 2982,
-  "indexed_line_count": 501282,
+  "indexed_line_count": 501312,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 275,
-      "indexed_line_count": 49763
+      "indexed_line_count": 49790
     },
     {
       "id": "research",
@@ -137,7 +137,7 @@
       "id": "benchmark",
       "label": "Benchmarks and app audit",
       "file_count": 142,
-      "indexed_line_count": 23625
+      "indexed_line_count": 23628
     },
     {
       "id": "auth_and_security",
@@ -4302,8 +4302,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRestoreOwnership.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "fd1882fbe6291de93b1e5cd6a01fd617e5a18c6d5c1d1888af0f1373995e5a46",
-      "indexed_lines": 73
+      "sha256": "81371ac218b9ec47d4c87e3b54d3471611d84183159ef9bc911f50dd8a65526e",
+      "indexed_lines": 76
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRetest.kt",
@@ -7431,8 +7431,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "3f86dfa9c4a70a99b96036e0c9af7a02ebc0a10c978463e575a5ec084719211f",
-      "indexed_lines": 1270
+      "sha256": "6a29e0cf801ab9bd0b00bc66ca36e860a86d3b4eef25975dfb17434673ac362c",
+      "indexed_lines": 1281
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceExcerpts.kt",
@@ -8271,8 +8271,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "280955e547e5ed7f91a8632a4395dbb12eb39c67056586be3c4aa3ceac74d532",
-      "indexed_lines": 1660
+      "sha256": "ee6e88200bb28c6fd6b9ecb1d08528b616a584f5a4862736e3d2b20d286ec7a0",
+      "indexed_lines": 1676
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchBackoff.kt",

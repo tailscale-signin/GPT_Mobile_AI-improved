@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "shared_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "source_commit": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+  "working_branch": "voice-after-cursor-20261122",
+  "intent": "Correct the nine source-qualified Android unit failures while preserving current journal integrity, native authority, cancellation provenance, finite budgets, concurrent feature work and final publication gates.",
+  "status": "INTEGRATED_LOCAL_VALIDATION_PASSED_HOSTED_PENDING",
+  "hosted_failure": {
+    "run_id": 45088632015,
+    "unit_job_id": 137413911777,
+    "source_commit": "ac5030cbf0d82fcc9cc32bc845867befe03dda60",
+    "android_tests": 13220,
+    "failed": 9,
+    "skipped": 5,
+    "additional_portable_tests": 4,
+    "artifact_id": 14781753073,
+    "artifact_sha256": "524a4d5bb19dada528eecb82596ee16b7b3e817c09c650e722c642e76cab09cd",
+    "artifact_bytes_verified": true,
+    "production_compile": "PASSED",
+    "test_compile": "PASSED",
+    "android_lint": "PASSED"
+  },
+  "ownership": {
+    "provider_alias": [
+      "GitHubContinuationInvocationTest.authorizedAliasAndCompactedResultPreserveTheOriginalHandoff",
+      "GitHubContinuationInvocationTest.irreducibleAliasedInvocationBlocksReplayWithoutLosingItsReceipt",
+      "ProviderToolReplayRunnerTest.runnerExecutesCanonicalActionOnceAndReturnsTheOriginalInvocation"
+    ],
+    "cancellation": [
+      "RepositoryGraphFallbackTest.indexingAndCancellationAreNeverReplayed",
+      "RepositoryMapToolTest.phoneCancellationPropagatesWithoutChangingSource"
+    ],
+    "checkpoint_and_session": [
+      "GitHubCheckpointCompactionTest.identicalCurrentSnapshotsDoNotAppendJournalWrites",
+      "GitHubProgressContinuationTest.progressingExecutionPassesThreeCorrectionsAndStopsAtItsOriginalFiniteAllowance",
+      "GitHubVerifiedSessionTest.oversizedTaskStaysIncompleteAndOversizedDraftUsesABoundedExcerpt",
+      "GitHubVerifiedSessionTest.explicitContinueCanCollectMissingImplementationEvidenceAfterCompletedExtraction"
+    ]
+  },
+  "validation": [
+    {
+      "area": "explicit continuation after completed extraction",
+      "change": "Select the actual implementation criterion and return claim/acceptance mapping only in its supplied batch. Require all original criteria to be requested and retained; preserve missing-source negative, verifier reuse, final reserve and one-continuation assertions.",
+      "production_changes": false,
+      "baseline_cases": 5,
+      "baseline_failed": 3,
+      "fixed_cases_passed": 5,
+      "base_actual_criterion_regressions_passed": 13,
+      "pinned_ktlint": "1.3.1 PASSED",
+      "independent_source_review": "CLEAR",
+      "test_file_sha256": "01661e55d874ffb943a9c112055061064724459bcf5fbefb118a2e3592293a73",
+      "proof": "/workspace/scratch/6b5c8b09c56b/continuation-batch-proof",
+      "scope": "Actual fixture response helper, complete current claim validator/combiner and current requirement/criterion evaluation. Host issue/repository/platform boundaries remain; no complete GitHubVerifiedSession or AgentRunner execution claim."
+    }
+  ],
+  "remaining": [
+    "Reconcile remaining context/reference and acceptance-owned native grading/host-framing packages without overwriting concurrent work.",
+    "Require every applicable final-head check and current main rule before merge.",
+    "Qualify exact main and verify signed Android and coordinated Gateway publication."
+  ],
+  "qualification": "Focused host proofs retain explicit platform boundaries and do not replace full Android/Room/AgentRunner or exact-head/main CI.",
+  "integrated_shared_head": "12b34b08ce5a8bb8ff3535b25d2d2b0d730ccd9e",
+  "component_checkpoints": [
+    "docs/repairs/provider-native-alias-2026-11-23-task.json",
+    "docs/repairs/map-cancellation-fixture-2026-11-23-task.json",
+    "docs/repairs/checkpoint-current-timestamps-2026-11-23-task.json",
+    "docs/repairs/github-progress-budget-fixtures-2026-11-23-task.json",
+    "docs/repairs/backup-canonical-attempt-references-2026-11-23-task.json",
+    "docs/repairs/adaptive-verification-excerpt-2026-11-23-task.json"
+  ],
+  "source_preservation": {
+    "status": "MATCHED",
+    "input_count": 14,
+    "receipt": "/workspace/scratch/6b5c8b09c56b/combined-unit-source-preservation.json",
+    "scope": "Exact reviewed production/test blobs and all four disjoint session-fixture methods match their qualified candidates. Earlier whole-test-file hashes remain revision-qualified."
+  },
+  "independent_incoming_reviews": [
+    {
+      "source": "f261446103518ad9dc97ac239bae5f47a7c4cbb6",
+      "package_child": "bcf1c4523f4b615390f3cecdf8ab436ea4023e7d",
+      "result": "CLEAR",
+      "scope": "Strict complete native receipt validation and task-owned output identities for local/exported graders; calibration, unknown cleanup and valid measured candidate failures retained."
+    },
+    {
+      "source": "f9ea57ae5436ee747cadffa01e5cc7f360473c71",
+      "result": "CLEAR",
+      "scope": "KSP/KAPT/production compile process staging preserves existing memory/job ceilings, download selectors, lint/R8/package and real native device gates."
+    },
+    {
+      "source": "2f1afbf3180508b8326a9cc0b1b6c2dd640b34fc",
+      "tree": "2a0b75614f7fd5f08edcd67e28b48c223addbae2",
+      "result": "CLEAR",
+      "scope": "Early canonical backup admission, committed whole-section retention with exact recovery commit identity, serialized legacy initialization and permanent conversation locks. Supplemental canonical sample/event attempt-ID guard remains byte-identical and composes with both paths. Six manager/privacy/recovery tests await hosted Android execution."
+    },
+    {
+      "source": "744268da3005cc9cf6813ae6f2ce5ad9740aac6e",
+      "package_child": "12b34b08ce5a8bb8ff3535b25d2d2b0d730ccd9e",
+      "result": "CLEAR",
+      "scope": "Test-only platform qualification retains real Linux container checks and portable Windows contracts. Temporary Git and generated workflows retain exact bytes, native Tk expects the actual empty integration defaults, repository paths use portable separators. Actual Windows hosted execution remains mandatory."
+    }
+  ],
+  "gateway_package_validation": {
+    "status": "PASSED",
+    "version": "18.1.1",
+    "source_commit": "744268da3005cc9cf6813ae6f2ce5ad9740aac6e",
+    "file_count": 505,
+    "scope": "Current Gateway package hashes/configuration; unchanged by the local Android corrections."
+  },
+  "adaptive_excerpt": {
+    "source_commit": "87f74ea23cca937f485a2676b89955e4757f831d",
+    "baseline_cases": 7,
+    "baseline_failed": 4,
+    "fixed_cases_passed": 7,
+    "independent_source_review": "CLEAR",
+    "original_512_token_positive": "RESTORED_WITH_FULL_TASK_AND_CRITERIA",
+    "whole_session_android": "PENDING_HOSTED"
+  },
+  "combined_validation": {
+    "canonical_fast": {
+      "tests_passed": 627,
+      "test_seconds": 26.523,
+      "total_seconds": 30.694,
+      "status": "PASSED"
+    },
+    "pinned_ktlint": {
+      "version": "1.3.1",
+      "changed_files": 12,
+      "status": "PASSED"
+    },
+    "generated_inventory": {
+      "files": 2982,
+      "areas": 26,
+      "status": "REGENERATED_AND_CHECKED"
+    },
+    "release_scope": "scoped",
+    "literal_regex_patterns": 2024,
+    "dynamic_regex_patterns_excluded": 99,
+    "resource_xml_files": 36,
+    "source_preservation_inputs": 14,
+    "gateway_package_files": 505,
+    "whole_android": "PENDING_EXACT_FINAL_HEAD"
+  }
+}

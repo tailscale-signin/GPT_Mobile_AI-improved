@@ -65,8 +65,88 @@ class GitHubCheckpointCompactionTest {
         val checkpoint = Json.parseToJsonElement("""{"task_outcome":"PARTIAL","observed_at_ms":1,"capabilities":[]}""").jsonObject
         book.retainChecklist(checkpoint)
         val firstWrites = writes
+        val firstSnapshot = saved.filterKeys { it.startsWith("checklist_current_") }.values.single()
+        val recovery = firstSnapshot["task_recovery_checkpoint"] as JsonObject
+        assertEquals(2, firstWrites)
+        assertEquals(JsonPrimitive("github.task-recovery-checkpoint.v1"), recovery["schema"])
+        assertEquals(firstSnapshot["observed_at_ms"], recovery["observed_at_ms"])
         repeat(5) { book.retainChecklist(JsonObject(checkpoint + ("observed_at_ms" to JsonPrimitive(it + 2)))) }
         assertEquals(firstWrites, writes)
+        assertEquals(firstSnapshot, saved.filterKeys { it.startsWith("checklist_current_") }.values.single())
+    }
+
+    @Test fun nestedEvidenceTimesStillUpdateTheCurrentSnapshotWithoutDuplicatingTransitions() = runTest {
+        val saved = linkedMapOf<String, JsonObject>()
+        var writes = 0
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", emptySet(), load = { saved[it] }, save = { id, row ->
+            writes++
+            saved[id] = row
+        })
+        val receipt = Json.parseToJsonElement("""{"receipt_id":"ev_original","observed_at_ms":10,"authority_digest":"original"}""").jsonObject
+        val checkpoint = Json.parseToJsonElement("""{"task_outcome":"PARTIAL","observed_at_ms":1,"capabilities":[]}""").jsonObject
+        book.retainChecklist(JsonObject(checkpoint + ("evidence_receipt" to receipt)))
+        val firstWrites = writes
+        val transitions = saved.filterKeys { it.startsWith("verification_event_") }
+        val updatedReceipt = JsonObject(receipt + ("observed_at_ms" to JsonPrimitive(20)))
+        book.retainChecklist(JsonObject(checkpoint + mapOf("observed_at_ms" to JsonPrimitive(2), "evidence_receipt" to updatedReceipt)))
+        val current = saved.filterKeys { it.startsWith("checklist_current_") }.values.single()
+        assertEquals(firstWrites + 1, writes)
+        assertEquals(updatedReceipt, current["evidence_receipt"])
+        assertEquals(JsonPrimitive(2), current["observed_at_ms"])
+        assertEquals(JsonPrimitive(2), (current["task_recovery_checkpoint"] as JsonObject)["observed_at_ms"])
+        assertEquals(transitions, saved.filterKeys { it.startsWith("verification_event_") })
+    }
+
+    @Test fun changedRecoveryAuthorityRetainsANewTransitionAndPreservesEarlierRows() = runTest {
+        val saved = linkedMapOf<String, JsonObject>()
+        var writes = 0
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", emptySet(), load = { saved[it] }, save = { id, row ->
+            if (!GitHubEvidenceBook.currentSnapshot(id) && id in saved) assertEquals("Immutable transition changed", saved[id], row)
+            writes++
+            saved[id] = row
+        })
+        val checkpoint = Json.parseToJsonElement("""{"task_outcome":"PARTIAL","observed_at_ms":1,"request_digest":"original","capabilities":[]}""").jsonObject
+        book.retainChecklist(checkpoint)
+        val firstWrites = writes
+        val transitions = saved.filterKeys { it.startsWith("verification_event_") }
+        book.retainChecklist(
+            JsonObject(
+                checkpoint + mapOf(
+                    "observed_at_ms" to JsonPrimitive(2),
+                    "task_outcome" to JsonPrimitive("CONFIGURATION_INVALIDATED"),
+                    "failure_code" to JsonPrimitive("DISPATCH_POLICY_CHANGED"),
+                    "request_digest" to JsonPrimitive("changed")
+                )
+            )
+        )
+        val current = saved.filterKeys { it.startsWith("checklist_current_") }.values.single()
+        val recovery = current["task_recovery_checkpoint"] as JsonObject
+        assertEquals(firstWrites + 2, writes)
+        assertEquals(JsonPrimitive("CONFIGURATION_INVALIDATED"), current["task_outcome"])
+        assertEquals(JsonPrimitive("changed"), current["request_digest"])
+        assertEquals(JsonPrimitive("changed"), recovery["request_digest"])
+        assertEquals(JsonPrimitive("REFRESH_AUTHORITY"), (recovery["effective_recovery"] as JsonObject)["kind"])
+        assertEquals(JsonPrimitive(false), recovery["request_replay_allowed"])
+        assertEquals(transitions.size + 1, saved.keys.count { it.startsWith("verification_event_") })
+        transitions.forEach { (id, row) -> assertEquals(row, saved[id]) }
+    }
+
+    @Test fun independentRecoveryObservationTimesRemainSignificant() = runTest {
+        val saved = linkedMapOf<String, JsonObject>()
+        var writes = 0
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", emptySet(), load = { saved[it] }, save = { id, row ->
+            writes++
+            saved[id] = row
+        })
+        val checkpoint = Json.parseToJsonElement("""{"task_outcome":"PARTIAL","observed_at_ms":1,"capabilities":[]}""").jsonObject
+        book.retainChecklist(checkpoint)
+        val firstWrites = writes
+        val (id, original) = saved.entries.single { it.key.startsWith("checklist_current_") }
+        val recovery = original["task_recovery_checkpoint"] as JsonObject
+        saved[id] = JsonObject(original + ("task_recovery_checkpoint" to JsonObject(recovery + ("observed_at_ms" to JsonPrimitive(999)))))
+        book.retainChecklist(checkpoint)
+        assertEquals(firstWrites + 1, writes)
+        assertEquals(original, saved[id])
     }
 
     @Test fun immediateStagePublicationIsRecordedAsARemoteMutationAndChangesTheEvidenceEpoch() = runTest {

@@ -29,7 +29,10 @@ internal fun benchmarkMergeRestoreOwnership(
     val retainedBatches = canonical.batches.filter { it.id in ownership.batchIds }
     val retainedAttempts = canonical.attempts.filter { it.batchId in ownership.batchIds }
     val retainedEvents = canonical.events.filter { it.batchId in ownership.batchIds }
-    val attemptIds = retainedAttempts.map { it.id }.toSet()
+    val attemptIds = retainedAttempts.mapTo(mutableSetOf()) { it.id }
+    // Legacy backups may retain a sample or event without its separate attempt row.
+    retainedRuns.forEach { run -> run.samples.mapNotNullTo(attemptIds) { it.attemptId } }
+    retainedEvents.mapNotNullTo(attemptIds) { it.attemptId }
     val conflictingRuns = incoming.runs.filter { run -> run.samples.any { it.attemptId in attemptIds } }.map { it.id }
     val conflictingBatches = incoming.attempts.filter { it.id in attemptIds }.map { it.batchId } +
         incoming.events.filter { it.attemptId in attemptIds }.map { it.batchId }

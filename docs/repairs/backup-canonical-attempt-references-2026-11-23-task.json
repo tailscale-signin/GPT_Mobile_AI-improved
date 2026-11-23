@@ -1,0 +1,60 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "backup-canonical-attempt-references-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+  "working_branch": "fix/backup-canonical-attempt-references-20261123",
+  "parent_pr": 2254,
+  "intent": "Preserve attempt IDs referenced by retained canonical samples and events when legacy history lacks a separate attempt row; exclude only incoming components that alias that known ownership.",
+  "state": "IMPLEMENTED_FOCUSED_REGRESSIONS_PASSED",
+  "scope": [
+    "BenchmarkRestoreOwnership.kt",
+    "BenchmarkRestoreOwnershipTest.kt"
+  ],
+  "constraints": [
+    "Retain existing row-based attempt IDs, original canonical payload bytes, transaction boundaries, pending-owner deletion guard and ordinary/settled replacement behavior.",
+    "Do not reconstruct absent rows or broaden restore refusal policy.",
+    "No root or foreign worktree edits and no remote writes."
+  ],
+  "supported_states": [
+    "Store.save and legacy run-only backup decoding accept a pending sample without a separate batch/attempt/event row.",
+    "Backup decoding accepts retained batch-event attempt references independently of optional attempt rows and sample attemptId fields."
+  ],
+  "validation": {
+    "initial_probe": "Exact b715 ownership helper compiles; one isolated regression fails because original-attempt is imported under foreign-batch/foreign-run/foreign-request while the original pending sample remains.",
+    "regression_suite": {
+      "baseline": {
+        "tests": 12,
+        "failures": 3,
+        "expected_failures": [
+          "pendingSampleOwnsItsAttemptIdWithoutASeparateAttemptRow",
+          "retainedEventOwnsItsAttemptIdWithoutAnAttemptRowOrSampleReference",
+          "independent importedAttemptCannotRebindAnIdStillOwnedByAPendingRunSample"
+        ],
+        "existing_controls_passed": 9
+      },
+      "after": {
+        "tests": 12,
+        "failures": 0,
+        "committed_ownership_cases": 11,
+        "unchanged_independent_probe": 1
+      },
+      "jvm_max_heap_mb": 512,
+      "boundary": "Exact current ownership helper, cleanup predicate and attempt receipt compiled with actual fixture and byte-matched production domain models; unused platform/native/audit dependencies remain host boundaries."
+    },
+    "canonical_validation": "Parent integration owns canonical and final-head hosted gates.",
+    "limits": "Actual ownership helper and pending predicate with byte-matched production domain models; no new Store/Room or complete Android execution claim.",
+    "formatting": "Pinned ktlint1.3.1 and git diff --check passed.",
+    "tested_source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRestoreOwnership.kt": "81371ac218b9ec47d4c87e3b54d3471611d84183159ef9bc911f50dd8a65526e",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRestoreOwnershipTest.kt": "614370a439ffd56c47f5984afcfcd417768da6071f2830f5690a712343f4bd8a"
+    },
+    "independent_review": "Read-only peer review clear: added IDs originate only in the existing retained canonical component; incoming data cannot seed retention; transaction, receipt bytes and settled/no-owner fast path remain unchanged."
+  },
+  "behavior": [
+    "Retain original canonical run/batch/queue/attempt/event bytes and all existing row-based ownership.",
+    "Sample or event references establish only protected original attempt IDs; missing rows are never reconstructed.",
+    "Imported conflicts still use the existing connected-component exclusion, while ordinary and confirmed-settled replacement controls are unchanged."
+  ]
+}

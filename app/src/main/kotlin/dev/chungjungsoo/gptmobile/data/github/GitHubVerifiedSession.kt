@@ -1594,9 +1594,9 @@ internal class GitHubVerifiedSession(
         val requests = groups.mapIndexed { index, requirements ->
             // Never replay a history-sized saved report into the extractor. Completed
             // reads remain in the evidence ledger; this bounded excerpt is only context.
-            val candidate = draftExcerpt(draft, requirements)
+            var candidate = draftExcerpt(draft, requirements)
             val ids = requirements.map(GitHubRequestCompletion::id)
-            fun payload(selected: List<kotlinx.serialization.json.JsonElement>) = buildJsonObject {
+            fun payload(selected: List<kotlinx.serialization.json.JsonElement>, excerpt: String = candidate) = buildJsonObject {
                 put("task", task)
                 put("batch", index + 1)
                 put("batches", groups.size)
@@ -1613,7 +1613,7 @@ internal class GitHubVerifiedSession(
                         }
                     )
                 )
-                put("candidate", candidate)
+                put("candidate", excerpt)
                 put("claim_selection", "Address the listed requirement IDs only. Prioritize the smallest set of evidenced claims needed to answer them.")
                 put("catalog", JsonArray(selected))
                 put("retained_receipts", receipts.size)
@@ -1621,7 +1621,23 @@ internal class GitHubVerifiedSession(
                 put("coverage", "Full originals remain in the encrypted ledger. Omitted source is not proof; unresolved claims must remain Not measured.")
             }.toString()
             var request = payload(emptyList())
-            val baseTokens = TextTokenEstimate.estimate(request)
+            var baseTokens = TextTokenEstimate.estimate(request)
+            if (baseTokens > hardLimit && candidate.isNotEmpty() && TextTokenEstimate.estimate(payload(emptyList(), "")) <= hardLimit) {
+                // Preserve the entire task and criterion scaffold; fit only the selected draft context.
+                var low = 0
+                var high = candidate.codePointCount(0, candidate.length)
+                while (low < high) {
+                    val count = (low + high + 1) / 2
+                    val prefix = candidate.substring(0, candidate.offsetByCodePoints(0, count))
+                    if (TextTokenEstimate.estimate(payload(emptyList(), prefix)) <= hardLimit) low = count else high = count - 1
+                }
+                val fitted = candidate.substring(0, candidate.offsetByCodePoints(0, low))
+                if (fitted.isNotBlank()) {
+                    candidate = fitted
+                    request = payload(emptyList())
+                    baseTokens = TextTokenEstimate.estimate(request)
+                }
+            }
             if (baseTokens > hardLimit) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_INPUT_LIMIT, groups.size, baseTokens, hardLimit)
             val limit = minOf(hardLimit, maxOf(6_000, baseTokens + 2_048))
             val query = "$task\n${requirements.joinToString("\n")}\n$candidate"

@@ -43,6 +43,28 @@ class BenchmarkRestoreOwnershipTest {
         assertEquals(canonical, benchmarkMergeRestoreOwnership(canonical, incoming))
     }
 
+    @Test fun pendingSampleOwnsItsAttemptIdWithoutASeparateAttemptRow() {
+        val complete = canonical()
+        val pending = complete.runs.single { run -> run.samples.any { it.engineeringCleanupPending() } }
+        val canonical = BenchmarkRestoreState(runs = listOf(pending))
+        val attemptId = checkNotNull(pending.samples.single().attemptId)
+        val foreign = foreign(complete)
+        val incoming = foreign.copy(attempts = foreign.attempts.map { it.copy(id = attemptId) })
+        assertEquals(canonical, benchmarkMergeRestoreOwnership(canonical, incoming))
+    }
+
+    @Test fun retainedEventOwnsItsAttemptIdWithoutAnAttemptRowOrSampleReference() {
+        val complete = canonical()
+        val canonical = complete.copy(
+            runs = complete.runs.map { run -> run.copy(samples = run.samples.map { it.copy(attemptId = null) }) },
+            attempts = emptyList()
+        )
+        val attemptId = checkNotNull(canonical.events.single().attemptId)
+        val foreign = foreign(complete)
+        val incoming = foreign.copy(attempts = foreign.attempts.map { it.copy(id = attemptId) })
+        assertEquals(canonical, benchmarkMergeRestoreOwnership(canonical, incoming))
+    }
+
     @Test fun sampleOrEventCannotAliasAnOriginalAttempt() {
         val canonical = canonical()
         val foreign = foreign(canonical)

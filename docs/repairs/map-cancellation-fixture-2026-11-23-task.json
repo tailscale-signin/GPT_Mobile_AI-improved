@@ -1,0 +1,82 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2254,
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+  "working_branch": "map-cancellation-fixture-20261123",
+  "intent": "Reproduce and narrowly correct the two repository-map cancellation identity fixtures while preserving cancellation provenance, source selection and no replay.",
+  "hosted_failure": {
+    "head": "ac5030cbf0d82fcc9cc32bc845867befe03dda60",
+    "run_id": 45088632015,
+    "job_id": 137413911777,
+    "tests": [
+      "RepositoryGraphFallbackTest.indexingAndCancellationAreNeverReplayed",
+      "RepositoryMapToolTest.phoneCancellationPropagatesWithoutChangingSource"
+    ],
+    "observation": "Both failed assertSame for CancellationException. The hosted Gradle test JVM uses -ea; coroutines 1.11.0 defaults debug mode to JVM assertion status and enables stack-trace recovery."
+  },
+  "status": "FIXTURE_CORRECTION_FOCUSED_VALIDATION_PASSED",
+  "production_changed": false,
+  "diagnosis": "The unchanged production tool rethrows cancellation before fallback handling. Coroutine stack-trace recovery can copy that exception while preserving the original cancellation as its cause. Requiring the top-level throwable to be the original object was a fixture assumption, not loss of cancellation provenance.",
+  "correction": "Require CancellationException, the unchanged message and the exact original cancellation in a bounded cause chain. Retain the indexing no-fallback assertion and add exact query counts/actions/source selection plus zero fallback calls for both Gateway and phone cases.",
+  "validation": [
+    {
+      "phase": "baseline",
+      "tests_per_mode": 22,
+      "hosted_assertions_default_recovery_failures": 2,
+      "explicit_recovery_disabled_failures": 0,
+      "debug_disabled_failures": 0,
+      "qualification": "Exactly the two hosted assertSame failures reproduced; the remaining20 tests passed."
+    },
+    {
+      "phase": "corrected",
+      "tests_per_mode": 22,
+      "hosted_assertions_default_recovery_failures": 0,
+      "explicit_recovery_disabled_failures": 0,
+      "debug_disabled_failures": 0,
+      "qualification": "All22 tests pass in each mode against unchanged production source. Modes are repeated executions, not66 distinct tests."
+    },
+    {
+      "phase": "cause_loss_negative_control",
+      "mutation": "In an isolated compiler-input copy only, replace the rethrown cancellation with a fresh same-type/same-message exception that omits its original cause.",
+      "tests_per_mode": 22,
+      "failures_per_mode": 2,
+      "qualification": "Both corrected cancellation tests fail specifically at the original-cause assertion in every mode; the other20 tests pass."
+    },
+    {
+      "phase": "format_and_whitespace",
+      "ktlint_version": "1.3.1",
+      "changed_kotlin_files": 2,
+      "result": "PASS"
+    },
+    {
+      "phase": "canonical_fast",
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 625,
+      "seconds": 22.124,
+      "result": "PASS",
+      "additional_checks": "CI policy, generated source inventories, dependency catalog, secret scan,2024 literal Android regex patterns (99 dynamic skipped),36 XML resources and whitespace. No full Android result is inferred."
+    }
+  ],
+  "focused_evidence": {
+    "directory": "/workspace/scratch/6b5c8b09c56b/map-cancellation-proof",
+    "harness": "run.py",
+    "manifests": ["baseline-manifest.json", "corrected-manifest.json", "cause-loss-manifest.json"],
+    "compiled_inputs": "Every full production/test input is copied to a per-phase directory; manifests retain hashes for those inputs, actual source excerpts and their full origin files.",
+    "runtime": "JDK21, Kotlin2.4.20, kotlinx-coroutines1.11.0; compiler and test JVMs bounded to512MB and2 processors.",
+    "scope": "Actual RepositoryGraphTool, dispatch accounting, metadata observation, privacy/network classification and exception evidence with both complete JUnit test classes. DTOs, unrelated transport/cache/capability ports and optional diagnostic persistence are explicit host boundaries."
+  },
+  "source_sha256": {
+    "production_repository_graph_tool_unchanged": "96f3b27cc771022695ac7f8e9471c26ed68bc67bf7cd79b7ea906b3202c8ce7b",
+    "production_metadata_observation_unchanged": "e050700c2315ab873471a671be05f85610febc1bf49420c39d556c0a5cf967c4",
+    "production_dispatch_accounting_unchanged": "23dc00b30aaf80754443d73366d22d34caf94c368f6c6b574f96770cf08db00b",
+    "fallback_test_before": "94ad8d405b15d28759bb02c19f1dbe75f2f0204164f8ebd7030bd86e23c04267",
+    "fallback_test_after": "52fa60a4a657068f2f924f5fdbfd76880a0cb2e095793e237f446abe8b24c308",
+    "phone_map_test_before": "906b27bc47693b98473a655183bf9c61bab673fc58820d7a04c48f9dec1f9e78",
+    "phone_map_test_after": "f74e1f6ecc00b1108aeb5d42d1e8e785a434032ed94dbb3e6ec98634a42135e6"
+  },
+  "limits": [
+    "Focused component compilation does not qualify the full Android/Robolectric application.",
+    "No remote mutations; root owns current-head integration and CI."
+  ]
+}

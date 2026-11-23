@@ -1,0 +1,120 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "github-evidence-progress-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "working_branch": "fix/github-evidence-progress-2026-11-23",
+  "intent": "Implement the complete reviewed diagnostic repair set, preserve concurrent work, qualify the exact final PR and merged main, and verify signed publication.",
+  "state": "IMPLEMENTING",
+  "authorization": "User requested all reviewed repairs, draft PR, merge after green checks, and verified publication.",
+  "acceptance": [
+    {
+      "id": "R01",
+      "requirement": "One selected immutable revision across native reads and repository maps",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R02",
+      "requirement": "Immutable exact-SHA comparison evidence survives mutable freshness limits",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R03",
+      "requirement": "Mandatory baseline, decisions and manifest facts survive bounded verification",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R04",
+      "requirement": "Recover explicit schema-budget exclusions with bounded compatible discovery",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R05",
+      "requirement": "Schedule concrete changed-source reads and preserve issued cursor recovery",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R06",
+      "requirement": "Preserve valid source ranges when a batch contains a nonregular path",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R07",
+      "requirement": "Bound phone-index work and checkpoint useful progress before outer deadlines",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R08",
+      "requirement": "Bound complete search work and retain narrowed resumable recovery",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R09",
+      "requirement": "Count semantic task progress instead of equivalent repeated resolution",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R10",
+      "requirement": "Represent exact-SHA running CI without requiring absent-log probes",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R11",
+      "requirement": "Preserve typed original failures through approved public report contracts",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R12",
+      "requirement": "Preserve typed provider waits or explicit owning extraction recovery",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R13",
+      "requirement": "Preserve bounded settled Markdown preparation and measure relevant UI behavior",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R14",
+      "requirement": "Coordinate frame flush deadlines and isolate recording epochs",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R15",
+      "requirement": "Retain evidence for older unproven crash/validation reports without inventing causes",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "R16",
+      "requirement": "All applicable current-head and current-main gates plus signed release readback",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    }
+  ],
+  "constraints": [
+    "Preserve authorization, privacy, cursor ownership and uncertain-write reconciliation.",
+    "Do not weaken tests or bypass branch/release checks.",
+    "Monitor remote head, integrate concurrent commits, and reject stale merge evidence.",
+    "Device speed and root causes require actual evidence; no simulated performance qualification."
+  ],
+  "validation": {
+    "local": [],
+    "hosted": [],
+    "publication": []
+  }
+}

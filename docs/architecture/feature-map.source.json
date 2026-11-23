@@ -81,7 +81,11 @@
         "ai profiles",
         "new chat",
         "yellow highlights",
-        "privacy lock"
+        "privacy lock",
+        "privacy comparison",
+        "fictional provider benchmark",
+        "privacy off on",
+        "paired latency"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatViewModel.kt",
@@ -107,7 +111,14 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateIdentityDetector.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSession.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/InvocationRoundAccounting.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/InvocationRoundAccounting.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonCorpus.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonModels.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonProviderBinding.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateSyntheticInput.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModel.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt",
@@ -130,14 +141,19 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExportTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateModalDispatchTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateComposedStreamBackpressureTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateReceiverGuardContractTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateReceiverGuardContractTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonProviderBindingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonRunnerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModelTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
-        "docs/repairs/privacy-receiving-accounting-2026-11-23-task.json"
+        "docs/repairs/privacy-receiving-accounting-2026-11-23-task.json",
+        "docs/repairs/privacy-paired-comparison-2026-11-23-task.json"
       ],
       "invariants": [
         "Saved private-chat authority follows its conversation and queued work independently of global availability.",
@@ -150,7 +166,8 @@
         "Masked fallback publication revalidates captured provider and retained-source authority before each output; revoked authority preserves partial failure and never replays output.",
         "Ordinary modal collisions require positive detector classification and exact request-local copied-span provenance; protected overlaps and all other known-value checks remain authoritative.",
         "Private stream events are revalidated after the channel handoff under captured conversation authority; denial stops upstream before one content-free partial failure, preserves cancellation and caller context, and never grants an error-code bypass.",
-        "A receiving-side denial carries generation_completed only from an actual observed Completed event; final accounting retains that content-free fact separately from failed delivery, transport completion and replay permission, never from upstream failure metadata."
+        "A receiving-side denial carries generation_completed only from an actual observed Completed event; final accounting retains that content-free fact separately from failed delivery, transport completion and replay permission, never from upstream failure metadata.",
+        "An explicit provider comparison accepts only closed fictional fixtures, preserves the actual private dispatch/restoration and live authority checks, excludes saved personal text and tools, and keeps observed detection, task criteria, usage and timing separate. Only completed pairs with matching observed runtime/output ceilings enter grouped nearest-rank sample percentiles; warmups, incomplete or mismatched pairs and unverified strict-route settings are excluded."
       ]
     },
     {

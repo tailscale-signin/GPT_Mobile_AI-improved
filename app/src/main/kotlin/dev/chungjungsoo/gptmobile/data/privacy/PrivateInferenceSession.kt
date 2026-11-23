@@ -26,14 +26,24 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-internal class PrivateInferenceSession(
+internal class PrivateInferenceSession private constructor(
     private val verifier: PrivacyProviderVerifier,
     private val store: PrivacyModeStore,
     private val profile: PlatformV2,
     private val turns: List<ConversationTurn>,
     private val constraints: dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints,
-    private val alternatives: suspend () -> String
+    private val alternatives: suspend () -> String,
+    private val synthetic: PrivateSyntheticInput?
 ) : AgentProviderSession {
+    constructor(
+        verifier: PrivacyProviderVerifier,
+        store: PrivacyModeStore,
+        profile: PlatformV2,
+        turns: List<ConversationTurn>,
+        constraints: dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints,
+        alternatives: suspend () -> String
+    ) : this(verifier, store, profile, turns, constraints, alternatives, null)
+
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
         val inferenceDispatched = java.util.concurrent.atomic.AtomicBoolean(false)
         val protection = currentCoroutineContext()[PrivateProtectionContext]
@@ -57,7 +67,8 @@ internal class PrivateInferenceSession(
             check(tools.isEmpty() && exchanges.isEmpty()) { "External tools require separate privacy verification." }
             check(PrivacyModeStore.active()) { "This request has no private conversation policy." }
             val state = store.effectiveSnapshot(true)
-            val mask = PrivateTextMask(state.categories, store.privateTerms())
+            val maskingStarted = synthetic?.let { System.nanoTime() }
+            val mask = PrivateTextMask(state.categories, synthetic?.privateTerms(profile, turns) ?: store.privateTerms())
             val dispatch = PrivateDispatchContext.Builder(state.revision, state.categories)
             mask.seedIdentities(listOfNotNull(profile.systemPrompt) + turns.flatMap { listOfNotNull(it.userMessage.content, it.assistantMessage?.content) })
             val maskedSystem = profile.systemPrompt?.let { original ->
@@ -101,6 +112,7 @@ internal class PrivateInferenceSession(
             // The response map exists only for this invocation. No plaintext mapping is persisted.
             val dispatchProof = dispatch.seal(mask.summary(), issuedMarkers).also { proof = it }
             val restore = mask.sealWithReceipts()
+            if (synthetic != null && maskingStarted != null) synthetic.prepared(dispatchProof, System.nanoTime() - maskingStarted)
             val originalContext = currentCoroutineContext()
             val authorization = originalContext[RequestAuthorizationGuard]
             val privateAuthority = RequestAuthorizationGuard("${authorization?.revision.orEmpty()}:privacy-${state.revision}", authorization?.authority) {
@@ -318,6 +330,16 @@ internal class PrivateInferenceSession(
     private class RouteUnavailable(val decision: PrivacyProfileEligibility.Decision) : Exception()
 
     companion object {
+        internal fun synthetic(
+            verifier: PrivacyProviderVerifier,
+            store: PrivacyModeStore,
+            profile: PlatformV2,
+            turns: List<ConversationTurn>,
+            constraints: dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints,
+            input: PrivateSyntheticInput,
+            alternatives: suspend () -> String
+        ): PrivateInferenceSession = PrivateInferenceSession(verifier, store, profile, turns, constraints, alternatives, input)
+
         /** Network interceptors run outside the flow. Retain permission scopes without inheriting
          * its dispatcher or blocking its Job, and check the original cancellation on both sides.
          */

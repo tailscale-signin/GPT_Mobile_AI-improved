@@ -69,5 +69,6 @@ internal fun PrivacyBenchmarkPanel() {
                 if (value.failures.isNotEmpty()) Text("Checks to review: ${value.failures.joinToString()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         }
+        PrivacyComparisonPanel()
     }
 }

@@ -21,11 +21,28 @@ internal suspend fun maskedProviderSession(
     profile: PlatformV2,
     turns: List<ConversationTurn>,
     open: suspend (List<ConversationTurn>, PlatformV2) -> AgentProviderSession
+): AgentProviderSession = openMaskedProviderSession(store, profile, turns, null, open)
+
+internal suspend fun maskedSyntheticProviderSession(
+    store: PrivacyModeStore,
+    profile: PlatformV2,
+    turns: List<ConversationTurn>,
+    input: PrivateSyntheticInput,
+    open: suspend (List<ConversationTurn>, PlatformV2) -> AgentProviderSession
+): AgentProviderSession = openMaskedProviderSession(store, profile, turns, input, open)
+
+private suspend fun openMaskedProviderSession(
+    store: PrivacyModeStore,
+    profile: PlatformV2,
+    turns: List<ConversationTurn>,
+    synthetic: PrivateSyntheticInput?,
+    open: suspend (List<ConversationTurn>, PlatformV2) -> AgentProviderSession
 ): AgentProviderSession {
     val privacy = checkNotNull(currentCoroutineContext()[ConversationPrivacyContext]) { "Conversation privacy policy is unavailable." }
     val state = store.effectiveSnapshot(privacy.enabled)
     check(state.enabled)
-    val mask = PrivateTextMask(state.categories, store.privateTerms())
+    val maskingStarted = synthetic?.let { System.nanoTime() }
+    val mask = PrivateTextMask(state.categories, synthetic?.privateTerms(profile, turns) ?: store.privateTerms())
     val dispatch = PrivateDispatchContext.Builder(state.revision, state.categories)
     val protection = currentCoroutineContext()[PrivateProtectionContext]
     mask.seedIdentities(listOfNotNull(profile.systemPrompt) + turns.flatMap { listOfNotNull(it.userMessage.content, it.assistantMessage?.content) })
@@ -50,6 +67,7 @@ internal suspend fun maskedProviderSession(
     val maskedProfile = profile.copy(systemPrompt = dispatch.systemPrompt(PrivateMarkerProtocol(issuedMarkers), maskedSystem), batchMode = false, batchApiUrl = null)
     val proof = dispatch.seal(mask.summary(), issuedMarkers)
     val restore = mask.sealWithReceipts()
+    if (synthetic != null && maskingStarted != null) synthetic.prepared(proof, System.nanoTime() - maskingStarted)
     val session = open(maskedTurns, maskedProfile)
     return object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {

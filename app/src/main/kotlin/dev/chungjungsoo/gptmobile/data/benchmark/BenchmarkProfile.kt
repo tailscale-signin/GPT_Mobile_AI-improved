@@ -14,6 +14,7 @@ internal fun benchmarkEngineeringOutputBudget(category: String): Int? = category
     ?.removePrefix("engineering_tools_output_")?.toIntOrNull()?.takeIf { it in 256..32_768 }
 
 internal fun benchmarkCompletionBudget(profile: PlatformV2, category: String): Int = when {
+    category == "privacy_comparison" -> 512
     benchmarkEngineeringOutputBudget(category) != null -> requireNotNull(benchmarkEngineeringOutputBudget(category))
     category == "performance_sustained_throughput" -> 2048
     category == "performance_decode" -> 768

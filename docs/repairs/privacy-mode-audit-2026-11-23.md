@@ -30,6 +30,7 @@ repository fixtures.
 | Policy, detection and provider retention labels were conflated | Settings distinguish the permanent conversation policy, confirmed local text ranges, and provider route/retention evidence. Any enabled profile remains selectable under existing dispatch controls. | Existing privacy presentation/selection acceptance plus updated explanations |
 | A stored memory source could look fully indexed | Source persistence and enrichment completion are separate; current completed outcome codes are recognized, and pending local model readiness remains visible. Deferred receipts carry owner and scope provenance. | Readiness, derived-owner restore and source deletion/retry tests |
 | There was no reproducible local privacy/utility check | Settings can run and cancel an offline fictional corpus. The result separately counts detected values, preserved public phrases, exact restorations, map isolation, and local CPU masking/encryption/restoration latency. | Benchmark acceptance, cancellation and percentile regressions |
+| Local round-trip success could not establish provider answer utility | An explicitly started comparison runs two unscored warmups and four counterbalanced fictional task pairs through one frozen selected profile. The protected arm uses the actual private path and final-request proof. Detection, fixture answer criteria, reported usage and timing remain separate observations. | Ordinary runner, real binding/accounting, Compose and ViewModel regressions; live-provider performance remains unmeasured by implementation tests |
 
 ## Evidence semantics
 
@@ -60,6 +61,35 @@ exports deliberately retain more content after the local preview. A forensic
 checkpoint cannot be resumed as a redacted capture or vice versa.
 
 ## Limits and release qualification
+
+The optional provider comparison accepts only compiled fictional case identifiers,
+not arbitrary prompts or chat history. It excludes saved system instructions,
+private custom terms, attachments, tools and arbitrary saved Ollama text options.
+Each of its at most ten generations has a 512-token request ceiling, 8,192-character
+retained answer limit and 60-second deadline; the complete run has a ten-minute
+deadline. Fixed-cap providers that cannot honor the ceiling are rejected before
+dispatch. Both arms share the requested profile and compiled task instructions;
+the protected arm necessarily adds the existing masking protocol.
+
+Warmups are excluded from task and timing summaries. Completed paired tasks with
+matching observed runtime and output ceiling are grouped by runtime, ceiling and
+route combination. Nearest-rank p50/p95 summaries show their actual sample counts,
+use equal paired populations for each answer-time metric, and include completed
+answers that fail task criteria. Missing observations, incomplete pairs, changed
+configurations and strict private routes with unverified sampling parity do not
+enter those summaries. At most four task pairs are exploratory measurements,
+not a statistically reliable latency distribution or a causal speedup claim.
+First-answer and completion timings include request preparation; they do not
+measure when Compose rendered the answer. Actual masking/restoration work and
+provider-reported cumulative usage remain separate. Truncation, failed warmups,
+timeouts, cancellation and incomplete streams cannot become answer-criteria passes.
+
+Cancellation and live profile/policy changes stop the active run without replay;
+recorded completed and partial legs stay visible. The receiving guard retains an
+actual observed provider-completion fact for accounting even if that completion
+is withheld, and never trusts an upstream failure to supply that fact. These
+controls do not establish provider retention, arbitrary-input detection recall,
+general semantic quality or equivalence of unobserved provider settings.
 
 The detector is a bounded heuristic with explicit custom terms, not a general
 personal-data proof. Synthetic task-phrase preservation is distinct from live

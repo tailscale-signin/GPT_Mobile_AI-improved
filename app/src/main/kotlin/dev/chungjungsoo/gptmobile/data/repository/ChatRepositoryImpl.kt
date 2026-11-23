@@ -785,6 +785,26 @@ class ChatRepositoryImpl(
     private suspend fun localModelSupportsTools(platform: PlatformV2): Boolean =
         platform.compatibleType == ClientType.LITERT_LM
 
+    override suspend fun openPrivacyComparisonSession(
+        profile: PlatformV2,
+        caseId: String,
+        protection: Boolean,
+        runId: String,
+        deadlineMs: Long
+    ): dev.chungjungsoo.gptmobile.data.privacy.PrivacyComparisonSession {
+        val store = privacyMode ?: throw dev.chungjungsoo.gptmobile.data.privacy.PrivacyComparisonBlockedException(
+            dev.chungjungsoo.gptmobile.data.privacy.PrivacyComparisonFailure.INITIALIZATION_FAILED
+        )
+        val authority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, profile)
+        return dev.chungjungsoo.gptmobile.data.privacy.PrivacyComparisonProviderBinding(
+            store,
+            profileIsCurrent = { frozen -> dev.chungjungsoo.gptmobile.data.privacy.privacyComparisonProfileIsCurrent(settingRepository, frozen) },
+            openProvider = { turns, target, constraints -> providerSessions.openSession(turns, target, constraints) },
+            ledger = invocationLedger,
+            providerAuthority = authority
+        ).open(profile, caseId, protection, runId, deadlineMs)
+    }
+
     override suspend fun openBenchmarkSession(
         platform: PlatformV2,
         turns: List<ConversationTurn>,

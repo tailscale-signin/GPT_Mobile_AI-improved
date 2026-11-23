@@ -1,6 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import android.util.LruCache
+import androidx.collection.LruCache
 
 private const val INLINE_MATH_PLACEHOLDER_PREFIX = "CHAT_MATH_INLINE_"
 private const val INLINE_MATH_PLACEHOLDER_SUFFIX = "_TOKEN"

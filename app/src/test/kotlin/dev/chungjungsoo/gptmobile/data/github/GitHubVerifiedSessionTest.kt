@@ -1684,6 +1684,7 @@ class GitHubVerifiedSessionTest {
         val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), now = { 1000 + testScheduler.currentTime }, load = { stored[it] }, save = { key, value -> stored[key] = value })
         var generations = 0
         var extractions = 0
+        var firstExtractionAt: Long? = null
         val primary = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
                 generations++
@@ -1705,19 +1706,28 @@ class GitHubVerifiedSessionTest {
             assertTrue(stored.values.any { it["pending"] == JsonPrimitive(true) && it["draft"] == JsonPrimitive("Saved draft") })
             extractions++
             if (extractions == 1) {
+                firstExtractionAt = testScheduler.currentTime
                 object : AgentProviderSession {
                     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(rejected)
                 }
             } else {
                 assertTrue(testScheduler.currentTime >= 1217)
+                val started = requireNotNull(firstExtractionAt)
+                val remainingWait = (requireNotNull(rejected.providerLimit).retryAt - (1000 + started)).coerceAtLeast(0)
+                assertEquals(remainingWait, testScheduler.currentTime - started)
                 answer("""{"claims":[{"kind":"not_measured","subject":"Remaining acceptance"}]}""")
             }
-        }, {}, {}, now = { 1000 + testScheduler.currentTime })
+        }, {}, {}, now = { 1000 + testScheduler.currentTime }, computationDispatcher = StandardTestDispatcher(testScheduler))
         val events = gate.streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, generations)
         assertEquals(2, extractions)
         assertTrue(events.none { it is ProviderEvent.Failed && it.errorCode == "429" })
-        assertEquals(JsonPrimitive(false), stored.entries.single { it.key.startsWith("claim_extraction_current_") }.value["pending"])
+        assertTrue(events.none { it is ProviderEvent.Failed && it.errorCode == "GITHUB_EXTRACTION_TIMEOUT" })
+        val checkpoint = stored.entries.single { it.key.startsWith("claim_extraction_current_") }.value
+        assertEquals(JsonPrimitive(false), checkpoint["pending"])
+        assertEquals(JsonPrimitive("Saved draft"), checkpoint["draft"])
+        assertEquals(1, checkpoint.getValue("batches").jsonArray.size)
+        assertTrue(checkpoint.getValue("batches").jsonArray.all { it is JsonObject })
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

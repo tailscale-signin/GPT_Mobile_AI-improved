@@ -1,14 +1,19 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpMethod
 import java.util.Base64
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -25,10 +30,11 @@ class GitHubGraphRevisionAuthorityTest {
     private val blob = "d".repeat(40)
     private val bound = GitHubConversationContext("connection", "owner", "repo", "main", original, "profile")
 
-    private fun client() = HttpClient(
+    private fun client(onRequest: (String) -> Unit = {}) = HttpClient(
         MockEngine { request ->
             assertEquals(HttpMethod.Get, request.method)
             val path = request.url.encodedPath
+            onRequest(path)
             val body = when {
                 "/commits/" in path -> {
                     val requested = path.substringAfterLast('/')
@@ -43,7 +49,7 @@ class GitHubGraphRevisionAuthorityTest {
         }
     )
 
-    private suspend fun resolve(tool: GitHubTool, ref: String = "main") {
+    private suspend fun resolve(tool: GitHubTool, ref: String = "main"): AgentToolResult {
         val result = tool.execute(
             "resolve-$ref",
             buildJsonObject {
@@ -53,6 +59,7 @@ class GitHubGraphRevisionAuthorityTest {
             }
         )
         assertFalse(result.toString(), result.isError)
+        return result
     }
 
     @Test fun nativeRefreshSupersedesTheChatBindingForTheNextGraphRead() = runTest {
@@ -203,30 +210,49 @@ class GitHubGraphRevisionAuthorityTest {
     }
 
     @Test fun aConcurrentNativeRevisionChangeRejectsTheFinishedMap() = runTest {
-        client().use { http ->
-            lateinit var tool: GitHubTool
-            tool = GitHubTool(
-                "token",
-                http,
-                repositoryScope = bound,
-                connectionUid = bound.connectionUid,
-                conversationId = "conversation",
-                taskId = "task",
-                persistentState = false,
-                graphQuery = { scope, _ ->
-                    assertEquals(original, scope.commitSha)
-                    resolve(tool)
-                    buildJsonObject {
-                        put("source_current", true)
-                        put("source_head_sha", scope.commitSha)
+        for (mapRead in listOf(false, true)) {
+            val requests = mutableListOf<String>()
+            val mapPath = "/repos/owner/repo/git/trees/$tree"
+            var resolveReceipt: JsonObject? = null
+            client(requests::add).use { http ->
+                lateinit var tool: GitHubTool
+                tool = GitHubTool(
+                    "token",
+                    http,
+                    repositoryScope = bound,
+                    connectionUid = bound.connectionUid,
+                    conversationId = "conversation",
+                    taskId = "task",
+                    persistentState = false,
+                    graphQuery = { scope, _ ->
+                        assertEquals(original, scope.commitSha)
+                        if (mapRead) {
+                            val requestId = GitHubDispatchAccounting.started(false, mapPath)
+                            val response = http.get("https://api.github.com$mapPath")
+                            GitHubDispatchAccounting.responded(false, response.status.value, requestId)
+                            assertTrue(response.bodyAsText().contains("src/File.kt"))
+                        }
+                        resolveReceipt = resolve(tool).executionReceipt
+                        buildJsonObject {
+                            put("source_current", true)
+                            put("source_head_sha", scope.commitSha)
+                        }
                     }
-                }
-            )
-            val result = requireNotNull(tool.graphTool()).execute("racing-map", buildJsonObject { put("action", "status") })
-            assertTrue(result.toString(), result.isError)
-            assertEquals("GRAPH_REVISION_MISMATCH", result.errorCode)
-            assertTrue(result.dispatched)
-            assertFalse((result.content as ToolResultContent.Json).value.jsonObject.containsKey("source_current"))
+                )
+                val result = requireNotNull(tool.graphTool()).execute("racing-map", buildJsonObject { put("action", "status") })
+                assertTrue(result.toString(), result.isError)
+                assertEquals("GRAPH_REVISION_MISMATCH", result.errorCode)
+                if (mapRead) assertTrue(result.dispatched) else assertFalse("A local map cannot borrow the nested resolve's dispatch", result.dispatched)
+                assertEquals(JsonPrimitive(if (mapRead) 1 else 0), result.executionReceipt?.get("read_requests"))
+                assertEquals(JsonPrimitive(if (mapRead) 1 else 0), result.executionReceipt?.get("read_response_observations"))
+                assertEquals(JsonPrimitive(0), result.executionReceipt?.get("mutation_requests"))
+                assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
+                assertEquals(JsonPrimitive(1), resolveReceipt?.get("read_requests"))
+                assertEquals(JsonPrimitive(1), resolveReceipt?.get("read_response_observations"))
+                assertEquals(JsonPrimitive(0), resolveReceipt?.get("mutation_requests"))
+                assertEquals((if (mapRead) listOf(mapPath) else emptyList()) + "/repos/owner/repo/commits/main", requests)
+                assertFalse((result.content as ToolResultContent.Json).value.jsonObject.containsKey("source_current"))
+            }
         }
     }
 }

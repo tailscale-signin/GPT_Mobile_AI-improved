@@ -1,0 +1,162 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "phone-index-deadline-order-fixtures-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_sha": "2343558de9b415edee654a4d3b04defc8842be34",
+  "base_tree": "05cdbbad1a08d8ad013f4268dd8cef725f612577",
+  "working_branch": "fix/phone-index-interruption-20261123",
+  "worktree": "/workspace/scratch/6b5c8b09c56b/phone-index-interruption-work",
+  "state": "FIXTURE_REPAIRED_COMPONENT_VERIFIED_PENDING_EXACT_HEAD_CI",
+  "intent": "Keep outer interruption fixtures targeted at the actual deadline owner while preserving normal bounded partial-index progress and all native witness/ledger/replay safeguards.",
+  "scope": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt",
+    "docs/repairs/phone-index-deadline-order-fixtures-2026-11-23-task.json"
+  ],
+  "source_precheck": {
+    "remote_pr2363": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "author_head": "d07ef08376798e852049e9a654890085a5664d45",
+    "author_clean": true,
+    "target_sources_identical_to_base": true
+  },
+  "hosted_evidence": {
+    "run_id": 45164607062,
+    "head": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "artifact_id": 14815638818,
+    "artifact_sha256": "30171b629bec1805db8d00df60852a43cd8ab7d3a361fbeb4e58bce2eacf6ce3",
+    "failures": 5,
+    "failure": "Expected PHONE_INDEX_INTERRUPTED, actual null",
+    "artifact_directory": "/workspace/scratch/6b5c8b09c56b/pr2363-8fd-audit-unit"
+  },
+  "initial_diagnosis": "Production now bounds each blob read at4000ms and returns retained partial index progress; existing fixtures give the outer runner/budget5000ms. Reproduce this ordering before changing the fixture.",
+  "planned_validation": [
+    "Actual current native facade/admission/session timeout and persistent state",
+    "Actual ToolExecutionBudget and CombinedTurnBudgetStore; exact AgentRunner deadline method with explicit unrelated host ports",
+    "Baseline existing failures and positive normal inner-deadline partial-result control",
+    "Narrow fixture deadline change retaining interruption provenance, physical charging, durable readback and Gateway UNKNOWN obligations"
+  ],
+  "proof_directory": "/workspace/scratch/6b5c8b09c56b/phone-index-deadline-order-proof",
+  "original_harness_sha256": {
+    "run.py": "11e858808dbcfed34535faf11d3b955dcd742f86755e0aea75bc13c10895bf5e",
+    "owners.py": "d82b29485a6d785cae1d30a040d57354a6c52d766c7961a3de218b70ed26671f",
+    "extend.py": "5c6ae580d5d5659b0727ed74c0a1c052475e97653e37d92716e4c5429a5e8832"
+  },
+  "baseline_test_sha256": {
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt": "cb66932c2cf47e037fd1a590ab48da99eb5386063f7cabbefde01d0c8e2f761d",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt": "bbe789c6021ce62fa598d0b77a736e641ab284f72a6a8141f4f4d3e05f408050"
+  },
+  "mutations_excluded": [
+    "Production deadline/authority policy unless a separately reproduced defect requires an announced scope change",
+    "Remote/PR state",
+    "release-scope.json and generated inventories",
+    "Foreign files",
+    "Full Gradle or memory-policy overrides"
+  ],
+  "updated_at": "2026-11-23T12:22:54.871684+00:00",
+  "public_equivalent_base": {
+    "sha": "7c4aec87062f2dd5590e2a5dff19b8edf6f5a3ec",
+    "tree": "05cdbbad1a08d8ad013f4268dd8cef725f612577",
+    "relationship": "Published intermediate tree equals local2343558 proof base; sources need no repeat solely for commit identity."
+  },
+  "source_sha256": {
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt": "1a488463e2d6be870262e32c70216500d46f683bc9d7594b8d9cfdc7805a806c",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt": "5501d0a382844dab7b2d49b43ff39df971011eb84e519f7a04a2257c8f157e7a"
+  },
+  "production_changes": false,
+  "changes": [
+    "Only the two fixture owner-deadline inputs change from 5,000 to 3,000 ms so the intended outer cancellation precedes the unchanged 4,000 ms per-blob budget.",
+    "Every existing assertion and test body is preserved apart from those two inputs, their explanatory comments and one formatting blank line.",
+    "A new 10,000 ms outer-budget control proves the inner deadline returns normal incomplete progress, stops the blocked request, retains its exact issued cursor and resumes without rereading the first blob or making mutations."
+  ],
+  "validation": {
+    "baseline": {
+      "directory": "/workspace/scratch/6b5c8b09c56b/phone-index-deadline-order-proof/baseline-bootstrap-2",
+      "tests": 17,
+      "failures": 5,
+      "seconds": 31.435,
+      "log_sha256": "b124684122059ec0d2f30af4978a8906446817f7eb750f6b54057813eeaba3ae",
+      "compiled_jar_sha256": "7dbc331b393e78089734f4d645f898de612881972923510c08abebe15feaca86",
+      "source_manifest_sha256": "7c6a16ca40ac727f31cd1f57c509bf6908439bfae32d9d23127e8af57baf6a8b",
+      "dependency_manifest_sha256": "5bee6fc97116a15455033bb1b63ddaf3bb27c668da6ffbfd91b016606dc2b217"
+    },
+    "corrected": {
+      "directory": "/workspace/scratch/6b5c8b09c56b/phone-index-deadline-order-proof/corrected",
+      "tests": 18,
+      "failures": 0,
+      "seconds": 25.807,
+      "log_sha256": "baa8b0d444d755ffe2e42878970b658f385d949161df33bcc7d96aa4ad278d72",
+      "compiled_jar_sha256": "3a6330774d91e38f0264c970038a52c9d01339b81c1d5dd260c285daa4da138b",
+      "source_manifest_sha256": "24b7889db4d2f84fd4bb80b3009df7415e100a70d544c02a9c16d0788091bac7",
+      "dependency_manifest_sha256": "5bee6fc97116a15455033bb1b63ddaf3bb27c668da6ffbfd91b016606dc2b217"
+    },
+    "inputs": {
+      "compiled_inputs_per_run": 95,
+      "actual_repository_compiled_inputs": 57,
+      "generated_host_inputs": 38,
+      "whole_excerpt_origin_inputs": 13,
+      "identical_dependencies": 60,
+      "changed_inputs": [
+        "repo/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt",
+        "repo/app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt"
+      ]
+    },
+    "resource_limits": {
+      "compiler_heap_mib": 512,
+      "test_heap_mib": 512,
+      "active_processor_count": 2,
+      "cpu_affinity": [
+        0,
+        1
+      ],
+      "per_process_timeout_seconds": 180
+    },
+    "clock_boundary": "Real System.nanoTime and real coroutine timers/Dispatchers.Default; no virtual clock, sleep substitution or production deadline override. MockEngine holds the second physical GET until cancellation.",
+    "runtime_scope": "Actual current ToolExecutionBudget, CombinedTurnBudget/Store, native facade, phone repository admission, source parser/store, accounting and selected session methods. Exact AgentRunner.executeBounded and GitHubTool.graphTool are extracted; provider round/event shell, Android/auth/platform services, current-scope model shape, and HTTP delivery are explicit host ports. The transport calls actual GitHubDispatchAccounting.started/responded and actual session.snapshot. No full AgentRunner/Android/live GitHub execution is claimed.",
+    "formatting": {
+      "tool": "ktlint1.3.1",
+      "files": 2,
+      "exit_code": 0,
+      "receipt_sha256": "bc208d35e90a74d97cbd953cd2eae40d7ee1d9b11768ae28ab6e96ee1bb8635e",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "post_test_formatting": {
+      "description": "Exactly one blank line before the new comment in PhoneIndexCombinedLedgerTest, required by pinned ktlint. All other bytes are identical to the tested source. No optional unit rerun was performed for whitespace.",
+      "verifier": "verify.py",
+      "verifier_sha256": "101d7811058117d70c69251a235d094324b9003259cf1e55714c3eefd8288a3c"
+    },
+    "verification_sha256": "102291506491b6097f8ad3624c3780b22596bbc0ae6bd554f052d395076a3d56",
+    "verifier_sha256": "101d7811058117d70c69251a235d094324b9003259cf1e55714c3eefd8288a3c"
+  },
+  "retained_controls": [
+    "Exact PHONE_INDEX_INTERRUPTED provenance and no replay permission",
+    "Real handler stop, once-only physical charging and durable reservation settlement",
+    "Original parent cancellation retained through its bounded cause chain",
+    "No invented completion, stage outcome or evidence progress",
+    "Independent Gateway UNKNOWN stays unchanged and blocked from replay",
+    "Authorized status readback and exact-cursor resume retain immutable source"
+  ],
+  "production_limits_unchanged_ms": {
+    "index_blob": 4000,
+    "session_read_operation": 12000,
+    "facade_index_operation": 20000
+  },
+  "review": {
+    "root": "Source delta reviewed clear before corrected result; final result/hash review pending.",
+    "independent_peer": "voice_design_review confirmed deadline ordering and is reviewing immutable source/proof without reruns."
+  },
+  "qualification_limits": [
+    "Focused real-clock host component execution only; Android/auth/platform/transport and provider event-loop boundaries are explicit ports.",
+    "Full AgentRunner lifecycle, Android device and live GitHub execution are not claimed.",
+    "All final combined-head hosted unit and other CI gates remain required; other hosted failures are separately owned."
+  ],
+  "precommit_remote_observation": {
+    "pr": 2363,
+    "head": "7c4aec87062f2dd5590e2a5dff19b8edf6f5a3ec",
+    "base": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+    "draft": true,
+    "state": "open",
+    "updated_at": "2026-11-23T12:11:01Z",
+    "author_head": "d07ef08376798e852049e9a654890085a5664d45",
+    "author_target_paths_clean_and_unchanged": true
+  }
+}

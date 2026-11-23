@@ -1,6 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import android.util.LruCache
+import androidx.collection.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement

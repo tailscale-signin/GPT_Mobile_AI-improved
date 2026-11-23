@@ -6,7 +6,7 @@
   "baseCommit": "8fd1454d3065ce27049c2a57056633ea921677fd",
   "workingBranch": "work/release-lint-main-timeout-8fd",
   "owner": "root",
-  "status": "COMBINED_HOST_VALIDATED_PENDING_FINAL_SHARED_HEAD_CI",
+  "status": "FOLLOWUP_UNIT_UNION_HOST_VALIDATED_PENDING_FINAL_SHARED_HEAD_CI",
   "intent": "Allow the measured release-lint workload to finish inside a bounded process and step, retain its complete output, and preserve every validation and publication gate.",
   "failureEvidence": {
     "sourceCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
@@ -108,5 +108,131 @@
     "scopedPathsFromMain": 162,
     "independentReview": "CI and Gateway clear by voice_repo_review; fresh-progress guard clear by voice_design_review; immutable component hashes preserved during integration.",
     "qualification": "The subsequent checkpoint-only commit records these results; final hosted checks must bind the public shared head."
+  },
+  "unitFailureFollowup": {
+    "observedFailure": {
+      "source": "8fd1454d3065ce27049c2a57056633ea921677fd",
+      "run": 45164607062,
+      "job": 137658211038,
+      "artifact": 14815638818,
+      "artifactBytes": 6035960,
+      "artifactSha256": "30171b629bec1805db8d00df60852a43cd8ab7d3a361fbeb4e58bce2eacf6ce3",
+      "tests": 13558,
+      "suites": 1816,
+      "failures": 29,
+      "errors": 0,
+      "skips": 5,
+      "root_independently_rehashed_and_parsed": true,
+      "proof": "/workspace/scratch/6b5c8b09c56b/pr2363-8fd-audit-unit"
+    },
+    "publicBaseCommit": "7c4aec87062f2dd5590e2a5dff19b8edf6f5a3ec",
+    "equivalentLocalBaseCommit": "2343558de9b415edee654a4d3b04defc8842be34",
+    "baseTree": "05cdbbad1a08d8ad013f4268dd8cef725f612577",
+    "components": {
+      "cache": {
+        "candidate": "a03244a435aaba4de54fcf9b4d76cabf5f8904d6",
+        "tree": "815ed20474759874254db9f8653b8b1d9b7c1de2",
+        "review": "CLEAR_FOR_INTEGRATION",
+        "baseline_tests": 3,
+        "baseline_expected_failures": 3,
+        "corrected_tests": 3,
+        "corrected_failures": 0,
+        "proof": "/workspace/scratch/6b5c8b09c56b/markdown-cache-jvm-boundary-proof",
+        "integrated_locally": true
+      },
+      "phone": {
+        "candidate": "aac842bb75660a0ff693ef2f99f444829a2ba70c",
+        "tree": "ab054df87bd9a9a4d177dbe786482b3555861243",
+        "peer_review": "CLEAR",
+        "peer_review_sha256": "0a6bc579be37c762a5e9d280e52996f37de9702940e9d9c395737d46ca1096ab",
+        "integrated_locally": true,
+        "baseline_tests": 17,
+        "baseline_failures": 5,
+        "corrected_tests": 18,
+        "corrected_failures": 0,
+        "proof": "/workspace/scratch/6b5c8b09c56b/phone-index-deadline-order-proof"
+      },
+      "github": {
+        "status": "INTEGRATED_SOURCE_HASH_VERIFIED_PEER_REVIEW_CLEAR",
+        "worktree": "/workspace/scratch/6b5c8b09c56b/github-four-ci-work",
+        "proof": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof",
+        "qualification_sha256": "06167ed5c8025b7f717ad804afd74b0b794105dc928df3453d59711d01f8e6a5",
+        "targeted_hosted_failures": 4,
+        "focused_corrected_cases": 6,
+        "focused_corrected_failures": 0,
+        "production_changed": false,
+        "candidate": "664e59e77aa58b17e3e3f64e14a4c0d05786f07c",
+        "tree": "650d2a8fe2d25fa673ca12077ccc682fedd95cc7",
+        "integrated_locally": true
+      }
+    },
+    "reviews": {
+      "cache": {
+        "verdict": "CLEAR_FOR_INTEGRATION",
+        "path": "/workspace/scratch/6b5c8b09c56b/markdown-cache-jvm-boundary-proof/root-independent-review.json",
+        "sha256": "33631616afa41978eef902b476571badad38cd350620ccc3241329184d34ee25"
+      },
+      "phone": {
+        "verdict": "CLEAR_FOR_INTEGRATION",
+        "path": "/workspace/scratch/6b5c8b09c56b/phone-index-deadline-order-peer-review/review.json",
+        "sha256": "0a6bc579be37c762a5e9d280e52996f37de9702940e9d9c395737d46ca1096ab"
+      },
+      "githubRetry": {
+        "verdict": "CLEAR_FOR_INTEGRATION",
+        "path": "/workspace/scratch/6b5c8b09c56b/github-retry-scheduler-peer-review/review.json",
+        "sha256": "aa107d88c827b5937a9a461130df022fb78eba43fafca02124fe250616d1546b"
+      },
+      "githubGraphAudit": {
+        "verdict": "CLEAR_FOR_INTEGRATION",
+        "path": "/workspace/scratch/6b5c8b09c56b/github-three-fixture-peer-review/review.json",
+        "sha256": "f04757823dcef742fd6903784f9c42447951356b67a78952cd4c4a2bfe597a56"
+      }
+    },
+    "productionDelta": "Only the two existing rendering-cache imports change to the pinned AndroidX implementation. Phone and GitHub behavior, authority, deadlines and acceptance policies remain unchanged.",
+    "canonical": {
+      "status": "PASSED",
+      "sourceCommit": "85cbe6a18770f80e0b48adf570bf0eab03c436ea",
+      "sourceTree": "24450c8cb3dc37bc7e69f5ccba35da7b30ef0fe7",
+      "publicBaseCommit": "7c4aec87062f2dd5590e2a5dff19b8edf6f5a3ec",
+      "equivalentLocalBase": "2343558de9b415edee654a4d3b04defc8842be34",
+      "baseTree": "05cdbbad1a08d8ad013f4268dd8cef725f612577",
+      "canonicalExitCode": 0,
+      "scopeExitCode": 0,
+      "timedOut": false,
+      "commandSeconds": 46.227,
+      "scopeSeconds": 0.52,
+      "reportedSuites": [
+        {
+          "tests": 660,
+          "seconds": 41.418
+        }
+      ],
+      "trackedInputCount": 6874,
+      "inputManifestSha256": "288a798833ac3007199db061f0932c4d59aee76770546b75757570ffd89d27c9",
+      "logSha256": "815a5f5ebf95d1cee3f6212465a4b354b2b5d18e0ac7f67d11f48284b5f54a03",
+      "scopeLogSha256": "9211e913e6b4fa1f10ae2b4866aee198e98707013ad8cec6919dd92f1e04bc01",
+      "cleanAfterRun": true,
+      "changedInputs": [],
+      "qualification": "Canonical host checks and exact release scope only. Full hosted Android, Windows, physical-device and final publication qualification remain separate.",
+      "receiptSha256": "25a2761c13ecbafbf24d7503614d4033767cab5824e9ac510c95bde18863ea62",
+      "directory": "/workspace/scratch/6b5c8b09c56b/pr2363-unit-union-proof/canonical-source-85cbe6a1",
+      "runs": 1
+    },
+    "hosted": "PENDING_FINAL_SHARED_HEAD",
+    "qualification": "Focused proofs and preserved immutable component bytes do not qualify the complete Android suite, Session/native authorization orchestration, physical device or publication.",
+    "integrationReview": {
+      "sourceCommit": "85cbe6a18770f80e0b48adf570bf0eab03c436ea",
+      "sourceTree": "24450c8cb3dc37bc7e69f5ccba35da7b30ef0fe7",
+      "reviewer": "voice_repo_review",
+      "verdict": "CLEAR",
+      "receipt": "/workspace/scratch/6b5c8b09c56b/github-four-integration-review/review-85cbe6.json",
+      "receiptSha256": "c362fa7e48a7fe507600655debfa1ce7343a60af714cd8c100d24a3863a1a614",
+      "componentFilesPreserved": 11,
+      "changedPathsFromPublicEquivalentBase": 17,
+      "exactScopedPathsFromMain": 167,
+      "featureReferenceIdentitiesVerified": 192,
+      "inventorySourceHashesVerified": 3017,
+      "qualification": "The subsequent checkpoint-only commit records these results. Full hosted CI must bind the final public head."
+    }
   }
 }

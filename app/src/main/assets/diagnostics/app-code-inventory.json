@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "4583d01e4f5c7d59daca8295f3415f72358f7f6ff48e3e0243ab0c3f125c894b",
+  "source_digest": "4200b832effe758c0e061b76eb1c4304b5e33b4df1624ab33295a2bde30ef72c",
   "file_count": 3017,
   "indexed_line_count": 510191,
   "line_coverage_available": false,
@@ -14186,14 +14186,14 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdown.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "1ff2727fcca275759b992c643aab13fbe960e8858645d6ecf9c95bfbdca0a859",
+      "sha256": "94779560e6243e64fd30bab194d7efd09ae693ebbeecce92f97079eb3188be8f",
       "indexed_lines": 1239
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "d49b6e2d973540a189bb3196f11877af953ea0770d075e50b9aecd6b5a508725",
+      "sha256": "922ccb0d3807fcccbddb5443405c49d66dfb855b30c46382e571adfea3e478dc",
       "indexed_lines": 410
     },
     {

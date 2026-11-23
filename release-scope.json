@@ -32,7 +32,10 @@
     "Preserve legacy READ_DEADLINE report compatibility while requiring capabilities for newly introduced diagnostic fields.",
     "Bound release lint with a 64-minute process watchdog inside a 65-minute step and retain its complete output, preserving tasks, memory settings and strict publication gates after an observed outer-step timeout.",
     "Regenerate the Gateway18.1.2 manifest against the reviewed Gateway source while preserving all513 package entries and strict startup integrity checks.",
-    "Require fresh active native progress for benchmark cancellation-stage qualification while preserving separately observed model-open and presented-audio cancellation evidence."
+    "Require fresh active native progress for benchmark cancellation-stage qualification while preserving separately observed model-open and presented-audio cancellation evidence.",
+    "Preserve synchronous rendering-cache and capture-epoch revocation through the existing verified AndroidX bounded LRU implementation, with JVM regression coverage.",
+    "Target phone-index interruption fixtures at the external owner deadline and separately verify normal per-blob partial progress, retained cursors and authorized resume.",
+    "Align GitHub verification fixtures with physical dispatch ownership, selected-connection continuations, revision/blob/range receipts and the test scheduler while preserving production acceptance and timeout policies."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -152,6 +155,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceContractTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAuditEvidenceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistScheduleTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtractionTest.kt",
@@ -179,6 +183,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkloadTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParserTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatRenderingCacheBoundaryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SettledMarkdownRendererTest.kt",
     "authentication/incident_report_contract.py",
     "authentication/issue_report_app.py",
@@ -206,6 +211,9 @@
     "docs/repairs/evidence/speech-playback-reliability-2026-11-23/storage-capacity.json",
     "docs/repairs/gateway-v18-1-2-package-manifest-2026-11-23-task.json",
     "docs/repairs/github-evidence-progress-2026-11-23-task.json",
+    "docs/repairs/github-four-hosted-fixtures-2026-11-23-task.json",
+    "docs/repairs/markdown-cache-jvm-boundary-2026-11-23-task.json",
+    "docs/repairs/phone-index-deadline-order-fixtures-2026-11-23-task.json",
     "docs/repairs/release-lint-main-timeout-2026-11-23-task.json",
     "docs/repairs/speech-fresh-cancellation-progress-2026-11-23-task.json",
     "docs/repairs/speech-playback-reliability-2026-11-23-task.json",

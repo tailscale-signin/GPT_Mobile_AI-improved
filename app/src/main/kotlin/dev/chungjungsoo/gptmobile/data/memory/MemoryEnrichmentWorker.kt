@@ -28,6 +28,8 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
     private val vault: FactVaultRepository,
     private val runtime: LocalRuntime
 ) : CoroutineWorker(context, parameters) {
+    private var provenance: MemoryEnrichmentProvenance? = null
+
     override suspend fun doWork(): Result {
         dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         AppLogRecorder.record("Memory", "ENRICHMENT_STARTED · work=$id · attempt=$runAttemptCount · message=${inputData.getInt("messageId", 0)}")
@@ -39,6 +41,8 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                 return outcome("SKIPPED", "SOURCE_CHANGED")
             }
             val scope = vault.scopeForChat(message.chatId)
+            provenance = MemoryEnrichmentProvenance.observed(message.chatId, scope.key)
+            AppLogRecorder.record("Memory", "ENRICHMENT_SCOPE · message=${message.id} · ${provenance?.diagnosticFields()} · sourceCheckedBeforeWork=true")
             vault.load()
             val state = vault.state.value
             if (scope.isTemporary || !state.enabled || !state.settings.learningEnabled || !state.settings.localModelLearning) {
@@ -49,7 +53,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
                 vault.enrichTurn(message, completeSemantic = false) { source -> MemoryEnrichmentContract.localFallback(source) }
                 MemoryEnrichmentQueue.markWaiting(applicationContext, inputData)
                 MemoryEnrichmentQueue.markFallbackCompleted(applicationContext, inputData)
-                AppLogRecorder.record("Memory", "ENRICHMENT_LOCAL_FALLBACK · message=${message.id} · sourcePersisted=true · semanticReady=false · modelLoaded=false · wakeTrigger=MODEL_AVAILABLE")
+                AppLogRecorder.record("Memory", "ENRICHMENT_LOCAL_FALLBACK · message=${message.id} · sourcePersisted=true · semanticReady=false · modelLoaded=false · wakeTrigger=MODEL_AVAILABLE · ${provenance?.diagnosticFields()}")
                 return outcome("WAITING_FOR_MODEL", "LOCAL_FALLBACK_COMPLETED")
             }
             if (dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0 || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy) return finish("RUNTIME_BUSY")
@@ -185,10 +189,10 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
         if (!receipt.pendingSourceRequired) MemoryEnrichmentQueue.clearWaiting(applicationContext, inputData.getInt("messageId", 0))
         AppLogRecorder.record(
             "Memory",
-            "ENRICHMENT_$status · message=${inputData.getInt("messageId", 0)} · attempt=$runAttemptCount · reason=$reason · enrichmentComplete=${receipt.enrichmentComplete} · deferred=${receipt.deferred} · wakeTrigger=${receipt.wakeTrigger}",
+            "ENRICHMENT_$status · message=${inputData.getInt("messageId", 0)} · attempt=$runAttemptCount · reason=$reason · enrichmentComplete=${receipt.enrichmentComplete} · deferred=${receipt.deferred} · wakeTrigger=${receipt.wakeTrigger} · ${provenance?.diagnosticFields() ?: "memoryScopeClass=NOT_OBSERVED"}",
             if (status == "FAILED" || (status == "RETRY" && reason !in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY"))) "W" else "I"
         )
-        val data = androidx.work.workDataOf("outcome" to status, "reason" to reason, "runtimeFingerprint" to inputData.getString("runtimeFingerprint"), "enrichmentComplete" to receipt.enrichmentComplete, "deferred" to receipt.deferred, "wakeTrigger" to receipt.wakeTrigger)
+        val data = androidx.work.workDataOf("outcome" to status, "reason" to reason, "runtimeFingerprint" to inputData.getString("runtimeFingerprint"), "enrichmentComplete" to receipt.enrichmentComplete, "deferred" to receipt.deferred, "wakeTrigger" to receipt.wakeTrigger, "memoryScopeClass" to provenance?.scopeClass, "scopeOwnerChatId" to provenance?.ownerChatId, "processingDestination" to if (provenance != null) "ON_DEVICE" else "NOT_OBSERVED")
         return when (status) {
             "RETRY" -> Result.retry()
             "FAILED" -> Result.failure(data)

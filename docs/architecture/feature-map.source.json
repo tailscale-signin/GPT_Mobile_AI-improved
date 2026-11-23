@@ -79,14 +79,35 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibility.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProtectionReceipt.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ChatRoomV2.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/knowledge/MemoryPrivacyPolicy.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/knowledge/MemoryPrivacyPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextDetection.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMask.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateMarkerProtocol.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateStreamingRestorer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateDispatchContext.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticContentPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/MemoryEnrichmentReadiness.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyBenchmarkPanel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderStream.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderResponse.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/ConversationPrivacyContextTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProtectionReceiptTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/PrivacyAuthorityBackupTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/PrivacyChatPresentationTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/PrivacyChatPresentationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMaskCorpusTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateDispatchContextTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyBenchmarkTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticContentPolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/memory/MemoryEnrichmentReadinessTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/PrivateFinalRequestBoundaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateStreamingRestorerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivatePlainConversationSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceStreamingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderStreamTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -97,7 +118,11 @@
       "invariants": [
         "Saved private-chat authority follows its conversation and queued work independently of global availability.",
         "Profile selection is distinct from dispatch authorization.",
-        "Protected display ranges require content-bound masking evidence."
+        "Protected display ranges require content-bound masking evidence.",
+        "Final outbound privacy receipts contain counts, revisions and request-keyed fingerprints, never originals or replacement maps.",
+        "Private plain-text replies restore incrementally; local tool control remains separately validated.",
+        "Diagnostic content defaults to redacted; full forensic consent and resume identity are separate.",
+        "Synthetic local checks report measured privacy, intent and timing scope without claiming cloud quality or accelerator execution."
       ]
     },
     {

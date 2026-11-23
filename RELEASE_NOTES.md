@@ -7,6 +7,14 @@ Version code: **148**. Coordinated publication with Gateway **18.1.2**; retains 
 - Keep the complete benchmark, context, privacy, speech and recovery changes from the prior Android 0.9.66.13 candidate.
 - Run release lint with an explicit bounded memory budget and current-memory admission, retain dedicated diagnostics, and preserve every lint check and the existing outer time limit. Exact-source validation and both published-package checks remain required.
 
+## Privacy detection, streaming and exports
+
+- Keep useful task wording and document labels visible while masking contextual names, ordinal dates, locale currency amounts, linked domains, private address fragments and sensitive personal clauses. Mask a declared residence while preserving an unrelated search region.
+- Explain typed local value tokens to the selected model and restore ordinary private answers as chunks arrive. Keep local tool decisions separately validated, reject altered owned markers, and report possible unfilled protected fields without silently replaying partial output.
+- Retain content-free evidence from the final outbound body: detected-span counts, policy and detector revisions, request-linked fingerprints, and separate upstream/restoration timings. This checks known protected values and does not claim complete detection or verified provider retention.
+- Omit private text, thoughts and local network details from diagnostic exports by default. Offer a separate full forensic preview and choice, with a distinct resumable capture identity; credentials remain redacted in both modes.
+- Show saved private memory sources separately from completed indexing, preserve conversation ownership across restore and deletion, and add a cancellable offline privacy check using fictional examples and measured local CPU timings.
+
 ## Repository references and automatic task context
 
 - GitHub chat can open the instructions found on the first matching search page. A stale search can lead to a read at the recorded commit or another authorized task step. Partial reports show the measured call budget and distinguish the tools offered in that round from other authorized tools.
@@ -233,3 +241,5 @@ The exact release commit must pass the required main workflows, artifact identit
 Silent inference and audible playback are separate speech measurements. First PCM records a completed native chunk; presented audio uses the production AudioTrack timestamp or playback head. Caption checks measure observed word coverage and clock consistency. Acoustic speaker latency, perceptual word alignment, battery energy and hardware utilization percentages remain unmeasured. GPU/NPU results require compatible real hardware and actual accelerator execution; unsupported or failed trials retain their observed status.
 
 Prepared Android compilation requires at least 8,960 MiB of observed RAM/cgroup headroom for its fixed 6 GiB heap. The existing 8 GiB container default is refused; an operator must explicitly approve sufficient resources. The preflight does not reserve future memory.
+
+- Privacy masking protects detected spans and explicit private terms; final-wire evidence checks known protected values in supported text surfaces. Synthetic phrase preservation and CPU timing do not qualify arbitrary private-data detection, live provider answer quality, provider retention or GPU/NPU execution. Full forensic diagnostic export deliberately includes more content after explicit preview; private memory indexing still requires an authorized ready local model.

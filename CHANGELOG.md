@@ -5,6 +5,8 @@
 - Give release lint the fixed 4 GiB heap/1 GiB metaspace profile already used by debug lint, require current-memory admission including a 2 GiB native reserve, and retain dedicated process/GC diagnostics. Preserve every release check and the 45-minute outer gate.
 - Request coordinated publication of Android 0.9.66.14 (version code 148) and Gateway 18.1.2 after current-head and main qualification.
 
+- Improve contextual privacy masking and streamed local restoration; add content-free final-request evidence, redacted diagnostic exports with a separate forensic choice, accurate private-memory readiness and an offline fictional privacy/intent/timing check.
+
 # 0.9.66.13 — 2026-11-22 (prior candidate)
 
 - Requalify speech acceleration after the native profile-lifecycle update; older capability results stay in history and cannot rank or disable the updated runtime.

@@ -15,6 +15,8 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureOptions
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureResult
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureStage
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureStorage
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticContentMode
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticContentRedactor
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportGate
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportMemory
@@ -40,8 +42,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
-internal fun diagnosticCaptureIdentity(chatId: Int, fullHistory: Boolean = false): String =
-    "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v4" + if (fullHistory) "" else "-summary"
+internal fun diagnosticCaptureIdentity(
+    chatId: Int,
+    fullHistory: Boolean = false,
+    contentMode: DiagnosticContentMode = DiagnosticContentMode.REDACTED
+): String = "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v5:${contentMode.captureIdentity}" + if (fullHistory) "" else "-summary"
 
 /** UI snapshots are small references; history comes from bounded database/file producers. */
 /** Select the existing bounded mode before history allocation on constrained ART heaps. */
@@ -67,6 +72,7 @@ internal suspend fun writeStagedChatDiagnostics(
     resume: Boolean,
     fullHistory: Boolean = false,
     workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null,
+    contentMode: DiagnosticContentMode = DiagnosticContentMode.REDACTED,
     stillAuthorized: () -> Unit
 ): DiagnosticCaptureResult = DiagnosticExportGate.run {
     withContext(Dispatchers.IO) {
@@ -74,14 +80,16 @@ internal suspend fun writeStagedChatDiagnostics(
         val workDirectory = if (room.isTemporary) File(context.cacheDir, "temporary-diagnostic-capture-${UUID.randomUUID()}") else DiagnosticCaptureStorage.directory(context, room.id)
         val resumed = if (resume && !room.isTemporary) {
             listOf(false, true).firstNotNullOfOrNull { full ->
-                val candidate = diagnosticCaptureIdentity(room.id, full)
+                // A default export must never resume a previously consented forensic
+                // capture. Content policy is frozen with the resumable source identity.
+                val candidate = diagnosticCaptureIdentity(room.id, full, contentMode)
                 StagedDiagnosticCapture.findResumableSession(workDirectory, candidate)?.let { Triple(it, candidate, full) }
             } ?: error("No unfinished diagnostic capture is available for this conversation.")
         } else {
             null
         }
         val includeHistory = resumed?.third ?: fullHistory
-        val identity = resumed?.second ?: diagnosticCaptureIdentity(room.id, includeHistory)
+        val identity = resumed?.second ?: diagnosticCaptureIdentity(room.id, includeHistory, contentMode)
         var sessionDirectory: File? = null
         val useReducedMemory = diagnosticCaptureUsesReducedMemory(reducedMemory, AndroidDiagnosticExportMemory.sample())
         val automaticReducedMemory = useReducedMemory && !reducedMemory
@@ -108,7 +116,7 @@ internal suspend fun writeStagedChatDiagnostics(
         // A single measured source row may exceed one JSONL record; redact it once, then chunk.
         val maximumSourceCharacters = if (useReducedMemory) 256 * 1024 else 1024 * 1024
         val json = Json { encodeDefaults = true }
-        val redactor = dev.chungjungsoo.gptmobile.data.diagnostics.ChatDebugRedactor(profiles.mapNotNull { it.token })
+        val redactor = DiagnosticContentRedactor(contentMode, profiles.mapNotNull { it.token })
         val logs = mutableMapOf<Boolean, DiagnosticLogSnapshot>()
         var publishedFile: File? = null
         fun authorized() {
@@ -135,8 +143,7 @@ internal suspend fun writeStagedChatDiagnostics(
                     if (bounded is JsonPrimitive && bounded.content.startsWith("[diagnostic value omitted:")) {
                         null
                     } else {
-                        val redacted = redactor.redact(bounded)
-                        if (redacted is JsonPrimitive && redacted.isString) redacted.content else redacted.toString()
+                        redactor.logLine((bounded as? JsonPrimitive)?.content ?: bounded.toString())
                     }
                 },
                 capture = { AppLogRecorder.captureForExport(it, useReducedMemory) },
@@ -223,6 +230,7 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("appCommit", BuildConfig.APP_COMMIT)
                         put("testedShaAvailability", "A retained exact tested SHA is included in compact_failure_summary; otherwise its status is NOT_RETAINED.")
                         put("fullHistorySelected", includeHistory)
+                        put("diagnosticContentMode", contentMode.name)
                         put("journalScope", if (includeHistory) "All runs in this conversation" else "Four most recent runs in this conversation")
                         put("capturedAtMillis", System.currentTimeMillis())
                     },
@@ -277,7 +285,7 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("drawTimingScope", "Measured FIRST_VISIBLE_TEXT records observe Compose drawContent completion for the owned run/fence/part, with outputOrigin, processSession and monotonicNanos. Exact-byte provenance may link a model invocation; provider-to-draw timing requires MODEL_TEXT plus matching INVOCATION_STARTED and FIRST_TEXT in the same process. System errors, progress notices and ambiguous output are not provider latency. Draw completion does not confirm display presentation; per-HTTP first_ui_paint_ms remains unmeasured without explicit lineage.")
                         put("finalReportDrawScope", "Application-report acknowledgements do not establish final-report timing. A final-report span requires a terminal ownership fence, its last committed APPLICATION_REPORT fingerprint and an exact matching render-input part followed by a measured draw in the same run and process; otherwise the span is unmeasured.")
                         put("frameHeapScope", "FRAME_WINDOW_EVIDENCE records observed callback timestamps, frame durations and sampled process Java heap peaks separately. Run associations are active phases at the observed callbacks; shared process work prevents causal attribution or an exact per-run heap peak. Lifetime allocation and GC counters are not run metrics.")
-                        put("sourceDigests", "Record digests describe their original stored representations. Credential redaction can change text; stage file hashes certify the bytes in this export.")
+                        put("sourceDigests", "Record digests describe their original stored representations. Content and credential redaction can change text; stage file hashes certify the bytes in this export. A retained message digest does not authenticate omitted text.")
                         put("logSnapshotScope", "Logs are frozen independently per log section and capture session, then retained for interrupted stages. Resume does not replace captured evidence after ring rotation. Start a new capture to collect newer logs.")
                         put("logRecorderScope", "Network diagnostics and the application log recorder are independent settings. If application recording was disabled, enable it, reproduce the issue, then start a new capture; resuming cannot create missing historical logs.")
                         put("workspacePayloadReferences", "A fields.payload_ref identifies the earlier rowId in this stage and archive part. Read its /fields/payload and verify the SHA-256 of its compact redacted JSON. Changed or unavailable data retains its own representation.")
@@ -286,7 +294,8 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("memoryMeasurements", "Native allocated heap and ART counters where available; null does not mean zero.")
                         put("captureMemoryProfile", if (useReducedMemory) "REDUCED" else "STANDARD")
                         put("reducedMemorySelectedAutomatically", automaticReducedMemory)
-                        put("privacy", "Credentials are redacted; this user-requested export can contain private conversation text.")
+                        put("diagnosticContentMode", contentMode.name)
+                        put("privacy", contentMode.explanation)
                     },
                     evidence = false
                 )

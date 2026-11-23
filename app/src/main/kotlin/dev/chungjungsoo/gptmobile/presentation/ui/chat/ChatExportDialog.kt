@@ -19,9 +19,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
@@ -36,8 +41,35 @@ internal fun ChatExportDialog(
     onReducedDebugExport: (() -> Unit)? = null,
     onFullDebugExport: (() -> Unit)? = null,
     onResumeDebugExport: (() -> Unit)? = null,
+    forensicPreview: () -> String = { "Full forensic export includes original private content, model thoughts and configured network details. Credentials remain redacted." },
+    onForensicDebugExport: (() -> Unit)? = null,
+    onResumeForensicExport: (() -> Unit)? = null,
     onExport: (ChatExportFormat) -> Unit
 ) {
+    var forensicAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var preview by remember { mutableStateOf("") }
+    if (forensicAction != null) {
+        AlertDialog(
+            onDismissRequest = { forensicAction = null },
+            title = { Text("Review full forensic export") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("This export includes original private content. Conversation privacy does not remove it from this explicitly selected archive.", color = MaterialTheme.colorScheme.error)
+                    Text(preview, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("forensic_export_preview"))
+                    Text("The archive is prepared on this device. You choose its destination in the share screen. Use redacted diagnostics when original content is unnecessary.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val action = forensicAction
+                    forensicAction = null
+                    action?.invoke()
+                }, modifier = Modifier.testTag("confirm_forensic_export")) { Text("Export full forensic archive") }
+            },
+            dismissButton = { TextButton(onClick = { forensicAction = null }) { Text("Back") } }
+        )
+        return
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Rounded.FileDownload, null, tint = MaterialTheme.colorScheme.primary) },
@@ -62,24 +94,24 @@ internal fun ChatExportDialog(
                 if (debugMode) {
                     diagnosticNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     ExportFormatCard(
-                        "Diagnostic summary",
+                        "Redacted diagnostic summary",
                         ".debug.zip",
                         "Latest verdict, failures and approval state",
                         Icons.Rounded.Description,
-                        "Includes run, tool and log evidence with timing and any omissions. Credentials are redacted."
+                        "Includes run, tool and log evidence with timing and any omissions. Original private text, thoughts and local network details are omitted; credentials are redacted."
                     ) { onExport(ChatExportFormat.DEBUG) }
                     onFullDebugExport?.let { full ->
                         ExportFormatCard(
-                            "Full diagnostic history",
+                            "Full diagnostic history · Redacted",
                             ".debug.zip",
                             "Include conversation and workspace checkpoints",
                             Icons.Rounded.Description,
-                            "Includes retained conversation, workspace, answer and research records. Full captures can take longer and may span multiple parts."
+                            "Includes retained conversation and workspace structure, timings and protection ranges. Private text and thoughts are omitted. History depth is separate from permission to include original content. Full captures can take longer and may span multiple parts."
                         ) { full() }
                     }
                     onReducedDebugExport?.let { reduced ->
                         ExportFormatCard(
-                            "Low-memory diagnostics",
+                            "Low-memory diagnostics · Redacted",
                             ".zip",
                             "Preserve critical logs with smaller capture limits",
                             Icons.Rounded.Description,
@@ -88,12 +120,36 @@ internal fun ChatExportDialog(
                     }
                     onResumeDebugExport?.let { resume ->
                         ExportFormatCard(
-                            "Resume diagnostic capture",
+                            "Resume redacted diagnostic capture",
                             ".zip",
                             "Export the next part or continue an interrupted capture",
                             Icons.Rounded.Description,
                             "Continues after the last complete history record. After an archive has been shared, the next part contains new history and references earlier files by name and digest. Keep all parts together. Interrupted captures retain their completed records, and the latest state is refreshed because the conversation may have changed."
                         ) { resume() }
+                    }
+                    onForensicDebugExport?.let { full ->
+                        ExportFormatCard(
+                            "Full forensic export",
+                            ".debug.zip",
+                            "Review original private content before exporting",
+                            Icons.Rounded.Description,
+                            "An explicit separate choice. Includes original conversation text, thoughts and configured network details. Credentials remain redacted. This does not change the chat's privacy policy."
+                        ) {
+                            preview = forensicPreview()
+                            forensicAction = full
+                        }
+                    }
+                    onResumeForensicExport?.let { resume ->
+                        ExportFormatCard(
+                            "Resume full forensic capture",
+                            ".zip",
+                            "Review and continue the original-content archive",
+                            Icons.Rounded.Description,
+                            "Only resumes a full forensic capture. A redacted export never reuses its original-content checkpoints. Keep all parts together."
+                        ) {
+                            preview = forensicPreview()
+                            forensicAction = resume
+                        }
                     }
                 }
             }

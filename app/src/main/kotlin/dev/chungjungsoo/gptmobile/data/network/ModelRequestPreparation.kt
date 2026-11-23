@@ -34,7 +34,9 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         config.freeDiagnostics?.admission = prepared.receipt
         prepared.receipt.outputTokens?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()?.let { config.onSerializedOutputTokens?.invoke(it) }
         val wire = prepared.dispatchPayload(runtime, revision)
+        val privacyReceipt = validatePrivateWire(wire, revision, context)
         val attempt = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
+        retainPrivateWireReceipt(privacyReceipt, attempt, context)
         context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attempt), config)
         context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
         return wire
@@ -203,11 +205,34 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         config.freeDiagnostics?.admission = prepared.receipt
         prepared.receipt.outputTokens?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()?.let { config.onSerializedOutputTokens?.invoke(it) }
         val wire = prepared.dispatchPayload(snapshot.fingerprint, permissionRevision)
+        val wireContext = kotlinx.coroutines.currentCoroutineContext()
+        val privacyReceipt = validatePrivateWire(wire, permissionRevision, wireContext)
         val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
+        retainPrivateWireReceipt(privacyReceipt, attemptId, wireContext)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId), config)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
         return wire
     }
+}
+
+/** Validate after every provider transform, but before the physical attempt consumes any authority. */
+private fun validatePrivateWire(payload: String, revision: String, context: kotlin.coroutines.CoroutineContext): JsonObject? {
+    val proof = context[dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext] ?: return null
+    return try {
+        proof.validate(payload, revision)
+    } catch (rejected: dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) {
+        context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.privacyValidated(rejected.receipt, proof)
+        throw rejected
+    }
+}
+
+private fun retainPrivateWireReceipt(receipt: JsonObject?, attemptId: String, context: kotlin.coroutines.CoroutineContext) {
+    val proof = context[dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext] ?: return
+    receipt ?: return
+    context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.privacyValidated(
+        JsonObject(receipt + ("physical_attempt_id" to JsonPrimitive(attemptId))),
+        proof
+    )
 }
 
 internal fun resolveOutputAllowance(payload: String, requested: Long?, capacity: CapacitySnapshot, observation: dev.chungjungsoo.gptmobile.data.context.CapacityAdmissionObservation = dev.chungjungsoo.gptmobile.data.context.CapacityAdmissionObservation(capacity)): dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.Decision {

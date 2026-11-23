@@ -103,14 +103,20 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             }
         }
         Text(
-            "Enable this option to make Private chat available in New Chat. Select it there to permanently protect that conversation and every selected AI profile. New chats start unchecked. Turning this option off only prevents new private chats; saved private chats stay protected after reopening or restarting the app.",
+            "Enable this option to make Private chat available in New Chat. Select it there to permanently enable that conversation's privacy policy for every selected AI profile. New chats start unchecked. Turning this option off only prevents new private chats; it does not unlock saved private chats.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
-            "Private conversations mask personal details on this device and check cloud routes for no training, content logging or routine retention. All enabled profiles can be selected. Unverified providers receive masked text under their own retention policies.",
+            "All enabled AI profiles remain selectable. Detected details in your chosen categories are replaced on this device before a cloud request. The remaining text can reach the selected cloud model. Route verification is separate: an unverified provider's retention is unknown and its own policies apply.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            "The lock marks the conversation's permanent policy. Yellow text marks confirmed replacements or local restoration for that message; it does not mean every sensitive detail was detected or that the whole conversation stayed on this device. Review custom terms when a detail needs explicit protection.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag("privacy_guarantees_explained")
         )
         ProviderVerificationSetup(viewModel.authority, viewModel.setup, profiles)
         TextButton(onClick = { customize = !customize }, modifier = Modifier.testTag("privacy_customize")) {
@@ -138,11 +144,13 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             Text(if (details) "Hide protection details" else "How protection works")
         }
         if (details) {
-            Text("Each cloud model and upstream is checked before sending text. Strict Zero Data Retention excludes routine Safety Retention; fallback, response caching and supported plugins are disabled. External tools, attachments and voice require separate verification.", style = MaterialTheme.typography.bodySmall)
+            Text("A verified strict cloud route requires its account, model and upstream checks, including no routine content retention. When those checks are unavailable, the selected profile can use locally masked text; the app does not claim verified retention for that route. External tools, attachments and voice require their own destination checks.", style = MaterialTheme.typography.bodySmall)
             Text("Enabled calculator, current-date and text-slicing tools run on this device. Their results pass through the same personal-data permissions and local masking before reaching a model. GitHub, Research and connected service tools remain blocked until their external routes meet the privacy requirements.", style = MaterialTheme.typography.bodySmall)
-            Text("Available means the required checks passed. Not verified means a check is incomplete. Incompatible means the route conflicts with a privacy requirement. Free providers are checked individually and may remain unavailable.", style = MaterialTheme.typography.bodySmall)
+            Text("Route verification reports only the checks it actually passed. Not verified means evidence is incomplete; incompatible means a strict-route requirement is unmet. These labels do not disable profile selection or prove that automated masking found every private detail.", style = MaterialTheme.typography.bodySmall)
             Text("Automated masking recognizes common formats and your custom terms. Provider agreements may allow legally required exceptions and non-content usage metadata. Other cloud providers require their applicable account and endpoint approvals.", style = MaterialTheme.typography.bodySmall)
+            Text("Diagnostic exports omit private text and thoughts by default. Full forensic export is a separate choice with a local preview and may contain originals even for a locked private chat.", style = MaterialTheme.typography.bodySmall)
         }
+        PrivacyBenchmarkPanel()
     }
 }
 

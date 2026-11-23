@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-mode-audit-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "0300b8fcb2a8ef5a64ecf9d6e72cdb6f1c294033",
+  "pullRequest": 2367,
+  "intent": "Implement the complete privacy audit with contextual masking, typed local substitution, incremental restoration, content-free final-wire evidence, redacted-by-default diagnostics, truthful policy and memory readiness, and an offline privacy/intent/timing check.",
+  "acceptance": [
+    "Preserve useful task wording while protecting all independently specified synthetic private values; retain negative controls and exact restoration.",
+    "Reject changed privacy authority, known-value reinsertion, malformed wire shapes and invalid owned markers without authorizing another tool or silently replaying partial output.",
+    "Keep request maps isolated, export diagnostic content only under the selected redacted or explicit forensic identity, and preserve private memory owner/deletion semantics.",
+    "Preserve concurrent shared-branch commits and reconcile actual main, release identities, current rules, reviews and final-head checks before merge.",
+    "Require actual main qualification, trusted signed publication and complete independent published package verification before reporting completion."
+  ]
+}

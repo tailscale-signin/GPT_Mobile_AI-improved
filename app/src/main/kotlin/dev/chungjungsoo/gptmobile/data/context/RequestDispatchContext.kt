@@ -31,6 +31,22 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     private val omittedSettings = java.util.concurrent.atomic.AtomicLong()
     val omittedSerializedRequestSettings: Long get() = omittedSettings.get()
     val includedProducers = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val privacyReceipts = CopyOnWriteArrayList<JsonObject>()
+    private val privacyContexts = CopyOnWriteArrayList<dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext>()
+    private val omittedPrivacy = java.util.concurrent.atomic.AtomicLong()
+    val privacyDispatchReceipts: List<JsonObject> get() = privacyReceipts.toList()
+    val omittedPrivacyDispatchReceipts: Long get() = omittedPrivacy.get()
+    val privacyStreams: List<JsonObject> get() = privacyContexts.mapNotNull { it.streamSnapshot() }
+
+    @Volatile private var privacyRejected = false
+
+    /** Evidence is already content-free; replacement dictionaries never enter accounting. */
+    @Synchronized
+    fun privacyValidated(receipt: JsonObject, context: dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext) {
+        if ((receipt["outcome"] as? JsonPrimitive)?.content != "KNOWN_VALUES_ABSENT") privacyRejected = true
+        if (privacyReceipts.size < MAX_RETAINED_REQUEST_SETTINGS) privacyReceipts += receipt else omittedPrivacy.incrementAndGet()
+        if (privacyContexts.size < MAX_RETAINED_REQUEST_SETTINGS && context !in privacyContexts) privacyContexts += context
+    }
 
     private val httpTrace = java.util.concurrent.atomic.AtomicReference<dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace?>()
     private val attemptTraces = java.util.concurrent.ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace>()
@@ -62,7 +78,7 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     /** A later rejected retry never erases a previous transmitted or uncertain attempt. */
     fun provenEntirelyUnsent(): Boolean =
         if (receipts.isEmpty()) {
-            preflightRejection != null
+            preflightRejection != null || privacyRejected
         } else {
             receipts.all { receipt ->
                 receipt.physicalAttemptId?.let { attemptTraces[it]?.provenUnsent } == true

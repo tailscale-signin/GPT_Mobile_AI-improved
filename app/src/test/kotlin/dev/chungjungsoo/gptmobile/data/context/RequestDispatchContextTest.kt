@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -50,6 +51,47 @@ class RequestDispatchContextTest {
         assertEquals(JsonPrimitive("attempt-0"), context.serializedRequestSettings.first()["physical_attempt_id"])
         assertEquals(3L, context.omittedSerializedRequestSettings)
         assertEquals(JsonPrimitive("attempt-${RequestDispatchContext.MAX_RETAINED_REQUEST_SETTINGS + 2}"), context.latestSerializedRequestSettings?.get("physical_attempt_id"))
+    }
+
+    @Test fun privateFinalWireRejectionProvesOnlyUnsentRequestsAndPreservesEarlierAttempts() {
+        val proof = dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext.Builder(7, emptySet()).seal()
+        val rejected = try {
+            proof.validate("""{"messages":[{"content":"Public task"}]}""", ":privacy-8")
+            error("Expected changed privacy authority to reject")
+        } catch (rejected: dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) {
+            rejected.receipt
+        }
+        val unsent = RequestDispatchContext(emptySet())
+        unsent.privacyValidated(rejected, proof)
+        assertTrue(unsent.provenEntirelyUnsent())
+        assertTrue(unsent.receipts.isEmpty())
+        val uncertainEarlierAttempt = RequestDispatchContext(emptySet())
+        uncertainEarlierAttempt.receipts += receipt.copy(physicalAttemptId = "earlier-physical-attempt")
+        uncertainEarlierAttempt.privacyValidated(rejected, proof)
+        assertFalse(uncertainEarlierAttempt.provenEntirelyUnsent())
+        assertEquals("earlier-physical-attempt", uncertainEarlierAttempt.receipts.single().physicalAttemptId)
+    }
+
+    @Test fun privateEvidenceKeepsEachPhysicalAttemptBoundedAndStreamsJoinItsRequest() {
+        val context = RequestDispatchContext(emptySet())
+        val proof = dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext.Builder(1, emptySet()).seal()
+        val validation = proof.validate("""{"messages":[{"content":"Public task"}]}""", ":privacy-1")
+        repeat(RequestDispatchContext.MAX_RETAINED_REQUEST_SETTINGS + 2) { index ->
+            context.privacyValidated(kotlinx.serialization.json.JsonObject(validation + ("physical_attempt_id" to JsonPrimitive("attempt-$index"))), proof)
+        }
+        assertEquals(RequestDispatchContext.MAX_RETAINED_REQUEST_SETTINGS, context.privacyDispatchReceipts.size)
+        assertEquals(2L, context.omittedPrivacyDispatchReceipts)
+        assertEquals(JsonPrimitive("attempt-0"), context.privacyDispatchReceipts.first()["physical_attempt_id"])
+        proof.stream(
+            dev.chungjungsoo.gptmobile.data.privacy.PrivateStreamObservation(
+                null, 10, 11, 500, 1, 0, 0, 0,
+                dev.chungjungsoo.gptmobile.data.privacy.PrivateMarkerProtocolStatus.NO_ISSUED_MARKERS,
+                emptySet(), true
+            )
+        )
+        assertEquals(validation["private_request_id"], context.privacyStreams.single()["private_request_id"])
+        assertEquals(JsonPrimitive(11), context.privacyStreams.single()["first_restored_answer_ms"])
+        assertFalse(context.privacyDispatchReceipts.toString().contains("Public task"))
     }
 
     @Test

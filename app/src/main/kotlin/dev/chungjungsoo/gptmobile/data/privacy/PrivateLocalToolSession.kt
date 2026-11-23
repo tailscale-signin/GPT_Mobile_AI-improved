@@ -19,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext
 import java.util.UUID
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -110,8 +111,11 @@ internal class PrivateLocalToolSession(
         val roundProfile = profile.copy(systemPrompt = profile.systemPrompt.orEmpty() + instruction)
         var completed = false
         var failed = false
-        val reply = PrivateToolReplyMask(selected.mapTo(hashSetOf()) { it.name })
-        val privateContext = privateAuthority + reply
+        // A plain conversation grants no tool authority. It can stream restored
+        // prose without waiting for a full-response tool decision. Rounds with
+        // tools or retained receipts keep the existing bounded control parser.
+        val reply = if (selected.isEmpty() && exchanges.isEmpty()) null else PrivateToolReplyMask(selected.mapTo(hashSetOf()) { it.name })
+        val privateContext = privateAuthority + (reply ?: EmptyCoroutineContext)
         val session = withContext(privateContext) { open(roundTurns, roundProfile) }
         // Opening a transport may suspend. Recheck before even its first event.
         if (store.effectiveSnapshot(privacy.enabled) != policy) {
@@ -123,7 +127,7 @@ internal class PrivateLocalToolSession(
                 is ProviderEvent.TextDelta -> {
                     // Only the transport's typed verdict may authorize control. A
                     // restored private value that resembles JSON remains prose.
-                    if (reply.decision is PrivateToolReplyMask.Decision.Prose || reply.decision is PrivateToolReplyMask.Decision.Call) {
+                    if (reply == null || reply.decision is PrivateToolReplyMask.Decision.Prose || reply.decision is PrivateToolReplyMask.Decision.Call) {
                         if (event.text.isNotEmpty()) emit(event)
                     }
                 }
@@ -148,10 +152,14 @@ internal class PrivateLocalToolSession(
             emit(rejected("DISPATCH_POLICY_CHANGED", "Privacy settings changed. Resend with the current settings."))
             return@flow
         }
-        when (val decision = reply.decision) {
+        when (val decision = reply?.decision) {
             is PrivateToolReplyMask.Decision.Call -> emit(ProviderEvent.ToolCall("private-local-${UUID.randomUUID()}", decision.name, decision.arguments))
             PrivateToolReplyMask.Decision.Prose -> Unit
-            PrivateToolReplyMask.Decision.Rejected, null -> {
+            PrivateToolReplyMask.Decision.Rejected -> {
+                emit(rejected("OUTPUT_PROTOCOL_INVALID", "The private text transport did not return a valid authorized local tool decision."))
+                return@flow
+            }
+            null -> if (reply != null) {
                 emit(rejected("OUTPUT_PROTOCOL_INVALID", "The private text transport did not return a valid authorized local tool decision."))
                 return@flow
             }

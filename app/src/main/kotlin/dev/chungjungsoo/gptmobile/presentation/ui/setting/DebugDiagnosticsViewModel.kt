@@ -99,7 +99,13 @@ class DebugDiagnosticsViewModel @Inject constructor(
                 memoryQueued = work.count { it.state == androidx.work.WorkInfo.State.ENQUEUED },
                 memoryRunning = work.count { it.state == androidx.work.WorkInfo.State.RUNNING },
                 memoryWaitingForBattery = work.count { it.state == androidx.work.WorkInfo.State.ENQUEUED && it.constraints.requiresBatteryNotLow() && batteryNotLow == false },
-                memoryCompleted = work.count { it.state == androidx.work.WorkInfo.State.SUCCEEDED && it.outputData.getString("reason") == "ENRICHED" }
+                memoryCompleted = work.count {
+                    dev.chungjungsoo.gptmobile.data.memory.memoryEnrichmentReady(
+                        it.state.name,
+                        it.outputData.getString("outcome"),
+                        it.outputData.getBoolean("enrichmentComplete", false)
+                    )
+                }
             )
         }
         .combine(dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.observeWaitingCount(context)) { state, waiting ->

@@ -24,17 +24,6 @@ internal class PrivateIdentityDetector {
                 }
             }
         }
-        // A surname is an alias only in a person context, never just because it is
-        // capitalized (May, Brown and similar words have ordinary meanings too).
-        if (surnames.isNotEmpty()) {
-            val names = surnames.sortedByDescending(String::length).joinToString("|") { Regex.escape(it) }
-            val contextualSurname = Regex("(?i:(?:\\b(?:Mr|Mrs|Ms|Mx|Dr|Prof)\\.?[ \\t]+|\\b(?:Dear|Hi|Hello|Hey)[ \\t]+))($names)(?![$IDENTITY_CHARACTERS])|(?<![$IDENTITY_CHARACTERS])($names)(?=[ \\t]+(?i:said|wrote|replied|agreed|approved|asked|signed)\\b)")
-            inputs.forEach { input ->
-                contextualSurname.findAll(input).forEach { match ->
-                    changed = identities.add(match.groupValues[1].ifEmpty { match.groupValues[2] }) || changed
-                }
-            }
-        }
         if (changed) {
             val values = identities.sortedByDescending(String::length).joinToString("|") { identity ->
                 identity.split(Regex("[ \\t]+")).joinToString("[ \\t]+") { Regex.escape(it) }
@@ -48,7 +37,24 @@ internal class PrivateIdentityDetector {
 
     fun ranges(input: String): List<IntRange> {
         seed(listOf(input))
-        return references?.findAll(input)?.map { it.range }?.toList().orEmpty()
+        val ranges = references?.findAll(input)?.map { it.range }?.toMutableList() ?: mutableListOf()
+        // A surname is an alias only in a person context, never just because it is
+        // capitalized (May, Brown and similar words have ordinary meanings too).
+        if (surnames.isNotEmpty()) {
+            val names = surnames.sortedByDescending(String::length).joinToString("|") { Regex.escape(it) }
+            val contextualSurname = Regex("(?i:(?:\\b(?:Mr|Mrs|Ms|Mx|Dr|Prof)\\.?[ \\t]+|\\b(?:Dear|Hi|Hello|Hey)[ \\t]+))($names)(?![$IDENTITY_CHARACTERS])|(?<![$IDENTITY_CHARACTERS])($names)(?=[ \\t]+(?i:said|wrote|replied|agreed|approved|asked|signed)\\b)")
+            contextualSurname.findAll(input).forEach { match ->
+                val range = (match.groups[1] ?: match.groups[2])?.range ?: return@forEach
+                if (ranges.none { it.first <= range.first && it.last >= range.last }) ranges += range
+            }
+        }
+        return ranges.sortedBy { it.first }
+    }
+
+    /** Positive, deliberately narrow grammar; an undetected occurrence is not public evidence. */
+    fun ordinaryModalRanges(input: String): List<IntRange> {
+        if (surnames.none { it.equals("May", ignoreCase = true) }) return emptyList()
+        return ordinaryMayRequest.findAll(input).mapNotNull { it.groups[1]?.range }.toList()
     }
 
     fun clear() {
@@ -59,6 +65,7 @@ internal class PrivateIdentityDetector {
 
     companion object {
         private const val IDENTITY_CHARACTERS = "\\p{L}\\p{M}\\p{N}_'’\\-"
+        private val ordinaryMayRequest = Regex("(?<![$IDENTITY_CHARACTERS])I[ \\t]+(may)(?=[ \\t]+request(?![$IDENTITY_CHARACTERS]))", RegexOption.IGNORE_CASE)
         private const val WORD = "[\\p{L}][\\p{L}\\p{M}'’\\-]*"
         private const val CAPITALIZED_WORD = "[\\p{Lu}\\p{Lt}\\p{Lo}][\\p{L}\\p{M}'’\\-]*"
 

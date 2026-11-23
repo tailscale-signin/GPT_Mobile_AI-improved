@@ -89,6 +89,58 @@ class DiagnosticContentPolicyTest {
         for (structural in listOf("SYNTHETIC_FAILURE", "job-1", "FAILED", "SOURCE_CHANGED", "ASSIST_OFF")) assertTrue(structural, safe.contains(structural))
     }
 
+    @Test fun providerHttpErrorDetailsArePrivateByDefaultButExplicitForensicPreservesThem() {
+        val line = "eventId=provider-detail · HTTP_ERROR · status=400 · model=model-1 · detail=PRIVATE PROVIDER ORIGINAL synthetic-credential · errorCode=SYNTHETIC_FAILURE"
+        val redactor = DiagnosticContentRedactor(credentials = listOf("synthetic-credential"))
+        val safe = redactor.logLine(line)
+        assertFalse(safe, safe.contains("PRIVATE PROVIDER ORIGINAL"))
+        assertFalse(safe, safe.contains("synthetic-credential"))
+        for (field in listOf("eventId=provider-detail", "HTTP_ERROR", "status=400", "model=model-1", "errorCode=SYNTHETIC_FAILURE")) assertTrue(safe, safe.contains(field))
+        assertEquals(safe, redactor.logLine(safe))
+        val forensic = DiagnosticContentRedactor(DiagnosticContentMode.FULL_FORENSIC, listOf("synthetic-credential"))
+        assertEquals(line.replace("synthetic-credential", "[redacted]"), forensic.logLine(line))
+    }
+
+    @Test fun memoryFailureDetailsArePrivateBeforeFrozenLogRecordsAreExported() {
+        val line = "eventId=memory-detail · ENRICHMENT_EXCEPTION · cause=IllegalStateException · detail=PRIVATE MEMORY ORIGINAL synthetic-credential"
+        val redactor = DiagnosticContentRedactor(credentials = listOf("synthetic-credential"))
+        val frozen = redactor.logLine(line)
+        val record = buildJsonObject {
+            put("source", "critical-log")
+            put("line", frozen)
+        }
+        val safe = redactor.redact(record) as JsonObject
+        assertFalse(safe.toString().contains("PRIVATE MEMORY ORIGINAL"))
+        assertFalse(safe.toString().contains("synthetic-credential"))
+        assertEquals(JsonPrimitive("critical-log"), safe["source"])
+        for (field in listOf("eventId=memory-detail", "ENRICHMENT_EXCEPTION", "cause=IllegalStateException")) assertTrue(safe.toString(), safe.toString().contains(field))
+        assertEquals(JsonPrimitive(frozen), safe["line"])
+        assertEquals(safe, redactor.redact(safe))
+        val forensic = DiagnosticContentRedactor(DiagnosticContentMode.FULL_FORENSIC, listOf("synthetic-credential"))
+        assertEquals(line.replace("synthetic-credential", "[redacted]"), forensic.logLine(line))
+    }
+
+    @Test fun jsonDetailStringsArePrivateWithoutDroppingStructuredFailureEvidence() {
+        val fixture = Json.parseToJsonElement(
+            """{"rowId":42,"detail":"PRIVATE ORIGINAL synthetic-credential","nested":{"detail":"PRIVATE NESTED ORIGINAL","errorCode":"SYNTHETIC_FAILURE","http_status":400},"details":{"code":"SYNTHETIC_FAILURE","failed_stage":"provider_generation","dispatched":true,"remote_acceptance":"UNKNOWN","retry_after_ms":2000},"receipt":{"reason":"ASSIST_OFF","reasonCode":"ASSIST_OFF"},"embedded":"{\"detail\":\"PRIVATE EMBEDDED ORIGINAL\",\"http_status\":400,\"code\":\"SYNTHETIC_FAILURE\"}"}"""
+        ) as JsonObject
+        val redactor = DiagnosticContentRedactor(credentials = listOf("synthetic-credential"))
+        val safe = redactor.redact(fixture) as JsonObject
+        assertFalse(safe.toString().contains("PRIVATE "))
+        assertFalse(safe.toString().contains("synthetic-credential"))
+        assertEquals(fixture["rowId"], safe["rowId"])
+        assertEquals(fixture["details"], safe["details"])
+        assertEquals(fixture["receipt"], safe["receipt"])
+        assertEquals(JsonPrimitive(400), (safe["nested"] as JsonObject)["http_status"])
+        assertTrue(safe["embedded"].toString().contains("SYNTHETIC_FAILURE"))
+        assertEquals(safe, redactor.redact(safe))
+        val forensic = DiagnosticContentRedactor(DiagnosticContentMode.FULL_FORENSIC, listOf("synthetic-credential")).redact(fixture) as JsonObject
+        assertEquals(JsonPrimitive("PRIVATE ORIGINAL [redacted]"), forensic["detail"])
+        assertTrue(forensic["embedded"].toString().contains("PRIVATE EMBEDDED ORIGINAL"))
+        assertFalse(forensic.toString().contains("synthetic-credential"))
+        assertEquals(fixture["details"], forensic["details"])
+    }
+
     @Test fun labelledAndEmbeddedLogTopologyAndErrorContentAreRedactedBeforeFreezing() {
         val redactor = DiagnosticContentRedactor()
         val lines = listOf(

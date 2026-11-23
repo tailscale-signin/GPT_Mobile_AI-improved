@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.privacy
 
+import java.security.MessageDigest
 import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -7,6 +8,8 @@ import javax.crypto.spec.GCMParameterSpec
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+
+private val ordinaryModalProofAuthority = Any()
 
 /** Request-scoped markers cannot accidentally restore lookalike text from an earlier turn. */
 internal class PrivateTextMask(
@@ -70,22 +73,43 @@ internal class PrivateTextMask(
             }
         }
         val ranges = mutableListOf<PrivacyProtectedRange>()
+        val ordinaryModals = detector.ordinaryModalRanges(input)
+        var nextModal = 0
+        val copiedModals = mutableListOf<Pair<PrivacyProtectedRange, PrivacyProtectedRange>>()
+        val generatedMarkers = linkedSetOf<String>()
+        fun StringBuilder.copySource(from: Int, until: Int) {
+            val destination = length
+            append(input, from, until)
+            // Only a complete actual copy can mint evidence. Every protected overlap,
+            // including custom terms, wins without rescanning all spans for every gap.
+            while (nextModal < ordinaryModals.size && ordinaryModals[nextModal].first < until) {
+                val occurrence = ordinaryModals[nextModal++]
+                if (occurrence.first >= from && occurrence.last < until) {
+                    copiedModals += PrivacyProtectedRange(occurrence.first, occurrence.last + 1) to
+                        PrivacyProtectedRange(destination + occurrence.first - from, destination + occurrence.last + 1 - from)
+                }
+            }
+        }
         val text = buildString {
             var previousEnd = 0
             spans.forEach { span ->
-                append(input, previousEnd, span.range.first)
+                copySource(previousEnd, span.range.first)
                 val end = span.range.last + 1
                 ranges += PrivacyProtectedRange(span.range.first, end)
-                append(marker(input.substring(span.range.first, end), span.kind))
+                append(marker(input.substring(span.range.first, end), span.kind).also(generatedMarkers::add))
                 previousEnd = end
             }
-            append(input, previousEnd, input.length)
+            copySource(previousEnd, input.length)
         }
         inspectedSurfaces++
         originalCharacters += input.length
         protectedCharacters += ranges.sumOf { (it.endExclusive - it.start).toLong() }
         transformedCharacters += text.length
-        return PrivateProtectedText(text, PrivacyProtectionReceipt.create(input, ranges))
+        val receipt = PrivacyProtectionReceipt.create(input, ranges)
+        val ordinaryModalProof = copiedModals.takeIf { it.isNotEmpty() }?.let {
+            PrivateOrdinaryModalProof(ordinaryModalProofAuthority, receipt.contentDigest, text, prefix, generatedMarkers, it)
+        }
+        return PrivateProtectedText(text, receipt, ordinaryModalProof)
     }
 
     fun sealForResponse(): (String) -> String {
@@ -140,6 +164,62 @@ internal class PrivateTextMask(
             } finally {
                 bytes.fill(0)
             }
+        }
+    }
+}
+
+/** Local capability from actual detector/copy operations; never serialized or inferred from a gap. */
+internal class PrivateOrdinaryModalProof(
+    private val authority: Any,
+    private val originalDigest: String,
+    masked: String,
+    private val markerPrefix: String,
+    generatedMarkers: Set<String>,
+    copies: List<Pair<PrivacyProtectedRange, PrivacyProtectedRange>>
+) {
+    private val maskedDigest = digest(masked)
+    private val requiredMarkers = generatedMarkers.toSet()
+    private val copiedRanges = copies.toList()
+    private val destinations = copiedRanges.map { it.second }.toSet()
+
+    fun validFor(original: String, protected: PrivateProtectedText): Boolean {
+        var nextProtected = 0
+        return authority === ordinaryModalProofAuthority &&
+            copiedRanges.isNotEmpty() &&
+            originalDigest == protected.receipt.contentDigest &&
+            matches(protected.text) &&
+            copiedRanges.all { (source, destination) ->
+                while (nextProtected < protected.receipt.ranges.size && protected.receipt.ranges[nextProtected].endExclusive <= source.start) nextProtected++
+                val overlap = protected.receipt.ranges.getOrNull(nextProtected)?.let { it.start < source.endExclusive } == true
+                source.start >= 0 &&
+                    source.endExclusive <= original.length &&
+                    source.endExclusive - source.start == 3 &&
+                    destination.start >= 0 &&
+                    destination.endExclusive <= protected.text.length &&
+                    destination.endExclusive - destination.start == 3 &&
+                    original.substring(source.start, source.endExclusive).equals("may", ignoreCase = true) &&
+                    original.substring(source.start, source.endExclusive) == protected.text.substring(destination.start, destination.endExclusive) &&
+                    !overlap
+            }
+    }
+
+    fun belongsTo(issuedMarkers: Set<String>): Boolean =
+        authority === ordinaryModalProofAuthority &&
+            issuedMarkers.isNotEmpty() &&
+            issuedMarkers.all { it.startsWith(markerPrefix) } &&
+            requiredMarkers.all { it in issuedMarkers }
+
+    fun matches(text: String): Boolean = MessageDigest.isEqual(maskedDigest, digest(text))
+
+    fun copiedOccurrence(start: Int, endExclusive: Int): Boolean =
+        PrivacyProtectedRange(start, endExclusive) in destinations
+
+    private fun digest(text: String): ByteArray {
+        val bytes = text.encodeToByteArray()
+        return try {
+            MessageDigest.getInstance("SHA-256").digest(bytes)
+        } finally {
+            bytes.fill(0)
         }
     }
 }

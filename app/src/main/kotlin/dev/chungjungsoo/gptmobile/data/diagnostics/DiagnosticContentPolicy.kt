@@ -180,7 +180,7 @@ internal class DiagnosticContentRedactor(
                 break
             }
             val prefix = value.substring(offset, start)
-            val privatePayload = privateLogAssignment.findAll(prefix).lastOrNull()?.let { it.range.last == prefix.lastIndex && it.groupValues[2].isBlank() } == true
+            val privatePayload = privateLogAssignment.findAll(prefix).lastOrNull()?.let { it.range.last == prefix.lastIndex } == true
             append(scrubLogAssignments(prefix))
             val redactedLabel = redactedLogLabels.firstOrNull { value.startsWith(it, start) }
             if (redactedLabel != null) {
@@ -263,9 +263,12 @@ internal class DiagnosticContentRedactor(
             "profilename", "connectionname", "profilelabel", "connectionlabel",
             "error", "failuremessage", "failurereason", "terminalreason", "lasterror", "errormessage", "errorbody"
         )
+
+        // Provider and memory failures use `detail` for arbitrary exception text.
+        // Structured `details` objects still recurse so their safe evidence survives.
         private val privateTextField = Regex(
             "(?:.*(?:content|text|prompt|query|thoughts|thinking|reasoningtext|reasoningcontent|reasoningdetails|snippet|quote|errormessage|errorbody|failuremessage|failurereason|terminalreason|lasterror)|" +
-                "title|description|summary|rationale|explanation|answer|output|input|body|message|error|terminalerror|" +
+                "title|description|detail|summary|rationale|explanation|answer|output|input|body|message|error|terminalerror|" +
                 "composerdraft|draft|result|document|payload|request|response|reasoning|email|emailaddress|phone|phonenumber|address|recipient|sender)"
         )
 
@@ -275,7 +278,7 @@ internal class DiagnosticContentRedactor(
         private val logFieldBoundary = Regex("[ \\t]*·|[\\r\\n]|[ \\t]+[A-Za-z][A-Za-z0-9_]*[ \\t]*[:=]")
         private val privateLogAssignment = Regex(
             "(?i)((?<![\\w])(?:" +
-                (configuredTopologyFields + setOf("profilename", "connectionname", "profilelabel", "connectionlabel", "failuremessage", "failurereason", "terminalreason", "lasterror", "errormessage", "errorbody", "error")).joinToString("|") { field ->
+                (configuredTopologyFields + setOf("profilename", "connectionname", "profilelabel", "connectionlabel", "failuremessage", "failurereason", "terminalreason", "lasterror", "errormessage", "errorbody", "error", "detail")).joinToString("|") { field ->
                     field.toList().joinToString("[_-]?")
                 } +
                 ")[ \\t]*[:=][ \\t]*)([^·\\r\\n]*?)(?=[ \\t]+[A-Za-z][A-Za-z0-9_]*[ \\t]*[:=]|[ \\t]*·|[\\r\\n]|$)"

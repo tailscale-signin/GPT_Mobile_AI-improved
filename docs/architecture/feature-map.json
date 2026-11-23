@@ -102,7 +102,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderStream.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderResponse.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderSession.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateIdentityDetector.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt",
@@ -122,7 +123,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderStreamTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderCallTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderStreamAuthorityTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExportTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateModalDispatchTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -138,7 +140,8 @@
         "Private plain-text replies restore incrementally; local tool control remains separately validated.",
         "Diagnostic content defaults to redacted; full forensic consent and resume identity are separate.",
         "Synthetic local checks report measured privacy, intent and timing scope without claiming cloud quality or accelerator execution.",
-        "Masked fallback publication revalidates captured provider and retained-source authority before each output; revoked authority preserves partial failure and never replays output."
+        "Masked fallback publication revalidates captured provider and retained-source authority before each output; revoked authority preserves partial failure and never replays output.",
+        "Ordinary modal collisions require positive detector classification and exact request-local copied-span provenance; protected overlaps and all other known-value checks remain authoritative."
       ]
     },
     {
@@ -567,9 +570,9 @@
       "sha256": "ef8e7d220d195bfd97ef1ee85e3f43b24fbbbb964b6941659e3a29debbf1e712"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticContentPolicy.kt": {
-      "blob_sha": "e6ec05ac4447ca28af781202ca8bd12b9cba2f62",
-      "bytes": 20537,
-      "sha256": "b89115da1d8cd2363c7a776270ad9b77bc95a7b5a4e4c009497eaae29c655e2f"
+      "blob_sha": "72aab6830c9e53187a522336fe30f26695895c72",
+      "bytes": 20694,
+      "sha256": "b555f32d2d5e3d6826afa14d6fb9020511521bcd065d0510b3bea5dd03be915e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingRecorder.kt": {
       "blob_sha": "8207818559964f047cabf338c2e52fdb165a6ef7",
@@ -722,14 +725,19 @@
       "sha256": "03407f7d5610584596c0074aab8fe55a9066a8426bed6eb01697d9de679a4c49"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProtectionReceipt.kt": {
-      "blob_sha": "9ae86dc5ed1d5fd42f3c26578aa69c474a2beb9e",
-      "bytes": 5414,
-      "sha256": "8154b8ec4c6df8613cca6029a61c711adec7032e12d893524b6824cd5124dfa9"
+      "blob_sha": "7eff2e09ccf267b180a4f2fdb75934fb1c991fec",
+      "bytes": 5487,
+      "sha256": "b2430b78bd8e03bc23fdd7ab289aaee64fa3f0aab691fbc7a511317427bf4998"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateDispatchContext.kt": {
-      "blob_sha": "c2f70b3db126666d4f10cb7dcd7c1f528310a32d",
-      "bytes": 14243,
-      "sha256": "347ab5710c23e6373831c11c811008f9e3ba2854f10de87e4acd3ea1132f2a58"
+      "blob_sha": "194104fe4b64bdf969e9fb97bf3dd5c0fe3a1b1b",
+      "bytes": 22083,
+      "sha256": "fb54ea456520ac2821287d7b08e34c1598f76136e8578db71f6ea193b746a9f5"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateIdentityDetector.kt": {
+      "blob_sha": "76183181075ef3bbdf11cdf5eb64e35690e75e6c",
+      "bytes": 6828,
+      "sha256": "36de237c54bc10580dd4f1460117949b78ee9f2904bae1120da8d4f1c27c4a5f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt": {
       "blob_sha": "6a34da5b4f3698427dcaddd00611bf596c8863a9",
@@ -757,14 +765,14 @@
       "sha256": "8902acff93bfc4f262455be36ff98ed88c111f2dff3b861c94af1dca6df213dc"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextDetection.kt": {
-      "blob_sha": "fe51a9c999adfe54ea1a5b47a626dee8bc773dbf",
-      "bytes": 17562,
-      "sha256": "d18032958b8810ae2b79141a4609c7252ec29daa564abb3ccf24278250bf3e76"
+      "blob_sha": "fbd78f32f5a558649d1cfef23fecebc22c69c0c8",
+      "bytes": 17749,
+      "sha256": "3e178329bfdce32c658d94c771d787ecd679865e28632c5834a5642b5b01fa98"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMask.kt": {
-      "blob_sha": "96e8daae1b8ccd836678a09b1e07feb43588f0e5",
-      "bytes": 7294,
-      "sha256": "23d145bf672984030b73bca0efe196f9dc42b183e0abf81a8703ab9d43ce88fd"
+      "blob_sha": "2564b064fe5d09ae7373fd0fb0d649a7167ee96b",
+      "bytes": 11391,
+      "sha256": "055cab72c57e3fc35d137345ffdf609c4aa29a208cb844b1d943c0d4860c180f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt": {
       "blob_sha": "8e001a8db1fe0306d53562441ef4607ac6789e1c",
@@ -1032,9 +1040,9 @@
       "sha256": "ac137d44645c65ca026c2737934c64c4ae9aaa5b71dfb86b4c0a48d858f5d44e"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticContentPolicyTest.kt": {
-      "blob_sha": "c7f39c5b0612c6df03eba988b0409c81494796e0",
-      "bytes": 40414,
-      "sha256": "6a33e360a1f5f7efe7c49bf868953f2cfa94292bb9b932da6e5de869d3c8f083"
+      "blob_sha": "2cfc1b9e99fae412f8fd0ea566581fac296a5d44",
+      "bytes": 44450,
+      "sha256": "5db4ff2c90ade74da7fbbe34ec4762bd1b6ce25efcc157e684c737c453859433"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingWindowTest.kt": {
       "blob_sha": "af921aca9cb36b48fc617d46834a453defc52912",
@@ -1186,6 +1194,11 @@
       "bytes": 15445,
       "sha256": "5d6c3b7d440d9685b1a841bc3845a8965d9f1ef92ecb0ce58df81dd13db5bd6e"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateModalDispatchTest.kt": {
+      "blob_sha": "8b54004f150f66583bea50fcaa9dea57f83e2819",
+      "bytes": 13741,
+      "sha256": "5f301f8b5f358913b552ee3f84c65ed1ca4b0af18e080aaebad6bc9f65cbdcae"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivatePlainConversationSessionTest.kt": {
       "blob_sha": "579ad0577208db923dc5aaa85fd29e0985e6851e",
       "bytes": 10824,
@@ -1202,9 +1215,9 @@
       "sha256": "6dc85781f501a07e2e4a28f81786ab1a0a1206a617fe56b73fc464d7729caf7c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMaskCorpusTest.kt": {
-      "blob_sha": "0000e5b36e1fc74114a12d46987403c8e1db0ea4",
-      "bytes": 18445,
-      "sha256": "162135fb21139f80923c6ba712aeb6904c03b9345f17bf467b23870fb83df513"
+      "blob_sha": "e44b6a5db93f117dd1fcc7ab820adfa8904b064c",
+      "bytes": 20236,
+      "sha256": "b5b878311386661aba4c8ed7f1943bba26d1de064c74d980eea8d3119cb2db95"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPlaybackObservationTest.kt": {
       "blob_sha": "845c61972ba1d9c46476916ce3d8d4b27439b0a1",

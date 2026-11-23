@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "44dbbf73559fa75c61e416725fddc1337f6814d4911ed84fcc4ce57d0a14d0ed"
+    val sourceDigest: String = "767836cfb217b6842c21f29274c87783bfb54ca18409c54cae07532d7d29c259"
     val fileCount: Int = 3028
-    val lineCount: Int = 512818
+    val lineCount: Int = 513024
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -40,9 +40,9 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14068),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 47, 5084),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 111, 15091),
-        AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 104, 16444),
+        AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 104, 16447),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 147, 24587),
-        AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 49, 7011),
+        AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 49, 7214),
         AppAuditSourceArea("voice_and_media", "Voice and media", 85, 15288),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4095),

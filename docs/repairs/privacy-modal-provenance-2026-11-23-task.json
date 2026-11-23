@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-modal-provenance-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "d358ebdeed51910dabdcb0f36c5eddef4a90dcbc",
+  "observedSharedHead": "bd503c2de077900150daea8ee63270eb2a472879",
+  "workingBranch": "work/privacy-modal-provenance-2026-11-23",
+  "parentPullRequest": 2367,
+  "state": "CANDIDATE_FOCUSED_VALIDATED_AWAITING_PARENT_INTEGRATION",
+  "intent": "Permit only detector-classified ordinary modal may occurrences copied unchanged by the actual masker into the same request surface; preserve final known-value checks elsewhere, exact app-owned protocol suffix proof, guard, full-wire HMAC and truthful scoped evidence.",
+  "scope": "Positive first-person I may request grammar plus discovered May surname; exact actual masker copy provenance; user/history surfaces only; other ambiguous constructions and system-prefix homographs remain fail-closed.",
+  "constraints": [
+    "No remote or CI mutations, new dependencies, broad audit or shared source edits.",
+    "No exemptions inferred from ordinary unprotected gaps or whole messages.",
+    "Preserve all external correction reservations; immutable d358 remains the local comparison base even if shared head advances.",
+    "Use existing focused real Kotlin/JUnit closure, document unreachable seams and retain exact source identity."
+  ],
+  "integrationOwner": "final_ci_platforms; parent owns generated metadata, scope, canonical validation, public coordination and integration",
+  "observedSubsequentHead": "3a98cf1ae64847e2640d3c70d3605c7a1f5a2c71",
+  "composition": "The later HEALTH changes in PrivateTextDetection and authority changes in PrivateLocalToolSession/MaskedProviderSession are independently owned and must be retained. This patch adds one localized detector helper and does not edit either session.",
+  "change": [
+    "Recognize only first-person I may request grammar when May is a discovered surname; other ordinary-looking gaps are not evidence.",
+    "The actual masker maps only complete unchanged copies of recognized occurrences outside all protected spans, including explicit-private-term overlaps.",
+    "Bind the local nonserialized capability to exact source/masked digests, request marker namespace, issued tokens, surface kind and ordinal; consume each original surface once per validation.",
+    "Retain every other known-value scan, including cross-surface detector misses, nested JSON, removed-marker joins and typed block metadata. Keep original payload HMAC and scoped success with explicit retained-occurrence counters.",
+    "Use source-ordered cursors and destination-range membership so the new provenance checks do not repeatedly scan every span."
+  ],
+  "verification": {
+    "baseCommit": "d358ebdeed51910dabdcb0f36c5eddef4a90dcbc",
+    "baseline": "Exact d358 detector/mask/receipt/final validator rejects the new positive May regression at the final boundary, as expected.",
+    "candidate": {
+      "tests": 68,
+      "passed": 68,
+      "failed": 0,
+      "skipped": 0,
+      "newMethods": 16,
+      "retainedMethodsExecuted": 52,
+      "junitRunTimeMs": 822
+    },
+    "executionScope": "Existing Kotlin2.4.20/JUnit4.13.2/Java21 real pure closure, no behavior stubs. Uncalled Builder.systemPrompt/import and unrelated category-store/entity/UI dependency seams are omitted with recorded exact source bounds.",
+    "unexecuted": [
+      "Three existing protocol-specific PrivateDispatchContext methods requiring Builder.systemPrompt remain unchanged in repository source but are outside this local closure.",
+      "Full Android/provider/network/Compose and final combined-source hosted qualification.",
+      "Generated references/inventory/scope and canonical checks are the parent integration owner\u2019s next step."
+    ],
+    "limitations": [
+      "Only the demonstrated first-person may request construction with a discovered May surname is classified.",
+      "Only exact recorded user/history text has copied-occurrence provenance. System-prefix homographs and unsupported/ambiguous language remain fail-closed.",
+      "The later actual main/HEALTH/authority/producer-redaction source must be composed and validated; this isolated d358 source is not the current public head."
+    ]
+  },
+  "integration": {
+    "startingHead": "d646f28fbb170e381c7788f51cf98c77f2973672",
+    "baseMain": "8095c1aee67b64584033289944eff1dfac7a7b48",
+    "owner": "root",
+    "composition": "Frozen modal patch applied after reviewed detail/address/contextual-surname corrections. Preserve all incoming path/tool-result, HEALTH, repeated-cancellation, producer-schema, authority and protocol changes.",
+    "qualification": "Fresh current-source focused and canonical checks, independent preservation and exact-head hosted execution remain required. Historical68 control evidence stays bound to its original source.",
+    "previousFocusedSource": "f45938f1b15d2734144cc9c3e22c155c6502d7a1",
+    "subsequentComposition": "The d646 catalog correction is disjoint from every focused privacy/diagnostic input. Preserve it and disclose the new scope limitation in release notes. Rebind exact source inputs and repeat canonical metadata checks."
+  }
+}

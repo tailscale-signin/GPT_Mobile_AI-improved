@@ -45,6 +45,8 @@ Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains 
 
 ## Privacy detection, streaming and exports
 
+- Remove provider and memory free-form failure details from default diagnostic captures, while retaining typed failure evidence and credential-redacted forensic content.
+- Preserve ordinary address task wording and contextual names without hiding unrelated words; retain the supported ordinary modal phrase only with exact request-local copy evidence.
 - Keep useful task wording and document labels visible while masking contextual names, ordinal dates, locale currency amounts, linked domains, private address fragments and sensitive personal clauses. Mask a declared residence while preserving an unrelated search region.
 - Explain typed local value tokens to the selected model and restore ordinary private answers as chunks arrive. Keep local tool decisions separately validated, reject altered owned markers, and report possible unfilled protected fields without silently replaying partial output.
 - Retain content-free evidence from the final outbound body: detected-span counts, policy and detector revisions, request-linked fingerprints, and separate upstream/restoration timings. This checks known protected values and does not claim complete detection or verified provider retention.
@@ -289,3 +291,5 @@ Silent inference and audible playback are separate speech measurements. First PC
 Prepared Android compilation requires at least 8,960 MiB of observed RAM/cgroup headroom for its fixed 6 GiB heap. The existing 8 GiB container default is refused; an operator must explicitly approve sufficient resources. The preflight does not reserve future memory.
 
 - Privacy masking protects detected spans and explicit private terms; final-wire evidence checks known protected values in supported text surfaces. Synthetic phrase preservation and CPU timing do not qualify arbitrary private-data detection, live provider answer quality, provider retention or GPU/NPU execution. Full forensic diagnostic export deliberately includes more content after explicit preview; private memory indexing still requires an authorized ready local model.
+
+- The ordinary modal exception is limited to positively classified I may request wording with a discovered May surname and an exact user or history surface. Other ambiguous language and system-prefix collisions remain fail-closed; general semantic name disambiguation is not claimed.

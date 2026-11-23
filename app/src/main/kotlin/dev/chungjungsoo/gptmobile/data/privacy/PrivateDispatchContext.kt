@@ -21,6 +21,9 @@ import kotlinx.serialization.json.put
 
 internal enum class PrivateDispatchSurfaceKind { USER_MESSAGE, ASSISTANT_HISTORY, SYSTEM_PROMPT, TOOL_RESULT }
 
+private data class PrivateTextPosition(val kind: PrivateDispatchSurfaceKind, val ordinal: Int)
+private data class OrdinaryModalSurface(val position: PrivateTextPosition, val proof: PrivateOrdinaryModalProof)
+
 /** Only counts, revisions and a request-keyed fingerprint leave this request's local lifetime. */
 internal class PrivateDispatchContext private constructor(
     private val policyRevision: Long,
@@ -35,6 +38,7 @@ internal class PrivateDispatchContext private constructor(
     private val maskSummary: PrivateMaskSummary?,
     private val issuedMarkers: Set<String>,
     private val appOwnedSystemTexts: List<AppOwnedSystemText>,
+    private val ordinaryModalSurfaces: List<OrdinaryModalSurface>,
     private val decryptValues: () -> List<String>
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<PrivateDispatchContext> {
@@ -43,14 +47,14 @@ internal class PrivateDispatchContext private constructor(
         private val systemKeys = setOf("system", "instructions", "systemInstruction", "system_instruction")
         private val markerShape = Regex("\\[PRIVATE_[a-f0-9]{32}_[A-Z][A-Z_]{0,31}_\\d{1,10}]")
 
-        private fun containsValue(text: String, value: String): Boolean {
+        private fun containsValue(text: String, value: String, allowed: (Int, Int) -> Boolean = { _, _ -> false }): Boolean {
             if (value.isEmpty()) return false
             var start = text.indexOf(value, ignoreCase = true)
             while (start >= 0) {
                 val end = start + value.length
                 val left = !value.first().isLetterOrDigit() || start == 0 || !text[start - 1].isLetterOrDigit()
                 val right = !value.last().isLetterOrDigit() || end == text.length || !text[end].isLetterOrDigit()
-                if (left && right) return true
+                if (left && right && !allowed(start, end)) return true
                 start = text.indexOf(value, start + 1, ignoreCase = true)
             }
             return false
@@ -73,12 +77,16 @@ internal class PrivateDispatchContext private constructor(
         var inspected = 0
         var validatedPublicSuffixes = 0
         var validatedPublicCharacters = 0
+        var validatedModalSurfaces = 0
+        var retainedModalOccurrences = 0
         val outcome = if (!permissionRevision.endsWith(":privacy-$policyRevision")) {
             "POLICY_REVISION_MISMATCH"
         } else {
             try {
                 val values = decryptValues()
-                fun leaked(element: JsonElement, textSurface: Boolean = false, systemSurface: Boolean = false, depth: Int = 0): Boolean {
+                val usedModalSurfaces = hashSetOf<Int>()
+                val positionCounts = mutableMapOf<PrivateDispatchSurfaceKind, Int>()
+                fun leaked(element: JsonElement, textSurface: Boolean = false, systemSurface: Boolean = false, depth: Int = 0, position: PrivateTextPosition? = null): Boolean {
                     check(depth <= 64) { "PRIVATE_WIRE_DEPTH_EXCEEDED" }
                     return when (element) {
                         is JsonObject -> element.any { (name, value) -> leaked(value, textSurface || name in textKeys, systemSurface, depth + 1) }
@@ -98,21 +106,111 @@ internal class PrivateDispatchContext private constructor(
                                 } else {
                                     element.content
                                 }
-                                // Generated markers contain category names and ordinals, not source values.
-                                val text = markerShape.replace(sourceText) { match -> if (match.value in issuedMarkers) "" else match.value }
-                                values.any { containsValue(text, it) } ||
+                                // One recorded occurrence may authorize only its exact original role/ordinal.
+                                // Nested JSON and arbitrary content fields never inherit this provenance.
+                                val modalIndex = ordinaryModalSurfaces.indexOfFirst { candidate ->
+                                    candidate.position == position && candidate.proof.matches(sourceText)
+                                }.takeIf { it >= 0 && it !in usedModalSurfaces }
+                                val modal = modalIndex?.let {
+                                    usedModalSurfaces += it
+                                    ordinaryModalSurfaces[it].proof
+                                }
+                                val sourceOffsets = modal?.let { IntArray(sourceText.length) }
+                                // Preserve the existing marker-stripped scan, including matches spanning
+                                // a removed marker. Only contiguous original modal offsets may be exempt.
+                                var destination = 0
+                                var previousEnd = 0
+                                val text = if (sourceOffsets == null) {
+                                    markerShape.replace(sourceText) { match -> if (match.value in issuedMarkers) "" else match.value }
+                                } else {
+                                    buildString {
+                                        fun copyUntil(end: Int) {
+                                            while (previousEnd < end) {
+                                                sourceOffsets[destination++] = previousEnd
+                                                append(sourceText[previousEnd++])
+                                            }
+                                        }
+                                        markerShape.findAll(sourceText).filter { it.value in issuedMarkers }.forEach { match ->
+                                            copyUntil(match.range.first)
+                                            previousEnd = match.range.last + 1
+                                        }
+                                        copyUntil(sourceText.length)
+                                    }
+                                }
+                                val retained = hashSetOf<Pair<Int, Int>>()
+                                val knownValueLeaked = values.any { value ->
+                                    containsValue(text, value) { start, end ->
+                                        if (modal == null || sourceOffsets == null) {
+                                            false
+                                        } else {
+                                            val from = sourceOffsets[start]
+                                            val until = sourceOffsets[end - 1] + 1
+                                            (until - from == end - start && modal.copiedOccurrence(from, until)).also { allowed ->
+                                                if (allowed) retained += from to until
+                                            }
+                                        }
+                                    }
+                                }
+                                if (retained.isNotEmpty()) {
+                                    validatedModalSurfaces++
+                                    retainedModalOccurrences += retained.size
+                                }
+                                knownValueLeaked ||
                                     (text.trimStart().firstOrNull() in setOf('{', '[') && runCatching { Json.parseToJsonElement(text) }.getOrNull()?.let { leaked(it, true, false, depth + 1) } == true)
                             }
                         }
                     }
                 }
+                fun messageContentLeaks(content: JsonElement, position: PrivateTextPosition, depth: Int, google: Boolean): Boolean = when (content) {
+                    is JsonPrimitive -> if (google) leaked(content, depth = depth) else leaked(content, true, depth = depth, position = position)
+                    is JsonArray -> content.any { part ->
+                        val type = (part as? JsonObject)?.get("type") as? JsonPrimitive
+                        val plainText = part is JsonObject &&
+                            if (google) {
+                                part.keys == setOf("text")
+                            } else {
+                                type?.isString == true && type.content in setOf("text", "input_text")
+                            }
+                        if (plainText && part is JsonObject) {
+                            part.any { (field, value) ->
+                                if (field == "text" && value is JsonPrimitive && value.isString) {
+                                    leaked(value, true, depth = depth + 2, position = position)
+                                } else {
+                                    leaked(value, !google, depth = depth + 2)
+                                }
+                            }
+                        } else {
+                            leaked(part, !google, depth = depth + 1)
+                        }
+                    }
+                    else -> leaked(content, !google, depth = depth)
+                }
                 fun requestLeaks(document: JsonElement): Boolean {
                     if (document !is JsonObject) return leaked(document)
                     return document.any { (name, value) ->
-                        if (name == "messages" && value is JsonArray) {
+                        if (name in setOf("messages", "contents") && value is JsonArray) {
                             value.any { message ->
                                 val role = (message as? JsonObject)?.get("role") as? JsonPrimitive
-                                if (message is JsonObject && role?.isString == true && role.content in setOf("system", "developer")) {
+                                val kind = if (role?.isString == true) {
+                                    when {
+                                        role.content == "user" -> PrivateDispatchSurfaceKind.USER_MESSAGE
+                                        name == "messages" && role.content == "assistant" || name == "contents" && role.content == "model" -> PrivateDispatchSurfaceKind.ASSISTANT_HISTORY
+                                        else -> null
+                                    }
+                                } else {
+                                    null
+                                }
+                                if (message is JsonObject && kind != null) {
+                                    val ordinal = positionCounts.getOrDefault(kind, 0)
+                                    positionCounts[kind] = ordinal + 1
+                                    message.any { (field, content) ->
+                                        if (field == if (name == "contents") "parts" else "content") {
+                                            messageContentLeaks(content, PrivateTextPosition(kind, ordinal), 3, name == "contents")
+                                        } else {
+                                            leaked(content, field in textKeys, depth = 3)
+                                        }
+                                    }
+                                } else if (name == "messages" && message is JsonObject && role?.isString == true && role.content in setOf("system", "developer")) {
                                     message.any { (field, content) -> leaked(content, field in textKeys, field == "content", 3) }
                                 } else {
                                     leaked(message, depth = 2)
@@ -140,10 +238,13 @@ internal class PrivateDispatchContext private constructor(
             put("policy_revision", policyRevision)
             put("detector_revision", detectorRevision)
             put("coverage", COVERAGE)
-            put("known_value_scope", "TEXT_SURFACES_EXCLUDING_VALIDATED_APP_OWNED_PUBLIC_SUFFIXES")
+            put("known_value_scope", if (retainedModalOccurrences == 0) "TEXT_SURFACES_EXCLUDING_VALIDATED_APP_OWNED_PUBLIC_SUFFIXES" else "TEXT_SURFACES_EXCLUDING_VALIDATED_PUBLIC_SUFFIXES_AND_PROVEN_ORDINARY_MODAL_OCCURRENCES")
             put("app_owned_public_suffix_scope", "EXACT_REGISTERED_SYSTEM_VALUES")
             put("validated_app_owned_public_suffixes", validatedPublicSuffixes)
             put("validated_app_owned_public_characters", validatedPublicCharacters)
+            put("ordinary_modal_scope", "DETECTOR_CLASSIFIED_FIRST_PERSON_REQUEST_IN_EXACT_USER_OR_HISTORY_SURFACE")
+            put("validated_ordinary_modal_surfaces", validatedModalSurfaces)
+            put("retained_ordinary_modal_occurrences", retainedModalOccurrences)
             put("outcome", outcome)
             put("unrecognized_sensitive_values", "NOT_ASSESSED")
             put("provider_retention", "NOT_ASSESSED")
@@ -183,6 +284,7 @@ internal class PrivateDispatchContext private constructor(
         private var protectedRanges = 0
         private var sealed = false
         private val appOwnedSystemTexts = mutableListOf<AppOwnedSystemText>()
+        private val ordinaryModalSurfaces = mutableListOf<OrdinaryModalSurface>()
 
         /** Mint provenance only from the fixed app protocol and its actual no-tools transform. */
         fun systemPrompt(protocol: PrivateMarkerProtocol, maskedOriginal: String?): String {
@@ -200,6 +302,12 @@ internal class PrivateDispatchContext private constructor(
         fun record(kind: PrivateDispatchSurfaceKind, original: String, protected: PrivateProtectedText) {
             check(!sealed) { "PRIVATE_DISPATCH_BUILDER_SEALED" }
             require(protected.receipt.confirmed && protected.receipt.validFor(original)) { "PRIVATE_SOURCE_RECEIPT_INVALID" }
+            protected.ordinaryModalProof?.let { proof ->
+                require(proof.validFor(original, protected)) { "PRIVATE_MODAL_SOURCE_INVALID" }
+                if (kind in setOf(PrivateDispatchSurfaceKind.USER_MESSAGE, PrivateDispatchSurfaceKind.ASSISTANT_HISTORY)) {
+                    ordinaryModalSurfaces += OrdinaryModalSurface(PrivateTextPosition(kind, surfaces.getOrDefault(kind, 0)), proof)
+                }
+            }
             surfaces[kind] = surfaces.getOrDefault(kind, 0) + 1
             originalCharacters += original.length
             transformedCharacters += protected.text.length
@@ -212,6 +320,7 @@ internal class PrivateDispatchContext private constructor(
 
         fun seal(summary: PrivateMaskSummary? = null, issuedMarkers: Set<String> = emptySet()): PrivateDispatchContext {
             check(!sealed) { "PRIVATE_DISPATCH_BUILDER_SEALED" }
+            require(ordinaryModalSurfaces.all { it.proof.belongsTo(issuedMarkers) }) { "PRIVATE_MODAL_REQUEST_MISMATCH" }
             sealed = true
             val key = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
             val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key) }
@@ -226,7 +335,7 @@ internal class PrivateDispatchContext private constructor(
             values.clear()
             return PrivateDispatchContext(
                 policyRevision, categories.toSet(), summary?.detectorRevision ?: detectorRevision, surfaces.toMap(), originalCharacters,
-                transformedCharacters, protectedCharacters, protectedRanges, count, summary, issuedMarkers.toSet(), appOwnedSystemTexts.toList()
+                transformedCharacters, protectedCharacters, protectedRanges, count, summary, issuedMarkers.toSet(), appOwnedSystemTexts.toList(), ordinaryModalSurfaces.toList()
             ) {
                 val reader = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv)) }
                 val plaintext = reader.doFinal(encrypted)

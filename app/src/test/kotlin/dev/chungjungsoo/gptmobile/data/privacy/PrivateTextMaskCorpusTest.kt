@@ -15,6 +15,21 @@ class PrivateTextMaskCorpusTest {
     }
 
     @Test
+    fun contextualSurnameDoesNotHideAnOrdinaryModal() {
+        val input = "My name is Clara May. May said that I may request a refund."
+        val result = roundTrip(input)
+        hidden(result, "Clara May")
+        assertFalse(result.text.contains("May said"))
+        retained(result, "My name is", "said that I may request a refund.")
+        val fullName = input.indexOf("Clara May")
+        val surname = input.indexOf("May said")
+        assertEquals(
+            listOf(PrivacyProtectedRange(fullName, fullName + "Clara May".length), PrivacyProtectedRange(surname, surname + "May".length)),
+            result.receipt.ranges
+        )
+    }
+
+    @Test
     fun relationshipNamesStayLocalWithoutRemovingTravelIntent() {
         val result = roundTrip("My partner Maya and I want to go travelling. Suggest a quiet beach.")
         hidden(result, "Maya")
@@ -175,6 +190,34 @@ class PrivateTextMaskCorpusTest {
         val abbreviation = roundTrip("Address: 10 St. James Road, Unit 8, Westhaven. Please draft a notice.")
         hidden(abbreviation, "10 St.", "James", "Unit 8", "Westhaven")
         retained(abbreviation, "Please draft a notice")
+    }
+
+    @Test
+    fun ordinaryAddressVerbsDoNotBecomeLocationFields() {
+        listOf(
+            "Please address issues in the draft.",
+            "Please address attachments before sending.",
+            "Please address at-risk students in the report.",
+            "Keep addressIs unchanged in the code.",
+            "Keep addressAt unchanged in the code."
+        ).forEach { input ->
+            val result = roundTrip(input)
+            assertEquals(input, result.text)
+            assertTrue(result.receipt.ranges.isEmpty())
+        }
+    }
+
+    @Test
+    fun completeAddressSeparatorsStillProtectTheWholeField() {
+        val address = "Unit 8, Westhaven"
+        listOf("Home address:", "My address is", "Address at").forEach { label ->
+            val input = "$label $address; please draft a notice."
+            val result = roundTrip(input)
+            hidden(result, address)
+            retained(result, label, "; please draft a notice.")
+            val start = input.indexOf(address)
+            assertEquals(listOf(PrivacyProtectedRange(start, start + address.length)), result.receipt.ranges)
+        }
     }
 
     @Test

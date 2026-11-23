@@ -1228,7 +1228,8 @@
     "docs/repairs/hosted-test-call-contracts-2026-11-23-task.json",
     "scripts/check_android_unit_compile_memory.py",
     "scripts/tests/test_android_unit_compile_memory.py",
-    "docs/repairs/isolated-unit-compiler-2026-11-23-task.json"
+    "docs/repairs/isolated-unit-compiler-2026-11-23-task.json",
+    "docs/repairs/gateway-windows-job-budget-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.13",

@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "taskId": "gateway-windows-job-budget-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parentPullRequest": 2254,
+  "baseBranch": "main",
+  "mainBaseSha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "sourceBaseSha": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+  "workingBranch": "work/gateway-windows-budget-8318",
+  "intent": "Let the complete Windows Gateway matrix retain its existing per-suite watchdog budgets within a finite outer job, based on actual current-source cancellation timing.",
+  "status": "IMPLEMENTED_REVIEWED_INTEGRATED_FINAL_HOSTED_GATES_PENDING",
+  "observed": {
+    "runId": 45109108327,
+    "attempt": 1,
+    "headSha": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+    "mergeCheckoutSha": "cbf38dfbd15c2a6e0eae9cc72d17907aef8c58a4",
+    "windows312": {
+      "jobId": 137477182530,
+      "startedAt": "2026-11-23T03:59:20Z",
+      "interruptedAt": "2026-11-23T04:24:22Z",
+      "conclusion": "cancelled",
+      "lastCompletedSuiteAt": "2026-11-23T04:19:53.3767722Z",
+      "completedSuiteSummaries": 145,
+      "reportedCases": 2019,
+      "stressStatus": "NOT_COMPLETED",
+      "explanation": "Cancellation occurred at approximately the configured 25-minute outer budget while check_gateway was waiting for its final stress subprocess. Check-run annotations were unavailable through the connector; timeout attribution is an inference from exact timing and workflow configuration, not a direct annotation."
+    },
+    "windows313": {
+      "jobId": 137477182797,
+      "conclusion": "success",
+      "startedAt": "2026-11-23T03:59:26Z",
+      "completedAt": "2026-11-23T04:15:56Z",
+      "completedSuiteSummaries": 146,
+      "reportedCases": 2020,
+      "stressSeconds": 186.908,
+      "browserCases": 7,
+      "authenticationCases": 209
+    }
+  },
+  "change": {
+    "windowsOuterJobMinutes": {
+      "before": 25,
+      "after": 35
+    },
+    "linuxOuterJobMinutes": 15,
+    "ordinarySuiteSeconds": 120,
+    "windowsEngineeringSuiteSeconds": 480,
+    "stressSuiteSeconds": 600,
+    "browserProcessSeconds": 30,
+    "rationale": "Observed setup and pre-stress completion took about 20m33s. Preserve the full existing 10-minute stress allowance, leaving more than four minutes for browser/authentication steps and cleanup within 35 minutes. No suite deadline, worker count, test, assertion, subprocess watchdog or failure result changes."
+  },
+  "validation": {
+    "canonicalFast": {
+      "status": "PASS",
+      "tests": 650,
+      "seconds": 23.126,
+      "logSha256": "860bbf4f1ed27f7c84b7d9ea43a289cf27b767f02b97cd33caf209ff17ad6ccb",
+      "literalRegexes": 2038,
+      "dynamicRegexExclusions": 100,
+      "xmlResources": 36
+    },
+    "releaseScope": "PASS actual validator over complete tracked and new worktree paths",
+    "exactDiffReview": "PASS; only two comments and Windows outer deadline differ; every test/helper byte retained",
+    "independentReview": {
+      "status": "CLEAR",
+      "reviewedSource": "93f5bba4dd40f5eeda044d985b362222f08be699",
+      "reviewedTree": "96dd277240cbd549a38c8493f46fe8d03966c3b3",
+      "scope": "Independent immutable source and exact decoded/normalized log/count/hash review; no repeated test run. Actual corrected-head Windows remains required."
+    },
+    "finalHeadWindowsMatrix": "PENDING",
+    "generatedReferences": "PASS; generators produced no tracked metadata delta",
+    "integratedCanonicalFast": {
+      "publicParent": "164504b0739a958ae5c29c639c44f011097e118f",
+      "preservedUnitCompilerTree": "dae9b2f9f9449284c126d8e73aed9569272303c8",
+      "tests": 657,
+      "seconds": 25.09,
+      "status": "PASS",
+      "logSha256": "c3b1c8d59b3e4c7b9fef308256d45172d1d5f7be6b558a77815cc4ae70f5a324"
+    }
+  },
+  "publication": {
+    "sourcePublished": false,
+    "mergeMain": "PENDING",
+    "exactMainGates": "PENDING",
+    "androidRelease": "0.9.66.13 (147)",
+    "gatewayRelease": "18.1.1",
+    "published": false
+  },
+  "qualification": "Successful 8318 Windows3.13 and interrupted Windows3.12 logs are revision-bound evidence only. The new final head must pass both Windows versions and all other applicable gates before merge; exact main and actual publication remain required.",
+  "evidence": {
+    "format": "Exact decoded connector log text retained in JSON; readable log files additionally normalize CRLF to LF",
+    "decodedLogSha256": {
+      "137477182530": "7e462e15597ea7148d61b2f8691f7146aae14f3529c20f48e1f9f4cc312eda27",
+      "137477182797": "1c272e480716376c219dd7b8750872d9dd6d8c7911c83486a735ebab17b94cb6"
+    },
+    "readableLogSha256": {
+      "windows312-cancelled.log": "c68734e98f8fab8deb85ed936099bc092b19c8dd105a5d7b7e893d7d418cf982",
+      "windows313-success.log": "267dfaf646ddf11408d89c2d641c480ed39bd3f6bd8f58a28d9c17293a50b294"
+    },
+    "sourceSha256": {
+      ".github/workflows/gateway-stability.yml": "aa48ab3870fe7c6bd091bfca675958c0d4482ed4ea4500cb85cc98c1ee6f2a51",
+      "gateway/check_gateway.py": "4daa1c39fd251c50010c241fa207d6fb34801bb13fcce22521cb7942df0b2165",
+      "gateway/tests/test_gateway_diagnostic_stress.py": "807acac7bff3af4876ec60ca931e36fd7eedde62503560b1c0bb6556e2bbe1c0"
+    }
+  },
+  "integration": {
+    "sourceCandidate": "93f5bba4dd40f5eeda044d985b362222f08be699",
+    "publicParent": "164504b0739a958ae5c29c639c44f011097e118f",
+    "delta": "Only the original three Windows-budget paths; additive scope conflict resolved by preserving every acknowledged unit-memory field/path and adding this ledger."
+  }
+}

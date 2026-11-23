@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "95eb2d82ec90f86e83a20c5c8bf98e5d26f1e390a04e3d0f2f4d3680a0116708",
+  "source_digest": "6c721d7c5a3d968f0f4c3c47aaeb4521de7d95b28c8a7e96f97e983d6202157f",
   "file_count": 3017,
-  "indexed_line_count": 509910,
+  "indexed_line_count": 509982,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -143,7 +143,7 @@
       "id": "auth_and_security",
       "label": "Permissions, privacy and credentials",
       "file_count": 49,
-      "indexed_line_count": 6901
+      "indexed_line_count": 6973
     },
     {
       "id": "voice_and_media",
@@ -11246,7 +11246,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderSession.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "6f6a32cc0305e0c322b764dcc64ca7589d3bcc5d10bdf68f7e51c852e585348b",
+      "sha256": "1a18ae1e257eb4e5f668e92fab96b79d8a52fe066230e386ff21c99050cb90e6",
       "indexed_lines": 190
     },
     {
@@ -11316,8 +11316,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateDispatchContext.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "e5bca107843e1963982bf85e971c4b30b58ba31e45f783d53e59bc57001cd7df",
-      "indexed_lines": 192
+      "sha256": "347ab5710c23e6373831c11c811008f9e3ba2854f10de87e4acd3ea1132f2a58",
+      "indexed_lines": 264
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateIdentityDetector.kt",
@@ -11330,7 +11330,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "d571b05c2658d6f5c6d3e4686ff7067376548396962612929efbb226b58a8d41",
+      "sha256": "37885b54fd7348a2b8b788fb4254821ed343fa4fd9aec979053a9bf90695f4c6",
       "indexed_lines": 377
     },
     {

@@ -38,6 +38,24 @@ import org.junit.Test
 
 class PrivateInferenceStreamingTest {
     @Test
+    fun verifiedRouteAdmitsShortNameProtocolCollisionWithoutSendingTheOriginalName() = runBlocking {
+        val fixture = Fixture(input = "My name is An.", categories = setOf(PrivacyCategory.IDENTITIES))
+        fixture.serve({ exchange, token ->
+            exchange.startStream()
+            exchange.responseBody.use { it.write((frame("Hello $token.") + "data: [DONE]\n\n").toByteArray()) }
+        }) {
+            val events = withTimeout(5_000) { fixture.events() }
+            assertEquals("Hello An.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+            assertEquals(1, fixture.calls.get())
+            assertEquals(ProviderEvent.Completed, events.last())
+            val messages = requireNotNull(fixture.wire)["messages"] as JsonArray
+            assertFalse(messages.last().jsonObject["content"]!!.jsonPrimitive.content.contains("An"))
+            assertTrue(messages.first().jsonObject["content"]!!.jsonPrimitive.content.contains("an amount"))
+            assertEquals(JsonPrimitive(1), fixture.finalWireReceipt?.get("validated_app_owned_public_suffixes"))
+        }
+    }
+
+    @Test
     fun verifiedCloudRoutePublishesOnlyRestoredTextBeforeUpstreamCompletion() = runBlocking {
         val gate = CountDownLatch(1)
         val fixture = Fixture()
@@ -193,15 +211,20 @@ class PrivateInferenceStreamingTest {
         assertEquals(JsonPrimitive("deny"), wire["provider"]?.jsonObject?.get("data_collection"))
     }
 
-    private class Fixture(private val kind: ClientType = ClientType.OPENAI) {
+    private class Fixture(
+        private val kind: ClientType = ClientType.OPENAI,
+        private val input: String = "value=$SECRET",
+        categories: Set<PrivacyCategory> = setOf(PrivacyCategory.CUSTOM)
+    ) {
         private val store = mockk<PrivacyModeStore>()
         private val verifier = mockk<PrivacyProviderVerifier>()
         private val preparation = mockk<ModelRequestPreparation>()
         private lateinit var session: PrivateInferenceSession
         val calls = AtomicInteger()
 
-        @Volatile var state = PrivacyModeState(true, setOf(PrivacyCategory.CUSTOM), 7)
+        @Volatile var state = PrivacyModeState(true, categories, 7)
         var proof: PrivateDispatchContext? = null
+        var finalWireReceipt: JsonObject? = null
         var wire: JsonObject? = null
         var configRevision = ""
         var routingAllowed = true
@@ -219,7 +242,7 @@ class PrivateInferenceStreamingTest {
                 val config = secondArg<ProviderRequestConfig>()
                 configRevision = config.permissionRevision
                 requireNotNull(currentCoroutineContext()[RequestAuthorizationGuard]).validate()
-                requireNotNull(proof).validate(firstArg(), config.permissionRevision)
+                finalWireReceipt = requireNotNull(proof).validate(firstArg(), config.permissionRevision)
                 firstArg<String>()
             }
         }
@@ -232,14 +255,14 @@ class PrivateInferenceStreamingTest {
                 wire = Json.parseToJsonElement(payload).jsonObject
                 val messages = requireNotNull(wire)["messages"] as JsonArray
                 val input = messages.last().jsonObject["content"]!!.jsonPrimitive.content
-                val token = Regex("\\[PRIVATE_[a-f0-9]{32}_CUSTOM_[0-9]+]").find(input)?.value ?: error("Expected protected fixture token")
+                val token = Regex("\\[PRIVATE_[a-f0-9]{32}_(?:CUSTOM|PERSON)_[0-9]+]").find(input)?.value ?: error("Expected protected fixture token")
                 handler(exchange, token)
             }
             server.start()
             val url = "http://127.0.0.1:${server.address.port}/"
             val profile = PlatformV2(uid = "verified", name = "Private fixture", compatibleType = kind, model = "fixture", apiUrl = url)
             coEvery { verifier.verify(profile) } returns PrivacyProviderVerifier.Result(PrivacyProfileEligibility.Decision(true, "Verified fixture"), VerifiedPrivateRoute(url, kind))
-            session = PrivateInferenceSession(verifier, store, profile, listOf(ConversationTurn(MessageV2(content = "value=$SECRET", platformType = null), null, true)), RequestConstraints()) { "" }
+            session = PrivateInferenceSession(verifier, store, profile, listOf(ConversationTurn(MessageV2(content = input, platformType = null), null, true)), RequestConstraints()) { "" }
             try {
                 block()
             } finally {

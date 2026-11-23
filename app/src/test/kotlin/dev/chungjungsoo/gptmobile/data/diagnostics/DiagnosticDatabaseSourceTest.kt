@@ -316,7 +316,7 @@ class DiagnosticDatabaseSourceTest {
         val context = RuntimeEnvironment.getApplication()
         val destination = File(context.cacheDir, "latest-large-workspace-export").apply { mkdirs() }
         try {
-            val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Large workspace"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false, fullHistory = true) {}
+            val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Large workspace"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false, fullHistory = true, contentMode = DiagnosticContentMode.FULL_FORENSIC) {}
             ZipFile(result.file).use { zip ->
                 val names = zip.entries().asSequence().map { it.name }.toList()
                 assertTrue(names.indexOf("latest-state.jsonl") < names.indexOf("workspace.jsonl"))
@@ -801,7 +801,7 @@ class DiagnosticDatabaseSourceTest {
         val context = RuntimeEnvironment.getApplication()
         val destination = File(context.cacheDir, "large-message-export").apply { mkdirs() }
         try {
-            val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Chunk verification"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false, fullHistory = true) {}
+            val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Chunk verification"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false, fullHistory = true, contentMode = DiagnosticContentMode.FULL_FORENSIC) {}
             val lines = ZipFile(result.file).use { zip ->
                 zip.getInputStream(zip.getEntry("conversation.jsonl")).bufferedReader().use { it.readLines() }
             }

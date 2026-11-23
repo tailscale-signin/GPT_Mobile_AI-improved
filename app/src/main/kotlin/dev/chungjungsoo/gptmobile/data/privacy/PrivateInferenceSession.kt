@@ -91,7 +91,7 @@ internal class PrivateInferenceSession(
                 add(
                     buildJsonObject {
                         put("role", "system")
-                        put("content", markerProtocol.systemPrompt(maskedSystem))
+                        put("content", dispatch.systemPrompt(markerProtocol, maskedSystem))
                     }
                 )
                 history.forEach(::add)

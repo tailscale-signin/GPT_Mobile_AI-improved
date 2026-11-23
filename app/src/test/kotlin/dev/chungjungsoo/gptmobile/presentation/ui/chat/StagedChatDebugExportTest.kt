@@ -174,7 +174,8 @@ class StagedChatDebugExportTest {
                 consume(
                     buildJsonObject {
                         put("tool", "github_read")
-                        put("error", "GITHUB_TRANSIENT_NETWORK")
+                        put("errorCode", "GITHUB_TRANSIENT_NETWORK")
+                        put("error", "PRIVATE SYNTHETIC TOOL FAILURE")
                         put("payload", "private-secret")
                     }
                 )
@@ -188,7 +189,7 @@ class StagedChatDebugExportTest {
         assertEquals(JsonPrimitive("FAILED"), stage(result, "conversation")["status"])
         assertEquals(JsonPrimitive("PARTIAL"), stage(result, "tool_catalog")["status"])
         assertTrue(files.getValue("tool-catalog.jsonl").contains("NO_RETAINED_WORKSPACE_POLICY_REFERENCES"))
-        assertFalse(files.values.any { "private-secret" in it || "sensitive-error-message" in it })
+        assertFalse(files.values.any { "private-secret" in it || "sensitive-error-message" in it || "PRIVATE SYNTHETIC TOOL FAILURE" in it })
         assertTrue(result.retryRecommended)
     }
 

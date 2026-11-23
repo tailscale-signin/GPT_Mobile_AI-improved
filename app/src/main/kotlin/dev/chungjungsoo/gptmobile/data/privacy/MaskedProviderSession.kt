@@ -46,7 +46,7 @@ internal suspend fun maskedProviderSession(
     }
     val issuedMarkers = mask.issuedMarkers()
     val currentRequest = maskedTurns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()
-    val maskedProfile = profile.copy(systemPrompt = PrivateMarkerProtocol(issuedMarkers).systemPrompt(maskedSystem), batchMode = false, batchApiUrl = null)
+    val maskedProfile = profile.copy(systemPrompt = dispatch.systemPrompt(PrivateMarkerProtocol(issuedMarkers), maskedSystem), batchMode = false, batchApiUrl = null)
     val proof = dispatch.seal(mask.summary(), issuedMarkers)
     val restore = mask.sealWithReceipts()
     val session = open(maskedTurns, maskedProfile)

@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.privacy
 
+import dev.chungjungsoo.gptmobile.data.agent.provider.toolRoundSystemPrompt
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -83,6 +86,95 @@ class PrivateDispatchContextTest {
             assertEquals("PRIVATE_DISPATCH_BUILDER_SEALED", expected.message)
         }
     }
+
+    @Test fun shortNameCollisionsAreAllowedOnlyInExactAppOwnedSystemInstructions() {
+        val (proof, system, user) = shortNameFixture()
+        val transformed = requireNotNull(toolRoundSystemPrompt(system, false))
+        assertTrue(system.contains("an amount"))
+        assertFalse(user.contains("An"))
+        val wires = listOf(
+            chatWire(system, user),
+            chatWire(transformed, user),
+            chatWire(system, user, "developer"),
+            JsonObject(mapOf("messages" to JsonArray(listOf(message("system", JsonArray(listOf(textPart(system)))), message("user", JsonPrimitive(user)))))),
+            JsonObject(mapOf("system" to JsonPrimitive(system), "messages" to JsonArray(listOf(message("user", JsonPrimitive(user)))))),
+            JsonObject(mapOf("system" to JsonArray(listOf(textPart(transformed))), "messages" to JsonArray(listOf(message("user", JsonPrimitive(user)))))),
+            JsonObject(mapOf("instructions" to JsonPrimitive(transformed), "input" to JsonPrimitive(user))),
+            JsonObject(mapOf("systemInstruction" to JsonObject(mapOf("parts" to JsonArray(listOf(textPart(transformed))))), "contents" to JsonArray(listOf(textPart(user)))))
+        )
+        wires.forEach { wire ->
+            val receipt = proof.validate(wire.toString(), ":privacy-7")
+            assertEquals(JsonPrimitive("KNOWN_VALUES_ABSENT"), receipt["outcome"])
+            assertEquals(JsonPrimitive(1), receipt["known_private_values"])
+            assertEquals(JsonPrimitive(1), receipt["validated_app_owned_public_suffixes"])
+            assertEquals(JsonPrimitive("EXACT_REGISTERED_SYSTEM_VALUES"), receipt["app_owned_public_suffix_scope"])
+            assertEquals(JsonPrimitive("TEXT_SURFACES_EXCLUDING_VALIDATED_APP_OWNED_PUBLIC_SUFFIXES"), receipt["known_value_scope"])
+            assertEquals(JsonPrimitive(wire.toString().encodeToByteArray().size), receipt["wire_bytes"])
+            assertFalse(receipt.toString().contains("My name is"))
+            assertFalse(receipt.toString().contains("App local substitution protocol"))
+        }
+        val full = proof.validate(chatWire(system, user).toString(), ":privacy-7")
+        val withoutPublicSuffix = proof.validate(chatWire("Follow the requested format.", user).toString(), ":privacy-7")
+        assertNotEquals(full["payload_hmac"], withoutPublicSuffix["payload_hmac"])
+        assertEquals(JsonPrimitive(0), withoutPublicSuffix["validated_app_owned_public_suffixes"])
+    }
+
+    @Test fun registeredPublicProtocolDoesNotExemptReintroducedNamesOrCopiedUserAndToolText() {
+        val (proof, system, user) = shortNameFixture()
+        val wires = listOf(
+            chatWire(system, "An"),
+            chatWire(system, "AN"),
+            chatWire(system, system),
+            JsonObject(mapOf("messages" to JsonArray(listOf(message("assistant", JsonPrimitive(system)), message("user", JsonPrimitive(user)))))),
+            JsonObject(mapOf("tools" to JsonArray(listOf(JsonObject(mapOf("description" to JsonPrimitive(system))))))),
+            JsonObject(mapOf("tools" to JsonArray(listOf(JsonObject(mapOf("arguments" to JsonPrimitive(chatWire(system, user).toString()))))))),
+            JsonObject(mapOf("messages" to JsonArray(listOf(message("system", JsonPrimitive(system)), message("assistant", JsonPrimitive("An")), message("user", JsonPrimitive(user))))))
+        )
+        wires.forEach { wire ->
+            assertEquals(JsonPrimitive("KNOWN_VALUE_REINTRODUCED"), reject { proof.validate(wire.toString(), ":privacy-7") }.receipt["outcome"])
+        }
+        assertEquals(
+            JsonPrimitive("KNOWN_VALUE_REINTRODUCED"),
+            reject { proof.validate("{\"tools\":[{\"arguments\":\"{\\\"name\\\":\\\"\\\\u0041n\\\"}\"}]}", ":privacy-7") }.receipt["outcome"]
+        )
+    }
+
+    @Test fun changedSplitOrUntrustedSystemPrefixesLoseThePublicSuffixException() {
+        val (proof, system, user) = shortNameFixture()
+        val wires = listOf(
+            chatWire("An\n\n$system", user),
+            chatWire("$system\nAn", user),
+            chatWire("$system\nUnregistered transform", user),
+            JsonObject(mapOf("system" to JsonArray(listOf(textPart(system.take(system.length / 2)), textPart(system.drop(system.length / 2))))))
+        )
+        wires.forEach { wire ->
+            assertEquals(JsonPrimitive("KNOWN_VALUE_REINTRODUCED"), reject { proof.validate(wire.toString(), ":privacy-7") }.receipt["outcome"])
+        }
+        listOf("The report belongs to An.", PrivateMarkerProtocol(emptySet()).systemPrompt(null)).forEach { untrustedPrefix ->
+            val (bound, complete, maskedUser) = shortNameFixture(untrustedPrefix)
+            val failure = reject { bound.validate(chatWire(complete, maskedUser).toString(), ":privacy-7") }
+            assertEquals(JsonPrimitive("KNOWN_VALUE_REINTRODUCED"), failure.receipt["outcome"])
+            assertEquals(JsonPrimitive(1), failure.receipt["validated_app_owned_public_suffixes"])
+        }
+    }
+
+    private fun shortNameFixture(systemPrefix: String? = "Follow the requested format."): Triple<PrivateDispatchContext, String, String> {
+        val input = "My name is An."
+        val mask = PrivateTextMask(setOf(PrivacyCategory.IDENTITIES), emptyList())
+        val protected = mask.protectWithReceipt(input)
+        val builder = PrivateDispatchContext.Builder(7, setOf(PrivacyCategory.IDENTITIES))
+        builder.record(PrivateDispatchSurfaceKind.USER_MESSAGE, input, protected)
+        val system = builder.systemPrompt(PrivateMarkerProtocol(mask.issuedMarkers()), systemPrefix)
+        return Triple(builder.seal(mask.summary(), mask.issuedMarkers()), system, protected.text)
+    }
+
+    private fun textPart(text: String) = JsonObject(mapOf("type" to JsonPrimitive("text"), "text" to JsonPrimitive(text)))
+
+    private fun message(role: String, content: kotlinx.serialization.json.JsonElement) =
+        JsonObject(mapOf("role" to JsonPrimitive(role), "content" to content))
+
+    private fun chatWire(system: String, user: String, systemRole: String = "system") =
+        JsonObject(mapOf("messages" to JsonArray(listOf(message(systemRole, JsonPrimitive(system)), message("user", JsonPrimitive(user))))))
 
     private fun reject(block: () -> Unit): PrivateDispatchRejected {
         try {

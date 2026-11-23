@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-protocol-review-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+  "pullRequest": 2367,
+  "intent": "Preserve legitimate short personal names through the final privacy boundary without exempting arbitrary text; align existing export integration fixtures with the explicit redacted-versus-forensic content contract.",
+  "observedFailures": [
+    "A correctly detected and masked name An collides with ordinary words in the application-authored substitution protocol appended afterward, causing a false refusal before dispatch. No disclosure was observed.",
+    "An existing staged-export fixture places a typed code under the free-text error field that the new default content policy intentionally omits.",
+    "Two existing Room-backed export fixtures require original message and policy content but implicitly select the new default redacted mode."
+  ],
+  "acceptance": [
+    "Bind public instruction exclusions to request-local provenance for an exact generated system value; scan its protected prefix and all user, history, tool and unregistered/altered system content.",
+    "Do not weaken short-name detection, privacy policy, provider/tool authority, known-value reinsertion checks or full serialized-payload keyed fingerprints. Disclose the public instruction exclusion in content-free evidence.",
+    "Retain typed structural error evidence using errorCode while proving free-text error content is omitted from default archives.",
+    "Select explicit full forensic mode only for existing original-content preservation/chunking fixtures; preserve all their assertions and the default-redacted structural receipt fixture.",
+    "Compose concurrent diagnostic-schema, detail, repository-path and stream-authority corrections without force; qualify the final combined source and later unused release versions.",
+    "Require current-head and main checks and both package publications with complete published-asset readback before claiming completion."
+  ],
+  "validation": {
+    "focused_behavior": "Literal31df production reproduces both new short-name regressions as expected failures. Corrected actual validator and both production sessions pass30 methods across3 classes with no skips.",
+    "ports": "Focused JVM harness retains explicit model-preparation, Android persistence and verifier/account boundary ports; localhost HTTP/OkHttp and the production no-tools instruction transform execute.",
+    "independent_review": "Exact public-protocol provenance and fixture mode/schema changes independently reviewed; existing guard/accounting/protocol inputs preserved.",
+    "hosted_requirement": "Real final-preparation/accounting, Compose consent, staged export and backup, Android compilation and all final-source CI remain required."
+  }
+}

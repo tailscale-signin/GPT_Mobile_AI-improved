@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.privacy
 
+import dev.chungjungsoo.gptmobile.data.agent.provider.toolRoundSystemPrompt
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -32,11 +34,13 @@ internal class PrivateDispatchContext private constructor(
     private val knownValueCount: Int,
     private val maskSummary: PrivateMaskSummary?,
     private val issuedMarkers: Set<String>,
+    private val appOwnedSystemTexts: List<AppOwnedSystemText>,
     private val decryptValues: () -> List<String>
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<PrivateDispatchContext> {
         const val COVERAGE = "KNOWN_PROTECTED_VALUES_IN_TEXT_SURFACES"
         private val textKeys = setOf("content", "text", "system", "prompt", "input", "instructions", "description", "arguments", "tool_result")
+        private val systemKeys = setOf("system", "instructions", "systemInstruction", "system_instruction")
         private val markerShape = Regex("\\[PRIVATE_[a-f0-9]{32}_[A-Z][A-Z_]{0,31}_\\d{1,10}]")
 
         private fun containsValue(text: String, value: String): Boolean {
@@ -67,31 +71,60 @@ internal class PrivateDispatchContext private constructor(
     fun validate(payload: String, permissionRevision: String): JsonObject {
         val started = System.nanoTime()
         var inspected = 0
+        var validatedPublicSuffixes = 0
+        var validatedPublicCharacters = 0
         val outcome = if (!permissionRevision.endsWith(":privacy-$policyRevision")) {
             "POLICY_REVISION_MISMATCH"
         } else {
             try {
                 val values = decryptValues()
-                fun leaked(element: JsonElement, textSurface: Boolean = false, depth: Int = 0): Boolean {
+                fun leaked(element: JsonElement, textSurface: Boolean = false, systemSurface: Boolean = false, depth: Int = 0): Boolean {
                     check(depth <= 64) { "PRIVATE_WIRE_DEPTH_EXCEEDED" }
                     return when (element) {
-                        is JsonObject -> element.any { (name, value) -> leaked(value, textSurface || name in textKeys, depth + 1) }
-                        is JsonArray -> element.any { leaked(it, textSurface, depth + 1) }
+                        is JsonObject -> element.any { (name, value) -> leaked(value, textSurface || name in textKeys, systemSurface, depth + 1) }
+                        is JsonArray -> element.any { leaked(it, textSurface, systemSurface, depth + 1) }
                         is JsonPrimitive -> {
                             if (!textSurface || !element.isString) {
                                 false
                             } else {
                                 inspected++
+                                // Only an exact locally registered system value can contain
+                                // an app-owned public suffix. Its source prefix remains scanned.
+                                val publicSuffix = if (systemSurface) appOwnedSystemTexts.firstOrNull { it.matches(element.content) } else null
+                                val sourceText = if (publicSuffix != null) {
+                                    validatedPublicSuffixes++
+                                    validatedPublicCharacters += publicSuffix.characters
+                                    element.content.dropLast(publicSuffix.characters)
+                                } else {
+                                    element.content
+                                }
                                 // Generated markers contain category names and ordinals, not source values.
-                                val text = markerShape.replace(element.content) { match -> if (match.value in issuedMarkers) "" else match.value }
+                                val text = markerShape.replace(sourceText) { match -> if (match.value in issuedMarkers) "" else match.value }
                                 values.any { containsValue(text, it) } ||
-                                    (text.trimStart().firstOrNull() in setOf('{', '[') && runCatching { Json.parseToJsonElement(text) }.getOrNull()?.let { leaked(it, true, depth + 1) } == true)
+                                    (text.trimStart().firstOrNull() in setOf('{', '[') && runCatching { Json.parseToJsonElement(text) }.getOrNull()?.let { leaked(it, true, false, depth + 1) } == true)
                             }
                         }
                     }
                 }
+                fun requestLeaks(document: JsonElement): Boolean {
+                    if (document !is JsonObject) return leaked(document)
+                    return document.any { (name, value) ->
+                        if (name == "messages" && value is JsonArray) {
+                            value.any { message ->
+                                val role = (message as? JsonObject)?.get("role") as? JsonPrimitive
+                                if (message is JsonObject && role?.isString == true && role.content in setOf("system", "developer")) {
+                                    message.any { (field, content) -> leaked(content, field in textKeys, field == "content", 3) }
+                                } else {
+                                    leaked(message, depth = 2)
+                                }
+                            }
+                        } else {
+                            leaked(value, name in textKeys, name in systemKeys, 1)
+                        }
+                    }
+                }
                 when {
-                    leaked(Json.parseToJsonElement(payload)) -> "KNOWN_VALUE_REINTRODUCED"
+                    requestLeaks(Json.parseToJsonElement(payload)) -> "KNOWN_VALUE_REINTRODUCED"
                     inspected == 0 -> "NO_SUPPORTED_TEXT_SURFACES"
                     else -> "KNOWN_VALUES_ABSENT"
                 }
@@ -107,6 +140,10 @@ internal class PrivateDispatchContext private constructor(
             put("policy_revision", policyRevision)
             put("detector_revision", detectorRevision)
             put("coverage", COVERAGE)
+            put("known_value_scope", "TEXT_SURFACES_EXCLUDING_VALIDATED_APP_OWNED_PUBLIC_SUFFIXES")
+            put("app_owned_public_suffix_scope", "EXACT_REGISTERED_SYSTEM_VALUES")
+            put("validated_app_owned_public_suffixes", validatedPublicSuffixes)
+            put("validated_app_owned_public_characters", validatedPublicCharacters)
             put("outcome", outcome)
             put("unrecognized_sensitive_values", "NOT_ASSESSED")
             put("provider_retention", "NOT_ASSESSED")
@@ -145,6 +182,20 @@ internal class PrivateDispatchContext private constructor(
         private var protectedCharacters = 0L
         private var protectedRanges = 0
         private var sealed = false
+        private val appOwnedSystemTexts = mutableListOf<AppOwnedSystemText>()
+
+        /** Mint provenance only from the fixed app protocol and its actual no-tools transform. */
+        fun systemPrompt(protocol: PrivateMarkerProtocol, maskedOriginal: String?): String {
+            check(!sealed && appOwnedSystemTexts.isEmpty()) { "PRIVATE_SYSTEM_PROMPT_ALREADY_BOUND" }
+            val prompt = protocol.systemPrompt(maskedOriginal)
+            val publicSuffix = protocol.systemPrompt(null)
+            appOwnedSystemTexts += AppOwnedSystemText.bind(prompt, publicSuffix)
+            appOwnedSystemTexts += AppOwnedSystemText.bind(
+                requireNotNull(toolRoundSystemPrompt(prompt, false)),
+                requireNotNull(toolRoundSystemPrompt(publicSuffix, false))
+            )
+            return prompt
+        }
 
         fun record(kind: PrivateDispatchSurfaceKind, original: String, protected: PrivateProtectedText) {
             check(!sealed) { "PRIVATE_DISPATCH_BUILDER_SEALED" }
@@ -175,7 +226,7 @@ internal class PrivateDispatchContext private constructor(
             values.clear()
             return PrivateDispatchContext(
                 policyRevision, categories.toSet(), summary?.detectorRevision ?: detectorRevision, surfaces.toMap(), originalCharacters,
-                transformedCharacters, protectedCharacters, protectedRanges, count, summary, issuedMarkers.toSet()
+                transformedCharacters, protectedCharacters, protectedRanges, count, summary, issuedMarkers.toSet(), appOwnedSystemTexts.toList()
             ) {
                 val reader = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv)) }
                 val plaintext = reader.doFinal(encrypted)
@@ -184,6 +235,27 @@ internal class PrivateDispatchContext private constructor(
                 } finally {
                     plaintext.fill(0)
                 }
+            }
+        }
+    }
+}
+
+/** These local identities are never serialized into evidence or used for non-system text. */
+private class AppOwnedSystemText private constructor(private val sha256: ByteArray, val characters: Int) {
+    fun matches(text: String): Boolean = MessageDigest.isEqual(sha256, digest(text))
+
+    companion object {
+        fun bind(value: String, publicSuffix: String): AppOwnedSystemText {
+            require(publicSuffix.isNotEmpty() && value.endsWith(publicSuffix))
+            return AppOwnedSystemText(digest(value), publicSuffix.length)
+        }
+
+        private fun digest(text: String): ByteArray {
+            val bytes = text.encodeToByteArray()
+            return try {
+                MessageDigest.getInstance("SHA-256").digest(bytes)
+            } finally {
+                bytes.fill(0)
             }
         }
     }

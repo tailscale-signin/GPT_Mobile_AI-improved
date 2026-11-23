@@ -1,15 +1,25 @@
+from contextlib import contextmanager
+from io import BytesIO
+import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import requests
 
 from benchmarks import fixtures
 from benchmarks.contracts import digest
 from benchmarks import live_github
+from v14.engineering_backend import GitHubEngineeringBackend
+from v14.execution_binding import ExecutionBindingError
+from v14.github_api_governor import GitHubApiGovernor
 
 
 class NotFound(Exception):
@@ -46,8 +56,12 @@ class GitHub:
                 'status': 'in_progress' if self.running else 'completed', 'conclusion': None if self.running else self.conclusion,
                 'run_attempt': 1}
 
-    def api(self, path, method='GET', body=None, read_only=False):
+    def api(self, path, method='GET', body=None, read_only=False, expected_actor=None, before_dispatch=None):
+        if expected_actor is not None and expected_actor != 7:
+            raise PermissionError('GITHUB_ACCOUNT_CHANGED')
         if method != 'GET':
+            if before_dispatch is not None:
+                before_dispatch()
             self.writes.append((path, method, body))
             if path.endswith('/git/blobs'):
                 if body['content'].startswith('name: Immutable benchmark'):
@@ -111,11 +125,168 @@ class LiveBenchmarkTest(unittest.TestCase):
         return SimpleNamespace(root=Path('/unused'), store=Store(self.run),
                                engineering=SimpleNamespace(backend=github, authorized=lambda job: job['principal'] == 'test-owner'))
 
-    def qualify(self, github, cancel=None):
+    def qualify(self, github, cancel=None, service=None):
         grade = {'qualified': True, 'resolved': True, 'score': 1000, 'status': 'PASSED'}
         with patch('benchmarks.live_github.load_settings', return_value={'sandbox_image': self.image}):
-            return live_github.qualify(self.service(github), 'test-owner', self.run, self.task,
+            return live_github.qualify(service or self.service(github), 'test-owner', self.run, self.task,
                                       self.task['referenceSources'], grade, cancel or threading.Event())
+
+    @contextmanager
+    def actual_backend(self, remote):
+        """Run the real credential, account, admission and HTTP adapter code."""
+        original, rotated = 'synthetic-original-token', 'synthetic-rotated-token'
+        self.same_actor_token = 'synthetic-renewed-same-actor-token'
+        calls = []
+        def exchange(method, url, *, headers, **kwargs):
+            path = url.removeprefix('https://api.github.com')
+            token = headers['Authorization'].removeprefix('Bearer ')
+            self.assertIn(token, (original, rotated, self.same_actor_token))
+            actor = 9 if token == rotated else 7
+            calls.append({'method': method, 'path': path, 'actor': actor,
+                          'credential': 'original' if token == original else 'other' if token == rotated else 'renewed'})
+            response = requests.Response()
+            response.url, response.status_code = url, 200
+            try:
+                value = {'id': actor} if path == '/user' else remote.api(path, method, kwargs.get('json'), read_only=method == 'GET')
+            except NotFound:
+                response.status_code, value = 404, {'message': 'Not Found'}
+            response.raw = BytesIO(json.dumps(value).encode())
+            return response
+        backend = GitHubEngineeringBackend(SimpleNamespace())
+        backend.github_governor = GitHubApiGovernor()
+        with patch.dict(os.environ, {'GATEWAY_ENGINEERING_GITHUB_TOKEN': original,
+                                    'GATEWAY_ENGINEERING_GITHUB_SERVER': '', 'GATEWAY_DESKTOP_MANAGED': '0'}), \
+                patch('v14.engineering_backend.requests.request', side_effect=exchange), \
+                patch('v14.engineering_backend.requests.get', side_effect=lambda url, **kwargs: exchange('GET', url, **kwargs)):
+            yield backend, calls, original, rotated
+
+    def retained_remote(self, backend, remote):
+        receipt = {'schema': live_github.SCHEMA, 'repository': self.run['request']['repository'],
+                   'baseRevision': self.run['request']['base_sha'], 'publishedRevision': 'd' * 40,
+                   'actorId': 7, 'branch': 'benchmark/comparison-cohor/' + self.run['id'],
+                   'workflowPath': '.github/workflows/benchmark-' + self.run['id'] + '.yml',
+                   'mutations': [{'path': '/repos/fixture/disposable/git/refs', 'state': 'COMPLETED'}]}
+        self.run['liveGitHubReceipt'] = receipt
+        remote.branch = receipt['branch']
+        remote.tree = [{'path': receipt['workflowPath']}]
+        return self.service(backend)
+
+    def test_actual_http_backend_qualifies_the_same_actor_and_exact_revision(self):
+        with self.actual_backend(GitHub()) as (backend, calls, _original, _rotated):
+            result = self.qualify(backend)
+        self.assertTrue(result['qualified'])
+        self.assertTrue(result['liveGitHubReceipt']['remoteReadbackVerified'])
+        self.assertEqual(7, result['liveGitHubReceipt']['actorId'])
+        self.assertTrue(calls)
+        self.assertTrue(all(row['actor'] == 7 for row in calls))
+        self.assertEqual(1, sum(row['method'] == 'POST' and row['path'].endswith('/git/refs') for row in calls))
+
+    def test_publication_rotation_after_fence_keeps_captured_account_and_requires_readback(self):
+        with self.actual_backend(GitHub()) as (backend, calls, original, rotated):
+            service = self.service(backend)
+            update = service.store.update
+            def rotate(ident, **values):
+                saved = update(ident, **values)
+                receipt = values.get('liveGitHubReceipt') or {}
+                if receipt.get('stage') == 'MUTATION_DISPATCHED' and receipt['mutations'][-1]['path'].endswith('/git/refs'):
+                    os.environ['GATEWAY_ENGINEERING_GITHUB_TOKEN'] = rotated
+                return saved
+            with patch.object(service.store, 'update', side_effect=rotate), self.assertRaises(live_github.LiveFixtureInterrupted) as caught:
+                self.qualify(backend, service=service)
+            writes = [row for row in calls if row['method'] == 'POST' and row['path'].endswith('/git/refs')]
+            self.assertEqual([{'method': 'POST', 'path': '/repos/fixture/disposable/git/refs', 'actor': 7, 'credential': 'original'}], writes)
+            self.assertEqual('unknown', caught.exception.cancellation['outcome'])
+            self.assertFalse(self.run['liveGitHubReceipt']['remoteReadbackVerified'])
+            os.environ['GATEWAY_ENGINEERING_GITHUB_TOKEN'] = original
+            self.assertEqual('terminal', live_github.reconcile_interrupted(service, 'test-owner', self.run)[0]['outcome'])
+            self.assertEqual(1, sum(row['method'] == 'POST' and row['path'].endswith('/git/refs') for row in calls))
+
+    def test_cancel_rotation_at_fence_uses_captured_account_and_never_replays_lost_response(self):
+        remote = GitHub(running=True, lost_cancel=True)
+        with self.actual_backend(remote) as (backend, calls, original, rotated):
+            service = self.retained_remote(backend, remote)
+            update = service.store.update
+            def rotate(ident, **values):
+                saved = update(ident, **values)
+                if (values.get('liveGitHubReceipt') or {}).get('cancellationMutation'):
+                    os.environ['GATEWAY_ENGINEERING_GITHUB_TOKEN'] = rotated
+                return saved
+            with patch.object(service.store, 'update', side_effect=rotate):
+                result = live_github.reconcile_interrupted(service, 'test-owner', self.run)
+            self.assertEqual('unknown', result[0]['outcome'])
+            self.assertEqual({'workflowRunId': 41, 'state': 'DISPATCHED'}, self.run['liveGitHubReceipt']['cancellationMutation'])
+            writes = [row for row in calls if row['method'] == 'POST']
+            self.assertEqual([{'method': 'POST', 'path': '/repos/fixture/disposable/actions/runs/41/cancel',
+                               'actor': 7, 'credential': 'original'}], writes)
+            os.environ['GATEWAY_ENGINEERING_GITHUB_TOKEN'] = original
+            self.assertEqual('terminal', live_github.reconcile_interrupted(service, 'test-owner', self.run)[0]['outcome'])
+            self.assertEqual(writes, [row for row in calls if row['method'] == 'POST'])
+
+    def test_changed_actor_denies_reads_mutations_and_cancel_before_the_dispatch_fence(self):
+        remote = GitHub(running=True)
+        with self.actual_backend(remote) as (backend, calls, original, rotated):
+            os.environ['GATEWAY_ENGINEERING_GITHUB_TOKEN'] = rotated
+            dispatch = Mock()
+            for method, path in (('GET', '/repos/fixture/disposable'), ('POST', '/repos/fixture/disposable/git/blobs')):
+                with self.subTest(method=method), self.assertRaisesRegex(PermissionError, 'GITHUB_ACCOUNT_CHANGED'):
+                    backend.api(path, method, {} if method == 'POST' else None, read_only=method == 'GET',
+                                expected_actor=7, before_dispatch=dispatch if method == 'POST' else None)
+            dispatch.assert_not_called()
+            self.assertTrue(all(row['path'] == '/user' for row in calls))
+            service = self.retained_remote(backend, remote)
+            self.assertEqual('unknown', live_github.reconcile_interrupted(service, 'test-owner', self.run)[0]['outcome'])
+            self.assertNotIn('cancellationMutation', self.run['liveGitHubReceipt'])
+            self.assertFalse(any(row['method'] == 'POST' for row in calls))
+            os.environ['GATEWAY_ENGINEERING_GITHUB_TOKEN'] = original
+            self.assertEqual('confirmed', live_github.reconcile_interrupted(service, 'test-owner', self.run)[0]['outcome'])
+            self.assertEqual(1, sum(row['method'] == 'POST' for row in calls))
+
+    def test_same_actor_token_rotation_at_fence_remains_qualified(self):
+        with self.actual_backend(GitHub()) as (backend, calls, _original, _rotated):
+            service = self.service(backend)
+            update = service.store.update
+            def renew(ident, **values):
+                saved = update(ident, **values)
+                receipt = values.get('liveGitHubReceipt') or {}
+                if receipt.get('stage') == 'MUTATION_DISPATCHED' and receipt['mutations'][-1]['path'].endswith('/git/refs'):
+                    os.environ['GATEWAY_ENGINEERING_GITHUB_TOKEN'] = self.same_actor_token
+                return saved
+            with patch.object(service.store, 'update', side_effect=renew):
+                result = self.qualify(backend, service=service)
+            self.assertTrue(result['qualified'])
+            self.assertTrue(result['liveGitHubReceipt']['remoteReadbackVerified'])
+            self.assertTrue(all(row['actor'] == 7 for row in calls))
+            self.assertEqual(['original'], [row['credential'] for row in calls if row['method'] == 'POST' and row['path'].endswith('/git/refs')])
+            self.assertTrue(any(row['credential'] == 'renewed' for row in calls))
+
+    def test_expected_actor_cannot_override_engineering_identity_or_its_mutation_fence(self):
+        with self.actual_backend(GitHub()) as (backend, calls, original, rotated):
+            job = {'id': 'owned-job', 'state': 'PLAN', 'deadline': time.time() + 60,
+                   'request': {'repository': 'fixture/disposable', 'task_scope': 'implement'}, 'data': {'actor_id': 7}}
+            path = '/repos/fixture/disposable/git/blobs'
+            with self.assertRaisesRegex(PermissionError, 'GITHUB_ACCOUNT_CHANGED'):
+                backend.api(path, 'POST', {}, job=job, expected_actor=9)
+            self.assertEqual([], calls)
+            dispatch = Mock()
+            with self.assertRaises(ValueError):
+                backend.api(path, 'POST', {}, job=job, expected_actor=7, before_dispatch=dispatch)
+            dispatch.assert_not_called()
+            self.assertEqual([], calls)
+            os.environ['GATEWAY_ENGINEERING_GITHUB_TOKEN'] = rotated
+            with self.assertRaisesRegex(ValueError, 'GitHub account changed before dispatch'):
+                backend.api(path, 'POST', {}, job=job)
+            os.environ['GATEWAY_ENGINEERING_GITHUB_TOKEN'] = original
+            with self.assertRaises(ExecutionBindingError):
+                backend.api(path, 'POST', {}, job=job, expected_actor=7)
+            self.assertFalse(any(row['method'] == 'POST' for row in calls))
+
+    def test_dispatch_callback_failure_never_sends_or_repeats_the_mutation(self):
+        with self.actual_backend(GitHub()) as (backend, calls, _original, _rotated):
+            dispatch = Mock(side_effect=InterruptedError('Stopped at the final authority fence'))
+            with self.assertRaises(InterruptedError):
+                backend.api('/repos/fixture/disposable/git/blobs', 'POST', {}, expected_actor=7, before_dispatch=dispatch)
+            dispatch.assert_called_once_with()
+            self.assertFalse(any(row['method'] == 'POST' for row in calls))
 
     def test_exact_commit_and_required_actions_step_are_read_back(self):
         github = GitHub()

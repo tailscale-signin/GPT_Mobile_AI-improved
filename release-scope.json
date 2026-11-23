@@ -123,7 +123,9 @@
     "Serialize optional agent process startup and cancellation, preventing child launch after a confirmed stop and duplicate child publication from concurrent startup requests.",
     "Preserve the original benchmark request, usage, attempts and cleanup receipt when an enclosing task deadline interrupts remote verification.",
     "Count native coding candidates that start and exhaust a time or output limit as known failures after successful grader calibration; keep unavailable runtimes and uncertain cleanup unqualified.",
-    "Preserve the closed diagnostic report contract for the three exact new journal projection and result-semantics recovery reasons."
+    "Preserve the closed diagnostic report contract for the three exact new journal projection and result-semantics recovery reasons.",
+    "Retain unsettled GitHub benchmark ownership across Gateway restart and journal relocation, and atomically reject Android history deletion until the original remote work is reconciled.",
+    "Bind benchmark publication and cancellation/readback to the account verified with the exact captured request credential, retaining truthful dispatch fences and unknown-outcome reconciliation across credential rotation."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -666,6 +668,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkGuardVerifierTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkPhoneGitHubTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkPricingExportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStoreTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkTaskEfficiencyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubProfileAuditSuiteTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthorityCompositionTest.kt",

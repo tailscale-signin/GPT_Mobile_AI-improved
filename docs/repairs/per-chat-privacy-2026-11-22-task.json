@@ -157,10 +157,11 @@
       "FactVaultIdentityRegressionTest.kt": "4d5d40a0600f40ce0f8bea18a0dc2790bb0549aee6b4301975f4e3834f96e83d"
     }
   },
-  "last_reconciled_remote_head": "6f887cc3f4e81deb497879c9f83cf773fc002189",
+  "last_reconciled_remote_head": "93b110310b7c479ebfa0be68d38f848bf633edd8",
   "pending_concurrent_scope": [
-    "acceptance-completion-70afcf89: preserve and review the separately announced 16-finding/30-scenario implementation before final readiness.",
-    "github-coding-benchmark-2026-11-22: preserve and review the separately announced benchmark audit implementation before final readiness."
+    "Acceptance/voice fullR07 union: preserve admitted5a930285 while completing native rejection/wrong-result/restored pending accounting.",
+    "New independently owned github-context-reference-2026-11-22 feature package remains implementation-active in the shared PR marker.",
+    "Final integrated validation, current-head PR checks, exact-main checks and signed Android/Gateway publication readback."
   ],
   "full_suite_fixture_review_followup": {
     "source_base": "35228794d6fb667a56f0ff97c80672852093d74b",
@@ -189,7 +190,7 @@
   "deterministic_preview_cancellation_followup": {
     "source_base": "57ee520c5b4d99947e724c4eff13e413ddc7ce78",
     "integrated_parent": "6f887cc3f4e81deb497879c9f83cf773fc002189",
-    "status": "LOCAL_VALIDATION_COMPLETE_DRAFT_PUSH_PENDING",
+    "status": "PUSHED_AT_3a7563e_WITH_LATER_SHARED_REVIEWED_REFINEMENTS",
     "finding": "The old test assumes a second caller Runnable after IO completion. A legal completion-before-suspension path can return in the first caller turn, leaving no second Runnable; the production cancellation cleanup remains correct.",
     "repair": "Use an explicit IO-entry/caller-suspension handshake, cancel only after IO has prepared its result but before caller delivery, then release/cancel/drain in finally. Retain five cycles; prove all four preview slots are available, a fifth live preview is refused, and discarded slots are reusable.",
     "production_changes": false,
@@ -221,7 +222,7 @@
   "agent_workspace_admission_followup": {
     "source_base": "8504366c8edf4e1911284ea6426ccb53e449141c",
     "integrated_parent": "6f887cc3f4e81deb497879c9f83cf773fc002189",
-    "status": "LOCAL_VALIDATION_COMPLETE_DRAFT_PUSH_PENDING",
+    "status": "PUSHED_AT_3a7563e_WITH_LATER_SHARED_REVIEWED_REFINEMENTS",
     "finding": "Optional workspace integration status/call could trigger MCP discovery before rejecting a LOCAL_ONLY/private job or disabled/remote-denied integration. Discovery can start processes or network reads before tool execution. Two new Android test stubs also returned Unit where durable admission returns ConversationPrivacyContext.",
     "repair": "Keep blocked status passive; check the exact requested integration privacy, enabled/remote policy and configured tool membership before discovery. Preserve authorized discovery, schema/ledger checks and exact existing MCP dispatcher. Return the exact ordinary context(8,false) in both strict workspace repository fixtures; preserve their privacy and identity negatives.",
     "validation": {
@@ -245,7 +246,7 @@
       }
     },
     "independent_review": "All new Android workspace paths reload durable chat policy and original account/credentials before external work; mutations recheck after retained argument/identity persistence. Worker roles preserve the parent binding/context, and cloud/local agent dispatch retains source/model/account leases and local-only policy. Desktop actions use durable revision-bound commands and consent. No additional concrete blocker found in the reviewed paths.",
-    "remaining_shared_work": "Versioned complete journal proof/legacy migration and coding benchmark remain separately active; final-head hosted tests, exact-main checks and signed publication readback are mandatory."
+    "remaining_shared_work": "The primary packages, versioned journal proof and scoped-discovery refinements are integrated and independently reviewed. Remaining coordinated R07/process-start repairs, final-head hosted tests, exact-main checks and signed publication readback remain mandatory."
   },
   "preview_and_workspace_integration_validation": {
     "integrated_parent": "6f887cc3f4e81deb497879c9f83cf773fc002189",
@@ -263,5 +264,214 @@
       "Exact committed release scope required before push"
     ],
     "hosted_status": "PENDING: complete Android workspace repository fixture and all exact-current-head gates remain required."
+  },
+  "shared_recovery_followup_review": {
+    "source": "1c25a94dbf381dd6a575d2faad92573f8c9656ce",
+    "manifest_acknowledgment": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+    "journal": "Independent source/test review passed: protected version2 binds complete durable identities, source and actual projection, canonical result semantics and dispatch/reconciliation state. Legacy migration needs protected byte and semantic witnesses; unknown versions or stripped proof cannot downgrade. Full-journal writer, direct output, exact handoff and second-read fences retained.",
+    "adapter": "Independent source/test review passed: operation-local captured credential redaction survives rotation and clears on exceptions without persisting old plaintext; cancellation SQL, JSON and run dispatch state update atomically; old column-only evidence and stale callers remain truthful.",
+    "preview": "Incoming fixture preserves the explicit IO/caller suspension handshake, all five cancellations, four usable slots, exact fifth-slot rejection, discard/reuse and robust finally cleanup, and adds an incomplete-delivery assertion. Production unchanged.",
+    "qualification": "Author reports126+8 journal probes,55+4 adapter probes and20 setup tests plus10 target repeats. Independent source review does not convert those into a rerun or a complete hosted Android pass."
+  },
+  "benchmark_restart_ownership_followup": {
+    "source_base": "e315be06e0c943c442f7f74b216930ee3f32aae4",
+    "integrated_parent": "93b110310b7c479ebfa0be68d38f848bf633edd8",
+    "status": "INTEGRATED_FOCUSED_AND_CANONICAL_VALIDATION_PASSED_PENDING_DRAFT_PUSH",
+    "finding": "Actual SQLite crash recovery discarded the unsettled original GitHub workflow obligation, marked the request terminal and permitted removal. Changing the journal path could also abandon the old owner.",
+    "repair": "Recover dispatched ref ownership into the existing unknown-cancellation protocol without network work. Preserve request/receipt identity, interrupted cause and append-only completion evidence; block removal/new admission until exact observed settlement. Recover the old journal before checking sandbox and external obligations, and retain old service/root/qualification binding on refusal.",
+    "source_sha256_at_focused_run": {
+      "gateway/benchmarks/store.py": "1677a1a9f8b5bc9c4a995d09f141d0b9f23d48e96ac5f31fbef6d1051ef3ebb2",
+      "gateway/benchmarks/service.py": "280e5a08aa6dbafb0b70fd181a97e7c83693365e0bfb23706da91c0aed308658",
+      "gateway/tests/test_gateway_benchmark_cleanup.py": "c051c1f72ef809edd15113d5428375177d28a1032550533139716756b945eec0"
+    },
+    "focused_validation": {
+      "tests": 38,
+      "failures": 0,
+      "seconds": 1.226,
+      "log": "final-suite-tests.log",
+      "modules": [
+        "test_gateway_benchmark_cleanup",
+        "test_gateway_live_benchmark",
+        "test_gateway_benchmark_api_v2"
+      ]
+    },
+    "regressions": {
+      "test_methods": 5,
+      "focused_pass": 5,
+      "log": "focused-tests.log",
+      "coverage": [
+        "RUNNING/CANCELLING x DISPATCHED/UNKNOWN_OUTCOME/COMPLETED ref mutation recovery",
+        "idempotent recovery, original request and receipt retention, interrupted case evidence",
+        "unknown physical ownership blocks history removal, retirement completion, new admission and replay",
+        "exact original workflow cancellation, lost cancellation response and no retry after restart",
+        "append-only terminal readback preserves completion receipt and recorded original failure",
+        "queued/no-ref/known confirmed/terminal/verified-success controls",
+        "mismatched or incomplete terminal evidence stays unsettled",
+        "database rebinding classifies old RUNNING dispatch before switch; preserves old association on refusal and permits empty/verified-terminal switch"
+      ]
+    },
+    "negative_controls": {
+      "actual_store_counterexample": "restart-counterexample.json",
+      "original_e315_store_service_with_new_tests": {
+        "test_methods": 5,
+        "failing_subcases": 13,
+        "log": "baseline-regressions.log",
+        "positive_control_method": "test_restart_preserves_no_dispatch_and_exact_terminal_controls passed on baseline"
+      }
+    },
+    "environment": {
+      "python": "3.12.14",
+      "requests": "2.32.3",
+      "fastapi": "0.141.1",
+      "cryptography": "50.0.0",
+      "dependency_resolution": "Primary Python, with /usr/lib/python3/dist-packages appended for installed requests; no installs or production substitutes"
+    },
+    "limits": [
+      "Remote GitHub API and container process boundaries are test fixtures; no live GitHub, Docker, Windows or physical device execution is claimed.",
+      "Final pinned hosted CI remains required."
+    ],
+    "independent_review": "Separate reviewer checked recovery predicates and service consumer ordering; no additional blocker. Shared benchmark workstream deferred equivalent production guard and may add independent SQLite regression evidence."
+  },
+  "benchmark_history_ownership_followup": {
+    "source_base": "e315be06e0c943c442f7f74b216930ee3f32aae4",
+    "repair": "Under the Store mutex, a Room transaction rereads canonical persisted run state and refuses deletion if any sample still owns unresolved engineering cleanup. Existing ViewModel error reporting remains sufficient.",
+    "regression_methods": [
+      "pendingRemoteOwnershipSurvivesRestartAndRejectedHistoryDeletion",
+      "historyDeletionRechecksPersistedOwnershipWhenPublishedHistoryIsStale",
+      "ordinaryAndConfirmedRemoteResultsCanStillBeDeletedPermanently"
+    ],
+    "source_sha256": {
+      "BenchmarkStore.kt": "90f89352d8be57668852795d0ca7ac8a3f69eae6355c45ed630d287493a472c9",
+      "BenchmarkStoreTest.kt": "be6ce4f7108521636e6f384b1335e187119d96cd825de6a5720ab7afdaa96cc1"
+    },
+    "validation": "Pinned ktlint1.3.1 and whitespace passed; three real Room/Robolectric Store regressions added. Actual full class not run locally: hosted Room execution remains mandatory. No stand-in test pass is claimed.",
+    "integrated_parent": "93b110310b7c479ebfa0be68d38f848bf633edd8"
+  },
+  "scoped_workspace_discovery_followup_review": {
+    "source": "b3ef2afea46521d10afcbaaf5925f27ad9a21072",
+    "manifest_acknowledgment": "6c5a70f733b3491366526dfd6b7641c8d027b8b1",
+    "result": "Independent source/test review passed without a concrete blocker.",
+    "coverage": "Preserves requested-integration privacy admission and all three denial regressions; passive status; exact configured tool/connection ownership and cold/warm alias rejection; discovery and nested router refresh share the operation context; invocation-local compiled bindings retain ledger, schema, principal/action and immediate pre-I/O checks. Immutable-read invoke remains synchronous. Cancellation/shared-producer ownership and concurrent global-cache preservation are covered.",
+    "qualification": "The three production hashes match the author checkpoint. Author86 component and168 integrated results remain separate receipts, not an independent rerun or final-head hosted pass."
+  },
+  "benchmark_actor_binding_followup": {
+    "source_base": "6c5a70f733b3491366526dfd6b7641c8d027b8b1",
+    "local_qualification_checkpoint": "d48886f51e2032b92c8dff94ff6c141ce07c70f5",
+    "status": "INTEGRATED_FOCUSED_AND_CANONICAL_VALIDATION_PASSED_PENDING_DRAFT_PUSH",
+    "finding": "Actual backend/live qualification returned qualified=true and retained actor7 while a credential rotation at the durable ref checkpoint sent the physical POST as actor9.",
+    "repair": "Each post-discovery benchmark request verifies expected actor with the exact captured credential used for the target request. A once-only no-job mutation callback writes the durable fence only after actor and API admission; mismatches remain unsent, while lost post-fence responses retain unknown ownership without replay. Existing engineering actor and execution binding cannot be overridden.",
+    "source_sha256": {
+      "gateway/benchmarks/live_github.py": "227260462983cead3e19d8d7513c959784679d02fe3d8710d3c930a37e7ef7f6",
+      "gateway/v14/engineering_backend.py": "9242d4ef8fe638ab202e749cd75e47209a6d0ca11f3a79c0e32a946b0106fc47",
+      "gateway/tests/test_gateway_live_benchmark.py": "e8ecc744e8d27de00dd9a0ded4e13d7f2ce09328308b73b33719bbd45aecc444",
+      "gateway/tests/test_gateway_benchmark_cleanup.py": "d597d9cc96f3dbf196c2e366315b5786a76dbd4c0e5961dfbd79b175749f38ad"
+    },
+    "positive_suite": {
+      "tests": 45,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 19.427,
+      "modules": [
+        "test_gateway_live_benchmark",
+        "test_gateway_benchmark_cleanup",
+        "test_gateway_benchmark_api_v2"
+      ]
+    },
+    "negative_control": {
+      "tests": 2,
+      "expected_failures": 2,
+      "errors": 0,
+      "seconds": 6.084,
+      "mutation": "Isolated backend copy re-resolves Authorization after before_dispatch instead of retaining the token used by /user. No repository source substitution in the positive suite.",
+      "observed_failures": "Both physical publication and cancellation POSTs use actor 9 / credential label other instead of actor 7 / original.",
+      "mutated_source_sha256": "9d04e63be4c46c356468326c44357f55f1f510faa219e2266c902ea11f67ce55"
+    },
+    "regressions": [
+      "Same expected actor and exact revision qualify through actual backend.",
+      "Publication credential rotation at durable dispatch fence retains original verified credential, preserves unknown ownership, and later readback does not replay.",
+      "Cancellation rotation plus accepted-but-lost response retains original credential and observes terminal state without second cancel.",
+      "Changed actor denies target reads, mutations and cancellation before dispatch callback or durable mutation receipt.",
+      "Same-actor credential renewal remains qualified; the in-flight mutation retains its original credential.",
+      "expected_actor cannot override engineering job actor or bypass its existing execution binding.",
+      "Dispatch callback failure is invoked once and sends no physical mutation."
+    ],
+    "runtime": {
+      "python": "3.12.14",
+      "requests": "2.32.3",
+      "fastapi": "0.141.1",
+      "cryptography": "50.0.0"
+    },
+    "boundaries": "The seven added actor tests execute actual live_github, GitHubEngineeringBackend and GitHubApiGovernor with a protocol fake at requests, synthetic environment credentials, and the existing in-memory benchmark service/store fixture. The retained cleanup/API suites separately exercise actual service and SQLite ownership paths with their established external-boundary fakes. No live GitHub Actions, Windows packaging, Android or physical-device execution is claimed.",
+    "other_validation": {
+      "syntax": "python3 -m py_compile passed for all four paths",
+      "diff_check": "git diff --check passed for all four paths",
+      "independent_source_review": "privacy_diagnostics passed the exact production hashes and reviewed the added tests; no concrete concern found."
+    },
+    "integrated_parent": "93b110310b7c479ebfa0be68d38f848bf633edd8"
+  },
+  "benchmark_integration_validation": {
+    "parent": "93b110310b7c479ebfa0be68d38f848bf633edd8",
+    "canonical": {
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 625,
+      "test_seconds": 24.522,
+      "elapsed_seconds": 29.5,
+      "result": "PASS"
+    },
+    "focused_gateway": {
+      "tests": 45,
+      "failures": 0,
+      "test_seconds": 19.372,
+      "elapsed_seconds": 20.307,
+      "result": "PASS",
+      "source_readback": "All8 owned source/test hashes plus incoming process, sandbox and API-test hashes identical before/after; Android Room tests are not executed by this Python suite."
+    },
+    "room_hosted": "PENDING actual Store/Room class and complete final-head Android suite.",
+    "owned_source_hashes_verified": 8,
+    "kotlin_formatting": "PASS pinned ktlint1.3.1 on both Store source/test and generated audit inventory.",
+    "generated": "Architecture, audit, diagnostic and agent metadata synchronized;2023 literal patterns passed,99 dynamic patterns excluded from literal-only checking.",
+    "room_schema_history": "PASS",
+    "whitespace": "PASS",
+    "gateway_package": {
+      "hashes": 505,
+      "result": "PASS complete integrated file hashes; final manifest child will bind the acknowledged remote source commit before a single branch update."
+    }
+  },
+  "admitted_saved_cursor_review": {
+    "source": "5a9302855e1a65f8ac30174fae319c4dd2088370",
+    "result": "Independent source/test review passed the partial admitted-context scope. Live results are recorded before compaction; restored completed/partial results preserve matching successful native reads. Unknown/error/wrong-call/reconciliation outcomes remain retryable for context-bearing calls; native authority and32 raw attempts remain.",
+    "remaining": "Cursor-only rejected/altered/unissued consumption is still acceptance-owned and active; this review does not close the fullR07 hold.",
+    "qualification": "Author70 focused and19 journal compatibility cases remain separate source-bound receipts, not a final-head hosted pass."
+  },
+  "benchmark_previous_integration_validation": {
+    "parent": "5a9302855e1a65f8ac30174fae319c4dd2088370",
+    "source_hashes_verified": 8,
+    "gateway_incoming_changes": "None between the focused test parent6c5a70f and integrated incoming5a930285; all8 modified production/test hashes verified after rebase.",
+    "canonical": {
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 623,
+      "test_seconds": 27.352,
+      "elapsed_seconds": 31.471,
+      "result": "PASS"
+    },
+    "room_hosted": "PENDING actual Store/Room class and complete final-head Android suite.",
+    "kotlin_formatting": "PASS pinned ktlint1.3.1 on both Store source/test and generated audit inventory.",
+    "generated": "Architecture, audit inventory, diagnostic schema and agent metadata synchronized;2023 literal Android regex patterns passed,99 dynamic patterns outside literal-only checking.",
+    "room_schema_history": "PASS",
+    "whitespace": "PASS",
+    "gateway_package": {
+      "hashes": 505,
+      "result": "PASS complete manifest file-hash validation on the integrated source. Final manifest child binds the acknowledged remote source commit; branch moves only after the complete child is verified."
+    }
+  },
+  "incoming_process_deadline_and_build_review": {
+    "source": "f06624d7a7dcafbf838bc1cd5e1150b39fe641f7",
+    "acknowledged_manifest": "2495c9df6a2b3ba0aaca7ac7f44073c6262a7a81",
+    "integrated_parent": "93b110310b7c479ebfa0be68d38f848bf633edd8",
+    "process": "Independent source/test review passed: final stopped/process checks and child publication share the same RLock with stop capture; preparation/handshakes/termination stay outside that critical section. Two actual-child regressions added;55 older methods unchanged; captured-credential and atomic dispatch sources unchanged. Owner57/57 combined runtime receipt is not an independent rerun.",
+    "deadline": "Independent source/test review passed: bounded NonCancellable original-request cleanup precedes classification; inner timeout becomes TIMED_OUT, outer cancellation checkpoints generation/usage/attempt/cleanup through the existing callback before rethrowing. Unknown cleanup retains ownership and blocks successor work; no resubmission added.",
+    "native_accounting": "Independent source/test review passed: resource outcome needs the trusted start marker and successful grader calibration; unavailable/malformed runtimes remain HARNESS, and cancellation or unknown cleanup prevents grading. Owner39 executor/preparation+20 phone/live and14 native controls remain separately qualified.",
+    "ci": "Root reviewed bounded fresh KSP/KAPT/production/instrumentation compilation stages; unchanged mandatory APK, provenance, native, size, device and acceptance gates remain. New source-contract tests check task ordering, bounded memory and no skipped failure gates.",
+    "incident_contract": "Root reviewed the exact three new journal mismatch enum values and approved-report roundtrip/invalid-type controls; no arbitrary diagnostic body values are admitted."
   }
 }

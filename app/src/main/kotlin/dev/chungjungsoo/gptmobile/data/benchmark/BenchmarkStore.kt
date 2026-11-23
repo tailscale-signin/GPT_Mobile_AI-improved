@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.room.Room
+import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.audit.interrupted
 import dev.chungjungsoo.gptmobile.data.audit.recoverAppAuditBatch
@@ -226,7 +227,15 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
             loadLocked()
-            dao.deleteRun(id)
+            database.withTransaction {
+                // The canonical receipt may be newer than this instance's published history.
+                // Deleting it would also erase the original request's reconciliation owner.
+                val run = dao.runs().firstOrNull { it.id == id }?.let { json.decodeFromString<BenchmarkRun>(it.payload) }
+                check(run?.samples?.any { it.engineeringCleanupPending() } != true) {
+                    "Remote benchmark work must be reconciled before this saved result can be deleted."
+                }
+                dao.deleteRun(id)
+            }
             mutableHistory.value = dao.runs().map { json.decodeFromString<BenchmarkRun>(it.payload) }
             publishBestEffort(mutableHistory.value)
             scheduleMirror()

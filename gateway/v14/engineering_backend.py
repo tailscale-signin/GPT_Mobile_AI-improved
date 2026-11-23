@@ -297,11 +297,21 @@ class GitHubEngineeringBackend:
         owner, repo = job['request']['repository'].split('/')
         return '/repos/' + quote(owner, safe='') + '/' + quote(repo, safe='')
 
-    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False, capacity_reserve=0, operation_context=None):
+    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False, capacity_reserve=0, operation_context=None,
+            expected_actor=None, before_dispatch=None):
         if read_only and (method not in {'GET', 'HEAD'} or body is not None):
             raise PermissionError('Read-only GitHub access cannot dispatch a mutation')
         started = time.monotonic()
         mutating = method not in {'GET', 'HEAD'} and not (path == '/graphql' and isinstance(body, dict) and str(body.get('query', '')).lstrip().startswith(('query(', 'query ')))
+        job_actor = job.get('data', {}).get('actor_id') if job else None
+        if expected_actor is not None:
+            if type(expected_actor) is not int or expected_actor <= 0:
+                raise ValueError('A verified GitHub actor is required')
+            if job_actor is not None and expected_actor != job_actor:
+                raise PermissionError('GITHUB_ACCOUNT_CHANGED')
+        if before_dispatch is not None and (not callable(before_dispatch) or not mutating or expected_actor is None or job is not None):
+            raise ValueError('An external dispatch fence requires a scoped GitHub mutation')
+        bound_actor = expected_actor if expected_actor is not None else job_actor if mutating else None
         operation = None
         def recorded(value, status, success):
             if job:
@@ -327,14 +337,17 @@ class GitHubEngineeringBackend:
                    'X-GitHub-Api-Version': '2022-11-28'}
         if mutating and job and accepted_scope(job['request']) != 'implement':
             raise PermissionError('Read and plan tasks do not authorize GitHub mutations')
-        if mutating and job and job['data'].get('actor_id') is not None:
-            # Bind each write to the account checked during planning, even if
-            # the host credential changes between operations in one phase.
+        if bound_actor is not None:
+            # Identity and the target request share this captured credential.
+            # A settings rotation cannot substitute another account after the
+            # identity response or while a durable dispatch fence is written.
             with self.github_governor.lease(token, cancelled=admission_stopped):
                 with requests.get('https://api.github.com/user', headers=headers, timeout=(10, 30), allow_redirects=False, stream=True) as identity:
                     self.github_governor.observe(token, identity.status_code, identity.headers)
                     identity.raise_for_status()
-                    if self.read_response(identity, False).get('id') != job['data']['actor_id']:
+                    if self.read_response(identity, False).get('id') != bound_actor:
+                        if expected_actor is not None:
+                            raise PermissionError('GITHUB_ACCOUNT_CHANGED')
                         raise ValueError('GitHub account changed before dispatch')
         if mutating and job:
             if not callable(self.before_mutation) or self.operations is None:
@@ -350,6 +363,8 @@ class GitHubEngineeringBackend:
                                            resource=resource, reserve=capacity_reserve):
                 if operation:
                     self.operations.dispatch(job, operation)
+                if before_dispatch is not None:
+                    before_dispatch()
                 with requests.request(method, 'https://api.github.com' + path, headers=headers, json=body,
                                       timeout=(10, 60), allow_redirects=False, stream=True) as response:
                     self.github_governor.observe(token, response.status_code, response.headers)

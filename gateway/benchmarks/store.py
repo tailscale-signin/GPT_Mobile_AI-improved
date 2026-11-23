@@ -256,7 +256,7 @@ class BenchmarkStore:
                     case = json.loads(payload)
                     if case.get('status') == 'RUNNING':
                         case.update(status=outcome, graded=False, resolved=False, score=None, endedAt=run['endedAt'])
-                        if (run.get('failure') or {}).get('code') == 'PROCESS_INTERRUPTED':
+                        if 'PROCESS_INTERRUPTED' in ((run.get('failure') or {}).get('code'), (run.get('failure') or {}).get('interruption')):
                             case['error'] = 'PROCESS_INTERRUPTED'
                         db.execute('UPDATE benchmark_cases SET payload=? WHERE run_id=? AND ordinal=?',
                                    (json.dumps(case, allow_nan=False), ident, ordinal))
@@ -334,14 +334,46 @@ class BenchmarkStore:
                 raise BenchmarkConflict('Sandbox cleanup receipt belongs to a different container')
             db.execute('DELETE FROM benchmark_sandboxes WHERE run_id=? AND container=?', (ident, container))
 
+    @staticmethod
+    def interrupted_github_cleanup(run):
+        receipt = run.get('liveGitHubReceipt') or {}
+        if not any(isinstance(row, dict) and str(row.get('path', '')).endswith('/git/refs')
+                   for row in receipt.get('mutations', [])):
+            return None
+        cleanup = {'kind': 'github_actions', 'outcome': 'unknown', 'repository': receipt.get('repository'),
+                   'revision': receipt.get('publishedRevision'), 'workflowPath': receipt.get('workflowPath')}
+        # The dispatch journal is authority to retain ownership, not proof that
+        # a remote workflow stopped. Accept only an already observed exact result.
+        owned = (receipt.get('repository') == run['request'].get('repository')
+                 and receipt.get('baseRevision') == run['request'].get('base_sha')
+                 and isinstance(cleanup['revision'], str) and re.fullmatch(r'[a-f0-9]{40}', cleanup['revision']))
+        previous = receipt.get('cleanup')
+        if (owned and isinstance(previous, dict) and previous.get('outcome') in {'confirmed', 'terminal'}
+                and all(previous.get(key) == value for key, value in cleanup.items() if key != 'outcome')
+                and type(previous.get('workflowRunId')) is int and previous['workflowRunId'] > 0):
+            return dict(previous)
+        if (owned and receipt.get('remoteReadbackVerified') is True
+                and receipt.get('testedRevision') == cleanup['revision'] and receipt.get('workflowConclusion') == 'success'
+                and all(type(receipt.get(key)) is int and receipt[key] > 0 for key in ('workflowRunId', 'jobId'))):
+            cleanup.update(outcome='terminal', workflowRunId=receipt['workflowRunId'], conclusion='success')
+        return cleanup
+
     def recover(self):
         with self.db() as db:
             rows = db.execute("SELECT id,payload FROM benchmark_runs WHERE state IN ('QUEUED','RUNNING','CANCELLING')").fetchall()
         for ident, raw in rows:
             run = json.loads(raw)
+            cleanup = self.interrupted_github_cleanup(run)
+            unknown = cleanup is not None and cleanup['outcome'] == 'unknown'
+            failure = {'code': 'PROCESS_INTERRUPTED', 'dispatched': False if run['state'] == 'QUEUED' and cleanup is None else None}
+            if cleanup is not None:
+                failure['cancellationReceipts'] = [cleanup]
+            if unknown:
+                failure.update(code='CANCELLATION_UNCONFIRMED', interruption='PROCESS_INTERRUPTED')
             self.update(ident, state='INTERRUPTED', endedAt=self.now(),
-                        progress='Gateway restarted. Retained evidence is available; start a new run to repeat.',
-                        failure={'code': 'PROCESS_INTERRUPTED', 'dispatched': False if run['state'] == 'QUEUED' else None})
+                        progress=('Gateway restarted. The original GitHub workflow still needs shutdown readback.' if unknown else
+                                  'Gateway restarted. Retained evidence is available; start a new run to repeat.'),
+                        failure=failure)
 
     def remove(self, ident, principal):
         with self.db() as db:

@@ -169,6 +169,116 @@ class BenchmarkStoreTest {
         deleted.close()
     }
 
+    @Test fun pendingRemoteOwnershipSurvivesRestartAndRejectedHistoryDeletion() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE).edit().clear().commit()
+        val fixture = BenchmarkEngineeringTestFixtures(lane = BenchmarkEngineeringLane.LIVE_GITHUB, families = 1, repeats = 1)
+        val run = pendingRemoteRun(fixture, "remote")
+        val batch = BenchmarkBatch(
+            fixture.plan.id, BenchmarkMode.GITHUB_INTEGRATION, run.startedAt,
+            BenchmarkEngineeringRegistry.queue(fixture.profiles, fixture.plan).mapIndexed { index, item ->
+                if (index == 0) item.copy(runId = run.id, state = BenchmarkQueueState.RUNNING) else item
+            },
+            state = BenchmarkBatchState.RUNNING, activeOrdinal = 0,
+            caseManifest = fixture.cases, executionPolicy = fixture.plan.executionPolicy, engineeringPlan = fixture.plan
+        )
+        val initial = BenchmarkStore(context)
+        try {
+            initial.checkpoint(batch, run)
+        } finally {
+            initial.close()
+        }
+        val restored = BenchmarkStore(context)
+        try {
+            restored.markInterruptedRuns()
+            restored.recoverBatches()
+            val retained = restored.history.value.single()
+            val retainedBatch = checkNotNull(restored.batch(batch.id))
+            assertTrue(retainedBatch.canResume)
+            assertEquals("original-remote", retained.samples.single().engineeringAttempts.single().logicalRequestId)
+            val failure = runCatching { restored.delete(run.id) }.exceptionOrNull()
+            assertTrue(failure is IllegalStateException)
+            assertEquals("Remote benchmark work must be reconciled before this saved result can be deleted.", failure?.message)
+            assertEquals(retained, restored.history.value.single())
+            assertEquals(retainedBatch, restored.batch(batch.id))
+        } finally {
+            restored.close()
+        }
+        val reopened = BenchmarkStore(context)
+        try {
+            reopened.load()
+            assertEquals(run.samples, reopened.history.value.single().samples)
+            assertTrue(checkNotNull(reopened.batch(batch.id)).canResume)
+        } finally {
+            reopened.close()
+        }
+    }
+
+    @Test fun historyDeletionRechecksPersistedOwnershipWhenPublishedHistoryIsStale() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE).edit().clear().commit()
+        val fixture = BenchmarkEngineeringTestFixtures(lane = BenchmarkEngineeringLane.LIVE_GITHUB, families = 1, repeats = 1)
+        val pending = pendingRemoteRun(fixture, "remote")
+        val beforeAdmission = pending.copy(samples = emptyList())
+        val writer = androidx.room.Room.databaseBuilder(context, BenchmarkDatabase::class.java, "benchmark_v2.db").build()
+        val store = BenchmarkStore(context)
+        try {
+            writer.dao().insertRuns(listOf(BenchmarkRunRecord(beforeAdmission.id, beforeAdmission.startedAt, kotlinx.serialization.json.Json.encodeToString(BenchmarkRun.serializer(), beforeAdmission))))
+            store.load()
+            writer.dao().insertRuns(listOf(BenchmarkRunRecord(pending.id, pending.startedAt, kotlinx.serialization.json.Json.encodeToString(BenchmarkRun.serializer(), pending))))
+            assertEquals(beforeAdmission, store.history.value.single())
+            assertTrue(runCatching { store.delete(pending.id) }.exceptionOrNull() is IllegalStateException)
+        } finally {
+            store.close()
+            writer.close()
+        }
+        val reopened = BenchmarkStore(context)
+        try {
+            reopened.load()
+            assertEquals(pending, reopened.history.value.single())
+        } finally {
+            reopened.close()
+        }
+    }
+
+    @Test fun ordinaryAndConfirmedRemoteResultsCanStillBeDeletedPermanently() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE).edit().clear().commit()
+        val fixture = BenchmarkEngineeringTestFixtures(lane = BenchmarkEngineeringLane.LIVE_GITHUB, families = 1, repeats = 1)
+        val pending = pendingRemoteRun(fixture, "remote")
+        val ordinary = BenchmarkRun("ordinary", "profile", "Name", "OPENAI", "model", "key", false, BenchmarkMode.QUICK, 1)
+        val settled = pending.copy(id = "settled", samples = pending.samples.map { it.copy(cleanupReceipt = "gateway:terminal_readback_confirmed") })
+        val neverSubmitted = pending.copy(id = "never-submitted", samples = pending.samples.map { it.copy(cleanupReceipt = "gateway:no_submission_dispatched") })
+        val store = BenchmarkStore(context)
+        try {
+            val runs = listOf(ordinary, settled, neverSubmitted)
+            runs.forEach { store.save(it) }
+            runs.forEach { store.delete(it.id) }
+            assertTrue(store.history.value.isEmpty())
+        } finally {
+            store.close()
+        }
+        val reopened = BenchmarkStore(context)
+        try {
+            reopened.load()
+            assertTrue(reopened.history.value.isEmpty())
+        } finally {
+            reopened.close()
+        }
+    }
+
+    private fun pendingRemoteRun(fixture: BenchmarkEngineeringTestFixtures, id: String): BenchmarkRun {
+        val test = fixture.cases.first()
+        val sample = fixture.sample(test, false).copy(
+            outcome = BenchmarkOutcome.PARTIAL,
+            attemptId = "$id:${test.id}:0", logicalRequestId = "logical-$id", physicalRequestIds = listOf("generation-$id"),
+            inputTokens = 17, outputTokens = 23, engineeringVerification = null,
+            cleanupReceipt = "gateway:submission_outcome_unknown",
+            engineeringAttempts = listOf(BenchmarkEngineeringAttemptReceipt(0, "original-$id", benchmarkHash("candidate"), null, "VERIFICATION_PENDING", false, 17, 23, 100))
+        )
+        return fixture.runs().first().copy(id = id, samples = listOf(sample), finished = false, endedAt = null, state = "RUNNING", queueOrdinal = 0)
+    }
+
     @Test fun canonicalQueueAndAttemptSurviveAStalePreferenceMirrorAndProcessInterruption() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val prefs = context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE)

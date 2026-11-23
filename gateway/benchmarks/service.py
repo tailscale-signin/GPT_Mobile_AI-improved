@@ -264,12 +264,16 @@ class BenchmarkService:
             # The composition root may bind a new database for an installation
             # or a TestClient lifespan after this service was constructed.
             data = Path(self.runtime.GATEWAY_JOB_DB_PATH).parent
-            self.root = Path(os.environ.get('GATEWAY_DESKTOP_ROOT', str(data.parent if data.name == 'data' else data)))
             if self.store.path != data / 'benchmarks.sqlite3':
-                if self.sandbox_claims():
-                    raise RuntimeError('The original benchmark journal still owns an unsettled sandbox')
+                if self.store.path.exists():
+                    # Classify the old durable dispatches before checking their
+                    # ownership; the new journal cannot settle an old workflow.
+                    self.store.recover()
+                if self.sandbox_claims() or self.external_cleanups():
+                    raise RuntimeError('The original benchmark journal still owns unsettled execution')
                 self.store = BenchmarkStore(data / 'benchmarks.sqlite3')
                 self.qualifications.store = self.store
+            self.root = Path(os.environ.get('GATEWAY_DESKTOP_ROOT', str(data.parent if data.name == 'data' else data)))
         if not getattr(self.runtime, 'GATEWAY_DURABLE_JOBS', False) and not self.store.path.exists():
             return
         self.store.recover()

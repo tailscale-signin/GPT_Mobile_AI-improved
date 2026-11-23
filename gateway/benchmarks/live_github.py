@@ -127,10 +127,11 @@ def reconcile_interrupted(service, owner_id, run):
                     or not service.engineering.authorized({'principal': owner_id})):
                 raise PermissionError('LIVE_FIXTURE_AUTHORITY_CHANGED')
             backend = service.engineering.backend
-            if backend.api('/user', read_only=True).get('id') != receipt.get('actorId'):
-                raise PermissionError('LIVE_FIXTURE_ACCOUNT_CHANGED')
+            actor = receipt.get('actorId')
+            if type(actor) is not int or actor <= 0:
+                raise PermissionError('LIVE_FIXTURE_ACCOUNT_UNVERIFIED')
             root = '/repos/' + '/'.join(quote(part, safe='') for part in repository.split('/'))
-            runs = backend.api(root + '/actions/runs?head_sha=' + head + '&per_page=100', read_only=True)
+            runs = backend.api(root + '/actions/runs?head_sha=' + head + '&per_page=100', read_only=True, expected_actor=actor)
             if runs.get('total_count', 0) > 100:
                 raise LiveFixtureUnavailable('LIVE_FIXTURE_ACTIONS_READBACK_INCOMPLETE')
             matching = [row for row in runs.get('workflow_runs', []) if row.get('head_sha') == head
@@ -148,19 +149,23 @@ def reconcile_interrupted(service, owner_id, run):
             else:
                 cancellation = receipt.get('cancellationMutation')
                 if cancellation is None:
-                    receipt['cancellationMutation'] = dict(workflowRunId=run_id, state='DISPATCHED')
-                    receipt['cleanup'] = cleanup
-                    service.store.update(run['id'], liveGitHubReceipt=receipt)
+                    def dispatch_cancel():
+                        if service.store.owner(run['id']) != owner_id or not service.engineering.authorized({'principal': owner_id}):
+                            raise PermissionError('LIVE_FIXTURE_AUTHORITY_CHANGED')
+                        receipt['cancellationMutation'] = dict(workflowRunId=run_id, state='DISPATCHED')
+                        receipt['cleanup'] = cleanup
+                        service.store.update(run['id'], liveGitHubReceipt=receipt)
                     # A single run-specific cancel is authorized by the retained fixture ownership.
                     # Its response can be lost; only subsequent reads determine shutdown.
                     try:
-                        backend.api(root + '/actions/runs/' + str(run_id) + '/cancel', method='POST', body={}, read_only=False)
+                        backend.api(root + '/actions/runs/' + str(run_id) + '/cancel', method='POST', body={}, read_only=False,
+                                    expected_actor=actor, before_dispatch=dispatch_cancel)
                     except Exception:
                         pass
                 elif cancellation.get('workflowRunId') != run_id:
                     raise LiveFixtureUnavailable('LIVE_FIXTURE_CANCELLATION_IDENTITY_CHANGED')
                 for _ in range(4):
-                    observed = backend.api(root + '/actions/runs/' + str(run_id), read_only=True)
+                    observed = backend.api(root + '/actions/runs/' + str(run_id), read_only=True, expected_actor=actor)
                     if observed.get('head_sha') != head or observed.get('path', '').split('@')[0] != receipt.get('workflowPath'):
                         raise LiveFixtureUnavailable('LIVE_FIXTURE_ACTIONS_IDENTITY_CHANGED')
                     if observed.get('status') == 'completed':
@@ -213,23 +218,27 @@ def qualify(service, owner_id, run, task, candidate_sources, grade_result, cance
     def api(path, method='GET', body=None, *, reconcile=None):
         guard()
         mutating = method != 'GET'
+        mutation = None
         if mutating:
-            identity = backend.api('/user', read_only=True)
-            if identity.get('id') != actor:
-                raise PermissionError('LIVE_FIXTURE_ACCOUNT_CHANGED')
             # This authority is deliberately narrower than the engineering API.
             allowed = {root + '/git/blobs', root + '/git/trees', root + '/git/commits', root + '/git/refs'}
             if method != 'POST' or path not in allowed:
                 raise PermissionError('LIVE_FIXTURE_MUTATION_OUT_OF_SCOPE')
             if path.endswith('/git/refs') and body.get('ref') != 'refs/heads/' + branch:
                 raise PermissionError('LIVE_FIXTURE_REF_OUT_OF_SCOPE')
+        def dispatch():
+            nonlocal mutation
+            guard()
             mutation = {'method': method, 'path': path, 'bodyDigest': digest(body), 'state': 'DISPATCHED'}
             receipt['mutations'].append(mutation)
             checkpoint('MUTATION_DISPATCHED')
         try:
-            value = backend.api(path, method=method, body=body, read_only=not mutating)
-        except Exception:
-            if not mutating:
+            value = backend.api(path, method=method, body=body, read_only=not mutating,
+                                expected_actor=actor, before_dispatch=dispatch if mutating else None)
+        except Exception as error:
+            if mutation is None:
+                if isinstance(error, PermissionError) and str(error) == 'GITHUB_ACCOUNT_CHANGED':
+                    raise PermissionError('LIVE_FIXTURE_ACCOUNT_CHANGED') from None
                 raise
             mutation['state'] = 'UNKNOWN_OUTCOME'
             checkpoint('RECONCILIATION_REQUIRED')
@@ -243,7 +252,7 @@ def qualify(service, owner_id, run, task, candidate_sources, grade_result, cance
             receipt['lostResponseReconciled'] = True
             checkpoint('MUTATION_RECONCILED')
             return recovered
-        if mutating:
+        if mutation is not None:
             mutation['state'] = 'COMPLETED'
             mutation['remoteResultDigest'] = digest(value)
             checkpoint('MUTATION_CONFIRMED')

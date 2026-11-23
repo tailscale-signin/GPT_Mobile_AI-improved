@@ -1,0 +1,114 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "speech-playback-reliability-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "initial_pr_head": "c6721ab61c30419cc10c25e5536ef37a4d579532",
+  "working_branch": "fix/github-evidence-progress-2026-11-23",
+  "pr_number": 2363,
+  "intent": "Implement every speech-benchmark review repair, integrate concurrent GitHub repairs, and complete verified publication.",
+  "state": "IMPLEMENTING",
+  "source_capture": {
+    "file": "speech-benchmark-1795428543371.json",
+    "source_commit": "18b53c98ea2018fcd23cac933a0cbf10069cd2ae",
+    "app_build": 147
+  },
+  "owners": {
+    "native": "native_speech_audit",
+    "playback": "playback_pipeline_audit",
+    "benchmark": "benchmark_audit",
+    "integration_and_retirement": "root"
+  },
+  "acceptance": [
+    {
+      "id": "S01",
+      "requirement": "Preserve outer playback and typed native failure reasons, stages and elapsed attempts",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S02",
+      "requirement": "Expose safe live native progress and use bounded phase-aware deadlines",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S03",
+      "requirement": "Retain per-chunk preparation, inference, cache and hybrid execution evidence",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S04",
+      "requirement": "Measure queue, reserve, first write/play and presentation; separate startup/refill policy",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S05",
+      "requirement": "Use mode-correct benchmark exports and preserve history without false zero measurements",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S06",
+      "requirement": "Freeze or disclose effective route calibration and execution settings",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S07",
+      "requirement": "Separate execution completion, backend verification and playback quality",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S08",
+      "requirement": "Implement cold, resident warm, streaming, changing-shape, sustained and cancellation workloads",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S09",
+      "requirement": "Validate captions against independent fixture coverage; disclose acoustic/visual/energy availability",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S10",
+      "requirement": "Bound foreground cleanup while quarantining active native ownership until retirement",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S11",
+      "requirement": "Preserve concurrent GitHub repair scope and verify current issue-family recovery",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S12",
+      "requirement": "Run meaningful behavioral/native regressions, canonical checks and current-head hosted gates",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    },
+    {
+      "id": "S13",
+      "requirement": "Merge expected shared head, qualify exact main and verify signed publication",
+      "status": "IN_PROGRESS",
+      "evidence": []
+    }
+  ],
+  "constraints": [
+    "Preserve all concurrent branch commits with fast-forward or expected-head updates.",
+    "Keep requested-provider verification, privacy, bounded memory and old native ownership until actual retirement.",
+    "No host or emulator result establishes physical GPU/NPU speed, acoustic alignment, energy or the historical crash cause.",
+    "Merge/publication remain held until this speech task and the concurrent github-evidence-progress task are implemented and all applicable exact-head gates pass."
+  ],
+  "validation": {
+    "local": [],
+    "hosted": [],
+    "publication": []
+  }
+}

@@ -1257,7 +1257,10 @@
     "scripts/check_android_lint_memory.py",
     "scripts/tests/test_android_lint_memory.py",
     "scripts/tests/test_release_lint_workflow.py",
-    "docs/repairs/gateway-version-reservation-2026-11-23-task.json"
+    "docs/repairs/gateway-version-reservation-2026-11-23-task.json",
+    "scripts/test_gitleaks_model_pin.py",
+    "docs/repairs/gitleaks-model-pin-2026-11-23-task.json",
+    "scripts/scan_secret_history.sh"
   ],
   "publicationRequest": {
     "android": "0.9.66.14",

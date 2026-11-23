@@ -1,0 +1,851 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "open-pr-issue-remediation-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "parent_pr": 2367,
+  "parent_head": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+  "intent": "Qualify open PRs, merge current green source, repair concrete issue gaps and close the reviewed reports with an accurate record of the action taken.",
+  "authorization": "User requested all open issues examined and fixed, and closure after action.",
+  "snapshot_state": "IMPLEMENTED_REVIEWED_AWAITING_FINAL_COMBINED_HOSTED_CHECKS",
+  "snapshot_time_utc": "2026-11-23T17:52:21.087281+00:00",
+  "merged_pr": {
+    "number": 2363,
+    "head": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+    "merge_commit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+    "tree": "337b6c2b154d819a46c99bc2eab778cf87ec3726",
+    "final_required_verification_run": 45219644441,
+    "final_required_verification_job": 137891683730,
+    "unit_artifact": 14846060592,
+    "unit_tests": 13568,
+    "unit_failures": 0,
+    "unit_errors": 0,
+    "unit_skips": 5
+  },
+  "new_repairs": [
+    {
+      "issues": [
+        2378
+      ],
+      "task": "docs/repairs/catalog-alias-issue2378-2026-11-23-task.json",
+      "local_reviewed_commit": "9afde6d9f2715d6bf85eecc3758141ec630c26dc"
+    },
+    {
+      "issues": [
+        2373,
+        2374,
+        2375
+      ],
+      "task": "docs/repairs/verification-reserve-reporting-2026-11-23-task.json",
+      "local_reviewed_commit": "e87a7e1266f35d20b3718f082eaae9dab9854fa6"
+    }
+  ],
+  "constraints": [
+    "Preserve concurrent commits, required checks, accepted budgets and uncertain-outcome protections.",
+    "Source/test fixes do not retroactively establish historical runtime or missing private evidence.",
+    "External billing and TLS incidents retain their observed service/configuration limitations.",
+    "Version reconciliation remains owned by the existing release coordinator; preserve the successor identity sequence."
+  ],
+  "issue_count": 44,
+  "issue_actions": [
+    {
+      "issue": 2334,
+      "category": "Local indexing deadlines and reconciliation",
+      "observation": "The repository_graph index returned TIMEOUT_OUTCOME_UNKNOWN after dispatch and required reconciliation. The report does not identify a confirmed remote write.",
+      "action": "Stopped local indexing now retains and reads back its checkpoint, classifies its deadline separately from an uncertain remote write, and settles each shared-budget reservation once. Tests preserve the fence around genuine unknown Gateway writes.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraph.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt"
+      ],
+      "regressions": [
+        "PhoneIndexDeadlineRecoveryTest",
+        "PhoneIndexCombinedLedgerTest",
+        "PhoneRepositoryGraphSessionTest"
+      ],
+      "qualification": "Targeted repair implemented and regression-covered. These tests do not prove the original device incident has been rerun."
+    },
+    {
+      "issue": 2335,
+      "category": "Local indexing deadlines and reconciliation",
+      "observation": "Coverage stopped at tool_dispatch with RECONCILIATION_REQUIRED, 4 of 6 criteria verified, and resume disabled. Its run matches the earlier repository_graph timeout in #2334.",
+      "action": "Stopped local indexing now retains and reads back its checkpoint, classifies its deadline separately from an uncertain remote write, and settles each shared-budget reservation once. Tests preserve the fence around genuine unknown Gateway writes.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraph.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt"
+      ],
+      "regressions": [
+        "PhoneIndexDeadlineRecoveryTest",
+        "PhoneIndexCombinedLedgerTest",
+        "PhoneRepositoryGraphSessionTest"
+      ],
+      "qualification": "Targeted repair implemented and regression-covered. These tests do not prove the original device incident has been rerun."
+    },
+    {
+      "issue": 2336,
+      "category": "provider-recovery-and-diagnostics",
+      "observation": "OpenRouter returned replay-safe HTTP429 before visible output; the old capture reported DECISION_UNAVAILABLE, so it does not establish that a durable wait was actually scheduled.",
+      "action": "Reviewed and retained the PR2363 repair that preserves typed rejection decisions through claim extraction, permits one short retry inside the owning extraction batch after current-authority validation, and reports an explicit extraction checkpoint handoff rather than inventing a missing wait decision.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtraction.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regressions": [
+        "GitHubClaimExtractionTest.shortTypedRejectionWaitsOnceInsideTheOwnedBatchAndRevalidatesAuthority",
+        "GitHubClaimExtractionTest.authorityChangeAndCancellationAbortTheOwnedRetryBeforeAnotherInvocation",
+        "ProviderFailureReportTest.extractionCheckpointHandoffDoesNotBecomeAnUnexplainedMissingWaitDecision"
+      ],
+      "qualification": "The app cannot remove upstream quota/rate limits. Unknown acceptance, emitted output, policy changes and uncertain tool outcomes continue to prohibit unsafe replay."
+    },
+    {
+      "issue": 2337,
+      "category": "provider-recovery-and-diagnostics",
+      "observation": "OpenRouter returned replay-safe HTTP429 before visible output; the old capture reported DECISION_UNAVAILABLE, so it does not establish that a durable wait was actually scheduled.",
+      "action": "Reviewed and retained the PR2363 repair that preserves typed rejection decisions through claim extraction, permits one short retry inside the owning extraction batch after current-authority validation, and reports an explicit extraction checkpoint handoff rather than inventing a missing wait decision.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtraction.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regressions": [
+        "GitHubClaimExtractionTest.shortTypedRejectionWaitsOnceInsideTheOwnedBatchAndRevalidatesAuthority",
+        "GitHubClaimExtractionTest.authorityChangeAndCancellationAbortTheOwnedRetryBeforeAnotherInvocation",
+        "ProviderFailureReportTest.extractionCheckpointHandoffDoesNotBecomeAnUnexplainedMissingWaitDecision"
+      ],
+      "qualification": "The app cannot remove upstream quota/rate limits. Unknown acceptance, emitted output, policy changes and uncertain tool outcomes continue to prohibit unsafe replay."
+    },
+    {
+      "issue": 2338,
+      "category": "saved-page-capacity-recovery",
+      "observation": "The original-error hash exactly matches SAVED_VIEW_PAGE_CAPACITY: an issued unexpired saved search cursor did not fit the available output allowance.",
+      "action": "Reviewed the existing capacity correction: retain the unread page and original recovery recipe, stop repeating the same too-small automatic page, and only select the exact native-issued larger page when it fits the accepted allowance.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt"
+      ],
+      "regressions": [
+        "GitHubSavedPageCapacityTest.nativeCapacityRefusalStopsIdenticalAutomaticReadsWithoutConsumingThePage",
+        "GitHubSavedPageCapacityTest.onlyAnIssuedLargerPageWithinTheChangedAllowanceCanResumeAndKeepRemoteContinuations",
+        "GitHubSavedPageCapacityTest.refusalSurvivesReplayEvictionAndRestorationWithoutInventingSuccessfulConsumption"
+      ],
+      "qualification": "A genuine small output allowance can still reject a page. Closure records bounded recovery and removal of repeated identical attempts, not unlimited output or proof that the original page was consumed."
+    },
+    {
+      "issue": 2339,
+      "category": "provider-recovery-and-diagnostics",
+      "observation": "OpenRouter returned replay-safe HTTP429 before visible output; the old capture reported DECISION_UNAVAILABLE, so it does not establish that a durable wait was actually scheduled.",
+      "action": "Reviewed and retained the PR2363 repair that preserves typed rejection decisions through claim extraction, permits one short retry inside the owning extraction batch after current-authority validation, and reports an explicit extraction checkpoint handoff rather than inventing a missing wait decision.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtraction.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regressions": [
+        "GitHubClaimExtractionTest.shortTypedRejectionWaitsOnceInsideTheOwnedBatchAndRevalidatesAuthority",
+        "GitHubClaimExtractionTest.authorityChangeAndCancellationAbortTheOwnedRetryBeforeAnotherInvocation",
+        "ProviderFailureReportTest.extractionCheckpointHandoffDoesNotBecomeAnUnexplainedMissingWaitDecision"
+      ],
+      "qualification": "The app cannot remove upstream quota/rate limits. Unknown acceptance, emitted output, policy changes and uncertain tool outcomes continue to prohibit unsafe replay."
+    },
+    {
+      "issue": 2340,
+      "category": "Missing observation evidence and premature stop",
+      "observation": "The verifier recorded OBSERVATION_TIME_UNKNOWN for 6 unresolved claims, with 49 of 512 calls used and 463 remaining; none of 8 criteria was verified.",
+      "action": "Source-bound read reconciliation retains observation provenance; independent authorized work can continue from schema-valid pinned reads without treating unknown or failed observations as verified.",
+      "reviewed_source": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchSourceRead.kt"
+      ],
+      "regressions": [
+        "GitHubEvidenceRetentionTest",
+        "GitHubProgressContinuationTest",
+        "GitHubSearchSourceReadTest"
+      ],
+      "qualification": "Claims with genuinely absent observation time or failed operations remain unverified; this is recovery/reporting correction, not retroactive acceptance."
+    },
+    {
+      "issue": 2341,
+      "category": "Unsupported profile-switch or execution claims",
+      "observation": "One criterion remained unverified despite 7 verified claims and 1 unresolved claim. The REVISION_TEST_ACCEPTANCE branch used 2 of 512 calls, leaving 510.",
+      "action": "Accepted substantive requirements survive restoration; bounded continuation and runtime-resource wording use measured catalog/call evidence rather than unsupported capability or completion claims.",
+      "reviewed_source": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceContract.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletion.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAnswerPresentation.kt"
+      ],
+      "regressions": [
+        "GitHubAcceptanceContractTest",
+        "GitHubProgressContinuationTest",
+        "GitHubRuntimeClaimScopeTest"
+      ],
+      "qualification": "The hashed report does not establish the original exact requested action. Close as reviewed with targeted continuation safeguards; do not call the historical requirement verified."
+    },
+    {
+      "issue": 2342,
+      "category": "Unsupported profile-switch or execution claims",
+      "observation": "The follow-on report retained 1 unverified criterion, 7 verified claims, and 1 unresolved claim after 2 of 512 calls in REVISION_TEST_ACCEPTANCE.",
+      "action": "Accepted substantive requirements survive restoration; bounded continuation and runtime-resource wording use measured catalog/call evidence rather than unsupported capability or completion claims.",
+      "reviewed_source": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceContract.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletion.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAnswerPresentation.kt"
+      ],
+      "regressions": [
+        "GitHubAcceptanceContractTest",
+        "GitHubProgressContinuationTest",
+        "GitHubRuntimeClaimScopeTest"
+      ],
+      "qualification": "The hashed report does not establish the original exact requested action. Close as reviewed with targeted continuation safeguards; do not call the historical requirement verified."
+    },
+    {
+      "issue": 2343,
+      "category": "Local indexing deadlines and reconciliation",
+      "observation": "The repository_graph index returned TIMEOUT_OUTCOME_UNKNOWN after dispatch and required reconciliation; its recorded argument shape contained only action.",
+      "action": "Stopped local indexing now retains and reads back its checkpoint, classifies its deadline separately from an uncertain remote write, and settles each shared-budget reservation once. Tests preserve the fence around genuine unknown Gateway writes.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraph.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt"
+      ],
+      "regressions": [
+        "PhoneIndexDeadlineRecoveryTest",
+        "PhoneIndexCombinedLedgerTest",
+        "PhoneRepositoryGraphSessionTest"
+      ],
+      "qualification": "Targeted repair implemented and regression-covered. These tests do not prove the original device incident has been rerun."
+    },
+    {
+      "issue": 2344,
+      "category": "diagnostic-retention",
+      "observation": "GitHub returned HTTP422 for COMMIT_LOOKUP on github_context with action=commit and ref; the approved report omitted the ref and server validation field details, so the historical ref failure cannot be attributed further.",
+      "action": "Reviewed the maintained safe commit-lookup validation projection and regression: retain endpoint category, bounded field/resource/code enums and hashed request identity through the native tool receipt and approved report without publishing raw ref or provider message.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolErrorDiagnostics.kt"
+      ],
+      "regressions": [
+        "GitHubToolTest.rejectedCommitLookupRetainsSafeValidationFieldsThroughTheNativeToolReceipt",
+        "GitHubToolErrorDiagnosticsTest"
+      ],
+      "qualification": "Original ref/server rejection cause remains unproven. The follow-up action is better safe diagnostics and observed-ref resolution, not a claim that an invalid historical ref now exists."
+    },
+    {
+      "issue": 2345,
+      "category": "diagnostic-retention",
+      "observation": "The report contains NoSuchElementException and framework touch/coroutine frames but no trustworthy application throw site.",
+      "action": "Reviewed the merged crash-diagnostic correction that keeps bounded AndroidX/coroutine symbols and reserves application frames from each inspected cause while preserving the eight-frame and approved-byte bounds.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReport.kt",
+        "authentication/issue_reports.py"
+      ],
+      "regressions": [
+        "IssueReportFrameworkFramesTest",
+        "ChatRepositoryResearchIncidentTest.genericPreparationExceptionRetainsEvidenceThroughCollector"
+      ],
+      "qualification": "This repairs diagnostic loss. The historical crash itself remains unproven until a fresh report or reproducer identifies its site; no device crash cure is asserted."
+    },
+    {
+      "issue": 2346,
+      "category": "Local indexing deadlines and reconciliation",
+      "observation": "The repository_graph index again returned TIMEOUT_OUTCOME_UNKNOWN after dispatch and required reconciliation, with an action-only argument shape.",
+      "action": "Stopped local indexing now retains and reads back its checkpoint, classifies its deadline separately from an uncertain remote write, and settles each shared-budget reservation once. Tests preserve the fence around genuine unknown Gateway writes.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraph.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt"
+      ],
+      "regressions": [
+        "PhoneIndexDeadlineRecoveryTest",
+        "PhoneIndexCombinedLedgerTest",
+        "PhoneRepositoryGraphSessionTest"
+      ],
+      "qualification": "Targeted repair implemented and regression-covered. These tests do not prove the original device incident has been rerun."
+    },
+    {
+      "issue": 2347,
+      "category": "Local indexing deadlines and reconciliation",
+      "observation": "Coverage stopped at tool_dispatch with RECONCILIATION_REQUIRED, 3 of 4 criteria verified, and resume disabled following the index timeout in the same run.",
+      "action": "Stopped local indexing now retains and reads back its checkpoint, classifies its deadline separately from an uncertain remote write, and settles each shared-budget reservation once. Tests preserve the fence around genuine unknown Gateway writes.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraph.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt"
+      ],
+      "regressions": [
+        "PhoneIndexDeadlineRecoveryTest",
+        "PhoneIndexCombinedLedgerTest",
+        "PhoneRepositoryGraphSessionTest"
+      ],
+      "qualification": "Targeted repair implemented and regression-covered. These tests do not prove the original device incident has been rerun."
+    },
+    {
+      "issue": 2348,
+      "category": "typed-phone-index-diagnostics",
+      "observation": "The original-error hash exactly identifies PHONE_INDEX_INTERRUPTED from repository_graph action=index; APP_ERROR/unknown was a public-projection loss.",
+      "action": "Reviewed PR2363 typed repository-operation reporting and bounded phone progress repair, preserving PHONE_INDEX_INTERRUPTED, READ_DEADLINE, dispatch phase and safe recovery observations through report validation and service feature negotiation.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RepositoryOperationReportContract.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt"
+      ],
+      "regressions": [
+        "ToolReportIncidentProjectionTest",
+        "PhoneRepositoryGraphSessionTest",
+        "PhoneIndexReadDeadlineTest"
+      ],
+      "qualification": "The old payload does not identify the exact interruption cause. Cancellation and current ownership remain authoritative; interrupted index work is not represented as a successful remote write."
+    },
+    {
+      "issue": 2349,
+      "category": "Selected revision consistency",
+      "observation": "The report explicitly records repository_graph_observation=REVISION_MISMATCH with 16 blocked graph inputs.",
+      "action": "Native reads and map reads use the selected immutable revision, and external revision mismatch remains explicit.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryStateStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepository.kt"
+      ],
+      "regressions": [
+        "GitHubGraphRevisionAuthorityTest",
+        "GitHubRepositoryBindingTest"
+      ],
+      "qualification": "The mismatched source condition is addressed; actual historical device state is not reconstructed."
+    },
+    {
+      "issue": 2350,
+      "category": "typed-phone-index-diagnostics",
+      "observation": "The original-error hash exactly identifies PHONE_INDEX_INTERRUPTED from repository_graph action=index; APP_ERROR/unknown was a public-projection loss.",
+      "action": "Reviewed PR2363 typed repository-operation reporting and bounded phone progress repair, preserving PHONE_INDEX_INTERRUPTED, READ_DEADLINE, dispatch phase and safe recovery observations through report validation and service feature negotiation.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RepositoryOperationReportContract.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt"
+      ],
+      "regressions": [
+        "ToolReportIncidentProjectionTest",
+        "PhoneRepositoryGraphSessionTest",
+        "PhoneIndexReadDeadlineTest"
+      ],
+      "qualification": "The old payload does not identify the exact interruption cause. Cancellation and current ownership remain authoritative; interrupted index work is not represented as a successful remote write."
+    },
+    {
+      "issue": 2351,
+      "category": "provider-recovery-and-diagnostics",
+      "observation": "OpenRouter returned replay-safe HTTP429 before visible output; the old capture reported DECISION_UNAVAILABLE, so it does not establish that a durable wait was actually scheduled.",
+      "action": "Reviewed and retained the PR2363 repair that preserves typed rejection decisions through claim extraction, permits one short retry inside the owning extraction batch after current-authority validation, and reports an explicit extraction checkpoint handoff rather than inventing a missing wait decision.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtraction.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regressions": [
+        "GitHubClaimExtractionTest.shortTypedRejectionWaitsOnceInsideTheOwnedBatchAndRevalidatesAuthority",
+        "GitHubClaimExtractionTest.authorityChangeAndCancellationAbortTheOwnedRetryBeforeAnotherInvocation",
+        "ProviderFailureReportTest.extractionCheckpointHandoffDoesNotBecomeAnUnexplainedMissingWaitDecision"
+      ],
+      "qualification": "The app cannot remove upstream quota/rate limits. Unknown acceptance, emitted output, policy changes and uncertain tool outcomes continue to prohibit unsafe replay."
+    },
+    {
+      "issue": 2352,
+      "category": "provider-recovery-and-diagnostics",
+      "observation": "OpenRouter returned replay-safe HTTP429 before visible output; the old capture reported DECISION_UNAVAILABLE, so it does not establish that a durable wait was actually scheduled.",
+      "action": "Reviewed and retained the PR2363 repair that preserves typed rejection decisions through claim extraction, permits one short retry inside the owning extraction batch after current-authority validation, and reports an explicit extraction checkpoint handoff rather than inventing a missing wait decision.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtraction.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regressions": [
+        "GitHubClaimExtractionTest.shortTypedRejectionWaitsOnceInsideTheOwnedBatchAndRevalidatesAuthority",
+        "GitHubClaimExtractionTest.authorityChangeAndCancellationAbortTheOwnedRetryBeforeAnotherInvocation",
+        "ProviderFailureReportTest.extractionCheckpointHandoffDoesNotBecomeAnUnexplainedMissingWaitDecision"
+      ],
+      "qualification": "The app cannot remove upstream quota/rate limits. Unknown acceptance, emitted output, policy changes and uncertain tool outcomes continue to prohibit unsafe replay."
+    },
+    {
+      "issue": 2353,
+      "category": "provider-recovery-and-diagnostics",
+      "observation": "OpenRouter returned replay-safe HTTP429 before visible output; the old capture reported DECISION_UNAVAILABLE, so it does not establish that a durable wait was actually scheduled.",
+      "action": "Reviewed and retained the PR2363 repair that preserves typed rejection decisions through claim extraction, permits one short retry inside the owning extraction batch after current-authority validation, and reports an explicit extraction checkpoint handoff rather than inventing a missing wait decision.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtraction.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regressions": [
+        "GitHubClaimExtractionTest.shortTypedRejectionWaitsOnceInsideTheOwnedBatchAndRevalidatesAuthority",
+        "GitHubClaimExtractionTest.authorityChangeAndCancellationAbortTheOwnedRetryBeforeAnotherInvocation",
+        "ProviderFailureReportTest.extractionCheckpointHandoffDoesNotBecomeAnUnexplainedMissingWaitDecision"
+      ],
+      "qualification": "The app cannot remove upstream quota/rate limits. Unknown acceptance, emitted output, policy changes and uncertain tool outcomes continue to prohibit unsafe replay."
+    },
+    {
+      "issue": 2354,
+      "category": "Coverage prerequisites and schema discovery",
+      "observation": "Integration coverage had 4/6 requirements verified and conditional fixture authority; no unresolved remote outcome is shown.",
+      "action": "Recoverable schema exclusions now get bounded compatible discovery and remaining reads retain their actual prerequisites. The catalog and fixture checks remain mandatory.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistSchedule.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationCatalog.kt"
+      ],
+      "regressions": [
+        "GitHubChecklistScheduleTest",
+        "GitHubVerifiedSessionTest"
+      ],
+      "qualification": "Close as investigated/action taken; this is not a claim that conditional fixture permission or unexecuted capabilities passed."
+    },
+    {
+      "issue": 2355,
+      "category": "saved-view-identity-and-recovery",
+      "observation": "The source reports SAVED_VIEW_UNAVAILABLE with restore state IDENTITY_REJECTED and cursor_issued=false. It does not prove the submitted cursor was valid for the current scope.",
+      "action": "Reviewed current saved-view restoration and recovery: only exact issued handles in the same account/connection/conversation/repository can restore; unavailable or unissued handles offer a fresh scoped source read and cannot repeat a mutation.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSavedViewStore.kt"
+      ],
+      "regressions": [
+        "GitHubSavedViewRecoveryTest.persistedViewCannotBeReadByAnotherScopeOperationOrUnissuedCursor",
+        "GitHubSavedViewRecoveryTest.unavailableCursorMayRecoverAfterStoreBecomesAvailable",
+        "GitHubSavedViewRecoveryTest.restoredViewsRemainBoundToPrincipalConnectionConversationAndRepository"
+      ],
+      "qualification": "No scope bypass was introduced. The sanitized capture cannot distinguish a fabricated cursor from unavailable or mismatched retained state; exact-source recovery is the supported action."
+    },
+    {
+      "issue": 2356,
+      "category": "typed-phone-index-diagnostics",
+      "observation": "The original-error hash exactly identifies PHONE_INDEX_INTERRUPTED from repository_graph action=index; APP_ERROR/unknown was a public-projection loss.",
+      "action": "Reviewed PR2363 typed repository-operation reporting and bounded phone progress repair, preserving PHONE_INDEX_INTERRUPTED, READ_DEADLINE, dispatch phase and safe recovery observations through report validation and service feature negotiation.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RepositoryOperationReportContract.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt"
+      ],
+      "regressions": [
+        "ToolReportIncidentProjectionTest",
+        "PhoneRepositoryGraphSessionTest",
+        "PhoneIndexReadDeadlineTest"
+      ],
+      "qualification": "The old payload does not identify the exact interruption cause. Cancellation and current ownership remain authoritative; interrupted index work is not represented as a successful remote write."
+    },
+    {
+      "issue": 2357,
+      "category": "Immutable comparison retention",
+      "observation": "Five claims were rejected with MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED and MUTABLE_AGE_EXCEEDED.",
+      "action": "Pinned comparisons and their retained fragments keep immutable source identity through restore, while mutable PR/CI observations still expire.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt"
+      ],
+      "regressions": [
+        "GitHubReviewProgressTest",
+        "GitHubEvidenceRetentionTest"
+      ],
+      "qualification": "Fix applies to exact pinned evidence only; stale mutable observations still require refresh."
+    },
+    {
+      "issue": 2358,
+      "category": "Pending CI observation",
+      "observation": "Informational acceptance had 3/4 requirements verified; the remaining requirement was CI_OBSERVATION.",
+      "action": "Exact-revision running CI is represented as WAITING_FOR_CI without probing nonexistent logs or declaring a passing build. Complete check snapshots and immutable run/attempt identities are retained.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt"
+      ],
+      "regressions": [
+        "GitHubCiObservationReportTest"
+      ],
+      "qualification": "Pending CI remains pending until its actual run completes; no missing test is labeled passed."
+    },
+    {
+      "issue": 2359,
+      "category": "Bounded search/read progress",
+      "observation": "A github_search continuation with index_cursor and search_id stopped with READ_DEADLINE after dispatch, without requiring reconciliation.",
+      "action": "Index/search stages use bounded work budgets, checkpoint useful progress before the outer deadline, and preserve issued continuation state. Future cursors cannot skip unread files.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadWorkBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositorySourceIndex.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraph.kt"
+      ],
+      "regressions": [
+        "GitHubReadWorkBudgetTest",
+        "PhoneRepositoryProgressBudgetTest",
+        "PhoneRepositoryGraphSessionTest"
+      ],
+      "qualification": "The finite deadline is retained; network/device latency itself is not claimed fixed."
+    },
+    {
+      "issue": 2360,
+      "category": "Bounded search/read progress",
+      "observation": "An initial github_search request with action, owner, query, and repo stopped with READ_DEADLINE after dispatch, without requiring reconciliation.",
+      "action": "Index/search stages use bounded work budgets, checkpoint useful progress before the outer deadline, and preserve issued continuation state. Future cursors cannot skip unread files.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadWorkBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositorySourceIndex.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraph.kt"
+      ],
+      "regressions": [
+        "GitHubReadWorkBudgetTest",
+        "PhoneRepositoryProgressBudgetTest",
+        "PhoneRepositoryGraphSessionTest"
+      ],
+      "qualification": "The finite deadline is retained; network/device latency itself is not claimed fixed."
+    },
+    {
+      "issue": 2361,
+      "category": "source-read-batch-recovery",
+      "observation": "github_read action=ranges failed with INVALID_ARGUMENTS after execution; the approved report does not include the rejected path contents.",
+      "action": "Reviewed PR2363 source-read repair that preserves successful ranges from mixed regular/directory/symlink batches, labels the rejected entries, and retains pinned-source coverage instead of discarding the full batch.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt"
+      ],
+      "regressions": [
+        "GitHubReadRecoveryTest.mixedReadKeepsPinnedSuccessesAndReportsOnlyTheAmbiguousPath",
+        "GitHubReadRecoveryTest.mixedDirectoryAndSymlinkRangesRetainTheValidReadAndItsExactCoverage"
+      ],
+      "qualification": "The exact invalid argument from this historical report is unavailable. Directory/symlink and ambiguous-path recovery is covered; schema constraints and source identity remain enforced."
+    },
+    {
+      "issue": 2362,
+      "category": "Claim pointers and mandatory verification catalog",
+      "observation": "The verifier recorded POINTER_NOT_IN_EVIDENCE for 4 unresolved claims; 4 other claims were verified, while all 8 criteria remained unmet.",
+      "action": "Mandatory baseline, changed-file manifest and decision facts survive bounded verification. Unsupported pointers remain unresolved and the diagnostic projection retains only hashed pointer/receipt identities, never source text.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt"
+      ],
+      "regressions": [
+        "GitHubReviewProgressTest",
+        "GitHubVerificationCatalogTest",
+        "GitHubAcceptanceReportDiagnosticsTest"
+      ],
+      "qualification": "The precise private missing pointer is unavailable in the approved historical report. This closes the investigated evidence/diagnostic work, without inventing a confirmed original pointer cause."
+    },
+    {
+      "issue": 2364,
+      "category": "catalog-selector-repair",
+      "observation": "The closed action hash identifies catalog_only; the scalar-free argument-shape hash identifies five string names. It was placed in the action slot, which requires one tool.",
+      "action": "Reviewed PR2367 normalization of action=catalog_only into catalog_only=true with every requested name preserved and no cold acquisition.",
+      "reviewed_source": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt"
+      ],
+      "regressions": [
+        "ToolCatalogSelectorRecoveryTest.catalogOnlySpelledAsAnActionKeepsAllRequestedNamesAndRemainsLocal"
+      ],
+      "qualification": "Only catalog discovery is normalized. Tool execution, grants, unknown tool acquisition and valid action projections remain separate."
+    },
+    {
+      "issue": 2365,
+      "category": "Missing observation evidence and premature stop",
+      "observation": "The verifier recorded OBSERVATION_TIME_UNKNOWN and OPERATION_FAILED for 7 unresolved claims. It used 8 of 512 calls, leaving 504, with all 10 criteria unmet.",
+      "action": "Source-bound read reconciliation retains observation provenance; independent authorized work can continue from schema-valid pinned reads without treating unknown or failed observations as verified.",
+      "reviewed_source": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchSourceRead.kt"
+      ],
+      "regressions": [
+        "GitHubEvidenceRetentionTest",
+        "GitHubProgressContinuationTest",
+        "GitHubSearchSourceReadTest"
+      ],
+      "qualification": "Claims with genuinely absent observation time or failed operations remain unverified; this is recovery/reporting correction, not retroactive acceptance."
+    },
+    {
+      "issue": 2366,
+      "category": "Claim pointers and mandatory verification catalog",
+      "observation": "The verifier recorded POINTER_NOT_IN_EVIDENCE for 6 unresolved claims; 1 other claim was verified, while all 10 criteria remained unmet.",
+      "action": "Mandatory baseline, changed-file manifest and decision facts survive bounded verification. Unsupported pointers remain unresolved and the diagnostic projection retains only hashed pointer/receipt identities, never source text.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt"
+      ],
+      "regressions": [
+        "GitHubReviewProgressTest",
+        "GitHubVerificationCatalogTest",
+        "GitHubAcceptanceReportDiagnosticsTest"
+      ],
+      "qualification": "The precise private missing pointer is unavailable in the approved historical report. This closes the investigated evidence/diagnostic work, without inventing a confirmed original pointer cause."
+    },
+    {
+      "issue": 2368,
+      "category": "Newer coverage reports with unmet prerequisites",
+      "observation": "Captured on PR #2363 merge tree c802853e, this report retained 4 of 6 verified criteria, PREREQUISITES_REQUIRED, 0 ready reads, and graph REVISION_MISMATCH.",
+      "action": "Reviewed the newer reports against the current source and existing prerequisite/selected-revision tests. Mismatched graph inputs and missing fixture/workflow prerequisites remain accurately blocked; no write or fixture authority is synthesized.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistSchedule.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt"
+      ],
+      "regressions": [
+        "GitHubChecklistScheduleTest",
+        "GitHubRepositoryBindingTest",
+        "GitHubAcceptanceReportDiagnosticsTest"
+      ],
+      "qualification": "Investigation/action-only closure under the owner instruction. No new behavioral fix to these exact incidents is established; preserve captured requirements and obtain exact graph/selected-source metadata if reproduced."
+    },
+    {
+      "issue": 2369,
+      "category": "Newer coverage reports with unmet prerequisites",
+      "observation": "Captured on PR #2363 merge tree c802853e, this report retained 4 of 6 verified criteria, PREREQUISITES_REQUIRED, 0 ready reads, and conditional fixture approval. It did not record a graph mismatch.",
+      "action": "Reviewed the newer reports against the current source and existing prerequisite/selected-revision tests. Mismatched graph inputs and missing fixture/workflow prerequisites remain accurately blocked; no write or fixture authority is synthesized.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistSchedule.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt"
+      ],
+      "regressions": [
+        "GitHubChecklistScheduleTest",
+        "GitHubRepositoryBindingTest",
+        "GitHubAcceptanceReportDiagnosticsTest"
+      ],
+      "qualification": "Investigation/action-only closure under the owner instruction. No new behavioral fix to these exact incidents is established; preserve captured requirements and obtain exact graph/selected-source metadata if reproduced."
+    },
+    {
+      "issue": 2370,
+      "category": "retained-source-handle-diagnosis",
+      "observation": "The call contained only evidence_id and was rejected before dispatch with GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED. The payload omits the handle, so its repository/revision/source identity cannot be reconstructed.",
+      "action": "Reviewed PR2367 pinned-source continuation and the existing trusted search-receipt source repair. Recovery uses current trusted receipts and observed paths/SHAs; absent evidence offers github_context recovery or a new pinned range read instead of inventing selectors.",
+      "reviewed_source": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchSourceRead.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt"
+      ],
+      "regressions": [
+        "GitHubSearchSourceReadTest.trustedSearchReceiptReopensExactRequestedSourceAtItsObservedRevision",
+        "GitHubSearchSourceReadTest.sourceRecoveryNeverChangesExplicitRepositoryRevisionReferenceOrUnobservedPath",
+        "GitHubSearchSourceReadTest.untrustedDamagedDifferentTaskAndWrongToolReceiptsCannotSupplySource"
+      ],
+      "qualification": "This is evidence-bound recovery and diagnostic review, not proof of the missing historical handle or relaxation of repository/revision matching."
+    },
+    {
+      "issue": 2371,
+      "category": "Newer informational acceptance gaps",
+      "observation": "Captured on PR #2363 merge tree c802853e, this report had 1 of 4 criteria verified, 4 verified claims, and no unresolved claims. It retained REQUIRED_OPERATION_BLOCKED with 47 of 64 calls remaining.",
+      "action": "Reviewed criterion mapping separately from claim verification; new continuation fixes preserve substantive requested deliverables and resume remaining authorized work. Current-head CI evidence still needs the exact requested revision.",
+      "reviewed_source": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletion.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt"
+      ],
+      "regressions": [
+        "GitHubRequestCompletionTest",
+        "GitHubCiObservationReportTest",
+        "GitHubProgressContinuationTest"
+      ],
+      "qualification": "Closure records investigation and continuation action. Verified facts alone do not mean all criteria passed, and the report lacks the private full criterion text needed to prove a specific original mapping defect."
+    },
+    {
+      "issue": 2372,
+      "category": "Newer informational acceptance gaps",
+      "observation": "Captured on PR #2363 merge tree c802853e, this report had none of 4 criteria verified, 3 verified claims, and no unresolved claims. It retained a blocked CI_OBSERVATION with 24 of 48 calls remaining.",
+      "action": "Reviewed criterion mapping separately from claim verification; new continuation fixes preserve substantive requested deliverables and resume remaining authorized work. Current-head CI evidence still needs the exact requested revision.",
+      "reviewed_source": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletion.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt"
+      ],
+      "regressions": [
+        "GitHubRequestCompletionTest",
+        "GitHubCiObservationReportTest",
+        "GitHubProgressContinuationTest"
+      ],
+      "qualification": "Closure records investigation and continuation action. Verified facts alone do not mean all criteria passed, and the report lacks the private full criterion text needed to prove a specific original mapping defect."
+    },
+    {
+      "issue": 2373,
+      "category": "verification-reserve-diagnostics",
+      "observation": "The original-error hash exactly identifies VERIFICATION_RESERVE_REACHED, not a network/tool execution failure. The neighboring task report records 62 used calls out of 64 with a two-call verification reserve.",
+      "action": "Preserved the exact local VERIFICATION_RESERVE_REACHED stop as the existing public GITHUB_TASK_INCOMPLETE code with its typed reason and observed allowance. Projection requires the current failed call and proof that it was not dispatched; remote acceptance or reconciliation evidence prevents relabeling. The runtime budget and reserve remain unchanged.",
+      "reviewed_source": "e87a7e1266f35d20b3718f082eaae9dab9854fa6",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_app.py"
+      ],
+      "regressions": [
+        "ToolReportIncidentProjectionTest.verificationReserveRefusalRetainsItsReasonAndRemainingAllowance",
+        "ToolReportIncidentProjectionTest.verificationReserveProjectionCannotRelabelAnotherCallOrRemoteOutcome",
+        "IssueReportIncidentsTest.verificationReserveStopKeepsTheTypedReasonWithoutRenewingOrExhaustingTheBudget",
+        "IssueReportIncidentsTest.reserveCodeDoesNotReplaceProviderOrUnknownOutcomeEvidence",
+        "IssueReportSubmissionTest.verificationReserveReasonUsesExistingCapabilitiesAndPreservesApprovedBytes",
+        "IssueReportHttpTest.test_acceptance_reasons_and_recovery_actions_accept_only_the_closed_versioned_contract",
+        "IssueReportHttpTest.test_verification_reserve_reports_keep_existing_contract_and_remaining_allowance"
+      ],
+      "qualification": "This is a diagnostic precision repair. It does not increase the 64-call allowance, bypass the two-call verification reserve, replay an unconfirmed remote action, or prove the original task completed. Integrate the commit and attach final exact-head CI before posting the closure."
+    },
+    {
+      "issue": 2374,
+      "category": "verification-reserve-diagnostics",
+      "observation": "The original-error hash exactly identifies VERIFICATION_RESERVE_REACHED, not a network/tool execution failure. The neighboring task report records 62 used calls out of 64 with a two-call verification reserve.",
+      "action": "Preserved the exact local VERIFICATION_RESERVE_REACHED stop as the existing public GITHUB_TASK_INCOMPLETE code with its typed reason and observed allowance. Projection requires the current failed call and proof that it was not dispatched; remote acceptance or reconciliation evidence prevents relabeling. The runtime budget and reserve remain unchanged.",
+      "reviewed_source": "e87a7e1266f35d20b3718f082eaae9dab9854fa6",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_app.py"
+      ],
+      "regressions": [
+        "ToolReportIncidentProjectionTest.verificationReserveRefusalRetainsItsReasonAndRemainingAllowance",
+        "ToolReportIncidentProjectionTest.verificationReserveProjectionCannotRelabelAnotherCallOrRemoteOutcome",
+        "IssueReportIncidentsTest.verificationReserveStopKeepsTheTypedReasonWithoutRenewingOrExhaustingTheBudget",
+        "IssueReportIncidentsTest.reserveCodeDoesNotReplaceProviderOrUnknownOutcomeEvidence",
+        "IssueReportSubmissionTest.verificationReserveReasonUsesExistingCapabilitiesAndPreservesApprovedBytes",
+        "IssueReportHttpTest.test_acceptance_reasons_and_recovery_actions_accept_only_the_closed_versioned_contract",
+        "IssueReportHttpTest.test_verification_reserve_reports_keep_existing_contract_and_remaining_allowance"
+      ],
+      "qualification": "This is a diagnostic precision repair. It does not increase the 64-call allowance, bypass the two-call verification reserve, replay an unconfirmed remote action, or prove the original task completed. Integrate the commit and attach final exact-head CI before posting the closure."
+    },
+    {
+      "issue": 2375,
+      "category": "Verification reserve mislabeled as generic chat failure",
+      "observation": "The report retained 62 of 64 used calls, a 2-call verification reserve, RETAINED_FAILURE, NO_DRAFT, and no original failure code. Same-run tool reports #2373 and #2374 carry the exact hash of VERIFICATION_RESERVE_REACHED.",
+      "action": "Reproduced and corrected the reporting gap in commit e87a7e1266: a typed local reserve stop retains the existing public GITHUB_TASK_INCOMPLETE code, the precise VERIFICATION_RESERVE_REACHED reason, and the observed remaining allowance. Calls, verification reserve, unfinished criteria, dispatch/reconciliation safeguards, and approved bytes stay unchanged.",
+      "reviewed_source": "e87a7e1266f35d20b3718f082eaae9dab9854fa6",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt"
+      ],
+      "regressions": [
+        "IssueReportIncidentsTest",
+        "ToolReportIncidentProjectionTest",
+        "IssueReportSubmissionTest",
+        "authentication.test_app.IssueReportHttpTest"
+      ],
+      "qualification": "The reserve link to historical #2375 is inferred from its budget state and same-run tool reports; the reporting defect is directly reproduced. Local patch is implemented and qualified, pending root integration and final PR checks. Closure should describe this diagnostic improvement without claiming the original task completed."
+    },
+    {
+      "issue": 2376,
+      "category": "saved-page-capacity-recovery",
+      "observation": "The original-error hash exactly matches SAVED_VIEW_PAGE_CAPACITY: an issued unexpired saved search cursor did not fit the available output allowance.",
+      "action": "Reviewed the existing capacity correction: retain the unread page and original recovery recipe, stop repeating the same too-small automatic page, and only select the exact native-issued larger page when it fits the accepted allowance.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt"
+      ],
+      "regressions": [
+        "GitHubSavedPageCapacityTest.nativeCapacityRefusalStopsIdenticalAutomaticReadsWithoutConsumingThePage",
+        "GitHubSavedPageCapacityTest.onlyAnIssuedLargerPageWithinTheChangedAllowanceCanResumeAndKeepRemoteContinuations",
+        "GitHubSavedPageCapacityTest.refusalSurvivesReplayEvictionAndRestorationWithoutInventingSuccessfulConsumption"
+      ],
+      "qualification": "A genuine small output allowance can still reject a page. Closure records bounded recovery and removal of repeated identical attempts, not unlimited output or proof that the original page was consumed."
+    },
+    {
+      "issue": 2377,
+      "category": "external-provider-transport-diagnosis",
+      "observation": "The capture identifies a TLS protocol failure before a response started, with unknown remote acceptance and explicit replay/continuation denial. It does not establish a certificate trust error or a successful remote operation.",
+      "action": "Reviewed the existing provider transport classifier and safe failure evidence: retain TLS protocol category, response-start status, bounded cause hashes and original invocation; preserve partial work and prohibit unverified replay or TLS validation bypass.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderTransportFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/NetworkFailureKind.kt"
+      ],
+      "regressions": [
+        "ProviderTransportFailureTest.unknownContinuationFailureRetainsOwnedFrameAndDispatchFacts",
+        "ProviderTransportFailureTest.reconciliationForbidsReplayEvenWithoutAnExplicitProducerDenial",
+        "NetworkFailureKindTest.cancellationAndTlsNeverBecomeTransientSocketRecovery"
+      ],
+      "qualification": "The remote endpoint/network cannot be repaired from this sanitized capture. Closure records diagnosis and verified handling, not that the upstream TLS incident is eliminated."
+    },
+    {
+      "issue": 2378,
+      "category": "catalog-selector-repair",
+      "observation": "The closed action hash identifies catalog and the scalar-free shape hash identifies three string name selectors, an invalid multi-name action projection.",
+      "action": "Implemented the narrow normalization of invalid multi-name action=catalog into catalog_only=true, preserving every name, avoiding cold acquisition, and leaving valid single-tool actions and conflicting/malformed input unchanged.",
+      "reviewed_source": "9afde6d9f2715d6bf85eecc3758141ec630c26dc",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt"
+      ],
+      "regressions": [
+        "ToolCatalogSelectorRecoveryTest.multiNameCatalogActionKeepsEveryNameAndOnlyUsesTheCurrentInventory",
+        "ToolCatalogSelectorRecoveryTest.catalogAliasPreservesSingleToolActionsAndRejectsConflictingOrMalformedIntent"
+      ],
+      "qualification": "Local patch is committed; root must integrate without losing concurrent work and attach final combined-head hosted CI before closure."
+    },
+    {
+      "issue": 2379,
+      "category": "external-provider-billing-diagnosis",
+      "observation": "OpenRouter returned HTTP402/BILLING_UNAVAILABLE during continuation. The report already correctly marks nonretryable and RETRY_AFTER_CONFIGURATION_CHANGE.",
+      "action": "Reviewed the provider billing classification and retry exclusions: retain the billing rejection, selected provider identity and configuration-change recovery; do not enter quota waits, repeatedly send the same unpaid request or silently switch profiles.",
+      "reviewed_source": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+      "source_paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRejectionDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitSchedulingResult.kt"
+      ],
+      "regressions": [
+        "OpenAIRecoveryTransportTest.explicitBillingDenialDoesNotCreateADurableRateWaitForEitherApi",
+        "ProviderFailureReportTest.billingSemanticsOnHttp429CannotAcquireQuotaWaitEvidence"
+      ],
+      "qualification": "Provider balance, account limits or model billing configuration require a corresponding provider/account change. No charge, purchase or account configuration change was made."
+    }
+  ],
+  "closure_policy": "The issue discussion and current GitHub state record completed closure. This committed snapshot documents the reviewed actions before final hosted qualification; it does not claim all historical incidents or wider acceptance criteria passed.",
+  "combined_local_validation": {
+    "canonical_command": "bash scripts/validate-local.sh fast",
+    "host_tests": 671,
+    "failures": 0,
+    "errors": 0,
+    "log_sha256": "936599e093325ebc34d1872aed252fc0b86db7fa543ac8557217ee8e5471f006",
+    "reviewed_production_and_test_hashes_preserved": 8,
+    "scope": "Combined catalog/reserve source with regenerated app audit inventory. Final hosted Android execution and main/version integration remain required."
+  }
+}

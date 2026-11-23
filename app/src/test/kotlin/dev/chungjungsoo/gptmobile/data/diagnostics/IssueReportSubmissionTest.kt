@@ -58,6 +58,43 @@ class IssueReportSubmissionTest {
         )
     )
 
+    @Test fun verificationReserveReasonUsesExistingCapabilitiesAndPreservesApprovedBytes() {
+        val observations = listOf(
+            "CHAT_FAILURE" to mapOf("failed_stage" to "acceptance_verification", "diagnostic_area" to "ACCEPTANCE", "used_calls" to 62, "remaining_calls" to 2, "verification_reserve" to 2),
+            "TOOL_RESULT" to mapOf("failed_stage" to "tool_precheck", "diagnostic_area" to "TOOL", "dispatched" to false, "tool_budget_calls_used" to 62, "tool_budget_calls_limit" to 64)
+        )
+        for ((source, fields) in observations) {
+            val context = IssueReportContext.fromFields(source, fields + ("reason_code" to "VERIFICATION_RESERVE_REACHED"), 1_000L)
+            val withoutReason = IssueReportContext.fromFields(source, fields, 1_000L)
+            val needed = requireNotNull(context.diagnostics).requiredServiceFeatures()
+            assertEquals(withoutReason.diagnostics?.requiredServiceFeatures(), needed)
+            val approved = report.copy(source = "debug", feature = if (source == "TOOL_RESULT") "tools" else "chat", errorCode = "GITHUB_TASK_INCOMPLETE", context = context)
+            val payload = approved.approvedPayload()
+            val posted = mutableListOf<String>()
+            val methods = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    val readiness = buildJsonObject {
+                        put("service", "gpt-mobile-issue-reporter")
+                        put("version", 2)
+                        put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                        put("reportDiagnosticFeatures", JsonArray(needed.map(::JsonPrimitive)))
+                    }
+                    response(request, 200, readiness.toString())
+                } else {
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${report.reportId}","number":2375}""")
+                }
+            }.build()
+            assertEquals(IssueReportSubmission.Confirmed(2375), IssueReportSubmission(origin, client).send(report.reportId, payload))
+            assertEquals(listOf("GET", "POST"), methods)
+            assertEquals(listOf(payload), posted)
+            assertEquals(payload, approved.approvedPayload())
+        }
+    }
+
     @Test fun voiceExecutionEvidenceWaitsForACompatibleReporterWithoutRewritingApprovedBytes() {
         val context = IssueReportContext.fromFields(
             "VOICE_STATE",

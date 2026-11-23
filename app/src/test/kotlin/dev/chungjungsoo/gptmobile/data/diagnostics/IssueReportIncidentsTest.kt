@@ -32,6 +32,60 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportIncidentsTest {
+    @Test fun verificationReserveStopKeepsTheTypedReasonWithoutRenewingOrExhaustingTheBudget() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf(
+            "failed_stage" to "acceptance_verification",
+            "diagnostic_area" to "ACCEPTANCE",
+            "diagnostic_capture_mode" to "INCIDENT",
+            "reason_code" to "UNVERIFIED_ACCEPTANCE_CRITERIA",
+            "resume_allowed" to false,
+            "required_criteria" to 4,
+            "verified_criteria" to 0,
+            "remaining_criteria" to 4,
+            "effective_call_limit" to 64,
+            "used_calls" to 62,
+            "remaining_calls" to 2,
+            "verification_reserve" to 2,
+            "message" to "private task and source"
+        )
+        IssueReportIncidents.chatFailure("VERIFICATION_RESERVE_REACHED", false, null, fields)
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("GITHUB_TASK_INCOMPLETE", report.errorCode)
+        val captured = requireNotNull(report.context)
+        assertEquals("VERIFICATION_RESERVE_REACHED", captured.reasonCode)
+        assertEquals("acceptance_verification", captured.stage)
+        assertEquals(false, captured.resumeAllowed)
+        assertEquals(0, captured.verifiedCriteria)
+        assertEquals(4, captured.remainingCriteria)
+        assertNull(captured.dispatched)
+        assertNull(captured.remoteAcceptance)
+        assertEquals(JsonPrimitive(62), captured.diagnostics?.values?.get("used_calls"))
+        assertEquals(JsonPrimitive(2), captured.diagnostics?.values?.get("remaining_calls"))
+        assertEquals(JsonPrimitive(2), captured.diagnostics?.values?.get("verification_reserve"))
+        assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.encodeToJsonElement(IssueReportContext.serializer(), captured).jsonObject))
+        assertFalse(report.approvedPayload().contains("private task"))
+    }
+
+    @Test fun reserveCodeDoesNotReplaceProviderOrUnknownOutcomeEvidence() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val variants = listOf(
+            mapOf<String, Any?>("failed_stage" to "provider_generation"),
+            mapOf("failed_stage" to "acceptance_verification", "dispatched" to true),
+            mapOf("failed_stage" to "acceptance_verification", "requires_reconciliation" to true),
+            mapOf("failed_stage" to "acceptance_verification", "remote_acceptance" to "UNKNOWN"),
+            mapOf("failed_stage" to "acceptance_verification", "remote_acceptance" to "YES")
+        )
+        variants.forEachIndexed { index, fields ->
+            IssueReportIncidents.chatFailure("VERIFICATION_RESERVE_REACHED", false, null, fields + ("run_id" to "private-run-$index"))
+            val report = IssueReportIncidents.pending.value.last()
+            assertEquals("CHAT_FAILED", report.errorCode)
+            assertFalse(report.context?.reasonCode == "VERIFICATION_RESERVE_REACHED")
+        }
+        IssueReportIncidents.chatFailure(null, false, null, mapOf("run_id" to "private-lookalike", "failed_stage" to "acceptance_verification", "message" to "VERIFICATION_RESERVE_REACHED"))
+        assertEquals("CHAT_FAILED", IssueReportIncidents.pending.value.last().errorCode)
+    }
+
     @Test fun internalVerificationFaultPublishesSafeCauseAndApplicationFramesInsteadOfEvidenceMissing() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val fault = dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.partial(

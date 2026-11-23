@@ -1,0 +1,60 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "catalog-alias-issue2378-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "parent_pr": 2367,
+  "parent_head": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+  "working_branch": "detached/catalog-alias-issue2378",
+  "intent": "Normalize only the invalid multi-name catalog action alias into existing catalog-only discovery, preserving names and all authorization and acquisition boundaries.",
+  "status": "IMPLEMENTED_FOCUSED_AND_CANONICAL_VALIDATION_PASSED",
+  "issue": 2378,
+  "observed": "The approved report's closed action hash identifies catalog and its scalar-free shape hash identifies three string name selectors. The single-tool action schema rejects this before dispatch.",
+  "constraints": [
+    "Preserve the existing catalog_only alias and scalar-name advertised-contract checks.",
+    "Never rewrite valid single-tool catalog actions or an explicit catalog_only=false.",
+    "Do not acquire cold tools, invent names, discard names, or change execution limits.",
+    "Reject malformed, oversized, pagination-mixed or unknown-field input under the existing schema."
+  ],
+  "validation": [
+    {
+      "check": "Immutable31df negative control",
+      "tests": 3,
+      "failed": 1,
+      "passed": 2,
+      "scope": "Only the new multi-name catalog alias test fails; existing catalog_only alias and negative selectors pass."
+    },
+    {
+      "check": "Final formatted production host probe",
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "scope": "Actual production ProgressiveToolCatalog, argument validator, schema factory, task selectors and token estimator; explicit unrelated platform/provider/classification ports. Three repository test methods run through catalog.execute directly; real ToolExecutionBudget wrapper/receipt assertions remain in repository tests for final hosted CI."
+    },
+    {
+      "check": "Pinned ktlint1.3.1",
+      "result": "PASS",
+      "files": 2
+    },
+    {
+      "check": "Canonical bash scripts/validate-local.sh fast",
+      "tests": 671,
+      "result": "PASS",
+      "scope": "Current31df plus this scoped change and regenerated source inventory."
+    }
+  ],
+  "remaining": [
+    "Final combined-head hosted CI",
+    "Merge and publication coordination by root"
+  ],
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": "f9ae6c1b108d0baac9a5081bda40902c2f3e8ca0a79e7c2656cbbb0e7f703103",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogSelectorRecoveryTest.kt": "56793ba821bc663aabfdf6c92cae888b7dbe911b0ca4687956ddd65cf0b3cd90"
+  },
+  "independent_review": {
+    "status": "CLEAR",
+    "reviewed_commit": "9afde6d9f2715d6bf85eecc3758141ec630c26dc",
+    "scope": "Source, behavioral controls, generated inventory and retained authority; final combined hosted execution remains required."
+  }
+}

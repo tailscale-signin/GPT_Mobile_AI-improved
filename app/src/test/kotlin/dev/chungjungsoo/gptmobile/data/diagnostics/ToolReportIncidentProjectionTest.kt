@@ -25,6 +25,56 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolReportIncidentProjectionTest {
+    @Test fun verificationReserveRefusalRetainsItsReasonAndRemainingAllowance() {
+        val call = event("""{"view_cursor":"private cursor"}""").copy(modelToolName = "github_search")
+        val result = AgentToolResult(
+            call.callId,
+            ToolResultContent.Text("private result text"),
+            true,
+            errorCode = "VERIFICATION_RESERVE_REACHED",
+            dispatched = false,
+            toolCallBudgetUsed = 62,
+            toolCallBudgetLimit = 64
+        )
+        assertEquals("GITHUB_TASK_INCOMPLETE", ToolReportDiagnostics.reportCode(call, result))
+        val fields = ToolReportDiagnostics.fields(call, result) + mapOf(
+            "failed_stage" to "tool_precheck",
+            "dispatched" to false,
+            "requires_reconciliation" to false
+        )
+        val context = IssueReportContext.fromFields("TOOL_RESULT", fields, 1_800_000_000_000)
+        assertEquals("VERIFICATION_RESERVE_REACHED", context.reasonCode)
+        assertEquals(false, context.dispatched)
+        assertEquals(false, context.requiresReconciliation)
+        val capture = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive(62), capture.values["tool_budget_calls_used"])
+        assertEquals(JsonPrimitive(64), capture.values["tool_budget_calls_limit"])
+        assertEquals(JsonPrimitive("BEFORE_DISPATCH"), capture.values["tool_budget_phase"])
+        assertFalse("tool_budget_kind" in capture.values)
+        assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.encodeToJsonElement(IssueReportContext.serializer(), context).jsonObject))
+        assertFalse(IssueReport.json.encodeToString(IssueReportContext.serializer(), context).contains("private"))
+        assertEquals("VERIFICATION_RESERVE_REACHED", result.errorCode)
+        assertFalse(result.toolCallBudgetExhausted)
+    }
+
+    @Test fun verificationReserveProjectionCannotRelabelAnotherCallOrRemoteOutcome() {
+        val call = event("{}").copy(modelToolName = "github_search")
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("VERIFICATION_RESERVE_REACHED"), true, errorCode = "VERIFICATION_RESERVE_REACHED", dispatched = false)
+        for (invalid in listOf(
+            result.copy(callId = "different"),
+            result.copy(isError = false),
+            result.copy(dispatched = true),
+            result.copy(errorCode = null),
+            result.copy(executionReceipt = buildJsonObject { put("requires_reconciliation", true) }),
+            result.copy(executionReceipt = buildJsonObject { put("remote_acceptance", "UNKNOWN") }),
+            result.copy(executionReceipt = buildJsonObject { put("remote_acceptance", "YES") })
+        )) {
+            assertNull(ToolReportDiagnostics.reportCode(call, invalid))
+            assertFalse("reason_code" in ToolReportDiagnostics.fields(call, invalid))
+        }
+        assertNull(ToolReportDiagnostics.reportCode(null, result))
+    }
+
     @Test fun issuePaginationRejectionPreservesClosedCauseAndSchemaNamesWithoutCursorValues() {
         val call = event("""{"action":"list","page":2,"after":"private cursor value"}""")
         val receipt = buildJsonObject {

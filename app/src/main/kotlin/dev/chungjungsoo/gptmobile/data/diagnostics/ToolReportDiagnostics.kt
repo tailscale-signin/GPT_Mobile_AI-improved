@@ -85,8 +85,18 @@ internal object ToolReportDiagnostics {
         }
     }
 
+    private fun verificationReserveReached(event: ToolEvent?, result: AgentToolResult): Boolean =
+        event != null &&
+            event.callId == result.callId &&
+            result.isError &&
+            !result.dispatched &&
+            result.errorCode == "VERIFICATION_RESERVE_REACHED" &&
+            result.executionReceipt?.get("requires_reconciliation") != JsonPrimitive(true) &&
+            result.executionReceipt?.get("remote_acceptance") !in setOf(JsonPrimitive("YES"), JsonPrimitive("UNKNOWN"))
+
     /** The public alias describes the retained earlier index; the unsent current result stays unchanged. */
     fun reportCode(event: ToolEvent?, result: AgentToolResult): String? {
+        if (verificationReserveReached(event, result)) return "GITHUB_TASK_INCOMPLETE"
         val receipt = result.executionReceipt
         if (event?.callId == result.callId &&
             result.isError &&
@@ -133,6 +143,14 @@ internal object ToolReportDiagnostics {
         if (event == null || event.callId != result.callId) return@buildMap
         put("diagnostic_area", "TOOL")
         put("diagnostic_capture_mode", "INCIDENT")
+        if (verificationReserveReached(event, result)) {
+            // Acquisition stopped with calls still reserved for verification. Keep
+            // that reason without calling the entire task allowance exhausted.
+            put("reason_code", "VERIFICATION_RESERVE_REACHED")
+            put("tool_budget_phase", "BEFORE_DISPATCH")
+            result.toolCallBudgetUsed?.let { put("tool_budget_calls_used", it) }
+            result.toolCallBudgetLimit?.let { put("tool_budget_calls_limit", it) }
+        }
         put("run_id_hash", IssueReportContext.identifierHash("run", event.runId))
         put("call_id_hash", IssueReportContext.identifierHash("call", event.callId))
         put("tool_name_hash", IssueReportContext.identifierHash("tool-name", event.modelToolName))

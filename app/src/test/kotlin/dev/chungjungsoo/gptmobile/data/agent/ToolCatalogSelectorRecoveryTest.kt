@@ -45,6 +45,58 @@ class ToolCatalogSelectorRecoveryTest {
         assertEquals(otherAction, catalog.canonicalArguments(otherAction))
     }
 
+    @Test fun multiNameCatalogActionKeepsEveryNameAndOnlyUsesTheCurrentInventory() = runTest {
+        var coldCalls = 0
+        val definitions = listOf(reader("github_read"), reader("github_search"), reader("github_context"), reader("private_reader", visible = false))
+        val catalog = ProgressiveToolCatalog(definitions, "Read repository instructions", acquireCold = { _, _ ->
+            coldCalls++
+            listOf(reader("cold_reader"))
+        })
+        val names = JsonArray(listOf("github_read", "github_search", "github_context", "private_reader", "cold_reader").map(::JsonPrimitive))
+        val original = buildJsonObject {
+            put("names", names)
+            put("action", "catalog")
+        }
+        val canonical = buildJsonObject {
+            put("names", names)
+            put("catalog_only", true)
+        }
+        assertEquals(canonical, catalog.canonicalArguments(original))
+        val result = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 1)).bind(catalog).execute("catalog-alias", original)
+        assertFalse(result.toString(), result.isError)
+        assertFalse(result.dispatched)
+        assertEquals("catalog-alias", result.callId)
+        assertEquals(canonical, result.executionReceipt?.get("corrected_arguments"))
+        assertEquals(0, coldCalls)
+        val selected = catalog.selected(definitions + catalog.definition).map { it.name }.toSet()
+        assertTrue(selected.containsAll(listOf("github_read", "github_search", "github_context")))
+        assertFalse("private_reader" in selected)
+        assertFalse("cold_reader" in selected)
+    }
+
+    @Test fun catalogAliasPreservesSingleToolActionsAndRejectsConflictingOrMalformedIntent() = runTest {
+        val catalog = ProgressiveToolCatalog(listOf(reader("repository_workspace")), "Read repository instructions")
+        val validSingle = buildJsonObject {
+            put("names", JsonArray(listOf(JsonPrimitive("repository_workspace"))))
+            put("action", "catalog")
+        }
+        assertEquals(validSingle, catalog.canonicalArguments(validSingle))
+        for (raw in listOf(
+            """{"action":"catalog","names":[]}""",
+            """{"action":"catalog","names":["github_read","github_search"],"catalog_only":false}""",
+            """{"action":"catalog","names":["github_read",false]}""",
+            """{"action":"catalog","names":["github_read","github_search"],"inventory_cursor":1}""",
+            """{"action":"catalog","names":["github_read","github_search"],"unexpected":true}"""
+        )) {
+            val original = Json.parseToJsonElement(raw).jsonObject
+            assertEquals(raw, original, catalog.canonicalArguments(original))
+        }
+        val oversized = JsonObject(validSingle + ("names" to JsonArray((1..13).map { JsonPrimitive("reader_$it") })))
+        assertEquals(oversized, catalog.canonicalArguments(oversized))
+        val otherAction = JsonObject(validSingle + mapOf("action" to JsonPrimitive("write"), "names" to JsonArray(listOf(JsonPrimitive("github_read"), JsonPrimitive("github_search")))))
+        assertEquals(otherAction, catalog.canonicalArguments(otherAction))
+    }
+
     @Test fun exactAdvertisedScalarNameKeepsTheOriginalInvocationAndOnlySelectsItsSchema() = runTest {
         val definition = reader("read_document__selected")
         val catalog = ProgressiveToolCatalog(listOf(definition), "Read document")

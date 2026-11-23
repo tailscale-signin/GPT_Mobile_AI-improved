@@ -328,12 +328,19 @@ internal object IssueReportIncidents {
         }
         val localRecoveryCode = IssueReportContext.localRecoveryCode(fields)
         val localRecovery = localRecoveryCode != null
+        val verificationReserveReached = code == "VERIFICATION_RESERVE_REACHED" &&
+            input.stage == "acceptance_verification" &&
+            input.dispatched != true &&
+            input.requiresReconciliation != true &&
+            input.remoteAcceptance !in setOf("YES", "UNKNOWN") &&
+            !rateLimited
         val rejection = when (val category = fields["provider_rejection_category"]) {
             is String -> category
             is kotlinx.serialization.json.JsonPrimitive -> category.takeIf { it.isString }?.content
             else -> null
         }
         val specificCode = when {
+            verificationReserveReached -> "GITHUB_TASK_INCOMPLETE"
             code == "BILLING_UNAVAILABLE" || rejection == "BILLING_UNAVAILABLE" && input.httpStatus in setOf(400, 402) -> "SOURCE_PAYMENT_REQUIRED"
             code == "OUTPUT_CONTINUATION_PENDING_TOOLS" && input.stage == "tool_reconciliation" && input.dispatched == false -> "RECONCILIATION_REQUIRED"
             code == "RATE_LIMIT" && input.provider != null -> "PROVIDER_RATE_LIMITED"
@@ -411,7 +418,9 @@ internal object IssueReportIncidents {
                 else -> "CHAT_FAILED"
             }
         }
-        val diagnosticFields = if (publicCode in dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.codes) {
+        val diagnosticFields = if (verificationReserveReached && publicCode == "GITHUB_TASK_INCOMPLETE") {
+            fields + ("reason_code" to "VERIFICATION_RESERVE_REACHED")
+        } else if (publicCode in dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.codes) {
             fields + mapOf(
                 "diagnostic_area" to "GATEWAY",
                 "gateway_admission_ready" to false,

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "90bd43df15394ea2514442a3d1631071fef3578c8f3736ebab28834b64c233f9",
+  "source_digest": "95eb2d82ec90f86e83a20c5c8bf98e5d26f1e390a04e3d0f2f4d3680a0116708",
   "file_count": 3017,
-  "indexed_line_count": 509877,
+  "indexed_line_count": 509910,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 248,
-      "indexed_line_count": 44065
+      "indexed_line_count": 44071
     },
     {
       "id": "agent_tools",
@@ -131,7 +131,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 102,
-      "indexed_line_count": 16165
+      "indexed_line_count": 16192
     },
     {
       "id": "benchmark",
@@ -1824,8 +1824,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "13d9c40d3a05d3fdca4a3001969382d094d8a826a7855430f0c8caa69be42c91",
-      "indexed_lines": 957
+      "sha256": "f9ae6c1b108d0baac9a5081bda40902c2f3e8ca0a79e7c2656cbbb0e7f703103",
+      "indexed_lines": 963
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderLimitResumeWorker.kt",
@@ -6024,8 +6024,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "d8a36b4570084e5248832fa9f7a960c8c39c3ff84ab729ad217b1931fa644bcc",
-      "indexed_lines": 616
+      "sha256": "09af184c5c8e1f502c2add9cdd510475873abf8e6c81ace7041e4693379293f0",
+      "indexed_lines": 625
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportManualCapture.kt",
@@ -6234,8 +6234,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "88a98cc0b92ce18d02ca940f64c70a41734f8deabf4a0cf206eccadb2eac2d69",
-      "indexed_lines": 573
+      "sha256": "226aa9a8fc2016d9db03b2a69dacd8d6635f7111f3fa18978f4705f15575ec79",
+      "indexed_lines": 591
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt",

@@ -173,7 +173,9 @@
     "Validate known protected values at both final serialized provider boundaries before reserving inference; retain request-linked, content-free dispatch and streaming evidence with policy revisions, category counts, request-keyed HMAC fingerprints and measured phase timings.",
     "Default diagnostic captures to redacted content before frozen snapshots, chunking and hashing; require a separate preview for full forensic export and bind resumable capture identity to the selected content mode.",
     "Distinguish permanent conversation policy, confirmed local spans and provider retention evidence; show private memory source persistence separately from indexing readiness and retain owner/scope provenance through restoration and deletion.",
-    "Add a cancellable offline fictional privacy benchmark in settings, reporting private-value protection, preserved task phrases, exact restoration, request-map isolation and local CPU masking/encryption/restoration percentiles."
+    "Add a cancellable offline fictional privacy benchmark in settings, reporting private-value protection, preserved task phrases, exact restoration, request-map isolation and local CPU masking/encryption/restoration percentiles.",
+    "Recover invalid multi-name catalog inventory requests through existing local discovery while preserving all names, current visibility, valid single-tool actions and acquisition limits.",
+    "Retain verification-reserve stops as task-incomplete reports with their precise existing reason and observed remaining allowance, preserving original acceptance criteria and remote uncertainty."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1316,7 +1318,12 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/PrivateFinalRequestBoundaryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceStreamingTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivatePlainConversationSessionTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderStreamTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderStreamTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt",
+    "docs/repairs/catalog-alias-issue2378-2026-11-23-task.json",
+    "docs/repairs/open-pr-issue-remediation-2026-11-23-task.json",
+    "docs/repairs/verification-reserve-reporting-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.14",

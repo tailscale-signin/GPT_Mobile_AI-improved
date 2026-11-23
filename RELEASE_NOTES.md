@@ -29,6 +29,8 @@ Version code: **148**. Coordinated publication with Gateway **18.1.2**; retains 
 
 ## Recovery and request consistency
 
+- Recover multi-tool catalog lookups that use the catalog action alias, preserving all requested tool names and local discovery boundaries.
+- Report a verification-reserve stop with its precise reason and remaining call allowance; keep unmet criteria visible and distinguish it from a generic chat or tool failure.
 - Retain completed phone-index shards after local indexing is interrupted. Settle charged Combined work exactly once across nested wrappers, preserve cancellation, and keep unrelated unknown remote operations blocked for reconciliation.
 - Retain bounded AndroidX and coroutine crash frames, including Kotlin-generated method names. Keep approved report bytes and privacy limits intact, and require compatible hosted reporting support before delivery. This improves crash evidence; it does not establish the cause of a previously unresolved crash.
 - Stop automatic saved-page retries after a native capacity refusal. Retain the incomplete page and its exact issued larger recovery across compaction and restart, within the existing budget and attempt limit.

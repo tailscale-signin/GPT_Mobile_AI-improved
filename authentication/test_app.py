@@ -1056,6 +1056,42 @@ class IssueReportHttpTest(unittest.TestCase):
             with self.subTest(counts=counts):
                 issue_from_report({**self.manual(), "context": self.context(schemaVersion=2, **counts)})
 
+    def test_verification_reserve_reports_keep_existing_contract_and_remaining_allowance(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        fixtures = IncidentReportContractTest()
+        cases = (
+            ("chat", "CHAT_FAILURE", "acceptance_verification", "ACCEPTANCE",
+             {"effective_call_limit": 64, "used_calls": 62, "remaining_calls": 2, "verification_reserve": 2},
+             {"requiredCriteria": 4, "verifiedCriteria": 0, "remainingCriteria": 4, "resumeAllowed": False}),
+            ("tools", "TOOL_RESULT", "tool_precheck", "TOOL",
+             {"tool_budget_calls_used": 62, "tool_budget_calls_limit": 64, "tool_budget_phase": "BEFORE_DISPATCH"},
+             {"dispatched": False, "requiresReconciliation": False}),
+        )
+        for feature, source, stage, area, values, observed in cases:
+            with self.subTest(source=source):
+                report = {**self.metadata(), "source": "debug", "feature": feature,
+                          "errorCode": "GITHUB_TASK_INCOMPLETE",
+                          "context": self.context(schemaVersion=7, source=source, stage=stage,
+                                                  reasonCode="VERIFICATION_RESERVE_REACHED",
+                                                  diagnostics=fixtures.capture(area, values), **observed)}
+                approved = json.dumps(report, separators=(",", ":")).encode()
+                response = self.client.post("/v1/issue-reports", content=approved, headers={"content-type": "application/json"})
+                self.assertEqual(200, response.status_code, response.text)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")).encode())
+                body = self.issued[-1]["body"]
+                self.assertIn("| Reason code | `VERIFICATION_RESERVE_REACHED` |", body)
+                for name, value in values.items():
+                    self.assertIn(f"| {name} | `{value}` |", body)
+                self.assertNotIn("BUDGET_EXHAUSTED", body)
+                self.assertNotIn("| tool_budget_kind |", body)
+                if source == "CHAT_FAILURE":
+                    self.assertIn("| Verified acceptance criteria | `0` |", body)
+                    self.assertIn("| Remaining acceptance criteria | `4` |", body)
+                report["reportId"] = str(uuid4())
+                report["context"]["reasonCode"] = "private unknown reserve reason"
+                self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual(len(cases), len(self.issued))
+
     def test_original_context_v1_digest_still_reconciles_a_pending_report_without_reposting(self):
         report = {**self.metadata(), "reportId": "00000000-0000-4000-8000-000000000001", "source": "debug",
                   "feature": "chat", "errorCode": "PRIVACY_CONFIGURATION",

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "771ec6b596309af428f2667989bc52f8850805b88ad039d17e526334b8c155cc",
+  "source_digest": "3980521b5cb7492379e6980b1fc150ce89c44d48000da65148d1c8f390d48ef9",
   "file_count": 2982,
-  "indexed_line_count": 501187,
+  "indexed_line_count": 501282,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -125,7 +125,7 @@
       "id": "persistence",
       "label": "Databases, backup and storage",
       "file_count": 111,
-      "indexed_line_count": 15083
+      "indexed_line_count": 15091
     },
     {
       "id": "diagnostics_and_export",
@@ -137,7 +137,7 @@
       "id": "benchmark",
       "label": "Benchmarks and app audit",
       "file_count": 142,
-      "indexed_line_count": 23538
+      "indexed_line_count": 23625
     },
     {
       "id": "auth_and_security",
@@ -3882,8 +3882,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupManager.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "ab1fd9b19cd8ab37da2ee03f528e578e06523ab64f422dfa1666fc547a7941f0",
-      "indexed_lines": 1303
+      "sha256": "62398c1e63b052a8a9b47eac75401bdea11ff0b81fe6518f9be29255415307e3",
+      "indexed_lines": 1307
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupOptions.kt",
@@ -3966,8 +3966,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/UserBackupManager.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "d4d8c5c1b3984b542ce08de346b5490ecda79511c97755502d92541d81cafdc9",
-      "indexed_lines": 222
+      "sha256": "4a80f9788a2152d5f81e2caaae4699c8a43c509d09f8f686e151fe86efdab2a0",
+      "indexed_lines": 226
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkAcceleratorEvidence.kt",
@@ -4344,8 +4344,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "3d8c8cb37fb5da71ea2d2c7828dd746ea0c84c2246d172e8fc4f0c44561beee2",
-      "indexed_lines": 959
+      "sha256": "f50556c991903ca272ffdad5799d603438ce0c00b861c31ac5c13c1fcc690cf6",
+      "indexed_lines": 1046
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStreamingExport.kt",

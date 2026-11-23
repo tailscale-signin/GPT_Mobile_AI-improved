@@ -16,6 +16,8 @@
 - Retain unsettled GitHub benchmark ownership after Gateway restart or journal relocation, including legacy results already marked interrupted, and prevent Android history deletion until the original remote work is reconciled.
 - Keep GitHub benchmark publication and cleanup bound to the verified account through credential rotation, recording dispatch only after account admission succeeds.
 - Preserve pending benchmark ownership and original receipt bytes when restoring backups, including conflicting imported IDs; settled and unrelated results keep normal restore behavior.
+- Check pending benchmark cleanup before wider backup changes; retain the complete current benchmark section and finish an already committed restore when late cleanup ownership appears, with a visible recovery notice.
+- Serialize legacy benchmark initialization with canonical storage and keep unreadable ownership errors free of saved payload details.
 - Check conversation privacy and exact integration permissions before discovering or calling optional workspace tools.
 - Restrict optional workspace discovery to each admitted tool's configured connection, preserve other callers when discovery is cancelled, and isolate concurrent exact-route bindings without replacing the global tool cache.
 - Add a source-bound Android/Windows agent workspace with actual optional SDK/API/ACP coding runtimes, scoped workers, dependency-ready task evidence, graph-ranked context, private review drafts, local next-edit validation and configured documentation/browser tools. Keep agent comparisons separate from model benchmarks and preserve unknown-command/cancellation evidence.
@@ -45,7 +47,7 @@
 - Preserve final answers after inline code and numeric inch marks in reasoning, and enforce Auto's ten percent improvement threshold using exact measured costs.
 - Start playback when partial phrase tails fill the PCM queue, avoiding an unnecessary reserve wait without increasing memory or queue limits.
 - Make Options enable the availability of private chats, with a separate permanent privacy choice for every profile selected in New Chat. Keep saved private chats protected when Options is disabled, across restart, retry, copy and restore; migrate existing privacy history conservatively with Room 54.
-- Preserve existing permanent privacy locks when restoring an older conversation backup, without inventing masking evidence for the restored content.
+- Preserve existing permanent privacy locks when restoring an older conversation backup, including direct imports that clear current data, without inventing masking evidence for the restored content.
 - Protect restored voice captions until the saved conversation's privacy policy finishes loading after app restart.
 - Allow ordinary memories to move between personal and project scopes while keeping private and unshared memories permanently restricted.
 - Scope provider, background, local-tool and voice transport to the originating conversation, preserving ordinary chats during concurrent private work. Retain screen protection and clear private-chat labels independently of feature availability.

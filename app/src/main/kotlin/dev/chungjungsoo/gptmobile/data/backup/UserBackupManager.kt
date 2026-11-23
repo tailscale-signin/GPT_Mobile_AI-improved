@@ -170,7 +170,9 @@ class UserBackupManager(
     ): BackupImportResult {
         require(data.version in 1..UserBackupData.BACKUP_VERSION) { "This backup requires a newer app version." }
         data.benchmarkResults?.let(benchmarkStore::validateBackupJson)
+        if (data.benchmarkResults != null) benchmarkStore.ensureBackupReplacementAllowed()
         val result = database.withTransaction {
+            val protectedChatIds = if (clearExisting) database.chatRoomDao().privacyLockedChatIds().toSet() else emptySet()
             if (clearExisting) {
                 database.clearAllTables()
             }
@@ -188,7 +190,9 @@ class UserBackupManager(
             }
 
             data.chatRooms.forEach { room ->
-                database.chatRoomDao().addChatRoom(room)
+                // Replacing history cannot revoke a permanent policy for the same conversation.
+                // Keep the backup's masking history separate from that policy.
+                database.chatRoomDao().addChatRoom(if (room.id in protectedChatIds) room.copy(privacyModeLocked = true) else room)
             }
 
             data.marketplaceSearches.forEach { database.marketplaceSavesDao().save(it) }

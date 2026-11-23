@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.room.Room
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkEngineeringLane
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkOutcome
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
@@ -207,6 +208,164 @@ class CompleteBackupManagerTest {
         assertTrue(benchmarkStore.history.value.any { it.id == "benchmark-backup-roundtrip" })
         assertTrue(benchmarkStore.snapshot.value?.rows?.any { it.profileUid == "profile-1" } == true)
     }
+
+    @Test
+    fun userBenchmarkReplacementIsRejectedBeforeEitherMergeOrClearMutatesChats() = runBlocking {
+        val current = ChatRoomV2(id = 71, title = "Keep the current chat")
+        database.chatRoomDao().addChatRoom(current)
+        val pending = pendingBenchmarkRun()
+        benchmarkStore.save(pending)
+        val archive = File(context.cacheDir, "user-benchmark-ownership.gptbackup")
+        val incoming = UserBackupData(chatRooms = listOf(ChatRoomV2(id = 72, title = "Imported chat")), benchmarkResults = "[]")
+        archive.outputStream().use { AppBackupCrypto.encryptUserBackup(incoming, it, "test-password") }
+        val user = UserBackupManager(context, database, benchmarkStore)
+        for (clearExisting in listOf(false, true)) {
+            val restored = user.importBackup(Uri.fromFile(archive), clearExisting, "test-password")
+            assertTrue(restored.exceptionOrNull() is IllegalStateException)
+            assertEquals("Remote benchmark work must be reconciled before saved results can be replaced.", restored.exceptionOrNull()?.message)
+            assertEquals(listOf(current), database.chatRoomDao().getChatRooms())
+            assertEquals(listOf(pending), benchmarkStore.history.value)
+        }
+        archive.outputStream().use { AppBackupCrypto.encryptUserBackup(incoming.copy(benchmarkResults = null), it, "test-password") }
+        assertTrue(user.importBackup(Uri.fromFile(archive), passphrase = "test-password").isSuccess)
+        assertEquals(setOf(71, 72), database.chatRoomDao().getChatRooms().map { it.id }.toSet())
+        assertEquals(listOf(pending), benchmarkStore.history.value)
+    }
+
+    @Test
+    fun encryptedUserClearRestoreRetainsPermanentPrivacyWithoutInventingMaskingHistory() = runBlocking {
+        for (id in listOf(81, 82, 85)) {
+            database.chatRoomDao().addChatRoom(ChatRoomV2(id = id, title = "Current private", privacyModeEnabled = true, privacyModeLocked = true))
+        }
+        database.chatRoomDao().addChatRoom(ChatRoomV2(id = 84, title = "Currently ordinary"))
+        val incoming = kotlinx.serialization.json.Json.decodeFromString(
+            UserBackupData.serializer(),
+            """{"version":1,"chatRooms":[{"id":81,"title":"Legacy without privacy fields"},{"id":82,"title":"Older ordinary snapshot","privacyModeEnabled":false,"privacyModeLocked":false},{"id":83,"title":"New ordinary"},{"id":84,"title":"Saved private","privacyModeEnabled":true,"privacyModeLocked":true}]}"""
+        )
+        assertFalse(incoming.chatRooms.first().privacyModeEnabled)
+        assertFalse(incoming.chatRooms.first().privacyModeLocked)
+        val archive = File(context.cacheDir, "user-permanent-privacy.gptbackup")
+        archive.outputStream().use { AppBackupCrypto.encryptUserBackup(incoming, it, "test-password") }
+        val restored = UserBackupManager(context, database, benchmarkStore).importBackup(Uri.fromFile(archive), clearExisting = true, passphrase = "test-password")
+        assertTrue(restored.exceptionOrNull()?.message, restored.isSuccess)
+        val expected = mapOf(81 to (true to false), 82 to (true to false), 83 to (false to false), 84 to (true to true))
+        suspend fun privacy() = database.chatRoomDao().getChatRooms().associate { it.id to (it.privacyModeLocked to it.privacyModeEnabled) }
+        assertEquals(expected, privacy())
+        val databaseName = checkNotNull(database.openHelper.databaseName)
+        database.close()
+        database = Room.databaseBuilder(context, ChatDatabaseV2::class.java, databaseName).addCallback(AgentToolBindingDatabase.callback).build()
+        assertEquals(expected, privacy())
+    }
+
+    @Test
+    fun completeBenchmarkReplacementIsRejectedBeforeOtherSelectedSectionsChange() = runBlocking {
+        database.chatRoomDao().addChatRoom(ChatRoomV2(id = 73, title = "Saved chat"))
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS, CompleteBackupSection.STATISTICS))
+        val archive = File(context.cacheDir, "complete-benchmark-ownership.gptbackup")
+        assertTrue(manager.backup(Uri.fromFile(archive), selected, encrypt = false).success)
+        val current = ChatRoomV2(id = 73, title = "Current chat")
+        database.chatRoomDao().addChatRoom(current)
+        val pending = pendingBenchmarkRun()
+        benchmarkStore.save(pending)
+        val privacy = context.getSharedPreferences("privacy_personal_setup_v1", Context.MODE_PRIVATE)
+        privacy.edit().putString("records", "current-personal-setup").putString("revision", "current-revision").commit()
+        val restored = manager.restore(Uri.fromFile(archive), selection = selected)
+        assertFalse(restored.success)
+        assertEquals("Remote benchmark work must be reconciled before saved results can be replaced.", restored.message)
+        assertEquals(listOf(current), database.chatRoomDao().getChatRooms())
+        assertEquals("current-personal-setup", privacy.getString("records", null))
+        assertEquals("current-revision", privacy.getString("revision", null))
+        assertEquals(null, RestoreStoreJournal(vault).read())
+        assertEquals(listOf(pending), benchmarkStore.history.value)
+
+        val conversationsOnly = manager.restore(Uri.fromFile(archive), selection = CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS)))
+        assertTrue(conversationsOnly.message, conversationsOnly.success)
+        assertEquals("Saved chat", database.chatRoomDao().getChatRooms().single().title)
+        assertEquals(listOf(pending), benchmarkStore.history.value)
+    }
+
+    @Test
+    fun statisticsRestoreWithoutBenchmarkPayloadPreservesPendingOwnership() = runBlocking {
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.STATISTICS))
+        val archive = File(context.cacheDir, "statistics-without-benchmarks.gptbackup")
+        assertTrue(manager.backup(Uri.fromFile(archive), selected, encrypt = false).success)
+        val extracted = File(context.cacheDir, "statistics-without-benchmarks").apply { mkdirs() }
+        val manifest = CompleteBackupArchive.read(archive, extracted, Long.MAX_VALUE)
+        val files = manifest.files - "internal/benchmark-results/benchmark-results.json"
+        CompleteBackupArchive.write(archive, manifest.copy(files = files), files.keys.associateWith { File(extracted, it) })
+        val pending = pendingBenchmarkRun()
+        benchmarkStore.save(pending)
+        val restored = manager.restore(Uri.fromFile(archive), selection = selected)
+        assertTrue(restored.message, restored.success)
+        assertEquals(listOf(pending), benchmarkStore.history.value)
+    }
+
+    @Test
+    fun lateBenchmarkOwnershipRetainsCurrentSectionAndCompletesRestore() = runBlocking {
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.STATISTICS))
+        val archive = File(context.cacheDir, "late-benchmark-ownership.gptbackup")
+        assertTrue(manager.backup(Uri.fromFile(archive), selected, encrypt = false).success)
+        val pending = pendingBenchmarkRun()
+        var admitted = false
+        val restored = manager.restoreWithProgress(Uri.fromFile(archive), selection = selected) { progress ->
+            if (!admitted && progress.phase == RestorePhase.APPLYING) {
+                admitted = true
+                runBlocking { benchmarkStore.save(pending) }
+            }
+        }
+        assertTrue(admitted)
+        assertTrue(restored.message, restored.success)
+        assertTrue(restored.message.contains(dev.chungjungsoo.gptmobile.data.benchmark.BENCHMARK_BACKUP_RETAINED_NOTICE))
+        val journal = RestoreStoreJournal(vault)
+        assertEquals(null, journal.read())
+        assertEquals(null, committedRestoreId())
+        assertEquals(listOf(pending), benchmarkStore.history.value)
+        assertEquals(dev.chungjungsoo.gptmobile.data.benchmark.BENCHMARK_BACKUP_RETAINED_NOTICE, benchmarkStore.warning.value)
+        manager.recoverAtStartup()
+        assertEquals(listOf(pending), benchmarkStore.history.value)
+    }
+
+    @Test
+    fun interruptedJournalFinalizationRetainsAnAlreadyImportedPendingBenchmarkAtStartup() = runBlocking {
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.STATISTICS))
+        val pending = pendingBenchmarkRun()
+        benchmarkStore.save(pending)
+        val archive = File(context.cacheDir, "benchmark-import-before-journal-clear.gptbackup")
+        assertTrue(manager.backup(Uri.fromFile(archive), selected, encrypt = false).success)
+        benchmarkStore.save(pending.copy(samples = emptyList(), finished = true, state = "COMPLETED"))
+        benchmarkStore.delete(pending.id)
+        val restored = manager.restoreWithProgress(Uri.fromFile(archive), selection = selected) { progress ->
+            if (progress.phase == RestorePhase.APPLYING) vault.failNextDeleteReference = "restore-store-manifest-v1"
+        }
+        assertFalse(restored.success)
+        assertEquals("Injected restore journal cleanup interruption", restored.message)
+        val retained = benchmarkStore.history.value.single()
+        assertEquals(pending.samples, retained.samples)
+        val journal = RestoreStoreJournal(vault)
+        val interrupted = checkNotNull(journal.read())
+        assertEquals(interrupted.transactionId, committedRestoreId())
+
+        benchmarkStore.close()
+        benchmarkStore = BenchmarkStore(context)
+        manager = CompleteBackupManager(context, database, preferences, vault, settings, legacy, benchmarkStore = benchmarkStore, researchBackup = researchBackup)
+        manager.recoverAtStartup()
+        assertEquals(null, journal.read())
+        assertEquals(null, committedRestoreId())
+        assertEquals(listOf(retained), benchmarkStore.history.value)
+        assertEquals(dev.chungjungsoo.gptmobile.data.benchmark.BENCHMARK_BACKUP_RETAINED_NOTICE, benchmarkStore.warning.value)
+        manager.recoverAtStartup()
+        assertEquals(listOf(retained), benchmarkStore.history.value)
+    }
+
+    private fun committedRestoreId(): String? = database.openHelper.readableDatabase.query("SELECT transaction_id FROM gpt_internal_restore_commit WHERE singleton = 1").use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+    }
+
+    private fun pendingBenchmarkRun() = BenchmarkRun(
+        "pending-remote", "profile", "Name", "OPENAI", "model", "key", false, BenchmarkMode.GITHUB_INTEGRATION, 1,
+        samples = listOf(BenchmarkSample("case", "Case", "engineering", BenchmarkOutcome.PARTIAL, evidenceScope = BenchmarkEngineeringLane.LIVE_GITHUB.evidenceClass, cleanupReceipt = "gateway:submission_outcome_unknown", logicalRequestId = "original-remote-request")),
+        finished = false, state = "AWAITING_REMOTE_RECONCILIATION"
+    )
 
     @Test
     fun toolsRoundTripPreservesInstalledPackagesAndGlobalAndProfileToggles() = runBlocking {
@@ -926,6 +1085,7 @@ class CompleteBackupManagerTest {
         private val values = mutableMapOf<String, ByteArray>()
         var failNextPut = false
         var failNextReference: String? = null
+        var failNextDeleteReference: String? = null
         override suspend fun put(secretRef: String, secret: ByteArray) {
             if (failNextPut || secretRef == failNextReference) {
                 failNextPut = false
@@ -936,6 +1096,10 @@ class CompleteBackupManagerTest {
         }
         override suspend fun read(secretRef: String) = values[secretRef]?.copyOf()
         override suspend fun delete(secretRef: String) {
+            if (secretRef == failNextDeleteReference) {
+                failNextDeleteReference = null
+                error("Injected restore journal cleanup interruption")
+            }
             values.remove(secretRef)
         }
         override suspend fun references() = values.keys.toSet()

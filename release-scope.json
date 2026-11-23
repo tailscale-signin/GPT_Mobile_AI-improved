@@ -95,7 +95,7 @@
     "Separate full agent-system comparisons from model benchmarks, reject comparison of unexecuted checks, and retain optional-runtime and provider qualification limits.",
     "Start speech when all bounded PCM queue slots are occupied even when partial phrase tails leave accepted duration below the measured reserve; retain queue and reserve limits, lifecycle fences and deadline behavior.",
     "Report invalid retained journal projections as typed recovery-integrity failures while omitting unverified observed digests and counts; preserve legacy file decoding and provable recovery, settled-call deduplication and prior budget refusal checks.",
-    "Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.",
+    "Apply the same evidence requirements to requests beginning with \u201cPlease,\u201d preserving their original wording and source references.",
     "Keep automatic phone-map recipes within native capabilities while retaining explicit Gateway analysis and source provenance.",
     "Preserve actual Gateway graph exchange evidence through local privacy rejection and clear only a proven unsent new index attempt.",
     "Propagate wrapped MCP cancellation before reconnect or replay while retaining earlier response and interruption facts.",
@@ -130,7 +130,10 @@
     "Confirm optional agent model/session initialization before concurrent followers can prompt, clean up every owned post-launch startup failure, and preserve earlier terminal cancellation or timeout state.",
     "Require complete typed native benchmark receipts, exact vector coverage and closed driver error reasons in both local grading and exported GitHub verification; keep runtime or malformed observations unqualified while preserving calibrated candidate resource failures.",
     "Retain pending engineering benchmark ownership during backup restoration, preserving original run, batch, queue, attempt and event receipts atomically even when an imported backup omits or conflicts with them.",
-    "Separate native-smoke and APK-download KSP, KAPT and production compilation into bounded fresh processes before the existing minifier, lint, packaging, real JNI and selected download-contract gates, retaining the existing memory and job ceilings."
+    "Separate native-smoke and APK-download KSP, KAPT and production compilation into bounded fresh processes before the existing minifier, lint, packaging, real JNI and selected download-contract gates, retaining the existing memory and job ceilings.",
+    "Preflight wider backup imports before mutations, retain the complete canonical benchmark section when a late pending-ownership conflict follows a committed restore, and finish safe startup recovery without replaying remote work.",
+    "Protect cold benchmark initialization with the canonical Room transaction and expose only generic cause-free errors for unreadable ownership.",
+    "Retain existing permanent conversation privacy locks across direct user-backup imports that clear current data, preserving the incoming masking history and ordinary conversation behavior."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -271,6 +274,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupDatabase.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupManager.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/UserBackupManager.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchModels.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCaseExecution.kt",
@@ -908,6 +912,7 @@
     "docs/engineering/voice-update-nonvoice-scope-2026-11-22.md",
     "docs/repairs/acceptance-completion-70afcf89-2026-11-22-task.json",
     "docs/repairs/acceptance-completion-70afcf89-2026-11-22.md",
+    "docs/repairs/benchmark-backup-ownership-2026-11-22-task.json",
     "docs/repairs/benchmark-comparison-ui-2026-11-22-task.json",
     "docs/repairs/diagnostic-review-completion-2026-11-22-task.json",
     "docs/repairs/evidence/kokoro-qnn-graph-2026-11-22/README.md",

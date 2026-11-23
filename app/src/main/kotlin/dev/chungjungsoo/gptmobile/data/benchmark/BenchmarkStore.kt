@@ -69,6 +69,12 @@ private enum class BenchmarkExportTable(val table: String, val order: String) {
 
 internal class BenchmarkStorageFailure(cause: Throwable) : Exception("Canonical benchmark storage is unavailable; the queue is paused.", cause)
 
+internal enum class BenchmarkBackupImportOutcome { REPLACED, RETAINED_PENDING_OWNERSHIP }
+
+internal const val BENCHMARK_BACKUP_RETAINED_NOTICE = "Benchmark results were not restored because remote work still needs reconciliation. Current benchmark history and cleanup records were retained."
+
+private enum class BenchmarkBackupImportMode { DIRECT, COMMITTED_RESTORE }
+
 @Singleton
 class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Context) {
     private val preferences = context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE)
@@ -716,13 +722,86 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         return benchmarkExportJson.parseToJsonElement(payload.toString())
     }
 
-    /** Restore benchmark history and rebuild the dynamic score tables from their source runs. */
-    suspend fun importBackupJson(payload: String) = withContext(Dispatchers.IO) {
+    /** Early admission for wider restores; the committed import checks again. */
+    suspend fun ensureBackupReplacementAllowed() = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            database.withTransaction {
+                check(canonicalBackupRuns().none { run -> run.samples.any { it.engineeringCleanupPending() } }) {
+                    "Remote benchmark work must be reconciled before saved results can be replaced."
+                }
+            }
+        }
+    }
+
+    private inline fun <reified T> decodeCanonicalBackupRecord(payload: String): T = try {
+        json.decodeFromString<T>(payload)
+    } catch (_: SerializationException) {
+        throw IllegalStateException("Saved benchmark ownership could not be read. Recover the saved results before replacing them.")
+    }
+
+    private suspend fun canonicalBackupRuns(): List<BenchmarkRun> = dao.runs().map { decodeCanonicalBackupRecord(it.payload) }
+
+    private sealed interface BackupImportCommit
+
+    private data class BackupRetention(val optionalDisplayUnavailable: Boolean) : BackupImportCommit {
+        val notice: String get() = BENCHMARK_BACKUP_RETAINED_NOTICE + if (optionalDisplayUnavailable) " Some saved runtime or score display data is unavailable." else ""
+    }
+
+    private data class BackupReplacement(val runs: List<BenchmarkRun>, val batches: List<BenchmarkBatch>, val snapshot: BenchmarkScoreSnapshot) : BackupImportCommit
+
+    /** Called only inside the authoritative transaction; retaining a section performs no writes. */
+    private suspend fun retainPendingBackupOwnership(): BackupRetention? {
+        val runs = canonicalBackupRuns()
+        if (runs.none { run -> run.samples.any { it.engineeringCleanupPending() } }) return null
+        val batches = dao.batches().map { decodeCanonicalBackupRecord<BenchmarkBatch>(it.payload) }
+        var optionalDisplayUnavailable = false
+        fun <T> optionalDisplay(decode: () -> T): T? = try {
+            decode()
+        } catch (_: SerializationException) {
+            optionalDisplayUnavailable = true
+            null
+        }
+        val trials = dao.runtimeTrials().mapNotNull { optionalDisplay { json.decodeFromString<RuntimeTrial>(it.payload) } }
+        val qualifications = dao.runtimeQualifications().mapNotNull { optionalDisplay { json.decodeFromString<RuntimeQualificationResult>(it.payload) } }
+        val snapshot = dao.current()?.let { optionalDisplay { json.decodeFromString<BenchmarkScoreSnapshot>(it.payload) } }
+        loadEnrollmentLocked()
+        mutableHistory.value = runs
+        mutableBatches.value = batches
+        mutableRuntimeTrials.value = trials
+        mutableQualifications.value = qualifications
+        mutableSnapshot.value = snapshot
+        loaded = true
+        return BackupRetention(optionalDisplayUnavailable)
+    }
+
+    /** Direct history import keeps the original owners while restoring unrelated results. */
+    suspend fun importBackupJson(payload: String) {
+        importBackup(payload, BenchmarkBackupImportMode.DIRECT)
+    }
+
+    /** Only a wider restore whose main transaction committed may retain this entire section. */
+    internal suspend fun importCommittedBackupJson(payload: String): BenchmarkBackupImportOutcome =
+        importBackup(payload, BenchmarkBackupImportMode.COMMITTED_RESTORE)
+
+    private suspend fun importBackup(payload: String, mode: BenchmarkBackupImportMode): BenchmarkBackupImportOutcome = withContext(Dispatchers.IO) {
         mutex.withLock {
             val bundle = decodeBackup(payload)
             // Import publishes one merged score snapshot below; loading must not rewrite
             // canonical receipt payloads through a derived-score refresh before preserving them.
-            loadLocked(refreshScores = false)
+            // Serialize legacy initialization too, so a concurrent owner cannot be replaced by its mirror.
+            val retainedBeforeLoad = database.withTransaction {
+                val retention = if (mode == BenchmarkBackupImportMode.COMMITTED_RESTORE) retainPendingBackupOwnership() else null
+                if (retention == null) {
+                    canonicalBackupRuns()
+                    dao.batches().forEach { decodeCanonicalBackupRecord<BenchmarkBatch>(it.payload) }
+                    loadLocked(refreshScores = false)
+                }
+                retention
+            }
+            if (retainedBeforeLoad != null) {
+                loadWarning = retainedBeforeLoad.notice
+                return@withLock BenchmarkBackupImportOutcome.RETAINED_PENDING_OWNERSHIP
+            }
             val restoredRuns = bundle.runs.distinctBy { it.id }.map { run ->
                 if (run.finished) run else run.copy(finished = true, canceled = false, state = "INTERRUPTED", cancellationOrigin = BenchmarkStopOrigin.PROCESS_INTERRUPTION, stoppedReason = run.stoppedReason ?: "Benchmark was in progress at export; restored without replaying requests.")
             }.sortedByDescending { it.startedAt }
@@ -742,14 +821,15 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 }
             }
             val restoredAttempts = bundle.attempts.map { if (it.state == "STARTED") it.copy(state = "INTERRUPTED", dispatchUncertain = true) else it }
-            val (mergedRuns, mergedBatches, next) = database.withTransaction {
+            val committed = database.withTransaction<BackupImportCommit> {
+                if (mode == BenchmarkBackupImportMode.COMMITTED_RESTORE) retainPendingBackupOwnership()?.let { return@withTransaction it }
                 // These records may be newer than the published flows or a backup's saved history.
                 // Read and preserve original owners atomically with replacement, including rollback replay.
                 val localRuns = dao.runs()
                 val localBatches = dao.batches()
                 val canonical = BenchmarkRestoreState(
-                    runs = localRuns.map { json.decodeFromString<BenchmarkRun>(it.payload) },
-                    batches = localBatches.map { json.decodeFromString<BenchmarkBatch>(it.payload) }
+                    runs = localRuns.map { decodeCanonicalBackupRecord<BenchmarkRun>(it.payload) },
+                    batches = localBatches.map { decodeCanonicalBackupRecord<BenchmarkBatch>(it.payload) }
                 )
                 val ownership = benchmarkRestoreOwnership(canonical)
                 val localAttempts = ownership.batchIds.flatMap { dao.attempts(it) }
@@ -766,8 +846,8 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 }
                 val merged = benchmarkMergeRestoreOwnership(
                     canonical.copy(
-                        attempts = localAttempts.map { json.decodeFromString<BenchmarkAttempt>(it.payload) },
-                        events = localEvents.map { json.decodeFromString<BenchmarkBatchEvent>(it.payload) }
+                        attempts = localAttempts.map { decodeCanonicalBackupRecord<BenchmarkAttempt>(it.payload) },
+                        events = localEvents.map { decodeCanonicalBackupRecord<BenchmarkBatchEvent>(it.payload) }
                     ),
                     BenchmarkRestoreState(restoredRuns, restoredBatches, restoredAttempts, bundle.batchEvents),
                     ownership
@@ -789,14 +869,21 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                     merged.events.map { retainedEvents[it.batchId to it.sequence] ?: BenchmarkEventRecord(it.batchId, it.sequence, json.encodeToString(it)) }
                 )
                 // Publish precisely what committed, not the incoming list or a stale pre-transaction flow.
-                Triple(dao.runs().map { json.decodeFromString<BenchmarkRun>(it.payload) }, dao.batches().map { json.decodeFromString<BenchmarkBatch>(it.payload) }, snapshot)
+                BackupReplacement(canonicalBackupRuns(), dao.batches().map { decodeCanonicalBackupRecord<BenchmarkBatch>(it.payload) }, snapshot)
             }
+            if (committed is BackupRetention) {
+                loadWarning = committed.notice
+                return@withLock BenchmarkBackupImportOutcome.RETAINED_PENDING_OWNERSHIP
+            }
+            check(committed is BackupReplacement)
             mutableRuntimeTrials.value = trials
             mutableQualifications.value = qualifications
-            mutableHistory.value = mergedRuns
-            mutableSnapshot.value = next
-            mutableBatches.value = mergedBatches
+            mutableHistory.value = committed.runs
+            mutableSnapshot.value = committed.snapshot
+            mutableBatches.value = committed.batches
             scheduleMirror()
+            if (loadWarning?.startsWith(BENCHMARK_BACKUP_RETAINED_NOTICE) == true) loadWarning = null
+            BenchmarkBackupImportOutcome.REPLACED
         }
     }
 

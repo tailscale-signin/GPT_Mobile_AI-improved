@@ -534,6 +534,7 @@ class CompleteBackupManager @Inject constructor(
         }
 
         var statisticsNotice = ""
+        var benchmarkNotice = ""
         val researchSnapshot = if (effective.sections.any { it in dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup.SECTIONS } && "research-feature.json" in manifest.files) {
             require(encryptedArchive) { "Research evidence requires an encrypted backup" }
             requireNotNull(researchBackup).validate(File(staging, "research-feature.json"), staging)
@@ -621,6 +622,7 @@ class CompleteBackupManager @Inject constructor(
         val benchmarkImportJson = selectedPaths
             .firstOrNull { it == "internal/benchmark-results/benchmark-results.json" }
             ?.let { path -> File(staging, path).readText().also(benchmarkStore::validateBackupJson) }
+        if (benchmarkImportJson != null) benchmarkStore.ensureBackupReplacementAllowed()
         selectedPaths.firstOrNull { it == "internal/health-connect/local-import-v1" }?.let { path ->
             require(dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportCodec.decode(File(staging, path).readBytes()) != null) {
                 "The Health Connect data in this backup is invalid."
@@ -792,7 +794,9 @@ class CompleteBackupManager @Inject constructor(
                     }
 
                     if (selectedPaths.isNotEmpty()) replacement.cleanup()
-                    if (benchmarkImportJson != null) benchmarkStore.importBackupJson(benchmarkImportJson)
+                    if (benchmarkImportJson != null && benchmarkStore.importCommittedBackupJson(benchmarkImportJson) == dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBackupImportOutcome.RETAINED_PENDING_OWNERSHIP) {
+                        benchmarkNotice = " " + dev.chungjungsoo.gptmobile.data.benchmark.BENCHMARK_BACKUP_RETAINED_NOTICE
+                    }
                     restoreJournal.clear()
                     clearRestoreMarker()
                 }
@@ -843,7 +847,7 @@ class CompleteBackupManager @Inject constructor(
             true,
             (if (convertedLegacy) "Legacy backup converted to the current format. " else "") + "Restored: " + effective.sections
                 .sortedBy { it.ordinal }
-                .joinToString { section -> section.displayName() } + "." + statisticsNotice
+                .joinToString { section -> section.displayName() } + "." + statisticsNotice + benchmarkNotice
         )
     }
 
@@ -1279,7 +1283,7 @@ class CompleteBackupManager @Inject constructor(
             previous.protection?.let { saveProtection(it.copy(password = previous.protectionPassword)) }
         }
         files().recoverInterruptedRestore(committed)
-        if (previous != null && previous.transactionId == committed) previous.benchmarkJson?.let { benchmarkStore.importBackupJson(it) }
+        if (previous != null && previous.transactionId == committed) previous.benchmarkJson?.let { benchmarkStore.importCommittedBackupJson(it) }
         restoreJournal.clear()
         clearRestoreMarker()
     }

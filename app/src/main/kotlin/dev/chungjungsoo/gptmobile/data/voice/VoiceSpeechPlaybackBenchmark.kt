@@ -182,15 +182,14 @@ internal class VoiceSpeechPlaybackBenchmark(
                     targetJob = launch {
                         val reached = withTimeoutOrNull(VoiceSpeechPlaybackProtocol.MAX_CANCEL_TARGET_WAIT_MS) {
                             while (!completion.isCompleted) {
-                                currentProgress()?.let(measurement::executionProgress)
-                                if (measurement.reached(target)) return@withTimeoutOrNull true
+                                if (measurement.reached(target, currentProgress())) return@withTimeoutOrNull true
                                 delay(20)
                             }
                             false
                         } == true
                         if (!completion.isCompleted) {
-                            currentProgress()?.let(measurement::executionProgress)
-                            measurement.cancelRequested(reached && measurement.reached(target))
+                            val stillReached = measurement.reached(target, currentProgress())
+                            measurement.cancelRequested(reached && stillReached)
                             output.stop("speech_benchmark_cancel_probe")
                             completion.complete(measurement.result(VoiceSpeechPlaybackState.CANCELLED, thermalStatus()))
                         }

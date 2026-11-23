@@ -300,6 +300,56 @@ class VoiceSpeechPlaybackProtocolTest {
         assertFalse(measurement.reached(VoiceSpeechCancellationTarget.INFERENCE))
     }
 
+    @Test fun unavailableFreshProgressCannotQualifyAnEarlierNativeStageObservation() {
+        for ((target, stage) in listOf(
+            VoiceSpeechCancellationTarget.INFERENCE to VoiceSpeechStage.SYNTHESIS,
+            VoiceSpeechCancellationTarget.PREPARATION to VoiceSpeechStage.PREPARING
+        )) {
+            var clock = 0L
+            val plan = VoiceSpeechPlaybackPlan(VoiceSpeechPlaybackScenario.CANCELLATION, 0, listOf("the voice"), cancellationTarget = target)
+            val measurement = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.CPU, 0, plan) { clock }
+            measurement.preparationStarted()
+            measurement.engineReady(false)
+            measurement.attemptStarted("the voice")
+            val reached = measurement.reached(target, VoiceSpeechProgress(stage, 1, 3, 1, 61, false))
+            assertTrue(reached)
+            clock = 100_000_000L
+            // The final native read is unavailable after the polling read observed an active stage.
+            measurement.cancelRequested(reached && measurement.reached(target, null))
+            clock = 107_000_000L
+            measurement.terminal(0, 0, 0, "audio_timestamp", "speaker")
+            val result = measurement.result(VoiceSpeechPlaybackState.CANCELLED, 0).copy(cleanupState = "RETIRED")
+            assertEquals(VoiceSpeechPlaybackQuality.CANCELLATION_TARGET_NOT_REACHED, result.quality)
+            assertEquals(false, result.cancellationTargetReached)
+            assertEquals(7L, result.cancellationMs)
+            assertEquals(stage, result.progress.single().stage)
+            assertTrue(result.progress.single().active)
+        }
+    }
+
+    @Test fun modelOpenAndPresentedPlaybackCancellationDoNotRequireNativeSnapshots() {
+        for (target in listOf(VoiceSpeechCancellationTarget.PREPARATION, VoiceSpeechCancellationTarget.PLAYBACK)) {
+            var clock = 0L
+            val plan = VoiceSpeechPlaybackPlan(VoiceSpeechPlaybackScenario.CANCELLATION, 0, listOf("the voice"), cancellationTarget = target)
+            val measurement = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.CPU, 0, plan) { clock }
+            if (target == VoiceSpeechCancellationTarget.PREPARATION) {
+                measurement.preparationStarted()
+            } else {
+                measurement.engineReady(false)
+                measurement.firstPresented("audio_timestamp", "speaker")
+            }
+            clock = 100_000_000L
+            measurement.cancelRequested(measurement.reached(target, null))
+            clock = 107_000_000L
+            measurement.terminal(0, 0, 0, "audio_timestamp", "speaker")
+            val result = measurement.result(VoiceSpeechPlaybackState.CANCELLED, 0).copy(cleanupState = "RETIRED")
+            assertEquals(VoiceSpeechPlaybackQuality.CANCELLATION_VALIDATED, result.quality)
+            assertEquals(true, result.cancellationTargetReached)
+            assertEquals(7L, result.cancellationMs)
+            assertTrue(result.progress.isEmpty())
+        }
+    }
+
     @Test fun cancellationNeedsAReachedTargetMeasuredStopAndCompletedRetirement() {
         val result = VoiceSpeechPlaybackResult(
             VoiceSpeechBackend.CPU,

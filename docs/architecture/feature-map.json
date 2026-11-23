@@ -740,9 +740,9 @@
       "sha256": "198f0cc7e7ea78dc009ee401b440500c498f7cb55e9f6cf2248cbf5d0187da18"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt": {
-      "blob_sha": "97187ec937c00d3e2c3bc72102715b8be9ed1d55",
-      "bytes": 13612,
-      "sha256": "c03d9762b6805d32953ce5b424bfa7dea75c72ec525f1ab9bb406e161089b61a"
+      "blob_sha": "2c01f1fa97fbdf2928f90fa40f17a8f340d0e4e5",
+      "bytes": 13540,
+      "sha256": "5b8e91385a21348a387b4bf615f39f1234c0c27c1880b3f9992601d830301359"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocol.kt": {
       "blob_sha": "b64d154a31f2bc3c9d7afe31c15465574d65f77e",
@@ -750,9 +750,9 @@
       "sha256": "9c117d8cf2d5e7c37341fb295a98d54a1c174088b2780e10cd547c4037973580"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt": {
-      "blob_sha": "d77be545981e7b06bf89a90669e215050dea5671",
-      "bytes": 27066,
-      "sha256": "257afbad797d5ecb4483e0f5044ba93b21344b673bf4c6ef79e77161704c66c5"
+      "blob_sha": "7b3091dac4c3fc96631981941d725c2278e44bb6",
+      "bytes": 28030,
+      "sha256": "bdc1c1b7c40803a8f506fdc33c29c6edc17586661fe4f48490a146d3df419b80"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkload.kt": {
       "blob_sha": "b660ff0d6e427ad7b4d313873d88fcc322b33580",
@@ -1105,9 +1105,9 @@
       "sha256": "62070cc1c879d5610bfb6043be53991a078df1b7a5f27a7d3e6b236e2d34342d"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt": {
-      "blob_sha": "766748cd009228db858ad35d8dffcaa615f0cd24",
-      "bytes": 21086,
-      "sha256": "fb7da72c38adeee95129ddf64ad35ec250cb085943fb5389e1ebffc99bf11521"
+      "blob_sha": "a4ee184843143b4d9ac6c2faeb40dc44b49eb393",
+      "bytes": 24089,
+      "sha256": "def027b82b9b1ece06bce1a39749ddeefc4bbb101af71bdf49640f6b45f115b2"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkloadTest.kt": {
       "blob_sha": "4860b0a8739ea822c37f85af36f25f9639aee2e0",

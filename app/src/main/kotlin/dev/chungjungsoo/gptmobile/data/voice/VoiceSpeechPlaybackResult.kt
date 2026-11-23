@@ -193,6 +193,7 @@ internal class VoiceSpeechPlaybackMeasurement(
     private var cancellationTargetReached: Boolean? = null
     private var stoppedAt: Long? = null
     private var currentStage: VoiceSpeechStage? = null
+    private var modelPreparationActive = false
     private var preparationAttemptStarted: Long? = null
     private var attemptStarted: Long? = null
     private var attemptBytes: Int? = null
@@ -209,6 +210,7 @@ internal class VoiceSpeechPlaybackMeasurement(
 
     @Synchronized fun preparationStarted() {
         if (stoppedAt == null) {
+            modelPreparationActive = true
             currentStage = VoiceSpeechStage.PREPARING
             preparationAttemptStarted = elapsed()
         }
@@ -216,6 +218,7 @@ internal class VoiceSpeechPlaybackMeasurement(
 
     @Synchronized fun attemptStarted(text: String) {
         if (stoppedAt != null) return
+        modelPreparationActive = false
         currentStage = VoiceSpeechStage.FRONTEND
         attemptStarted = elapsed()
         attemptBytes = text.toByteArray(Charsets.UTF_8).size
@@ -224,6 +227,7 @@ internal class VoiceSpeechPlaybackMeasurement(
 
     @Synchronized fun nativeFailure(error: Throwable, deviceKey: String) {
         if (stoppedAt != null) return
+        modelPreparationActive = false
         if (generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(12).any { it is java.util.concurrent.CancellationException }) return
         if (capturedFailure == null) capturedFailure = speechPlaybackFailureEvidence(error, backend, deviceKey)
     }
@@ -232,6 +236,18 @@ internal class VoiceSpeechPlaybackMeasurement(
         VoiceSpeechCancellationTarget.PREPARATION -> currentStage == VoiceSpeechStage.PREPARING
         VoiceSpeechCancellationTarget.INFERENCE -> currentStage == VoiceSpeechStage.SYNTHESIS
         VoiceSpeechCancellationTarget.PLAYBACK -> firstPresented != null
+    }
+
+    /** Native stage admission needs a fresh active snapshot; model opening and audio presentation are observed separately. */
+    @Synchronized fun reached(target: VoiceSpeechCancellationTarget, currentProgress: VoiceSpeechProgress?): Boolean {
+        currentProgress?.let(::executionProgress)
+        if (stoppedAt != null) return false
+        val activeStage = currentProgress?.takeIf { it.active }?.stage
+        return when (target) {
+            VoiceSpeechCancellationTarget.PREPARATION -> modelPreparationActive || activeStage == VoiceSpeechStage.PREPARING
+            VoiceSpeechCancellationTarget.INFERENCE -> activeStage == VoiceSpeechStage.SYNTHESIS
+            VoiceSpeechCancellationTarget.PLAYBACK -> firstPresented != null
+        }
     }
 
     @Synchronized override fun pcmReady(synthesisMs: Long, audioFrames: Int, sampleRate: Int, evidence: VoiceSpeechExecutionEvidence?) {
@@ -282,6 +298,7 @@ internal class VoiceSpeechPlaybackMeasurement(
 
     @Synchronized override fun engineReady(reused: Boolean) {
         if (stoppedAt != null) return
+        modelPreparationActive = false
         this.reused = reused
         currentStage = VoiceSpeechStage.READY
     }

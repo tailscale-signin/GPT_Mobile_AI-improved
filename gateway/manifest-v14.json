@@ -1,8 +1,8 @@
 {
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
-  "version": "18.1.1",
+  "version": "18.1.2",
   "schemaVersion": 1,
-  "sourceCommit": "04f518479671a8cd41faaf2fa02ef0f678a5bc31",
+  "sourceCommit": "8fd1454d3065ce27049c2a57056633ea921677fd",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -380,7 +380,7 @@
     "tests/test_gateway_workspace_terminal.py": "58d3cea0bdc18a6f9fea703574fa24159c90ffb5a6931c8e60a6f6341adaf19d",
     "tests/test_gateway_workspace_timeline.py": "505a5cee08d2f4270090613cc06f7c9a2e1b25f99a1883914171b1a3b98f6205",
     "tests/test_private_inference.py": "3183befd049b92390d60c78dfee2a857275486be3f50b3ffcd0464a05987a5c1",
-    "v14/__init__.py": "bf5b1be3dfcf96e693c2757ef2f567aaf124840316c999930b544eaed6053919",
+    "v14/__init__.py": "a4f72f9532d8d3a2ea56a4edcdd8371a2bb7ea59fe5b5e0245f0bdd2891eb850",
     "v14/academic.py": "7e2f1c665e272531e6e95276cc58bb355f91c86f33f34bd747ce872cc7f1bfaa",
     "v14/account_connection.py": "e8a48a77e88d61646e5bb7ac20f579503045c3589f79d3689bfc596d52a74e27",
     "v14/actions.py": "7c01927ea3bdfe23c266968fecb127a21849f4d16d21cf75cc5a01d0dffefadc",

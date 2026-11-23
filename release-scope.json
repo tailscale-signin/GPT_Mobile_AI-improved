@@ -29,7 +29,10 @@
     "Bound foreground cleanup while retaining native audio/model ownership until actual retirement; isolate warm reply observers and publish serially on IO.",
     "Use mode-correct schema 3 exports, preserve historical numeric evidence without stale qualification, and keep complete current reports within bounded 4 MiB history by evicting older whole runs.",
     "Reject future phone index frontiers and require the intended source line window before counting an acquisition attempt.",
-    "Preserve legacy READ_DEADLINE report compatibility while requiring capabilities for newly introduced diagnostic fields."
+    "Preserve legacy READ_DEADLINE report compatibility while requiring capabilities for newly introduced diagnostic fields.",
+    "Bound release lint with a 64-minute process watchdog inside a 65-minute step and retain its complete output, preserving tasks, memory settings and strict publication gates after an observed outer-step timeout.",
+    "Regenerate the Gateway18.1.2 manifest against the reviewed Gateway source while preserving all513 package entries and strict startup integrity checks.",
+    "Require fresh active native progress for benchmark cancellation-stage qualification while preserving separately observed model-open and presented-audio cancellation evidence."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -64,6 +67,7 @@
     "Development environments"
   ],
   "allowedPaths": [
+    ".github/workflows/release-build.yml",
     "AGENTS.md",
     "AI-Memory.md",
     "CLAUDE.md",
@@ -200,9 +204,13 @@
     "docs/repairs/evidence/speech-playback-reliability-2026-11-23/report-compatibility.json",
     "docs/repairs/evidence/speech-playback-reliability-2026-11-23/retirement.json",
     "docs/repairs/evidence/speech-playback-reliability-2026-11-23/storage-capacity.json",
+    "docs/repairs/gateway-v18-1-2-package-manifest-2026-11-23-task.json",
     "docs/repairs/github-evidence-progress-2026-11-23-task.json",
+    "docs/repairs/release-lint-main-timeout-2026-11-23-task.json",
+    "docs/repairs/speech-fresh-cancellation-progress-2026-11-23-task.json",
     "docs/repairs/speech-playback-reliability-2026-11-23-task.json",
     "docs/repairs/speech-playback-reliability-2026-11-23.md",
+    "gateway/manifest-v14.json",
     "gateway/v14/__init__.py",
     "local-kokoro-runtime/src/main/cpp/CMakeLists.txt",
     "local-kokoro-runtime/src/main/cpp/kokoro_execution_provider.h",

@@ -1,0 +1,133 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "gateway-v18-1-2-package-manifest-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/github-evidence-progress-2026-11-23",
+  "base_sha": "8fd1454d3065ce27049c2a57056633ea921677fd",
+  "working_branch": "work/gateway-v18-1-2-package-8fd",
+  "parent_pull_request": 2363,
+  "owner": "voice_design_review",
+  "intent": "Regenerate the Gateway 18.1.2 source manifest with the official builder, preserving the complete 513-file reviewed payload and proving the observed stale-package startup refusal is corrected.",
+  "state": "IMPLEMENTED_FOCUSED_VERIFIED_AWAITING_ROOT_INTEGRATION",
+  "authorization": "Root assigned this isolated package repair; no shared push, workflow changes or release-scope edits are authorized in this lane.",
+  "owned_paths": [
+    "gateway/manifest-v14.json",
+    "docs/repairs/gateway-v18-1-2-package-manifest-2026-11-23-task.json"
+  ],
+  "observed_failure": {
+    "source": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "gateway_version": "18.1.2",
+    "manifest_version": "18.1.1",
+    "manifest_source": "04f518479671a8cd41faaf2fa02ef0f678a5bc31",
+    "message": "Incomplete or incompatible v14 manifest",
+    "gateway_job": 137658210468,
+    "windows_installer_job": 137658210637
+  },
+  "constraints": [
+    "Preserve all Gateway payload source bytes and manifest membership.",
+    "Use gateway/build_v14_package.py --manifest-only at the reviewed source commit.",
+    "Keep package validation and startup guards intact.",
+    "Run focused real package/startup checks only; no duplicate canonical or Android build.",
+    "Root owns final scope integration, exact-head CI and publication."
+  ],
+  "validation": [
+    {
+      "name": "stale baseline",
+      "source": "8fd1454d3065ce27049c2a57056633ea921677fd",
+      "startup_exit": 1,
+      "existing_tests": "RuntimeTests.setUpClass error plus one real-engine maintenance test failure; both at the existing incompatible-manifest guard.",
+      "original_guard_message": "Incomplete or incompatible v14 manifest",
+      "receipt_sha256": "4b598f228449979a57c01e1e425a81c4abb909e826fe70ac639ce59c68b63322"
+    },
+    {
+      "name": "corrected actual package and startup",
+      "startup_exit": 0,
+      "startup_result": {
+        "configuration": "valid",
+        "manifest": "valid",
+        "version": "18.1.2"
+      },
+      "existing_tests_passed": 2,
+      "existing_tests_failed": 0,
+      "existing_tests_skipped": 0,
+      "existing_tests_seconds": 5.17,
+      "tests": [
+        "test_gateway_v14.RuntimeTests.test_distribution_detects_missing_companion",
+        "test_gateway_desktop.MaintenanceTests.test_real_engine_local_secret_quiesce_resume_shutdown_with_backend_offline"
+      ],
+      "preserved_negative_control": "The unchanged distribution test deletes a required companion from a temporary complete package and still requires ValueError.",
+      "receipt_sha256": "bed5eb8f8042ecadd86acd736ea1f285e98e9d1b235c2afcdbecf1ccb7884170"
+    },
+    {
+      "name": "source and membership binding",
+      "payload_files_checked_against_git_bytes_and_blob_ids": 513,
+      "baseline_and_corrected_payload_source_inputs_identical": true,
+      "all_manifest_hashes_match_actual_files": true,
+      "source_inputs_sha256": "492654b635c777c390c750b4b5b110d3cde229c4d11c23973b182f6cead0b416",
+      "dependency_versions_match_pinned_gateway_requirements": 28,
+      "platform": "Linux / Python 3.12.14; read-only reuse of existing pinned Gateway environment",
+      "scope": "Real package validation and live local engine authentication/quiesce/resume/shutdown with its backend offline. No test implementation was copied or changed."
+    }
+  ],
+  "publication": [],
+  "remote_reconciliation": {
+    "before_work": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "before_manifest_edit": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "before_commit": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "incoming_repair_observed": false
+  },
+  "implementation": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 gateway/build_v14_package.py --manifest-only",
+    "exit_code": 0,
+    "version": "18.1.2",
+    "sourceCommit": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "source_tree": "c5f951b55d1e793146b07644876d7b66e183039e",
+    "manifest_sha256": "d6b38e7d917697b70d822fde6995413ad2a87193d99545e0b2833591a1921645",
+    "payload_entries": 513,
+    "payload_source_modified": false,
+    "membership_unchanged": true,
+    "unchanged_entry_hashes": 512,
+    "updated_entry_hashes": {
+      "v14/__init__.py": "a4f72f9532d8d3a2ea56a4edcdd8371a2bb7ea59fe5b5e0245f0bdd2891eb850"
+    },
+    "other_manifest_changes": [
+      "version",
+      "sourceCommit"
+    ],
+    "baseCommit_and_schema_unchanged": true
+  },
+  "proof": {
+    "directory": "/workspace/scratch/6b5c8b09c56b/gateway-v18-1-2-package-proof",
+    "sha256": {
+      "run.py": "969a2afeff8d10d81fe8fd575763002640dc31c66c35f4fc121e148f28387145",
+      "manifest-contract.json": "ba4fd22c1690cd73f1bcabed68133b05a5125f143df4a099718c7e1bd6e19810",
+      "baseline/receipt.json": "4b598f228449979a57c01e1e425a81c4abb909e826fe70ac639ce59c68b63322",
+      "baseline/source-inputs.json": "492654b635c777c390c750b4b5b110d3cde229c4d11c23973b182f6cead0b416",
+      "baseline/runtime.json": "f33b1a71903928bfbb5232071b04d5e1ef50a9cf6c97f969257c31022a09b8ae",
+      "baseline/startup.stderr.log": "10acf03d87e736696f7ccec7f3288ca9c873f5a9073064b388c3b149b0b32eed",
+      "baseline/existing-package-and-real-engine.stderr.log": "78709046e29348e2d40e25df0bd90d3837b0b7330ee01c0a88adc440e3741faa",
+      "corrected/receipt.json": "bed5eb8f8042ecadd86acd736ea1f285e98e9d1b235c2afcdbecf1ccb7884170",
+      "corrected/source-inputs.json": "492654b635c777c390c750b4b5b110d3cde229c4d11c23973b182f6cead0b416",
+      "corrected/runtime.json": "f33b1a71903928bfbb5232071b04d5e1ef50a9cf6c97f969257c31022a09b8ae",
+      "corrected/startup.stdout.log": "5a00de9da175c96b19b9bcefd792cb1b3547ed9ee83cb004eee2277eac7efa9c",
+      "corrected/existing-package-and-real-engine.stderr.log": "1fc638f9aca8518f3f95c69fdb4235a4a6a88e0312927712b457d81c23cea35b"
+    },
+    "source_contract_sha256": {
+      "gateway/build_v14_package.py": "68926352fa157ac3965ec47db35fc28a7b65b4a098309e514b1dc6a3cbd17a1c",
+      "gateway/gateway.py": "7e5ecdf78d71507fa16384f75ee711d9bf789d54cce518778208d719e4b6e985",
+      "gateway/gateway_v14.py": "08ff6ec47895005edcf72e35900e0475d29ff2616b070333e5946d1f60d41c88",
+      "gateway/v14/package.py": "36956973a0e4f352bdae43545651f8e25cc826b2735c06742242c4452b165703",
+      "gateway/v14/__init__.py": "a4f72f9532d8d3a2ea56a4edcdd8371a2bb7ea59fe5b5e0245f0bdd2891eb850",
+      "gateway/tests/test_gateway_v14.py": "4013c50558b04b6be6182bf0301bb9b54f07a357f4b8eb2e2fd060fb8137ebab",
+      "gateway/tests/test_gateway_desktop.py": "9118f674619e89364a16249f45db6bda295b460c50c8ec48b497e95035246608",
+      "gateway/requirements.txt": "0462ab218be1723ddea55dbf78dc63ed49885b98d4af39315d580623f1ab67d8"
+    }
+  },
+  "qualification_boundaries": [
+    "No Gateway payload source or existing tests changed.",
+    "The read-only pinned environment matches all 28 declared package versions; this task does not independently reverify installed wheel provenance.",
+    "Windows 3.12/3.13, packaged installer and exact final-head workflow qualification remain hosted CI gates.",
+    "No full canonical, Android, external-provider, device-performance or publication claim.",
+    "Root integrates the two owned paths and updates release-scope.json; this lane did not edit release scope or workflows."
+  ]
+}

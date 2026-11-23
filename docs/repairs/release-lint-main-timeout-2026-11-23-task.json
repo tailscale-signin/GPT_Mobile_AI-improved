@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "task": "release-lint-main-timeout-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/github-evidence-progress-2026-11-23",
+  "baseCommit": "8fd1454d3065ce27049c2a57056633ea921677fd",
+  "workingBranch": "work/release-lint-main-timeout-8fd",
+  "owner": "root",
+  "status": "COMBINED_HOST_VALIDATED_PENDING_FINAL_SHARED_HEAD_CI",
+  "intent": "Allow the measured release-lint workload to finish inside a bounded process and step, retain its complete output, and preserve every validation and publication gate.",
+  "failureEvidence": {
+    "sourceCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+    "workflowRun": 45143746072,
+    "job": 137587934781,
+    "attempt": 1,
+    "step": "Verify release compatibility and lint",
+    "started": "2026-11-23T10:35:05Z",
+    "completed": "2026-11-23T11:20:18Z",
+    "annotation": "The action 'Verify release compatibility and lint' has timed out after 45 minutes.",
+    "annotationUrl": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45143746072/job/137587934781",
+    "artifact": 14814116075,
+    "artifactSha256": "1e37bf862951e945b6ddf4f40f480e3e75cb73de9e8caf428fa388a7da649757",
+    "limitation": "The artifact has completed debug lint and earlier compilation GC reports, but no release-lint report, command log or lint GC. No OOM, lint finding or application defect is established."
+  },
+  "comparison": {
+    "successfulPrHead": "b4600f798bf37ed9a570ee7ac8a0988518539cfc",
+    "workflowRun": 45131865479,
+    "job": 137549071133,
+    "releaseLintSeconds": 1713,
+    "sourceAndWorkflowTreeMatch": true,
+    "mainPrefixSeconds": 5431,
+    "mainCleanupSeconds": 88,
+    "proposedOuterStepSeconds": 3900,
+    "observedBudgetTotalSeconds": 9419,
+    "unchangedJobBudgetSeconds": 10500,
+    "remainingSeconds": 1081,
+    "limitation": "Fit uses the observed main prefix and cleanup; it is not proof that a future hosted run has passed."
+  },
+  "constraints": [
+    "Keep the 175-minute job cap, default 3 GiB heap and 1 GiB metaspace, disabled configuration cache and one worker.",
+    "Keep checkReleaseAarMetadata and lintRelease, deterministic failure propagation, and every required release/signing/source/asset gate.",
+    "Use the existing single process-group deadline across eligible dependency retries; a deadline failure must not be retried automatically.",
+    "Preserve all incoming shared-branch commits. No forced ref updates, skipped checks, duplicate publication or blind reruns.",
+    "A new final-head PR and exact-main hosted qualification are still required before publication."
+  ],
+  "implementation": {
+    "workflow": ".github/workflows/release-build.yml",
+    "outerMinutes": 65,
+    "processDeadlineSeconds": 3840,
+    "log": "release-lint.log",
+    "output": "Explicit bash pipefail preserves Gradle failure through tee; the existing always-uploaded release-*.log glob captures the complete lint output.",
+    "workflowSha256": "69f607ed4e8e9a0f58edcf4ee7b8974e5f8ddc0e1a77af9ede3220c243ba2434"
+  },
+  "validation": {
+    "focused": {
+      "status": "PASSED",
+      "gradleRetryTests": 15,
+      "gradleRetrySeconds": 0.831,
+      "ciPolicyTests": 20,
+      "ciPolicySeconds": 0.057,
+      "shellCases": 4,
+      "shellFailureExitsPreserved": [
+        17,
+        124
+      ],
+      "withoutPipefailNegativeControlExit": 0,
+      "actualWatchdogBoundary": "Existing gradle_retry tests exercise real stalled descendants, process-group retirement and no timeout retry.",
+      "shellBoundary": "Executes the exact workflow shell fragment with a controlled Gradle-command port. Proves argument wiring, retained stdout/stderr, and failure propagation. Does not execute Android lint or establish hosted runtime. Existing gradle_retry tests separately exercise actual process-group deadlines and no timeout retry.",
+      "proofDirectory": "/workspace/scratch/6b5c8b09c56b/release-lint-main-timeout-proof",
+      "shellProofSha256": "815b62caecfff97c117c1d263a8b3b8dee633f729f593abee07385a037349314",
+      "gradleRetryLogSha256": "26cf1d60cdaa7fca70b92e4d6493074537caebac1692dd4e3e4a565da6a6b101",
+      "ciPolicyLogSha256": "483de94f138b14c79a2b74fe5559aa3b27fa915f1c1c5c7a9dca3dcc409416b9",
+      "isolatedInvocationCorrection": "The first CI-policy subset invocation lacked its scripts import path and produced5 import errors. The corrected invocation passed20/20 without source changes; the original log is retained."
+    },
+    "canonicalFast": {
+      "status": "PASSED",
+      "sourceCommit": "73c82c8ddfc22ec445a8113e2490caeba0d289c9",
+      "sourceTree": "6f9b540a28dffa98fccc975a1b19ba55414ca413",
+      "baseCommit": "8fd1454d3065ce27049c2a57056633ea921677fd",
+      "canonicalExitCode": 0,
+      "scopeExitCode": 0,
+      "timedOut": false,
+      "commandSeconds": 37.997,
+      "reportedSuites": [
+        {
+          "tests": 660,
+          "seconds": 32.714
+        }
+      ],
+      "trackedInputCount": 6870,
+      "inputManifestSha256": "51c66a6c91799c15f3cea03cb14c435585068b9e846a29ecfe7be57c81c79f18",
+      "logSha256": "7849ea84ef80f9491248ff5cbd4be3ca31529ff6b9702a4363160768a73f8207",
+      "scopeLogSha256": "9211e913e6b4fa1f10ae2b4866aee198e98707013ad8cec6919dd92f1e04bc01",
+      "cleanAfterRun": true,
+      "qualification": "Canonical host checks and exact release scope only; full hosted Android, Windows, device and publication qualification remain pending.",
+      "receiptSha256": "1a84d2b062314caecd267e59a4095d49c73209a3510efa2110d64087fdd42eea",
+      "proofDirectory": "/workspace/scratch/6b5c8b09c56b/combined-pr2363-repair-proof/canonical-source-73c82c8d",
+      "runs": 1
+    },
+    "hosted": "PENDING_FINAL_SHARED_HEAD"
+  },
+  "integration": {
+    "gatewayCandidate": "6a5cbed8ca9349e28bd7231e5a3a3c4d35a96648",
+    "speechCandidate": "428bb4e0b95293fd77fee307bfbaf5b09e0142fc",
+    "reviewedSourceCommit": "73c82c8ddfc22ec445a8113e2490caeba0d289c9",
+    "reviewedSourceTree": "6f9b540a28dffa98fccc975a1b19ba55414ca413",
+    "changedPathsFromSharedBase": 12,
+    "scopedPathsFromMain": 162,
+    "independentReview": "CI and Gateway clear by voice_repo_review; fresh-progress guard clear by voice_design_review; immutable component hashes preserved during integration.",
+    "qualification": "The subsequent checkpoint-only commit records these results; final hosted checks must bind the public shared head."
+  }
+}

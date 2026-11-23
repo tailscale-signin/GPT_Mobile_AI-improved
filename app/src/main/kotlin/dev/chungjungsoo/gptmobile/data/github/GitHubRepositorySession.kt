@@ -33,7 +33,10 @@ internal class GitHubRepositorySession(
     private val request: suspend (String) -> JsonElement,
     private val commit: suspend (String, JsonObject) -> JsonElement,
     private val reconcileCommit: suspend (String, JsonObject) -> JsonElement? = { _, _ -> null },
-    private val searchBlobTimeoutMs: Long = 8_000
+    private val searchBlobTimeoutMs: Long = 8_000,
+    private val readOperationTimeoutMs: Long = 12_000,
+    private val indexBlobTimeoutMs: Long = 4_000,
+    private val initialRepositoryContext: GitHubConversationContext? = null
 ) {
     private val scope = listOf(accountId, connectionUid, conversationId, taskId).joinToString(":")
     private val conversationScope = listOf(accountId, connectionUid, conversationId).joinToString(":")
@@ -110,10 +113,26 @@ internal class GitHubRepositorySession(
         )
     }
 
+    /** Seed the frozen chat target before a first historical read, without replacing a concurrent selection. */
+    private suspend fun initialSnapshot(owner: String, repo: String): GitHubTaskSnapshot? {
+        val bound = initialRepositoryContext?.takeIf {
+            it.connectionUid == connectionUid && it.owner.equals(owner, true) && it.repo.equals(repo, true)
+        } ?: return null
+        val response = request("${root(owner, repo)}/commits/${GitHubWorkspaceClient.segment(bound.commitSha)}").jsonObject
+        val sha = response.s("sha")
+        val treeSha = response["commit"]?.jsonObject?.get("tree")?.jsonObject?.s("sha").orEmpty()
+        require(sha.equals(bound.commitSha, true) && treeSha.sha()) { "GitHub did not supply the bound immutable commit and tree." }
+        val pinned = GitHubTaskSnapshot(accountId, connectionUid, conversationId, taskId, owner, repo, bound.ref, sha, treeSha)
+        val selected = store.update(scope, "snapshot") { existing ->
+            existing?.takeIf { decodeSnapshot(it) != null } ?: (codec.encodeToJsonElement(GitHubTaskSnapshot.serializer(), pinned) as JsonObject)
+        }
+        return decodeSnapshot(selected)
+    }
+
     suspend fun resolve(owner: String, repo: String, args: JsonObject, selectContext: Boolean = false): GitHubTaskSnapshot {
         val explicit = args.s("commit_sha").ifBlank { args.s("ref").takeIf { it.sha() }.orEmpty() }
         if (explicit.isNotEmpty()) require(explicit.sha()) { "commit_sha must be an immutable 40/64-hex commit." }
-        val retained = snapshot()
+        val retained = snapshot() ?: if (selectContext) null else initialSnapshot(owner, repo)
         val requestedRef = args.s("ref").ifBlank { args.s("branch") }
         val refresh = args["refresh"]?.jsonPrimitive?.booleanOrNull == true || selectContext && requestedRef.isNotBlank() && requestedRef != retained?.ref
         if (!refresh && retained != null && retained.owner.equals(owner, true) && retained.repo.equals(repo, true) && (explicit.isBlank() || explicit == retained.commitSha)) {
@@ -135,7 +154,7 @@ internal class GitHubRepositorySession(
         val tree = response["commit"]?.jsonObject?.get("tree")?.jsonObject?.s("sha").orEmpty()
         require(sha.sha() && tree.sha() && (explicit.isBlank() || explicit.equals(sha, true))) { "GitHub did not supply the requested immutable commit and tree." }
         return GitHubTaskSnapshot(accountId, connectionUid, conversationId, taskId, owner, repo, if (explicit.isBlank()) ref else requestedRef.takeUnless { it.sha() || it.isBlank() } ?: retained?.ref ?: ref, sha, tree).also { resolved ->
-            if (retained == null || refresh || selectContext || retained.owner != owner || retained.repo != repo) save(resolved)
+            if (retained == null || selectContext || explicit.isBlank() && (refresh || retained.owner != owner || retained.repo != repo)) save(resolved)
         }
     }
 
@@ -176,12 +195,13 @@ internal class GitHubRepositorySession(
         // Cached ingestion can resume on Main when invoked from the workspace UI.
         // Hashing and lexical indexing a 2 MiB blob belongs on a CPU dispatcher.
         val result = withContext(Dispatchers.Default) {
+            val active = kotlinx.coroutines.currentCoroutineContext()
             buildJsonObject {
                 put("sha", sha)
                 put("content", text)
                 put("bytes", decoded.bytes)
                 put("content_hash", GitHubRepositoryStateStore.digest(text))
-                put("index", GitHubLocalIndex.build(text))
+                put("index", GitHubLocalIndex.build(text) { active.ensureActive() })
             }
         }
         store.write(blobScope(context), "blob:$sha", result)
@@ -268,6 +288,7 @@ internal class GitHubRepositorySession(
     }
 
     suspend fun execute(action: String, owner: String, repo: String, args: JsonObject): JsonElement {
+        val readBudget = if (action in setOf("search_repository", "build_index")) GitHubReadWorkBudget(readOperationTimeoutMs) else null
         if (action == "search_repository") GitHubSearchArguments.validate(args)
         val commitImmediately = args["commit_immediately"]?.let { requireNotNull((it as? JsonPrimitive)?.booleanOrNull) { "commit_immediately must be a boolean." } } == true
         if (commitImmediately) {
@@ -367,6 +388,20 @@ internal class GitHubRepositorySession(
         }
         val context = if (action in setOf("stage_patch", "commit_staged_patch")) {
             patchContext(action, owner, repo, args)
+        } else if (readBudget != null) {
+            readBudget.run { resolve(owner, repo, requested) } ?: throw GitHubReadValidation(
+                "READ_DEADLINE",
+                buildJsonObject {
+                    put("error_code", "READ_DEADLINE")
+                    put("status", "READ_INCOMPLETE")
+                    put("failed_stage", "resolve_revision")
+                    put("owner", owner)
+                    put("repo", repo)
+                    put("commit_sha", args.s("commit_sha"))
+                    put("remote_write_dispatched", false)
+                    put("message", "The immutable repository revision could not be resolved within the read budget. No candidate files were scanned.")
+                }
+            )
         } else {
             resolve(owner, repo, requested, action in setOf("resolve_context", "task_context"))
         }
@@ -382,9 +417,9 @@ internal class GitHubRepositorySession(
                 put("persistent_scope", scope.substringBefore(':'))
             }
             "index_status" -> indexStatus(context)
-            "build_index" -> buildIndex(context, args)
+            "build_index" -> buildIndex(context, args, budget = requireNotNull(readBudget))
             "workflow_catalog" -> workflowCatalog(context, args)
-            "search_repository" -> search(context, args)
+            "search_repository" -> search(context, args, budget = requireNotNull(readBudget))
             "read_ranges" -> read(context, args)
             "stage_patch" -> {
                 val staged = if (args.s("restore_stage_id").isNotBlank()) restoreStage(context, args) else stage(context, args)
@@ -432,15 +467,9 @@ internal class GitHubRepositorySession(
         val candidates = tree["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }
         val eligible = indexableSourceEntries(candidates)
         val sourceScope = blobScope(context)
-        var cachedAll = 0
-        val availableShas = mutableSetOf<String>()
-        for (entry in candidates) {
-            val sha = entry.s("sha")
-            if (store.contains(sourceScope, "blob:$sha")) {
-                cachedAll++
-                availableShas += sha
-            }
-        }
+        val present = store.presentKeys(sourceScope, candidates.map { "blob:${it.s("sha")}" })
+        val availableShas = candidates.map { it.s("sha") }.filterTo(mutableSetOf()) { "blob:$it" in present }
+        val cachedAll = candidates.count { it.s("sha") in availableShas }
         val cachedEligible = eligible.count { it.s("sha") in availableShas }
         val treeComplete = tree["truncated"]?.jsonPrimitive?.booleanOrNull != true
         return buildJsonObject {
@@ -470,8 +499,10 @@ internal class GitHubRepositorySession(
         require(args.s("job_action").isBlank() && args["background"] != JsonPrimitive(true)) {
             "Phone indexing runs in bounded foreground batches."
         }
-        val context = resolve(owner, repo, args)
-        val tree = tree(context)
+        val budget = GitHubReadWorkBudget(readOperationTimeoutMs)
+        val context = budget.run { resolve(owner, repo, args) }
+            ?: throw GatewayGraphResultException("READ_DEADLINE", "The pinned repository could not be resolved within the read budget.", "REFRESH_PHONE_MAP")
+        val tree = budget.run { tree(context) } ?: throw readBudgetExpired(context, "phone_index_tree")
         if (action == "task_context_bundle") return@withContext taskContextBundle(context, tree, args)
         val entries = tree.getValue("tree").jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
         val eligible = indexableSourceEntries(entries)
@@ -485,8 +516,12 @@ internal class GitHubRepositorySession(
             args["retry_failed"] == JsonPrimitive(true) -> 0
             suppliedCursor.isNotBlank() -> {
                 if (!suppliedCursor.startsWith(cursorPrefix)) throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_STALE", "Refresh this repository map before continuing its index.", "REFRESH_PHONE_MAP")
-                suppliedCursor.removePrefix(cursorPrefix).toIntOrNull()?.takeIf { it in 0..eligible.size }
+                val position = suppliedCursor.removePrefix(cursorPrefix).toIntOrNull()?.takeIf { it in 0..eligible.size }
                     ?: throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_INVALID", "Refresh this repository map before continuing its index.", "REFRESH_PHONE_MAP")
+                // Older checkpoints may replay already traversed immutable source.
+                // A synthesized future suffix must never skip unread candidates.
+                if (position > savedPosition) throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_UNISSUED", "This index cursor is ahead of the retained progress. Read the current phone map status before continuing.", "REFRESH_PHONE_MAP")
+                position
             }
             else -> savedPosition
         }
@@ -496,7 +531,8 @@ internal class GitHubRepositorySession(
             ?.takeIf { it.s("blob_sha") == entry.s("sha") && it["parser_version"] == JsonPrimitive(PhoneRepositoryGraph.PARSER_VERSION) }
 
         suspend fun retainShard(entry: JsonObject, blob: JsonObject): JsonObject {
-            val parsed = PhoneRepositoryGraph.sourceIndex(entry.s("path"), blob.s("content"))
+            val active = kotlinx.coroutines.currentCoroutineContext()
+            val parsed = PhoneRepositoryGraph.sourceIndex(entry.s("path"), blob.s("content")) { active.ensureActive() }
             val retained = buildJsonObject {
                 put("blob_sha", entry.s("sha"))
                 put("parser_version", PhoneRepositoryGraph.PARSER_VERSION)
@@ -515,8 +551,17 @@ internal class GitHubRepositorySession(
                         (retained["phone_graph"] as? JsonObject)?.let { parsed -> retainSymbols(context, entry.s("sha"), buildJsonObject { put("index", parsed) }, fillOnly = true) }
                     } != null
                 },
-                onBlob = { entry, blob -> retainShard(entry, blob) }
-            ).also { store.write(sourceScope, checkpointKey, it) }
+                onBlob = { entry, blob -> retainShard(entry, blob) },
+                budget = budget,
+                onCheckpoint = { progress ->
+                    store.update(sourceScope, checkpointKey) { previous ->
+                        val previousPosition = (previous?.get("prepared_through") as? JsonPrimitive)?.intOrNull ?: 0
+                        val currentPosition = requireNotNull((progress["prepared_through"] as? JsonPrimitive)?.intOrNull)
+                        // Replaying an older issued cursor cannot erase a later durable frontier.
+                        if (args["retry_failed"] != JsonPrimitive(true) && previousPosition > currentPosition) requireNotNull(previous) else progress
+                    }
+                }
+            )
         } else {
             saved
         }
@@ -540,58 +585,66 @@ internal class GitHubRepositorySession(
                 (if (it.s("path") in focus) 2 else 0) + (if (query.isNotBlank() && it.s("path").contains(query, true)) 1 else 0)
             }
         }
-        for (entry in prioritized) {
-            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            var parsed = shard(entry)
-            val hasBlob = parsed != null || store.contains(sourceScope, "blob:${entry.s("sha")}")
-            if (!hasBlob) {
-                if (position == eligible.size &&
-                    PhoneRepositorySourceIndex.supports(entry.s("path")) &&
-                    entry.s("mode") !in setOf("120000", "160000") &&
-                    (entry["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()) in 0..MAX_BLOB_BYTES.toLong()
-                ) {
-                    retryableFiles++
+        var inventoryComplete = true
+        val present = budget.run { store.presentKeys(sourceScope, eligible.flatMap { listOf(shardKey(it), "blob:${it.s("sha")}") }) }
+        if (present == null) inventoryComplete = false
+        val observedInventory = present.orEmpty()
+        val inspected = budget.run {
+            for ((index, entry) in prioritized.withIndex()) {
+                if (index % 64 == 0) budget.yieldIfActive()
+                var parsed = if (shardKey(entry) in observedInventory) shard(entry) else null
+                val hasBlob = parsed != null || "blob:${entry.s("sha")}" in observedInventory
+                if (!hasBlob) {
+                    if (position == eligible.size &&
+                        PhoneRepositorySourceIndex.supports(entry.s("path")) &&
+                        entry.s("mode") !in setOf("120000", "160000") &&
+                        (entry["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()) in 0..MAX_BLOB_BYTES.toLong()
+                    ) {
+                        retryableFiles++
+                    }
+                    continue
                 }
-                continue
-            }
-            if (inspect && parsed == null) {
-                val size = entry["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
-                // Read-time preparation stays bounded. Explicit index batches finish
-                // other cached sources and persist their reusable compact shards.
-                if (size in 0..MAX_BLOB_BYTES.toLong() && sourceBytes + size <= 4 * 1024 * 1024) {
-                    cachedSource(sourceScope, "blob:${entry.s("sha")}")?.let { blob ->
-                        sourceBytes += blob.s("content").toByteArray(Charsets.UTF_8).size
-                        parsed = retainShard(entry, blob)
+                if (inspect && parsed == null) {
+                    val size = entry["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
+                    // Read-time preparation stays bounded. Explicit index batches finish
+                    // other cached sources and persist their reusable compact shards.
+                    if (size in 0..MAX_BLOB_BYTES.toLong() && sourceBytes + size <= 4 * 1024 * 1024) {
+                        cachedSource(sourceScope, "blob:${entry.s("sha")}")?.let { blob ->
+                            sourceBytes += blob.s("content").toByteArray(Charsets.UTF_8).size
+                            parsed = retainShard(entry, blob)
+                        }
+                    }
+                }
+                val prepared = parsed
+                if (prepared != null) {
+                    indexed++
+                    val sourceIndex = prepared["phone_graph"] as? JsonObject
+                    if (sourceIndex?.get("supported") == JsonPrimitive(true)) {
+                        indexedSupported++
+                        if (sourceIndex["complete"] != JsonPrimitive(true)) partialSupported++
+                    }
+                } else {
+                    unparsedCached++
+                    if (position == eligible.size && PhoneRepositorySourceIndex.supports(entry.s("path")) && entry.s("mode") !in setOf("120000", "160000")) retryableFiles++
+                }
+                if (inspect && prepared != null) {
+                    val size = prepared.toString().toByteArray(Charsets.UTF_8).size
+                    if (shardBytes + size <= 24 * 1024 * 1024) {
+                        cached[entry.s("path")] = JsonObject(prepared + ("sha" to JsonPrimitive(entry.s("sha"))))
+                        shardBytes += size
+                    } else {
+                        shardsTruncated = true
                     }
                 }
             }
-            val prepared = parsed
-            if (prepared != null) {
-                indexed++
-                val sourceIndex = prepared["phone_graph"] as? JsonObject
-                if (sourceIndex?.get("supported") == JsonPrimitive(true)) {
-                    indexedSupported++
-                    if (sourceIndex["complete"] != JsonPrimitive(true)) partialSupported++
-                }
-            } else {
-                unparsedCached++
-                if (position == eligible.size && PhoneRepositorySourceIndex.supports(entry.s("path")) && entry.s("mode") !in setOf("120000", "160000")) retryableFiles++
-            }
-            if (inspect && prepared != null) {
-                val size = prepared.toString().toByteArray(Charsets.UTF_8).size
-                if (shardBytes + size <= 24 * 1024 * 1024) {
-                    cached[entry.s("path")] = JsonObject(prepared + ("sha" to JsonPrimitive(entry.s("sha"))))
-                    shardBytes += size
-                } else {
-                    shardsTruncated = true
-                }
-            }
+            true
         }
+        inventoryComplete = inventoryComplete && inspected == true
         val treeComplete = tree["truncated"] != JsonPrimitive(true)
-        val coverageComplete = indexed == eligible.size && treeComplete
+        val coverageComplete = inventoryComplete && indexed == eligible.size && treeComplete
         val more = !coverageComplete && position < eligible.size
         val status = buildJsonObject {
-            batch?.filterKeys { it in setOf("prepared_through", "fetched_this_batch", "attempted_this_batch", "skipped_this_batch", "prepared_bytes_this_batch") }?.forEach { (name, value) -> put(name, value) }
+            batch?.filterKeys { it in setOf("prepared_through", "fetched_this_batch", "attempted_this_batch", "skipped_this_batch", "prepared_bytes_this_batch", "read_deadline_reached", "deferred_files", "stop_reason") }?.forEach { (name, value) -> put(name, value) }
             put("commit_sha", context.commitSha)
             put("tree_sha", context.treeSha)
             put("total_paths", entries.size)
@@ -602,6 +655,9 @@ internal class GitHubRepositorySession(
             put("phone_indexed_supported_files", indexedSupported)
             put("phone_partial_supported_files", partialSupported)
             put("phone_retryable_files", retryableFiles)
+            put("coverage_observation_complete", inventoryComplete)
+            put("counts_are_lower_bounds", !inventoryComplete)
+            put("operation_deadline_reached", budget.expired || !inventoryComplete)
             put("processed_files", indexed)
             put("expected_files", eligible.size)
             put("excluded_nonindexable_paths", entries.size - eligible.size)
@@ -612,7 +668,7 @@ internal class GitHubRepositorySession(
             put("preparation_finished", position == eligible.size && treeComplete)
             put("has_more", more)
             if (more) put("index_cursor", cursorPrefix + position)
-            put("cached_sources_truncated", shardsTruncated || inspect && unparsedCached > 0)
+            put("cached_sources_truncated", !inventoryComplete || shardsTruncated || inspect && unparsedCached > 0)
             put("loaded_source_files", cached.size)
             put("map_source", "phone")
             put("graph_source", "PHONE")
@@ -725,46 +781,26 @@ internal class GitHubRepositorySession(
         context: GitHubTaskSnapshot,
         args: JsonObject,
         alreadyPrepared: (suspend (JsonObject) -> Boolean)? = null,
-        onBlob: (suspend (JsonObject, JsonObject) -> Unit)? = null
+        onBlob: (suspend (JsonObject, JsonObject) -> Unit)? = null,
+        budget: GitHubReadWorkBudget = GitHubReadWorkBudget(readOperationTimeoutMs),
+        onCheckpoint: (suspend (JsonObject) -> Unit)? = null
     ): JsonObject {
-        val entries = tree(context)["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
+        val pinnedTree = budget.run { tree(context) } ?: throw readBudgetExpired(context, "index_tree")
+        val entries = pinnedTree["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
         val eligible = indexableSourceEntries(entries)
         val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..eligible.size) }
+        val failureKey = "index-read-failures:${context.commitSha}:${PhoneRepositoryGraph.PARSER_VERSION}"
         var next = cursor
         var bytes = 0L
         var fetched = 0
         var attempted = 0
         var skipped = 0
-        while (next < eligible.size && next - cursor < 100 && attempted < 24 && bytes < 4L * 1024 * 1024) {
-            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            val item = eligible[next++]
-            if (!forceLiveReads() && (alreadyPrepared?.invoke(item) ?: store.contains(blobScope(context), "blob:${item.s("sha")}"))) continue
-            val size = item["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
-            if (size > MAX_BLOB_BYTES || size < 0) {
-                skipped++
-                continue
-            }
-            if (bytes + size > 4L * 1024 * 1024) {
-                next--
-                break
-            }
-            try {
-                attempted++
-                val retained = blob(context, item)
-                onBlob?.invoke(item, retained)
-                bytes += retained.s("content").toByteArray(Charsets.UTF_8).size
-                fetched++
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (_: IllegalArgumentException) {
-                skipped++
-            } catch (_: java.nio.charset.CharacterCodingException) {
-                skipped++
-            }
-        }
-        val status = indexStatus(context)
-        val result = buildJsonObject {
-            status.forEach { (key, value) -> put(key, value) }
+        var deadline = false
+        val deferred = mutableListOf<JsonObject>()
+        val treeComplete = pinnedTree["truncated"] != JsonPrimitive(true)
+        fun checkpoint() = buildJsonObject {
+            put("commit_sha", context.commitSha)
+            put("tree_sha", context.treeSha)
             put("preparation_scope", "bounded_text_source_files")
             put("eligible_paths", eligible.size)
             put("prepared_through", next)
@@ -772,13 +808,117 @@ internal class GitHubRepositorySession(
             put("attempted_this_batch", attempted)
             put("skipped_this_batch", skipped)
             put("prepared_bytes_this_batch", bytes)
-            put("preparation_finished", next == eligible.size && status["tree_complete"]?.jsonPrimitive?.booleanOrNull == true)
-            // Finished traversal is not proof that every file was ingested.
+            put("read_deadline_reached", deadline)
+            put("deferred_files", JsonArray(deferred))
+            put(
+                "stop_reason",
+                if (deadline || budget.expired) {
+                    "time_budget"
+                } else if (next == eligible.size) {
+                    "traversal_complete"
+                } else {
+                    "batch_limit"
+                }
+            )
+            put("preparation_finished", next == eligible.size && treeComplete)
             if (next < eligible.size) put("next_index_cursor", next)
         }
-        store.write(scope, "index-preparation:${context.commitSha}", result)
-        return result
+        suspend fun retainProgress() {
+            val progress = checkpoint()
+            store.write(scope, "index-preparation:${context.commitSha}", progress)
+            onCheckpoint?.invoke(progress)
+        }
+        try {
+            while (next < eligible.size && next - cursor < 100 && attempted < 24 && bytes < 4L * 1024 * 1024) {
+                budget.yieldIfActive()
+                // Reserve time to publish progress and bounded coverage metadata.
+                if (budget.remainingMs <= 250) {
+                    deadline = true
+                    break
+                }
+                val item = eligible[next]
+                val size = item["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
+                if (size > MAX_BLOB_BYTES || size < 0 || item.s("mode") in setOf("120000", "160000")) {
+                    next++
+                    skipped++
+                    retainProgress()
+                    continue
+                }
+                if (bytes + size > 4L * 1024 * 1024) break
+                try {
+                    val completed = budget.run(minOf(indexBlobTimeoutMs, (budget.remainingMs - 250).coerceAtLeast(1))) {
+                        if (forceLiveReads() || !(alreadyPrepared?.invoke(item) ?: store.contains(blobScope(context), "blob:${item.s("sha")}"))) {
+                            attempted++
+                            val retained = blob(context, item)
+                            onBlob?.invoke(item, retained)
+                            bytes += retained.s("content").toByteArray(Charsets.UTF_8).size
+                            fetched++
+                        }
+                        true
+                    }
+                    if (completed == null) {
+                        deadline = true
+                        val identity = GitHubSearchFileFailures.identity(context, item.s("path"), item.s("sha"))
+                        val failures = store.update(blobScope(context), failureKey) { GitHubSearchFileFailures.update(it, emptySet(), identity) }
+                        val attempts = GitHubSearchFileFailures.entries(failures)[identity] ?: 0
+                        if (attempts >= GitHubSearchFileFailures.MAX_ATTEMPTS) {
+                            deferred += buildJsonObject {
+                                put("path", item.getValue("path"))
+                                put("sha", item.getValue("sha"))
+                                put("reason", "REPEATED_READ_DEADLINE")
+                                put("attempts", attempts)
+                            }
+                            skipped++
+                            next++
+                        }
+                        retainProgress()
+                        break
+                    }
+                    next++
+                    retainProgress()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: IllegalArgumentException) {
+                    skipped++
+                    next++
+                    retainProgress()
+                } catch (_: java.nio.charset.CharacterCodingException) {
+                    skipped++
+                    next++
+                    retainProgress()
+                }
+            }
+        } finally {
+            // Only completed immutable reads advance this local cursor. Cancellation
+            // never retries a remote action and cannot erase the last durable frontier.
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                kotlinx.coroutines.withTimeoutOrNull(1000) { retainProgress() }
+            }
+        }
+        val status = budget.run { indexStatus(context) } ?: buildJsonObject {
+            put("commit_sha", context.commitSha)
+            put("tree_sha", context.treeSha)
+            put("tree_complete", treeComplete)
+            put("total_paths", entries.size)
+            put("eligible_paths", eligible.size)
+            put("complete", false)
+            put("coverage_observation_complete", false)
+        }
+        return JsonObject(status + checkpoint())
     }
+
+    private fun readBudgetExpired(context: GitHubTaskSnapshot, stage: String) = GitHubReadValidation(
+        "READ_DEADLINE",
+        buildJsonObject {
+            put("error_code", "READ_DEADLINE")
+            put("status", "READ_INCOMPLETE")
+            put("failed_stage", stage)
+            put("commit_sha", context.commitSha)
+            put("tree_sha", context.treeSha)
+            put("remote_write_dispatched", false)
+            put("message", "The bounded read preparation deadline was reached. Completed immutable source and previously issued continuations remain retained.")
+        }
+    )
 
     private suspend fun workflowCatalog(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
         val tree = tree(context)
@@ -869,11 +1009,11 @@ internal class GitHubRepositorySession(
         val fromStart get() = priorCoverage?.get("from_start")?.jsonPrimitive?.booleanOrNull == true
     }
 
-    private class SearchProgress(request: SearchRequest, val knownFailures: Set<String>) {
+    private class SearchProgress(request: SearchRequest, val knownFailures: Set<String>, val budget: GitHubReadWorkBudget) {
         var next = request.cursor
         var fetched = 0
         var skipped = 0
-        val startedNanos = System.nanoTime()
+        var inFlight: Int? = null
         var readDeadline = false
         var incompleteSymbols = false
         var truncatedMatches = false
@@ -884,17 +1024,33 @@ internal class GitHubRepositorySession(
         val contextBudget = SearchContextBudget()
         val prefetched = mutableMapOf<String, Result<JsonObject?>>()
         val hitLimit = if (request.mode == "paths") 100 else 20
-        fun timedOut() = (System.nanoTime() - startedNanos) / 1_000_000 >= 12_000
+        fun timedOut() = budget.expired
     }
 
-    private suspend fun search(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
-        val request = prepareSearch(context, args, tree(context))
+    private suspend fun search(context: GitHubTaskSnapshot, args: JsonObject, budget: GitHubReadWorkBudget = GitHubReadWorkBudget(readOperationTimeoutMs)): JsonObject {
+        val request = budget.run { prepareSearch(context, args, tree(context)) } ?: throw readBudgetExpired(context, "search_prepare")
         cachedSource(scope, request.cacheKey)?.let { cached ->
             return withSearchRecovery(JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0))), request.recovery)
         }
         val knownFailures = if (request.mode == "paths") emptySet() else GitHubSearchFileFailures.entries(store.read(scope, GitHubSearchFileFailures.STORE_KEY)).keys
-        val progress = SearchProgress(request, knownFailures)
-        scanSearch(context, request, progress)
+        val progress = SearchProgress(request, knownFailures, budget)
+        try {
+            if (budget.run {
+                    scanSearch(context, request, progress)
+                    true
+                } == null
+            ) {
+                progress.next = progress.inFlight ?: progress.next
+                progress.readDeadline = true
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            progress.next = progress.inFlight ?: progress.next
+            progress.readDeadline = true
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                kotlinx.coroutines.withTimeoutOrNull(1000) { retainSearchPage(request, progress, searchResult(context, request, progress)) }
+            }
+            throw cancelled
+        }
         advanceRepeatedSearchDeadline(context, request, progress)
         val result = searchResult(context, request, progress)
         retainSearchPage(request, progress, result)
@@ -1042,7 +1198,7 @@ internal class GitHubRepositorySession(
         // Related-file discovery reuses one path list for the entire page.
         val paths = all.map { it.s("path") }
         while (progress.next < all.size && progress.next - request.cursor < request.batchSize && progress.hits.size < progress.hitLimit) {
-            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            progress.budget.yieldIfActive()
             if (progress.timedOut()) break
             val item = all[progress.next]
             if (request.mode == "paths") {
@@ -1055,13 +1211,17 @@ internal class GitHubRepositorySession(
                 }
                 continue
             }
+            progress.inFlight = progress.next
             val cached = cachedSource(blobScope(context), "blob:${item.s("sha")}")
             if (cached == null && item.s("sha") !in progress.prefetched && progress.fetched >= request.maxNewBlobs) break
             progress.next++
             val content = searchContent(context, request, progress, item, cached)
             if (progress.readDeadline) break
-            if (content == null) continue
-            val match = matchSearchFile(context, item, content, request.options, request.mode, request.query, progress.startedNanos, progress.contextBudget)
+            if (content == null) {
+                progress.inFlight = null
+                continue
+            }
+            val match = matchSearchFile(context, item, content, request.options, request.mode, request.query, progress.budget, progress.contextBudget)
             progress.incompleteSymbols = progress.incompleteSymbols || match.incompleteSymbols
             if (match.deadlineReached) {
                 progress.next--
@@ -1072,6 +1232,7 @@ internal class GitHubRepositorySession(
                 val identity = GitHubSearchFileFailures.identity(context, item.s("path"), item.s("sha"))
                 if (identity in progress.knownFailures) progress.completedFailures += identity
             }
+            progress.inFlight = null
             val matches = match.items
             if (matches.size > 10) progress.truncatedMatches = true
             if (matches.isNotEmpty()) {
@@ -1099,7 +1260,7 @@ internal class GitHubRepositorySession(
                     .take(request.maxNewBlobs - progress.fetched).toList()
                     .filter { cachedSource(blobScope(context), "blob:${it.s("sha")}") == null }
                 progress.fetched += candidates.size
-                val remainingMs = (12_000 - (System.nanoTime() - progress.startedNanos) / 1_000_000).coerceIn(1, searchBlobTimeoutMs.coerceIn(1, 8_000))
+                val remainingMs = progress.budget.remainingMs.coerceIn(1, searchBlobTimeoutMs.coerceIn(1, 8_000))
                 prefetchSearchBlobs(context, candidates, remainingMs).forEach { (sha, result) -> progress.prefetched[sha] = result }
             }
             val retained = progress.prefetched.remove(item.s("sha"))?.getOrThrow() ?: cached ?: cachedSource(blobScope(context), "blob:${item.s("sha")}")
@@ -1120,7 +1281,7 @@ internal class GitHubRepositorySession(
 
     private suspend fun advanceRepeatedSearchDeadline(context: GitHubTaskSnapshot, request: SearchRequest, progress: SearchProgress) {
         // Earlier files may have advanced this page; only the exact file still at next stalled.
-        val item = request.all.getOrNull(progress.next)?.takeIf { progress.readDeadline }
+        val item = request.all.getOrNull(progress.next)?.takeIf { progress.readDeadline && progress.inFlight == progress.next }
         val identity = item?.let { GitHubSearchFileFailures.identity(context, it.s("path"), it.s("sha")) }
         if (identity == null && progress.completedFailures.isEmpty()) return
         val retained = store.update(scope, GitHubSearchFileFailures.STORE_KEY) {
@@ -1183,7 +1344,6 @@ internal class GitHubRepositorySession(
         val next = progress.next
         val fetched = progress.fetched
         val skipped = progress.skipped
-        val startedNanos = progress.startedNanos
         val readDeadline = progress.readDeadline
         val incompleteSymbols = progress.incompleteSymbols
         val truncatedMatches = progress.truncatedMatches
@@ -1228,7 +1388,7 @@ internal class GitHubRepositorySession(
                 "stop_reason",
                 when {
                     next == all.size -> "traversal_complete"
-                    readDeadline || (System.nanoTime() - startedNanos) / 1_000_000 >= 12_000 -> "time_budget"
+                    readDeadline || progress.timedOut() -> "time_budget"
                     hits.size >= hitLimit -> "result_limit"
                     next - cursor >= batchSize -> "candidate_limit"
                     else -> "download_budget"
@@ -1287,7 +1447,7 @@ internal class GitHubRepositorySession(
         }
     }
 
-    private suspend fun matchSearchFile(context: GitHubTaskSnapshot, item: JsonObject, content: JsonObject, options: GitHubSearchOptions, mode: String, query: String, startedNanos: Long, contextBudget: SearchContextBudget): SearchMatches {
+    private suspend fun matchSearchFile(context: GitHubTaskSnapshot, item: JsonObject, content: JsonObject, options: GitHubSearchOptions, mode: String, query: String, budget: GitHubReadWorkBudget, contextBudget: SearchContextBudget): SearchMatches {
         val sourceLines = sourceLines(content.s("content"))
         if (sourceLines.size !in options.minLines..options.maxLines) return SearchMatches(emptyList())
         val lexical = content["index"]?.jsonObject
@@ -1296,7 +1456,7 @@ internal class GitHubRepositorySession(
         val active = kotlinx.coroutines.currentCoroutineContext()
         fun checkpoint() {
             active.ensureActive()
-            if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) throw SearchPageDeadline()
+            if (budget.expired) throw SearchPageDeadline()
         }
         val lines = try {
             if (symbolMode) {
@@ -1320,14 +1480,14 @@ internal class GitHubRepositorySession(
         val matches = mutableListOf<JsonObject>()
         for ((index, line) in sourceLines.withIndex()) {
             active.ensureActive()
-            if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) return SearchMatches(matches, incompleteSymbols, deadlineReached = true)
+            if (budget.expired) return SearchMatches(matches, incompleteSymbols, deadlineReached = true)
             val confidence = if (symbolMode) {
                 lines[index + 1] ?: 0.0
             } else {
                 try {
                     options.score(line, query) {
                         active.ensureActive()
-                        if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) throw SearchPageDeadline()
+                        if (budget.expired) throw SearchPageDeadline()
                     }
                 } catch (_: SearchPageDeadline) {
                     return SearchMatches(matches, incompleteSymbols, deadlineReached = true)
@@ -1416,14 +1576,14 @@ internal class GitHubRepositorySession(
         val corrections = mutableListOf<JsonObject>()
         var firstFailure: GitHubReadValidation? = null
         withContext(Dispatchers.Default) {
-            for (raw in ranges) {
+            for ((rangeIndex, raw) in ranges.withIndex()) {
                 val range = raw.jsonObject
                 val path = range.s("path")
                 try {
                     selected[path] = GitHubPinnedPathResolver.resolve(path, entries, context.commitSha, treeComplete)
                     resolvedRanges += range
                 } catch (failure: GitHubReadValidation) {
-                    val scoped = JsonObject(failure.details + mapOf("owner" to JsonPrimitive(context.owner), "repo" to JsonPrimitive(context.repo), "ref" to JsonPrimitive(context.ref)))
+                    val scoped = JsonObject(failure.details + mapOf("owner" to JsonPrimitive(context.owner), "repo" to JsonPrimitive(context.repo), "ref" to JsonPrimitive(context.ref), "range_index" to JsonPrimitive(rangeIndex), "requested_range" to range))
                     val one = JsonObject(args + ("ranges" to JsonArray(listOf(range))))
                     val rebound = GitHubSourceReadRecovery.correctedArguments("github_read", one, scoped)
                     if (ranges.size == 1) {
@@ -1572,6 +1732,9 @@ internal class GitHubRepositorySession(
             put("evidence_id", evidenceId)
             put("commit_sha", context.commitSha)
             put("tree_sha", context.treeSha)
+            put("requested_ranges", ranges.size)
+            put("returned_ranges", results.size)
+            put("all_ranges_resolved", failedRanges.isEmpty())
             put("source_coverage", JsonArray(coverage))
             put("items", JsonArray(results))
             if (failedRanges.isNotEmpty()) put("failed_ranges", JsonArray(failedRanges))

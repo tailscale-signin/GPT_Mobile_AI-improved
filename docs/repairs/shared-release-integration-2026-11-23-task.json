@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "task": "shared-release-integration-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "05c4c2db6545ca9c70cbe027e3b0096efaba4827",
+  "previewIncomingHead": "50a525c747e0c47167beb9c1dca94b1dfc5fdc62",
+  "pullRequest": 2367,
+  "status": "ACTUAL_MAIN_INTEGRATION_PREPARING_VALIDATION",
+  "intent": "Prepare and review the composition of the two immutable branch snapshots, preserve both workstreams, and reconcile the successor release identity after actual main integration. This local draft does not approve or publish the other PR and is not a final-source qualification.",
+  "plannedSuccessor": {
+    "android": "0.9.66.15",
+    "versionCode": 149,
+    "gateway": "18.1.3",
+    "condition": "PR2363 has conditional priority for 14/148 and 18.1.2. Recheck actual main, versions and tags before using this planned successor pair."
+  },
+  "acceptance": [
+    "Compose retained review-state questions with answer-derived runtime-question filtering while preserving continuation, evidence, authorization and budget controls from both branches.",
+    "Preserve explicit 4 GiB heap/1 GiB metaspace and 7,168 MiB observed-memory admission with reviewed 65-minute/3,840-second lint bounds, strict propagation and bounded diagnostics.",
+    "Preserve both branches' feature and limitation disclosures and regenerate source inventories, reference metadata, release scope and Gateway manifest from the resolved source.",
+    "Keep actual incoming privacy work and every concurrent commit; reread shared head and main before a non-forced update with a strict expected-head guard.",
+    "Refresh this draft against actual main and privacy source, qualify the final immutable tree, preserve both parent histories with a normal merge, and require all final-head/main gates before joint publication.",
+    "Verify trusted actual-main artifacts and attestations plus all public Android and Gateway asset bytes before declaring completion."
+  ],
+  "qualification": {
+    "local": "NOT_RUN",
+    "hosted": "NOT_RUN_FOR_THIS_DRAFT",
+    "publication": "NOT_PUBLISHED",
+    "physicalDeviceClaims": "NOT_MEASURED"
+  },
+  "actualMain": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "priorPreparatoryCommit": "f3a7c28d3a8236786e77c768fda4de4e59623b29",
+  "currentSourceBoundary": "Preserve every incoming privacy, issue, protocol, fixture and shared-branch commit; compose private retained-schema/authority fixes and all externally owned detail/path/tool-result corrections before final readiness.",
+  "actualConflictCount": 9,
+  "reviewedResolution": "Reuse independently reviewed source-invariant preparatory resolutions; union all five newly inserted diagnostic projection methods byte-for-byte; regenerate metadata from actual combined source.",
+  "qualificationBoundary": "Prior preparatory host/format evidence does not qualify this integrated source; final canonical, hosted and publication evidence remains pending."
+}

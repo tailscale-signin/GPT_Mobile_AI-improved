@@ -4,6 +4,23 @@ from authentication.issue_report_diagnostics import CORE_FIELDS, validate_diagno
 
 
 class FailureDetailsTest(unittest.TestCase):
+    def test_repository_interruptions_keep_their_closed_cause_without_private_source_data(self):
+        from authentication import repository_operation_report_contract as contract
+        from authentication.issue_reports import ERROR_CODES
+
+        self.assertTrue(contract.ERROR_CODES <= ERROR_CODES)
+        for code in contract.ERROR_CODES:
+            values = {"tool_action": "index", "tool_error_code": code,
+                      "tool_dispatch_phase": "CANCELLED_LOCALLY"}
+            capture = self.snapshot("TOOL", values)
+            self.assertEqual(capture, validate_diagnostics(capture))
+            for field in values:
+                with self.subTest(code=code, field=field), self.assertRaises(ValueError):
+                    validate_diagnostics(self.snapshot("TOOL", {**values, field: values[field] + " private/path"}))
+        for reason in contract.TOOL_REASON_CODES:
+            capture = self.snapshot("TOOL", {"tool_reason_code": reason})
+            self.assertEqual(capture, validate_diagnostics(capture))
+
     def test_privacy_denial_is_a_closed_policy_category_not_a_network_failure(self):
         from authentication import incident_report_contract as capsule
 

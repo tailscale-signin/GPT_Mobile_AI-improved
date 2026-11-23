@@ -326,10 +326,10 @@ class VoiceSpeechWorkloadTest {
                 VoiceSpeechPlaybackResult(it, VoiceSpeechPlaybackState.COMPLETE, firstPresentedAudioMs = 5, totalAudioMs = 75, chunks = 1, thermalBefore = 0, thermalAfter = 0, validatedChunks = 1, captionWordsExpected = 1, captionWordsObserved = 1)
             }
         )
-        assertEquals(VoiceSpeechBenchmarkOutcome.QUALIFIED, complete.outcome)
+        assertEquals(VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON, complete.outcome)
         assertNull(complete.recommendation())
         assertEquals(complete, speechBenchmarkReportFromJson(speechBenchmarkJson(complete, local = true)))
-        assertEquals(VoiceSpeechBenchmarkOutcome.PARTIAL, complete.copy(playbackResults = complete.playbackResults.take(1)).outcome)
+        assertEquals(VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON, complete.copy(playbackResults = complete.playbackResults.take(1)).outcome)
         assertEquals(VoiceSpeechBenchmarkOutcome.PARTIAL, complete.copy(playbackResults = complete.playbackResults.mapIndexed { index, result -> if (index == 1) result.copy(state = VoiceSpeechPlaybackState.FAILED) else result }).outcome)
         val missingProof = complete.copy(playbackResults = complete.playbackResults.map { it.copy(validatedChunks = 0) })
         assertEquals(VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON, missingProof.outcome)

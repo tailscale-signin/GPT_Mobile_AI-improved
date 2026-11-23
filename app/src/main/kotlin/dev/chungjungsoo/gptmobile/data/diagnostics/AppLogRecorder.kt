@@ -80,6 +80,7 @@ object AppLogRecorder {
     @Synchronized fun setPrivateSession(owner: String, active: Boolean) {
         if (active) {
             privateSessions.add(owner)
+            dev.chungjungsoo.gptmobile.presentation.ui.chat.clearChatRenderingCaches()
             dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.pause()
             captureEpoch.incrementAndGet()
             CombinedOperationTrace.clearFrameHistory()

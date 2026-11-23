@@ -1,7 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
+import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceExcerpts
+import dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -171,5 +176,189 @@ class DiagnosticContentPolicyTest {
         assertEquals(evidence, DiagnosticContentRedactor().redact(evidence))
         val embedded = buildJsonObject { put("usageEvidenceJson", evidence.toString()) }
         assertEquals(embedded, DiagnosticContentRedactor().redact(embedded))
+    }
+
+    @Test fun actualRetainedTaskAndEvidenceProducersLosePrivateTextButKeepStructuralEvidence() = runBlocking {
+        val record = retainedTaskDiagnosticRecord()
+        val raw = record.toString()
+        retainedTaskPrivateCanaries.forEach { assertTrue(it, raw.contains(it)) }
+        val redactor = DiagnosticContentRedactor(credentials = listOf("private-secret"))
+        val safe = redactor.redact(record) as JsonObject
+        retainedTaskPrivateCanaries.forEach { assertFalse(it, safe.toString().contains(it)) }
+        assertFalse(safe.toString().contains("private-secret"))
+        assertEquals(safe, redactor.redact(safe))
+        val before = (record.getValue("fields") as JsonObject).getValue("payload") as JsonObject
+        val after = (safe.getValue("fields") as JsonObject).getValue("payload") as JsonObject
+        val taskBefore = before.getValue("task_contract") as JsonObject
+        val taskAfter = after.getValue("task_contract") as JsonObject
+        for (key in listOf("binding", "source_message_id", "request_digest", "tool_call_limit", "effective_tool_call_limit")) assertEquals(key, taskBefore[key], taskAfter[key])
+        assertEquals((taskBefore.getValue("acceptance_criteria") as JsonArray).size, (taskAfter.getValue("acceptance_criteria") as JsonArray).size)
+        val contractBefore = taskBefore.getValue("acceptance_contract") as JsonObject
+        val contractAfter = taskAfter.getValue("acceptance_contract") as JsonObject
+        val criteriaBefore = contractBefore.getValue("criteria") as JsonArray
+        val criteriaAfter = contractAfter.getValue("criteria") as JsonArray
+        assertTrue(criteriaBefore.isNotEmpty())
+        criteriaBefore.zip(criteriaAfter).forEach { (original, redacted) ->
+            original as JsonObject
+            redacted as JsonObject
+            for (key in listOf("id", "source_span", "depends_on", "evidence_producer")) assertEquals(key, original[key], redacted[key])
+        }
+        val catalogBefore = (before.getValue("evidence_catalog") as JsonArray).single() as JsonObject
+        val catalogAfter = (after.getValue("evidence_catalog") as JsonArray).single() as JsonObject
+        for (key in listOf("receipt_id", "tool", "trusted", "success", "observed_at_ms", "source_head_sha", "error_code")) assertEquals(key, catalogBefore[key], catalogAfter[key])
+        val facts = catalogAfter.getValue("facts") as JsonObject
+        assertEquals(JsonPrimitive(7), facts["/total_count"])
+        assertEquals(JsonPrimitive("a".repeat(40)), facts["/commit_sha"])
+        assertEquals(JsonPrimitive("completed"), facts["/status"])
+        assertEquals(JsonPrimitive(DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED), facts["/topic"])
+        val excerpt = (catalogAfter.getValue("excerpts") as JsonObject).values.single() as JsonObject
+        assertEquals(JsonPrimitive(1), excerpt["start_line"])
+        assertEquals(JsonPrimitive(1), excerpt["end_line"])
+        assertEquals(JsonPrimitive("a".repeat(40)), excerpt["revision"])
+        val checked = (after.getValue("verification") as JsonObject).getValue("claims") as JsonArray
+        assertEquals(JsonPrimitive("VERIFIED"), (checked[0] as JsonObject)["status"])
+        assertEquals(JsonPrimitive(DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED), (checked[0] as JsonObject)["observed"])
+        assertEquals(JsonPrimitive(7), (checked[2] as JsonObject)["observed"])
+        val embedded = Json.parseToJsonElement((after.getValue("embedded_task_contract") as JsonPrimitive).content)
+        assertEquals(taskAfter, embedded)
+    }
+
+    @Test fun citationValuesRequireTypedMetadataAndCannotHideContentInsideEncodedJson() {
+        fun citation(pointer: String, value: JsonElement) = buildJsonObject {
+            put("receipt_id", "synthetic-source")
+            put("pointer", pointer)
+            put("value", value)
+            put("value_json", value.toString())
+        }
+        val redactor = DiagnosticContentRedactor()
+        val cases = listOf(
+            citation("/topic", JsonPrimitive("PRIVATE CITED TEXT")),
+            citation("/status", JsonPrimitive("PRIVATE STATUS WORDING")),
+            citation("/amount", JsonPrimitive(90210)),
+            citation("/sha", JsonPrimitive("PRIVATE INVALID HASH")),
+            citation("/total_count", buildJsonObject { put("unusual", "PRIVATE NESTED TEXT") })
+        )
+        cases.forEach { original ->
+            val safe = redactor.redact(original) as JsonObject
+            assertEquals(original["receipt_id"], safe["receipt_id"])
+            assertEquals(original["pointer"], safe["pointer"])
+            assertEquals(JsonPrimitive(DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED), safe["value"])
+            assertEquals(safe["value"], Json.parseToJsonElement((safe.getValue("value_json") as JsonPrimitive).content))
+            assertEquals(safe, redactor.redact(safe))
+        }
+        val metadata = listOf(
+            citation("/id", JsonPrimitive(42)),
+            citation("/total_count", JsonPrimitive(7)),
+            citation("/sha256", JsonPrimitive("b".repeat(64))),
+            citation("/success", JsonPrimitive(true)),
+            citation("/error_code", JsonPrimitive("SOURCE_CHANGED"))
+        )
+        metadata.forEach { assertEquals(it, redactor.redact(it)) }
+    }
+
+    @Test fun actualRetainedTaskAndSourcesNeedExplicitForensicModeAndStillLoseCredentials() = runBlocking {
+        val record = retainedTaskDiagnosticRecord()
+        val safe = DiagnosticContentRedactor(DiagnosticContentMode.FULL_FORENSIC, listOf("private-secret")).redact(record)
+        retainedTaskPrivateCanaries.forEach { assertTrue(it, safe.toString().contains(it)) }
+        assertFalse(safe.toString().contains("private-secret"))
+        assertEquals(ChatDebugRedactor(listOf("private-secret")).redact(record), safe)
+    }
+}
+
+internal val retainedTaskPrivateCanaries = listOf("PRIVATE TASK CANARY", "PRIVATE ACCEPTANCE CANARY", "PRIVATE SOURCE CANARY", "PRIVATE FACT CANARY", "PRIVATE UNMEASURED CANARY")
+
+/** Real retained producers, shared with the staged ZIP/resume regression. */
+internal suspend fun retainedTaskDiagnosticRecord(): JsonObject {
+    val request = "Review PRIVATE TASK CANARY private-secret.\nAcceptance criteria:\n- Explain PRIVATE ACCEPTANCE CANARY."
+    val saved = mutableMapOf<String, JsonObject>()
+    val book = GitHubEvidenceBook(
+        binding = "synthetic-task-binding",
+        repository = "fixture/repository",
+        branch = "main",
+        trustedTools = setOf("github_read"),
+        now = { 1000L },
+        load = { saved[it] },
+        save = { key, value -> saved[key] = value }
+    )
+    book.retainTaskContract(request, sourceMessageId = 19, tools = emptyList(), callLimit = 48)
+    val task = saved.getValue("task_contract")
+    val source = buildJsonObject {
+        put("tool", "github_read")
+        put("trusted", true)
+        put("success", true)
+        put("observed_at_ms", 1000)
+        put("epoch", 0)
+        put("source_head_sha", "a".repeat(40))
+        put("error_code", "SYNTHETIC_METADATA_CODE")
+        put("arguments", buildJsonObject { put("commit_sha", "a".repeat(40)) })
+        put(
+            "result",
+            buildJsonObject {
+                put("commit_sha", "a".repeat(40))
+                put("total_count", 7)
+                put("status", "completed")
+                put("topic", "PRIVATE FACT CANARY private-secret")
+                put(
+                    "items",
+                    JsonArray(
+                        listOf(
+                            buildJsonObject {
+                                put("path", "src/Fixture.kt")
+                                put("sha", "b".repeat(40))
+                                put("content", "PRIVATE SOURCE CANARY private-secret")
+                                put("start_line", 1)
+                                put("end_line", 1)
+                            }
+                        )
+                    )
+                )
+            }
+        )
+    }
+    val receipts = mapOf("synthetic-source" to source)
+    val excerpt = GitHubEvidenceExcerpts.collect(source).entries.single()
+    val fact = GitHubEvidencePolicy.facts(source.getValue("result")).getValue("/topic")
+    fun claim(kind: String, pointer: String, value: JsonElement) = buildJsonObject {
+        put("kind", kind)
+        put("receipt_id", "synthetic-source")
+        put("pointer", pointer)
+        put("value", value)
+    }
+    val claims = listOf(
+        claim("excerpt", excerpt.key, excerpt.value.getValue("value")),
+        claim("fact", "/topic", fact),
+        claim("fact", "/total_count", JsonPrimitive(7)),
+        buildJsonObject {
+            put("kind", "not_measured")
+            put("subject", "PRIVATE UNMEASURED CANARY")
+        }
+    )
+    val answer = buildJsonObject { put("claims", JsonArray(claims)) }
+    val payload = buildJsonObject {
+        put("task_contract", task)
+        put("embedded_task_contract", task.toString())
+        put("verification", GitHubEvidencePolicy.render(answer, receipts, now = 1000L, epoch = 0L, task = request).second)
+        put("evidence_catalog", GitHubEvidencePolicy.catalog(receipts))
+        put("extraction", answer)
+        put(
+            "encoded_claim",
+            buildJsonObject {
+                put("receipt_id", "synthetic-source")
+                put("pointer", "/topic")
+                put("value_json", fact.toString())
+            }
+        )
+    }
+    return buildJsonObject {
+        put("table", "workspace_records")
+        put("rowId", 41)
+        put(
+            "fields",
+            buildJsonObject {
+                put("id", "synthetic-retained-task")
+                put("kind", "synthesis_checkpoint")
+                put("payload", payload)
+            }
+        )
     }
 }

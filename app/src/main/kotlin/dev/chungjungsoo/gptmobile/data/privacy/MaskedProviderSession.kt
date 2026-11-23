@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.flow
@@ -63,6 +64,7 @@ internal suspend fun maskedProviderSession(
             ) {
                 check(store.effectiveSnapshot(privacy.enabled) == state) { "Privacy settings changed. Resend with the current settings." }
                 authority?.validate?.invoke()
+                check(store.effectiveSnapshot(privacy.enabled) == state) { "Privacy settings changed. Resend with the current settings." }
             }
             val protocol = PrivateMarkerProtocol(issuedMarkers, currentRequest)
             val answer = PrivateStreamingRestorer(protocol, restore)
@@ -75,9 +77,25 @@ internal suspend fun maskedProviderSession(
             var lastLineage = OutputLineage()
             var terminal = false
             var completed = false
+            suspend fun validatePublication() {
+                currentCoroutineContext().ensureActive()
+                try {
+                    privateAuthority.validate()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    throw PrivateDispatchPolicyChanged()
+                }
+                currentCoroutineContext().ensureActive()
+            }
+            suspend fun emitAuthorized(event: ProviderEvent) {
+                validatePublication()
+                emit(event)
+            }
             suspend fun publish(result: PrivateProtectedText, lineage: OutputLineage = lastLineage) {
                 if (result.text.isEmpty()) return
-                currentCoroutineContext().ensureActive()
+                // Retained-source and provider permissions can change after dispatch.
+                validatePublication()
                 timing.restoredAnswer()
                 if (responseId != null) protection.restored(responseId, result)
                 proof.stream(timing.observation(answer, reasoning, protocol, completed = false, deliveryMode = deliveryMode))
@@ -88,9 +106,7 @@ internal suspend fun maskedProviderSession(
                     if (terminal) return@collect
                     currentCoroutineContext().ensureActive()
                     if (store.effectiveSnapshot(privacy.enabled) != state) {
-                        proof.stream(timing.observation(answer, reasoning, protocol, completed = false, deliveryMode = deliveryMode))
-                        emit(ProviderEvent.Failed("Privacy settings changed. The response was stopped; resend with the current settings.", errorCode = "DISPATCH_POLICY_CHANGED", taskOutcome = "PARTIAL"))
-                        throw PrivateStreamStopped
+                        throw PrivateDispatchPolicyChanged()
                     }
                     when (event) {
                         is ProviderEvent.TextDelta -> {
@@ -112,11 +128,11 @@ internal suspend fun maskedProviderSession(
                         is ProviderEvent.ThinkingDelta -> {
                             if (event.text.isNotEmpty()) timing.reasoning()
                             val restored = reasoning.accept(event.text)
-                            if (restored.text.isNotEmpty()) emit(ProviderEvent.ThinkingDelta(restored.text))
+                            if (restored.text.isNotEmpty()) emitAuthorized(ProviderEvent.ThinkingDelta(restored.text))
                         }
                         ProviderEvent.Completed -> {
                             val reasoningTail = reasoning.finish()
-                            if (reasoningTail.text.isNotEmpty()) emit(ProviderEvent.ThinkingDelta(reasoningTail.text))
+                            if (reasoningTail.text.isNotEmpty()) emitAuthorized(ProviderEvent.ThinkingDelta(reasoningTail.text))
                             if (control != null) {
                                 val prepared = protocol.prepare(control.toString())
                                 val start = System.nanoTime()
@@ -129,8 +145,9 @@ internal suspend fun maskedProviderSession(
                                 it == PrivateOutputAnomaly.POSSIBLE_PROTECTED_FIELD_OMISSION || it == PrivateOutputAnomaly.POSSIBLE_VALUE_REENTRY_REQUEST
                             }
                             if (suspectedOmission) {
-                                emit(ProviderEvent.Notice("This draft may contain an unfilled protected field or request a value already supplied. Review it before using it; task completeness has not been verified."))
+                                emitAuthorized(ProviderEvent.Notice("This draft may contain an unfilled protected field or request a value already supplied. Review it before using it; task completeness has not been verified."))
                             }
+                            validatePublication()
                             completed = true
                             terminal = true
                             proof.stream(timing.observation(answer, reasoning, protocol, completed = true, deliveryMode = deliveryMode))
@@ -140,7 +157,7 @@ internal suspend fun maskedProviderSession(
                         is ProviderEvent.Failed -> {
                             terminal = true
                             proof.stream(timing.observation(answer, reasoning, protocol, completed = false, deliveryMode = deliveryMode))
-                            emit(event)
+                            emitAuthorized(event)
                             throw PrivateStreamStopped
                         }
                         is ProviderEvent.ToolCall, is ProviderEvent.ToolResult, is ProviderEvent.CombinedAnswer -> {
@@ -149,7 +166,7 @@ internal suspend fun maskedProviderSession(
                             emit(privateOutputFailure("UNEXPECTED_CONTROL_EVENT"))
                             throw PrivateStreamStopped
                         }
-                        else -> emit(event)
+                        else -> emitAuthorized(event)
                     }
                 }
                 if (!terminal) {
@@ -158,6 +175,20 @@ internal suspend fun maskedProviderSession(
                 }
             } catch (_: PrivateStreamStopped) {
                 // The upstream channel is cancelled as soon as its terminal event is published.
+            } catch (_: PrivateDispatchPolicyChanged) {
+                proof.stream(timing.observation(answer, reasoning, protocol, completed = false, deliveryMode = deliveryMode))
+                emit(
+                    ProviderEvent.Failed(
+                        "Privacy settings or request permissions changed. The response was stopped; resend with the current settings.",
+                        errorCode = "DISPATCH_POLICY_CHANGED",
+                        taskOutcome = "PARTIAL",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "generation_permission")
+                            put("request_replay_allowed", false)
+                            put("logical_continuation_allowed", false)
+                        }
+                    )
+                )
             } catch (failure: PrivateOutputProtocolException) {
                 proof.stream(timing.observation(answer, reasoning, protocol, completed = false, deliveryMode = deliveryMode))
                 emit(privateOutputFailure(failure.anomaly.name))

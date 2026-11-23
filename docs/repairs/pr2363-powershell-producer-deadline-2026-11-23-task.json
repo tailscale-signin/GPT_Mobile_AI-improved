@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "task": "Reuse the bounded direct PowerShell producer fixture deadline without changing production diagnostics",
+  "state": "IMPLEMENTATION_COMPLETE_PORTABLE_AND_PACKAGE_PROOF_PASSED_REAL_POWERSHELL_HOSTED_GATE_PENDING",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2363,
+  "base_branch": "fix/github-evidence-progress-2026-11-23",
+  "base_commit": "edc71f69c32b69f5cf95d881a51587e618c8c9ad",
+  "base_tree": "bf9c9c69978fc14a95997f91694813b17330cb5f",
+  "work_branch": "work/pr2363-powershell-public-anchor-20261123",
+  "worktree": "/workspace/scratch/6b5c8b09c56b/powershell-producer-public-anchor-work",
+  "intent": "Reuse only the reviewed functional fixture change from public a96ad30b9645090c50a1774dde6b1d721908fb0f: direct semantic subprocess watchdog15\u219230s plus comment. Keep production12s, typed TIMEOUT, outer120s suite bound and all10test methods/9PowerShell subcases unchanged. Generate the Gateway manifest only after root creates an actual public fixture-source ancestor.",
+  "reused_commit": "a96ad30b9645090c50a1774dde6b1d721908fb0f",
+  "reused_commit_parent": "35b1556e07c83ed219dc741a070d4a14f8f73e8f",
+  "reused_from_pr": 2367,
+  "owned_paths": [
+    "gateway/tests/test_gateway_connection_diagnostics.py",
+    "gateway/manifest-v14.json",
+    "docs/repairs/pr2363-powershell-producer-deadline-2026-11-23-task.json"
+  ],
+  "failure_evidence": {
+    "run": 45189714934,
+    "job": 137744518559,
+    "attempt": 1,
+    "head": "edc71f69c32b69f5cf95d881a51587e618c8c9ad",
+    "checkout": "ec7f6fea8c3694e1af9b7d734c27873c9d9c54c4",
+    "test": "HostConnectionDiagnosticsTest.test_powershell_producer_reads_mocked_host_observations_and_contains_cmdlet_failure",
+    "subcase": {
+      "fail_reads": false,
+      "profile": "Private"
+    },
+    "line": 179,
+    "exception": "subprocess.TimeoutExpired",
+    "timeout_seconds": 15,
+    "triage_path": "/workspace/scratch/6b5c8b09c56b/pr2363-edc-platform-monitor/ubuntu312-timeout-triage.json",
+    "triage_sha256": "7b98366645ac61cbee248f723b2ae8b4d08de6f66bf528650db0363aad0655d7",
+    "log_sha256": "8bc1946a83ed0a7eef06430276f23262659a2b9d35b437299063593f645d2e55",
+    "qualification": "The log confirms the child-process deadline but does not distinguish PowerShell startup, script execution or runner scheduling. Same-head Ubuntu3.13 passed this module."
+  },
+  "constraints": [
+    "No production, dependency, workflow, memory-policy, authorization or timeout-classification changes.",
+    "No remote mutation, retry, cancellation or manual workflow dispatch.",
+    "No claim that30s has completed the timed-out real producer locally when PowerShell is unavailable.",
+    "Preserve all other PR2363 components and the independent PR2367 workstream.",
+    "Root owns release-scope, generated app references, integrated canonical, public source-anchor creation and final publication."
+  ],
+  "validation": {
+    "portable": {
+      "path": "/workspace/scratch/6b5c8b09c56b/powershell-producer-deadline-proof/portable-qualification.json",
+      "sha256": "cb4f85214f4b127dc17b452bc7c9b80f2ec1cd689ca5f10edee4f73a65e0268c",
+      "discovered": 10,
+      "passed": 9,
+      "skipped": 1,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 0.009,
+      "loaded_repository_sources": 17,
+      "locked_dependencies": 28
+    },
+    "real_powershell": "NOT_RUN_LOCALLY_BINARY_UNAVAILABLE; all9actualproducer cases require corrected-head hosted execution. This change does not establish the previously timed-out process finishes within30s.",
+    "manifest": {
+      "path": "/workspace/scratch/6b5c8b09c56b/powershell-producer-deadline-proof/public-anchor-package-binding.json",
+      "sha256": "7ac4a3ce20224211e285a27016ee4d85ff4ca8d8725254f671088684540cf98f",
+      "manifest_sha256": "b88c841c6702c3e29e59b574704c92f7b935c96b5612a2c4d8c4000a5dd1b669",
+      "entries": 513,
+      "unchanged_hashes": 512,
+      "changed_entry": "tests/test_gateway_connection_diagnostics.py",
+      "generator_exit_code": 0,
+      "all_payload_bytes_match_actual_public_anchor": true,
+      "tested_inputs_identical": 17
+    },
+    "canonical": "ROOT_OWNED_PENDING_INTEGRATION",
+    "hosted": "CURRENT_CORRECTED_HEAD_REQUIRED",
+    "source_preservation": {
+      "path": "/workspace/scratch/6b5c8b09c56b/powershell-producer-deadline-proof/source-preservation.json",
+      "sha256": "8da3aeba33d6324a038db272eae0736f9f897279d5c59e153725cf28fa62c492",
+      "test_sha256": "ec7003819ea5ab14fde13b718c704d892a66a563563a50d57af03cf32bec3634",
+      "all10methods_and9subcases": "UNCHANGED_EXCEPT_ONE_TIMEOUT_LITERAL_AND_COMMENT",
+      "production_timeout_seconds": 12,
+      "outer_suite_timeout_seconds": 120
+    },
+    "whitespace": "PASS"
+  },
+  "recorded_at": "2026-11-23T14:15:36.734098+00:00",
+  "independent_review": {
+    "path": "/workspace/scratch/6b5c8b09c56b/gateway-pwsh-fixture-peer-review/source-review-a96.json",
+    "sha256": "a3a9ce8eaa2ce2ba668a925f07dc1992e3cd532393d164189ab2635565c6f9fa",
+    "verdict": "CLEAR"
+  },
+  "fresh_head_guard": {
+    "head": "edc71f69c32b69f5cf95d881a51587e618c8c9ad",
+    "base": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+    "state": "open",
+    "draft": true,
+    "observed_at_utc": "2026-11-23T14:20:54.868871+00:00"
+  },
+  "fixture_source_anchor": {
+    "local_equivalent_commit": "b81cbe17e73d458a271f677be10b523aa221062a",
+    "actual_public_commit": "b20d90872341bedf0b70b73657297360e9335542",
+    "tree": "959ebb19a20ae6483467f0e06b84a7092c327636",
+    "parent": "edc71f69c32b69f5cf95d881a51587e618c8c9ad",
+    "branch_ref_updated": false
+  }
+}

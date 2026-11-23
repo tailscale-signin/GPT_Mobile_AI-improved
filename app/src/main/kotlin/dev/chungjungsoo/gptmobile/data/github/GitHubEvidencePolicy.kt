@@ -18,6 +18,23 @@ internal object GitHubEvidencePolicy {
     private val unavailable = setOf("app", "node_id", "external_id", "avatar_url", "content", "body", "text", "patch", "message", "summary", "description", "instructions", "log", "logs", "error", "error_message")
 
     private val secretField = Regex("(?i)token|secret|password|authorization|cookie")
+
+    /** Reclassify retained pinned reads without rewriting their durable originals. */
+    fun immutable(receipt: JsonObject, receipts: Map<String, JsonObject>): Boolean {
+        var source = receipt
+        val visited = mutableSetOf<String>()
+        while (true) {
+            if (source["trusted"] != JsonPrimitive(true) || source["success"] != JsonPrimitive(true) || source["verification_eligible"] == JsonPrimitive(false)) return false
+            if (source["immutable"] == JsonPrimitive(true)) return true
+            val arguments = source["arguments"] as? JsonObject ?: JsonObject(emptyMap())
+            if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.immutableRead(source.string("tool"), arguments)) return true
+            val id = source.string("source_observation_receipt_id")
+            if (id.isBlank() || !visited.add(id)) return false
+            val original = receipts[id] ?: return false
+            if (original["binding"] != source["binding"] || original["repository"] != source["repository"] || original["tool"] != source["tool"]) return false
+            source = original
+        }
+    }
     private fun historicalReview(task: String): Boolean =
         Regex("(?i)\\b(saved (?:GitHub )?session|attached capture|archive|historical|as of|audit capture)\\b").containsMatchIn(task) &&
             !GitHubRequestCompletion.requiresLiveSessionReviewRefresh(task) &&
@@ -83,7 +100,7 @@ internal object GitHubEvidencePolicy {
         val (resourceType, fieldType) = semanticType(receipt, path)
         val stableResourceNumber = fieldType in setOf("pull_request.number", "issue.number") &&
             (observed as? JsonPrimitive)?.longOrNull?.let { it > 0 } == true
-        val immutable = receipt?.get("immutable") == JsonPrimitive(true) || stableResourceNumber
+        val immutable = receipt?.let { immutable(it, receipts) } == true || stableResourceNumber
         val semanticsMismatch = claim["resource_type"]?.let { it != JsonPrimitive(resourceType) } == true ||
             claim["field_type"]?.let { it != JsonPrimitive(fieldType) } == true
         val withoutClock = timestamp <= 0 && receipt != null && GitHubEvidenceExcerpts.pinnedSource(receipt, path)
@@ -279,6 +296,7 @@ internal object GitHubEvidencePolicy {
         val supportedClaims = retainedClaims.filterNot(::explicitlyUnmeasured)
         val unmeasuredScopes = checked.filter(::explicitlyUnmeasured)
         val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now, omittedOptionalClaimIndexes = omitted, issueWork = issueWork)
+        val reviewState = GitHubReviewComparison.plan(task, emptyList(), receipts)?.checkpoint
         val checklist = if (GitHubTaskCoverage.matches(task)) {
             GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, stageBudget, acceptedContract, executionPlan)
         } else {
@@ -301,18 +319,40 @@ internal object GitHubEvidencePolicy {
             put("task_outcome", completion.getValue("task_outcome"))
             put("task", task)
             put("operation_coverage", JsonArray(GitHubTaskCoverage.rows(receipts)))
+            reviewState?.let { put("review_state", it) }
             checklist?.let { put("test_checklist", it) }
             completion.forEach { (key, value) -> put(key, value) }
         }
-        val questions = (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-            .filterNot { engineeringTask && GitHubAnswerPresentation.runtimeClaim(it) && !GitHubAnswerPresentation.repositoryRuntimeDiscussion(it) }.take(4)
+        // Baseline selection belongs to the durable review state. An extractor
+        // cannot reopen a completed decision because its optional context omitted it.
+        val questions = if (reviewState == null) {
+            (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                .filterNot { engineeringTask && GitHubAnswerPresentation.runtimeClaim(it) && !GitHubAnswerPresentation.repositoryRuntimeDiscussion(it) }.take(4)
+        } else if (reviewState["user_input_required"] == JsonPrimitive(true)) {
+            listOf(reviewState.string("detail"))
+        } else {
+            emptyList()
+        }
         val facts = lines.filter { it.startsWith("| ") }.distinct()
         val notes = lines.filter { it.isNotBlank() && !it.startsWith("| ") }.distinct()
         val text = if (GitHubTaskCoverage.matches(task)) {
             "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts, task, tools, remainingToolCalls, stageBudget, acceptedContract, checklist) +
                 if (facts.isNotEmpty()) "\n## Verified observations\n\n| Detail | Result | As of (UTC) |\n| --- | --- | --- |\n" + facts.joinToString("\n") else ""
         } else {
-            GitHubAnswerPresentation.render(task, facts, notes, excerpts, questions.map { safe(it.take(240)) })
+            GitHubAnswerPresentation.render(task, facts, notes, excerpts, questions.map { safe(it.take(240)) }) + reviewState?.let { review ->
+                val coverage = review["comparison_coverage"] as? JsonObject
+                buildString {
+                    append("\n\n## Retained review scope\n\n")
+                    review.string("base_sha").takeIf(String::isNotBlank)?.let { append("- Base: `$it`.\n") }
+                    review.string("head_sha").takeIf(String::isNotBlank)?.let { append("- Head: `$it`.\n") }
+                    append("- Comparison: ")
+                    append(if (review["comparison_verified"] == JsonPrimitive(true)) "complete at this exact revision pair." else safe(review.string("detail")))
+                    if (coverage != null) {
+                        append("\n- Changed files observed: ${coverage.string("changed_files_observed")}; with source observations: ${coverage.string("changed_files_with_source_observation")}; without source observations: ${coverage.string("changed_files_without_source_observation")}.")
+                    }
+                    append("\n- Source observations do not by themselves establish a completed correctness review.")
+                }
+            }.orEmpty()
         }
         val remaining = completion["remaining_requirements"] as? JsonArray
         val output = if (!GitHubTaskCoverage.matches(task) && !remaining.isNullOrEmpty()) {
@@ -884,8 +924,9 @@ internal object GitHubEvidencePolicy {
             buildJsonObject {
                 put("receipt_id", id)
                 put("tool", receipt["tool"] ?: JsonNull)
-                put("arguments", JsonObject((receipt["arguments"] as? JsonObject).orEmpty().filterKeys { it in setOf("action", "mode", "commit_sha") }))
+                put("arguments", JsonObject((receipt["arguments"] as? JsonObject).orEmpty().filterKeys { it in setOf("action", "mode", "base_sha", "commit_sha", "ref") }))
                 put("trusted", receipt["trusted"] ?: JsonNull)
+                put("immutable", immutable(receipt, receipts))
                 put("observed_at_ms", receipt["observed_at_ms"] ?: JsonNull)
                 put("source_head_sha", receipt["source_head_sha"] ?: JsonNull)
                 put("repository", receipt["repository"] ?: JsonNull)

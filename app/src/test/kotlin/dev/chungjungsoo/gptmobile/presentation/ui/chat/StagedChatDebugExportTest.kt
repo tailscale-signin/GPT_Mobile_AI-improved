@@ -23,6 +23,8 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory
 import dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics
 import dev.chungjungsoo.gptmobile.data.diagnostics.RuntimeIncidentCapture
 import dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCapture
+import dev.chungjungsoo.gptmobile.data.diagnostics.retainedTaskDiagnosticRecord
+import dev.chungjungsoo.gptmobile.data.diagnostics.retainedTaskPrivateCanaries
 import dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -379,6 +381,38 @@ class StagedChatDebugExportTest {
         assertTrue(files.getValue("conversation.jsonl").contains("EXPLICIT FORENSIC ORIGINAL"))
         assertFalse(files.values.any { "private-secret" in it })
         assertEquals(result.manifest, StagedDiagnosticCapture.verify(result.file))
+    }
+
+    @Test fun retainedTaskSchemasAreRedactedBeforeCheckpointAndStayRedactedInResumedArchive() = runBlocking {
+        val record = retainedTaskDiagnosticRecord()
+        var workspaceReads = 0
+        readSection = { section, before, consume ->
+            before()
+            if (section == "workspace") {
+                workspaceReads++
+                consume(record)
+            }
+            if (section == "answer_segments") throw CancellationException("fixture interruption after workspace checkpoint")
+        }
+        assertTrue(runCatching { capture() }.exceptionOrNull() is CancellationException)
+        val directory = DiagnosticCaptureStorage.directory(context, chatId)
+        assertNotNull(StagedDiagnosticCapture.findResumableSession(directory, diagnosticCaptureIdentity(chatId, true)))
+        val checkpoints = directory.walkTopDown().filter(File::isFile).map { it.readText() }.toList()
+        assertTrue(checkpoints.isNotEmpty())
+        for (privateValue in retainedTaskPrivateCanaries + "private-secret") assertFalse(privateValue, checkpoints.any { privateValue in it })
+        assertTrue(checkpoints.any { "synthetic-retained-task" in it })
+        readSection = { section, before, _ ->
+            before()
+            check(section != "workspace") { "The completed redacted workspace checkpoint must be reused" }
+        }
+        val resumed = capture(resume = true)
+        val files = archive(resumed)
+        for (privateValue in retainedTaskPrivateCanaries + "private-secret") assertFalse(privateValue, files.values.any { privateValue in it })
+        val workspace = files.getValue("workspace.jsonl")
+        for (metadata in listOf("synthetic-retained-task", "synthetic-source", "request_digest", "source_span", "total_count", "SYNTHETIC_METADATA_CODE")) assertTrue(metadata, workspace.contains(metadata))
+        assertEquals(1, workspaceReads)
+        assertEquals(JsonPrimitive(true), stage(resumed, "workspace")["reusedCheckpoint"])
+        assertEquals(resumed.manifest, StagedDiagnosticCapture.verify(resumed.file))
     }
 
     private suspend fun capture(temporary: Boolean = false, resume: Boolean = false, contentMode: DiagnosticContentMode = DiagnosticContentMode.REDACTED): DiagnosticCaptureResult = writeStagedChatDiagnostics(

@@ -1419,8 +1419,14 @@ class AgentRunCoordinator @Inject constructor(
             val failedOutcome = outcome as? ApiStateFlowOutcome.Failed
             val limit = failedOutcome?.providerLimit
             if (limit != null && pauseForProvider(limit)) return false
-            if (limit == null && failedOutcome != null && providerWaitDecisionRequired(failedOutcome.errorCode, assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure)) {
-                retainWaitDecision(null, ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE))
+            val profileFailure = assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
+            if (limit == null && failedOutcome != null && providerWaitDecisionRequired(failedOutcome.errorCode, profileFailure)) {
+                val reason = if (ProviderWaitSchedulingResult.claimExtractionCheckpoint(profileFailure?.recoveryDetails)) {
+                    ProviderWaitSchedulingResult.NoWaitReason.CLAIM_EXTRACTION_CHECKPOINT_REQUIRED
+                } else {
+                    ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE
+                }
+                retainWaitDecision(null, ProviderWaitSchedulingResult.refused(reason))
             }
             checkpoints.drain()
             request.providerWaitAuthority?.validate(settingRepository)

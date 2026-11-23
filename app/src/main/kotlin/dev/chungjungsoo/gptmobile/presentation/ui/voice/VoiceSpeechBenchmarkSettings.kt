@@ -44,7 +44,9 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkMode
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkOutcome
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkReport
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWorkload
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechCalibrationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackResult
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackScenario
 import dev.chungjungsoo.gptmobile.data.voice.voiceSpeechBenchmarkExport
 import dev.melo.kokoro.TimedKokoro
 import java.text.DateFormat
@@ -62,18 +64,24 @@ internal fun VoiceSpeechBenchmarkSettings(
     speechRate: Float,
     enabled: Boolean,
     beforeStart: () -> Unit = {},
+    captionOffsetMs: Int = 0,
     viewModel: VoiceSpeechBenchmarkViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var mode by rememberSaveable { mutableStateOf(VoiceSpeechBenchmarkMode.QUICK.name) }
     var workload by rememberSaveable { mutableStateOf(VoiceSpeechBenchmarkWorkload.UTTERANCE.name) }
     var audible by rememberSaveable { mutableStateOf(false) }
+    var playbackScenario by rememberSaveable { mutableStateOf(VoiceSpeechPlaybackScenario.COLD_START.name) }
+    var calibrationPolicy by rememberSaveable { mutableStateOf(VoiceSpeechCalibrationPolicy.CONTROLLED_ZERO.name) }
     var selected by rememberSaveable { mutableStateOf(VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS.map { it.name }) }
     VoiceSettingsSection("Speech benchmark")
-    Text("Compare CPU, GPU and NPU on this phone. Fixed samples and numeric results are saved for the last five runs.", style = MaterialTheme.typography.bodySmall)
+    Text("Compare CPU, GPU and NPU on this phone. Fixed samples and numeric results are saved for up to five runs.", style = MaterialTheme.typography.bodySmall)
     VoiceChoice("Measurement", if (audible) "playback" else "silent", listOf("silent" to "Silent synthesis", "playback" to "Audible playback and captions"), { audible = it == "playback" }, enabled = enabled && !state.running)
     if (audible) {
-        Text("Plays one long response for each selected processor through the normal speech queue and current audio route. Measures first presented audio, refills and the caption clock.", style = MaterialTheme.typography.bodySmall)
+        VoiceChoice("Playback workload", playbackScenario, VoiceSpeechPlaybackScenario.entries.map { it.name to it.label } + ("ALL" to "All six workloads"), { playbackScenario = it }, enabled = enabled && !state.running)
+        VoiceChoice("Test length", mode, VoiceSpeechBenchmarkMode.entries.map { it.name to it.label }, { mode = it }, enabled = enabled && !state.running)
+        VoiceChoice("Caption calibration", calibrationPolicy, VoiceSpeechCalibrationPolicy.entries.map { it.name to it.label }, { calibrationPolicy = it }, enabled = enabled && !state.running)
+        Text("Fresh, resident, streamed, changing-shape, sustained and cancellation tests use the real speech queue. Warm tests keep the same engine. All six full workloads with controlled calibration are required for a ranking; quick samples remain diagnostics.", style = MaterialTheme.typography.bodySmall)
     } else {
         VoiceChoice("Workload", workload, VoiceSpeechBenchmarkWorkload.entries.map { it.name to it.label }, { workload = it }, enabled = enabled && !state.running)
         VoiceChoice("Test length", mode, VoiceSpeechBenchmarkMode.entries.map { it.name to "${it.label} · ${it.warmRepeats} warm runs per sample" }, { mode = it }, enabled = enabled && !state.running)
@@ -101,17 +109,20 @@ internal fun VoiceSpeechBenchmarkSettings(
             } else if (voice != null) {
                 beforeStart()
                 viewModel.start(
-                    if (audible) VoiceSpeechBenchmarkMode.QUICK else VoiceSpeechBenchmarkMode.valueOf(mode),
+                    VoiceSpeechBenchmarkMode.valueOf(mode),
                     VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS.filter { it.name in selected },
                     voice,
                     threads,
                     speechRate,
                     workload = if (audible) VoiceSpeechBenchmarkWorkload.UTTERANCE else VoiceSpeechBenchmarkWorkload.valueOf(workload),
-                    playback = audible
+                    playback = audible,
+                    playbackScenarios = if (playbackScenario == "ALL") VoiceSpeechPlaybackScenario.entries else listOf(VoiceSpeechPlaybackScenario.valueOf(playbackScenario)),
+                    calibrationPolicy = VoiceSpeechCalibrationPolicy.valueOf(calibrationPolicy),
+                    captionOffsetMs = captionOffsetMs
                 )
             }
         },
-        enabled = if (state.running) !state.cancelling else enabled && state.loaded && voice != null && selected.isNotEmpty(),
+        enabled = if (state.running) !state.cancelling else enabled && state.loaded && !state.nativeCleanupPending && voice != null && selected.isNotEmpty(),
         modifier = Modifier.testTag("voice_speech_benchmark_run")
     ) {
         Icon(if (state.running) Icons.Default.Stop else Icons.Default.PlayArrow, contentDescription = null)
@@ -131,7 +142,7 @@ internal fun VoiceSpeechBenchmarkSettings(
         LinearProgressIndicator(
             progress = {
                 report?.let {
-                    if (it.configuration.playback) it.playbackResults.size.toFloat() / it.configuration.backends.size else it.completedSamples.toFloat() / it.totalSamples.coerceAtLeast(1)
+                    it.completedSamples.toFloat() / it.totalSamples.coerceAtLeast(1)
                 } ?: 0f
             },
             modifier = Modifier.fillMaxWidth()
@@ -170,6 +181,7 @@ internal fun VoiceSpeechBenchmarkSettings(
         VoiceSpeechBenchmarkResults(report)
         if (!state.running) VoiceSpeechBenchmarkExportControl(report)
     }
+    if (state.nativeCleanupPending) Text("Audio stopped · waiting for native cleanup. Other speech work remains paused.", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
     if (!state.saved) Text("Results are visible, but could not be saved on this phone. Export them before leaving.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     state.notice?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 }
@@ -178,9 +190,9 @@ internal fun VoiceSpeechBenchmarkSettings(
 private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
     val outcome = when (report.outcome) {
         VoiceSpeechBenchmarkOutcome.RUNNING -> "Running"
-        VoiceSpeechBenchmarkOutcome.QUALIFIED -> if (report.configuration.playback) "Finished · playback measured" else "Finished · workload qualified"
+        VoiceSpeechBenchmarkOutcome.QUALIFIED -> if (report.configuration.playback) "Finished · controlled playback suite qualified" else "Finished · workload qualified"
         VoiceSpeechBenchmarkOutcome.PARTIAL -> "Finished · partial results"
-        VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON -> "Finished · no qualified comparison"
+        VoiceSpeechBenchmarkOutcome.NO_QUALIFIED_COMPARISON -> if (report.configuration.playback) "Finished · measured samples, no qualified ranking" else "Finished · no qualified comparison"
         VoiceSpeechBenchmarkOutcome.INVALID_WORKLOAD -> "Stopped · invalid test input"
         VoiceSpeechBenchmarkOutcome.CANCELLED -> "Cancelled · completed measurements retained"
         VoiceSpeechBenchmarkOutcome.INTERRUPTED -> "Interrupted · completed measurements retained"
@@ -196,23 +208,39 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
         VoiceSpeechBenchmarkIssue.THERMAL_LIMIT -> "Stopped because the phone became warm. Let it cool before comparing engines. Completed measurements are retained."
         VoiceSpeechBenchmarkIssue.EXECUTION_FAILED -> "The benchmark could not finish. Completed measurements are retained."
         VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD -> "A test input violated the speech engine contract. This does not establish a processor failure. Export the retained diagnostic result."
+        VoiceSpeechBenchmarkIssue.NATIVE_CLEANUP_PENDING -> "Audio stopped, but native cleanup was still pending when this result was captured. No further processor test started."
         VoiceSpeechBenchmarkIssue.CANCELLED -> "Stopped at your request. Unfinished backends have no performance result."
         null -> null
     }
     notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-    report.recommendation()?.let { Text("Recommendation for this test: ${it.label}. An accelerator needs at least a ten percent gain across this workload, including preparation.", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
+    report.recommendation()?.let { Text("Recommendation for this test: ${it.label}. An accelerator needs at least a ten percent gain across the same qualified workload, including startup cost.", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
     Text("Run order: ${report.configuration.plannedBackendOrder.joinToString(" → ") { it.label }}. Repeat runs rotate the starting processor.", style = MaterialTheme.typography.bodySmall)
     if (report.configuration.playback) {
-        for (result in report.playbackResults) VoiceSpeechPlaybackResultCard(result)
+        Text("${report.completedSamples}/${report.totalSamples} samples · ${report.configuration.calibrationPolicy.label} · configured offset ${report.configuration.captionOffsetMs} ms", style = MaterialTheme.typography.bodySmall)
+        for (backend in report.configuration.plannedBackendOrder) {
+            val rows = report.playbackResults.filter { it.requestedBackend == backend }
+            var expanded by remember(report.startedAtMillis, backend) { mutableStateOf(false) }
+            if (rows.isNotEmpty()) {
+                OutlinedCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("${backend.label} · ${rows.size} observed samples", style = MaterialTheme.typography.titleSmall)
+                        Text("${rows.count { it.failure != null }} failures · ${rows.sumOf { it.bufferRestarts }} restarts · ${rows.count { it.cleanupState == "PENDING" }} pending cleanup", style = MaterialTheme.typography.bodySmall)
+                        Text(rows.groupingBy { it.quality }.eachCount().entries.joinToString(" · ") { "${it.value} ${it.key.name.lowercase().replace('_', ' ')}" }, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide samples" else "Inspect samples and causes") }
+                    }
+                }
+                if (expanded) rows.forEach { VoiceSpeechPlaybackResultCard(it) }
+            }
+        }
     } else {
         Text("${report.configuration.workload.label} · ${report.completedSamples}/${report.totalSamples} fixture iterations · ${report.completedChunks} native chunks", style = MaterialTheme.typography.bodySmall)
         for (result in report.results) VoiceSpeechBenchmarkResultCard(result)
     }
     Text(
         if (report.configuration.playback) {
-            "Presented audio uses the production AudioTrack timestamp or playback head. Caption checks validate that clock, not perceptual word accuracy. Acoustic speaker latency and battery energy remain unmeasured."
+            "Presented audio uses the production AudioTrack timestamp or playback head. Caption checks validate that clock, not perceptual word accuracy. Independent fixture manifests detect missing caption sections. Acoustic speaker latency, acoustic word alignment, CPU/GPU/NPU utilization and battery energy remain unmeasured."
         } else {
-            "First PCM is the first complete native chunk; total synthesis includes every chunk. Playback and acoustic latency, underruns and battery energy are unmeasured. First use retains the phone's file cache. Medians average the middle pair; nearest-rank p95 describes only these samples."
+            "First PCM is the first complete native chunk; total synthesis includes every chunk. Playback and acoustic latency, underruns and battery energy are unmeasured. First use retains the phone's file cache. Medians average the middle pair; p95 is withheld below twenty samples."
         },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -246,7 +274,7 @@ private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendRe
                     val statistics = result.fixtureStatistics(fixture)
                     if (statistics.sampleCount > 0) {
                         Text("${fixture.label} · ${statistics.warmSampleCount} warm samples", style = MaterialTheme.typography.labelLarge)
-                        Text("Median ${statistics.medianWarmMs?.let(::format) ?: "—"} ms · p95 ${statistics.p95WarmMs ?: "—"} ms · RTF ${statistics.medianWarmRtf?.let(::format) ?: "—"}", style = MaterialTheme.typography.bodySmall)
+                        Text("Median ${statistics.medianWarmMs?.let(::format) ?: "—"} ms · p95 ${statistics.p95WarmMs?.let { "$it ms" } ?: "needs 20 samples"} · RTF ${statistics.medianWarmRtf?.let(::format) ?: "—"}", style = MaterialTheme.typography.bodySmall)
                         Text("First-chunk median ${statistics.medianFirstPcmMs?.let(::format) ?: "—"} ms · ${statistics.completedChunks} chunks", style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -287,15 +315,25 @@ private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendRe
 private fun VoiceSpeechPlaybackResultCard(result: VoiceSpeechPlaybackResult) {
     OutlinedCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("${result.requestedBackend.label} · ${result.state.name.lowercase()}", style = MaterialTheme.typography.titleSmall)
+            Text("${result.requestedBackend.label} · ${result.scenario.label} · sample ${result.repeat + 1}${if (result.warmup) " · warm-up" else ""}", style = MaterialTheme.typography.titleSmall)
+            Text("${result.state.name.lowercase()} · ${result.quality.name.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.labelMedium)
             result.failure?.let { Text("${it.name.lowercase().replace('_', ' ')}${result.failureStage?.let { stage -> " · ${stage.name.lowercase()}" }.orEmpty()}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            result.pipelineFailureCode?.let { Text("Playback cause: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            result.nativeCode?.let { Text("Native code: $it · requested ${result.failedRequestedProvider ?: "unknown"} · observed ${result.failedEffectiveProvider ?: "unknown"}", style = MaterialTheme.typography.bodySmall) }
+            result.failedChunk?.let { Text("Failed chunk ${it + 1} · input ${result.failedInputBytes ?: "unknown"}/${result.failedInputByteLimit ?: "unknown"} bytes · tokens ${result.failedTokenCount ?: "unknown"}/${result.failedTokenLimit ?: "unknown"}", style = MaterialTheme.typography.bodySmall) }
+            result.timeoutLimitMs?.let { Text("Deadline: ${result.timeoutScope ?: "unknown"} · ${result.timeoutElapsedMs ?: "unknown"}/$it ms", style = MaterialTheme.typography.bodySmall) }
             Text("First PCM ${result.firstPcmMs ?: "—"} ms · queued ${result.firstQueuedPcmMs ?: "—"} ms · presented ${result.firstPresentedAudioMs ?: "—"} ms", style = MaterialTheme.typography.bodySmall)
+            Text("AudioTrack write ${result.firstAudioTrackWriteMs ?: "unmeasured"} ms · play requested ${result.trackPlayRequestedMs ?: "unmeasured"} ms · model preparation ${result.sessionPrepareMs ?: "unmeasured"} ms", style = MaterialTheme.typography.bodySmall)
+            Text("Requested/effective threads ${result.requestedThreads ?: "unknown"}/${result.effectiveThreads ?: "unknown"} · engine reused ${result.engineReused ?: "unknown"}", style = MaterialTheme.typography.bodySmall)
             Text("${result.validatedChunks}/${result.chunks} chunks verified · synthesis ${result.totalSynthesisMs} ms · audio ${result.totalAudioMs} ms · elapsed ${result.elapsedMs} ms", style = MaterialTheme.typography.bodySmall)
             Text("Underruns ${result.underruns ?: "unmeasured"} · refills ${result.bufferRestarts} · longest refill ${result.longestRefillMs} ms", style = MaterialTheme.typography.bodySmall)
             Text("Caption observations ${result.captionObservations} · clock regressions ${result.captionClockRegressions} · timing violations ${result.captionTimingViolations}", style = MaterialTheme.typography.bodySmall)
-            Text("Caption word coverage ${result.captionWordsObserved}/${result.captionWordsExpected}", style = MaterialTheme.typography.bodySmall)
+            Text("Fixture words: ${result.manifestWordsObserved ?: "unmeasured"}/${result.manifestWordsExpected ?: "unknown"} observed · ${result.manifestWordsPrepared ?: "unmeasured"} prepared · ${result.unexpectedCaptionWords ?: "unknown"} unexpected", style = MaterialTheme.typography.bodySmall)
+            Text("Active underruns ${result.activePlaybackUnderruns ?: "unmeasured"} · startup ${result.startupUnderruns ?: "unmeasured"} · drain ${result.drainUnderruns ?: "unmeasured"}", style = MaterialTheme.typography.bodySmall)
+            Text("Applied caption offsets: ${result.calibrations.joinToString { "${it.route} ${it.offsetMs} ms" }.ifBlank { "unmeasured" }}", style = MaterialTheme.typography.bodySmall)
             Text("${result.effectiveProvider ?: "execution unverified"} · ${result.route ?: "route unobserved"} · ${result.clockBasis ?: "clock unobserved"}", style = MaterialTheme.typography.bodySmall)
             Text("Thermal ${result.thermalBefore ?: "unknown"} → ${result.thermalAfter ?: "unknown"}", style = MaterialTheme.typography.bodySmall)
+            result.cancellationTarget?.let { Text("Cancellation target ${it.name.lowercase()} · reached ${result.cancellationTargetReached ?: false} · cleanup ${result.cleanupState.lowercase()}", style = MaterialTheme.typography.bodySmall) }
             result.cancellationMs?.let { Text("Audio stop after cancellation: $it ms", style = MaterialTheme.typography.bodySmall) }
         }
     }

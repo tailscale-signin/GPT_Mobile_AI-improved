@@ -425,9 +425,13 @@ class GitHubAuditEvidenceTest {
             val page = pendingReviewPage(operation)
             val sibling = if (operation == "github_pr") "github_pr_inspect" else "github_pr"
             val alternative = GitHubOperationTool.definition(sibling, "${sibling}__selected")
-            val available = listOf(alternative, page.tool) + tools.filter { it.name != "github_pr" }
+            val available = listOf(alternative, page.tool) + tools.filter { it.name != "github_pr" }.map { it.copy(name = "${it.name}__selected") }
+            val capturedStatus = JsonObject(status() + ("tool" to JsonPrimitive("github_context__selected")))
+            page.receipts["status"] = capturedStatus
             val firstReceipt = page.receipts.getValue("page-1")
-            val fresh = requireNotNull(GitHubReviewComparison.plan(task, available, mapOf("status" to status())))
+            val otherConnection = requireNotNull(GitHubReviewComparison.plan(task, available, mapOf("status" to status())))
+            assertNull("A status receipt cannot select another connection's PR tool", otherConnection.nextCall)
+            val fresh = requireNotNull(GitHubReviewComparison.plan(task, available, mapOf("status" to capturedStatus)))
             assertEquals(alternative.name, requireNotNull(fresh.nextCall).name)
 
             val pending = requireNotNull(GitHubReviewComparison.plan(page.request, available, page.receipts))
@@ -618,6 +622,35 @@ class GitHubAuditEvidenceTest {
         records["changes"] = receipt("changes", "github_context", json("""{"action":"changes","base_sha":"$base","commit_sha":"$head"}"""), json("""{"base_sha":"$base","head_sha":"$head","files_total":1,"files":[{"filename":"A.kt"}],"has_more":false}"""))
         assertFalse(complete())
         records["source"] = receipt("source", "github_read", json("""{"commit_sha":"$head","ranges":[{"path":"A.kt","start_line":1,"end_line":10}]}"""), json("""{"commit_sha":"$head","files":[{"path":"A.kt","content":"fun changed() = true"}]}"""))
+        assertFalse("A legacy content fragment without native range identity cannot verify a source review", complete())
+        val sourceItem = json("""{"path":"A.kt","commit_sha":"$head","sha":"${"c".repeat(40)}","expected_blob_sha":"${"c".repeat(40)}","content":"fun changed() = true","start_line":1,"end_line":1,"total_lines":1,"range_complete":true}""")
+        fun source(item: JsonObject, observedHead: String = head) = JsonObject(
+            receipt(
+                "source",
+                "github_read",
+                json("""{"commit_sha":"$head","ranges":[{"path":"A.kt","start_line":1,"end_line":1}]}"""),
+                buildJsonObject {
+                    put("commit_sha", head)
+                    put("items", JsonArray(listOf(item)))
+                }
+            ) + ("source_head_sha" to JsonPrimitive(observedHead))
+        )
+        val valid = source(sourceItem)
+        records["source"] = valid
+        assertTrue(complete())
+        for ((field, value) in listOf(
+            "path" to JsonPrimitive("Unrelated.kt"),
+            "commit_sha" to JsonPrimitive(base),
+            "expected_blob_sha" to JsonPrimitive("d".repeat(40)),
+            "range_complete" to JsonPrimitive(false),
+            "content" to JsonPrimitive("")
+        )) {
+            records["source"] = source(JsonObject(sourceItem + (field to value)))
+            assertFalse("Changed-source acceptance must retain $field", complete())
+        }
+        records["source"] = source(sourceItem, observedHead = base)
+        assertFalse("The source receipt must bind the observed revision", complete())
+        records["source"] = valid
         assertTrue(complete())
     }
 

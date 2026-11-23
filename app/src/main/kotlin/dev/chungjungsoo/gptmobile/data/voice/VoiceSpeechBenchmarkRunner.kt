@@ -185,7 +185,9 @@ internal class VoiceSpeechBenchmarkRunner(
                                     audioPeak = observed.audioPeak,
                                     clippedSamples = observed.clippedSamples,
                                     nonSilentSamples = observed.nonSilentSamples,
-                                    discoverySummary = observed.discoverySummary
+                                    discoverySummary = observed.discoverySummary,
+                                    frontendMs = observed.frontendMs, validationMs = observed.validationMs, cacheEvictions = observed.cacheEvictions, profileFinalizeMs = observed.profileFinalizeMs,
+                                    nativeSynthesisMs = observed.synthesisMs
                                 ).also { attemptStarted = null }
                             }
                             result = result.copy(incompleteChunks = result.incompleteChunks + chunk)
@@ -223,10 +225,10 @@ internal class VoiceSpeechBenchmarkRunner(
                 )
             } catch (error: Exception) {
                 val failure = speechBenchmarkFailure(error)
-                if (failure.code.name.startsWith("FRONTEND_")) report = report.copy(issue = VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD)
-                val native = error as? dev.melo.kokoro.TimedKokoro.Failure
+                if (failure.code.isInputFailure) report = report.copy(issue = VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD)
+                val native = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(12).filterIsInstance<dev.melo.kokoro.TimedKokoro.Failure>().firstOrNull()
                 val workload = error as? VoiceSpeechWorkloadFailure
-                val observed = attemptEvidence ?: speechFailureExecutionEvidence(error, result.requestedBackend, report.configuration.deviceKey)
+                val observed = attemptEvidence ?: speechFailureExecutionEvidence(native ?: error, result.requestedBackend, report.configuration.deviceKey)
                 result = result.copy(
                     state = failure.state,
                     failure = failure.code,
@@ -309,7 +311,7 @@ internal data class VoiceSpeechBenchmarkFailure(
 )
 
 internal fun speechBenchmarkFailure(error: Exception): VoiceSpeechBenchmarkFailure {
-    val native = error as? dev.melo.kokoro.TimedKokoro.Failure
+    val native = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(12).filterIsInstance<dev.melo.kokoro.TimedKokoro.Failure>().firstOrNull()
     val code = VoiceSpeechFailureCode.entries.firstOrNull { it.name == (native?.code ?: error.message) } ?: VoiceSpeechFailureCode.EXECUTION_FAILED
     return VoiceSpeechBenchmarkFailure(
         code,
@@ -319,7 +321,7 @@ internal fun speechBenchmarkFailure(error: Exception): VoiceSpeechBenchmarkFailu
             VoiceSpeechBenchmarkBackendState.FAILED
         },
         native?.stage?.uppercase()?.let { stage -> VoiceSpeechStage.entries.firstOrNull { it.name == stage } }
-            ?: VoiceSpeechStage.FRONTEND.takeIf { error is VoiceSpeechWorkloadFailure || code.name.startsWith("FRONTEND_") },
+            ?: VoiceSpeechStage.FRONTEND.takeIf { error is VoiceSpeechWorkloadFailure || code.isInputFailure },
         native?.nativeCode
     )
 }

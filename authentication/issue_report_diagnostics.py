@@ -7,6 +7,7 @@ import re
 
 from .engineering_report_contract import ENGINEERING_REASONS, GATEWAY_ADMISSION_CORE, GATEWAY_ADMISSION_FIELDS, GATEWAY_ADMISSION_PHASES, MODEL_PREPARATION_REASONS
 from . import incident_report_contract as capsule
+from . import repository_operation_report_contract as repository_operations
 
 
 MAX_DIAGNOSTIC_BYTES = 3072
@@ -138,6 +139,10 @@ ENUMS["provider_failure_code"].update({"SELECTED_MODEL_LOADING", "SELECTED_MODEL
 ENUMS["provider_failure_code"].update({"GATEWAY_CAPABILITY_UNAVAILABLE", "GATEWAY_ISOLATION_UNAVAILABLE"})
 # Bounded diagnostic additions for open issue recovery.
 ENUMS["tool_reason_code"].update({"SAVED_VIEW_CONTEXT_MISMATCH", "SAVED_VIEW_CURSOR_MALFORMED", "GITHUB_PATH_NOT_FOUND"})
+ENUMS["tool_action"].update(repository_operations.TOOL_ACTIONS)
+ENUMS["tool_error_code"].update(repository_operations.ERROR_CODES)
+ENUMS["tool_reason_code"].update(repository_operations.TOOL_REASON_CODES)
+ENUMS["tool_dispatch_phase"].update(repository_operations.TOOL_DISPATCH_PHASES)
 # Only the app's bound repository-graph receipt may produce these public categories.
 # The service validates this closed vocabulary; no request parameters, URLs, or host details are exported.
 ENUMS["tool_reason_code"].update({"GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER"})

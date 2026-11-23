@@ -68,6 +68,17 @@ class VoiceBackendCapabilityRuntimeIdentityTest {
         assertEquals(gpu, selected(reopened))
     }
 
+    @Test fun profileTwoMeasurementsCannotQualifyOrDisableProgressRuntime() {
+        val store = VoiceBackendCapabilityStore(context)
+        val oldScope = previousRuntimeScope(store, "ort1.28.2-qnn2.7-qairt2.51-convex2-profile2")
+        store.save(measured(oldScope, cpu, 100))
+        store.save(measured(oldScope, gpu, 60))
+        store.save(failed(oldScope))
+        val reopened = VoiceBackendCapabilityStore(context)
+        for (backend in listOf(cpu, gpu, npu)) assertNull(reopened.read(reopened.key(backend, "us", 2), now))
+        assertEquals(cpu, selected(reopened))
+    }
+
     @Test fun currentRuntimeFailurePreservesItsOriginalProvenance() {
         val store = VoiceBackendCapabilityStore(context)
         val failure = failed(store.comparisonScope("us", 2))
@@ -96,10 +107,9 @@ class VoiceBackendCapabilityRuntimeIdentityTest {
         speakerId = KokoroVoice.HEART.speakerId, speechRate = 1f
     )
 
-    private fun previousRuntimeScope(store: VoiceBackendCapabilityStore): String {
+    private fun previousRuntimeScope(store: VoiceBackendCapabilityStore, previousRuntime: String = "ort1.28.2-qnn2.7-qairt2.51-convex2"): String {
         // Hold the workload, device and settings constant to isolate the native
         // runtime migration. This historical ID must never track RUNTIME_ID.
-        val previousRuntime = "ort1.28.2-qnn2.7-qairt2.51-convex2"
         val fixtureHash = VoiceSpeechWorkload.fixtureHash(VoiceSpeechBenchmarkWorkload.UTTERANCE)
         return digest("${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}|$fixtureHash|$previousRuntime|${KokoroModelPack.MODEL_SHA256}|${store.deviceKey}|us|2|HEART|3|${1f.toBits()}")
     }

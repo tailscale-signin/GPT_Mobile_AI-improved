@@ -54,6 +54,32 @@ class AppPerformanceBenchmark {
         }
     }
 
+    @Test fun settledMarkdownRevisitWithFontAndThemeChanges() = benchmark.measureRepeated(
+        PACKAGE,
+        listOf(FrameTimingMetric()),
+        CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3),
+        iterations = 8,
+        setupBlock = {
+            startActivityAndWait(fixture().putExtra("screen", "settled-markdown"))
+            check(device.wait(Until.hasObject(By.res("settled_ready")), 30_000))
+        }
+    ) {
+        repeat(3) {
+            device.findObject(By.res("settled_toggle")).click()
+            check(device.wait(Until.hasObject(By.res("settled_closed")), 10_000))
+            device.findObject(By.res("settled_toggle")).click()
+            check(device.wait(Until.hasObject(By.res("settled_ready")), 30_000))
+            device.findObject(By.res("settled_font")).click()
+            device.waitForIdle()
+            device.findObject(By.res("settled_theme")).click()
+            device.waitForIdle()
+            val document = device.findObject(By.res("settled_document"))
+            document.setGestureMargin(device.displayWidth / 5)
+            document.fling(Direction.DOWN)
+            device.waitForIdle()
+        }
+    }
+
     @Test fun keyboardDuringStreaming() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3), iterations = 8, setupBlock = { startActivityAndWait(fixture(true)) }) {
         check(device.wait(Until.hasObject(By.res("benchmark_input")), 10000))
         repeat(4) {

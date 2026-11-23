@@ -45,12 +45,22 @@ internal class DiagnosticContentRedactor(
             val fields = value.keys.map(::normalize).toSet()
             val configuredConnection = "apiurl" in fields && "compatibletype" in fields || "endpointurl" in fields && "connectionuid" in fields
             val researchJob = "jobid" in fields && "stage" in fields
+            val observationPointer = if ("receiptid" in fields && "pointer" in fields) {
+                (value.entries.firstOrNull { normalize(it.key) == "pointer" }?.value as? JsonPrimitive)?.takeIf { it.isString }?.content
+            } else {
+                null
+            }
+            val sourceExcerpt = fields.containsAll(setOf("value", "revision", "startline", "endline"))
             JsonObject(
                 value.mapValues { (key, child) ->
                     val normalized = normalize(key)
                     when {
                         child == JsonNull -> child
                         surfaceCounts && normalized in privateDispatchSurfaces && child is JsonPrimitive && !child.isString && child.content.toLongOrNull()?.let { it >= 0 } == true -> child
+                        normalized in retainedPrivateTextFields -> omitRetainedText(child)
+                        sourceExcerpt && normalized == "value" -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                        observationPointer != null && normalized in setOf("value", "observed", "valuejson") -> redactObservation(child, observationPointer, encoded = normalized == "valuejson")
+                        normalized in setOf("facts", "retainedfacts") && child is JsonObject -> JsonObject(child.mapValues { (pointer, fact) -> redactObservation(fact, pointer) })
                         configuredConnection && normalized in setOf("name", "alias") -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
                         researchJob && normalized == "reason" -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
                         normalized in opaquePrivateFields || normalized in configuredTopologyFields -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
@@ -73,6 +83,31 @@ internal class DiagnosticContentRedactor(
             }
             if (embedded is JsonObject || embedded is JsonArray) JsonPrimitive(clean(embedded).toString()) else JsonPrimitive(scrubText(text))
         }
+    }
+
+    /** Retained task schemas contain both raw strings and compiled, identified criteria. */
+    private fun omitRetainedText(value: JsonElement): JsonElement = when (value) {
+        is JsonArray -> JsonArray(value.map(::omitRetainedText))
+        is JsonPrimitive -> if (value.isString) JsonPrimitive(PRIVATE_CONTENT_OMITTED) else value
+        else -> clean(value)
+    }
+
+    /** Citation values are source content even when their JSON field is only `value` or `observed`. */
+    private fun redactObservation(value: JsonElement, pointer: String, encoded: Boolean = false): JsonElement {
+        if (encoded) {
+            val document = (value as? JsonPrimitive)?.takeIf { it.isString }?.content
+                ?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() }
+            return JsonPrimitive((document?.let { redactObservation(it, pointer) } ?: JsonPrimitive(PRIVATE_CONTENT_OMITTED)).toString())
+        }
+        if (value == JsonNull) return value
+        val primitive = value as? JsonPrimitive ?: return JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+        val field = normalize(pointer.substringAfterLast('/'))
+        val numeric = field in observationNumbers && primitive.content.toLongOrNull()?.let { it >= 0 } == true
+        val boolean = field in observationBooleans && !primitive.isString && primitive.content in setOf("true", "false")
+        val hash = field in observationHashes && primitive.isString && observationHash.matches(primitive.content)
+        val status = field in setOf("status", "state", "conclusion", "outcome") && primitive.isString && primitive.content.uppercase(Locale.ROOT) in observationStatuses
+        val code = field in setOf("errorcode", "reasoncode") && primitive.isString && observationCode.matches(primitive.content)
+        return if (numeric || boolean || hash || status || code) primitive else JsonPrimitive(PRIVATE_CONTENT_OMITTED)
     }
 
     /** A log prefix can contain assignments before a complete JSON evidence object. */
@@ -131,6 +166,20 @@ internal class DiagnosticContentRedactor(
         )
         private fun normalize(value: String): String = value.lowercase(Locale.ROOT).replace("_", "").replace("-", "")
         private val privateDispatchSurfaces = setOf("usermessage", "assistanthistory", "systemprompt", "toolresult")
+        private val retainedPrivateTextFields = setOf("originalrequest", "requestedactions", "acceptancecriteria", "task", "requirement", "subject", "claim")
+        private val observationNumbers = setOf(
+            "id", "number", "runnumber", "runattempt", "attempt", "count", "totalcount", "additions", "deletions", "changedfiles", "commits", "comments", "reviewcomments",
+            "startline", "endline", "totallines", "bytes", "size", "sizeinbytes", "durationms", "elapsedms", "createdatms", "updatedatms", "observedatms",
+            "tests", "failures", "errors", "skipped", "passed", "failed"
+        )
+        private val observationBooleans = setOf("success", "merged", "draft", "truncated", "sourcetruncated", "rangecomplete", "complete", "verified", "exists", "deleted", "trusted", "verificationeligible")
+        private val observationHashes = setOf("sha", "headsha", "basesha", "commitsha", "expectedblobsha", "sourceheadsha", "resultsha256", "digest", "sha256", "requestdigest")
+        private val observationHash = Regex("(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})")
+        private val observationCode = Regex("[A-Z][A-Z0-9_]{0,95}")
+        private val observationStatuses = setOf(
+            "OPEN", "CLOSED", "QUEUED", "PENDING", "WAITING", "REQUESTED", "IN_PROGRESS", "COMPLETED", "SUCCESS", "FAILURE", "FAILED", "NEUTRAL", "CANCELLED", "SKIPPED", "TIMED_OUT", "ACTION_REQUIRED", "STALE",
+            "VERIFIED", "HISTORICAL", "CONTRADICTED", "NOT_MEASURED", "INFERRED", "PARTIAL", "COMPLETE", "UNAVAILABLE", "BLOCKED", "PASSED"
+        )
         private val configuredTopologyFields = setOf(
             "apiurl", "batchapiurl", "baseurl", "apibaseurl", "gatewaybaseurl", "endpoint", "endpointurl", "serverurl", "gatewayurl", "connectionurl",
             "host", "hostname", "hostaddress", "serverhost", "serverhostname", "localhostname", "remotehost", "bindhost", "bindaddress",

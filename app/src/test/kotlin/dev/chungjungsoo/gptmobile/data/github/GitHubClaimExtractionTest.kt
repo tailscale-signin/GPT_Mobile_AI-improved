@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.network.ProviderHttpFailure
+import dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -157,6 +158,90 @@ class GitHubClaimExtractionTest {
         assertEquals(JsonPrimitive(429), result.providerFailure?.failureDetails?.get("http_status"))
         assertEquals(JsonPrimitive(30_156), result.providerFailure?.failureDetails?.get("retry_after_ms"))
         assertEquals(JsonPrimitive("model_invocation"), result.providerFailure?.failureDetails?.get("failed_stage"))
+    }
+
+    private fun rejected(retryAt: Long = 3103) = ProviderEvent.Failed(
+        "Provider rate limit",
+        errorCode = "429",
+        providerLimit = ProviderLimitDecision("OPENROUTER", "selected", "selected-model", retryAt, "selected-scope", "RATE_LIMIT", true, httpStatus = 429),
+        invocationId = "rejected-extraction",
+        failureDetails = buildJsonObject {
+            put("remote_acceptance", "NO")
+            put("request_replay_allowed", true)
+        }
+    )
+
+    @Test fun shortTypedRejectionWaitsOnceInsideTheOwnedBatchAndRevalidatesAuthority() = runTest {
+        val original = rejected()
+        val failure = failed(flowOf(original))
+        assertSame(original.providerLimit, GitHubClaimExtraction.rejectedDecision(failure))
+        val recovery = GitHubClaimExtraction.RejectionRecovery()
+        var validated = 0
+        val waits = mutableListOf<Long>()
+        assertTrue(recovery.retry(failure, { 1000 }, { validated++ }, { waits += it }))
+        assertEquals(listOf(2103L), waits)
+        assertEquals(2, validated)
+        assertFalse(recovery.retry(failure, { 3103 }, { validated++ }, { error("No second retry") }))
+        assertFalse(GitHubClaimExtraction.RejectionRecovery().retry(failed(flowOf(rejected(31_156))), { 1000 }, {}, { error("Long waits use the saved checkpoint") }))
+    }
+
+    @Test fun observedOutputOperationsAndUncertainOutcomesNeverAuthorizeRejectedBatchRecovery() = runBlocking {
+        val original = rejected()
+        val streams = listOf(
+            flowOf(ProviderEvent.ThinkingDelta("reasoning"), original),
+            flowOf(ProviderEvent.TextDelta("partial"), original),
+            flowOf(original, ProviderEvent.TextDelta("late output")),
+            flowOf(ProviderEvent.ToolCall("unexpected", "github_write", JsonObject(emptyMap())), original),
+            flowOf(original, original.copy(failureDetails = buildJsonObject { put("remote_acceptance", "UNKNOWN") })),
+            flowOf(original, original.copy(failureDetails = buildJsonObject { put("request_replay_allowed", false) })),
+            flowOf(original.copy(errorCode = "403")),
+            flowOf(original.copy(failureDetails = buildJsonObject { put("remote_acceptance", "ACCEPTED") })),
+            flowOf(original.copy(providerLimit = null)),
+            flowOf(original.copy(providerLimit = original.providerLimit!!.copy(knownNotAccepted = false)))
+        )
+        for (events in streams) {
+            val failure = failed(events)
+            assertEquals(null, GitHubClaimExtraction.rejectedDecision(failure))
+            assertFalse(GitHubClaimExtraction.RejectionRecovery().retry(failure, { 1000 }, { error("Unsafe retry") }, { error("Unsafe wait") }))
+        }
+    }
+
+    @Test fun authorityChangeAndCancellationAbortTheOwnedRetryBeforeAnotherInvocation() = runTest {
+        val failure = failed(flowOf(rejected()))
+        val changed = IllegalStateException("authority changed")
+        var validations = 0
+        try {
+            GitHubClaimExtraction.RejectionRecovery().retry(failure, { 1000 }, {
+                validations++
+                if (validations == 2) throw changed
+            }, {})
+            throw AssertionError("Expected revalidation failure")
+        } catch (actual: IllegalStateException) {
+            assertSame(changed, actual)
+        }
+        val cancelled = CancellationException("stop")
+        try {
+            GitHubClaimExtraction.RejectionRecovery().retry(failure, { 1000 }, {}, { throw cancelled })
+            throw AssertionError("Expected cancellation")
+        } catch (actual: CancellationException) {
+            assertSame(cancelled, actual)
+        }
+    }
+
+    @Test fun typedThrownRejectionKeepsItsDecisionButReasoningOutputRevokesReplay() = runBlocking {
+        val original = rejected().providerLimit!!
+        val error = dev.chungjungsoo.gptmobile.data.network.FreeProviderException(dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.PROVIDER_RATE_LIMITED, "Rate limited", original)
+        val noOutput = failed(flow { throw error })
+        assertSame(original, noOutput.providerFailure?.providerLimit)
+        assertSame(original, GitHubClaimExtraction.rejectedDecision(noOutput))
+        val partial = failed(
+            flow {
+                emit(ProviderEvent.ThinkingDelta("private"))
+                throw error
+            }
+        )
+        assertEquals(false, partial.providerFailure?.providerLimit?.knownNotAccepted)
+        assertEquals(null, GitHubClaimExtraction.rejectedDecision(partial))
     }
 
     @Test fun thrownTransportFailurePreservesCauseWithoutPublishingSensitiveMessage() = runBlocking {

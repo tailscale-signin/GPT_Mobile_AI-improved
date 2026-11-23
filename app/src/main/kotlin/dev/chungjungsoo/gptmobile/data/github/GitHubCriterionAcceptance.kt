@@ -9,6 +9,9 @@ import kotlinx.serialization.json.intOrNull
 
 /** Read, review and delivery obligations cannot borrow unrelated commit or test receipts. */
 internal object GitHubCriterionAcceptance {
+    /** The review prerequisite uses the same source proof as explicit inspection criteria. */
+    fun observedSourcePaths(receipt: JsonObject): Set<String> = sourceObservations(receipt).mapTo(linkedSetOf()) { it.path }
+
     fun evaluate(
         criterion: GitHubAcceptanceContract.Criterion,
         acceptance: JsonObject?,
@@ -19,6 +22,7 @@ internal object GitHubCriterionAcceptance {
         val linked = linkedIds.mapNotNull(receipts::get).filter(::eligible)
         val observations = linked.flatMap(::sourceObservations)
         return when (criterion.producer) {
+            GitHubAcceptanceContract.Producer.COMPARISON_OBSERVATION -> diffReview(linkedIds, receipts, comparisonOnly = true)
             GitHubAcceptanceContract.Producer.SOURCE_OBSERVATION -> inspection(criterion.text, observations)
             GitHubAcceptanceContract.Producer.DEFECT_ANALYSIS ->
                 if (observations.any { !instructionPath(it.path) }) passed("The checked finding cites observed source content") else missing("Link the nonempty source windows supporting this correctness finding; an instruction or search inventory alone does not establish a defect")
@@ -103,7 +107,7 @@ internal object GitHubCriterionAcceptance {
         return requireNotNull(GitHubOperationAcceptance.evaluate(canonical, exact, receipts, now)).let { GitHubRequestCompletion.Assessment(it.state, it.reason) }
     }
 
-    private fun diffReview(linkedIds: Set<String>, receipts: Map<String, JsonObject>): GitHubRequestCompletion.Assessment {
+    private fun diffReview(linkedIds: Set<String>, receipts: Map<String, JsonObject>, comparisonOnly: Boolean = false): GitHubRequestCompletion.Assessment {
         val coverage = GitHubComparisonCoverage.observe(receipts) { native(it)?.text("action") in setOf("changed_since", "compare_refs", "get_pull_request_files") }
         val head = receipts.values.lastOrNull { eligible(it) && it["head_observation"] == JsonPrimitive(true) }?.text("source_head_sha")
         val current = coverage?.receipts?.values?.filter { native(it)?.text("action") in setOf("changed_since", "compare_refs", "get_pull_request_files") }.orEmpty()
@@ -111,7 +115,7 @@ internal object GitHubCriterionAcceptance {
             coverage == null || linkedIds.none { it in coverage.receipts } -> missing("Link the pinned comparison supporting this diff review")
             !coverage.complete -> blocked("Read every remote comparison page and retained fragment before completing the diff review")
             head != null && current.any { data(it).text("head_sha") != head } -> blocked("The diff review belongs to a superseded repository head")
-            else -> passed("The review cites complete comparison coverage at the observed repository revision")
+            else -> passed(if (comparisonOnly) "The exact revision pair and complete changed-file inventory are linked; source inspection remains a separate obligation" else "The review cites complete comparison coverage at the observed repository revision")
         }
     }
 

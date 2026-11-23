@@ -1,12 +1,21 @@
-# 0.9.66.14 — 2026-11-23
+# 0.9.66.15 — 2026-11-23 (integration candidate)
+
+- Combine the retained continuation, source-evidence and runtime-reporting repairs with the repository-recovery and speech-playback work from the preceding candidate.
+- Preserve completed baseline decisions and required review questions while filtering unsupported answer-derived runtime claims; retain source-review, authorization and finite-budget controls.
+- Run release compatibility and lint with a fixed 4 GiB heap/1 GiB metaspace, observed 7,168 MiB admission, dedicated diagnostics and the combined 65-minute/3,840-second limits.
+- Recover once from the exact pinned CMake SDK non-ZIP preparation failure within the original build deadline, preserving verification and deterministic failures.
+- Plan coordinated Android 0.9.66.15/code 149 and Gateway 18.1.3 publication after actual-main/privacy integration, final-source qualification and published-asset verification.
 
 - Repair multi-name catalog lookup aliases without acquiring extra tools; retain precise verification-reserve stop reasons and the observed remaining allowance in approved reports.
+- Improve contextual privacy masking and streamed local restoration; add content-free final-request evidence, redacted diagnostic exports with a separate forensic choice, accurate private-memory readiness and an offline fictional privacy/intent/timing check.
+- Redact retained request and cited-source text in default exports, and recheck inherited authority before each restored fallback stream event.
+
+# 0.9.66.14 — 2026-11-23 (earlier branch candidate)
+
 - Retain all benchmark, GitHub integration, context, speech, privacy and recovery changes from the prior 0.9.66.13 candidate.
 - GitHub chat now follows a matching instruction file to its pinned source, continues independent work when a cached search cannot be refreshed, and reports the recorded tool allowance and available tools. Acceptance headings no longer count as tasks.
 - Give release lint the fixed 4 GiB heap/1 GiB metaspace profile already used by debug lint, require current-memory admission including a 2 GiB native reserve, and retain dedicated process/GC diagnostics. Preserve every release check and the 45-minute outer gate.
 - Request coordinated publication of Android 0.9.66.14 (version code 148) and Gateway 18.1.2 after current-head and main qualification.
-
-- Improve contextual privacy masking and streamed local restoration; add content-free final-request evidence, redacted diagnostic exports with a separate forensic choice, accurate private-memory readiness and an offline fictional privacy/intent/timing check.
 
 # 0.9.66.13 — 2026-11-22 (prior candidate)
 

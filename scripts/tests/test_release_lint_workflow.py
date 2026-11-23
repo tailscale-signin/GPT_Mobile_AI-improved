@@ -127,8 +127,8 @@ class ReleaseLintWorkflowTest(unittest.TestCase):
         step = lint_step()
         outer_minutes = int(re.search(r'(?m)^        timeout-minutes: (\d+)$', step)[1])
         inner_seconds = int(re.search(r'--timeout-seconds (\d+)', lint_command())[1])
-        self.assertEqual(45, outer_minutes)
-        self.assertEqual(2640, inner_seconds)
+        self.assertEqual(65, outer_minutes)
+        self.assertEqual(3840, inner_seconds)
         self.assertGreater(outer_minutes * 60 - inner_seconds, 15)
         for bypass in ('continue-on-error:', '|| true', '--continue', ' -x '):
             self.assertNotIn(bypass, step)

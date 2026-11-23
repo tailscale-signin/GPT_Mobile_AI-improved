@@ -14,6 +14,9 @@ internal enum class VoiceSpeechFailureCode {
     FRONTEND_TOKEN_LIMIT,
     FRONTEND_INVALID_VOICE,
     FRONTEND_INVALID_SPEED,
+    FRONTEND_LOAD,
+    MODEL_CONFIGURATION,
+    MODEL_OPEN,
     DEVICE_UNAVAILABLE,
     PROVIDER_LOAD,
     GRAPH_PARTITION,
@@ -23,7 +26,14 @@ internal enum class VoiceSpeechFailureCode {
     OUTPUT_INVALID,
     EXECUTION_FAILED;
 
-    val isInputFailure: Boolean get() = name.startsWith("FRONTEND_")
+    val isInputFailure: Boolean
+        get() = when (this) {
+            FRONTEND_INPUT_EMPTY, FRONTEND_INPUT_TOO_LONG, FRONTEND_INPUT_INVALID, FRONTEND_INVALID_SEPARATOR,
+            FRONTEND_NO_WORDS, FRONTEND_TOKEN_LIMIT, FRONTEND_INVALID_VOICE, FRONTEND_INVALID_SPEED -> true
+            else -> false
+        }
+
+    val isSetupFailure: Boolean get() = this == FRONTEND_LOAD || this == MODEL_CONFIGURATION
 }
 
 /** Numeric/operator provenance only. Kernel profiling is the first inference of this exact graph shape. */
@@ -68,7 +78,11 @@ internal data class VoiceSpeechExecutionEvidence(
     val failedInputBytes: Int? = null,
     val failedInputByteLimit: Int? = null,
     val failedTokenLimit: Int? = null,
-    val failedDiscoverySummary: String? = null
+    val failedDiscoverySummary: String? = null,
+    val frontendMs: Long? = null,
+    val validationMs: Long? = null,
+    val cacheEvictions: Int? = null,
+    val profileFinalizeMs: Long? = null
 ) {
     fun diagnostics(): Map<String, Any> = buildMap {
         put("speech_backend_selected", selectedBackend.name)
@@ -101,6 +115,10 @@ internal data class VoiceSpeechExecutionEvidence(
         cachedShapeCount?.let { put("speech_cached_shape_count", it) }
         cacheLimit?.let { put("speech_graph_cache_limit", it) }
         cacheEstimatedBytes?.let { put("speech_graph_cache_estimated_bytes", it) }
+        frontendMs?.takeIf { it >= 0 }?.let { put("speech_frontend_ms", it) }
+        validationMs?.takeIf { it >= 0 }?.let { put("speech_validation_ms", it) }
+        cacheEvictions?.takeIf { it >= 0 }?.let { put("speech_graph_cache_evictions", it) }
+        profileFinalizeMs?.takeIf { it >= 0 }?.let { put("speech_profile_finalize_ms", it) }
         audioRms?.takeIf { it.isFinite() && it >= 0 }?.let { put("speech_audio_rms", it) }
         audioPeak?.takeIf { it.isFinite() && it >= 0 }?.let { put("speech_audio_peak", it) }
         clippedSamples?.takeIf { it >= 0 }?.let { put("speech_audio_clipped_samples", it) }
@@ -159,7 +177,9 @@ internal fun speechFailureExecutionEvidence(error: Exception, requested: VoiceSp
         graphPreparedThisCall = native.graphPreparedThisCall,
         discoverySummary = safeSpeechDiscoverySummary(native.discoverySummary),
         failedInputBytes = failure.inputBytes, failedInputByteLimit = failure.inputByteLimit,
-        failedTokenLimit = failure.tokenLimit, failedDiscoverySummary = safeSpeechDiscoverySummary(failure.discoverySummary)
+        failedTokenLimit = failure.tokenLimit, failedDiscoverySummary = safeSpeechDiscoverySummary(failure.discoverySummary),
+        frontendMs = native.frontendMs, validationMs = native.validationMs,
+        cacheEvictions = native.cacheEvictions, profileFinalizeMs = native.profileFinalizeMs
     )
 }
 
@@ -210,8 +230,9 @@ internal data class VoiceBackendCapability(
     val discoverySummary: String? = null,
     val thermalStatuses: List<Int?> = emptyList()
 ) {
-    /** Invalid text cannot disable hardware that successfully synthesized earlier text. */
-    val cacheable: Boolean get() = failure?.isInputFailure != true && failureStage != VoiceSpeechStage.FRONTEND
+    /** Invalid text or local setup cannot disable hardware that synthesized earlier text. */
+    val cacheable: Boolean
+        get() = failure?.isInputFailure != true && failure?.isSetupFailure != true && failureStage != VoiceSpeechStage.FRONTEND
 
     val scoreMs: Long?
         get() = sampleMs.takeIf {

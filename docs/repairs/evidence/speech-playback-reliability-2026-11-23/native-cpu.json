@@ -1,0 +1,35 @@
+{
+  "physical_device_qualified": false,
+  "progress_stress_attempts": 1250000,
+  "results": {
+    "cpu-build-fence": 0,
+    "cpu-ctest-fence": 0,
+    "cpu-jni-fence": 0,
+    "cpu-progress-stress-fence": 0
+  },
+  "scope": "actual_host_native_CPU_model_JNI_with_Xcheck_jni_and_progress_stress",
+  "source_sha256": {
+    "local-kokoro-runtime/src/main/cpp/CMakeLists.txt": "9ef0135af312d3714dec5be15d094025251f08edab8d6c60b4d99bc35004d0d9",
+    "local-kokoro-runtime/src/main/cpp/kokoro_execution_provider.h": "0a09a6243ad35faaace4403f6a0d42083448ae71b6507c569900de65dacb74ab",
+    "local-kokoro-runtime/src/main/cpp/kokoro_gpu_discovery.h": "b1507081fb7578f90a4bbb4e51724162fa6359145f848af5adcee415b53851d3",
+    "local-kokoro-runtime/src/main/cpp/kokoro_measurement.h": "04f77d08a9c855774a6bfde5ea41d42df0f89bdf446b55c36d075e7539348116",
+    "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp": "1c7de24c6219e65bc4458140f47d4f0ac2f057566b0c34db43d2b435c8c67263",
+    "local-kokoro-runtime/src/main/cpp/kokoro_partition.h": "256bf291509366f54c59d5a2fc78f896b7522337ec3fab7c91f83740eef9f94b",
+    "local-kokoro-runtime/src/main/cpp/kokoro_partition_test.cpp": "e911513f9583350a19776d5e3d36aa313593d38e6da8c1b2a27b3d91f9e81c8a",
+    "local-kokoro-runtime/src/main/cpp/kokoro_profile.h": "5adc5ba6f3f685943e432281afb32dded7eb484662bfe1b1f05a9f5b8338d1d4",
+    "local-kokoro-runtime/src/main/cpp/kokoro_progress.h": "70ae4485c440cee8185e7c49e3d04815282c075e2e8a3b568273aff3c689511f",
+    "local-kokoro-runtime/src/main/cpp/kokoro_progress_test.cpp": "63dbafb809983195200b9d4d658a037384dcc4250e043903dde654c413242393",
+    "local-kokoro-runtime/src/main/cpp/kokoro_pronunciation.cpp": "5e76b90e4eeaa2076c0f46df551b88e346e170dd4f8fafc07581be6dd12d53ee",
+    "local-kokoro-runtime/src/main/cpp/kokoro_pronunciation.h": "bf6e39d01a8d33652cc8ed9a882fab73db15cbd7d9b9bfd45ddbf7d35528a217",
+    "local-kokoro-runtime/src/main/cpp/kokoro_pronunciation_test.cpp": "4d29ce47862f175069c740bcfdbaa50d096c152bc25a91010418f6af9bfa1176",
+    "local-kokoro-runtime/src/main/cpp/kokoro_provider_profile_test.cpp": "d353f7941b9bda9f836c23faca5ba61a6c1fe22b5b19c0f81c295963a0d43d36",
+    "local-kokoro-runtime/src/main/cpp/kokoro_qnn_adapter.cpp": "287da2c914e2c0d82864360578ae1fd0e3707cdf11faaf7f157c8f6fae3fb0c7",
+    "local-kokoro-runtime/src/main/cpp/kokoro_qnn_adapter_test.cpp": "ad4529a26e63fd3438e799941202c28166fe72f2c3fb82a48c08293281933d89",
+    "local-kokoro-runtime/src/main/cpp/kokoro_shape_cache.h": "63fa6bc88913777cc6c836c6237ab2512c402f35666ceaa772d5e141ab49d1c9",
+    "local-kokoro-runtime/src/main/cpp/sherpa-timing.patch": "69c827787f1354738c78a0c24f4fa7e727e968f7b1fae48820792faf562d4905",
+    "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp": "ffcdb13b431589637aa4c7b41c23d13ca67aa187a880ccdb61e8609ece495b02",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/KokoroFrontend.java": "6ea8e6d10a040454942bdb0dfb0382149c799dfe89d47df7ef9747d90075f28d",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java": "7de7ab8b24e48d5a338ebae380b02103225d86ad8065a706c250899791fd7825",
+    "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeIntegration.java": "5d2267c2451625ee09ade9ac3c8316ebc45f90e9375c88b48cfe51669a181833"
+  }
+}

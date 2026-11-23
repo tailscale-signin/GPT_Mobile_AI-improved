@@ -12,7 +12,48 @@ internal object GitHubPinnedPathResolver {
         GitHubWorkspaceClient.filePath(path)
         val entry = entries[path]
         if (entry != null) {
-            require(entry.text("mode") in setOf("", "100644", "100755") && entry.text("type") == "blob") { "Only regular text files can be read." }
+            if (entry.text("mode") !in setOf("", "100644", "100755") || entry.text("type") != "blob") {
+                val directory = entry.text("type") == "tree"
+                val code = if (directory) "GITHUB_PATH_IS_DIRECTORY" else "GITHUB_PATH_NOT_REGULAR_FILE"
+                throw GitHubReadValidation(
+                    code,
+                    buildJsonObject {
+                        put("schema", "github.read_validation.v1")
+                        put("error_code", code)
+                        put("status", "PRECHECK_REJECTED")
+                        put("failed_stage", "resolve_path")
+                        put("read_dispatched", false)
+                        put("retry_unchanged", false)
+                        put("path", path)
+                        put("commit_sha", commitSha)
+                        put("tree_complete", treeComplete)
+                        put("entry_type", entry.text("type"))
+                        put("entry_mode", entry.text("mode"))
+                        put("message", if (directory) "The requested path is a directory in the pinned tree. Discover a regular file beneath it before reading a line range." else "The requested path is not a regular file in the pinned tree. Symlinks and submodules are not followed by source reads.")
+                        put("candidates", JsonArray(emptyList()))
+                        put(
+                            "corrective_actions",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("tool", "github_search")
+                                        put(
+                                            "arguments",
+                                            buildJsonObject {
+                                                put("mode", "paths")
+                                                put("query", "*")
+                                                put("path_prefix", if (directory) "$path/" else path.substringBeforeLast('/', "").let { if (it.isBlank()) "" else "$it/" })
+                                                put("commit_sha", commitSha)
+                                                put("index_cursor", 0)
+                                            }
+                                        )
+                                    }
+                                )
+                            )
+                        )
+                    }
+                )
+            }
             return entry
         }
         val paths = entries.values.filter { it.text("type") == "blob" && it.text("mode") in setOf("", "100644", "100755") }.map { it.text("path") }

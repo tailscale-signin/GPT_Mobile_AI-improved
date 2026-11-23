@@ -49,19 +49,24 @@ int main() {
   cache.Insert(43, 40, std::make_unique<Session>(1));
   cache.Insert(117, 40, std::make_unique<Session>(2));
   Require(cache.Find(43)->value == 1 && cache.Size() == 2 && cache.Bytes() == 80);
+  Require(cache.Evictions() == 0);
   cache.Reserve(40);  // Evict 117 before allocating its replacement.
   Require(cache.Size() == 1 && cache.Find(117) == nullptr);
+  Require(cache.Evictions() == 1);
   cache.Insert(83, 40, std::make_unique<Session>(3));
   Require(cache.Find(43)->value == 1 && cache.Find(83)->value == 3);
   cache.UpdateActiveBytes(80);  // Measured memory growth retires idle 43.
   Require(cache.Size() == 1 && cache.Find(43) == nullptr && cache.Bytes() == 80);
+  Require(cache.Evictions() == 2);
   cache.SetLimit(1);
   cache.Reserve(120);  // One indispensable model may exceed the cache budget.
   Require(cache.Size() == 0);
+  Require(cache.Evictions() == 3);
   cache.Insert(111, 120, std::make_unique<Session>(4));
   Require(cache.Size() == 1 && cache.Bytes() == 120 && cache.Find(112) == nullptr);
   cache.Erase(111);
   Require(cache.Size() == 0 && cache.Bytes() == 0);
+  Require(cache.Evictions() == 4);
 
   using Code = kokoro_runtime::GpuDiscoveryCode;
   Require(kokoro_runtime::ProbeQualcommGpu({}).code == Code::ApiUnavailable);

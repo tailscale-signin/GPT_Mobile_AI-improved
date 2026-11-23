@@ -220,7 +220,7 @@ internal object GitHubSelfTestReads {
             } else {
                 recipe
             }
-            val prior = observations.filter { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }
+            val prior = observations.filter { tool.name.githubReadFacadeMatches(it.text("tool")) && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }
             val legacyEmptyTasks = name == "github_pr" &&
                 args.text("action") == "copilot_tasks" &&
                 prior.singleOrNull()?.let { failed ->

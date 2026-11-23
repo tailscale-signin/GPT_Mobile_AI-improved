@@ -6,6 +6,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -16,6 +17,8 @@ class VoiceFailoverPhraseEngineTest {
         val phrases = mutableListOf<String>()
         var closes = 0
         var cancellations = 0
+        var progress: VoiceSpeechProgress? = null
+        override val executionProgress: VoiceSpeechProgress? get() = progress
         override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
             check(closes == 0) { "Kokoro is closed" }
             phrases += text
@@ -66,6 +69,25 @@ class VoiceFailoverPhraseEngineTest {
         }
         assertEquals(1, gpu.closes)
         assertFalse(engine.canReuse)
+    }
+
+    @Test fun liveProgressBelongsToTheCurrentDelegateAndDisappearsAfterClose() {
+        val gpu = Engine(fail = true).apply {
+            progress = VoiceSpeechProgress(VoiceSpeechStage.PREPARING, 1, 2, 400, 450, false)
+        }
+        val cpu = Engine().apply {
+            progress = VoiceSpeechProgress(VoiceSpeechStage.SYNTHESIS, 1, 3, 20, 50, false)
+        }
+        val engine = VoiceFailoverPhraseEngine(gpu, true) { cpu }
+        assertSame(gpu.progress, engine.executionProgress)
+        engine.generate("unplayed", 0, 1f)
+        assertSame(cpu.progress, engine.executionProgress)
+        engine.cancel()
+        cpu.progress = checkNotNull(cpu.progress).copy(cancellationRequested = true)
+        assertSame(cpu.progress, engine.executionProgress)
+        assertEquals(20L, engine.executionProgress?.stageElapsedMs)
+        engine.close()
+        assertNull(engine.executionProgress)
     }
 
     @Test fun ordinaryCancellationKeepsAHealthyResidentEngineReusable() {

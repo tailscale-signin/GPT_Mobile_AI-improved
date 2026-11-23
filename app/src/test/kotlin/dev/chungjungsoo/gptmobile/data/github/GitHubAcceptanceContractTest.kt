@@ -72,7 +72,19 @@ class GitHubAcceptanceContractTest {
         val requirements = GitHubRequestCompletion.requirements(request)
         val criteria = GitHubAcceptanceContract.criteria(request, requirements)
         assertEquals(8, criteria.size)
-        assertEquals(GitHubAcceptanceContract.Producer.entries.filter { it != GitHubAcceptanceContract.Producer.REQUEST_SPECIFIC }, criteria.map { it.producer })
+        assertEquals(
+            listOf(
+                GitHubAcceptanceContract.Producer.SOURCE_OBSERVATION,
+                GitHubAcceptanceContract.Producer.DEFECT_ANALYSIS,
+                GitHubAcceptanceContract.Producer.REVISION_AND_TESTS,
+                GitHubAcceptanceContract.Producer.REGRESSION_AND_TESTS,
+                GitHubAcceptanceContract.Producer.VALIDATION_JOBS,
+                GitHubAcceptanceContract.Producer.DIFF_REVIEW,
+                GitHubAcceptanceContract.Producer.DRAFT_PULL_REQUEST,
+                GitHubAcceptanceContract.Producer.EVIDENCE_REPORT
+            ),
+            criteria.map { it.producer }
+        )
         for (criterion in criteria) {
             assertEquals(criterion.text, request.substring(requireNotNull(criterion.sourceStart), requireNotNull(criterion.sourceEnd)))
             assertEquals(GitHubRequestCompletion.id(criterion.text), criterion.id)

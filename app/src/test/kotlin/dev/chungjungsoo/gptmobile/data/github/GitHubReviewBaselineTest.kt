@@ -16,7 +16,10 @@ import org.junit.Test
 class GitHubReviewBaselineTest {
     @Test fun comparisonCoverageSeparatesObservedSourceFromPendingFilesAndReviewAcceptance() {
         val compared = receipt("github_context", json("""{"action":"changes","base_sha":"$base","commit_sha":"$head"}"""), json("""{"base_sha":"$base","head_sha":"$head","files":[{"filename":"A.kt"},{"filename":"B.kt"}],"has_more":false}"""))
-        val source = receipt("github_read", json("""{"commit_sha":"$head"}"""), json("""{"commit_sha":"$head","items":[{"path":"A.kt","start_line":1,"end_line":20}]}"""))
+        val source = JsonObject(
+            receipt("github_read", json("""{"commit_sha":"$head"}"""), json("""{"commit_sha":"$head","items":[{"path":"A.kt","commit_sha":"$head","sha":"${"c".repeat(40)}","expected_blob_sha":"${"c".repeat(40)}","content":"fun observed() = true","start_line":1,"end_line":1,"total_lines":1,"range_complete":true}]}""")) +
+                ("source_head_sha" to JsonPrimitive(head))
+        )
         val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $base", tools, mapOf("status" to context(), "comparison" to compared, "source" to source)))
         assertEquals(JsonPrimitive("READ_CHANGED_SOURCE"), plan.checkpoint["state"])
         val coverage = plan.checkpoint.getValue("comparison_coverage").jsonObject
@@ -539,11 +542,13 @@ class GitHubReviewBaselineTest {
             json("""{"base_sha":"$base","head_sha":"$head","files":[{"filename":"src/File.kt"}],"files_total":1,"has_more":false}"""),
             repository
         )
-        fun source(repository: String) = receipt(
-            "github_read",
-            json("""{"commit_sha":"$head","ranges":[{"path":"src/File.kt"}]}"""),
-            json("""{"commit_sha":"$head"}"""),
-            repository
+        fun source(repository: String) = JsonObject(
+            receipt(
+                "github_read",
+                json("""{"commit_sha":"$head","ranges":[{"path":"src/File.kt"}]}"""),
+                json("""{"commit_sha":"$head","items":[{"path":"src/File.kt","commit_sha":"$head","sha":"${"c".repeat(40)}","expected_blob_sha":"${"c".repeat(40)}","content":"fun observed() = true","start_line":1,"end_line":1,"total_lines":1,"range_complete":true}]}"""),
+                repository
+            ) + ("source_head_sha" to JsonPrimitive(head))
         )
         val foreignComparison = requireNotNull(GitHubReviewComparison.plan(task, tools, mapOf("status" to context(), "changes" to changes("other/repo"))))
         assertEquals(JsonPrimitive("COMPARE_REQUIRED"), foreignComparison.checkpoint["state"])

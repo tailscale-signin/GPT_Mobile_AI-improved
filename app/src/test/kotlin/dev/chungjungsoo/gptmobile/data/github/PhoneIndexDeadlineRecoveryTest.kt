@@ -51,6 +51,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -65,7 +66,8 @@ class PhoneIndexDeadlineRecoveryTest {
     }
 
     private suspend fun verifyInterruptedProgress(fixture: Fixture, budgeted: Boolean) {
-        val limits = AgentRunLimits(githubTask = true, toolTimeoutMillis = 5000, maxToolCalls = 8)
+        // Exercise the outer owner before the session returns its bounded partial result.
+        val limits = AgentRunLimits(githubTask = true, toolTimeoutMillis = 3000, maxToolCalls = 8)
         val budget = ToolExecutionBudget(limits)
         val native = fixture.tool()
         val tool = if (budgeted) budget.bind(native) else native
@@ -97,6 +99,39 @@ class PhoneIndexDeadlineRecoveryTest {
         assertTrue(fixture.repositoryReads.get() >= 3)
         assertTrue(status.executionReceipt?.get("confirmed_index_attempt_hash") == null)
         assertTrue(resumed.executionReceipt?.get("confirmed_index_attempt_hash") == null)
+    }
+
+    @Test fun innerBlobDeadlineRetainsPartialProgressWithoutClaimingOuterInterruption() = runBlocking {
+        Fixture().use { fixture ->
+            val limits = AgentRunLimits(githubTask = true, toolTimeoutMillis = 10_000, maxToolCalls = 8)
+            val tool = ToolExecutionBudget(limits).bind(fixture.tool())
+            val partial = tool.execute("inner-deadline", arguments("index"))
+            assertTrue(fixture.secondBlobEntered.isCompleted)
+            withTimeout(5000) { fixture.secondBlobStopped.await() }
+            assertTrue(fixture.secondBlobStopped.isCompleted)
+            assertFalse(partial.isError)
+            assertNull(partial.errorCode)
+            assertTrue(partial.executionReceipt?.get("local_work_stopped") != JsonPrimitive(true))
+            assertTrue(partial.executionReceipt?.get("confirmed_index_attempt_hash") == null)
+            val progress = body(partial)
+            assertEquals(JsonPrimitive(true), progress["read_deadline_reached"])
+            assertEquals(JsonPrimitive("time_budget"), progress["stop_reason"])
+            assertEquals(JsonPrimitive(false), progress["preparation_finished"])
+            assertEquals(JsonPrimitive(false), progress.getValue("graph").jsonObject["coverage_complete"])
+            assertEquals(JsonPrimitive(1), progress.getValue("graph").jsonObject["processed_files"])
+            assertEquals(1, fixture.firstBlobReads.get())
+            assertEquals(1, fixture.secondBlobReads.get())
+
+            val cursor = progress.getValue("index_cursor").jsonPrimitive.content
+            val resumed = tool.execute("resume-inner-deadline", arguments("index", cursor))
+            assertFalse(resumed.isError)
+            assertEquals(JsonPrimitive(true), body(resumed).getValue("graph").jsonObject["coverage_complete"])
+            assertEquals(1, fixture.firstBlobReads.get())
+            assertEquals(2, fixture.secondBlobReads.get())
+            assertEquals(0, fixture.mutations.get())
+            assertTrue(fixture.repositoryReads.get() >= 2)
+            assertTrue(resumed.executionReceipt?.get("confirmed_index_attempt_hash") == null)
+        }
     }
 
     @Test fun parentCancellationPropagatesAndDoesNotFenceTheStoppedLocalBatch() = runBlocking {
@@ -263,7 +298,7 @@ class PhoneIndexDeadlineRecoveryTest {
                     repositoryScope = context,
                     connectionUid = context.connectionUid,
                     durableIdentity = "verified-account",
-                    graphQuery = { payload -> repository.executeForMap(context, JsonObject(payload - "map_source"), forModel = true).result }
+                    graphQuery = { scope, payload -> repository.executeForMap(scope, JsonObject(payload - "map_source"), forModel = true).result }
                 ).graphTool()
             )
         }

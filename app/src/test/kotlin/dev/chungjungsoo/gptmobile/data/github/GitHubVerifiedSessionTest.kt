@@ -1663,6 +1663,8 @@ class GitHubVerifiedSessionTest {
         assertEquals(JsonPrimitive(429), failed.failureDetails?.get("http_status"))
         assertEquals(JsonPrimitive(false), failed.failureDetails?.get("logical_continuation_allowed"))
         assertEquals(JsonPrimitive(false), failed.failureDetails?.get("automatic_retry_allowed"))
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitSchedulingResult.claimExtractionCheckpoint(failed.failureDetails))
+        assertEquals(JsonPrimitive(31_156), failed.failureDetails?.get("retry_at_ms"))
         assertTrue(stored.values.any { it["pending"] == JsonPrimitive(true) && it["draft"] != null })
 
         val noGeneration = object : AgentProviderSession {
@@ -1673,6 +1675,92 @@ class GitHubVerifiedSessionTest {
         assertEquals(null, redelivered.providerLimit)
         assertEquals(null, redelivered.invocationId)
         for (key in listOf("dispatched", "invocation_id", "http_status", "retry_after_ms", "remote_acceptance")) assertFalse(redelivered.failureDetails.orEmpty().containsKey(key))
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun shortRejectedExtractionResumesOnlyItsOwnedBatchAndKeepsThePrimaryDraft() = runTest {
+        val stored = mutableMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), now = { 1000 + testScheduler.currentTime }, load = { stored[it] }, save = { key, value -> stored[key] = value })
+        var generations = 0
+        var extractions = 0
+        var firstExtractionAt: Long? = null
+        val primary = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                generations++
+                emit(ProviderEvent.TextDelta("Saved draft"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val rejected = ProviderEvent.Failed(
+            "Rate limited",
+            errorCode = "429",
+            providerLimit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OPENROUTER", "selected", "selected-model", 2217, "selected-scope", "RATE_LIMIT", true, httpStatus = 429),
+            invocationId = "rejected-claim-batch",
+            failureDetails = buildJsonObject {
+                put("remote_acceptance", "NO")
+                put("request_replay_allowed", true)
+            }
+        )
+        val gate = GitHubVerifiedSession(primary, book, "Explain the source", { 8192 }, {
+            assertTrue(stored.values.any { it["pending"] == JsonPrimitive(true) && it["draft"] == JsonPrimitive("Saved draft") })
+            extractions++
+            if (extractions == 1) {
+                firstExtractionAt = testScheduler.currentTime
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(rejected)
+                }
+            } else {
+                assertTrue(testScheduler.currentTime >= 1217)
+                val started = requireNotNull(firstExtractionAt)
+                val remainingWait = (requireNotNull(rejected.providerLimit).retryAt - (1000 + started)).coerceAtLeast(0)
+                assertEquals(remainingWait, testScheduler.currentTime - started)
+                answer("""{"claims":[{"kind":"not_measured","subject":"Remaining acceptance"}]}""")
+            }
+        }, {}, {}, now = { 1000 + testScheduler.currentTime }, computationDispatcher = StandardTestDispatcher(testScheduler))
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, generations)
+        assertEquals(2, extractions)
+        assertTrue(events.none { it is ProviderEvent.Failed && it.errorCode == "429" })
+        assertTrue(events.none { it is ProviderEvent.Failed && it.errorCode == "GITHUB_EXTRACTION_TIMEOUT" })
+        val checkpoint = stored.entries.single { it.key.startsWith("claim_extraction_current_") }.value
+        assertEquals(JsonPrimitive(false), checkpoint["pending"])
+        assertEquals(JsonPrimitive("Saved draft"), checkpoint["draft"])
+        assertEquals(1, checkpoint.getValue("batches").jsonArray.size)
+        assertTrue(checkpoint.getValue("batches").jsonArray.all { it is JsonObject })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun secondShortExtractionRejectionRetainsAnExplicitCheckpointWithoutAnotherRetry() = runTest {
+        var extractions = 0
+        val stored = mutableMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), now = { 1000 + testScheduler.currentTime }, load = { stored[it] }, save = { key, value -> stored[key] = value })
+        val gate = GitHubVerifiedSession(answer("Saved draft"), book, "Explain the source", { 8192 }, {
+            extractions++
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                    ProviderEvent.Failed(
+                        "Rate limited",
+                        errorCode = "429",
+                        providerLimit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OPENROUTER", "selected", "selected-model", 2217 + testScheduler.currentTime, "selected-scope", "RATE_LIMIT", true, httpStatus = 429),
+                        invocationId = "rejected-batch-$extractions",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "model_invocation")
+                            put("remote_acceptance", "NO")
+                            put("request_replay_allowed", true)
+                        }
+                    )
+                )
+            }
+        }, {}, {}, now = { 1000 + testScheduler.currentTime })
+        val failed = gate.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertEquals(2, extractions)
+        assertEquals("rejected-batch-2", failed.invocationId)
+        assertEquals(null, failed.providerLimit)
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitSchedulingResult.claimExtractionCheckpoint(failed.failureDetails))
+        assertEquals(JsonPrimitive(false), failed.failureDetails?.get("automatic_retry_allowed"))
+        assertEquals(JsonPrimitive(true), stored.entries.single { it.key.startsWith("claim_extraction_current_") }.value["pending"])
     }
 
     @Test fun providerExtractionCodesCannotBypassTheConfirmedRepairDisposition() = runBlocking {
@@ -2007,6 +2095,89 @@ class GitHubVerifiedSessionTest {
         assertEquals(2, combined.getValue("claims").jsonArray.size)
         assertEquals(answer("""{"one":[0],"two":[1,0]}"""), combined["requirement_claims"])
         assertTrue(runCatching { GitHubClaimBatches.validate(second, GitHubClaimBatches.Request("", setOf("one"))) }.isFailure)
+    }
+
+    @Test fun largeReviewReservesExactComparisonFactsInsideEveryVerificationBatch() = runBlocking {
+        val head = "a".repeat(40)
+        val base = "b".repeat(40)
+        val book = GitHubEvidenceBook("review", "owner/repo", "main", setOf("github_context"), now = { 1000L })
+        book.observe(
+            ProviderEvent.ToolCall("status", "github_context", buildJsonObject { put("action", "status") }),
+            AgentToolResult(
+                "status",
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("branch", "main")
+                        put("default_branch", "main")
+                        put("commit_sha", head)
+                    }
+                ),
+                false
+            )
+        )
+        repeat(11) { index ->
+            val count = if (index == 10) 55 else 100
+            val id = "comparison-$index"
+            book.observe(
+                ProviderEvent.ToolCall(
+                    id,
+                    "github_context",
+                    buildJsonObject {
+                        put("action", "changes")
+                        put("base_sha", base)
+                        put("commit_sha", head)
+                        put("page", index + 1)
+                        put("per_page", 100)
+                    }
+                ),
+                AgentToolResult(
+                    id,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("base_sha", base)
+                            put("head_sha", head)
+                            put("files_total", 1055)
+                            put("page", index + 1)
+                            put("per_page", 100)
+                            put("has_more", index < 10)
+                            put(
+                                "files",
+                                JsonArray(
+                                    (1..count).map { file ->
+                                        buildJsonObject {
+                                            put("filename", "src/Source${index * 100 + file}.kt")
+                                            put("status", "modified")
+                                        }
+                                    }
+                                )
+                            )
+                        }
+                    ),
+                    false
+                )
+            )
+        }
+        val task = "Review this branch.\nBaseline: $base\nAcceptance criteria:\n- Inspect the exact head/base revisions and changed files\n- Identify correctness findings with file/line evidence"
+        val prompts = mutableListOf<JsonObject>()
+        val gate = GitHubVerifiedSession(answer("Source review is incomplete."), book, task, { 6000 }, { prompt ->
+            assertTrue(TextTokenEstimate.estimate(prompt) <= 6000)
+            val payload = Json.parseToJsonElement(prompt).jsonObject
+            prompts += payload
+            val state = payload.getValue("review_state").jsonObject
+            assertEquals(JsonPrimitive(base), state["base_sha"])
+            assertEquals(JsonPrimitive(head), state["head_sha"])
+            assertEquals(JsonPrimitive(true), state["comparison_verified"])
+            assertEquals(JsonPrimitive(1055), state.getValue("comparison_coverage").jsonObject["changed_files_observed"])
+            val compared = payload.getValue("catalog").jsonArray.map { it.jsonObject }
+                .filter { it.getValue("arguments").jsonObject["action"] == JsonPrimitive("changes") }
+            assertTrue(compared.size >= 2)
+            assertTrue(compared.all { it.getValue("facts").jsonObject["/base_sha"] == JsonPrimitive(base) })
+            answer("""{"claims":[{"kind":"not_measured","subject":"Source correctness review"}]}""")
+        }, {}, {}, now = { 300_000L })
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(prompts.isNotEmpty())
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
     }
 
     @Test fun newestReceiptPrefixFitsBudgetAndShrinkingCapacityPreventsDispatch() = runBlocking {

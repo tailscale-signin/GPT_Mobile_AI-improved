@@ -92,16 +92,28 @@ class PhoneRepositoryGraphRepositoryTest {
         install(PrivateExternalServiceGate)
     }
 
-    private fun repository(http: HttpClient): PhoneRepositoryGraphRepository {
+    private fun repository(http: HttpClient, indexTimeoutMs: Long = 20_000): PhoneRepositoryGraphRepository {
         coEvery { settings.fetchPlatformV2s() } coAnswers { profiles }
         coEvery { settings.getFeatureSettings() } coAnswers { features }
         coEvery { connections.getConnection("github") } coAnswers { connection }
         coEvery { authentication.accessToken(any()) } returns "test-only-token"
         coEvery { authentication.durableIdentity("github") } coAnswers { account }
-        return PhoneRepositoryGraphRepository(settings, connections, authentication, state) { it.createClient(http) }
+        return PhoneRepositoryGraphRepository(settings, connections, authentication, state, indexOperationTimeoutMs = indexTimeoutMs) { it.createClient(http) }
     }
 
     private fun action(name: String) = buildJsonObject { put("action", name) }
+
+    @Test fun phoneIndexDeadlineAlsoBoundsAuthenticationBeforeSourceDispatch() = kotlinx.coroutines.runBlocking {
+        http().use { transport ->
+            val reader = repository(transport, indexTimeoutMs = 100)
+            coEvery { authentication.accessToken(any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+            val failure = runCatching { reader.executeForMap(context, action("index")) }.exceptionOrNull() as GatewayGraphOperationException
+            assertEquals("READ_DEADLINE", failure.failureCode)
+            assertEquals(context.commitSha, failure.targetRevision)
+            assertFalse(failure.indexOutcomeUnknown)
+            assertEquals(0, requests)
+        }
+    }
 
     @Test fun cloudProfileWithoutGatewayOrPersistentEngineeringMemoryGetsNativeMap() = runTest {
         http().use { transport ->

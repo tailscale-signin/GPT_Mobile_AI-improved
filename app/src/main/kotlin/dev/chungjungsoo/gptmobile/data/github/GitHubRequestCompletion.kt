@@ -210,6 +210,7 @@ internal object GitHubRequestCompletion {
         }
         val unanswered = pendingApprovals || pendingDecision
         val comparisonMissing = GitHubReviewComparison.incompleteReason(task, receipts)
+        val comparisonPrerequisiteMissing = GitHubReviewComparison.comparisonIncompleteReason(task, receipts)
         val rows = requirements.map { requirement ->
             val criterion = criteria.getValue(id(requirement))
             if (requirement == GitHubIssueRemediation.INVENTORY_REQUIREMENT && GitHubIssueRemediation.requested(task)) {
@@ -257,7 +258,15 @@ internal object GitHubRequestCompletion {
             val covered = claimsCovered && (!sessionReview || linkedReceiptIds.isNotEmpty()) && (!recommendationRequirement || recommendationClaimed)
             var acceptanceBranch = "ACCEPTANCE_MAPPING_REQUIRED"
             val issueAssessment = GitHubIssueRemediation.obligationAssessment(requirement, task, issueWork, answer["acceptance"] as? JsonObject, citedReceiptIds, receipts, now)
-            val criterionAssessment = if (informational) null else GitHubCriterionAcceptance.evaluate(criterion, acceptance, linkedReceiptIds, receipts, now)
+            val reviewEvidenceRequired = informational &&
+                GitHubReviewComparison.matches(task) &&
+                criterion.producer in setOf(
+                    GitHubAcceptanceContract.Producer.COMPARISON_OBSERVATION,
+                    GitHubAcceptanceContract.Producer.SOURCE_OBSERVATION,
+                    GitHubAcceptanceContract.Producer.DEFECT_ANALYSIS,
+                    GitHubAcceptanceContract.Producer.DIFF_REVIEW
+                )
+            val criterionAssessment = if (informational && !reviewEvidenceRequired) null else GitHubCriterionAcceptance.evaluate(criterion, acceptance, linkedReceiptIds, receipts, now)
             val assessment = criterionAssessment?.also { acceptanceBranch = "CRITERION_SPECIFIC_ACCEPTANCE" } ?: issueAssessment?.also { acceptanceBranch = "OPERATION_ACCEPTANCE" } ?: acceptance?.let {
                 GitHubOperationAcceptance.evaluate(requirement, it, receipts, now)?.let { operation ->
                     if (operation.state == GitHubAcceptanceLedger.State.PASS && GitHubRepositoryLifecycle.intent(requirement) != null && GitHubRepositoryAcceptance.requiresAdditionalEvidence(requirement)) {
@@ -274,9 +283,10 @@ internal object GitHubRequestCompletion {
                     }
             }
             val implementedAndTested = assessment?.state == GitHubAcceptanceLedger.State.PASS
-            val reviewBlocker = comparisonMissing?.takeIf { GitHubReviewComparison.requiresComparison(requirement) }
+            val reviewBlocker = (if (GitHubReviewComparison.comparisonOnly(requirement)) comparisonPrerequisiteMissing else comparisonMissing)
+                ?.takeIf { GitHubReviewComparison.requiresComparison(requirement) }
             val pendingDependencies = if (informational) emptyList() else criterion.dependencies.filter { it !in completedCriteria }
-            val passed = covered && !unanswered && reviewBlocker == null && pendingDependencies.isEmpty() && (informational || implementedAndTested)
+            val passed = covered && !unanswered && reviewBlocker == null && pendingDependencies.isEmpty() && (informational && !reviewEvidenceRequired || implementedAndTested)
             if (passed) completedCriteria += criterion.id
             val state = when {
                 passed -> GitHubAcceptanceLedger.State.PASS

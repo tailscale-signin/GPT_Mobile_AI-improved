@@ -319,7 +319,7 @@ internal class GitHubVerifiedSession(
             val observed = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
             if (observed != null) {
                 val report = observed.second
-                if (report["observation_state"] == JsonPrimitive("WAITING_FOR_CI") && report["background_monitoring_registered"] != JsonPrimitive(true)) {
+                if (report["observation_state"] == JsonPrimitive("WAITING_FOR_CI") && report["run_id"] != null && report["background_monitoring_registered"] != JsonPrimitive(true)) {
                     val watch = tools.singleOrNull { it.modelVisible && JsonPrimitive(it.name) == report["watch_tool"] }
                     val args = buildJsonObject {
                         put("run_id", report.getValue("run_id"))
@@ -501,9 +501,19 @@ internal class GitHubVerifiedSession(
         }
         if (GitHubReviewComparison.matches(task)) {
             val comparisonTools = if (remainingToolCalls()?.let { it > 0 } != false) tools else emptyList()
-            val comparison = withContext(computationDispatcher) { GitHubReviewComparison.plan(task, comparisonTools, evidence.snapshot().first, authorizedTools) }
+            val comparison = withContext(computationDispatcher) {
+                val receipts = evidence.snapshot().first
+                val sourceAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remainingToolCalls(), GitHubChecklistBudget.ordinaryVerificationReserve(executionCallLimit))
+                GitHubReviewComparison.plan(task, comparisonTools, receipts, authorizedTools, acquireSource = sourceAllowed)
+            }
             comparison?.nextCall?.let { next ->
-                progress(if (next.name == "github_decide") "Waiting for your review baseline" else "Resolving exact review comparison revisions")
+                progress(
+                    when {
+                        next.name == "github_decide" -> "Waiting for your review baseline"
+                        comparison.checkpoint["comparison_verified"] == JsonPrimitive(true) -> "Reading changed source at the saved review revisions"
+                        else -> "Resolving exact review comparison revisions"
+                    }
+                )
                 emit(next)
                 emit(ProviderEvent.Completed)
                 return@flow
@@ -1437,7 +1447,7 @@ internal class GitHubVerifiedSession(
                         failureCode ?: extractionCode ?: (delivered["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE"
                     },
                     transportComplete = currentFailure?.transportComplete ?: true,
-                    providerLimit = originalFailure?.providerLimit?.takeUnless { unresolved },
+                    providerLimit = originalFailure?.providerLimit?.takeIf { currentFailure === originalFailure }?.takeUnless { unresolved },
                     invocationId = currentFailure?.invocationId,
                     taskOutcome = if (approvalIsPrimary || currentFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
                     failureDetails = if (approvalIsPrimary) {
@@ -1512,7 +1522,12 @@ internal class GitHubVerifiedSession(
         fun completedCount() = completed.count { it != null }
         val requirementIds = requests.map { it.requirementIds }
         val attempt = GitHubClaimExtraction.Attempt()
-        suspend fun failed(code: String, providerFailure: ProviderEvent.Failed? = null, observations: JsonObject? = null): ClaimExtraction {
+        suspend fun failed(
+            code: String,
+            providerFailure: ProviderEvent.Failed? = null,
+            observations: JsonObject? = null,
+            rejectedLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
+        ): ClaimExtraction {
             val inspectTimeout = code == "GITHUB_EXTRACTION_TIMEOUT" && providerFailure?.transportComplete == false
             val (text, report) = partial(receipts, epoch, code, inspectExtractorFailure = inspectTimeout)
             val retained = JsonObject(
@@ -1530,13 +1545,24 @@ internal class GitHubVerifiedSession(
                             put("failed_stage", "claim_extraction")
                             put(
                                 "recovery_action",
-                                when (code) {
-                                    "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
-                                    "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA"
-                                    "GITHUB_EXTRACTION_TIMEOUT" -> if (inspectTimeout) "INSPECT_THE_RECORDED_PROVIDER_FAILURE" else "RESUME_UNFINISHED_EXTRACTION_BATCHES"
-                                    else -> "INSPECT_THE_RECORDED_PROVIDER_FAILURE"
+                                if (rejectedLimit != null) {
+                                    "RESUME_UNFINISHED_EXTRACTION_BATCHES_AFTER_RETRY_AT"
+                                } else {
+                                    when (code) {
+                                        "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
+                                        "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA"
+                                        "GITHUB_EXTRACTION_TIMEOUT" -> if (inspectTimeout) "INSPECT_THE_RECORDED_PROVIDER_FAILURE" else "RESUME_UNFINISHED_EXTRACTION_BATCHES"
+                                        else -> "INSPECT_THE_RECORDED_PROVIDER_FAILURE"
+                                    }
                                 }
                             )
+                            rejectedLimit?.let { limit ->
+                                put("retry_at_ms", limit.retryAt)
+                                put("provider_wait_no_wait_reason", "CLAIM_EXTRACTION_CHECKPOINT_REQUIRED")
+                                put("provider_wait_decision_state", "NOT_SCHEDULED")
+                                put("provider_wait_scheduler_state", "NOT_SCHEDULED")
+                                put("provider_wait_persisted", false)
+                            }
                             providerFailure?.invocationId?.let { put("invocation_id", it) }
                             providerFailure?.errorCode?.let { put("provider_error_code", it) }
                             providerFailure?.let { put("transport_complete", it.transportComplete) }
@@ -1562,11 +1588,15 @@ internal class GitHubVerifiedSession(
                     put("extraction_batches_total", requests.size)
                 }
             )
-            val stageMessage = when (code) {
-                "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "Claim verification reached its output limit. The repository observations and completed claim batches are saved."
-                "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "Claim verification received invalid structured output. The repository observations and completed claim batches are saved."
-                "CONNECTION_ABORTED", "TRANSPORT_EOF", "INCOMPLETE_PROVIDER_STREAM" -> "The provider stream ended during claim verification. Saved ${completedCount()} of ${requests.size} verified batches and the original repository observations. Inspect the interrupted request before resuming the unfinished batch."
-                else -> null
+            val stageMessage = if (rejectedLimit != null) {
+                "The provider rate limited claim verification. The repository observations and ${completedCount()} of ${requests.size} verified batches are saved. Resume only the unfinished extraction batches after the recorded retry time."
+            } else {
+                when (code) {
+                    "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "Claim verification reached its output limit. The repository observations and completed claim batches are saved."
+                    "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "Claim verification received invalid structured output. The repository observations and completed claim batches are saved."
+                    "CONNECTION_ABORTED", "TRANSPORT_EOF", "INCOMPLETE_PROVIDER_STREAM" -> "The provider stream ended during claim verification. Saved ${completedCount()} of ${requests.size} verified batches and the original repository observations. Inspect the interrupted request before resuming the unfinished batch."
+                    else -> null
+                }
             }
             val failure = providerFailure?.copy(message = stageMessage ?: providerFailure.message, errorCode = code, failureDetails = details) ?: ProviderEvent.Failed(
                 stageMessage ?: "Claim extraction did not finish. Saved evidence and unfinished batches remain available.",
@@ -1596,16 +1626,18 @@ internal class GitHubVerifiedSession(
                 ClaimExtraction(result)
             } ?: failed(attempt.terminalFailure?.errorCode ?: "GITHUB_EXTRACTION_TIMEOUT", attempt.failureAtDeadline())
         } catch (failure: GitHubClaimExtraction.Failure) {
-            failed(failure.code, failure.providerFailure, failure.observations)
+            failed(failure.code, failure.providerFailure, failure.observations, GitHubClaimExtraction.rejectedDecision(failure))
         }
     }
 
     private suspend fun extractBatch(request: GitHubClaimBatches.Request, attempt: GitHubClaimExtraction.Attempt): JsonObject {
         var current = request
+        val rejectionRecovery = GitHubClaimExtraction.RejectionRecovery()
         while (true) {
             try {
                 return GitHubClaimExtraction.collect(current, openVerifier, computationDispatcher, attempt)
             } catch (failure: GitHubClaimExtraction.Failure) {
+                if (rejectionRecovery.retry(failure, now, validatePublication)) continue
                 if (!failure.repairAllowed || failure.code !in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE") || current.maxClaims <= 1) throw failure
                 val limit = maxOf(1, current.maxClaims / 2)
                 val reduced = GitHubClaimBatches.withClaimLimit(current, limit, invalidResponse = failure.code == "GITHUB_EXTRACTION_INVALID_RESPONSE")
@@ -1638,6 +1670,8 @@ internal class GitHubVerifiedSession(
         if (groups.size > GitHubClaimBatches.MAX_BATCHES) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_BATCH_LIMIT, groups.size)
         val criterionContracts = GitHubAcceptanceContract.criteria(task, GitHubRequestCompletion.requirements(task, issueWork)).associateBy { it.id }
         val catalog by lazy { JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()) }
+        val review = GitHubReviewComparison.plan(task, emptyList(), receipts)?.checkpoint
+        val mandatory = GitHubVerificationCatalog.mandatory(catalog, review)
         val requests = groups.mapIndexed { index, requirements ->
             // Never replay a history-sized saved report into the extractor. Completed
             // reads remain in the evidence ledger; this bounded excerpt is only context.
@@ -1661,35 +1695,40 @@ internal class GitHubVerifiedSession(
                     )
                 )
                 put("candidate", excerpt)
+                review?.let {
+                    put("review_state", it)
+                    put("review_state_policy", "The retained decision, exact revision pair and comparison coverage are authoritative task state. Completed comparison prerequisites are distinct from pending source review. Do not ask for an already selected baseline or describe retained revisions as unavailable.")
+                }
                 put("claim_selection", "Address the listed requirement IDs only. Prioritize the smallest set of evidenced claims needed to answer them.")
                 put("catalog", JsonArray(selected))
                 put("retained_receipts", receipts.size)
                 put("omitted_from_context", receipts.size - selected.size)
                 put("coverage", "Full originals remain in the encrypted ledger. Omitted source is not proof; unresolved claims must remain Not measured.")
             }.toString()
-            var request = payload(emptyList())
+            var request = payload(mandatory)
             var baseTokens = TextTokenEstimate.estimate(request)
-            if (baseTokens > hardLimit && candidate.isNotEmpty() && TextTokenEstimate.estimate(payload(emptyList(), "")) <= hardLimit) {
+            if (baseTokens > hardLimit && candidate.isNotEmpty() && TextTokenEstimate.estimate(payload(mandatory, "")) <= hardLimit) {
                 // Preserve the entire task and criterion scaffold; fit only the selected draft context.
                 var low = 0
                 var high = candidate.codePointCount(0, candidate.length)
                 while (low < high) {
                     val count = (low + high + 1) / 2
                     val prefix = candidate.substring(0, candidate.offsetByCodePoints(0, count))
-                    if (TextTokenEstimate.estimate(payload(emptyList(), prefix)) <= hardLimit) low = count else high = count - 1
+                    if (TextTokenEstimate.estimate(payload(mandatory, prefix)) <= hardLimit) low = count else high = count - 1
                 }
                 val fitted = candidate.substring(0, candidate.offsetByCodePoints(0, low))
                 if (fitted.isNotBlank()) {
                     candidate = fitted
-                    request = payload(emptyList())
+                    request = payload(mandatory)
                     baseTokens = TextTokenEstimate.estimate(request)
                 }
             }
             if (baseTokens > hardLimit) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_INPUT_LIMIT, groups.size, baseTokens, hardLimit)
             val limit = minOf(hardLimit, maxOf(6_000, baseTokens + 2_048))
             val query = "$task\n${requirements.joinToString("\n")}\n$candidate"
-            val selected = mutableListOf<kotlinx.serialization.json.JsonElement>()
+            val selected = mandatory.toMutableList<kotlinx.serialization.json.JsonElement>()
             for (entry in GitHubVerificationCatalog.select(catalog, query)) {
+                if (mandatory.any { it["receipt_id"] == entry["receipt_id"] }) continue
                 val next = payload(selected + entry)
                 if (TextTokenEstimate.estimate(next) <= limit) {
                     selected += entry

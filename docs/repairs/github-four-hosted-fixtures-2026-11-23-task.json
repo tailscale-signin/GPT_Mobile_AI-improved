@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "task": "Repair four exact-head GitHub hosted unit failures without weakening acceptance or routing guards",
+  "state": "IMPLEMENTED_INDEPENDENTLY_REVIEWED_FINAL_HOSTED_CI_PENDING",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "root integrated PR 2363 candidate",
+  "base_commit": "2343558de9b415edee654a4d3b04defc8842be34",
+  "base_tree": "05cdbbad1a08d8ad013f4268dd8cef725f612577",
+  "work_branch": "work/github-four-ci-20261123",
+  "worktree": "/workspace/scratch/6b5c8b09c56b/github-four-ci-work",
+  "public_head_at_start": "8fd1454d3065ce27049c2a57056633ea921677fd",
+  "primary_owner_checkout": {
+    "path": "/workspace/scratch/9df245e6c1d9/implementation",
+    "head": "d07ef08376798e852049e9a654890085a5664d45",
+    "clean": true,
+    "overlap_sources_identical": true
+  },
+  "owned_paths": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphRevisionAuthorityTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAuditEvidenceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
+    "docs/repairs/github-four-hosted-fixtures-2026-11-23-task.json"
+  ],
+  "intent": [
+    "Preserve the racing map revision rejection and positive dispatch assertion with a faithful observed native-read fixture; retain a no-read counter-control.",
+    "Use a consistent captured connection for the PR-page positive and retain exact tool/page consumption plus cross-connection rejection.",
+    "Supply the native revision/blob/range source evidence required by current review acceptance; retain missing/incomplete/wrong-identity rejection.",
+    "Establish whether virtual timeout versus real dispatcher causes the short extraction checkpoint failure; preserve owned batch, one retry, saved primary draft and no replay."
+  ],
+  "failure_evidence": {
+    "binding_file": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof/failure-source-binding.json",
+    "binding_sha256": "48933baa7247ba7f95b5257db9522e3f6cbc7d47684f9f8b6703a8a2751a28d3",
+    "archive": "/workspace/scratch/6b5c8b09c56b/pr2363-8fd-audit-unit/audit-unit-results-attempt1.zip",
+    "archive_sha256": "30171b629bec1805db8d00df60852a43cd8ab7d3a361fbeb4e58bce2eacf6ce3",
+    "run_id": 45164607062,
+    "job_id": 137658211038,
+    "attempt": 1,
+    "artifact_id": 14815638818,
+    "tested_commit": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "methods": [
+      "aConcurrentNativeRevisionChangeRejectsTheFinishedMap",
+      "branchReviewCannotPassFromStatusFactsOrComparisonWithoutSource",
+      "pendingPrPagesKeepIssuedFullOrInspectToolAndConsumeExactReceipt",
+      "shortRejectedExtractionResumesOnlyItsOwnedBatchAndKeepsThePrimaryDraft"
+    ]
+  },
+  "validation": {
+    "baseline": [
+      {
+        "phase": "audit-baseline",
+        "directory": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof/audit-baseline",
+        "cases": 2,
+        "failures": 2,
+        "elapsed_seconds": 0.239,
+        "compiled_inputs": 68,
+        "dependencies": 20,
+        "artifacts": {
+          "tests.jar": "8d801dc5f8e6faa45135878db8f5d721699b484092bd4240d470b48f558fabbc",
+          "result.json": "addafa6935b5b443f3112893dbf9c78003dd379c17679763a81eee5e84225e22",
+          "tests.log": "23127cadd15394ac63fcb9f074beae0e87d2beda6ffa39afd047bdf2c443a749",
+          "source-manifest.json": "f0f031dcbb08c18338e5e7e23252d649d5ba48d80f7e20d92546c5cbd86ede17",
+          "compile.log": "b4ce4079334e1522b7e98780b87f55d55667f55297fa11e30fbeb6b33dcb9ed4"
+        }
+      },
+      {
+        "phase": "graph-baseline",
+        "directory": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof/graph-baseline",
+        "cases": 1,
+        "failures": 1,
+        "elapsed_seconds": 1.96,
+        "compiled_inputs": 92,
+        "dependencies": 60,
+        "artifacts": {
+          "fixture-source.kt.txt": "07030535530e7103ae7096de383f1300ccca4e73bc4b36063d19a406fa6023c7",
+          "tests.jar": "f33bb7f0965ea59dac766527e2fc67fc5893562e485fc1be4f61dd7f9e13a3d6",
+          "tests.log": "274a2efc03e25edb0fbe6d0e44e70a70258e1347bc3b260f71a66f6d593c2609",
+          "dependency-manifest.json": "5bee6fc97116a15455033bb1b63ddaf3bb27c668da6ffbfd91b016606dc2b217",
+          "source-manifest.json": "aa70967010dc83f4c2991e2ee0233fb88b2c07654e47906da1d60cb8d17e3eb3",
+          "compile.log": "cc64e64bfcc88db4dc6bd50cffddd8a4906f8331bc9398cb270971f6e397c824"
+        }
+      },
+      {
+        "phase": "retry-baseline-confirmed",
+        "directory": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof/retry-baseline-confirmed",
+        "cases": 3,
+        "failures": 1,
+        "elapsed_seconds": 1.082,
+        "compiled_inputs": 75,
+        "dependencies": 20,
+        "artifacts": {
+          "tests.jar": "38a46e165db02f70c68f8493d431bd55906f6db04a92e86db82ddc2b03676138",
+          "result.json": "0228b850a51b5162867436a18f2d645adedc315fb1f5beead4f973ac53a0f0ce",
+          "tests.log": "60313353af3444382f5d7f03b3fb57b0b8a5c26ec5d00d7482f6c50587bc349b",
+          "source-manifest.json": "ab7d78a74a97120d6119efaeee552d9bdde2ff1bb1cfe9372c1ac29a1fb28072",
+          "compile.log": "687a2773efac866af7246da637cac47efa47a3f79aca74151fa6124aa1752dfd"
+        }
+      }
+    ],
+    "focused": [
+      {
+        "phase": "audit-final",
+        "directory": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof/audit-final",
+        "cases": 2,
+        "failures": 0,
+        "elapsed_seconds": 2.001,
+        "compiled_inputs": 68,
+        "dependencies": 20,
+        "artifacts": {
+          "tests.jar": "75f7a90ed253671ae5324d8ce8b563cf03e5f91a3f2e725a4a0fbb449be9b3bf",
+          "result.json": "d527e13985def51320c17e4ffff1e18c3ef9f43b95e6f5d78b5f6ce114383711",
+          "tests.log": "07149ec5873f6e5bd6246f9dfecb76c160cc9a0fd829e0e3886b926b8bf294a8",
+          "source-manifest.json": "34ecdddd8cd488ee342afd7f9a2c0b53d0e8a8d0b3ab51ce1c59e91af0f8dd90",
+          "compile.log": "bf8eb5b854250a18ef7acd74b235b3222d338eb3f9fcc759ab8072e50b2844b6"
+        }
+      },
+      {
+        "phase": "graph-final",
+        "directory": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof/graph-final",
+        "cases": 1,
+        "failures": 0,
+        "elapsed_seconds": 0.904,
+        "compiled_inputs": 92,
+        "dependencies": 60,
+        "artifacts": {
+          "fixture-source.kt.txt": "7bef4a5b77a210c6ad5e65cf6c4006d4766c93297807d384dab444fd81b8fdeb",
+          "tests.jar": "f5343073aea6fe10fbb7d1be094778f7d5decea63ad397bd895d4eb334997360",
+          "tests.log": "124e1560fed23fd11e2f684be1a4cc08d1d7dde8e4a9de36c6e71357bec440fb",
+          "dependency-manifest.json": "5bee6fc97116a15455033bb1b63ddaf3bb27c668da6ffbfd91b016606dc2b217",
+          "source-manifest.json": "02cf3f1400d922ba2cd4f6225fd7437ab8d987e102a9d0e7869f5b7d97c983bb",
+          "compile.log": "0c56da253eb71c0e15b62a5b003ddb02598499af8d6bfd6ff3e330709c2c2f17"
+        }
+      },
+      {
+        "phase": "retry-final",
+        "directory": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof/retry-final",
+        "cases": 3,
+        "failures": 0,
+        "elapsed_seconds": 0.342,
+        "compiled_inputs": 75,
+        "dependencies": 20,
+        "artifacts": {
+          "tests.jar": "cd164324bb751f6ea6cb5ec8ddd1b663f1f15de650a72cd7c09294dcfae2ca78",
+          "result.json": "1d5ca6fd614118d75c67cb27104636b996a416b1ad794bd58f227629bb62427a",
+          "tests.log": "99259522d3f65cec11d8f9f8e22d43b0022145ddf298821f9d22e0a9c6522926",
+          "source-manifest.json": "d546115cf51869072683fe256c48003554ace47fced6c94f9039a63633aa4f43",
+          "compile.log": "911727df720fba61663d2daf412efd6cf266c84db420514658923603e1267e25"
+        }
+      }
+    ],
+    "hosted": [],
+    "canonical": "Root-owned after integration; not run by this task",
+    "qualification": {
+      "path": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof/qualification.json",
+      "sha256": "06167ed5c8025b7f717ad804afd74b0b794105dc928df3453d59711d01f8e6a5"
+    },
+    "lint": {
+      "path": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof/lint-receipt.json",
+      "sha256": "1cb5addcb42465fe6a4d96987d94511635b84a90b1ac8388cbb4d4ae4c343f6e"
+    },
+    "test_preservation": {
+      "path": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof/test-preservation.json",
+      "sha256": "fb730b1e0b28e83e37a45fbd57b1c6b21c5d375a196bc2c802571b40d0bfb70b"
+    },
+    "bootstrap_evidence": {
+      "retry-baseline": "Retained initial exact hosted failure plus one scratch held-dispatcher control timer-anchor mistake; baseline-confirmed corrects the scratch anchor with production source unchanged."
+    },
+    "limits": [
+      "Audit: complete review/acceptance/coverage components with source-identical schema and pagination helpers; full EvidenceBook/session/AgentRunner, provider/transport, Android and unrelated bulk-issue/integration branches excluded.",
+      "Graph: actual graph factory, RepositoryGraphTool, accounting, repository snapshot/resolve and real Ktor MockEngine GETs. Native execute routing is a fail-closed resolve_context-only port; full native authorization/execution and Android are not qualified.",
+      "Retry: actual complete ClaimExtraction and source-identical Session extraction/planning plus EvidenceBook claim checkpoint methods; full generation/publication orchestration and partial report text are explicit boundaries. Added source-level first-generation/wait/batch assertions remain a hosted full-Session obligation.",
+      "No full Gradle, device execution, live provider, canonical suite or remote mutation was performed by this task. Root owns canonical integration and exact-head hosted qualification."
+    ],
+    "final_test_sha256": {
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphRevisionAuthorityTest.kt": "7bef4a5b77a210c6ad5e65cf6c4006d4766c93297807d384dab444fd81b8fdeb",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAuditEvidenceTest.kt": "61f9d30ca580f75e6965584ffa4c0721a087e207fd3109e40302b25c9e7fbef1",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": "c99e14f40136067975f0b4f2b758b45aee01a621413ac17bcedf4bcfef5d7aca"
+    }
+  },
+  "constraints": [
+    "No production behavior change without concrete causal proof and root coordination.",
+    "No weakened revision, source-acceptance, exact cursor/facade, retry, budget, privacy or unknown-outcome guarantees.",
+    "No foreign checkout or remote edits, no generated metadata or release-scope changes, no full Gradle.",
+    "Focused host proofs explicitly label substituted boundaries; full hosted application qualification remains required."
+  ],
+  "diagnosis": {
+    "graph": "No physical map request is recorded by the injected phone query. Its nested resolve owns a separate accounting context; that read cannot be borrowed by the map. Preserve the dispatch-positive case with one actual MockEngine map GET and check native/map counts separately.",
+    "pr_pages": "Captured unsuffixed github_context status does not authorize selected-suffixed PR tools. Bind the positive status/catalog to selected; retain rejection of mixed connections and exact issued facade/page consumption.",
+    "review_source": "The legacy files/content fragment lacks native read_ranges items, source_head_sha, blob, ordered range, and completeness identity required by current criterion acceptance. Keep legacy and corrupt identity negative cases.",
+    "retry": "Actual Session extraction/plan/checkpoint and complete ClaimExtraction component reproduce virtual time90000, two attempts, GITHUB_EXTRACTION_TIMEOUT and pending=true with the fixture default Dispatchers.Default. Inject the shared StandardTestDispatcher only into this virtual-clock test; preserve the production deadline and retry disposition."
+  },
+  "public_equivalent_base": "7c4aec87062f2dd5590e2a5dff19b8edf6f5a3ec",
+  "production_changed": false,
+  "independent_reviews": {
+    "retry_scheduler": {
+      "verdict": "CLEAR",
+      "reviewer": "voice_design_review",
+      "receipt": {
+        "path": "/workspace/scratch/6b5c8b09c56b/github-retry-scheduler-peer-review/review.json",
+        "sha256": "aa107d88c827b5937a9a461130df022fb78eba43fafca02124fe250616d1546b"
+      }
+    },
+    "graph_and_audit": {
+      "verdict": "CLEAR",
+      "reviewer": "speech_acceleration",
+      "receipt": {
+        "path": "/workspace/scratch/6b5c8b09c56b/github-three-fixture-peer-review/review.json",
+        "sha256": "f04757823dcef742fd6903784f9c42447951356b67a78952cd4c4a2bfe597a56"
+      }
+    }
+  },
+  "remaining_gates": [
+    "Root canonical validation after final union and generated scope/reference refresh",
+    "Every applicable workflow at the final published PR head, including complete Android tests and full Session/AgentRunner/native authorization behavior",
+    "Exact-main qualification and coordinated automatic publication remain root-owned"
+  ],
+  "coordination": {
+    "last_public_readback": "7c4aec87062f2dd5590e2a5dff19b8edf6f5a3ec",
+    "primary_owner_readback": "d07ef08376798e852049e9a654890085a5664d45",
+    "primary_owner_clean": true,
+    "notes": "No incoming repair overlapped these target bytes. Worktree base234 and public7c4 share exacttree05cdbbad. LruCache and phone-interruption failures are separately owned; no changes to their files.",
+    "last_public_state": "open draft"
+  }
+}

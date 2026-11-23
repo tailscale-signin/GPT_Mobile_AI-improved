@@ -155,8 +155,8 @@ class MaskedProviderCallTest {
         var ownerChecks = 0
         val owner = RequestAuthorizationGuard("source-permissions-r7", captured) { ownerChecks++ }
         val fixture = Fixture(owner)
-        fixture.collect(fixture.prepare(sampleTurns()))
-        assertEquals(1, ownerChecks)
+        val events = fixture.collect(fixture.prepare(sampleTurns()))
+        assertEquals(events.size + 1, ownerChecks)
         assertEquals(1, fixture.dispatches)
         assertSame(captured, fixture.observedAuthority?.authority)
         assertEquals("source-permissions-r7:privacy-4", fixture.observedAuthority?.revision)

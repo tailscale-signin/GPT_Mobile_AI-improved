@@ -6,6 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun ownedClaimCheckpointRetainsItsRecoveryWithoutAuthorizingPrimaryReplay() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"claim_extraction","review_stage":"claim_extraction","http_status":429,"remote_acceptance":"NO","request_replay_allowed":true,"retry_at_ms":2103,"recovery_action":"RESUME_UNFINISHED_EXTRACTION_BATCHES_AFTER_RETRY_AT","provider_wait_no_wait_reason":"CLAIM_EXTRACTION_CHECKPOINT_REQUIRED","provider_wait_decision_state":"NOT_SCHEDULED","provider_wait_scheduler_state":"NOT_SCHEDULED","provider_wait_persisted":false,"private_data":"discard"}""") as kotlinx.serialization.json.JsonObject
+        val record = ProfileFailureRecord.fromProvider("Provider rate limit", "429", details)
+        val encoded = kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), record)
+        val saved = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(encoded)
+        assertEquals("RATE_LIMIT", saved.category)
+        assertEquals("claim_extraction", saved.phase)
+        assertFalse(saved.retryAllowed)
+        assertEquals(false, saved.requestReplayAllowed)
+        assertEquals(2103L, saved.retryAfterMillis)
+        assertEquals(listOf("RESUME_UNFINISHED_EXTRACTION_BATCHES_AFTER_RETRY_AT"), saved.recoveryActions)
+        assertTrue(ProviderWaitSchedulingResult.claimExtractionCheckpoint(saved.recoveryDetails))
+        assertFalse(encoded.contains("discard"))
+        val incomplete = ProfileFailureRecord.fromProvider("Provider rate limit", "429", kotlinx.serialization.json.JsonObject(details - "provider_wait_persisted"))
+        assertFalse(ProviderWaitSchedulingResult.claimExtractionCheckpoint(incomplete.recoveryDetails))
+    }
+
     @Test fun taskIdentityAdmissionPreservesTheAcceptedContractRecoveryAction() {
         for (action in listOf("RESTORE_ACCEPTED_TASK_CONTRACT", "RESTORE_ACCEPTED_TASK_CRITERIA", "AUTHORIZE_NEW_TIME_WINDOW")) {
             val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"admission","dispatched":false,"retryable":false,"request_replay_allowed":false,"next_action":"$action"}""") as kotlinx.serialization.json.JsonObject

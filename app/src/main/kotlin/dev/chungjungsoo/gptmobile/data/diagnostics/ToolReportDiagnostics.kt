@@ -19,14 +19,14 @@ import kotlinx.serialization.json.intOrNull
 
 /** Only the persisted call supplies identity and argument shape; result prose never supplies either. */
 internal object ToolReportDiagnostics {
-    private val actions = setOf("status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch")
-    private val errors = setOf("PRIVACY_SERVICE_UNVERIFIED", "APP_ERROR", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PR_HEAD_CHANGED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_COOLDOWN_ACTIVE")
-    private val reasons = setOf("BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_SEARCH_FUZZY_QUERY_INVALID", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH")
+    private val actions = setOf("status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch") + RepositoryOperationReportContract.toolActions
+    private val errors = setOf("PRIVACY_SERVICE_UNVERIFIED", "APP_ERROR", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PR_HEAD_CHANGED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_COOLDOWN_ACTIVE") + RepositoryOperationReportContract.errorCodes
+    private val reasons = setOf("BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_SEARCH_FUZZY_QUERY_INVALID", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH") + RepositoryOperationReportContract.toolReasonCodes
 
     // Closed graph-specific codes are emitted only by an exact call-bound, source-owned graph receipt.
     // Keep them separate from generic tool reasons so arbitrary tool receipts cannot impersonate graph evidence.
     private val graphReasons = setOf("GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER")
-    private val phases = setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED")
+    private val phases = setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED") + RepositoryOperationReportContract.toolDispatchPhases
 
     private fun searchFailure(event: ToolEvent?, result: AgentToolResult): String? {
         if (event == null || event.callId != result.callId || !result.isError) return null
@@ -258,11 +258,45 @@ internal object ToolReportDiagnostics {
             pathReceipt["dispatched"] == JsonPrimitive(false) &&
             pathReceipt["requires_reconciliation"] == JsonPrimitive(false)
         if (missingPathPrecheck) put("tool_reason_code", "GITHUB_PATH_NOT_FOUND")
-        (result.executionReceipt?.get("phase") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
-            ?.takeIf { it in phases }?.let { put("tool_dispatch_phase", it) }
-        put("original_reason_code_hash", IssueReportContext.identifierHash("tool-reason-code", reason))
         val arguments = event.arguments.takeIf { it.length <= MAX_ARGUMENT_CHARS }
             ?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+        val stoppedPhoneIndex = result.isError &&
+            result.errorCode == "PHONE_INDEX_INTERRUPTED" &&
+            event.modelToolName.substringBefore("__") == "repository_graph" &&
+            pathReceipt?.get("schema") == JsonPrimitive("gptmobile.phone-index-interruption.v1") &&
+            pathReceipt["call_id"] == JsonPrimitive(result.callId) &&
+            pathReceipt["tool"] == JsonPrimitive(event.modelToolName) &&
+            pathReceipt["error_code"] == JsonPrimitive(result.errorCode) &&
+            pathReceipt["action"] == JsonPrimitive("index") &&
+            pathReceipt["map_source"] == JsonPrimitive("phone") &&
+            pathReceipt["local_work_stopped"] == JsonPrimitive(true) &&
+            pathReceipt["requires_reconciliation"] == JsonPrimitive(false) &&
+            pathReceipt["request_replay_allowed"] == JsonPrimitive(false) &&
+            listOf("mutation_requests", "accepted_mutations", "rejected_mutations", "unknown_mutations").all { pathReceipt[it] == JsonPrimitive(0) }
+        val stoppedPhoneDeadline = result.isError &&
+            result.errorCode == "READ_DEADLINE" &&
+            event.modelToolName.substringBefore("__") == "repository_graph" &&
+            pathReceipt?.get("schema") == JsonPrimitive(RepositoryGraphTool.RECEIPT_SCHEMA) &&
+            pathReceipt["call_id"] == JsonPrimitive(result.callId) &&
+            pathReceipt["error_code"] == JsonPrimitive(result.errorCode) &&
+            (arguments?.get("action") as? JsonPrimitive)?.isString == true &&
+            pathReceipt["action"] == arguments["action"] &&
+            arguments["map_source"] in setOf(null, JsonPrimitive("phone")) &&
+            pathReceipt["map_source"] == JsonPrimitive("phone") &&
+            pathReceipt["failed_stage"] == JsonPrimitive("phone_read_deadline") &&
+            pathReceipt["dispatched"] == JsonPrimitive(result.dispatched) &&
+            pathReceipt["retryable"] == JsonPrimitive(false) &&
+            pathReceipt["local_work_stopped"] == JsonPrimitive(true) &&
+            pathReceipt["requires_reconciliation"] == JsonPrimitive(false) &&
+            pathReceipt["index_outcome_unknown"] == JsonPrimitive(false) &&
+            pathReceipt["current_index_outcome_unknown"] == JsonPrimitive(false) &&
+            pathReceipt["replay_safe"] == JsonPrimitive(false) &&
+            pathReceipt["request_replay_allowed"] == JsonPrimitive(false) &&
+            pathReceipt["authorization_recheck_required"] == JsonPrimitive(true) &&
+            listOf("mutation_requests", "accepted_mutations", "rejected_mutations", "unknown_mutations").all { pathReceipt[it] == JsonPrimitive(0) }
+        (result.executionReceipt?.get("phase") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+            ?.takeIf { it in phases && (it != "CANCELLED_LOCALLY" || stoppedPhoneIndex || stoppedPhoneDeadline) }?.let { put("tool_dispatch_phase", it) }
+        put("original_reason_code_hash", IssueReportContext.identifierHash("tool-reason-code", reason))
         val action = (arguments?.get("action") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
         if (arguments != null) {
             action?.takeIf { it in actions }?.let { put("tool_action", it) }

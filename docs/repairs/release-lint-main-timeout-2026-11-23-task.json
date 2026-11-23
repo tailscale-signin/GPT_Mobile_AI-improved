@@ -1,0 +1,238 @@
+{
+  "schemaVersion": 1,
+  "task": "release-lint-main-timeout-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/github-evidence-progress-2026-11-23",
+  "baseCommit": "8fd1454d3065ce27049c2a57056633ea921677fd",
+  "workingBranch": "work/release-lint-main-timeout-8fd",
+  "owner": "root",
+  "status": "FOLLOWUP_UNIT_UNION_HOST_VALIDATED_PENDING_FINAL_SHARED_HEAD_CI",
+  "intent": "Allow the measured release-lint workload to finish inside a bounded process and step, retain its complete output, and preserve every validation and publication gate.",
+  "failureEvidence": {
+    "sourceCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+    "workflowRun": 45143746072,
+    "job": 137587934781,
+    "attempt": 1,
+    "step": "Verify release compatibility and lint",
+    "started": "2026-11-23T10:35:05Z",
+    "completed": "2026-11-23T11:20:18Z",
+    "annotation": "The action 'Verify release compatibility and lint' has timed out after 45 minutes.",
+    "annotationUrl": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45143746072/job/137587934781",
+    "artifact": 14814116075,
+    "artifactSha256": "1e37bf862951e945b6ddf4f40f480e3e75cb73de9e8caf428fa388a7da649757",
+    "limitation": "The artifact has completed debug lint and earlier compilation GC reports, but no release-lint report, command log or lint GC. No OOM, lint finding or application defect is established."
+  },
+  "comparison": {
+    "successfulPrHead": "b4600f798bf37ed9a570ee7ac8a0988518539cfc",
+    "workflowRun": 45131865479,
+    "job": 137549071133,
+    "releaseLintSeconds": 1713,
+    "sourceAndWorkflowTreeMatch": true,
+    "mainPrefixSeconds": 5431,
+    "mainCleanupSeconds": 88,
+    "proposedOuterStepSeconds": 3900,
+    "observedBudgetTotalSeconds": 9419,
+    "unchangedJobBudgetSeconds": 10500,
+    "remainingSeconds": 1081,
+    "limitation": "Fit uses the observed main prefix and cleanup; it is not proof that a future hosted run has passed."
+  },
+  "constraints": [
+    "Keep the 175-minute job cap, default 3 GiB heap and 1 GiB metaspace, disabled configuration cache and one worker.",
+    "Keep checkReleaseAarMetadata and lintRelease, deterministic failure propagation, and every required release/signing/source/asset gate.",
+    "Use the existing single process-group deadline across eligible dependency retries; a deadline failure must not be retried automatically.",
+    "Preserve all incoming shared-branch commits. No forced ref updates, skipped checks, duplicate publication or blind reruns.",
+    "A new final-head PR and exact-main hosted qualification are still required before publication."
+  ],
+  "implementation": {
+    "workflow": ".github/workflows/release-build.yml",
+    "outerMinutes": 65,
+    "processDeadlineSeconds": 3840,
+    "log": "release-lint.log",
+    "output": "Explicit bash pipefail preserves Gradle failure through tee; the existing always-uploaded release-*.log glob captures the complete lint output.",
+    "workflowSha256": "69f607ed4e8e9a0f58edcf4ee7b8974e5f8ddc0e1a77af9ede3220c243ba2434"
+  },
+  "validation": {
+    "focused": {
+      "status": "PASSED",
+      "gradleRetryTests": 15,
+      "gradleRetrySeconds": 0.831,
+      "ciPolicyTests": 20,
+      "ciPolicySeconds": 0.057,
+      "shellCases": 4,
+      "shellFailureExitsPreserved": [
+        17,
+        124
+      ],
+      "withoutPipefailNegativeControlExit": 0,
+      "actualWatchdogBoundary": "Existing gradle_retry tests exercise real stalled descendants, process-group retirement and no timeout retry.",
+      "shellBoundary": "Executes the exact workflow shell fragment with a controlled Gradle-command port. Proves argument wiring, retained stdout/stderr, and failure propagation. Does not execute Android lint or establish hosted runtime. Existing gradle_retry tests separately exercise actual process-group deadlines and no timeout retry.",
+      "proofDirectory": "/workspace/scratch/6b5c8b09c56b/release-lint-main-timeout-proof",
+      "shellProofSha256": "815b62caecfff97c117c1d263a8b3b8dee633f729f593abee07385a037349314",
+      "gradleRetryLogSha256": "26cf1d60cdaa7fca70b92e4d6493074537caebac1692dd4e3e4a565da6a6b101",
+      "ciPolicyLogSha256": "483de94f138b14c79a2b74fe5559aa3b27fa915f1c1c5c7a9dca3dcc409416b9",
+      "isolatedInvocationCorrection": "The first CI-policy subset invocation lacked its scripts import path and produced5 import errors. The corrected invocation passed20/20 without source changes; the original log is retained."
+    },
+    "canonicalFast": {
+      "status": "PASSED",
+      "sourceCommit": "73c82c8ddfc22ec445a8113e2490caeba0d289c9",
+      "sourceTree": "6f9b540a28dffa98fccc975a1b19ba55414ca413",
+      "baseCommit": "8fd1454d3065ce27049c2a57056633ea921677fd",
+      "canonicalExitCode": 0,
+      "scopeExitCode": 0,
+      "timedOut": false,
+      "commandSeconds": 37.997,
+      "reportedSuites": [
+        {
+          "tests": 660,
+          "seconds": 32.714
+        }
+      ],
+      "trackedInputCount": 6870,
+      "inputManifestSha256": "51c66a6c91799c15f3cea03cb14c435585068b9e846a29ecfe7be57c81c79f18",
+      "logSha256": "7849ea84ef80f9491248ff5cbd4be3ca31529ff6b9702a4363160768a73f8207",
+      "scopeLogSha256": "9211e913e6b4fa1f10ae2b4866aee198e98707013ad8cec6919dd92f1e04bc01",
+      "cleanAfterRun": true,
+      "qualification": "Canonical host checks and exact release scope only; full hosted Android, Windows, device and publication qualification remain pending.",
+      "receiptSha256": "1a84d2b062314caecd267e59a4095d49c73209a3510efa2110d64087fdd42eea",
+      "proofDirectory": "/workspace/scratch/6b5c8b09c56b/combined-pr2363-repair-proof/canonical-source-73c82c8d",
+      "runs": 1
+    },
+    "hosted": "PENDING_FINAL_SHARED_HEAD"
+  },
+  "integration": {
+    "gatewayCandidate": "6a5cbed8ca9349e28bd7231e5a3a3c4d35a96648",
+    "speechCandidate": "428bb4e0b95293fd77fee307bfbaf5b09e0142fc",
+    "reviewedSourceCommit": "73c82c8ddfc22ec445a8113e2490caeba0d289c9",
+    "reviewedSourceTree": "6f9b540a28dffa98fccc975a1b19ba55414ca413",
+    "changedPathsFromSharedBase": 12,
+    "scopedPathsFromMain": 162,
+    "independentReview": "CI and Gateway clear by voice_repo_review; fresh-progress guard clear by voice_design_review; immutable component hashes preserved during integration.",
+    "qualification": "The subsequent checkpoint-only commit records these results; final hosted checks must bind the public shared head."
+  },
+  "unitFailureFollowup": {
+    "observedFailure": {
+      "source": "8fd1454d3065ce27049c2a57056633ea921677fd",
+      "run": 45164607062,
+      "job": 137658211038,
+      "artifact": 14815638818,
+      "artifactBytes": 6035960,
+      "artifactSha256": "30171b629bec1805db8d00df60852a43cd8ab7d3a361fbeb4e58bce2eacf6ce3",
+      "tests": 13558,
+      "suites": 1816,
+      "failures": 29,
+      "errors": 0,
+      "skips": 5,
+      "root_independently_rehashed_and_parsed": true,
+      "proof": "/workspace/scratch/6b5c8b09c56b/pr2363-8fd-audit-unit"
+    },
+    "publicBaseCommit": "7c4aec87062f2dd5590e2a5dff19b8edf6f5a3ec",
+    "equivalentLocalBaseCommit": "2343558de9b415edee654a4d3b04defc8842be34",
+    "baseTree": "05cdbbad1a08d8ad013f4268dd8cef725f612577",
+    "components": {
+      "cache": {
+        "candidate": "a03244a435aaba4de54fcf9b4d76cabf5f8904d6",
+        "tree": "815ed20474759874254db9f8653b8b1d9b7c1de2",
+        "review": "CLEAR_FOR_INTEGRATION",
+        "baseline_tests": 3,
+        "baseline_expected_failures": 3,
+        "corrected_tests": 3,
+        "corrected_failures": 0,
+        "proof": "/workspace/scratch/6b5c8b09c56b/markdown-cache-jvm-boundary-proof",
+        "integrated_locally": true
+      },
+      "phone": {
+        "candidate": "aac842bb75660a0ff693ef2f99f444829a2ba70c",
+        "tree": "ab054df87bd9a9a4d177dbe786482b3555861243",
+        "peer_review": "CLEAR",
+        "peer_review_sha256": "0a6bc579be37c762a5e9d280e52996f37de9702940e9d9c395737d46ca1096ab",
+        "integrated_locally": true,
+        "baseline_tests": 17,
+        "baseline_failures": 5,
+        "corrected_tests": 18,
+        "corrected_failures": 0,
+        "proof": "/workspace/scratch/6b5c8b09c56b/phone-index-deadline-order-proof"
+      },
+      "github": {
+        "status": "INTEGRATED_SOURCE_HASH_VERIFIED_PEER_REVIEW_CLEAR",
+        "worktree": "/workspace/scratch/6b5c8b09c56b/github-four-ci-work",
+        "proof": "/workspace/scratch/6b5c8b09c56b/github-four-ci-proof",
+        "qualification_sha256": "06167ed5c8025b7f717ad804afd74b0b794105dc928df3453d59711d01f8e6a5",
+        "targeted_hosted_failures": 4,
+        "focused_corrected_cases": 6,
+        "focused_corrected_failures": 0,
+        "production_changed": false,
+        "candidate": "664e59e77aa58b17e3e3f64e14a4c0d05786f07c",
+        "tree": "650d2a8fe2d25fa673ca12077ccc682fedd95cc7",
+        "integrated_locally": true
+      }
+    },
+    "reviews": {
+      "cache": {
+        "verdict": "CLEAR_FOR_INTEGRATION",
+        "path": "/workspace/scratch/6b5c8b09c56b/markdown-cache-jvm-boundary-proof/root-independent-review.json",
+        "sha256": "33631616afa41978eef902b476571badad38cd350620ccc3241329184d34ee25"
+      },
+      "phone": {
+        "verdict": "CLEAR_FOR_INTEGRATION",
+        "path": "/workspace/scratch/6b5c8b09c56b/phone-index-deadline-order-peer-review/review.json",
+        "sha256": "0a6bc579be37c762a5e9d280e52996f37de9702940e9d9c395737d46ca1096ab"
+      },
+      "githubRetry": {
+        "verdict": "CLEAR_FOR_INTEGRATION",
+        "path": "/workspace/scratch/6b5c8b09c56b/github-retry-scheduler-peer-review/review.json",
+        "sha256": "aa107d88c827b5937a9a461130df022fb78eba43fafca02124fe250616d1546b"
+      },
+      "githubGraphAudit": {
+        "verdict": "CLEAR_FOR_INTEGRATION",
+        "path": "/workspace/scratch/6b5c8b09c56b/github-three-fixture-peer-review/review.json",
+        "sha256": "f04757823dcef742fd6903784f9c42447951356b67a78952cd4c4a2bfe597a56"
+      }
+    },
+    "productionDelta": "Only the two existing rendering-cache imports change to the pinned AndroidX implementation. Phone and GitHub behavior, authority, deadlines and acceptance policies remain unchanged.",
+    "canonical": {
+      "status": "PASSED",
+      "sourceCommit": "85cbe6a18770f80e0b48adf570bf0eab03c436ea",
+      "sourceTree": "24450c8cb3dc37bc7e69f5ccba35da7b30ef0fe7",
+      "publicBaseCommit": "7c4aec87062f2dd5590e2a5dff19b8edf6f5a3ec",
+      "equivalentLocalBase": "2343558de9b415edee654a4d3b04defc8842be34",
+      "baseTree": "05cdbbad1a08d8ad013f4268dd8cef725f612577",
+      "canonicalExitCode": 0,
+      "scopeExitCode": 0,
+      "timedOut": false,
+      "commandSeconds": 46.227,
+      "scopeSeconds": 0.52,
+      "reportedSuites": [
+        {
+          "tests": 660,
+          "seconds": 41.418
+        }
+      ],
+      "trackedInputCount": 6874,
+      "inputManifestSha256": "288a798833ac3007199db061f0932c4d59aee76770546b75757570ffd89d27c9",
+      "logSha256": "815a5f5ebf95d1cee3f6212465a4b354b2b5d18e0ac7f67d11f48284b5f54a03",
+      "scopeLogSha256": "9211e913e6b4fa1f10ae2b4866aee198e98707013ad8cec6919dd92f1e04bc01",
+      "cleanAfterRun": true,
+      "changedInputs": [],
+      "qualification": "Canonical host checks and exact release scope only. Full hosted Android, Windows, physical-device and final publication qualification remain separate.",
+      "receiptSha256": "25a2761c13ecbafbf24d7503614d4033767cab5824e9ac510c95bde18863ea62",
+      "directory": "/workspace/scratch/6b5c8b09c56b/pr2363-unit-union-proof/canonical-source-85cbe6a1",
+      "runs": 1
+    },
+    "hosted": "PENDING_FINAL_SHARED_HEAD",
+    "qualification": "Focused proofs and preserved immutable component bytes do not qualify the complete Android suite, Session/native authorization orchestration, physical device or publication.",
+    "integrationReview": {
+      "sourceCommit": "85cbe6a18770f80e0b48adf570bf0eab03c436ea",
+      "sourceTree": "24450c8cb3dc37bc7e69f5ccba35da7b30ef0fe7",
+      "reviewer": "voice_repo_review",
+      "verdict": "CLEAR",
+      "receipt": "/workspace/scratch/6b5c8b09c56b/github-four-integration-review/review-85cbe6.json",
+      "receiptSha256": "c362fa7e48a7fe507600655debfa1ce7343a60af714cd8c100d24a3863a1a614",
+      "componentFilesPreserved": 11,
+      "changedPathsFromPublicEquivalentBase": 17,
+      "exactScopedPathsFromMain": 167,
+      "featureReferenceIdentitiesVerified": 192,
+      "inventorySourceHashesVerified": 3017,
+      "qualification": "The subsequent checkpoint-only commit records these results. Full hosted CI must bind the final public head."
+    }
+  }
+}

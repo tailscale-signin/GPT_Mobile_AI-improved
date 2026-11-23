@@ -70,7 +70,7 @@ class GitHubTool(
     private val durableIdentity: String = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(apiToken),
     private val legacyCredentialIdentities: List<String> = emptyList(),
     private val credentialProvider: (suspend () -> String)? = null,
-    private val graphQuery: (suspend (JsonObject) -> JsonObject)? = null,
+    private val graphQuery: (suspend (dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext, JsonObject) -> JsonObject)? = null,
     private val apiOrigins: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM,
     private val taskRequest: String? = null,
     private val engineeringStatus: (suspend (String, String) -> JsonObject?)? = null,
@@ -142,7 +142,8 @@ class GitHubTool(
             durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider, apiOrigins = apiOrigins, refAvailability = credential.refAvailability,
             repositoryGateway = repositoryGateway, sharedCredentialAdmission = httpClient === defaultHttpClient,
             copilotWriteAdmission = { requireCopilotWriteAdmission() },
-            copilotConsentAdmission = { requireCopilotConsent() }
+            copilotConsentAdmission = { requireCopilotConsent() },
+            initialRepositoryContext = repositoryScope.takeIf { source == null }
         )
     }
     internal suspend fun normalizeOperationRepository(arguments: JsonObject): JsonObject {
@@ -191,14 +192,59 @@ class GitHubTool(
     }
 
     internal fun graphTool(nativeStatus: (suspend (String) -> AgentToolResult)? = null): AgentTool? = graphQuery?.let { query ->
+        val bound = repositoryScope ?: return@let null
         val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
-        RepositoryGraphTool(
+        suspend fun currentScope(): dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext {
+            val snapshot = workspaceClient.taskSnapshot()?.takeIf {
+                it.owner.equals(bound.owner, true) && it.repo.equals(bound.repo, true)
+            } ?: return bound
+            return bound.copy(ref = snapshot.ref, commitSha = snapshot.commitSha, observedAtMillis = snapshot.updatedAt)
+        }
+        fun forScope(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) = RepositoryGraphTool(
             "repository_graph$suffix",
             nativeStatus = nativeStatus,
-            repositoryScope = repositoryScope,
+            repositoryScope = scope,
             accountIdentity = if (apiToken.isNotBlank()) durableIdentity else "anonymous:$connectionUid:${apiOrigins.hostIdentity}",
-            query = query
+            query = { arguments ->
+                val observed = query(scope, arguments)
+                val latest = currentScope()
+                if (latest.ref != scope.ref || !latest.commitSha.equals(scope.commitSha, true)) {
+                    if (arguments["action"] in setOf(JsonPrimitive("index"), JsonPrimitive("note"))) {
+                        // The operation already ran. Keep its acknowledgement and
+                        // saved checkpoint; stale revision evidence cannot turn a
+                        // dispatched index/note into a replayable local precheck.
+                        JsonObject(
+                            observed + buildJsonObject {
+                                put("source_current", false)
+                                (observed["task_context"] as? JsonObject)?.let { context ->
+                                    put("task_context", JsonObject(context + ("source_current" to JsonPrimitive(false))))
+                                }
+                                put("selected_task_changed_during_operation", true)
+                                put("requested_head_sha", scope.commitSha)
+                                put("current_task_head_sha", latest.commitSha)
+                                put("revision_recovery", "Retain the original operation receipt and reconcile its saved checkpoint at the requested revision. This result does not describe the current task revision and does not authorize replay.")
+                            }
+                        )
+                    } else {
+                        throw dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException(
+                            "GRAPH_REVISION_MISMATCH",
+                            "The selected task revision changed during the map read. Read the map again at the current task revision.",
+                            "READ_CURRENT_TASK_REVISION"
+                        )
+                    }
+                } else {
+                    observed
+                }
+            }
         )
+        // Capture the same authority for dispatch, checkpoint recovery and result
+        // validation. A chat's original binding is only the initial snapshot;
+        // successful native resolve/branch transitions supersede it for map reads.
+        object : AgentTool {
+            override val definition = forScope(bound).definition
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =
+                forScope(currentScope()).execute(callId, arguments)
+        }
     }
 
     companion object {

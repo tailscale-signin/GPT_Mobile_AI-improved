@@ -1,11 +1,47 @@
-# Android 0.9.66.14 — smoother voice chat and reliable execution
+# Android 0.9.66.15 — smoother voice chat and reliable execution
 
-Version code: **148**. Coordinated publication with Gateway **18.1.2**; retains the Gateway 18 contract.
+Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
 ## Release validation
 
 - Keep the complete benchmark, context, privacy, speech and recovery changes from the prior Android 0.9.66.13 candidate.
-- Run release lint with an explicit bounded memory budget and current-memory admission, retain dedicated diagnostics, and preserve every lint check and the existing outer time limit. Exact-source validation and both published-package checks remain required.
+- Run release lint with an explicit bounded memory budget and current-memory admission, retain dedicated diagnostics, and preserve every lint check within the combined 3840-second process deadline and 65-minute outer step. Exact-source validation and both published-package checks remain required.
+
+## Integrated repository and speech repairs
+
+### Repository evidence and recovery
+
+- Use the current native task revision for repository map reads and reject a map result when that revision changes during the operation.
+- Keep exact immutable comparison pairs fresh while preserving mutable branch, PR and policy freshness checks.
+- Reserve selected baseline, decision, head and comparison coverage facts in bounded verification; do not ask again for an already answered baseline.
+- Recover explicit schema-budget exclusions with bounded action-scoped discovery and only authorized compatible read facades.
+- Schedule bounded changed-source reads from the observed comparison and follow issued continuations; assess comparison acceptance separately from source correctness.
+- Preserve valid source ranges in a mixed batch and report directories and other nonregular paths as typed failures.
+- Checkpoint phone source indexing after completed files, bound each operation and defer repeatedly slow files with explicit unread coverage.
+- Bound the complete search operation, including parsing and cache inspection, and retain a revision-bound continuation when work remains.
+- Measure semantic source progress so equivalent repository resolution cannot consume an investigation indefinitely.
+- Report pending exact-SHA CI from observed running and queued jobs without requiring an unavailable-log probe.
+- Generate a shared closed diagnostic vocabulary for phone interruption, read deadline, nonregular paths and local cancellation; negotiate compatible report service capabilities.
+- Retry a known rejected claim-extraction batch at most once within its bounded wait and retain its own checkpoint when safe continuation is not currently available.
+- Prepare settled Markdown outside composition and reuse bounded parsed documents with privacy-sensitive cache bypass and live layout/font/theme inputs.
+- Use one frame report deadline after threshold or timer flushes and isolate frame, CPU, memory and GC evidence across recording epochs.
+- Retain existing safe crash throw-site and GitHub validation evidence, including a real native commit-lookup projection regression, without assigning unproven historical root causes.
+- Reject phone index cursors that advance beyond the retained frontier, and keep an earlier header read from suppressing the planned changed-source window.
+- Preserve legacy `READ_DEADLINE` report compatibility while requiring service capabilities for newly introduced diagnostic fields.
+
+### Speech playback and benchmarks
+
+- Preserve typed native model-open and playback failures, including their stage, safe code, failed attempt and timeout budget. Local model setup failures remain distinct from invalid fixture text and accelerator failures.
+- Expose safely polled native attempt progress and bounded phase deadlines. Retain per-chunk frontend, preparation, synthesis, profile-finalization, validation, cache and actual CPU/accelerator evidence.
+- Measure first PCM, queueing, AudioTrack write, play request and presented audio separately. Distinguish startup reserves, refills and terminal drain; use verified recurring costs for startup while retaining complete generation costs.
+- Add fresh, resident warm, streaming, changing-shape, sustained and stage-specific cancellation scenarios through the production playback path. Bind warm results to actual engine reuse and validate captions against an independent fixed fixture manifest.
+- Offer controlled zero-offset and current-route calibration modes without overwriting saved route calibration. Honor explicitly selected one-through-four thread counts.
+- Separate execution completion from slow startup, stalls, thermal limits and incomplete evidence. A playback recommendation requires the complete controlled full suite and verified requested-provider execution; small samples do not imply a p95 result.
+- Bound foreground native cleanup while keeping audio and model ownership until the worker actually retires. Keep each warm reply's observer isolated and save progress serially outside the UI thread.
+- Export mode-correct schema 3 records with explicit unmeasured capabilities. Preserve historical numeric receipts without restoring stale qualification, and retain complete current evidence in bounded 4 MiB history storage by evicting older whole runs.
+
+- Keep retained baseline-review decisions authoritative, while suppressing unsupported runtime or repeated-permission questions only in answer-derived questions. Preserve comparison inventory separately from completed source review.
+- Retry the original Gradle invocation once, within its existing total deadline, only for the exact pinned CMake SDK non-ZIP installation failure and without weakening dependency verification or deterministic-failure handling.
 
 ## Privacy detection, streaming and exports
 
@@ -14,6 +50,9 @@ Version code: **148**. Coordinated publication with Gateway **18.1.2**; retains 
 - Retain content-free evidence from the final outbound body: detected-span counts, policy and detector revisions, request-linked fingerprints, and separate upstream/restoration timings. This checks known protected values and does not claim complete detection or verified provider retention.
 - Omit private text, thoughts and local network details from diagnostic exports by default. Offer a separate full forensic preview and choice, with a distinct resumable capture identity; credentials remain redacted in both modes.
 - Show saved private memory sources separately from completed indexing, preserve conversation ownership across restore and deletion, and add a cancellable offline privacy check using fictional examples and measured local CPU timings.
+- Preserve the request-local public marker instructions by exact generated system-value identity while keeping original prefixes, history and tool content checked; content-free evidence explicitly records this limited exclusion.
+- Omit retained task wording, acceptance text and cited source values before default diagnostic checkpoint, archive and resume serialization, preserving typed identifiers, counts and verification evidence.
+- Revalidate the inherited provider and retained-source permission before each masked fallback answer, reasoning and completion event; stop with a typed policy change after revocation without replaying partial output.
 
 ## Repository references and automatic task context
 
@@ -31,6 +70,7 @@ Version code: **148**. Coordinated publication with Gateway **18.1.2**; retains 
 
 - Recover multi-tool catalog lookups that use the catalog action alias, preserving all requested tool names and local discovery boundaries.
 - Report a verification-reserve stop with its precise reason and remaining call allowance; keep unmet criteria visible and distinguish it from a generic chat or tool failure.
+
 - Retain completed phone-index shards after local indexing is interrupted. Settle charged Combined work exactly once across nested wrappers, preserve cancellation, and keep unrelated unknown remote operations blocked for reconciliation.
 - Retain bounded AndroidX and coroutine crash frames, including Kotlin-generated method names. Keep approved report bytes and privacy limits intact, and require compatible hosted reporting support before delivery. This improves crash evidence; it does not establish the cause of a previously unresolved crash.
 - Stop automatic saved-page retries after a native capacity refusal. Retain the incomplete page and its exact issued larger recovery across compaction and restart, within the existing budget and attempt limit.
@@ -191,6 +231,9 @@ Older provider-wait checkpoints without protected replay-content and result-sema
 See the [workspace guide](docs/engineering/github-agent-workspace.md) and [runtime adapters](docs/engineering/coding-agent-adapters.md) for configuration, supported controls and qualification boundaries.
 
 ## Qualification and limitations
+
+- No device speedup is claimed for the Markdown or index changes. The added UI fixture and deterministic runtime regressions do not replace measurement on the target phone.
+- The historical HTTP 422 commit lookup and NoSuchElementException reports did not retain enough evidence to prove their original root causes. This release preserves their bounded diagnostic capture and regression coverage; it does not declare those incidents reproduced or fixed.
 
 - Generation identity is an authenticated client observation, not independent proof of the provider's internal model identity. Missing or ambiguous token usage, price, retry or settings evidence remains unknown; external CI and service charges are not inferred.
 - Live GitHub benchmarking requires an explicitly authorized disposable repository, immutable fixture base, appropriate account permissions and the declared runtime. Direct phone execution needs a provisioned Actions fixture bank; repository-native Actions additionally needs the prepared self-hosted runner and pinned image.

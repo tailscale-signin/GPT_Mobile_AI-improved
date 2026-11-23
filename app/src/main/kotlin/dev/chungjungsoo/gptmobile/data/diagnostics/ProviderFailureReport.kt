@@ -178,20 +178,28 @@ internal object ProviderFailureReport {
         IssueReportContext.identifierHash("job", jobId)?.let { put("job_id_hash", it) }
         if (rateLimitFailure || failure.providerLimit != null) {
             val decision = failure.providerLimit
+            val extractionOwnsCheckpoint = ProviderWaitSchedulingResult.claimExtractionCheckpoint(failure.failureDetails)
             val state = when {
+                extractionOwnsCheckpoint && decision == null -> "NOT_SCHEDULED"
                 decision == null -> "INELIGIBLE"
                 dev.chungjungsoo.gptmobile.data.research.researchHash(decision.profileUid) != receipt.profileHash ||
                     dev.chungjungsoo.gptmobile.data.research.researchHash(decision.model) != receipt.modelHash -> "ROUTE_MISMATCH"
+                extractionOwnsCheckpoint -> "NOT_SCHEDULED"
                 decision.mayWait -> "ELIGIBLE"
                 else -> "INELIGIBLE"
             }
             put("provider_wait_decision_state", state)
             val noWaitReason = when (state) {
                 "ROUTE_MISMATCH" -> ProviderWaitSchedulingResult.NoWaitReason.ROUTE_MISMATCH
+                "NOT_SCHEDULED" -> ProviderWaitSchedulingResult.NoWaitReason.CLAIM_EXTRACTION_CHECKPOINT_REQUIRED
                 "INELIGIBLE" -> if (decision == null) ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE else ProviderWaitSchedulingResult.NoWaitReason.REJECTION_NOT_REPLAY_SAFE
                 else -> null
             }
             noWaitReason?.let { put("provider_wait_no_wait_reason", it.name) }
+            if (state == "NOT_SCHEDULED") {
+                put("provider_wait_scheduler_state", "NOT_SCHEDULED")
+                put("provider_wait_persisted", false)
+            }
         }
         failure.providerLimit?.takeIf {
             dev.chungjungsoo.gptmobile.data.research.researchHash(it.profileUid) == receipt.profileHash &&

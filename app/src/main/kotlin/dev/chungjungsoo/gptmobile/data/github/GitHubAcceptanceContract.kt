@@ -9,7 +9,7 @@ import kotlinx.serialization.json.put
 
 /** Preserve the accepted wording while giving each explicit deliverable its own proof obligation. */
 internal object GitHubAcceptanceContract {
-    enum class Producer { SOURCE_OBSERVATION, DEFECT_ANALYSIS, REVISION_AND_TESTS, REGRESSION_AND_TESTS, VALIDATION_JOBS, DIFF_REVIEW, DRAFT_PULL_REQUEST, EVIDENCE_REPORT, REQUEST_SPECIFIC }
+    enum class Producer { COMPARISON_OBSERVATION, SOURCE_OBSERVATION, DEFECT_ANALYSIS, REVISION_AND_TESTS, REGRESSION_AND_TESTS, VALIDATION_JOBS, DIFF_REVIEW, DRAFT_PULL_REQUEST, EVIDENCE_REPORT, REQUEST_SPECIFIC }
 
     data class Criterion(
         val text: String,
@@ -64,6 +64,7 @@ internal object GitHubAcceptanceContract {
         val plain = text.replace(quoted) { " ".repeat(it.value.length) }.trim().removePrefix("- ").replaceFirst(politePrefix, "")
         if (conditional.containsMatchIn(plain) || split(text).size > 1) return Producer.REQUEST_SPECIFIC
         return when {
+            GitHubReviewComparison.comparisonOnly(plain) -> Producer.COMPARISON_OBSERVATION
             Regex("(?i)^(?:inspect|read)\\b.*\\b(?:instructions?|source|code|tests?|files?)\\b").containsMatchIn(plain) -> Producer.SOURCE_OBSERVATION
             Regex("(?i)^identify\\b.*\\b(?:issue|bug|defect|correctness)\\b").containsMatchIn(plain) -> Producer.DEFECT_ANALYSIS
             Regex("(?i)^add\\b.*\\b(?:regression|tests?)\\b").containsMatchIn(plain) -> Producer.REGRESSION_AND_TESTS
@@ -83,7 +84,7 @@ internal object GitHubAcceptanceContract {
             val location = request.indexOf(text).takeIf { it >= 0 }
             val producer = producer(text)
             val dependencies = when (producer) {
-                Producer.DEFECT_ANALYSIS -> previous.filter { it.producer == Producer.SOURCE_OBSERVATION }
+                Producer.DEFECT_ANALYSIS -> previous.filter { it.producer in setOf(Producer.COMPARISON_OBSERVATION, Producer.SOURCE_OBSERVATION) }
                 Producer.REVISION_AND_TESTS -> previous.filter { it.producer == Producer.DEFECT_ANALYSIS }
                 Producer.REGRESSION_AND_TESTS, Producer.VALIDATION_JOBS, Producer.DIFF_REVIEW, Producer.DRAFT_PULL_REQUEST ->
                     previous.filter { it.producer in setOf(Producer.REVISION_AND_TESTS, Producer.REGRESSION_AND_TESTS) }

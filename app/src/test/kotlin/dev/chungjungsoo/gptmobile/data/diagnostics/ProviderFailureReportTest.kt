@@ -31,6 +31,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderFailureReportTest {
+    @Test fun extractionCheckpointHandoffDoesNotBecomeAnUnexplainedMissingWaitDecision() {
+        val details = buildJsonObject {
+            put("failed_stage", "claim_extraction")
+            put("review_stage", "claim_extraction")
+            put("recovery_action", "RESUME_UNFINISHED_EXTRACTION_BATCHES_AFTER_RETRY_AT")
+            put("provider_wait_no_wait_reason", "CLAIM_EXTRACTION_CHECKPOINT_REQUIRED")
+            put("provider_wait_decision_state", "NOT_SCHEDULED")
+            put("provider_wait_scheduler_state", "NOT_SCHEDULED")
+            put("provider_wait_persisted", false)
+            put("http_status", 429)
+            put("request_replay_allowed", false)
+        }
+        val failure = ProviderEvent.Failed("private provider detail", errorCode = "429", failureDetails = details)
+        fun projection(value: ProviderEvent.Failed) = ProviderFailureReport.fields("run", value, ProviderFailureReceipt.from(profile, "github-review", value))
+        val fields = projection(failure)
+        assertEquals(JsonPrimitive("CLAIM_EXTRACTION_CHECKPOINT_REQUIRED"), fields["provider_wait_no_wait_reason"])
+        assertEquals(JsonPrimitive("NOT_SCHEDULED"), fields["provider_wait_decision_state"])
+        assertEquals(JsonPrimitive(false), fields["provider_wait_persisted"])
+        val captured = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1_800_000_000_000))
+        assertEquals(fields["provider_wait_no_wait_reason"], captured.values["provider_wait_no_wait_reason"])
+        assertTrue(RepositoryOperationReportContract.FEATURE in captured.requiredServiceFeatures())
+        assertFalse(captured.toString().contains("private"))
+        for (field in listOf("failed_stage", "review_stage", "recovery_action", "provider_wait_no_wait_reason", "provider_wait_decision_state", "provider_wait_scheduler_state", "provider_wait_persisted")) {
+            val unrelated = failure.copy(failureDetails = kotlinx.serialization.json.JsonObject(details - field))
+            assertEquals(field, JsonPrimitive("DECISION_UNAVAILABLE"), projection(unrelated)["provider_wait_no_wait_reason"])
+        }
+    }
+
     @Test fun incompleteComparisonIsAnApplicationGuardAndCannotBorrowModelUsage() {
         val failure = dev.chungjungsoo.gptmobile.data.github.GitHubReviewComparison.blockedFailure(
             dev.chungjungsoo.gptmobile.data.github.GitHubReviewComparison.Plan(

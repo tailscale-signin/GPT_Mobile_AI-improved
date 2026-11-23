@@ -48,6 +48,7 @@ internal fun graphFailureCode(failure: Exception): String = if (failure.isLocalP
     when (failure) {
         is GatewayGraphIntegrityException -> failure.code
         is GatewayGraphResultException -> failure.code
+        is GitHubReadValidation -> failure.code
         is GatewayGraphHttpFailure -> failure.code
         is GatewayGraphAdmissionException -> failure.code
         is javax.net.ssl.SSLException -> "GRAPH_TLS_REJECTED"

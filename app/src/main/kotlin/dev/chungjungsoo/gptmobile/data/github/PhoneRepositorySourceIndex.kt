@@ -28,11 +28,12 @@ internal object PhoneRepositorySourceIndex {
 
     fun supports(path: String) = path.substringAfterLast('.', "").lowercase(Locale.ROOT) in languages
 
-    fun build(path: String, original: String): JsonObject {
+    fun build(path: String, original: String, checkpoint: () -> Unit = {}): JsonObject {
+        checkpoint()
         val supported = supports(path)
         val source = original.take(MAX_CHARACTERS)
         val python = path.endsWith(".py", true)
-        val masked = mask(source, python)
+        val masked = mask(source, python, checkpoint)
         val definitions = mutableListOf<Definition>()
         val callSites = mutableListOf<JsonObject>()
         val imports = mutableListOf<JsonObject>()
@@ -41,27 +42,32 @@ internal object PhoneRepositorySourceIndex {
         var totalImports = 0
         var skippedLines = false
         val lineStarts = mutableListOf(0)
-        source.forEachIndexed { index, c -> if (c == '\n') lineStarts += index + 1 }
+        source.forEachIndexed { index, c ->
+            if (index % 1024 == 0) checkpoint()
+            if (c == '\n') lineStarts += index + 1
+        }
         fun lineAt(offset: Int): Int {
             val result = lineStarts.binarySearch(offset)
             return if (result >= 0) result + 1 else -result - 1
         }
-        val delimiterState = delimiters(masked.code)
+        val delimiterState = delimiters(masked.code, checkpoint)
         val delimiters = delimiterState.first
         val codeLines = masked.code.split('\n')
         if (supported) {
             codeLines.forEachIndexed { row, line ->
+                checkpoint()
                 if (row >= 50_000 || line.length > 8000) {
                     skippedLines = true
                     return@forEachIndexed
                 }
                 val offset = lineStarts[row]
                 fun add(name: String, kind: String, range: IntRange) {
+                    checkpoint()
                     val start = offset + range.first
                     if (definitions.any { it.start == start }) return
                     totalDefinitions++
                     if (definitions.size >= MAX_DEFINITIONS) return
-                    val boundary = body(masked.code, delimiters, start + name.length, kind, python, row, line, codeLines, lineStarts)
+                    val boundary = body(masked.code, delimiters, start + name.length, kind, python, row, line, codeLines, lineStarts, checkpoint)
                     definitions += Definition(name, kind, row + 1, start, boundary.first, boundary.second, source.substring(offset, minOf(source.length, offset + line.length)).trim().take(240))
                 }
                 typeDefinition.findAll(line).forEach { match -> add(match.groupValues[2], match.groupValues[1], match.groups[2]!!.range) }
@@ -80,6 +86,7 @@ internal object PhoneRepositorySourceIndex {
             val active = mutableListOf<Definition>()
             var definitionCursor = 0
             codeLines.forEachIndexed { row, line ->
+                checkpoint()
                 if (row >= 50_000 || line.length > 8000) return@forEachIndexed
                 val offset = lineStarts[row]
                 val import = importLine.containsMatchIn(line)
@@ -108,6 +115,7 @@ internal object PhoneRepositorySourceIndex {
                 }
                 if (import) return@forEachIndexed
                 calls.findAll(line).forEach call@{ match ->
+                    checkpoint()
                     val name = match.groupValues[1]
                     val start = offset + match.groups[1]!!.range.first
                     if (name in excludedCalls || start in definedAt) return@call
@@ -137,6 +145,7 @@ internal object PhoneRepositorySourceIndex {
                 "definitions",
                 JsonArray(
                     definitions.map { definition ->
+                        checkpoint()
                         buildJsonObject {
                             put("key", definition.key)
                             put("name", definition.name)
@@ -162,20 +171,26 @@ internal object PhoneRepositorySourceIndex {
     private data class Masked(val code: String, val literalsByLine: Map<Int, List<Literal>>, val complete: Boolean)
 
     /** Preserve offsets/newlines while excluding comments, quoted literals and template interpolation. */
-    private fun mask(source: String, python: Boolean): Masked {
+    private fun mask(source: String, python: Boolean, checkpoint: () -> Unit): Masked {
         val result = source.toCharArray()
         val literals = mutableMapOf<Int, MutableList<Literal>>()
         var index = 0
         var line = 1
         var complete = true
         var literalCount = 0
+        var scanned = 0
+        fun checkChunk() {
+            if (++scanned % 1024 == 0) checkpoint()
+        }
         fun erase(until: Int) {
             while (index < until) {
+                checkChunk()
                 if (source[index] == '\n') line++ else result[index] = ' '
                 index++
             }
         }
         while (index < source.length) {
+            checkChunk()
             val c = source[index]
             when {
                 c == '\n' -> {
@@ -187,6 +202,7 @@ internal object PhoneRepositorySourceIndex {
                     var cursor = index + 2
                     var nesting = 1
                     while (cursor < source.length && nesting > 0) {
+                        checkChunk()
                         if (source.startsWith("/*", cursor)) {
                             nesting++
                             cursor += 2
@@ -205,14 +221,16 @@ internal object PhoneRepositorySourceIndex {
                     val firstLine = line
                     val triple = c != '`' && source.startsWith(c.toString().repeat(3), index)
                     val length = if (triple) 3 else 1
+                    val closingQuote = c.toString().repeat(length)
                     var next = index + length
                     var closed = false
                     while (next < source.length) {
+                        checkChunk()
                         if (source[next] == '\\') {
                             next = minOf(source.length, next + 2)
                             continue
                         }
-                        if (source.startsWith(c.toString().repeat(length), next)) {
+                        if (source.startsWith(closingQuote, next)) {
                             closed = true
                             break
                         }
@@ -232,11 +250,12 @@ internal object PhoneRepositorySourceIndex {
         return Masked(String(result), literals, complete)
     }
 
-    private fun delimiters(code: String): Pair<Map<Int, Int>, Boolean> {
+    private fun delimiters(code: String, checkpoint: () -> Unit): Pair<Map<Int, Int>, Boolean> {
         val pairs = mutableMapOf<Int, Int>()
         val braces = ArrayDeque<Int>()
         val parentheses = ArrayDeque<Int>()
         code.forEachIndexed { index, c ->
+            if (index % 1024 == 0) checkpoint()
             if (pairs.size >= 50_000 || braces.size >= 10_000 || parentheses.size >= 10_000) return pairs to false
             when (c) {
                 '{' -> braces.addLast(index)
@@ -248,12 +267,13 @@ internal object PhoneRepositorySourceIndex {
         return pairs to (braces.isEmpty() && parentheses.isEmpty())
     }
 
-    private fun body(code: String, pairs: Map<Int, Int>, afterName: Int, kind: String, python: Boolean, row: Int, line: String, lines: List<String>, starts: List<Int>): Pair<Int, Int> {
+    private fun body(code: String, pairs: Map<Int, Int>, afterName: Int, kind: String, python: Boolean, row: Int, line: String, lines: List<String>, starts: List<Int>, checkpoint: () -> Unit): Pair<Int, Int> {
         if (kind == "variable") return afterName to afterName
         if (python) {
             val indent = line.takeWhile(Char::isWhitespace).replace("\t", "    ").length
             var next = row + 1
             while (next < lines.size) {
+                if (next % 64 == 0) checkpoint()
                 val candidate = lines[next]
                 if (candidate.isNotBlank() && candidate.takeWhile(Char::isWhitespace).replace("\t", "    ").length <= indent) break
                 next++

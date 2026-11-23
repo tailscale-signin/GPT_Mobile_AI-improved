@@ -142,7 +142,7 @@ internal class DeferredKokoroOutput(
         output()?.openReplyWithFailure(voice, complete, error)
 
     override fun configureThreads(value: Int) {
-        val bounded = value.coerceIn(2, 4)
+        val bounded = value.coerceIn(1, 4)
         synchronized(lock) { threads = bounded }
         existing()?.configureThreads(bounded)
     }
@@ -255,6 +255,7 @@ internal class KokoroVoiceOutput(
     @Volatile private var pronunciations: Map<String, String> = emptyMap()
 
     @Volatile private var captionOffset = 0
+    private val captionCalibration = VoiceCaptionCalibration()
 
     @Volatile private var calibrationTicket = 0L
 
@@ -299,7 +300,7 @@ internal class KokoroVoiceOutput(
     }
 
     override fun configureThreads(value: Int) {
-        val bounded = value.coerceIn(2, 4)
+        val bounded = value.coerceIn(1, 4)
         if (threadCount == bounded) return
         threadCount = bounded
         releaseWarmModel()
@@ -310,6 +311,7 @@ internal class KokoroVoiceOutput(
     }
 
     override fun configureCaptionOffset(milliseconds: Int) {
+        captionCalibration.useSavedRoutes()
         val bounded = milliseconds.coerceIn(-500, 500)
         if (captionOffset == bounded && (active?.captionOffsetMs ?: measuredSynthesis.value.captionOffsetMs) == bounded) return
         captionOffset = bounded
@@ -317,6 +319,23 @@ internal class KokoroVoiceOutput(
         val route = active?.route ?: measuredSynthesis.value.route
         if (!closed && route != "unknown") synthesis.execute { calibration.edit().putInt("caption:$route", bounded).apply() }
         measuredSynthesis.update { it.copy(captionOffsetMs = bounded) }
+    }
+
+    /** Isolates a benchmark from saved route settings without changing those preferences. */
+    internal fun configureFixedCaptionOffset(milliseconds: Int) {
+        val bounded = milliseconds.coerceIn(-500, 500)
+        captionCalibration.fixed(bounded)
+        captionOffset = bounded
+        active?.captionOffsetMs = bounded
+        measuredSynthesis.update { it.copy(captionOffsetMs = bounded) }
+    }
+
+    /** Captures the user's default and observes saved route overrides without persisting a benchmark setting. */
+    internal fun configureSavedRouteCaptionOffset(milliseconds: Int) {
+        check(active == null)
+        captionCalibration.useSavedRoutes()
+        captionOffset = milliseconds.coerceIn(-500, 500)
+        measuredSynthesis.update { it.copy(captionOffsetMs = captionOffset) }
     }
 
     override fun configureEngine(factory: VoicePhraseEngineFactory) {
@@ -398,7 +417,9 @@ internal class KokoroVoiceOutput(
         val pause: VoicePauseDuration,
         val performance: VoicePerformanceMode,
         val rate: Float,
-        val privacy: ConversationPrivacyContext?
+        val privacy: ConversationPrivacyContext?,
+        val requestedThreads: Int,
+        val measurements: VoicePlaybackMeasurementObserver?
     ) {
         val id = UUID.randomUUID().toString()
         val startedAt = SystemClock.elapsedRealtime()
@@ -449,11 +470,17 @@ internal class KokoroVoiceOutput(
 
         var track: AudioTrack? = null
         var underruns: Int? = null
+        val underrunCounter = VoicePlaybackUnderruns()
+        var underrunsAvailable = false
+        var lastUnderrunObservation = 0L
+
+        @Volatile var refilling = false
 
         @Volatile var bufferRestarts = 0
 
         @Volatile var longestRefillMs = 0L
         var firstPcm = false
+        var firstTrackWrite = false
         var firstFrame = false
         var warmAtRequest = false
 
@@ -585,7 +612,10 @@ internal class KokoroVoiceOutput(
                                     playback.focusState = playback.focusState.transition(focusAction, SystemClock.elapsedRealtime())
                                     playback.lastProgress = SystemClock.elapsedRealtime()
                                     playback.track?.setVolume(1f)
-                                    if (resume) playback.track?.play()
+                                    if (resume) {
+                                        playback.track?.play()
+                                        runCatching { playback.measurements?.trackPlayRequested() }
+                                    }
                                 }
                             }.exceptionOrNull()
                             if (failed != null) {
@@ -634,18 +664,22 @@ internal class KokoroVoiceOutput(
                     }
                     return
                 }
-                // Explicit Auto comparison spans complete changing-shape workloads; ordinary startup remains 30 seconds.
-                val deadline = if (playback.preparing) playback.key.factory.preparationTimeoutMs.coerceIn(WATCHDOG_MS, 360_000) else WATCHDOG_MS
-                if ((playback.synthesizing || playback.sealed || playback.segments.isNotEmpty()) &&
-                    SystemClock.elapsedRealtime() - playback.lastProgress >= deadline
-                ) {
-                    fail(playback, "timeout", "Kokoro playback timed out. Your answer remains in chat.")
+                val progress = runCatching { loaded?.takeIf { it.key == playback.key }?.engine?.executionProgress }.getOrNull()
+                progress?.let { runCatching { playback.measurements?.executionProgress(it) } }
+                val expired = VoicePlaybackDeadlines.exceeded(
+                    progress,
+                    SystemClock.elapsedRealtime() - playback.lastProgress,
+                    playback.preparing,
+                    playback.key.factory.preparationTimeoutMs
+                )
+                if ((playback.synthesizing || playback.sealed || playback.segments.isNotEmpty()) && expired != null) {
+                    fail(playback, "timeout", "Kokoro playback timed out. Your answer remains in chat.", cause = expired)
                 } else {
                     main.postDelayed(this, 1_000)
                 }
             }
         }
-        playback = Playback(replyId, voice, ModelKey(voice.lexicon, effectiveThreads(voice.lexicon), speechFactory), focus, watchdog, complete, error, diagnosticProbe, playbackStarted, spokenRange, timedSpokenRange, pause, performance, speed, privacy())
+        playback = Playback(replyId, voice, ModelKey(voice.lexicon, effectiveThreads(voice.lexicon), speechFactory), focus, watchdog, complete, error, diagnosticProbe, playbackStarted, spokenRange, timedSpokenRange, pause, performance, speed, privacy(), threadCount, measurements?.forPlayback())
         active = playback
         playback.warmAtRequest = reusableModel(playback.key) != null
         measuredSynthesis.value = VoiceSynthesisFeedback(threads = playback.key.threads, warmAtRequest = playback.warmAtRequest, bufferState = "preparing")
@@ -715,10 +749,14 @@ internal class KokoroVoiceOutput(
             playback.diagnostics?.warmupStarted()
             val gateStarted = SystemClock.elapsedRealtime()
             val model = VoiceNativeEngineGate.exclusive {
-                playback.diagnostics?.preparation("GATE_WAIT", SystemClock.elapsedRealtime() - gateStarted)
+                val gateWait = SystemClock.elapsedRealtime() - gateStarted
+                playback.diagnostics?.preparation("GATE_WAIT", gateWait)
+                runCatching { playback.measurements?.preparationPhase("GATE_WAIT", gateWait) }
                 val loadStarted = SystemClock.elapsedRealtime()
                 loadModelExclusive(playback.key).also {
-                    playback.diagnostics?.preparation("MODEL_LOAD", SystemClock.elapsedRealtime() - loadStarted)
+                    val loadMs = SystemClock.elapsedRealtime() - loadStarted
+                    playback.diagnostics?.preparation("MODEL_LOAD", loadMs)
+                    runCatching { playback.measurements?.preparationPhase("MODEL_LOAD", loadMs) }
                 }
             }
             model.engine.resetCancellation()
@@ -727,6 +765,8 @@ internal class KokoroVoiceOutput(
             measuredSynthesis.value = VoiceSynthesisFeedback(threads = playback.key.threads, warm = wasWarm, warmAtRequest = playback.warmAtRequest, engineReused = wasWarm, executionProvider = model.engine.executionProvider, bufferState = "preparing")
             playback.diagnostics?.speechProvider(model.engine.executionProvider)
             playback.diagnostics?.engineReady(wasWarm)
+            runCatching { playback.measurements?.nativePreparation(SystemClock.elapsedRealtime() - gateStarted, playback.requestedThreads, playback.key.threads) }
+            runCatching { playback.measurements?.engineReady(wasWarm) }
             publishExecution(playback, model.engine)
             playback.lastProgress = SystemClock.elapsedRealtime()
             timing("model_ready", playback, "warm=$wasWarm · warmAtRequest=${playback.warmAtRequest} · engineReused=$wasWarm · queueWaitMs=$queueWait")
@@ -797,20 +837,23 @@ internal class KokoroVoiceOutput(
                     val boundaries = if (timedCaptions) measuredBoundaries else IntArray(0)
                     val samples = silence?.filter(generated.samples, boundaries) ?: generated.samples
                     val audioMs = samples.size.toLong() * 1_000 / sampleRate
-                    runCatching { measurements?.pcmReady(synthesisMs, samples.size, sampleRate, model.engine.executionEvidence) }
+                    runCatching { playback.measurements?.pcmReady(synthesisMs, samples.size, sampleRate, model.engine.executionEvidence) }
                     // Reserve against the retained PCM duration, since trimming silence also
                     // removes time during which the following phrase could be synthesized.
-                    playback.adaptive.observe(synthesisMs, audioMs)
+                    playback.adaptive.observe(synthesisMs, audioMs, recurringSpeechCostMs(model.engine.executionEvidence, synthesisMs))
                     measuredSynthesis.update {
                         it.copy(synthesisMs = synthesisMs, generatedAudioMs = audioMs, warm = it.warm && it.executionProvider == provider, engineReused = it.engineReused && it.executionProvider == provider, executionProvider = provider)
                     }
                     if (timedCaptions) {
                         playback.captions.append(segmentIndex, segment, phrase.wordRanges, boundaries, samples.size)
-                        runCatching { measurements?.captionsPrepared(segmentIndex, phrase.wordRanges) }
+                        runCatching { playback.measurements?.captionsPrepared(segmentIndex, phrase.wordRanges) }
                     }
                     publishFeedback(playback)
                     if (!queuePcm(playback, samples, sampleRate, phrase.speech.length)) return
                 }
+                // A sealed reply has no later input. Publish completion immediately so the
+                // final hardware drain cannot be mistaken for an active producer stall.
+                if (playback.sealed && playback.segments.isEmpty()) break
             }
             playback.synthesisDone = true
         } catch (_: java.util.concurrent.CancellationException) {
@@ -849,7 +892,7 @@ internal class KokoroVoiceOutput(
                     playback.lastProgress = SystemClock.elapsedRealtime()
                     if (!playback.firstPcm) {
                         playback.firstPcm = true
-                        runCatching { measurements?.pcmQueued() }
+                        runCatching { playback.measurements?.pcmQueued() }
                         playback.diagnostics?.firstPcm()
                         timing("first_pcm", playback, "segmentChars=$segmentChars · pcmQueueLimitMs=${KokoroPcmBatches.QUEUE_LIMIT_MS}")
                     }
@@ -880,10 +923,11 @@ internal class KokoroVoiceOutput(
                     true
                 }
                 if (!registered) return
+                observeUnderruns(track, playback, "startup")
                 writeReply(track, playback, sampleRate)
             } finally {
                 playback.trackLock.withLock {
-                    playback.underruns = runCatching { track.underrunCount }.getOrNull()
+                    observeUnderruns(track, playback, force = true)
                     playback.track = null
                     playback.trackPrimed = false
                     silence(track)
@@ -940,9 +984,9 @@ internal class KokoroVoiceOutput(
             it.copy(
                 bufferedAudioMs = buffered,
                 suggestedFollowUpWords = playback.adaptive.phraseWords(buffered),
-                bufferMs = playback.adaptive.bufferMs(),
+                bufferMs = playback.adaptive.bufferMs(startup = !playback.firstFrame),
                 productionRatio = playback.adaptive.ratio(),
-                predictedNextSynthesisMs = playback.adaptive.predictedSynthesisMs(),
+                predictedNextSynthesisMs = playback.adaptive.predictedSynthesisMs(startup = !playback.firstFrame),
                 route = playback.route,
                 clockBasis = playback.clockBasis,
                 underruns = playback.underruns ?: playback.bufferRestarts
@@ -970,11 +1014,13 @@ internal class KokoroVoiceOutput(
                     // A hardware timestamp can trail the consumed head. Keep its tail
                     // moving before pausing, otherwise a late end-of-input seals a
                     // paused clock that can never reach the completion boundary.
+                    observeUnderruns(track, playback, "active")
                     playback.trackLock.withLock {
                         if (active === playback) track.pause()
                         playback.trackPrimed = false
                     }
                     playing = false
+                    playback.refilling = true
                     drainedAt = SystemClock.elapsedRealtime()
                     measuredSynthesis.update { it.copy(bufferState = "refilling") }
                     playback.adaptive.underrun()
@@ -1000,9 +1046,16 @@ internal class KokoroVoiceOutput(
                     val written = playback.trackLock.withLock {
                         if (active !== playback) return
                         track.write(batch.samples, batch.offset + offset, batch.size - offset, AudioTrack.WRITE_NON_BLOCKING).also { count ->
+                            if (count > 0 && !playback.firstTrackWrite) {
+                                playback.firstTrackWrite = true
+                                runCatching { playback.measurements?.firstAudioTrackWrite() }
+                            }
                             if (!playing && primeWritten + count >= startThreshold) {
                                 playback.trackPrimed = true
-                                if (!playback.focusState.paused) track.play()
+                                if (!playback.focusState.paused) {
+                                    track.play()
+                                    runCatching { playback.measurements?.trackPlayRequested() }
+                                }
                                 drainedAt?.let { drained ->
                                     playback.bufferRestarts++
                                     playback.longestRefillMs = maxOf(playback.longestRefillMs, SystemClock.elapsedRealtime() - drained)
@@ -1010,6 +1063,7 @@ internal class KokoroVoiceOutput(
                                 drainedAt = null
                                 playback.queuedAudio = true
                                 playing = true
+                                playback.refilling = false
                                 measuredSynthesis.update { it.copy(bufferState = "playing") }
                             }
                         }
@@ -1042,10 +1096,13 @@ internal class KokoroVoiceOutput(
 
     /** Wait with the bounded queue intact. Moving it into a second list would double its limit. */
     private fun awaitReserve(playback: Playback, track: AudioTrack, sampleRate: Int) {
-        measuredSynthesis.update { it.copy(bufferState = if (playback.firstFrame) "refilling" else "preparing") }
-        val deadline = SystemClock.elapsedRealtime() + playback.adaptive.primeWaitMs()
-        val target = sampleRate.toLong() * playback.adaptive.bufferMs() / 1_000
-        KokoroPcmBatches.awaitReserve(
+        val startup = !playback.firstFrame
+        val phase = if (startup) "startup" else "refill"
+        measuredSynthesis.update { it.copy(bufferState = if (startup) "preparing" else "refilling") }
+        val started = SystemClock.elapsedRealtime()
+        val deadline = started + playback.adaptive.primeWaitMs(startup)
+        val target = sampleRate.toLong() * playback.adaptive.bufferMs(startup) / 1_000
+        val exit = KokoroPcmBatches.awaitReserve(
             queue = playback.pcm,
             targetFrames = target,
             acceptedFrames = { playback.enqueuedFrames.get() - playback.consumedFrames.get() },
@@ -1057,6 +1114,14 @@ internal class KokoroVoiceOutput(
                 Thread.sleep(POLL_MS)
             }
         )
+        val reason = if (exit == VoicePcmReserveExit.STOPPED) {
+            if (playback.synthesisDone) "producer_done" else "cancelled"
+        } else {
+            exit.name.lowercase(java.util.Locale.ROOT)
+        }
+        runCatching {
+            playback.measurements?.reserveCompleted(phase, SystemClock.elapsedRealtime() - started, target * 1_000 / sampleRate, bufferedAudioMs(playback), reason)
+        }
     }
 
     /** Priming keeps views of the existing phrase; it never joins/copies PCM arrays. */
@@ -1129,7 +1194,8 @@ internal class KokoroVoiceOutput(
             playback.clock.routeChanged()
             playback.hasTimestamp = false
             playback.nextTimestampAt = 0
-            playback.captionOffsetMs = calibration.getInt("caption:${playback.route}", captionOffset).coerceIn(-500, 500)
+            playback.captionOffsetMs = captionCalibration.resolve(captionOffset) { calibration.getInt("caption:${playback.route}", captionOffset) }
+            runCatching { playback.measurements?.calibration(playback.route, playback.captionOffsetMs, playback.clock.routeEpoch) }
             measuredSynthesis.update { it.copy(captionOffsetMs = playback.captionOffsetMs) }
             timing("route_changed", playback, "route=${playback.route} · captionOffsetMs=${playback.captionOffsetMs}")
             publishFeedback(playback)
@@ -1158,6 +1224,7 @@ internal class KokoroVoiceOutput(
         playback.clockBasis = position.basis
         val presented = position.frames
         playback.presentedFrames = presented
+        observeUnderruns(track, playback)
         if (now - playback.lastFeedbackUpdate >= 100) {
             playback.lastFeedbackUpdate = now
             publishFeedback(playback)
@@ -1170,7 +1237,7 @@ internal class KokoroVoiceOutput(
         }
         if (presented > 0 && !playback.firstFrame) {
             playback.firstFrame = true
-            runCatching { measurements?.firstPresented(position.basis, playback.route) }
+            runCatching { playback.measurements?.firstPresented(position.basis, playback.route) }
             playback.diagnostics?.firstAudio(if (position.basis == "audio_timestamp") VoiceDiagnosticTrace.FirstAudio.AUDIO_TIMESTAMP else VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
             measuredSynthesis.update { it.copy(firstAudioMs = now - playback.startedAt, clockBasis = position.basis, route = playback.route) }
             timing("first_audio", playback, "clockBasis=${position.basis}")
@@ -1247,6 +1314,33 @@ internal class KokoroVoiceOutput(
         runCatching { track.flush() }
     }
 
+    private fun observeUnderruns(track: AudioTrack, playback: Playback, observedPhase: String? = null, force: Boolean = false) = playback.trackLock.withLock {
+        val now = SystemClock.elapsedRealtime()
+        if (observedPhase == null && !force && (playback.measurements == null || now - playback.lastUnderrunObservation < 100)) return@withLock
+        playback.lastUnderrunObservation = now
+        val total = runCatching { track.underrunCount }.getOrNull()?.takeIf { it >= 0 }
+        playback.underruns = total?.let { maxOf(it, playback.underruns ?: 0) } ?: playback.underruns
+        if (total == null) return@withLock
+        if (!playback.underrunsAvailable) {
+            playback.underrunsAvailable = true
+            for (phase in listOf("startup", "active", "refill", "draining", "paused", "cancelled")) {
+                runCatching { playback.measurements?.underrunObserved(0, phase) }
+            }
+        }
+        val delta = playback.underrunCounter.observe(total)
+        if (delta > 0) {
+            val phase = observedPhase ?: VoicePlaybackUnderruns.phase(
+                playback.firstFrame,
+                playback.synthesisDone,
+                playback.enqueuedFrames.get(),
+                playback.consumedFrames.get(),
+                playback.refilling,
+                playback.focusState.paused
+            )
+            runCatching { playback.measurements?.underrunObserved(delta, phase) }
+        }
+    }
+
     private fun releaseModel() {
         VoiceNativeEngineGate.exclusive {
             val model = loaded ?: return@exclusive
@@ -1286,13 +1380,13 @@ internal class KokoroVoiceOutput(
         playback.pcm.clear()
         val underruns = playback.trackLock.withLock {
             playback.track?.let { track ->
-                playback.underruns = runCatching { track.underrunCount }.getOrNull()
+                observeUnderruns(track, playback, if (reason == "complete") "draining" else "cancelled")
                 silence(track)
             }
             playback.underruns
         }
         runCatching { audioManager?.abandonAudioFocusRequest(playback.focus) }
-        runCatching { measurements?.terminal(underruns, playback.bufferRestarts, playback.longestRefillMs, playback.clockBasis, playback.route) }
+        runCatching { playback.measurements?.terminal(underruns, playback.bufferRestarts, playback.longestRefillMs, playback.clockBasis, playback.route) }
         timing("terminal", playback, "reason=$reason · cancellationOrigin=${cancellationOrigin ?: "none"} · textChars=${playback.inputChars} · firstPcm=${playback.firstPcm} · firstOutputFrame=${playback.firstFrame} · inputComplete=${playback.sealed} · drainComplete=${reason == "complete"} · underruns=${underruns ?: "unmeasured"} · bufferRestarts=${playback.bufferRestarts} · longestRefillMs=${playback.longestRefillMs} · rate=${playback.rate} · performance=${playback.performance.name} · pause=${playback.pause.name} · knownWords=${playback.knownWords} · initialisms=${playback.initialisms} · unknownWords=${playback.unknownWords} · spelledLetters=${playback.spelledLetters} · normalizedFormats=${playback.removedFormatCharacters}")
     }
 
@@ -1341,6 +1435,5 @@ internal class KokoroVoiceOutput(
         const val MAX_SEGMENTS = MAX_REPLY_CHARS
         const val POLL_MS = 12L
         const val INPUT_WAIT_MS = 100L
-        const val WATCHDOG_MS = 30_000L
     }
 }

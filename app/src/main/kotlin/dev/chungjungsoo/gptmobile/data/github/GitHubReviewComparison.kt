@@ -79,7 +79,15 @@ internal object GitHubReviewComparison {
             Regex("(?i)\\breview(?:\\s+and\\s+(?:fix|audit|inspect))?\\s+(?:(?:(?:all|the)\\s+){0,2}(?:changes|diff|code(?:/source)?|source(?:\\s+code)?)\\s+(?:on|in|of|for)\\s+)?$branch").containsMatchIn(request)
     }
 
-    fun requiresComparison(requirement: String): Boolean = matches(requirement) || Regex("(?i)head/base|base/head|changed files|correctness findings|file/line").containsMatchIn(requirement)
+    fun requiresComparison(requirement: String): Boolean = matches(requirement) || comparisonOnly(requirement) || Regex("(?i)head/base|base/head|changed files|correctness findings|file/line").containsMatchIn(requirement)
+
+    /** Resolving the pair/file inventory is a prerequisite, not a source inspection. */
+    fun comparisonOnly(requirement: String): Boolean = Regex(
+        "(?i)(?:inspect|resolve|establish|identify|compare|report) (?:the )?(?:exact )?(?:head/base|base/head|head and base|base and head) (?:revisions|commits)(?: and (?:the )?changed files)?[.!]?"
+    ).matches(requirement.trim())
+
+    fun comparisonIncompleteReason(task: String, receipts: Map<String, JsonObject>): String? =
+        plan(task, emptyList(), receipts)?.checkpoint?.takeIf { it["comparison_verified"] != JsonPrimitive(true) }?.text("detail")
 
     /** Report the retained prerequisite failure without authorizing its replay. */
     fun blockedFailure(plan: Plan): ProviderEvent.Failed {
@@ -163,27 +171,28 @@ internal object GitHubReviewComparison {
                 it["verification_eligible"] != JsonPrimitive(false) &&
                 it["success"] == JsonPrimitive(true) &&
                 it["repository_role"] != JsonPrimitive("READ_SOURCE") &&
-                it.text("repository") == checkpoint.text("repository")
+                it.text("repository") == checkpoint.text("repository") &&
+                (checkpoint["binding"] == null || it["binding"] == checkpoint["binding"])
         }
         fun data(row: JsonObject) = GitHubSemanticSummary.data(row["result"] as? JsonObject ?: JsonObject(emptyMap()))
         val comparisons = eligible.filter { row ->
             row.text("tool").githubOperationFamily() == "github_context" && (row["arguments"] as? JsonObject)?.text("action") == "changes" && data(row).text("base_sha") == base && data(row).text("head_sha") == head
         }
-        val changed = comparisons.flatMap { (data(it)["files"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it.text("filename").takeIf(String::isNotBlank) }.toSet()
+        val changed = comparisons.flatMap { (data(it)["files"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().flatMap { file ->
+            listOfNotNull(file.text("filename").takeIf(String::isNotBlank), file.text("previous_filename").takeIf { it.isNotBlank() && file.text("status") == "renamed" })
+        }.toSet()
         if (changed.isEmpty() && comparisons.any { (data(it)["files_total"] as? JsonPrimitive)?.intOrNull == 0 && data(it)["has_more"] != JsonPrimitive(true) }) return null
         val sourceRead = eligible.any { row ->
             val args = row["arguments"] as? JsonObject ?: return@any false
             val pinned = args.text("commit_sha").ifBlank { data(row).text("commit_sha").ifBlank { row.text("resource_sha") } }
-            val result = data(row)
-            val sourceRanges = if ("failed_ranges" in result || "path_corrections" in result) result["items"] else result["items"] ?: args["ranges"]
             row.text("tool").githubOperationFamily() == "github_read" &&
                 pinned in setOf(base, head) &&
-                (sourceRanges as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any { it.text("path") in changed }
+                GitHubCriterionAcceptance.observedSourcePaths(row).any { it in changed }
         }
         return if (sourceRead) null else "The exact comparison is retained, but no relevant changed-source read at the pinned base/head is recorded. Checks and inventories cannot verify a source review."
     }
 
-    fun plan(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, authorizedTools: List<AgentToolDefinition> = tools): Plan? {
+    fun plan(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, authorizedTools: List<AgentToolDefinition> = tools, acquireSource: Boolean = true): Plan? {
         if (!matches(task)) return null
         val eligible = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) && it["success"] == JsonPrimitive(true) }
         fun operation(row: JsonObject) = row.text("tool").githubOperationFamily()
@@ -201,19 +210,23 @@ internal object GitHubReviewComparison {
         var policy = "UNRESOLVED"
         var targetRepository = ""
         var targetBinding: String? = null
+        var targetConnection: String? = null
+        var headReceiptId: String? = null
+        var baselineDecisionReceiptId: String? = null
         var comparisonCoverage: GitHubComparisonCoverage.Coverage? = null
+        var sourceWork: GitHubReviewSourceQueue.Work? = null
         fun targetReceipt(row: JsonObject) = row["repository_role"] != JsonPrimitive("READ_SOURCE") &&
             (targetRepository.isBlank() || row.text("repository") == targetRepository) &&
             (targetBinding == null || row.text("binding") == targetBinding)
         fun call(operation: String, arguments: JsonObject, issuedToolName: String? = null): ProviderEvent.ToolCall? {
             // A retained page belongs to its issued facade and connection, even
             // when another family member accepts the same arguments.
-            val candidates = if (issuedToolName == null) githubFamilyTools(tools, operation) else tools.filter { it.modelVisible && it.name == issuedToolName }
+            val candidates = if (issuedToolName == null) githubFamilyTools(tools, operation).filter { targetConnection == null || it.name.substringAfter("__", "") == targetConnection } else tools.filter { it.modelVisible && it.name == issuedToolName }
             val tool = candidates.firstOrNull { ToolArgumentValidator.errors(arguments, it.inputSchema).isEmpty() }
             if (tool == null) {
                 val discovery = tools.singleOrNull { it.modelVisible && it.name == GitHubAuthorizedCatalog.TOOL } ?: return null
                 val family = authorizedTools.filter { it.modelVisible && it.name.githubOperationFamily() == operation }
-                val connection = (issuedToolName ?: candidates.firstOrNull()?.name)?.substringAfter("__", "")
+                val connection = (issuedToolName ?: candidates.firstOrNull()?.name)?.substringAfter("__", "") ?: targetConnection
                     ?: family.map { it.name.substringAfter("__", "") }.distinct().singleOrNull() ?: return null
                 val exact = family.firstOrNull {
                     it.name.substringAfter("__", "") == connection &&
@@ -243,16 +256,28 @@ internal object GitHubReviewComparison {
                 put("comparison_policy", policy)
                 observation?.let { put("github_prerequisite_observation", it) }
                 if (targetRepository.isNotBlank()) put("repository", targetRepository)
+                targetBinding?.let { put("binding", it) }
                 if (head.isNotBlank()) put("head_sha", head)
                 if (base.isNotBlank()) put("base_sha", base)
+                headReceiptId?.let { put("head_observation_receipt_id", it) }
+                baselineDecisionReceiptId?.let { put("baseline_decision_receipt_id", it) }
+                comparisonCoverage?.let {
+                    val ids = it.receipts.keys.toList()
+                    put("comparison_receipt_ids", JsonArray((ids.take(1) + ids.takeLast(1)).distinct().map(::JsonPrimitive)))
+                    put("comparison_receipt_count", ids.size)
+                    put("comparison_receipt_preview_complete", ids.size <= 2)
+                }
                 put("comparison_verified", code == "READ_CHANGED_SOURCE")
                 put("source_review_verified", false)
                 put("user_input_required", code == "BASELINE_REQUIRED")
+                sourceWork?.let { put("source_work_queue", it.checkpoint) }
                 if (code in setOf("COMPARISON_PAGES_PENDING", "READ_CHANGED_SOURCE")) {
-                    val changed = (comparisonCoverage?.receipts?.values ?: eligible.filter { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head })
-                        .flatMap { (data(it)["files"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it.text("filename").takeIf(String::isNotBlank) }.toSet()
-                    val read = eligible.filter { targetReceipt(it) && operation(it) == "github_read" && data(it).text("commit_sha") in setOf(base, head) }
-                        .flatMap { (data(it)["items"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it.text("path").takeIf(String::isNotBlank) }.toSet()
+                    val changedFiles = (comparisonCoverage?.receipts?.values ?: eligible.filter { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head })
+                        .flatMap { (data(it)["files"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>()
+                    val changed = changedFiles.mapNotNull { it.text("filename").takeIf(String::isNotBlank) }.toSet()
+                    val readPaths = eligible.filter { targetReceipt(it) && operation(it) == "github_read" && data(it).text("commit_sha") in setOf(base, head) }
+                        .flatMap { GitHubCriterionAcceptance.observedSourcePaths(it) }.toSet()
+                    val read = changedFiles.filter { it.text("filename") in readPaths || it.text("status") == "renamed" && it.text("previous_filename") in readPaths }.map { it.text("filename") }.toSet()
                     val pending = changed - read
                     put(
                         "comparison_coverage",
@@ -340,19 +365,23 @@ internal object GitHubReviewComparison {
         val selected = data(context)
         targetRepository = context.text("repository")
         targetBinding = context.text("binding").takeIf(String::isNotBlank)
+        targetConnection = context.text("tool").substringAfter("__", "")
+        headReceiptId = receipts.entries.lastOrNull { it.value == context }?.key
         head = selected.text("commit_sha")
         val branch = selected.text("branch").ifBlank { context.text("workspace_branch").ifBlank { context.text("branch") } }
         val default = selected.text("default_branch").ifBlank { (selected["repository"] as? JsonObject)?.text("default_branch").orEmpty() }
         val selection = baseline(task)
         if (selection.invalid) return state("BASELINE_REQUIRED", "The supplied baseline is missing, unsupported or ambiguous. Send one literal baseline on its own line: Baseline: <commit, tag or branch>. Saved observations remain retained.")
         val choiceId = "review-baseline-" + GitHubEvidenceBook.digest("$task|$targetRepository|$head").take(24)
-        val choice = receipts.values.lastOrNull {
-            targetReceipt(it) &&
-                it.text("tool") == "github_decide" &&
-                it.text("call_id") == choiceId &&
-                it["shared_result"] == JsonPrimitive(true) &&
-                it["dispatched"] == JsonPrimitive(false)
+        val choiceEntry = receipts.entries.lastOrNull { (_, row) ->
+            targetReceipt(row) &&
+                row.text("tool") == "github_decide" &&
+                row.text("call_id") == choiceId &&
+                row["shared_result"] == JsonPrimitive(true) &&
+                row["dispatched"] == JsonPrimitive(false)
         }
+        val choice = choiceEntry?.value
+        if (selection.ref == null) baselineDecisionReceiptId = choiceEntry?.key
         val requestedBase = selection.ref ?: choice?.let {
             // A local decision supplies a selector only. The comparison and its evidence still require GitHub receipts.
             val result = data(it)
@@ -487,7 +516,12 @@ internal object GitHubReviewComparison {
             val pending = coverage.pending.firstOrNull()
             if (pending != null) return state("COMPARISON_PAGES_PENDING", "The comparison has unread changed-file pages; retain the exact pair while following its continuation.", (pending["arguments"] as? JsonObject)?.let { call(pending.text("tool").githubOperationFamily(), it, issuedToolName = pending.text("tool")) })
             if (!coverage.complete) return state("COMPARISON_PAGES_PENDING", "The comparison has unread or unverified changed-file pages; restore its exact continuation before asserting coverage.")
-            return state("READ_CHANGED_SOURCE", "The exact comparison is retained. Inspect its changed files and relevant source at the pinned base/head before reporting correctness findings.")
+            sourceWork = GitHubReviewSourceQueue.plan(task, coverage.receipts, receipts, base, head, targetRepository, targetBinding)
+            val sourceCall = sourceWork.recipes.takeIf { acquireSource }?.firstNotNullOfOrNull { recipe ->
+                val arguments = recipe["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
+                call("github_read", arguments, issuedToolName = recipe.text("tool").takeIf { "view_cursor" in arguments })
+            }
+            return state("READ_CHANGED_SOURCE", "The exact comparison is retained. Inspect its changed files and relevant source at the pinned base/head before reporting correctness findings.", sourceCall)
         }
         return state(
             "COMPARE_REQUIRED",

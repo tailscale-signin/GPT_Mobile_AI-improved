@@ -8,6 +8,19 @@ import org.junit.Test
 @org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(sdk = [34], application = android.app.Application::class)
 class ChatMarkdownParserTest {
+    @Test fun cacheClearDuringPreparationCannotRepublishOldSourceAndProtectedReadsBypassReuse() {
+        clearChatMarkdownParseCache()
+        val source = "Settled paragraph with exact source. ".repeat(1000)
+        var checks = 0
+        val inFlight = parseChatMarkdown(source, checkActive = { if (++checks == 3) clearChatMarkdownParseCache() })
+        val fresh = parseChatMarkdown(source)
+        org.junit.Assert.assertNotSame(inFlight, fresh)
+        org.junit.Assert.assertSame(fresh, parseChatMarkdown(source))
+        org.junit.Assert.assertNotSame(fresh, parseChatMarkdown(source, cacheResult = false))
+        org.junit.Assert.assertSame(fresh, parseChatMarkdown(source))
+        clearChatMarkdownParseCache()
+    }
+
     @Test fun canceledLargeParseDoesNotPopulateCacheAndMemoryTrimDropsDerivedEntries() {
         val source = "Long plain text. ".repeat(2000)
         var checks = 0

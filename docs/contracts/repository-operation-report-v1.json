@@ -1,0 +1,14 @@
+{
+  "description": "Closed repository read and phone index report vocabulary. No paths, arguments, source content, or replay authority are permitted.",
+  "feature": "REPOSITORY_READ_PROGRESS_V1",
+  "error_codes": [
+    "PHONE_INDEX_INTERRUPTED",
+    "READ_DEADLINE",
+    "GITHUB_PATH_IS_DIRECTORY",
+    "GITHUB_PATH_NOT_REGULAR_FILE"
+  ],
+  "tool_actions": ["index"],
+  "tool_reason_codes": ["GITHUB_PATH_IS_DIRECTORY", "GITHUB_PATH_NOT_REGULAR_FILE"],
+  "tool_dispatch_phases": ["CANCELLED_LOCALLY"],
+  "provider_wait_no_wait_reasons": ["CLAIM_EXTRACTION_CHECKPOINT_REQUIRED"]
+}

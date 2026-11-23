@@ -1618,10 +1618,10 @@ class AgentToolResolver @Inject constructor(
                 workspaceContext != null &&
                 userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } == true
             ) {
-                { args ->
+                { currentScope, args ->
                     val gateway = dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository.source(args) == dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository.GATEWAY
-                    if (gateway) verifyGatewayGraphRead(workspaceContext)
-                    repositoryMaps.execute(workspaceContext, args).also { if (gateway) verifyGatewayGraphRead(workspaceContext) }
+                    if (gateway) verifyGatewayGraphRead(currentScope)
+                    repositoryMaps.execute(currentScope, args).also { if (gateway) verifyGatewayGraphRead(currentScope) }
                 }
             } else {
                 null

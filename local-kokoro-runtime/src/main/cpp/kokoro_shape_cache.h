@@ -28,14 +28,14 @@ template <typename T> class ShapeCache {
   }
   void SetLimit(size_t limit) {
     limit_ = std::max<size_t>(1, limit);
-    while (entries_.size() > limit_) entries_.erase(entries_.begin());
+    while (entries_.size() > limit_) EvictFirst();
   }
   // Evict before creating the next model to avoid an unnecessary allocation
   // spike. A failed build cannot leave a partially initialized cache entry.
   void Reserve(int64_t bytes) {
     while (!entries_.empty() &&
         (entries_.size() >= limit_ || bytes > budget_ || Bytes() > budget_ - bytes))
-      entries_.erase(entries_.begin());
+      EvictFirst();
   }
   T *Insert(int64_t shape, int64_t bytes, std::unique_ptr<T> value) {
     Reserve(bytes);
@@ -45,19 +45,22 @@ template <typename T> class ShapeCache {
   void UpdateActiveBytes(int64_t bytes) {
     if (entries_.empty()) return;
     entries_.back().bytes = std::max(entries_.back().bytes, bytes);
-    while (entries_.size() > 1 && Bytes() > budget_) entries_.erase(entries_.begin());
+    while (entries_.size() > 1 && Bytes() > budget_) EvictFirst();
   }
   void Erase(int64_t shape) {
     for (size_t i = 0; i < entries_.size(); ++i) if (entries_[i].shape == shape) {
-      entries_.erase(entries_.begin() + i); return;
+      entries_.erase(entries_.begin() + i); ++evictions_; return;
     }
   }
   int64_t Bytes() const { int64_t sum = 0; for (const auto &e : entries_) sum += e.bytes; return sum; }
   size_t Size() const { return entries_.size(); }
   size_t Limit() const { return limit_; }
+  int64_t Evictions() const { return evictions_; }
  private:
+  void EvictFirst() { entries_.erase(entries_.begin()); ++evictions_; }
   size_t limit_;
   int64_t budget_;
+  int64_t evictions_ = 0;
   std::vector<Entry> entries_;
 };
 

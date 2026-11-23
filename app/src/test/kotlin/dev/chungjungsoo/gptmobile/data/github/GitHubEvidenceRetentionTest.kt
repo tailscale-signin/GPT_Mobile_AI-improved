@@ -22,6 +22,20 @@ import org.junit.Test
 class GitHubEvidenceRetentionTest {
     private val sha = "a".repeat(40)
 
+    @Test fun restoredPinnedComparisonRemainsValidWithoutRewritingItsLegacyClassification() = runBlocking {
+        val base = "b".repeat(40)
+        val id = "ev_" + GitHubEvidenceBook.digest("task|comparison").take(24)
+        val original = Json.parseToJsonElement("""{"receipt_id":"$id","call_id":"comparison","binding":"task","repository":"owner/repo","tool":"github_context","trusted":true,"success":true,"observed_at_ms":1000,"epoch":0,"immutable":false,"arguments":{"action":"changes","base_sha":"$base","commit_sha":"$sha"},"result":{"base_sha":"$base","head_sha":"$sha","files_total":0,"files":[],"has_more":false}}""").jsonObject
+        val saved = linkedMapOf(id to original)
+        val book = GitHubEvidenceBook("task", "owner/repo", "main", setOf("github_context"), now = { 300_000 }, load = { saved[it] }, save = { key, value -> saved[key] = value }, retainedIds = { listOf(id) })
+        book.restore()
+        val restored = book.snapshot().first
+        val claim = Json.parseToJsonElement("""{"receipt_id":"$id","pointer":"/head_sha","value":"$sha"}""").jsonObject
+        assertEquals(JsonPrimitive("VERIFIED"), GitHubEvidencePolicy.verify(claim, restored, 300_000, 9)["status"])
+        assertEquals(JsonPrimitive(1000), restored.getValue(id)["observed_at_ms"])
+        assertEquals(original, saved.getValue(id))
+    }
+
     @Test fun legacyInventoryMigrationRetainsDispatchCountsWithoutRewritingTheOriginalReceipt() = runBlocking {
         val id = "ev_" + GitHubEvidenceBook.digest("task|legacy").take(24)
         val original = Json.parseToJsonElement("""{"receipt_id":"$id","call_id":"legacy","binding":"task","repository":"owner/repo","tool":"github_ci","trusted":true,"success":true,"arguments":{"action":"runs","commit_sha":"$sha","page":1},"result":{"observationTruncated":true,"excerpt":{"workflow_runs":[{"id":7,"head_sha":"$sha"}]}},"execution":{"schema":"github.dispatch.v1","pagination_progress":{"schema":"github.pagination-progress.v1","remote_page":1,"upstream_rows_returned":30,"reported_total":67}}}""").jsonObject

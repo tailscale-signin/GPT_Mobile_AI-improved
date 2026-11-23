@@ -28,6 +28,7 @@ class PhoneRepositoryGraphRepository internal constructor(
     private val connections: ToolConnectionRepository,
     private val authentication: GitHubPublicAuthCoordinator,
     private val state: GitHubRepositoryStateStore,
+    private val indexOperationTimeoutMs: Long = 20_000,
     private val clientFactory: (PhoneGraphClientConfiguration) -> GitHubWorkspaceClient
 ) {
     @Inject constructor(
@@ -35,7 +36,7 @@ class PhoneRepositoryGraphRepository internal constructor(
         connections: ToolConnectionRepository,
         authentication: GitHubPublicAuthCoordinator,
         state: GitHubRepositoryStateStore
-    ) : this(settings, connections, authentication, state, { config -> config.createClient() })
+    ) : this(settings, connections, authentication, state, clientFactory = { config -> config.createClient() })
 
     private val operations = Mutex()
 
@@ -43,6 +44,25 @@ class PhoneRepositoryGraphRepository internal constructor(
         context: GitHubConversationContext,
         arguments: JsonObject,
         forModel: Boolean = false
+    ): GatewayGraphResponse {
+        if (arguments["action"] != JsonPrimitive("index")) return executeAdmittedForMap(context, arguments, forModel)
+        // This phone-only deadline includes mutex queueing, authentication and the
+        // current access check. Gateway indexing and notes never enter this path.
+        return GitHubReadWorkBudget(indexOperationTimeoutMs).run { executeAdmittedForMap(context, arguments, forModel) }
+            ?: throw GatewayGraphOperationException(
+                GatewayGraphResultException("READ_DEADLINE", "The foreground phone index reached its read deadline. Completed immutable source is retained; read current phone status before continuing.", "READ_PHONE_INDEX_STATUS"),
+                "",
+                "On this phone",
+                "READ_PHONE_INDEX_STATUS",
+                false,
+                targetRevision = context.commitSha
+            )
+    }
+
+    private suspend fun executeAdmittedForMap(
+        context: GitHubConversationContext,
+        arguments: JsonObject,
+        forModel: Boolean
     ): GatewayGraphResponse = operations.withLock {
         try {
             require(context.commitSha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) { "Resolve the repository revision before opening its map." }

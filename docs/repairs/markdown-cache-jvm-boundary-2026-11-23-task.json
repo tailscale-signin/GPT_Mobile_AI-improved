@@ -1,0 +1,162 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "markdown-cache-jvm-boundary-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "work/release-lint-main-timeout-8fd",
+  "base_sha": "2343558de9b415edee654a4d3b04defc8842be34",
+  "working_branch": "work/markdown-cache-jvm-boundary-234",
+  "parent_pull_request": 2363,
+  "owner": "voice_design_review",
+  "intent": "Keep rendering-cache revocation usable from the existing plain-JVM diagnostics policy boundary by replacing the two framework LRU imports with the already pinned AndroidX Collection implementation, preserving bounded LRU and generation-fenced privacy clearing.",
+  "state": "IMPLEMENTED_FOCUSED_VERIFIED_AWAITING_ROOT_INTEGRATION",
+  "observed_failure": {
+    "source": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "workflow_run": 45164607062,
+    "artifact": 14815638818,
+    "artifact_sha256": "30171b629bec1805db8d00df60852a43cd8ab7d3a361fbeb4e58bce2eacf6ce3",
+    "affected_cases": 20,
+    "path": "LocalDiagnosticsPolicy.setEnabled -> clearChatRenderingCaches -> android.util.LruCache.evictAll",
+    "message": "Method evictAll in android.util.LruCache not mocked"
+  },
+  "incoming_review": {
+    "remote_head": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "primary_owner_head": "d07ef08376798e852049e9a654890085a5664d45",
+    "primary_owner_clean": true,
+    "affected_source_matches_integrated_base": true,
+    "incoming_fix_found": false
+  },
+  "constraints": [
+    "Preserve synchronous revocation and all current cache clearing; do not catch or suppress platform exceptions.",
+    "Preserve 2 MiB cache charges, access-order eviction, locks, generation fences and private-content admission.",
+    "Use the verified existing AndroidX Collection dependency; do not change dependency versions or JVM mock defaults.",
+    "Bounded actual-source focused verification only; no full Gradle or memory-policy override.",
+    "No release-scope, generated-reference, workflow, foreign-checkout or remote mutations."
+  ],
+  "validation": [
+    {
+      "name": "matched-classpath baseline",
+      "tests": 3,
+      "expected_failures": 3,
+      "seconds": 0.024,
+      "message": "Method evictAll in android.util.LruCache not mocked",
+      "path": "Actual LocalDiagnosticsPolicy and exact source cache-clear body through AGP-generated mockable SDK37; no handwritten platform-cache fake.",
+      "receipt_sha256": "a1552a607eda8dbb9cf916b666fb345f1a723928ad6eafdac116883975e537f6"
+    },
+    {
+      "name": "matched-classpath corrected",
+      "tests": 3,
+      "passed": 3,
+      "failures": 0,
+      "skipped": 0,
+      "seconds": 1.538,
+      "behaviors": [
+        "Populated highlight/parser/settled caches clear and the actual report capture epoch is revoked",
+        "Weighted parse-cache capacity evicts the least-recently-used entry while explicit protected reads bypass shared reuse",
+        "A gated parser worker cannot republish source from before a concurrent diagnostics off/on revocation"
+      ],
+      "receipt_sha256": "6733fe0ba60c26f45ebfde51686a88645156f07cae2fcc0662261260f5b478e1"
+    },
+    {
+      "name": "pinned formatting",
+      "tool": "ktlint 1.3.1",
+      "files": 3,
+      "exit_code": 0,
+      "receipt_sha256": "a835462d4fc16b196757c78abff90a70cad568b6d3e96c1b76c9dd572df0ca29"
+    },
+    {
+      "name": "source and artifact binding",
+      "actual_source_snapshots_per_phase": 9,
+      "compiled_whole_source_and_test_files": 5,
+      "exact_source_excerpts": 2,
+      "explicit_unexercised_boundary_ports": 1,
+      "identical_verified_dependency_artifacts": 25,
+      "identical_test_source": true,
+      "only_changed_source_inputs": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdown.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt"
+      ],
+      "binding_sha256": "4a408b2abc048b83ac384e35374dbcfd1dbcc43e0825d90d0d62db16dae7705a"
+    }
+  ],
+  "public_base_reconciliation": {
+    "public_head": "7c4aec87062f2dd5590e2a5dff19b8edf6f5a3ec",
+    "public_tree": "05cdbbad1a08d8ad013f4268dd8cef725f612577",
+    "local_proof_base": "2343558de9b415edee654a4d3b04defc8842be34",
+    "local_tree": "05cdbbad1a08d8ad013f4268dd8cef725f612577",
+    "qualification": "Public intermediate append has identical source bytes to the local integrated proof base; verified by API tree and local Git tree. No claim that their commit IDs are equal."
+  },
+  "implementation": {
+    "production_changes": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdown.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt"
+    ],
+    "change": "Replace only the framework LruCache imports with androidx.collection.LruCache.",
+    "preserved": [
+      "2 MiB weighted limits",
+      "synchronized outer lock ordering",
+      "cache generations and in-flight publication fences",
+      "private/shared-cache admission predicates",
+      "synchronous policy-triggered clearing of highlight, parser and settled-renderer caches",
+      "capture-epoch invalidation"
+    ],
+    "dependency": "androidx.collection:collection-jvm:1.5.0",
+    "dependency_sha256": "70b35924e4babcdffa37d0e575ee039c56a2d97123342624c48b603233704341",
+    "dependency_change": false,
+    "verified_api": "Existing get/put/sizeOf/evictAll/snapshot operations; JVM monitor lock and access-ordered LinkedHashMap implementation inspected in the pinned jar."
+  },
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdown.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatRenderingCacheBoundaryTest.kt",
+    "docs/repairs/markdown-cache-jvm-boundary-2026-11-23-task.json"
+  ],
+  "platform_proof": {
+    "sdk": "Android SDK37",
+    "sdk_sha256": "bf1b4387cc7ca94fc6ef684f040d9d16fbf16248e181819f020736ea2053f177",
+    "generator": "com.android.builder.testing.MockableJarGenerator from pinned AGP9.4.1",
+    "return_default_values": false,
+    "generated_sdk_sha256": "8c2ea00c583be7c70858161e0a40e4c318caafe05243a7a68ed0581eef08b096",
+    "generated_lru_class_sha256": "935fc9ec0552ba3bb929e45a76cab97d8cad5867ad10642f89c0c862eae26791",
+    "compiler_heap_mib": 512,
+    "test_heap_mib": 384,
+    "cpu_count": 2
+  },
+  "proof": {
+    "directory": "/workspace/scratch/6b5c8b09c56b/markdown-cache-jvm-boundary-proof",
+    "binding_sha256": "4a408b2abc048b83ac384e35374dbcfd1dbcc43e0825d90d0d62db16dae7705a",
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdown.kt": "94779560e6243e64fd30bab194d7efd09ae693ebbeecce92f97079eb3188be8f",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt": "922ccb0d3807fcccbddb5443405c49d66dfb855b30c46382e571adfea3e478dc",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/MarkdownSourceMap.kt": "2003516a739e7ef5a3d1402a40199552c04aa0c3b4da1f1c636f44cf286e7b14",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SettledMarkdownRenderer.kt": "80a5f72549fdd88118fe1dba09f087f7ec052cee56793dcd09e6f5c0070693ad",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/LocalDiagnosticsPolicy.kt": "9b2ab61acc795b093f4fc53797dfb5fbeff1a82c005e8cf6932737a525d1785e",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ReportDiagnosticSnapshots.kt": "21fd86566ab1d2fd343261fa8e1fe7a3936f892b14654a4f7700fc74d6b0be81",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatRenderingCacheBoundaryTest.kt": "8d716c9789ac5897cf5563023d7c46ab68dd979d358854edcca28a6bba1bf0de",
+      "gradle/verification-metadata.xml": "65efac7f690a78c6ee146ed80fd446690f3ea8a8cec3ac23e3a27224e013a482",
+      "scripts/run_benchmark_native_controls.py": "7c1e36f86ccef155d9afdaae64a7d5be426131f7a25dc263e6090339ca5677a8"
+    },
+    "primary_artifacts_sha256": {
+      "run.py": "0dc559cdb991a810e92f4f99c1cf1824e31fa12c88302e53bb8428de04fa6cb9",
+      "baseline/receipt.json": "a1552a607eda8dbb9cf916b666fb345f1a723928ad6eafdac116883975e537f6",
+      "baseline/junit.log": "5abb6abeedd2800dd460223b354ae22e76e22558e1227f0097a37f859a4e8fd2",
+      "baseline/tests.jar": "0344508d0a6b9eeb81819a69f8b750cea6911a05408a67c1d002c92f667a809b",
+      "corrected/receipt.json": "6733fe0ba60c26f45ebfde51686a88645156f07cae2fcc0662261260f5b478e1",
+      "corrected/junit.log": "2c491600c59271df807ed1aedd43c341bc7d49178ba2269012a2b2de2f007d21",
+      "corrected/tests.jar": "0edbfbd96a1b776317c9b46a7d15ae9e743522109b06b4e5f483e48994747ed9",
+      "ktlint-receipt.json": "a835462d4fc16b196757c78abff90a70cad568b6d3e96c1b76c9dd572df0ca29"
+    }
+  },
+  "qualification_boundaries": [
+    "Actual LocalDiagnosticsPolicy, ReportDiagnosticSnapshots/cache, full Markdown parser, settled renderer and new regression tests; exact ChatMarkdown cache declarations/clear and MarkdownSourceRun are extracted. Android private-status providers are fixed-public ports; unexercised diagnostic payload validation fails closed. No Compose screen, Android private-session lifecycle, full diagnostics serialization or full Android suite execution.",
+    "The initial corrected harness omitted declared Compose saveable/UI runtime dependencies; its retained log has two passes and one missing-SaverScope error. Adding the already pinned dependencies yielded the matched-classpath baseline/corrected receipts above. No production change was made for that harness error.",
+    "The hosted20 original failures and full Android/Compose compilation remain exact final-head CI gates; this task does not claim a full-suite pass.",
+    "No full Gradle, canonical rerun, memory-policy override, generated-file, release-scope, workflow or remote mutation performed."
+  ],
+  "independent_review": {
+    "reviewer": "root",
+    "verdict": "CLEAR_FOR_INTEGRATION",
+    "receipt": "/workspace/scratch/6b5c8b09c56b/markdown-cache-jvm-boundary-proof/root-independent-review.json",
+    "receipt_sha256": "33631616afa41978eef902b476571badad38cd350620ccc3241329184d34ee25",
+    "scope": "Read-only source, baseline/corrected snapshot, dependency, excerpt, JAR and log binding; exact final-head full Android gate remains pending."
+  }
+}

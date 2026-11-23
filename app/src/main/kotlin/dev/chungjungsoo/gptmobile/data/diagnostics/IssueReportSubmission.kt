@@ -128,6 +128,7 @@ internal class IssueReportSubmission(
         private const val PROVIDER_TERMINAL_CAUSES_FEATURE = "PROVIDER_TERMINAL_CAUSES_V1"
         private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
+            RepositoryOperationReportContract.FEATURE,
             IssueReport.FRAMEWORK_EXCEPTION_FRAMES_FEATURE,
             ExecutionCompletionDiagnostics.FEATURE,
             ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE,
@@ -186,6 +187,9 @@ internal class IssueReportSubmission(
                     code(event)?.let(REPORT_EVENT::matchEntire)?.groupValues?.get(1)
                 }
             return buildSet {
+                // READ_DEADLINE already belongs to the top-level, context and event contract.
+                // Its new tool diagnostic projection still negotiates through requiredServiceFeatures().
+                if (codes.any { it != "READ_DEADLINE" && it in RepositoryOperationReportContract.errorCodes }) add(RepositoryOperationReportContract.FEATURE)
                 if (codes.any { it in ExecutionCompletionDiagnostics.codes } ||
                     code(context?.get("recoveryAction")) in ExecutionCompletionDiagnostics.actions ||
                     code(context?.get("reasonCode")) == "GITHUB_SEARCH_FUZZY_QUERY_INVALID" ||

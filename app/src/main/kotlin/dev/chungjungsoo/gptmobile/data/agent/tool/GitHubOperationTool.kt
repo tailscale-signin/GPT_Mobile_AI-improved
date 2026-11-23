@@ -954,9 +954,18 @@ internal class GitHubOperationTool(
     companion object {
         val names = setOf("github_context_inspect", "github_pr_inspect", "github_context", "github_search", "github_read", "github_pr", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_issue", "github_repository")
         fun operationName(name: String): String? = name.substringBefore("__").takeIf { it in names }?.githubOperationFamily()
-        fun immutableRead(name: String, arguments: JsonObject): Boolean = operationName(name) in setOf("github_read", "github_search") &&
-            (arguments["commit_sha"] as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) == true &&
-            "view_cursor" !in arguments
+        fun immutableRead(name: String, arguments: JsonObject): Boolean {
+            if ("view_cursor" in arguments) return false
+            fun pinned(key: String) = (arguments[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                ?.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) == true
+            return when (operationName(name)) {
+                "github_read", "github_search" -> pinned("commit_sha")
+                // Only the comparison's exact pair is immutable. Context status,
+                // PR metadata and checks may change even when their head is pinned.
+                "github_context" -> arguments["action"] == JsonPrimitive("changes") && pinned("base_sha") && pinned("commit_sha")
+                else -> false
+            }
+        }
 
         fun nativeArguments(name: String, args: JsonObject): JsonObject? {
             val op = operationName(name) ?: return null

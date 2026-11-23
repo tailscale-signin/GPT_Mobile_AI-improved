@@ -9,18 +9,22 @@ import kotlinx.serialization.json.put
 internal object GitHubLocalIndex {
     private val identifier = Regex("[A-Za-z_][A-Za-z_0-9]*")
     private val definition = Regex("\\b(?:class|interface|object|fun|def|function|struct|enum|trait|type|const|let|var|val)\\s+([A-Za-z_][A-Za-z_0-9]*)")
-    fun build(text: String): JsonObject {
+    fun build(text: String, checkpoint: () -> Unit = {}): JsonObject {
+        checkpoint()
         val references = mutableListOf<JsonObject>()
         val definitions = mutableListOf<JsonObject>()
         val imports = mutableListOf<JsonObject>()
         var totalReferences = 0
         var totalDefinitions = 0
         text.lineSequence().forEachIndexed { index, line ->
+            checkpoint()
             definition.findAll(line).forEach { match ->
+                checkpoint()
                 totalDefinitions++
                 if (definitions.size < 2000) definitions += occurrence(match.groupValues[1], index + 1)
             }
             identifier.findAll(line).forEach { match ->
+                checkpoint()
                 totalReferences++
                 if (references.size < 6000) references += occurrence(match.value, index + 1)
             }

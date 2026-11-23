@@ -174,6 +174,7 @@ data class ProfileFailureRecord(
                 observed
             }
             val stage = (details?.get("failed_stage") as? JsonPrimitive)?.contentOrNull?.takeIf { it == "approval" || it in phases }
+            val claimCheckpoint = legacy.category == "RATE_LIMIT" && ProviderWaitSchedulingResult.claimExtractionCheckpoint(details)
             val dispatchFact = details?.get("dispatched")
                 ?: details?.get("inference_dispatched")?.takeIf { stage == "connection_preflight" }
             val dispatchState = (details?.get("dispatch_state") as? JsonPrimitive)?.contentOrNull?.lowercase(java.util.Locale.ROOT)
@@ -189,7 +190,7 @@ data class ProfileFailureRecord(
             val retryAfter = (details?.get("retry_after_ms") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it in 0L..86_400_000L }
             val retryAt = (details?.get("retry_at_ms") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it > 0 }
             val typedProviderCooldown = legacy.category == "RATE_LIMIT" &&
-                stage in setOf("model_invocation", "provider_admission", "response_stream") &&
+                (stage in setOf("model_invocation", "provider_admission", "response_stream") || claimCheckpoint) &&
                 (
                     (details?.get("http_status") as? JsonPrimitive)?.takeUnless { it.isString }?.contentOrNull == "429" ||
                         code == "429" &&
@@ -208,7 +209,7 @@ data class ProfileFailureRecord(
                 details["requires_reconciliation"] != JsonPrimitive(true)
             return legacy.copy(
                 phase = stage ?: legacy.phase.ifBlank { "stage_not_recorded" },
-                retryAllowed = legacy.retryAllowed && (logicalContinuation || details?.get("retryable") != JsonPrimitive(false)),
+                retryAllowed = !claimCheckpoint && legacy.retryAllowed && (logicalContinuation || details?.get("retryable") != JsonPrimitive(false)),
                 dispatched = dispatched,
                 remoteAcceptance = if (localCircuitRejection || authorityPrecheck || catalogPrecheck || repositoryPrecheck || dispatchState in setOf("not_dispatched", "precheck_rejected")) RemoteRequestAcceptance.NO else observedAcceptance,
                 retryAfterMillis = if (typedProviderCooldown) {
@@ -221,12 +222,16 @@ data class ProfileFailureRecord(
                 invocationId = invocationId,
                 serverRequestId = serverRequestId,
                 generationCompleted = generationCompleted,
-                requestReplayAllowed = false.takeIf { code in modelPreparationCodes || code in setOf("GITHUB_TASK_IDENTITY_CHANGED", "PROVIDER_INVOCATION_FAILED", "PRIVACY_PROVIDER_INELIGIBLE", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", "GITHUB_VERIFICATION_INTERNAL_ERROR") }
+                requestReplayAllowed = false.takeIf { claimCheckpoint || code in modelPreparationCodes || code in setOf("GITHUB_TASK_IDENTITY_CHANGED", "PROVIDER_INVOCATION_FAILED", "PRIVACY_PROVIDER_INELIGIBLE", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", "GITHUB_VERIFICATION_INTERNAL_ERROR") }
                     ?: (details?.get("request_replay_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
                 causeTypes = causeTypes,
                 dispatchState = dispatchState?.uppercase(java.util.Locale.ROOT)?.takeIf { it in setOf("NOT_DISPATCHED", "PRECHECK_REJECTED", "DISPATCHED", "FAILED", "COMPLETED", "UNKNOWN") },
-                recoveryActions = recoveryActions,
-                recoveryDetails = ProviderRecoveryFailure.retainedDetails(details),
+                recoveryActions = if (claimCheckpoint) listOf("RESUME_UNFINISHED_EXTRACTION_BATCHES_AFTER_RETRY_AT") else recoveryActions,
+                recoveryDetails = if (claimCheckpoint) {
+                    JsonObject(details.orEmpty().filterKeys { it in setOf("failed_stage", "review_stage", "recovery_action", "provider_wait_no_wait_reason", "provider_wait_decision_state", "provider_wait_scheduler_state", "provider_wait_persisted") })
+                } else {
+                    ProviderRecoveryFailure.retainedDetails(details)
+                },
                 engineeringRejection = if (errorCode.equals("ENGINEERING_STATE_OR_INPUT_CHANGED", ignoreCase = true)) GatewayInputRejectionDetails.retained(details) else null,
                 providerFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(details),
                 persistenceFailure = dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict.retainedDetails(details),

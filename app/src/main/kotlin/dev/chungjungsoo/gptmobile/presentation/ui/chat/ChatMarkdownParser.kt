@@ -1,6 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import android.util.LruCache
+import androidx.collection.LruCache
 
 private const val INLINE_MATH_PLACEHOLDER_PREFIX = "CHAT_MATH_INLINE_"
 private const val INLINE_MATH_PLACEHOLDER_SUFFIX = "_TOKEN"
@@ -14,6 +14,8 @@ private val markdownParseCache = object : LruCache<String, ParsedChatMarkdown>(2
     override fun sizeOf(key: String, value: ParsedChatMarkdown): Int =
         (key.length.toLong() * 4 + value.inlineMath.sumOf { (it.tex.length.toLong() + it.placeholder.length) * 2 + 64 } + value.sourceRuns.size * 48L + value.blocks.size * 48L).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
 }
+private val markdownParseCacheLock = Any()
+private var markdownParseGeneration = 0L
 
 data class ParsedChatMarkdown(
     val blocks: List<ChatMarkdownBlock>,
@@ -32,11 +34,24 @@ data class InlineMathToken(
     val tex: String
 )
 
-internal fun clearChatMarkdownParseCache() = markdownParseCache.evictAll()
+internal fun clearChatMarkdownParseCache() = synchronized(markdownParseCacheLock) {
+    markdownParseGeneration++
+    markdownParseCache.evictAll()
+}
 
 fun parseChatMarkdown(content: String, cacheResult: Boolean = true, checkActive: () -> Unit = {}): ParsedChatMarkdown {
     checkActive()
-    if (cacheResult) markdownParseCache.get(content)?.let { return it }
+    val cacheGeneration = synchronized(markdownParseCacheLock) {
+        if (cacheResult && chatRenderCacheRetentionAllowed()) markdownParseCache.get(content)?.let { return it }
+        markdownParseGeneration
+    }
+    fun retain(parsed: ParsedChatMarkdown) {
+        if (cacheResult && content.length <= 128 * 1024) {
+            synchronized(markdownParseCacheLock) {
+                if (cacheGeneration == markdownParseGeneration && chatRenderCacheRetentionAllowed()) markdownParseCache.put(content, parsed)
+            }
+        }
+    }
 
     // This preparation pass only transforms math. CommonMark still receives the entire
     // document so later reference definitions, tables and closing fences reconcile normally.
@@ -58,7 +73,7 @@ fun parseChatMarkdown(content: String, cacheResult: Boolean = true, checkActive:
             )
         }
         checkActive()
-        if (cacheResult && content.length <= 128 * 1024) markdownParseCache.put(content, parsed)
+        retain(parsed)
         return parsed
     }
     val blocks = mutableListOf<ChatMarkdownBlock>()
@@ -107,7 +122,7 @@ fun parseChatMarkdown(content: String, cacheResult: Boolean = true, checkActive:
     flushMarkdownBuffer(markdownBuffer, blocks, inlineMath, bufferSourceStart, sourceRuns, checkActive)
     val parsed = ParsedChatMarkdown(blocks = blocks, inlineMath = inlineMath, sourceRuns = sourceRuns)
     checkActive()
-    if (cacheResult && content.length <= 128 * 1024) markdownParseCache.put(content, parsed)
+    retain(parsed)
     return parsed
 }
 

@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-/** The last five runs survive navigation/process restarts. Storage is app-private and excluded from backup. */
+/** Up to five complete runs survive navigation/process restarts within an app-private byte bound. */
 internal class VoiceSpeechBenchmarkStore internal constructor(private val directory: File) {
     constructor(context: Context) : this(File(context.noBackupFilesDir, "voice-speech-benchmarks"))
     private val file = AtomicFile(File(directory, "results-v1.json"))
@@ -16,10 +16,16 @@ internal class VoiceSpeechBenchmarkStore internal constructor(private val direct
     fun read(): List<VoiceSpeechBenchmarkReport> = synchronized(lock) { readLocked() }
 
     fun save(report: VoiceSpeechBenchmarkReport): Boolean = synchronized(lock) {
-        val reports = (listOf(report) + readLocked().filterNot { it.startedAtMillis == report.startedAtMillis }).take(5)
+        var reports = (listOf(report) + readLocked().filterNot { it.startedAtMillis == report.startedAtMillis }).take(5)
         runCatching {
             check(directory.isDirectory || directory.mkdirs())
-            val bytes = Json.encodeToString(JsonArray.serializer(), JsonArray(reports.map { speechBenchmarkJson(it, local = true) })).toByteArray()
+            fun encode() = Json.encodeToString(JsonArray.serializer(), JsonArray(reports.map { speechBenchmarkJson(it, local = true) })).toByteArray()
+            var bytes = encode()
+            // Retain complete new evidence. Evict older runs rather than truncating a measured sample.
+            while (bytes.size > MAX_BYTES && reports.size > 1) {
+                reports = reports.dropLast(1)
+                bytes = encode()
+            }
             check(bytes.size <= MAX_BYTES)
             var stream: java.io.FileOutputStream? = null
             try {
@@ -73,7 +79,7 @@ internal class VoiceSpeechBenchmarkStore internal constructor(private val direct
     }.getOrDefault(emptyList())
 
     companion object {
-        private const val MAX_BYTES = 2 * 1024 * 1024
+        private const val MAX_BYTES = 4 * 1024 * 1024
         private val lock = Any()
     }
 }

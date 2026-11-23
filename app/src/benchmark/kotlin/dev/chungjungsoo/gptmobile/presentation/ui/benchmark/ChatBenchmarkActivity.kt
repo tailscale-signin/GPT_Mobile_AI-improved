@@ -46,6 +46,10 @@ class ChatBenchmarkActivity : ComponentActivity() {
                     DiagnosticExportFixture()
                     return@MaterialTheme
                 }
+                if (intent.getStringExtra("screen") == "settled-markdown") {
+                    SettledMarkdownBenchmarkFixture()
+                    return@MaterialTheme
+                }
                 if (intent.getStringExtra("screen") == "saved-combined") {
                     SavedCombinedDocumentFixture(intent.getIntExtra("profiles", 10), intent.getIntExtra("characters", 100_000))
                     return@MaterialTheme

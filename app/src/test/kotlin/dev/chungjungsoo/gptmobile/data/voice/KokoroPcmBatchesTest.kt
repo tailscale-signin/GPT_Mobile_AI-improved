@@ -13,6 +13,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KokoroPcmBatchesTest {
+    @Test fun reserveReceiptDistinguishesTheActualExitWithoutConsumingAudio() {
+        val queue = ArrayBlockingQueue<VoicePcmSlice>(1)
+        queue.add(slice(20))
+        fun exit(target: Long = 24_000, accepted: Long = 480, active: Boolean = true, producer: Boolean = true, deadline: Boolean = false) =
+            KokoroPcmBatches.awaitReserve(queue, target, { accepted }, { active }, { producer }, { deadline }) {
+                error("This fixture already has a terminal reserve condition")
+            }
+        assertEquals(VoicePcmReserveExit.TARGET, exit(target = 480))
+        assertEquals(VoicePcmReserveExit.QUEUE_FULL, exit())
+        assertEquals(1, queue.size)
+        queue.clear()
+        assertEquals(VoicePcmReserveExit.DEADLINE, exit(deadline = true))
+        assertEquals(VoicePcmReserveExit.PRODUCER_IDLE, exit(producer = false))
+        assertEquals(VoicePcmReserveExit.STOPPED, exit(active = false))
+    }
+
     @Test fun callbackPcmIsBoundedByDurationWithoutLosingOrRepeatingFrames() {
         for (sampleRate in listOf(8_000, 24_000, 48_000)) {
             val original = FloatArray(sampleRate * 2 + 7) { it.toFloat() }

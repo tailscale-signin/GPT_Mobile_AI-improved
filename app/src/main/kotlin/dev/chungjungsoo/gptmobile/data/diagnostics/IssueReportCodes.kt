@@ -264,7 +264,7 @@ internal object IssueReportCodes {
         "TOOL_CHOICE_MISMATCH",
         "UNAUTHORIZED_TOOL_CALL",
         "UNSUPPORTED_INSTRUCTION_CONTENT"
-    )
+    ) + RepositoryOperationReportContract.errorCodes
 
     fun known(code: String?): String? = code?.takeIf { it in allowed }
 

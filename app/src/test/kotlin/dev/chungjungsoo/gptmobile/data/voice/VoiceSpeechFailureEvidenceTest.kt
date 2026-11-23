@@ -31,6 +31,30 @@ class VoiceSpeechFailureEvidenceTest {
         assertEquals(0.02, checkNotNull(receipt.audioRms), 0.0)
         assertFalse(receipt.verifiedAudio)
         assertTrue(receipt.diagnostics().containsKey("speech_cpu_kernels"))
+        assertNull(receipt.frontendMs)
+        assertNull(receipt.validationMs)
+        assertNull(receipt.cacheEvictions)
+        assertNull(receipt.profileFinalizeMs)
+    }
+
+    @Test fun newNativeFailureRetainsCurrentPhaseAndCacheCostsWithoutQualifyingAudio() {
+        val current = profile().copyOf(29).also {
+            it[0] = 3
+            it[25] = 4
+            it[26] = 2
+            it[27] = 1
+            it[28] = 7
+        }
+        val receipt = checkNotNull(speechFailureExecutionEvidence(failure("validating", "OUTPUT_INVALID", current), VoiceSpeechBackend.QNN_HTP, "device"))
+        assertEquals(4L, receipt.frontendMs)
+        assertEquals(2L, receipt.validationMs)
+        assertEquals(1, receipt.cacheEvictions)
+        assertEquals(7L, receipt.profileFinalizeMs)
+        assertEquals(4L, receipt.diagnostics()["speech_frontend_ms"])
+        assertEquals(2L, receipt.diagnostics()["speech_validation_ms"])
+        assertEquals(1, receipt.diagnostics()["speech_graph_cache_evictions"])
+        assertEquals(7L, receipt.diagnostics()["speech_profile_finalize_ms"])
+        assertFalse(receipt.verifiedAudio)
     }
 
     @Test fun frontendPreparationAndGenericFailuresCannotBorrowPreviousEvidence() {
@@ -38,6 +62,29 @@ class VoiceSpeechFailureEvidenceTest {
         assertNull(speechFailureExecutionEvidence(failure("preparing", "GRAPH_PREPARATION", null), VoiceSpeechBackend.QNN_HTP, "device"))
         assertNull(speechFailureExecutionEvidence(failure("frontend", "FRONTEND_INPUT_INVALID", profile()), VoiceSpeechBackend.QNN_HTP, "device"))
         assertNull(speechFailureExecutionEvidence(IllegalStateException("CPU_ONLY"), VoiceSpeechBackend.QNN_HTP, "device"))
+    }
+
+    @Test fun typedOpenFailuresDoNotMislabelTheBenchmarkWorkloadOrDisableHardware() {
+        for ((stage, code) in listOf("frontend" to "FRONTEND_LOAD", "preparing" to "MODEL_CONFIGURATION", "preparing" to "MODEL_OPEN")) {
+            val native = failure(stage, code, null)
+            val classified = VoiceSpeechFailureCode.valueOf(native.code)
+            assertEquals(stage, native.stage)
+            assertEquals(code, native.code)
+            assertFalse(classified.isInputFailure)
+            assertNull(native.currentEvidence)
+            if (classified.isSetupFailure) {
+                val capability = VoiceBackendCapability(
+                    "device",
+                    VoiceSpeechBackend.QNN_HTP,
+                    100,
+                    failure = classified,
+                    failureStage = VoiceSpeechStage.valueOf(stage.uppercase())
+                )
+                assertFalse(capability.cacheable)
+            }
+        }
+        assertTrue(VoiceSpeechFailureCode.FRONTEND_INPUT_EMPTY.isInputFailure)
+        assertTrue(VoiceSpeechFailureCode.FRONTEND_TOKEN_LIMIT.isInputFailure)
     }
 
     @Test fun unavailableFailedProfileDoesNotClaimAnExecutedProcessor() {

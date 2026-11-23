@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
+import dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -23,33 +24,68 @@ internal object GitHubChecklistSchedule {
         catalog: ProviderEvent.ToolCall?,
         acquisitionAllowed: Boolean
     ): Plan {
-        val unique = (listOfNotNull(planned) + candidates).distinctBy { it.name to it.arguments }
+        fun authorizedCall(call: ProviderEvent.ToolCall) = authorized.any { it.modelVisible && it.name == call.name && GitHubSelfTestReads.valid(it, call.arguments) }
+        fun executable(call: ProviderEvent.ToolCall) = advertised.any { it.modelVisible && it.name == call.name && GitHubSelfTestReads.valid(it, call.arguments) }
+        fun advertisedRead(call: ProviderEvent.ToolCall): ProviderEvent.ToolCall {
+            if (executable(call) || !authorizedCall(call) || !GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments)) return call
+            val facade = advertised.firstOrNull { tool ->
+                tool.modelVisible &&
+                    call.name.githubReadFacadeMatches(tool.name) &&
+                    GitHubSelfTestReads.valid(tool, call.arguments) &&
+                    authorizedCall(call.copy(name = tool.name))
+            } ?: return call
+            return call.copy(name = facade.name)
+        }
+        val admittedPlanned = planned?.let(::advertisedRead)
+        val unique = (listOfNotNull(planned) + candidates).map(::advertisedRead).distinctBy { it.name to it.arguments }
         val discovery = advertised.firstOrNull { it.name == GitHubAuthorizedCatalog.TOOL && it.modelVisible }
         val attempts = receipts.values.filter {
             it.text("tool") == GitHubAuthorizedCatalog.TOOL &&
                 it["trusted"] == JsonPrimitive(true) &&
                 it["verification_eligible"] != JsonPrimitive(false)
         }
-        fun attempted(name: String) = attempts.lastOrNull { receipt ->
+        fun attemptsFor(name: String) = attempts.filter { receipt ->
             ((receipt["arguments"] as? JsonObject)?.get("names") as? JsonArray)?.contains(JsonPrimitive(name)) == true
         }
-        fun allowed(call: ProviderEvent.ToolCall) = acquisitionAllowed || planned?.let { it.name == call.name && it.arguments == call.arguments } == true
-        fun executable(call: ProviderEvent.ToolCall) = advertised.any { it.modelVisible && it.name == call.name && GitHubSelfTestReads.valid(it, call.arguments) }
+        fun attempted(call: ProviderEvent.ToolCall) = attemptsFor(call.name).lastOrNull { receipt ->
+            val action = (receipt["arguments"] as? JsonObject)?.text("action").orEmpty()
+            action.isBlank() || action == call.arguments.text("action")
+        }
+        val supportsAction = (discovery?.inputSchema?.get("properties") as? JsonObject)?.containsKey("action") == true
+        fun scopedArguments(call: ProviderEvent.ToolCall) = buildJsonObject {
+            put("names", JsonArray(listOf(JsonPrimitive(call.name))))
+            if (supportsAction && call.arguments.text("action").isNotBlank()) put("action", call.arguments.getValue("action"))
+        }
+        fun scopedAttempted(call: ProviderEvent.ToolCall) = attemptsFor(call.name).any { it["arguments"] == scopedArguments(call) }
+        fun budgetExcluded(receipt: JsonObject?, name: String) = receipt?.get("success") == JsonPrimitive(true) &&
+            (GitHubInventoryObservation.planningRoot(receipt)?.get("schema_budget_excluded") as? JsonArray)?.contains(JsonPrimitive(name)) == true
+        fun allowed(call: ProviderEvent.ToolCall) = acquisitionAllowed || admittedPlanned?.let { it.name == call.name && it.arguments == call.arguments } == true
         val reasons = unique.associateWith { call ->
+            val prior = attempted(call)
+            val projectedElsewhere = attemptsFor(call.name).lastOrNull()?.let { receipt ->
+                val action = (receipt["arguments"] as? JsonObject)?.text("action").orEmpty()
+                receipt["success"] == JsonPrimitive(true) && action.isNotBlank() && action != call.arguments.text("action")
+            } == true
             when {
                 authorized.none { it.modelVisible && it.name == call.name } -> "CURRENT_AUTHORIZATION_REQUIRED"
-                authorized.none { it.modelVisible && it.name == call.name && GitHubSelfTestReads.valid(it, call.arguments) } -> "ACTION_ARGUMENTS_REJECTED"
+                !authorizedCall(call) -> "ACTION_ARGUMENTS_REJECTED"
                 !allowed(call) -> "ACQUISITION_RESERVE_ACTIVE"
                 executable(call) -> "READY"
                 !acquisitionAllowed -> "SCHEMA_ACQUISITION_RESERVE_ACTIVE"
                 discovery == null -> "DISCOVERY_TOOL_NOT_ADVERTISED"
-                attempted(call.name)?.get("success") == JsonPrimitive(true) -> "TOOL_NOT_ADVERTISED_AFTER_DISCOVERY"
-                attempted(call.name) != null -> "SCHEMA_DISCOVERY_FAILED"
+                budgetExcluded(prior, call.name) && !scopedAttempted(call) -> "SCHEMA_BUDGET_RECOVERY_REQUIRED"
+                projectedElsewhere && supportsAction && !scopedAttempted(call) -> "ACTION_SCHEMA_DISCOVERY_REQUIRED"
+                budgetExcluded(prior, call.name) -> "SCHEMA_BUDGET_RECOVERY_EXHAUSTED"
+                prior?.get("success") == JsonPrimitive(true) -> "TOOL_NOT_ADVERTISED_AFTER_DISCOVERY"
+                prior != null -> "SCHEMA_DISCOVERY_FAILED"
                 else -> "EXACT_SCHEMA_DISCOVERY_REQUIRED"
             }
         }
-        val names = unique.filter { reasons[it] == "EXACT_SCHEMA_DISCOVERY_REQUIRED" }.map { it.name }.distinct().take(12)
-        val arguments = buildJsonObject { put("names", JsonArray(names.map(::JsonPrimitive))) }
+        // A soft-window exclusion is not a permission denial. Retry only this
+        // exact action once, so a large family cannot starve every ready read.
+        val scoped = unique.firstOrNull { reasons[it] in setOf("SCHEMA_BUDGET_RECOVERY_REQUIRED", "ACTION_SCHEMA_DISCOVERY_REQUIRED") }
+        val names = scoped?.let { listOf(it.name) } ?: unique.filter { reasons[it] == "EXACT_SCHEMA_DISCOVERY_REQUIRED" }.map { it.name }.distinct().take(12)
+        val arguments = scoped?.let(::scopedArguments) ?: buildJsonObject { put("names", JsonArray(names.map(::JsonPrimitive))) }
         val discoveryAllowed = discovery != null && names.isNotEmpty() && ToolArgumentValidator.errors(arguments, discovery.inputSchema).isEmpty()
         val discover = if (discoveryAllowed) {
             ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(arguments.toString()).take(20), requireNotNull(discovery).name, arguments)
@@ -76,14 +112,14 @@ internal object GitHubChecklistSchedule {
                 "candidates",
                 JsonArray(
                     unique.map { candidate ->
-                        val reason = if (reasons[candidate] == "EXACT_SCHEMA_DISCOVERY_REQUIRED" && !discoveryAllowed) "DISCOVERY_SCHEMA_REJECTED" else requireNotNull(reasons[candidate])
+                        val reason = if (reasons[candidate] in setOf("EXACT_SCHEMA_DISCOVERY_REQUIRED", "SCHEMA_BUDGET_RECOVERY_REQUIRED", "ACTION_SCHEMA_DISCOVERY_REQUIRED") && !discoveryAllowed) "DISCOVERY_SCHEMA_REJECTED" else requireNotNull(reasons[candidate])
                         buildJsonObject {
                             put("tool", candidate.name)
                             put("arguments", candidate.arguments)
                             put("admission", reason)
                             put("selected", next?.let { it.name == candidate.name && it.arguments == candidate.arguments } == true)
-                            put("discovery_selected", discover != null && next == discover && candidate.name in names)
-                            attempted(candidate.name)?.let { receipt ->
+                            put("discovery_selected", discover != null && next == discover && candidate.name in names && (scoped == null || candidate.arguments["action"] == scoped.arguments["action"]))
+                            attempted(candidate)?.let { receipt ->
                                 receipt["receipt_id"]?.let { put("discovery_receipt_id", it) }
                                 receipt["error_code"]?.let { put("discovery_error_code", it) }
                             }

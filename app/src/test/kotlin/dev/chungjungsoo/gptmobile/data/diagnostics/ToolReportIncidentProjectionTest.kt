@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphPrerequisite
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -25,6 +26,101 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolReportIncidentProjectionTest {
+    @Test fun phoneIndexCancellationPreservesItsCodeAndLocalPhaseThroughApprovedReporting() {
+        val call = event("""{"action":"index","map_source":"phone","options":{"index_cursor":"private-cursor"}}""")
+            .copy(modelToolName = "repository_graph__selected", toolName = "repository_graph")
+        val result = AgentToolResult(
+            call.callId,
+            ToolResultContent.Text("private source detail"),
+            true,
+            errorCode = "PHONE_INDEX_INTERRUPTED",
+            dispatched = true,
+            executionReceipt = buildJsonObject {
+                put("schema", "gptmobile.phone-index-interruption.v1")
+                put("call_id", call.callId)
+                put("tool", call.modelToolName)
+                put("error_code", "PHONE_INDEX_INTERRUPTED")
+                put("action", "index")
+                put("map_source", "phone")
+                put("phase", "CANCELLED_LOCALLY")
+                put("local_work_stopped", true)
+                put("requires_reconciliation", false)
+                put("request_replay_allowed", false)
+                for (key in listOf("mutation_requests", "accepted_mutations", "rejected_mutations", "unknown_mutations")) put(key, 0)
+            }
+        )
+        assertEquals("PHONE_INDEX_INTERRUPTED", ToolReportDiagnostics.reportCode(call, result))
+        val fields = ToolReportDiagnostics.fields(call, result)
+        val captured = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("PHONE_INDEX_INTERRUPTED"), captured.values["tool_error_code"])
+        assertEquals(JsonPrimitive("CANCELLED_LOCALLY"), captured.values["tool_dispatch_phase"])
+        assertEquals(JsonPrimitive("index"), captured.values["tool_action"])
+        assertTrue(RepositoryOperationReportContract.FEATURE in captured.requiredServiceFeatures())
+        assertFalse(captured.toString().contains("private"))
+        val context = IssueReportContext.fromFields("TOOL_RESULT", fields, 1_800_000_000_000)
+        val report = IssueReport(
+            "44444444-4444-4444-8444-444444444444", "debug", "1.0", 1, "abcdef0", "16", 36, "Fixture",
+            feature = "tools", errorCode = requireNotNull(ToolReportDiagnostics.reportCode(call, result)), context = context
+        ).approvedPayload()
+        assertTrue(report.contains("PHONE_INDEX_INTERRUPTED"))
+        assertTrue(report.contains("CANCELLED_LOCALLY"))
+        assertFalse(report.contains("private"))
+        assertTrue(ToolReportDiagnostics.fields(call.copy(callId = "other"), result).isEmpty())
+        val receipt = requireNotNull(result.executionReceipt)
+        for (key in listOf("schema", "call_id", "tool", "error_code", "action", "map_source", "local_work_stopped", "requires_reconciliation", "request_replay_allowed", "mutation_requests", "accepted_mutations", "rejected_mutations", "unknown_mutations")) {
+            val unbound = result.copy(executionReceipt = JsonObject(receipt - key))
+            assertFalse(key, "tool_dispatch_phase" in ToolReportDiagnostics.fields(call, unbound))
+        }
+        val copied = result.copy(executionReceipt = JsonObject(receipt + ("call_id" to JsonPrimitive("other-call"))))
+        assertFalse("tool_dispatch_phase" in ToolReportDiagnostics.fields(call, copied))
+    }
+
+    @Test fun readDeadlinesAndNonregularPathsKeepTypedFailureIdentity() {
+        val call = event("""{"action":"read","path":"private/path"}""").copy(modelToolName = "github_read")
+        for (code in RepositoryOperationReportContract.errorCodes - "PHONE_INDEX_INTERRUPTED") {
+            val result = AgentToolResult(call.callId, ToolResultContent.Text("private detail"), true, errorCode = code)
+            assertEquals(code, IssueReportCodes.select(code, "APP_ERROR"))
+            val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(call, result), 1_800_000_000_000))
+            assertEquals(JsonPrimitive(code), capture.values["tool_error_code"])
+            assertFalse(capture.toString().contains("private"))
+        }
+    }
+
+    @Test fun phoneReadDeadlineRetainsOnlyItsBoundLocalCancellationPhase() = runBlocking {
+        val arguments = buildJsonObject {
+            put("action", "index")
+            put("map_source", "phone")
+        }
+        val call = event(arguments.toString()).copy(modelToolName = "repository_graph__selected", toolName = "repository_graph")
+        val tool = RepositoryGraphTool(call.modelToolName) {
+            throw GatewayGraphOperationException(
+                GatewayGraphResultException("READ_DEADLINE", "Bounded phone read stopped", "READ_PHONE_INDEX_STATUS"),
+                "",
+                "On this phone",
+                "READ_PHONE_INDEX_STATUS",
+                false
+            )
+        }
+        val result = tool.execute(call.callId, arguments)
+        val fields = ToolReportDiagnostics.fields(call, result)
+        val captured = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("READ_DEADLINE"), captured.values["tool_error_code"])
+        assertEquals(JsonPrimitive("CANCELLED_LOCALLY"), captured.values["tool_dispatch_phase"])
+        assertTrue(RepositoryOperationReportContract.FEATURE in captured.requiredServiceFeatures())
+        val receipt = requireNotNull(result.executionReceipt)
+        for (key in listOf("schema", "call_id", "error_code", "action", "map_source", "failed_stage", "dispatched", "retryable", "local_work_stopped", "requires_reconciliation", "index_outcome_unknown", "current_index_outcome_unknown", "replay_safe", "request_replay_allowed", "authorization_recheck_required", "mutation_requests", "accepted_mutations", "rejected_mutations", "unknown_mutations")) {
+            assertFalse(key, "tool_dispatch_phase" in ToolReportDiagnostics.fields(call, result.copy(executionReceipt = JsonObject(receipt - key))))
+        }
+        for ((key, value) in listOf("call_id" to JsonPrimitive("other-call"), "map_source" to JsonPrimitive("gateway"), "unknown_mutations" to JsonPrimitive(1), "request_replay_allowed" to JsonPrimitive(true))) {
+            assertFalse(key, "tool_dispatch_phase" in ToolReportDiagnostics.fields(call, result.copy(executionReceipt = JsonObject(receipt + (key to value)))))
+        }
+        assertFalse("tool_dispatch_phase" in ToolReportDiagnostics.fields(call.copy(arguments = """{"action":"query","map_source":"phone"}"""), result))
+        assertFalse("tool_dispatch_phase" in ToolReportDiagnostics.fields(call.copy(arguments = """{"action":"index","map_source":"gateway"}"""), result))
+        val queryArguments = buildJsonObject { put("action", "query") }
+        val queryResult = tool.execute(call.callId, queryArguments)
+        assertEquals("CANCELLED_LOCALLY", ToolReportDiagnostics.fields(call.copy(arguments = queryArguments.toString()), queryResult)["tool_dispatch_phase"])
+    }
+
     @Test fun issuePaginationRejectionPreservesClosedCauseAndSchemaNamesWithoutCursorValues() {
         val call = event("""{"action":"list","page":2,"after":"private cursor value"}""")
         val receipt = buildJsonObject {

@@ -6,9 +6,26 @@ import java.io.File
 /** All backends return durations and audio from the same inference operation. */
 internal data class VoicePhraseAudio(val samples: FloatArray, val durations: LongArray, val wordTokens: IntArray)
 
+/** Safe to poll while native work is running; elapsed times belong to this attempt and phase. */
+internal data class VoiceSpeechProgress(
+    val stage: VoiceSpeechStage,
+    val attemptId: Long,
+    val stageSequence: Long,
+    val stageElapsedMs: Long,
+    val attemptElapsedMs: Long,
+    val cancellationRequested: Boolean,
+    val active: Boolean = true
+)
+
+internal fun TimedKokoro.speechProgress(): VoiceSpeechProgress? = progress()?.let { current ->
+    val stage = VoiceSpeechStage.entries.firstOrNull { it.name.equals(current.stage, ignoreCase = true) } ?: return@let null
+    VoiceSpeechProgress(stage, current.attemptId, current.stageSequence, current.stageElapsedMs, current.attemptElapsedMs, current.cancellationRequested, current.active)
+}
+
 internal interface VoicePhraseEngine : AutoCloseable {
     val executionProvider: String get() = "cpu"
     val executionEvidence: VoiceSpeechExecutionEvidence? get() = null
+    val executionProgress: VoiceSpeechProgress? get() = null
     fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio
     fun resetCancellation()
     fun cancel()
@@ -37,6 +54,7 @@ internal object TimedKokoroPhraseEngineFactory : VoicePhraseEngineFactory {
             threads
         )
         return object : VoicePhraseEngine {
+            override val executionProgress: VoiceSpeechProgress? get() = engine.speechProgress()
             override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio =
                 engine.generate(text, speaker, speed).let { VoicePhraseAudio(it.samples, it.durations, it.wordTokens) }
             override fun resetCancellation() = engine.resetCancellation()

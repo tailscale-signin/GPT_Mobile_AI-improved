@@ -1,0 +1,37 @@
+{
+  "exit": 0,
+  "passed_tests": 67,
+  "scope": "actual benchmark models/export/runner/measurement/protocol/planner with real TimedKokoro Java API; exact enum and model constants extracted; no native/device performance claims",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroLexicon.kt": "2c52fc37806ed3d05d9e80042ceca3aff434cad4f8a782f263fa3d9738a4177c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt": "e45e77b074d856a9e0b238c3d0eac66cafce69c86caf2d2b0bee54c8d22553c5",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/ReasoningTagScanner.kt": "c4e398159fbe183935089dc7b82ac3ded7db1c71c72cd9a92147f94de47f8c12",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt": "ab116353a2a469cd21824231b1c31ae908bb13c11267baddddf550fc62bf4597",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativeEngineGate.kt": "272d6d0712a48410f818446146abd5c050839ad1ea6d75852dcdced8a87e47a7",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt": "c6cd1487569c2631660d022c206a603bdb671a0d532743de46d5cfb812626744",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt": "00db16145cf44251105bb82a7f881ca72ed29abcc48a4ab69c1bfadf1c0a04b1",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackControl.kt": "17026a8f15cd71342a6f3d24bdb01704080c7c8dcda7850c5fc732de7cf4530f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": "cf00a24658d8f86185ac29a003d0d80ad8652323357000f9218e171dc6d9779e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt": "b05740057d8813da1be9345354933b05132345b2c3aaab100d98f72e833bcb1c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt": "7e98c5649467cceeb1875487a0a168fad28009fd8c840ea8b79279c2303a5c5d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt": "eda2a5166827cd8688c3d4062c7ff0abdfb2a5610c17c42062b7b9d57ded68cd",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt": "198f0cc7e7ea78dc009ee401b440500c498f7cb55e9f6cf2248cbf5d0187da18",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocol.kt": "9c117d8cf2d5e7c37341fb295a98d54a1c174088b2780e10cd547c4037973580",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt": "257afbad797d5ecb4483e0f5044ba93b21344b673bf4c6ef79e77161704c66c5",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt": "92b0959d0cb0df19a94f6915476864079a4da77995fa69e9eab6c63471d83a29",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkload.kt": "d74e8f8bb10822f9bbc0117eae2b04f0a533c22dc4b9217924f2cc58733cd513",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkCancellationTest.kt": "90d89ebefe24632b1939fc1050ee5df65a94839ebf77c2f8d7f30aeebc58e208",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt": "d81cbd2304cae4e86dbe89e3d73747308cfbb86f800a63790b912076673b10d2",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackMeasurementTest.kt": "62070cc1c879d5610bfb6043be53991a078df1b7a5f27a7d3e6b236e2d34342d",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt": "fb7da72c38adeee95129ddf64ad35ec250cb085943fb5389e1ebffc99bf11521",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkloadTest.kt": "31018cb15f5ae29a943385d9b8128d7915d56b98a525e5879b2da326a1ff5543"
+  },
+  "support_sha256": "86083932054997b272182652f5290397e6d010b5f70a97ed190a6492de3ca56b",
+  "tests": [
+    "VoiceSpeechBenchmarkTest",
+    "VoiceSpeechBenchmarkCancellationTest",
+    "VoiceSpeechPlaybackMeasurementTest",
+    "VoiceSpeechPlaybackProtocolTest",
+    "VoiceSpeechWorkloadTest"
+  ]
+}

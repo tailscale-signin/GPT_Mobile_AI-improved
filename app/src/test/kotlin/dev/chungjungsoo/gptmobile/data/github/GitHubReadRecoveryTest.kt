@@ -25,7 +25,7 @@ class GitHubReadRecoveryTest {
 
     private class Fixture(val session: GitHubRepositorySession, val blobs: AtomicInteger)
 
-    private fun fixture(available: List<String> = paths, truncated: Boolean = false, source: String = "fun needle() = 1\nfun another() = 2"): Fixture {
+    private fun fixture(available: List<String> = paths, truncated: Boolean = false, source: String = "fun needle() = 1\nfun another() = 2", directories: Set<String> = emptySet(), symlinks: Set<String> = emptySet()): Fixture {
         val blobs = AtomicInteger()
         val session = GitHubRepositorySession("account", "connection", "chat", "task", GitHubRepositoryStateStore(), { path ->
             when {
@@ -42,8 +42,17 @@ class GitHubReadRecoveryTest {
                                 buildJsonObject {
                                     put("path", name)
                                     put("sha", "%040x".format(index + 1))
-                                    put("type", "blob")
-                                    put("mode", "100644")
+                                    put("type", if (name in directories) "tree" else "blob")
+                                    put(
+                                        "mode",
+                                        if (name in directories) {
+                                            "040000"
+                                        } else if (name in symlinks) {
+                                            "120000"
+                                        } else {
+                                            "100644"
+                                        }
+                                    )
                                     put("size", source.toByteArray().size)
                                 }
                             }
@@ -218,6 +227,44 @@ class GitHubReadRecoveryTest {
             assertEquals(1, result.getValue("failed_ranges").jsonArray.size)
         }
         assertEquals(2, fixture.blobs.get())
+    }
+
+    @Test fun mixedDirectoryAndSymlinkRangesRetainTheValidReadAndItsExactCoverage() = runBlocking {
+        val fixture = fixture(listOf("src/Test.kt", "src", "link.kt"), directories = setOf("src"), symlinks = setOf("link.kt"))
+        val args = buildJsonObject {
+            put("ref", head)
+            put("commit_sha", head)
+            put(
+                "ranges",
+                JsonArray(
+                    listOf("src/Test.kt", "src", "link.kt").map {
+                        buildJsonObject {
+                            put("path", it)
+                            put("start_line", 1)
+                            put("max_lines", 1)
+                        }
+                    }
+                )
+            )
+        }
+        val result = fixture.session.execute("read_ranges", "owner", "repo", args).jsonObject
+        assertEquals(1, fixture.blobs.get())
+        assertEquals(JsonPrimitive(false), result["all_ranges_resolved"])
+        assertEquals(JsonPrimitive(3), result["requested_ranges"])
+        assertEquals(JsonPrimitive(1), result["returned_ranges"])
+        assertEquals(listOf("src/Test.kt"), result.getValue("items").jsonArray.map { it.jsonObject["path"]!!.jsonPrimitive.content })
+        assertEquals(1, result.getValue("source_coverage").jsonArray.size)
+        val failures = result.getValue("failed_ranges").jsonArray.map { it.jsonObject }
+        assertEquals(listOf("GITHUB_PATH_IS_DIRECTORY", "GITHUB_PATH_NOT_REGULAR_FILE"), failures.map { it["error_code"]!!.jsonPrimitive.content })
+        assertEquals(listOf(1, 2), failures.map { it["range_index"]!!.jsonPrimitive.int })
+        assertTrue(failures.all { it["read_dispatched"] == JsonPrimitive(false) && it["commit_sha"] == JsonPrimitive(head) })
+        val reopened = fixture.session.execute("read_ranges", "owner", "repo", buildJsonObject { put("evidence_id", result.getValue("evidence_id")) }).jsonObject
+        assertEquals(result["items"], reopened["items"])
+        assertEquals(result["failed_ranges"], reopened["failed_ranges"])
+        assertEquals(1, fixture.blobs.get())
+        val single = runCatching { fixture.session.execute("read_ranges", "owner", "repo", read("src")) }.exceptionOrNull() as GitHubReadValidation
+        assertEquals("GITHUB_PATH_IS_DIRECTORY", single.code)
+        assertFalse(single.details.containsKey("correction_call"))
     }
 
     @Test fun truncatedTreeDoesNotClaimMissingPathIsAbsent() = runBlocking {

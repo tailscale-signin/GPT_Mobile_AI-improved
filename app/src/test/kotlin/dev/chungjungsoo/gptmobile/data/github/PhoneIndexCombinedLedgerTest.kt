@@ -228,7 +228,9 @@ class PhoneIndexCombinedLedgerTest {
             val plan = draft.copy(effectivePlanDigest = combinedDigest(Json.encodeToString(draft)))
             context = CombinedExecutionContext(requested, plan, java.util.UUID.randomUUID().toString(), profileUid = "cloud-ai", chatId = 17, persistBudget = true)
         }
-        fun wrapper(timeout: Long = 5000) = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 32, toolTimeoutMillis = timeout, combined = context), combined = context, combinedBudgets = store)
+
+        // This owner must interrupt before the session's four-second per-blob read budget.
+        fun wrapper(timeout: Long = 3000) = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 32, toolTimeoutMillis = timeout, combined = context), combined = context, combinedBudgets = store)
         suspend fun snapshot() = store.open(context).snapshot()
         suspend fun readBack(expected: CombinedBudgetSnapshot) {
             val files = directory.listFiles { file -> file.extension == "json" }.orEmpty()
@@ -341,7 +343,7 @@ class PhoneIndexCombinedLedgerTest {
                     repositoryScope = context,
                     connectionUid = context.connectionUid,
                     durableIdentity = "verified-account",
-                    graphQuery = { payload -> repository.executeForMap(context, JsonObject(payload - "map_source"), forModel = true).result }
+                    graphQuery = { scope, payload -> repository.executeForMap(scope, JsonObject(payload - "map_source"), forModel = true).result }
                 ).graphTool()
             )
         }

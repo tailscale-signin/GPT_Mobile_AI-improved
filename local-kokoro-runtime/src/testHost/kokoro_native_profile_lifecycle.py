@@ -43,9 +43,11 @@ def main():
     parser.add_argument("--cmake", type=Path, required=True)
     parser.add_argument("--pack", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--build-jobs", type=int, choices=(1, 2), default=2)
     args = parser.parse_args()
     for key, value in vars(args).items():
-        setattr(args, key, value.resolve())
+        if isinstance(value, Path):
+            setattr(args, key, value.resolve())
     if args.output.exists():
         raise AssertionError("Use a fresh evidence directory to preserve earlier results")
     args.output.mkdir(parents=True)
@@ -117,7 +119,7 @@ def main():
 
     port(sherpa, fault_port)
     (args.output / "host-port.diff").write_text("".join(changes))
-    assert run("build", [args.cmake, "--build", build, "--parallel", "4"]) == 0
+    assert run("build", [args.cmake, "--build", build, "--parallel", str(args.build_jobs)]) == 0
     assert run("ctest", [args.cmake.parent / "ctest", "--test-dir", build, "--output-on-failure"]) == 0
     provider_inputs = {}
     record = args.qnn.parent / "onnxruntime_qnn-2.7.0.dist-info/RECORD"

@@ -28,10 +28,10 @@ paths = ['''^gateway/v14/task_context\.py$''']
 regexTarget = "line"
 regexes = ['''^\s*'token_estimate_method': 'UTF8_BYTES_DIVIDED_BY_FOUR',\s*$''']
 
-# Exact public model-file pin, checked against tokens.txt bytes by this harness.
+# Exact public model-file pin, checked by this harness and exported in its receipt.
 # Other hashes, fields and paths remain subject to the complete rule set.
 [[rules.allowlists]]
 condition = "AND"
-paths = ['''^local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle\.py$''']
+paths = ['''^local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle\.py$''', '''^docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-qnn\.json$''']
 regexTarget = "line"
 regexes = ['''^\s*"tokens\.txt": "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425",\s*$''']

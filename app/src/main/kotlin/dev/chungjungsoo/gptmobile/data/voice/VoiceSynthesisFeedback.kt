@@ -30,35 +30,39 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     private var observations = 0
     private var refillPenalty = 0
     private val recentSynthesisMs = ArrayDeque<Long>()
+    private val recentRecurringMs = ArrayDeque<Long>()
 
-    @Synchronized fun observe(synthesisMs: Long, audioMs: Long) {
+    @Synchronized fun observe(synthesisMs: Long, audioMs: Long, recurringMs: Long? = null) {
         if (synthesisMs < 0 || audioMs <= 0) return
         val ratio = (synthesisMs.toDouble() / audioMs).coerceIn(0.01, 10.0)
         productionRatio = if (observations++ == 0) ratio else productionRatio * .75 + ratio * .25
         recentSynthesisMs.addLast(synthesisMs.coerceAtLeast(1))
+        recentRecurringMs.addLast(recurringMs?.takeIf { it in 1..synthesisMs } ?: synthesisMs.coerceAtLeast(1))
         while (recentSynthesisMs.size > 8) recentSynthesisMs.removeFirst()
+        while (recentRecurringMs.size > 8) recentRecurringMs.removeFirst()
     }
 
     @Synchronized fun underrun() {
         refillPenalty = (refillPenalty + 200).coerceAtMost(1_000)
     }
 
-    @Synchronized fun bufferMs(): Int {
+    @Synchronized fun bufferMs(startup: Boolean = false): Int {
         if (observations == 0) return mode.bufferMs
         // A 45–300 ms AudioTrack threshold cannot cover seconds of synchronous
         // phrase synthesis. Reserve accepted PCM for the observed slow tail of
         // the next phrase, while retaining a separate small hardware threshold.
-        val tail = predictedSynthesisMs() ?: return mode.bufferMs
+        val tail = predictedSynthesisMs(startup) ?: return mode.bufferMs
         val margin = if (mode == VoicePerformanceMode.FAST) 1.05 else 1.2
         return maxOf(mode.bufferMs, (tail * margin).toInt() + refillPenalty).coerceAtMost(MAX_RESERVE_MS)
     }
 
-    @Synchronized fun predictedSynthesisMs(): Long? = recentSynthesisMs.maxOrNull()
+    @Synchronized fun predictedSynthesisMs(startup: Boolean = false): Long? =
+        (if (startup) recentRecurringMs else recentSynthesisMs).maxOrNull()
 
     @Synchronized fun ratio(): Double? = productionRatio.takeIf { observations > 0 }
 
     /** Wait only while an actual producer exists; an unsealed quiet stream cannot deadlock priming. */
-    @Synchronized fun primeWaitMs(): Long = (predictedSynthesisMs()?.plus(250) ?: mode.refillWaitMs).coerceIn(0, MAX_RESERVE_MS.toLong())
+    @Synchronized fun primeWaitMs(startup: Boolean = false): Long = (predictedSynthesisMs(startup)?.plus(250) ?: mode.refillWaitMs).coerceIn(0, MAX_RESERVE_MS.toLong())
 
     @Synchronized fun phraseWords(bufferedMs: Long): Int {
         if (mode != VoicePerformanceMode.AUTO) return mode.followUpWords

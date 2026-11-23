@@ -279,6 +279,30 @@ class PhoneRepositoryGraphSessionTest {
         assertEquals(24, blobs)
     }
 
+    @Test fun anInventedFutureCursorCannotSkipSourceWhileOlderCheckpointsStillResume() = runTest {
+        val first = session().repositoryMap("owner", "repo", arguments("index"))
+        val issued = first.getValue("index_cursor").jsonPrimitive.content
+        val invented = issued.substringBeforeLast(':') + ":$treeSize"
+        val rejected = runCatching { session("after-restart").repositoryMap("owner", "repo", arguments("index", invented)) }.exceptionOrNull()
+        assertEquals("PHONE_GRAPH_CURSOR_UNISSUED", (rejected as GatewayGraphResultException).code)
+        assertEquals("Reject the future position before reading or skipping another blob", 24, blobs)
+        val unchanged = session("after-rejection").repositoryMap("owner", "repo", arguments("status"))
+        assertEquals(first["prepared_through"], unchanged["prepared_through"])
+        assertEquals(first["index_cursor"], unchanged["index_cursor"])
+        assertFalse(unchanged.getValue("graph").jsonObject.getValue("coverage_complete").jsonPrimitive.boolean)
+
+        session("continued").repositoryMap("owner", "repo", arguments("index", issued))
+        assertEquals(48, blobs)
+        // The original position is now older than the durable frontier. It is
+        // still safe: cached source is reused and the frontier cannot regress.
+        val replayed = session("older-checkpoint").repositoryMap("owner", "repo", arguments("index", issued))
+        assertEquals(50, blobs)
+        assertTrue(replayed.getValue("graph").jsonObject.getValue("coverage_complete").jsonPrimitive.boolean)
+        val final = session("final-status").repositoryMap("owner", "repo", arguments("status"))
+        assertEquals(JsonPrimitive(treeSize), final["prepared_through"])
+        assertTrue(final.getValue("graph").jsonObject.getValue("coverage_complete").jsonPrimitive.boolean)
+    }
+
     @Test fun sourceCacheFromAnotherAccountCannotPopulateTheMap() = runTest {
         treeSize = 1
         session().repositoryMap("owner", "repo", arguments("index"))

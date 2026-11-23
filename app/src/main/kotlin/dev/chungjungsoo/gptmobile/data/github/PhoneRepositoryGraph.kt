@@ -22,7 +22,7 @@ internal object PhoneRepositoryGraph {
     private val sourceExtensions = listOf("kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "c", "cc", "cpp", "h", "hpp", "cs", "rs", "go", "swift")
     private const val LIMITATIONS = "Tree containment is observed. Symbols, imports and call relationships are bounded source candidates, without compiler resolution. Missing, generated, dynamic, aliased or unscanned references remain unknown. No executed tests are implied."
 
-    fun sourceIndex(path: String, text: String): JsonObject = PhoneRepositorySourceIndex.build(path, text)
+    fun sourceIndex(path: String, text: String, checkpoint: () -> Unit = {}): JsonObject = PhoneRepositorySourceIndex.build(path, text, checkpoint)
 
     fun execute(context: GitHubTaskSnapshot, tree: JsonObject, cached: Map<String, JsonObject>, status: JsonObject, arguments: JsonObject): JsonObject {
         val action = arguments.text("action").ifBlank { "status" }

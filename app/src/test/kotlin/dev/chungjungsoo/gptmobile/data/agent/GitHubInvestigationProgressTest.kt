@@ -53,4 +53,52 @@ class GitHubInvestigationProgressTest {
         repeat(3) { assertNull(progress.observe(exchange(2))) }
         assertNotNull(progress.observe(exchange(2)))
     }
+
+    private fun resolved(index: Int, connection: String = "github_api", repository: String = "repo", head: String = "a".repeat(40), tree: String = "b".repeat(40)): AgentToolExchange {
+        val name = if (index % 2 == 0) "github_context__$connection" else "github_context_inspect__$connection"
+        val call = ProviderEvent.ToolCall(
+            "resolve-$index",
+            name,
+            buildJsonObject {
+                put("action", "resolve")
+                put(if (index % 2 == 0) "ref" else "branch", "main")
+                put("verify_live", index % 2 == 0)
+                put("response_detail", if (index % 3 == 0) "full" else "compact")
+            }
+        )
+        val data = buildJsonObject {
+            put("owner", "owner")
+            put("repo", repository)
+            put("ref", "main")
+            put("commit_sha", head)
+            put("tree_sha", tree)
+            put("observation_sequence", index)
+        }
+        val receipt = buildJsonObject { put("source_result_sha256", index.toString(16).padStart(64, '0')) }
+        return AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Json(data), false, executionReceipt = receipt)))
+    }
+
+    @Test fun sameResolvedRevisionCannotRenewProgressThroughNewReceiptsAliasesOrDisplayOptions() {
+        val progress = GitHubInvestigationProgress()
+        repeat(4) { assertNull(progress.observe(resolved(it))) }
+        assertNotNull(progress.observe(resolved(4)))
+    }
+
+    @Test fun changedSourceRepositoryAndConnectionRemainIndependentProgress() {
+        val progress = GitHubInvestigationProgress()
+        repeat(4) { assertNull(progress.observe(resolved(it))) }
+        assertNull(progress.observe(resolved(4, head = "c".repeat(40))))
+        repeat(3) { assertNull(progress.observe(resolved(5 + it, head = "c".repeat(40)))) }
+        assertNull(progress.observe(resolved(8, repository = "another", head = "c".repeat(40))))
+        repeat(3) { assertNull(progress.observe(resolved(9 + it, repository = "another", head = "c".repeat(40)))) }
+        assertNull(progress.observe(resolved(12, connection = "other", repository = "another", head = "c".repeat(40))))
+        assertNull(progress.observe(resolved(13, connection = "other", repository = "another", head = "c".repeat(40), tree = "d".repeat(40))))
+    }
+
+    @Test fun replanDoesNotTreatAnInspectAliasAsAnUnreadResolveAction() {
+        val progress = GitHubInvestigationProgress()
+        val replan = requireNotNull(progress.replan(listOf(resolved(0)), listOf(GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__github_api"))))
+        assertTrue(!replan.contains("action=resolve"))
+        assertTrue(replan.contains("action=checks"))
+    }
 }

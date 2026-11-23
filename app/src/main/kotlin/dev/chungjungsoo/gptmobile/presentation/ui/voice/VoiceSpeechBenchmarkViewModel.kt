@@ -22,8 +22,10 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkRunState
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkRunner
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStore
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWorkload
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechCalibrationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackBenchmark
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackResult
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackScenario
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackState
 import dev.melo.kokoro.TimedKokoro
 import java.io.File
@@ -31,8 +33,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -46,7 +50,8 @@ internal data class VoiceSpeechBenchmarkUiState(
     val report: VoiceSpeechBenchmarkReport? = null,
     val history: List<VoiceSpeechBenchmarkReport> = emptyList(),
     val saved: Boolean = true,
-    val notice: String? = null
+    val notice: String? = null,
+    val nativeCleanupPending: Boolean = false
 )
 
 /** One observable owner token prevents a late completion from releasing another worker's audio. */
@@ -73,6 +78,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     private val runner = AtomicReference<VoiceSpeechBenchmarkRunner?>(null)
     private val playbackRunner = AtomicReference<VoiceSpeechPlaybackBenchmark?>(null)
     private val cancelled = AtomicBoolean(false)
+    private val retiringPlayback = AtomicReference<VoiceSpeechPlaybackBenchmark?>(null)
     private var job: Job? = null
 
     init {
@@ -93,7 +99,10 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         threads: Int,
         rate: Float,
         workload: VoiceSpeechBenchmarkWorkload = VoiceSpeechBenchmarkWorkload.UTTERANCE,
-        playback: Boolean = false
+        playback: Boolean = false,
+        playbackScenarios: List<VoiceSpeechPlaybackScenario> = listOf(VoiceSpeechPlaybackScenario.COLD_START),
+        calibrationPolicy: VoiceSpeechCalibrationPolicy = VoiceSpeechCalibrationPolicy.CONTROLLED_ZERO,
+        captionOffsetMs: Int = 0
     ) {
         if (!mutable.value.loaded || mutable.value.running || backends.isEmpty()) return
         val lease = benchmarkLease.acquire()
@@ -102,10 +111,10 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             return
         }
         cancelled.set(false)
-        mutable.update { it.copy(running = true, cancelling = false, saved = true, notice = null, report = null) }
+        mutable.update { it.copy(running = true, cancelling = false, saved = true, notice = null, report = null, nativeCleanupPending = false) }
         job = viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) { execute(mode, backends, voice, threads, rate, workload, playback) }
+                withContext(Dispatchers.IO) { execute(mode, backends, voice, threads, rate, workload, playback, playbackScenarios, calibrationPolicy, captionOffsetMs) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -118,10 +127,24 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                 mutable.update { it.copy(running = false, cancelling = false) }
             }
         }
-        job?.invokeOnCompletion { lease.release() }
+        job?.invokeOnCompletion {
+            val retiring = retiringPlayback.get()
+            if (retiring == null || retiring.pendingRetirements.isEmpty()) {
+                if (retiring != null) retiringPlayback.compareAndSet(retiring, null)
+                mutable.update { it.copy(nativeCleanupPending = false) }
+                lease.release()
+            } else {
+                retirementScope.launch {
+                    retiring.awaitRetired()
+                    retiringPlayback.compareAndSet(retiring, null)
+                    mutable.update { it.copy(nativeCleanupPending = false, notice = "Native speech cleanup finished. You can start another test.") }
+                    lease.release()
+                }
+            }
+        }
     }
 
-    private suspend fun execute(mode: VoiceSpeechBenchmarkMode, backends: List<VoiceSpeechBackend>, voice: KokoroVoice, threads: Int, rate: Float, workload: VoiceSpeechBenchmarkWorkload, playback: Boolean) {
+    private suspend fun execute(mode: VoiceSpeechBenchmarkMode, backends: List<VoiceSpeechBackend>, voice: KokoroVoice, threads: Int, rate: Float, workload: VoiceSpeechBenchmarkWorkload, playback: Boolean, playbackScenarios: List<VoiceSpeechPlaybackScenario>, calibrationPolicy: VoiceSpeechCalibrationPolicy, captionOffsetMs: Int) {
         val store = VoiceSpeechBenchmarkStore(context)
         val models = KokoroModelPack.store(File(context.noBackupFilesDir, "voice-models"))
         val started = System.currentTimeMillis()
@@ -137,7 +160,8 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                 workload = workload,
                 backendOrderSeed = orderSeed,
                 sourceCommit = BuildConfig.APP_COMMIT.takeIf { it.matches(Regex("[0-9a-f]{40}")) },
-                playback = playback
+                playback = playback,
+                playbackScenarios = playbackScenarios, calibrationPolicy = calibrationPolicy, captionOffsetMs = captionOffsetMs.coerceIn(-500, 500)
             )
         )
         var persistedSamples = -1
@@ -188,32 +212,41 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                         break
                     }
                     val row = report.results[index]
+                    val preceding = report.playbackResults.filterNot { it.requestedBackend == backend }
                     publish(report.copy(results = report.results.toMutableList().also { it[index] = row.copy(state = VoiceSpeechBenchmarkBackendState.RUNNING) }))
-                    val result = try {
-                        measurement.measure(row.requestedBackend)
+                    val results = try {
+                        measurement.measureSeries(backend) { rows -> publish(report.copy(playbackResults = preceding + rows)) }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: LinkageError) {
-                        VoiceSpeechPlaybackResult(row.requestedBackend, VoiceSpeechPlaybackState.UNSUPPORTED, failure = dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.PROVIDER_LOAD)
-                    } catch (_: Exception) {
-                        VoiceSpeechPlaybackResult(row.requestedBackend, VoiceSpeechPlaybackState.FAILED, failure = dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.EXECUTION_FAILED)
+                        listOf(VoiceSpeechPlaybackResult(backend, VoiceSpeechPlaybackState.UNSUPPORTED, failure = dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.PROVIDER_LOAD))
+                    } catch (error: Exception) {
+                        val native = dev.chungjungsoo.gptmobile.data.voice.speechPlaybackFailureEvidence(error, backend, report.configuration.deviceKey)
+                        listOf(VoiceSpeechPlaybackResult(backend, VoiceSpeechPlaybackState.FAILED, failure = native?.classification?.code ?: dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureCode.EXECUTION_FAILED, failureStage = native?.classification?.stage, nativeCode = native?.classification?.nativeCode))
                     }
-                    val backendState = when (result.state) {
-                        VoiceSpeechPlaybackState.COMPLETE -> VoiceSpeechBenchmarkBackendState.COMPLETE
-                        VoiceSpeechPlaybackState.FAILED -> VoiceSpeechBenchmarkBackendState.FAILED
-                        VoiceSpeechPlaybackState.UNSUPPORTED -> VoiceSpeechBenchmarkBackendState.UNSUPPORTED
-                        VoiceSpeechPlaybackState.CANCELLED -> VoiceSpeechBenchmarkBackendState.CANCELLED
+                    val failed = results.firstOrNull { it.state in setOf(VoiceSpeechPlaybackState.FAILED, VoiceSpeechPlaybackState.UNSUPPORTED) }
+                    val backendState = when {
+                        failed?.state == VoiceSpeechPlaybackState.UNSUPPORTED -> VoiceSpeechBenchmarkBackendState.UNSUPPORTED
+                        failed != null -> VoiceSpeechBenchmarkBackendState.FAILED
+                        cancelled.get() || results.any { it.state == VoiceSpeechPlaybackState.CANCELLED && it.cancellationTarget == null } -> VoiceSpeechBenchmarkBackendState.CANCELLED
+                        else -> VoiceSpeechBenchmarkBackendState.COMPLETE
                     }
                     publish(
                         report.copy(
-                            results = report.results.toMutableList().also { it[index] = row.copy(state = backendState, failure = result.failure, failureStage = result.failureStage) },
-                            playbackResults = report.playbackResults + result
+                            results = report.results.toMutableList().also { it[index] = row.copy(state = backendState, failure = failed?.failure, failureStage = failed?.failureStage) },
+                            playbackResults = preceding + results
                         )
                     )
-                    if (result.state == VoiceSpeechPlaybackState.CANCELLED) break
+                    if (measurement.pendingRetirements.isNotEmpty()) {
+                        retiringPlayback.set(measurement)
+                        report = report.copy(issue = VoiceSpeechBenchmarkIssue.NATIVE_CLEANUP_PENDING)
+                        mutable.update { it.copy(nativeCleanupPending = true, notice = "Audio has stopped. Native speech cleanup is still pending; new speech work stays paused until it finishes.") }
+                        break
+                    }
+                    if (backendState == VoiceSpeechBenchmarkBackendState.CANCELLED) break
                 }
                 val finalState = when {
-                    cancelled.get() || report.playbackResults.any { it.state == VoiceSpeechPlaybackState.CANCELLED } -> VoiceSpeechBenchmarkRunState.CANCELLED
+                    cancelled.get() || report.playbackResults.any { it.state == VoiceSpeechPlaybackState.CANCELLED && it.cancellationTarget == null } -> VoiceSpeechBenchmarkRunState.CANCELLED
                     report.issue != null -> VoiceSpeechBenchmarkRunState.INTERRUPTED
                     else -> VoiceSpeechBenchmarkRunState.COMPLETE
                 }
@@ -246,7 +279,19 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             if (report.isRunning) {
                 publish(report.copy(state = VoiceSpeechBenchmarkRunState.INTERRUPTED, finishedAtMillis = System.currentTimeMillis()))
             }
-            if (leased) models.releaseUse()
+            val retiring = playbackRunner.get()?.takeIf { it.pendingRetirements.isNotEmpty() }
+            if (retiring != null) {
+                retiringPlayback.set(retiring)
+                mutable.update { it.copy(nativeCleanupPending = true) }
+                if (leased) {
+                    retirementScope.launch {
+                        retiring.awaitRetired()
+                        models.releaseUse()
+                    }
+                }
+            } else if (leased) {
+                models.releaseUse()
+            }
         }
     }
 
@@ -266,6 +311,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     }
 
     companion object {
+        private val retirementScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val benchmarkLease = VoiceSpeechBenchmarkOwnership()
         val audioOwnership = benchmarkLease.state
     }

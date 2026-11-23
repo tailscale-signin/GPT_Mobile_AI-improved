@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import android_pipeline as pipeline
 import artifact_manifest as artifacts
 import build_metrics
+import check_android_compile_memory as compile_memory
 import prepare_release as release
 import visual_regression as visual
 import workflow_service_levels as service
@@ -27,12 +28,103 @@ def write_png(path, color, width=1, filter_mode=0):
                      chunk(b'IDAT', zlib.compress(bytes([filter_mode]) + bytes(color) * width)) + chunk(b'IEND', b''))
 
 
+class AndroidCompileMemoryTest(unittest.TestCase):
+    def files(self, available_mib=12_000, swap_mib=0):
+        mib = compile_memory.MIB
+        return {
+            '/proc/meminfo': f'MemTotal: {16_384 * 1024} kB\nMemFree: {16_000 * 1024} kB\nMemAvailable: {available_mib * 1024} kB\nSwapTotal: {swap_mib * 1024} kB\nSwapFree: {swap_mib * 1024} kB',
+            '/proc/self/cgroup': '0::/actions/job',
+            '/proc/self/mountinfo': '31 24 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw',
+            '/sys/fs/cgroup/cgroup.controllers': 'memory cpu',
+            '/sys/fs/cgroup/memory.current': str(500 * mib),
+            '/sys/fs/cgroup/actions/memory.max': 'max',
+            '/sys/fs/cgroup/actions/memory.current': str(400 * mib),
+            '/sys/fs/cgroup/actions/job/memory.max': 'max',
+            '/sys/fs/cgroup/actions/job/memory.current': str(300 * mib),
+        }
+
+    def test_exact_fixed_budget_uses_available_ram_and_accepts_unlimited_root(self):
+        self.assertEqual(8960 * 1024 * 1024, compile_memory.REQUIRED_BYTES)
+        result = compile_memory.observe(self.files(available_mib=8960).get)
+        self.assertEqual('SUFFICIENT', result['status'])
+        self.assertEqual(8960 * 1024 * 1024, result['availableBytes'])
+        self.assertEqual(['UNLIMITED', 'UNLIMITED', 'UNLIMITED_ROOT'], [row['state'] for row in result['cgroups']])
+
+    def test_swap_and_memfree_cannot_rescue_insufficient_available_ram(self):
+        result = compile_memory.observe(self.files(available_mib=8959, swap_mib=64_000).get)
+        self.assertEqual('INSUFFICIENT', result['status'])
+        self.assertEqual(8959 * 1024 * 1024, result['availableBytes'])
+        self.assertEqual(64_000 * 1024 * 1024, result['ram']['SwapFree'])
+        self.assertFalse(result['swapCountsAsHeadroom'])
+
+    def test_finite_leaf_requires_budget_after_existing_usage(self):
+        files = self.files()
+        files['/sys/fs/cgroup/actions/job/memory.max'] = str(10_000 * compile_memory.MIB)
+        for usage, expected in ((1040, 'SUFFICIENT'), (1041, 'INSUFFICIENT'), (10_001, 'INSUFFICIENT')):
+            with self.subTest(usage_mib=usage):
+                files['/sys/fs/cgroup/actions/job/memory.current'] = str(usage * compile_memory.MIB)
+                result = compile_memory.observe(files.get)
+                self.assertEqual(expected, result['status'])
+                self.assertEqual(max(0, 10_000 - usage) * compile_memory.MIB, result['availableBytes'])
+
+    def test_finite_parent_constrains_unlimited_and_unaccounted_children(self):
+        files = self.files()
+        files['/sys/fs/cgroup/actions/memory.max'] = str(9000 * compile_memory.MIB)
+        files['/sys/fs/cgroup/actions/memory.current'] = str(100 * compile_memory.MIB)
+        for inherited in (False, True):
+            with self.subTest(inherited=inherited):
+                if inherited:
+                    files.pop('/sys/fs/cgroup/actions/job/memory.max')
+                    files['/sys/fs/cgroup/actions/cgroup.subtree_control'] = 'cpu'
+                result = compile_memory.observe(files.get)
+                self.assertEqual('INSUFFICIENT', result['status'])
+                self.assertEqual(8900 * compile_memory.MIB, result['availableBytes'])
+
+    def test_unknown_memory_or_unreadable_cgroup_cannot_pass(self):
+        for missing in ('/proc/meminfo', '/proc/self/cgroup', '/proc/self/mountinfo', '/sys/fs/cgroup/actions/job/memory.current'):
+            with self.subTest(missing=missing):
+                files = self.files()
+                files.pop(missing)
+                self.assertEqual('UNKNOWN', compile_memory.observe(files.get)['status'])
+        files = self.files()
+        def unreadable(path):
+            if path.endswith('/memory.max'):
+                raise PermissionError('private-runner-label-must-not-be-printed')
+            return files.get(path)
+        result = compile_memory.observe(unreadable)
+        self.assertEqual('UNKNOWN', result['status'])
+        self.assertNotIn('private-runner-label', json.dumps(result))
+
+    def test_missing_enabled_limit_and_hidden_ancestry_remain_unknown(self):
+        files = self.files()
+        files.pop('/sys/fs/cgroup/actions/job/memory.max')
+        files['/sys/fs/cgroup/actions/cgroup.subtree_control'] = 'cpu memory'
+        self.assertEqual('UNKNOWN', compile_memory.observe(files.get)['status'])
+        files = self.files()
+        files['/proc/self/mountinfo'] = '31 24 0:25 /actions /sys/fs/cgroup rw - cgroup2 cgroup rw'
+        self.assertEqual('UNKNOWN', compile_memory.observe(files.get)['status'])
+
+    def test_malformed_limits_and_excessive_ancestry_are_bounded_unknowns(self):
+        for limit in ('-1', 'unknown', '9' * 100):
+            with self.subTest(limit=limit[:12]):
+                files = self.files()
+                files['/sys/fs/cgroup/actions/job/memory.max'] = limit
+                self.assertEqual('UNKNOWN', compile_memory.observe(files.get)['status'])
+        files = self.files()
+        files['/proc/self/cgroup'] = '0::/' + '/'.join(['nested'] * 40)
+        result = compile_memory.observe(files.get)
+        self.assertEqual('UNKNOWN', result['status'])
+        self.assertLess(len(json.dumps(result)), 1000)
+
+
 class PipelineTest(unittest.TestCase):
-    def assert_android_compile_stages(self, filename, stages, job_timeout, device_abi=False):
+    def assert_android_compile_stages(self, filename, stages, job_timeout, device_abi=False, heap_by_stage=None):
         root = Path(__file__).resolve().parents[2]
         workflow = (root / '.github/workflows' / filename).read_text()
         steps = re.split(r'(?m)^      - ', workflow.split('    steps:\n', 1)[1])[1:]
         tasks = {task for stage in stages for task in stage}
+        heap_by_stage = heap_by_stage or [4096] * len(stages)
+        self.assertEqual(len(stages), len(heap_by_stage))
         matched = []
         for index, step in enumerate(steps):
             if '        run:' not in step:
@@ -44,7 +136,7 @@ class PipelineTest(unittest.TestCase):
             matched.append((index, present, step))
             for flag in ('--no-daemon', '--max-workers=1'):
                 self.assertIn(flag, command)
-            self.assertEqual(['4096'], re.findall(r'-Xmx(\d+)m', command))
+            self.assertEqual([str(heap_by_stage[len(matched) - 1])], re.findall(r'-Xmx(\d+)m', command))
             self.assertEqual(['768'], re.findall(r'-XX:MaxMetaspaceSize=(\d+)m', command))
             self.assertNotRegex(command, r'(?<!\S)-x(?:\s|=)')
             self.assertNotIn('--continue', command)
@@ -75,7 +167,7 @@ class PipelineTest(unittest.TestCase):
              ('kaptGenerateStubsDebugAndroidTestKotlin', 'kaptDebugAndroidTestKotlin'),
              ('compileDebugAndroidTestKotlin', 'compileDebugAndroidTestJavaWithJavac'),
              ('assembleDebug', 'assembleDebugAndroidTest')],
-            job_timeout=60, device_abi=True,
+            job_timeout=60, device_abi=True, heap_by_stage=[4096, 4096, 6144, 4096, 4096, 4096, 4096],
         )
         self.assertIn('timeout-minutes: 25', steps[package_index])
         verification = next(i for i, step in enumerate(steps) if 'scripts/select_android_test_apk.py' in step)
@@ -86,12 +178,41 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('api: 36', workflow)
         self.assertIn('bash scripts/run_release0950_acceptance.sh', steps[emulator])
 
+    def test_proven_compile_oom_phases_keep_a_fixed_cap_and_observed_headroom(self):
+        root = Path(__file__).resolve().parents[2]
+        for filename, name, prefix in (
+            ('release-0950-acceptance.yml', 'Compile device regression production sources in a fresh process', 'acceptance'),
+            ('audit-workspace.yml', 'Compile production sources in a separate process', 'audit'),
+        ):
+            with self.subTest(workflow=filename):
+                workflow = (root / '.github/workflows' / filename).read_text()
+                steps = re.split(r'(?m)^      - ', workflow)
+                step = next(step for step in steps if step.startswith('name: ' + name + '\n'))
+                self.assertIn('timeout-minutes: 20', step)
+                self.assertIn('set -o pipefail', step)
+                self.assertLess(step.index('scripts/check_android_compile_memory.py'), step.index('scripts/gradle_retry.py'))
+                self.assertEqual(['6144'], re.findall(r'-Xmx(\d+)m', step))
+                self.assertEqual(['768'], re.findall(r'-XX:MaxMetaspaceSize=(\d+)m', step))
+                for flag in ('--timeout-seconds 1140', '--no-daemon', '--max-workers=1', ':app:compileDebugKotlin', ':app:compileDebugJavaWithJavac'):
+                    self.assertIn(flag, step)
+                for bypass in ('continue-on-error:', '|| true', '--continue', ' -x '):
+                    self.assertNotIn(bypass, step)
+                self.assertIn(f'tee {prefix}-production-memory.log', step)
+                self.assertIn(f'-Xlog:gc:file=${{RUNNER_TEMP}}/{prefix}-production-gc.log:time,level,tags:filecount=2,filesize=8M', step)
+                uploads = [candidate for candidate in steps if 'actions/upload-artifact@' in candidate and 'if: always()' in candidate]
+                self.assertTrue(any(f'{prefix}-production-gc.log*' in candidate for candidate in uploads))
+                self.assertTrue(any(f'{prefix}-production-memory.log' in candidate or f'{prefix}-*.log' in candidate for candidate in uploads))
+        audit = (root / '.github/workflows/audit-workspace.yml').read_text()
+        self.assertEqual(['4096', '6144', '4096', '4096'], re.findall(r'-Xmx(\d+)m', audit))
+        for required in ('timeout-minutes: 135', ':app:compileDebugUnitTestKotlin', ':app:testDebugUnitTest', ':app:assembleDebug', ':app:lintDebug'):
+            self.assertIn(required, audit)
+
     def test_distribution_apk_build_preserves_native_and_size_gates_after_staged_compilation(self):
         _, steps, package_index = self.assert_android_compile_stages(
             'build-apk.yml',
             [('kspDebugKotlin',), ('kaptDebugKotlin',),
              ('compileDebugKotlin', 'compileDebugJavaWithJavac'), ('assembleDebug',)],
-            job_timeout=90,
+            job_timeout=90, heap_by_stage=[4096, 4096, 6144, 4096],
         )
         provenance = next(i for i, step in enumerate(steps) if 'python3 scripts/check_qnn_provenance.py' in step)
         generation = next(i for i, step in enumerate(steps) if ':app:kspDebugKotlin' in step)
@@ -108,7 +229,7 @@ class PipelineTest(unittest.TestCase):
             [('kspNativeSmokeKotlin',), ('kaptNativeSmokeKotlin',),
              ('compileNativeSmokeKotlin', 'compileNativeSmokeJavaWithJavac'),
              ('minifyNativeSmokeWithR8',)],
-            job_timeout=50,
+            job_timeout=50, heap_by_stage=[4096, 4096, 6144, 4096],
         )
         for step in steps:
             if 'scripts/gradle_retry.py' in step:
@@ -140,7 +261,7 @@ class PipelineTest(unittest.TestCase):
             'github-build-downloads.yml',
             [('kspDebugKotlin',), ('kaptDebugKotlin',),
              ('compileDebugKotlin', 'compileDebugJavaWithJavac'), ('testDebugUnitTest',)],
-            job_timeout=40,
+            job_timeout=40, heap_by_stage=[4096, 4096, 6144, 4096],
         )
         classes = [
             'dev.chungjungsoo.gptmobile.data.github.GitHubBuildCatalogTest',

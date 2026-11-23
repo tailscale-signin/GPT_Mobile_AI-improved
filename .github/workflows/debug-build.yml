@@ -65,7 +65,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/android_pipeline.py --phase debug --output build/reports/pipeline/debug.json 2>&1 | tee gradle-build.log
+          python3 scripts/android_pipeline.py --phase compile --output build/reports/pipeline/compile.json 2>&1 | tee gradle-build.log
+          python3 scripts/android_pipeline.py --phase debug --output build/reports/pipeline/debug.json 2>&1 | tee -a gradle-build.log
 
       - name: Verify local runtime native libraries
         if: steps.gradle_build.outcome == 'success'

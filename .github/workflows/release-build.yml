@@ -152,7 +152,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee release-validation-production.log
+          python3 scripts/check_android_compile_memory.py | tee release-validation-production-memory.log
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/release-validation-production-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee release-validation-production.log
       - name: Compile release validation tests in a separate process
         timeout-minutes: 25
         shell: bash
@@ -184,7 +185,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileReleaseKotlin :app:compileReleaseJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee release-production.log
+          python3 scripts/check_android_compile_memory.py | tee release-production-memory.log
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileReleaseKotlin :app:compileReleaseJavaWithJavac --no-daemon --max-workers=1 --console=plain "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/release-production-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee release-production.log
       - name: Verify release compatibility and lint
         timeout-minutes: 45
         run: python3 scripts/gradle_retry.py -- :app:checkReleaseAarMetadata :app:lintRelease --no-daemon --max-workers=1 --console=plain
@@ -195,6 +197,8 @@ jobs:
           name: release-validation-${{ github.sha }}
           path: |
             release-*.log
+            ${{ runner.temp }}/release-validation-production-gc.log*
+            ${{ runner.temp }}/release-production-gc.log*
             app/build/test-results/testDebugUnitTest/
             app/build/reports/tests/
             app/build/reports/lint-results-*
@@ -264,7 +268,9 @@ jobs:
         run: python3 scripts/check_qnn_provenance.py
       - name: Shrink release code in a separate process
         run: |
-          # Use the same bounded worker/common-pool settings as the unsigned build.
+          # This runner cannot reuse the validation job's compiled application.
+          python3 scripts/android_pipeline.py --variant release --phase compile --output build/reports/pipeline/compile.json
+          # Keep the unsigned build's bounded R8/common-pool settings.
           python3 scripts/android_pipeline.py --variant release --phase shrink --output build/reports/pipeline/shrink.json
       - name: Build release artifacts
         run: |

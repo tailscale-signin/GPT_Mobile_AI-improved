@@ -57,7 +57,9 @@ jobs:
         timeout-minutes: 40
         env:
           RUNTIME: ${{ matrix.runtime }}
-        run: python3 scripts/android_pipeline.py --runtime "$RUNTIME" --phase ui --output build/reports/pipeline/ui.json
+        run: |
+          python3 scripts/android_pipeline.py --runtime "$RUNTIME" --phase compile --output build/reports/pipeline/debug-compile.json
+          python3 scripts/android_pipeline.py --runtime "$RUNTIME" --phase ui --output build/reports/pipeline/ui.json
       - name: Compare reviewed visual baseline
         env:
           BASELINE: ${{ inputs.baseline }}
@@ -78,6 +80,7 @@ jobs:
         env:
           RUNTIME: ${{ matrix.runtime }}
         run: |
+          python3 scripts/android_pipeline.py --runtime "$RUNTIME" --variant release --phase compile --output build/reports/pipeline/release-compile.json
           python3 scripts/android_pipeline.py --runtime "$RUNTIME" --variant release --phase shrink --output build/reports/pipeline/shrink.json
           python3 scripts/android_pipeline.py --runtime "$RUNTIME" --variant release --phase package --output build/reports/pipeline/build.json
       - name: Audit candidate native stack and telemetry

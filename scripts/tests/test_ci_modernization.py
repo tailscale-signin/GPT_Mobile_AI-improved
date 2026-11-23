@@ -96,7 +96,8 @@ class WorkflowPolicyTest(unittest.TestCase):
             positions.append(index)
             self.assertEqual(list(tasks), re.findall(r':app:[A-Za-z]+', step))
             self.assertEqual(1, step.count('python3 scripts/gradle_retry.py'))
-            for required in ('--no-daemon', '--max-workers=1', '-Xmx4096m',
+            heap = '-Xmx6144m' if tasks[0] == ':app:compileDebugKotlin' else '-Xmx4096m'
+            for required in ('--no-daemon', '--max-workers=1', heap,
                              '-XX:MaxMetaspaceSize=768m', '-Pandroid.injected.build.abi=x86_64',
                              'set -o pipefail', '2>&1 | tee acceptance-'):
                 self.assertIn(required, step)

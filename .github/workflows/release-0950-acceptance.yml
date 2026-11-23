@@ -91,9 +91,12 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          # Run 45100661888 exhausted the isolated 4 GiB compiler heap before
+          # device startup. Verify RAM/cgroup headroom for this fixed 6 GiB cap.
+          python3 scripts/check_android_compile_memory.py | tee acceptance-production-memory.log
           python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac \
             -Pandroid.injected.build.abi=x86_64 --no-daemon --max-workers=1 --console=plain --stacktrace \
-            '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' \
+            "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/acceptance-production-gc.log:time,level,tags:filecount=2,filesize=8M" \
             2>&1 | tee acceptance-production.log
       - name: Generate device regression instrumentation sources
         timeout-minutes: 15
@@ -163,4 +166,5 @@ jobs:
             app/build/outputs/apk/**/output-metadata.json
             app/build/intermediates/apk/**/output-metadata.json
             acceptance-*.log
+            ${{ runner.temp }}/acceptance-production-gc.log*
             ${{ runner.temp }}/acceptance-package-gc.log

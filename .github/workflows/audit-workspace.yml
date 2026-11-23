@@ -126,7 +126,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee audit-production-compile.log
+          # Run 45101470908 exhausted this fresh 4 GiB process after codegen.
+          python3 scripts/check_android_compile_memory.py | tee audit-production-memory.log
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/audit-production-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee audit-production-compile.log
       - name: Compile unit tests in a separate process
         timeout-minutes: 20
         shell: bash
@@ -152,6 +154,8 @@ jobs:
             build/reports/profile/audit-ksp-metrics.json
             build/reports/profile/audit-kapt-metrics.json
             audit-production-compile.log
+            audit-production-memory.log
+            ${{ runner.temp }}/audit-production-gc.log*
             audit-unit-compile.log
             audit-unit.log
             app/build/test-results/testDebugUnitTest
@@ -212,6 +216,7 @@ jobs:
           name: audit-android-results-${{ github.run_attempt }}
           path: |
             audit-*.log
+            ${{ runner.temp }}/audit-production-gc.log*
             build/reports/profile/audit-ksp-metrics.json
             build/reports/profile/audit-kapt-metrics.json
             app/build/test-results/testDebugUnitTest

@@ -86,10 +86,13 @@ jobs:
           '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
       - name: Compile native test app sources in a fresh process
         timeout-minutes: 25
-        run: >-
-          python3 scripts/gradle_retry.py --timeout-seconds 1440 -- :app:compileNativeSmokeKotlin :app:compileNativeSmokeJavaWithJavac
-          -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace
-          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/check_android_compile_memory.py | tee native-smoke-production-memory.log
+          python3 scripts/gradle_retry.py --timeout-seconds 1440 -- :app:compileNativeSmokeKotlin :app:compileNativeSmokeJavaWithJavac \
+            -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace \
+            "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/native-smoke-production-gc.log:time,level,tags:filecount=2,filesize=8M"
       - name: Shrink the native test app in a separate process
         run: |
           # R8 retains its analysis heap until Gradle exits. Release it before
@@ -137,4 +140,6 @@ jobs:
             app/build/outputs/mapping/nativeSmoke/
             app/build/outputs/mapping/nativeSmokeAndroidTest/
             app/build/native-memory-smoke/
+            native-smoke-production-memory.log
+            ${{ runner.temp }}/native-smoke-production-gc.log*
           if-no-files-found: ignore

@@ -1,0 +1,68 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2254,
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "056399c8349c4975facc8f3c2226ede348a17e28",
+  "working_branch": "work/phone-repository-map-2026-11-22",
+  "intent": "Correct reproduced Gitleaks generic-api-key false positives for an exact token-estimate schema label and an exact public model-file SHA256 pin, while retaining credential detection for all other values, fields, paths and neighboring material.",
+  "status": "REPRODUCED_CLASSIFIED_SCANNER_CONTROLS_PASSED_PENDING_FINAL_HISTORY_GATE",
+  "scanner_version": "8.30.1",
+  "original_finding": {
+    "commit": "5073b216146a4a14b4c250de41097838b91f7528",
+    "path": "gateway/v14/task_context.py",
+    "rule": "generic-api-key",
+    "line": 52,
+    "classification": "Exact uppercase schema label describing UTF8-byte token estimation; no credential value or assignment."
+  },
+  "scope": "Each new generic-api-key exception requires BOTH its exact source path AND the complete literal metadata/pin line. Every other field/value/path, appended same-line content, rule, historical revision and existing ignore fingerprint remains scanned.",
+  "validation": [
+    {
+      "check": "actual_pinned_gitleaks_git_mode_controls",
+      "cases": 12,
+      "runs": 24,
+      "result": "ALL_EXPECTED_RESULTS",
+      "baseline_each_exact_line_findings": 1,
+      "corrected_each_exact_line_findings": 0,
+      "preserved_detections": [
+        "Different path",
+        "Different value",
+        "Different field",
+        "Adjacent field on another line",
+        "Additional credential-shaped field on the same line"
+      ],
+      "reports": "ci-monitor/history-metadata-proof/combined-scanner-controls.json",
+      "redaction": "100%",
+      "synthetic_controls": "Generated only in scratch; no credential material added to repository history."
+    },
+    {
+      "check": "original_hosted_two_findings_reproduced",
+      "source": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
+      "synthetic_merge": "8b9b0d9be08d3e99ebf23cdab88bf5ca2feb6050",
+      "source_and_merge_match": "SAME_EXACT_TOKEN_ESTIMATE_SCHEMA_LABEL",
+      "evidence": "ci-monitor/history-metadata-proof/synthetic-8b9b-redacted.json"
+    },
+    {
+      "check": "independent_full_mirror_classification",
+      "source": "9298610bab2e4cb90ef7d38d9c95753689a5acdc",
+      "findings": 3,
+      "classification": "Two metadata instances plus the public model-file SHA256 pin",
+      "report_sha256": "013541fb6e95759dd113d4e85ae8f9190ce1af4cf35fe080062c75207f6bee92"
+    }
+  ],
+  "remaining": [
+    "Actual final-head complete-history CI gate"
+  ],
+  "config_sha256": "2d370b508466e9e0416f65919ed00efae271ccc13bbb34617da0c68145773f82",
+  "scanner_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+  "verified_fingerprints": [
+    "5073b216146a4a14b4c250de41097838b91f7528:gateway/v14/task_context.py:generic-api-key:52",
+    "8b9b0d9be08d3e99ebf23cdab88bf5ca2feb6050:gateway/v14/task_context.py:generic-api-key:52",
+    "9298610bab2e4cb90ef7d38d9c95753689a5acdc:local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py:generic-api-key:58"
+  ],
+  "additional_classification": {
+    "path": "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+    "field": "tokens.txt",
+    "value_kind": "Known public model-file SHA256",
+    "proof": "The harness computes hashlib.file_digest of the actual model input and compares it to this pin. It is not an authentication credential."
+  }
+}

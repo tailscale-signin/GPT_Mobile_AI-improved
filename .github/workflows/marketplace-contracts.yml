@@ -119,7 +119,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee marketplace-production-compile.log
+          python3 scripts/check_android_compile_memory.py | tee marketplace-production-memory.log
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/marketplace-production-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee marketplace-production-compile.log
 
       - name: Compile unit tests in a separate process
         timeout-minutes: 20
@@ -227,6 +228,7 @@ jobs:
           name: marketplace-test-diagnostics-${{ github.run_attempt }}
           path: |
             marketplace-*.log
+            ${{ runner.temp }}/marketplace-production-gc.log*
             app/build/test-results/testDebugUnitTest
             app/build/reports/tests/testDebugUnitTest
           if-no-files-found: ignore

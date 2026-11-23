@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "task": "tls-retry-callback-order-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "c2d24b795656ccc3ee430b12107abf5f2104a727",
+  "workingBranch": "work/tls-callback-order-2026-11-23",
+  "parentPullRequest": 2367,
+  "status": "IMPLEMENTED_FOCUSED_VERIFIED_PENDING_INTEGRATION_AND_HOSTED_QUALIFICATION",
+  "intent": "Reject typed TLS and cancellation failures before either retry callback can change dispatch uncertainty.",
+  "finding": "The prior isRetryable correction prevented a second attempt, but executeWithRetry still invoked shouldRetryFailure and shouldRetry first. The actual OpenAI chat and responses callbacks can interpret recovery wording as a pre-execution failure and clear the actual ProviderDispatchRetryGuard's unknown remote outcome before the typed terminal refusal. The reproduced defect is lost uncertainty, not a second dispatch.",
+  "correction": {
+    "source": "Classify the caught failure with the existing cycle-safe 16-cause networkFailureKind before both callbacks, and immediately propagate TLS or CANCELLED failures unchanged.",
+    "preserved": [
+      "The existing isRetryable TLS/cancellation correction and every prior test method and assertion",
+      "Durable rate-limit ownership, worker-budget ownership, maximum attempts, backoff and timeouts",
+      "Failure-specific callback before the general dispatch gate for ordinary transient failures",
+      "The actual ProviderDispatchRetryGuard implementation, provider request configuration and both OpenAI callback implementations"
+    ],
+    "newTests": [
+      "typedTerminalFailuresNeverInvokeEitherRetryGate",
+      "typedTerminalFailuresPreserveTheActualGatewayDispatchUncertainty",
+      "ordinaryNetworkRecoveryStillRunsFailureSpecificGateBeforeTheDispatchGate"
+    ]
+  },
+  "focusedValidation": {
+    "baseline": "Actual c2d retry source with current project tests ran 24 methods with exactly two expected failures: retry callbacks were invoked for a typed terminal error, and the actual Gateway guard lost its unknown remote outcome. Zero ignored methods.",
+    "corrected": "All 19 ResilientStreamingClientTest methods and five NetworkFailureKindTest methods passed, zero failures or ignored methods. All 16 previously present retry methods and assertions are byte-preserved.",
+    "causeControls": "Direct and 16-deep SSLProtocolException, CertPathValidatorException and CancellationException with misleading recovery wording; both callback counters; actual guard uncertainty; genuine UnknownHostException recovery and exact failure-specific/general/retry callback order.",
+    "executionBoundary": "Whole verbatim project retry client, classifier, ProviderDispatchRetryGuard and tests. The previously approved ProviderHttpFailure/ProviderConnectivityPendingException class extractions and uncalled WorkerRequestBudget-method omissions are unchanged. The explicitly approved ProviderRequestConfig declaration-only seam retains its exact package and constructor prefix through extraHeaders, including original defaults; unused remaining fields, imports, buildEndpoint and top-level helpers are omitted. No initializer or property transformation is removed, and the executed guard reads only the exact extraHeaders field. Exact complete-source, extraction, dependency and method hashes are retained in the review evidence.",
+    "limitations": "Synthetic throwables and virtual coroutine time only. This proof does not qualify full ProviderRequestConfig, provider HTTP transport, Android, worker-budget methods, UI, devices, composed private streams or the complete project suite. Current-source canonical and hosted qualification remain required."
+  },
+  "integration": "Preparation used an isolated worktree without a commit, remote write or CI action. The parent coordinator owns current-head reconciliation, generated references and release scope, canonical validation, guarded append and final-source hosted qualification. Other implementation and publication holds remain independent."
+}

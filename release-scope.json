@@ -251,7 +251,8 @@
     "Replace native profile regex scans with bounded structured parsing; enforce released TTS JNI contracts and keep model-family timing and requested delegates separate from verified processor execution.",
     "Require complete paired CPU-reference audio qualification before manual or Auto accelerator playback; use CPU for unqualified or inconsistent receipts and prevent ordinary self-validation from granting accelerator admission.",
     "Initialize the native speech smoke staging paths on the assigned runner before downloading the minified APKs and provisioning each speech model.",
-    "Correct runner-context availability in native speech CI and require ordinary Android acceptance to execute every voice entry method without skips."
+    "Correct runner-context availability in native speech CI and require ordinary Android acceptance to execute every voice entry method without skips.",
+    "Reject typed TLS and cancellation before retry callbacks can clear dispatch uncertainty, preserving ordinary DNS recovery ordering and every existing retry/ownership fence."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -573,6 +574,7 @@
     "docs/repairs/privacy-tool-result-projection-2026-11-23-task.json",
     "docs/repairs/release-lint-budget-2026-11-23-task.json",
     "docs/repairs/shared-release-integration-2026-11-23-task.json",
+    "docs/repairs/tls-retry-callback-order-2026-11-23-task.json",
     "docs/repairs/tls-transport-retry-policy-2026-11-23-task.json",
     "docs/repairs/verification-reserve-reporting-2026-11-23-task.json",
     "docs/repairs/voice-streaming-modernization-2026-11-23-task.json",

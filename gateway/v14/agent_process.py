@@ -48,6 +48,7 @@ class AgentProcess:
         self.model_id, self.model_option = None, None
         self.completed_turns = {}
         self.stopped_state, self.catalog = None, None
+        self.initializing, self.initialized = False, False
 
     def source_catalog(self):
         """Root-owned index keeps generated/ignored files out of candidates.
@@ -176,9 +177,10 @@ class AgentProcess:
                     method, params = value.get('method'), value.get('params', {})
                     if method == 'turn/completed' and params.get('threadId') == self.session_id:
                         turn = params.get('turn', {})
-                        self.completed_turns[turn.get('id')] = turn.get('status')
-                        if turn.get('id') == self.turn_id and self.stopped_state is None:
-                            self.state = {'completed': 'COMPLETED', 'interrupted': 'CANCELLED', 'failed': 'FAILED'}.get(turn.get('status'), 'STATE_UNVERIFIED')
+                        with self.lock:
+                            self.completed_turns[turn.get('id')] = turn.get('status')
+                            if turn.get('id') == self.turn_id and self.stopped_state is None:
+                                self.state = {'completed': 'COMPLETED', 'interrupted': 'CANCELLED', 'failed': 'FAILED'}.get(turn.get('status'), 'STATE_UNVERIFIED')
                     if method == 'session/update' and params.get('sessionId') == self.session_id and self.model_option:
                         update = params.get('update', {})
                         if update.get('sessionUpdate') == 'config_option_update':
@@ -211,8 +213,9 @@ class AgentProcess:
         with self.lock:
             if self.stopped_state is not None:
                 raise ValueError('A stopped runtime cannot start another turn')
-            if self.process is not None:
-                return self.snapshot()
+            existing = self.process is not None
+        if existing:
+            return self.await_initialization()
         self.backend = config['backend']
         self.model_id = config['model_id']
         self.baseline = config['baseline']
@@ -228,10 +231,57 @@ class AgentProcess:
         with self.lock:
             if self.stopped_state is not None:
                 raise ValueError('A stopped runtime cannot start another turn')
-            if self.process is not None:
+            owner = self.process is None
+            if owner:
+                self.process = subprocess.Popen(argv, cwd=self.workspace, env=environment, stdin=subprocess.PIPE,
+                                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, **privileges)
+                self.initializing = True
+                process = self.process
+        if not owner:
+            return self.await_initialization()
+        try:
+            self.initialize(config)
+            with self.lock:
+                if self.stopped_state is not None:
+                    raise ValueError('Agent startup was stopped')
+                self.initialized = True
                 return self.snapshot()
-            self.process = subprocess.Popen(argv, cwd=self.workspace, env=environment, stdin=subprocess.PIPE,
-                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, **privileges)
+        except BaseException:
+            # Only the process owner compensates a failed initialization. Never
+            # mask its original error or replace an earlier cancel/timeout state.
+            cleanup_failed = False
+            try:
+                self.stop('FAILED')
+            except BaseException:
+                cleanup_failed = True
+            try:
+                process.wait(timeout=2)
+            except BaseException:
+                cleanup_failed = True
+            if cleanup_failed:
+                with self.lock:
+                    self.error_code = self.error_code or 'AGENT_STARTUP_CLEANUP_UNCONFIRMED'
+            raise
+        finally:
+            with self.condition:
+                self.initializing = False
+                self.condition.notify_all()
+
+    def await_initialization(self):
+        deadline = min(self.deadline, time.time() + 20)
+        with self.condition:
+            while self.initializing and self.stopped_state is None:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    raise TimeoutError('Agent startup is not confirmed')
+                self.condition.wait(min(.2, remaining))
+            if self.stopped_state is not None:
+                raise ValueError('A stopped runtime cannot start another turn')
+            if not self.initialized:
+                raise ValueError('Agent startup is not confirmed')
+            return self.snapshot()
+
+    def initialize(self, config):
         threading.Thread(target=self.read, daemon=True).start()
         threading.Thread(target=self.stderr, daemon=True).start()
         if self.backend == 'codex':
@@ -275,7 +325,6 @@ class AgentProcess:
                         raise ValueError('ACP model selection was not confirmed')
         if not isinstance(self.session_id, str) or not 1 <= len(self.session_id) <= 256:
             raise ValueError('Invalid agent session identity')
-        return self.snapshot()
 
     def prompt(self, text, *, steering=False, expected=None):
         if self.stopped_state is not None:
@@ -295,23 +344,25 @@ class AgentProcess:
             self.prompt_id = self.request('session/prompt', {'sessionId': self.session_id,
                                            'prompt': [{'type': 'text', 'text': text}]}, wait=False)
             self.turn_id = self.prompt_id
-        if self.stopped_state is not None:
+        with self.lock:
+            if self.stopped_state is not None:
+                return self.snapshot()
+            self.state = 'RUNNING'
+            if self.backend == 'codex' and self.turn_id in self.completed_turns:
+                self.state = {'completed': 'COMPLETED', 'interrupted': 'CANCELLED', 'failed': 'FAILED'}.get(self.completed_turns[self.turn_id], 'STATE_UNVERIFIED')
+            # A synchronous fake or very fast SDK may finish before the reader sees
+            # prompt_id. Reconcile its already-retained response before returning.
+            if self.prompt_id and self.prompt_id in self.results:
+                response = self.results[self.prompt_id]
+                self.state = 'FAILED' if 'error' in response else ('CANCELLED' if response.get('result', {}).get('stopReason') == 'cancelled' else 'COMPLETED')
             return self.snapshot()
-        self.state = 'RUNNING'
-        if self.backend == 'codex' and self.turn_id in self.completed_turns:
-            self.state = {'completed': 'COMPLETED', 'interrupted': 'CANCELLED', 'failed': 'FAILED'}.get(self.completed_turns[self.turn_id], 'STATE_UNVERIFIED')
-        # A synchronous fake or very fast SDK may finish before the reader sees
-        # prompt_id. Reconcile its already-retained response before returning.
-        if self.prompt_id and self.prompt_id in self.results:
-            response = self.results[self.prompt_id]
-            self.state = 'FAILED' if 'error' in response else ('CANCELLED' if response.get('result', {}).get('stopReason') == 'cancelled' else 'COMPLETED')
-        return self.snapshot()
 
     def stop(self, state):
-        with self.lock:
+        with self.condition:
             self.stopped_state = self.stopped_state or state
             self.state = self.stopped_state
             process = self.process
+            self.condition.notify_all()
         if process is not None and process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGKILL)

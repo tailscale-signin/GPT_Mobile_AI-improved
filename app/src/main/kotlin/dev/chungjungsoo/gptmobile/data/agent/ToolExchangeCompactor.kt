@@ -23,6 +23,8 @@ internal object ToolExchangeCompactor {
     private const val CONSUMED_RESULT = "[Earlier tool result already consumed by the model; durable evidence retained.]"
     private const val DUPLICATE_RESULT = "[Earlier duplicate tool result omitted; newest identical result retained.]"
 
+    internal fun isReplayPlaceholder(content: ToolResultContent): Boolean = (content as? ToolResultContent.Text)?.text in setOf(OMITTED_RESULT, CONSUMED_RESULT, DUPLICATE_RESULT)
+
     /** Per-run identity cache: immutable result bodies are serialized once across rounds.
      * Bounded in both entries and characters; never shared between chats/accounts. */
     class RenderCache(private val maxCharacters: Int = 2 * 1024 * 1024, private val maxEntries: Int = 256) {

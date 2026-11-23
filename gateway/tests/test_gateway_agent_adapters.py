@@ -2,6 +2,7 @@
 import copy
 import asyncio
 import io
+import inspect
 import json
 import os
 from pathlib import Path
@@ -1135,6 +1136,303 @@ for line in sys.stdin:
             (work / 'link').symlink_to('/tmp')
             with self.assertRaises(ValueError):
                 runtime.changes()
+
+
+class AgentProcessLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.work, self.control = self.root / 'checkout', self.root / 'control'
+        self.work.mkdir()
+        self.control.mkdir()
+        (self.root / 'home').mkdir()
+        self.script = self.root / 'fake_protocol.py'
+        self.script.write_text('''import json,sys
+from pathlib import Path
+for line in sys.stdin:
+    value=json.loads(line)
+    with Path('protocol.jsonl').open('a') as log:
+        log.write(json.dumps(value)+'\\n')
+    if 'id' not in value: continue
+    method=value.get('method')
+    if method=='thread/start': result={'thread':{'id':'thread-1'},'model':'model-x'}
+    elif method=='turn/start': result={'turn':{'id':'turn-1'}}
+    else: result={}
+    print(json.dumps({'jsonrpc':'2.0','id':value['id'],'result':result}),flush=True)
+''')
+        self.config = {'backend': 'codex', 'model_id': 'model-x', 'baseline': {},
+                       'command': [sys.executable, '-u', str(self.script)]}
+        (self.control / 'launch.json').write_text(json.dumps(self.config))
+        self.runtime = AgentProcess(self.work, self.control, time.time() + 5)
+        self.threads, self.releases = [], []
+        self.addCleanup(self.finish)
+
+    def finish(self):
+        for release in self.releases:
+            release.set()
+        self.runtime.stop('CANCELLED')
+        for thread in self.threads:
+            thread.join(2)
+        if self.runtime.process:
+            self.runtime.process.wait(timeout=2)
+            for stream in (self.runtime.process.stdin, self.runtime.process.stdout, self.runtime.process.stderr):
+                stream.close()
+        self.temporary.cleanup()
+
+    def background(self, callback):
+        done, result = threading.Event(), {}
+        def run():
+            try:
+                result['value'] = callback()
+            except BaseException as error:
+                result['error'] = error
+            finally:
+                done.set()
+        thread = threading.Thread(target=run, daemon=True)
+        self.threads.append(thread)
+        thread.start()
+        return done, result
+
+    def frames(self):
+        path = self.work / 'protocol.jsonl'
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def test_prompt_cannot_revive_state_after_a_completed_cancel(self):
+        read_done = threading.Event()
+        read = self.runtime.read
+        def observed_read():
+            try:
+                read()
+            finally:
+                read_done.set()
+        self.runtime.read = observed_read
+        self.runtime.launch(self.config)
+        entered, release = threading.Event(), threading.Event()
+        self.releases.append(release)
+        lines, first = inspect.getsourcelines(AgentProcess.prompt)
+        publication = first + next(i for i, line in enumerate(lines) if "self.state = 'RUNNING'" in line)
+        def trace(frame, event, arg):
+            if event == 'line' and Path(frame.f_code.co_filename).resolve() == Path(inspect.getsourcefile(AgentProcess)).resolve() and frame.f_lineno == publication:
+                entered.set()
+                if not release.wait(2):
+                    raise TimeoutError('Prompt publication was not released')
+            return trace
+        def prompt():
+            sys.settrace(trace)
+            try:
+                return self.runtime.prompt('accepted task')
+            finally:
+                sys.settrace(None)
+        prompted, prompt_result = self.background(prompt)
+        self.assertTrue(entered.wait(1), 'Actual prompt never reached state publication')
+        cancelled, cancel_result = self.background(lambda: self.runtime.dispatch({'action': 'cancel', 'operation_id': 'cancel'}))
+        if cancelled.wait(.15):
+            self.assertTrue(read_done.wait(1), 'The cancelled child reader did not exit')
+        release.set()
+        self.assertTrue(prompted.wait(2))
+        self.assertTrue(cancelled.wait(2))
+        self.assertNotIn('error', cancel_result)
+        self.assertEqual('CANCELLED', cancel_result['value']['state'])
+        self.assertEqual('COMPLETED', self.runtime.operations['cancel']['state'])
+        self.assertEqual('CANCELLED', self.runtime.state,
+                         'An in-flight prompt overwrote a completed cancellation')
+        self.assertEqual('CANCELLED', self.runtime.stopped_state)
+
+    def test_concurrent_start_cannot_send_a_prompt_before_session_confirmation(self):
+        entered, release = threading.Event(), threading.Event()
+        self.releases.append(release)
+        request = self.runtime.request
+        def held_initialize(method, params, **kwargs):
+            result = request(method, params, **kwargs)
+            if method == 'initialize':
+                entered.set()
+                if not release.wait(2):
+                    raise TimeoutError('Initialization was not released')
+            return result
+        self.runtime.request = held_initialize
+        started, first = self.background(lambda: self.runtime.dispatch({'action': 'start', 'objective': 'first', 'operation_id': 'first'}))
+        self.assertTrue(entered.wait(1))
+        self.assertIsNone(self.runtime.session_id)
+        second_done, second = self.background(lambda: self.runtime.dispatch({'action': 'start', 'objective': 'second', 'operation_id': 'second'}))
+        second_done.wait(.2)
+        before_confirmation = self.frames()
+        release.set()
+        self.assertTrue(started.wait(2))
+        self.assertTrue(second_done.wait(2))
+        self.assertNotIn('error', first)
+        premature = [row for row in before_confirmation if row.get('method') in {'turn/start', 'session/prompt'}]
+        self.assertEqual([], premature, 'A concurrent start sent work before session/model confirmation')
+
+    def test_stop_does_not_wait_for_a_protocol_writer_and_blocks_late_send(self):
+        entered = threading.Event()
+        request = self.runtime.request
+        def observed_request(method, params, **kwargs):
+            if method == 'initialize':
+                entered.set()
+            return request(method, params, **kwargs)
+        self.runtime.request = observed_request
+        self.runtime.write_lock.acquire()
+        try:
+            launched, result = self.background(lambda: self.runtime.launch(self.config))
+            self.assertTrue(entered.wait(1))
+            cancelled, cancel = self.background(lambda: self.runtime.dispatch({'action': 'cancel', 'operation_id': 'cancel'}))
+            self.assertTrue(cancelled.wait(1), 'Cancellation waited for the blocked protocol writer')
+            self.assertEqual('CANCELLED', cancel['value']['state'])
+            self.runtime.process.wait(timeout=2)
+        finally:
+            self.runtime.write_lock.release()
+        self.assertTrue(launched.wait(1))
+        self.assertIn('error', result)
+        self.assertEqual([], self.frames(), 'Initialization reached the child after cancellation')
+        self.assertEqual('CANCELLED', self.runtime.state)
+
+    def test_thread_start_failure_cannot_leave_the_owned_child_running(self):
+        start = threading.Thread.start
+        def reject_reader(thread):
+            if getattr(thread, '_target', None) == self.runtime.read:
+                raise RuntimeError('Injected reader startup failure')
+            return start(thread)
+        with patch.object(threading.Thread, 'start', reject_reader):
+            with self.assertRaisesRegex(RuntimeError, 'reader startup failure'):
+                self.runtime.launch(self.config)
+        self.assertIsNotNone(self.runtime.process)
+        self.assertIsNotNone(self.runtime.process.poll(), 'A failed control startup left its child running')
+
+
+    def test_rejected_model_stops_the_child_without_another_launch(self):
+        self.config['model_id'] = 'unconfirmed-model'
+        with patch('v14.agent_process.subprocess.Popen', wraps=subprocess.Popen) as popen:
+            with self.assertRaisesRegex(ValueError, 'exact selected model'):
+                self.runtime.launch(self.config)
+            self.assertIsNotNone(self.runtime.process.poll(), 'A rejected model left the child running')
+            self.assertEqual('FAILED', self.runtime.state)
+            self.assertFalse(self.runtime.initialized)
+            with self.assertRaisesRegex(ValueError, 'stopped runtime'):
+                self.runtime.launch(self.config)
+            launches = [call for call in popen.call_args_list if call.args[0] == self.config['command']]
+            self.assertEqual(1, len(launches))
+
+    def hold_initialization(self, method='initialize'):
+        entered, release = threading.Event(), threading.Event()
+        self.releases.append(release)
+        request = self.runtime.request
+        def held(selected, params, **kwargs):
+            result = request(selected, params, **kwargs)
+            if selected == method:
+                entered.set()
+                if not release.wait(3):
+                    raise TimeoutError('Initialization was not released')
+            return result
+        self.runtime.request = held
+        done, result = self.background(lambda: self.runtime.launch(self.config))
+        self.assertTrue(entered.wait(1))
+        return release, done, result
+
+    def test_follower_deadline_cannot_clean_up_the_initializing_owners_child(self):
+        release, done, result = self.hold_initialization()
+        deadline = self.runtime.deadline
+        try:
+            self.runtime.deadline = time.time() - 1
+            with self.assertRaisesRegex(TimeoutError, 'startup is not confirmed'):
+                self.runtime.launch(self.config)
+            self.assertIsNone(self.runtime.stopped_state)
+            self.assertIsNone(self.runtime.process.poll())
+            self.assertTrue(self.runtime.initializing)
+            self.assertFalse(self.runtime.initialized)
+        finally:
+            self.runtime.deadline = deadline
+            release.set()
+        self.assertTrue(done.wait(2))
+        self.assertNotIn('error', result)
+        self.assertEqual('thread-1', result['value']['session_id'])
+        self.assertTrue(self.runtime.initialized)
+        self.assertEqual(['initialize', 'initialized', 'thread/start'], [row['method'] for row in self.frames()])
+
+    def test_cancellation_releases_a_follower_without_waiting_for_the_owner_handshake(self):
+        release, owner_done, owner = self.hold_initialization()
+        waiting = threading.Event()
+        await_initialization = self.runtime.await_initialization
+        def follower():
+            waiting.set()
+            return await_initialization()
+        with patch.object(self.runtime, 'await_initialization', side_effect=follower):
+            done, result = self.background(lambda: self.runtime.launch(self.config))
+            self.assertTrue(waiting.wait(1))
+            cancelled = self.runtime.dispatch({'action': 'cancel', 'operation_id': 'cancel'})
+            self.assertEqual('CANCELLED', cancelled['state'])
+            self.assertTrue(done.wait(1), 'Cancelled startup follower did not leave')
+            self.assertIsInstance(result.get('error'), ValueError)
+            self.assertFalse(owner_done.is_set(), 'The test must still hold the owner handshake')
+            release.set()
+            self.assertTrue(owner_done.wait(2))
+        self.assertIn('error', owner)
+        self.assertFalse(self.runtime.initialized)
+        self.assertEqual('CANCELLED', self.runtime.state)
+        self.assertIsNotNone(self.runtime.process.poll())
+        self.assertEqual(['initialize'], [row['method'] for row in self.frames()])
+
+    def test_acp_follower_waits_for_model_confirmation_after_session_id_is_available(self):
+        self.script.write_text("""import json,sys
+for line in sys.stdin:
+    value=json.loads(line)
+    if 'id' not in value: continue
+    method=value.get('method')
+    if method=='initialize': result={'protocolVersion':1}
+    elif method=='session/new':
+        result={'sessionId':'acp-session','configOptions':[{'id':'model','category':'model','type':'select',
+            'currentValue':'default','options':[{'value':'model-x'}]}]}
+    elif method=='session/set_config_option': result={'configOptions':[{'id':'model','currentValue':'model-x'}]}
+    else: result={}
+    print(json.dumps({'jsonrpc':'2.0','id':value['id'],'result':result}),flush=True)
+""")
+        self.config['backend'] = 'kiro'
+        release, owner_done, owner = self.hold_initialization('session/set_config_option')
+        self.assertEqual('acp-session', self.runtime.session_id)
+        self.assertFalse(self.runtime.initialized)
+        done, result = self.background(lambda: self.runtime.launch(self.config))
+        returned_before_confirmation = done.wait(.1)
+        release.set()
+        self.assertTrue(owner_done.wait(2))
+        self.assertTrue(done.wait(2))
+        self.assertFalse(returned_before_confirmation, 'An ACP session ID was mistaken for verified initialization')
+        self.assertNotIn('error', owner)
+        self.assertNotIn('error', result)
+        self.assertEqual('acp-session', result['value']['session_id'])
+        self.assertTrue(self.runtime.initialized)
+
+    def test_startup_cleanup_preserves_original_exception_and_prior_cancel_or_timeout(self):
+        for state in ('CANCELLED', 'TIMED_OUT'):
+            with self.subTest(state=state):
+                runtime = AgentProcess(self.work, self.control, time.time() + 5)
+                self.addCleanup(self.dispose, runtime)
+                failure = RuntimeError('Original reader startup failure')
+                start, stop = threading.Thread.start, runtime.stop
+                def reject_reader(thread):
+                    if getattr(thread, '_target', None) == runtime.read:
+                        stop(state)
+                        raise failure
+                    return start(thread)
+                def failed_cleanup(requested):
+                    stop(requested)
+                    raise OSError('Cleanup reporting failed')
+                with patch.object(threading.Thread, 'start', reject_reader), \
+                        patch.object(runtime, 'stop', side_effect=failed_cleanup), \
+                        self.assertRaises(RuntimeError) as caught:
+                    runtime.launch(self.config)
+                self.assertIs(failure, caught.exception)
+                self.assertEqual(state, runtime.stopped_state)
+                self.assertEqual(state, runtime.state)
+                self.assertIsNotNone(runtime.process.poll())
+                self.assertFalse(runtime.initialized)
+                self.assertEqual('AGENT_STARTUP_CLEANUP_UNCONFIRMED', runtime.error_code)
+
+    @staticmethod
+    def dispose(runtime):
+        runtime.stop('CANCELLED')
+        if runtime.process is not None:
+            runtime.process.wait(timeout=2)
+            for stream in (runtime.process.stdin, runtime.process.stdout, runtime.process.stderr):
+                stream.close()
 
 
 if __name__ == '__main__':

@@ -9,7 +9,7 @@ import kotlinx.serialization.json.intOrNull
 
 /** Delivered intervals survive replay eviction; restored checkpoints reconstruct the same state. */
 internal class GitHubSavedReadProgress {
-    private data class Cursor(val value: String, val view: String, val offset: Int, val bytes: Int)
+    data class Cursor(val value: String, val view: String, val offset: Int, val bytes: Int)
     private data class ReadView(val intervals: MutableList<IntRange> = mutableListOf(), val continuations: MutableMap<String, JsonObject> = linkedMapOf())
     private val views = linkedMapOf<Pair<String, String>, ReadView>()
 
@@ -73,18 +73,24 @@ internal class GitHubSavedReadProgress {
         return call.copy(arguments = next)
     }
 
-    private fun recipeCursor(recipe: JsonObject, name: String): Cursor? {
-        if (recipe["tool"] != JsonPrimitive(name)) return null
-        return (recipe["arguments"] as? JsonObject)?.let(::cursor)
-    }
+    companion object {
+        fun recipeCursor(recipe: JsonObject, name: String): Cursor? {
+            if (recipe["tool"] != JsonPrimitive(name)) return null
+            return (recipe["arguments"] as? JsonObject)?.let(::cursor)
+        }
 
-    private fun cursor(arguments: JsonObject): Cursor? {
-        if (arguments.keys != setOf("view_cursor")) return null
-        val value = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
-        val parts = value.split(':')
-        if (parts.size != 3 || parts[0].isBlank()) return null
-        val offset = parts[1].toIntOrNull()?.takeIf { it >= 0 } ?: return null
-        val bytes = parts[2].toIntOrNull()?.takeIf { it in 1024..8192 } ?: return null
-        return Cursor(value, parts[0], offset, bytes)
+        fun cursor(arguments: JsonObject): Cursor? {
+            if (arguments.keys != setOf("view_cursor")) return null
+            val value = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+            return cursor(value)
+        }
+
+        fun cursor(value: String): Cursor? {
+            val parts = value.split(':')
+            if (parts.size != 3 || parts[0].isBlank()) return null
+            val offset = parts[1].toIntOrNull()?.takeIf { it >= 0 } ?: return null
+            val bytes = parts[2].toIntOrNull()?.takeIf { it in 1024..8192 } ?: return null
+            return Cursor(value, parts[0], offset, bytes)
+        }
     }
 }

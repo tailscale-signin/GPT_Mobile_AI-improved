@@ -4,6 +4,7 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 
 ## Recovery and request consistency
 
+- Keep already read result pages recognized after recovery and retain exact unread pages after a rejected cursor; repeated automatic reads retain their original finite limit.
 - Fix a verification crash when GitHub evidence contains missing or malformed timestamps. Keep unread saved pages eligible for recovery after an invalid cursor call. Retain completed saved reads that carry matching request context across replay compaction and restoration.
 - Show token shortfalls after generation and offer a valid discovery query for an unavailable URL or evidence tool. Incident reports now distinguish unsent budget and prerequisite refusals and record the single-pass Combined repair stop when observed.
 - Reject altered saved tool-result bytes or execution semantics with a versioned complete-journal integrity check, without fabricating observed receipt counts or digests.
@@ -68,6 +69,8 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Preserve that ownership after Gateway restart and when its configured journal location changes. Pending remote results remain in Android history until cleanup or completion is confirmed; ordinary and settled results remain deletable.
 - Keep live benchmark publication and cleanup tied to the verified GitHub account when credentials change. Reject a different account before recording or sending a mutation, and retain uncertain replies for exact readback.
 - Include setup, unsuccessful work, repairs and verification in effort reporting. Sum separately identified physical request usage and retain unknown totals for ambiguous retries or missing prices. Use **Overview**, **Compare**, **Tasks**, **Evidence** and **History** to inspect the result and export its evidence.
+
+- Confirm optional agent model/session startup before concurrent prompts. Failed initialization stops the owned child, and completed cancellation or timeout remains final.
 
 ## Task efficiency and provider consistency
 

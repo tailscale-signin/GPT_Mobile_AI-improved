@@ -9,7 +9,7 @@
   "working_branch": "work/acceptance-published-70afcf89",
   "intent": "Implement all 16 diagnostic review findings, preserve other workers changes, validate the current PR head, merge after required checks pass, validate the exact main commit and publish the scoped release.",
   "authorization": "User explicitly authorized implementation, draft PR push, merge after green, and publication after green on 2026-11-22.",
-  "state": "REVIEWED_DRAFT_FOLLOWUPS_PREPARING_WITH_CURSOR_AND_PROCESS_HOLDS",
+  "state": "CURSOR_AND_PROCESS_INTEGRATED_NATIVE_RECEIPT_AND_SHARED_PACKAGES_ACTIVE",
   "guardrails": [
     "Preserve concurrent commits; never force push",
     "Never substitute earlier-head checks for current-head evidence",
@@ -113,11 +113,13 @@
         "T16",
         "T17"
       ],
-      "state": "IN_PROGRESS_REJECTED_CURSOR_FOLLOWUP",
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
       "evidence": [
         "GitHubExecutionContinuation selector tests",
         "GitHubOperationTool saved-call tests (hosted Android execution pending)",
-        "Independent live/restored probes reproduce size-stripped rejected cursor suppressing its exact native-issued correction on6f887"
+        "Independent live/restored probes reproduce size-stripped rejected cursor suppressing its exact native-issued correction on6f887",
+        "Final cursor union: 106 independently rebuilt actual-source tests and 14 unchanged independent probes pass",
+        "All 11 relevant production/test/runner blobs match integrated 67655dc455; actual full AgentRunner/native-wrapper Android execution remains hosted"
       ]
     },
     {
@@ -433,10 +435,11 @@
       "title": "Saved cursor replay",
       "scenario": "Replay all18 captured malformed saved-view shapes and an authentic issued correction.",
       "pass_condition": "Invalid calls dispatch nothing; the exact same-scope correction advances the correct saved view without repeated model reconstruction.",
-      "execution_status": "REJECTED_CURSOR_FOLLOWUP_REGRESSION_PENDING",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
       "evidence": [
         "GitHubExecutionContinuation selector tests",
-        "GitHubOperationTool saved-call tests (hosted Android execution pending)"
+        "GitHubOperationTool saved-call tests (hosted Android execution pending)",
+        "GitHubSavedCursorContinuationTest and GitHubSavedCursorReceiptTest: exact issued receipts, native scope refusals, restored state, 32-attempt bound and legacy compaction controls"
       ]
     },
     {
@@ -448,7 +451,8 @@
       "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
       "evidence": [
         "GitHubExecutionContinuation selector tests",
-        "GitHubOperationTool saved-call tests (hosted Android execution pending)"
+        "GitHubOperationTool saved-call tests (hosted Android execution pending)",
+        "GitHubSavedCursorContinuationTest and GitHubSavedCursorReceiptTest: exact issued receipts, native scope refusals, restored state, 32-attempt bound and legacy compaction controls"
       ]
     },
     {
@@ -617,11 +621,11 @@
     {
       "gate": "canonical_fast",
       "state": "PASSED",
-      "tests": 623,
+      "tests": 625,
       "command": "bash scripts/validate-local.sh fast",
-      "qualification": "Combined benchmark/privacy/adapter/journal host validation; all 2023 literal regex patterns pass, 99 dynamic patterns remain outside literal checking. Full Android and device gates remain separate.",
-      "source": "03423377a1f290026afb87f3cee7c6e02cd66475",
-      "seconds": 28.317
+      "qualification": "Combined published de2f source, final cursor union and process lifecycle repair. All2024 literal regex patterns pass;99 dynamic patterns excluded. Full Android/native/physical gates remain separate.",
+      "source": "df33ad692b650b42dd199cb3f1ed605f862d604c",
+      "seconds": 26.113
     },
     {
       "gate": "required_current_pr_head",
@@ -638,10 +642,10 @@
     {
       "gate": "changed_kotlin_format",
       "state": "PASSED",
-      "files": 11,
+      "files": 7,
       "tool": "ktlint1.3.1",
-      "qualification": "Every changed Kotlin file relative to acknowledged shared head e315; preserves earlier full changed-file formatting evidence.",
-      "source": "03423377a1f290026afb87f3cee7c6e02cd66475"
+      "qualification": "All7 cursor-follow-up Kotlin files relative to acknowledged shared de2f source; incoming Store formatting receipts remain separate.",
+      "source": "df33ad692b650b42dd199cb3f1ed605f862d604c"
     }
   ],
   "publication": {
@@ -650,7 +654,7 @@
     "release": null,
     "status_receipt": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254"
   },
-  "integrated_remote_head": "e315be06e0c943c442f7f74b216930ee3f32aae4",
+  "integrated_remote_head": "e094773cb40c3fbd52a2e0218cb3478145249cee",
   "preserved_concurrent_commits": [
     "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
     "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
@@ -670,7 +674,19 @@
     "5efa5446ddd644c119cbfdf86d77c2e4cf8d157b",
     "e0915300b1f5413d105203da7abf28fc6c6b196e",
     "b541378f5257c8f21d73fd4a7c0c18e4c7bcf83d",
-    "e315be06e0c943c442f7f74b216930ee3f32aae4"
+    "e315be06e0c943c442f7f74b216930ee3f32aae4",
+    "1c25a94dbf381dd6a575d2faad92573f8c9656ce",
+    "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+    "b3ef2afea46521d10afcbaaf5925f27ad9a21072",
+    "6c5a70f733b3491366526dfd6b7641c8d027b8b1",
+    "ac5030cbf0d82fcc9cc32bc845867befe03dda60",
+    "5a9302855e1a65f8ac30174fae319c4dd2088370",
+    "f06624d7a7dcafbf838bc1cd5e1150b39fe641f7",
+    "2495c9df6a2b3ba0aaca7ac7f44073c6262a7a81",
+    "93b110310b7c479ebfa0be68d38f848bf633edd8",
+    "6892a9ffcda8f89adc4c6ef937ac04be3caf942b",
+    "de2f1ddaa75c0eea40388f93da4cd476616094f8",
+    "e094773cb40c3fbd52a2e0218cb3478145249cee"
   ],
   "qualification_limits": [
     "Do not mark all30 scenarios passed: physical audio, frame latency and device export timing remain unmeasured.",
@@ -740,7 +756,8 @@
     "independent_adversarial_probes_passed": 8,
     "compiled_input_hashes_verified": 113,
     "repository_input_blobs_verified": 83,
-    "legacy_qualification": "Ordinary older v1 proofs lack authenticated semantics and receive typed TOOL_RESULT_SEMANTICS_UNPROVEN without dispatch; migration requires protected stored-byte and typed semantic witnesses."
+    "legacy_qualification": "Ordinary older v1 proofs lack authenticated semantics and receive typed TOOL_RESULT_SEMANTICS_UNPROVEN without dispatch; migration requires protected stored-byte and typed semantic witnesses.",
+    "published_code_commit": "1c25a94dbf381dd6a575d2faad92573f8c9656ce"
   },
   "integration_followups": [
     {
@@ -819,6 +836,16 @@
       "tests": 116,
       "state": "PASS",
       "qualification": "Existing pinned Gateway environment; actual repository suites. Live optional provider accounts and hardware remain separate."
+    },
+    {
+      "source": "6c5a70f733b3491366526dfd6b7641c8d027b8b1",
+      "scope": "Scoped MCP discovery, shared producer cancellation and concurrent exact routing",
+      "state": "PASS",
+      "workspace_tests": 142,
+      "additional_catalog_router_tests": 59,
+      "independent_installed_facade_probes": 2,
+      "snapshot_files_verified": 506,
+      "qualification": "Host-wide discovery may retain an admitted adopter; only the surviving job/principal owns actual tool dispatch and durable ledger. Connection replacement stops before the next page. Controlled physical sessions, no live MCP server claim."
     }
   ],
   "adapter_followup": {
@@ -859,13 +886,26 @@
       "adapter": 55,
       "workspace": 116,
       "state": "PASS"
-    }
+    },
+    "published_code_commit": "1c25a94dbf381dd6a575d2faad92573f8c9656ce"
   },
   "cursor_followup": {
     "source": "6f887cc3f4e81deb497879c9f83cf773fc002189",
-    "state": "REPRODUCED_IMPLEMENTING",
+    "state": "INTEGRATED_INDEPENDENTLY_VERIFIED_PENDING_DRAFT_PUSH",
     "new_red_probes": 2,
-    "scope": "Rejected altered saved cursors must not consume unread offsets or suppress their exact issued correction; preserve successful-page deduplication and existing recovery budget."
+    "scope": "Rejected altered saved cursors must not consume unread offsets or suppress their exact issued correction; preserve successful-page deduplication and existing recovery budget.",
+    "shared_baseline": "5a9302855e1a65f8ac30174fae319c4dd2088370",
+    "receipt_candidate": "a8487902edd805698e7b860ffca3dce03d8fda0a",
+    "legacy_candidate": "403f80908018bf17822db7bde679e355bf86ee8f",
+    "integrated_candidate": "67655dc455fbe7fad7905932d36add93e3e2eeeb",
+    "tests": 106,
+    "independent_probes": 14,
+    "integrated_blobs_verified": 11,
+    "repair": "Consume completed pages only after exact native handle/source/offset proof. Retain accepted carried selectors and planner-only provisional reservations. Refusals release only their own reservation. Distinct retry IDs count every attempt within the unchanged 32 limit through eviction/restoration. Preserve only already-verified identical invocation/receipt/outcome witnesses across actual display compaction; unverified legacy projections and contradictions cannot establish or resurrect proof.",
+    "qualification": "Actual cursor/native/delivery/compactor sources with the documented frozen journal/platform boundary. Full AgentRunner, Android and wrapper execution remain canonical CI obligations.",
+    "canonical_tests": 625,
+    "canonical_source": "df33ad692b650b42dd199cb3f1ed605f862d604c",
+    "gateway_manifest": "Combined cursor and lifecycle upload regenerates all505 package hashes, then binds manifest provenance to the acknowledged reachable code commit before the guarded branch update."
   },
   "benchmark_integration": {
     "source": "b541378f5257c8f21d73fd4a7c0c18e4c7bcf83d",
@@ -883,5 +923,76 @@
       "skips": 0,
       "qualification": "Preparation cases overlap between JVM suites. Full Android wiring, native Windows, Docker and current-head hosted gates remain separate."
     }
+  },
+  "followup_draft_push": {
+    "state": "PUSHED_DRAFT_CURSOR_AND_PROCESS_FOLLOWUPS_ACTIVE",
+    "code_commit": "1c25a94dbf381dd6a575d2faad92573f8c9656ce",
+    "commit": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+    "tree": "2c649ce703d35b331c1f3899564a3486614b5815",
+    "base": "e315be06e0c943c442f7f74b216930ee3f32aae4",
+    "verified": "Actual branch ref and Git commit readback match the validated local tree and reachable code parent; one expected-head force=false update."
+  },
+  "process_start_followup": {
+    "state": "INTEGRATED_FOCUSED_TESTS_AND_INDEPENDENT_REVIEW_PASSED",
+    "source": "1673ab5880",
+    "working_branch": "work/agent-process-lifecycle-70afcf89",
+    "scope": "Assist the announced voice-owned startup/cancellation repair, preserving incoming equivalent changes. Prevent actual agent subprocess startup after completed cancellation during source-catalog preparation; retain bounded protocol/cleanup behavior and existing credential/dispatch boundaries.",
+    "baseline": "With source_catalog held, cancel returns CANCELLED with a completed operation; releasing preparation starts one actual agent subprocess. Git helper processes are excluded from the count.",
+    "remaining": "Final combined canonical, exact-head hosted and publication gates. Provider-side remote-session cleanup is not inferred from local subprocess termination.",
+    "incoming": "f06624d7a7dcafbf838bc1cd5e1150b39fe641f7",
+    "incoming_validation": "Independent original source-preparation race, in-flight Popen, stalled-handshake cancellation and failed-Popen probes now pass.",
+    "candidate": "1d9eb358eba8c0658ac0e411da0fe6a02bc0fe1e",
+    "integrated_candidate": "5136fff7e2",
+    "tests": 66,
+    "focused_lifecycle_tests": 9,
+    "independent_frozen_tests": 5,
+    "resolved_findings": [
+      "Actual child remains alive after failed model/session confirmation",
+      "Actual child remains alive when reader-thread startup raises",
+      "A late prompt state publication can overwrite a completed cancellation",
+      "Concurrent dispatch(start) may send a turn before session/model initialization completes"
+    ],
+    "repair": "One process owner confirms initialization and model/session identity before followers can prompt. Bounded followers cannot clean up the owner. Every post-launch initialization failure stops and reaps outside the lock while retaining the original exception and earlier cancellation/timeout. Terminal publications share the stop lock; cancellation wakes followers.",
+    "independent_review": "All five unchanged independent actual-source methods pass: all four demonstrated residuals plus protocol-writer contention. Wrong-model probe confirms FAILED and actual child reaped. Both incoming f066 tests and credential/SQL cancellation source remain unchanged.",
+    "integrated_tests": {
+      "source": "df33ad692b650b42dd199cb3f1ed605f862d604c",
+      "tests": 66,
+      "seconds": 2.135,
+      "result": "PASS"
+    }
+  },
+  "shared_context_package": {
+    "state": "ANNOUNCED_ACTIVE_EXTERNAL_WORKSTREAM",
+    "marker": "github-context-reference-2026-11-22",
+    "checkpoint": "docs/engineering/github-context-reference-2026-11-22-task.json",
+    "announced_starting_head": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+    "scope": [
+      "Maintained repository and feature references",
+      "Repository-scoped automatic document retrieval",
+      "Durable phone code index and task-ranked exact source/test context",
+      "Source-range and token-aware context packs with incremental refresh",
+      "Nonblocking long-lived retrieval and bounded language-server reuse",
+      "Visible context receipts and controlled benchmark variants"
+    ],
+    "gate": "Preserve and independently review the announced package before final PR readiness; existing privacy, authority, validation and publication gates remain unchanged.",
+    "local_owner_checkpoint": "/workspace/scratch/7a1223082cce/implementation/docs/engineering/github-context-reference-2026-11-22-task.json",
+    "requirements": "C01-C15 implementation active; C16 integration/qualification/publication pending in the declared workstream."
+  },
+  "native_receipt_followup": {
+    "state": "REPRODUCED_REPAIR_ACTIVE",
+    "source": "f06624d7a7dcafbf838bc1cd5e1150b39fe641f7",
+    "scope": "Strict native execution receipt schema and closed candidate-error reasons after successful independent calibration. Malformed or uncertain runtime evidence must stay unqualified.",
+    "evidence": "Two frozen regression methods fail in seven malformed-envelope/arbitrary-error subcases; three positive methods pass. Independently verified enclosing-deadline retention passes on f066 and fails when only its parent executor is substituted.",
+    "owner": "acceptance diagnostic review workstream",
+    "reserved_files": [
+      "gateway/benchmarks/repository_sandbox.py"
+    ],
+    "remaining": "Immutable repair, unchanged independent probes, integration and current-head qualification."
+  },
+  "shared_benchmark_followups": {
+    "state": "ANNOUNCED_EXTERNAL_WORKSTREAMS_ACTIVE",
+    "legacy_recovery": "Agent-integration workstream owns retained INTERRUPTED/PROCESS_INTERRUPTED GitHub dispatch migration in gateway/benchmarks/store.py.",
+    "backup_restore": "Benchmark workstream owns pending engineering ownership preservation or refusal through backup replacement, including preflight and canonical atomic guard.",
+    "gate": "Preserve and independently review these announced repairs before readiness; do not duplicate their reserved production edits."
   }
 }

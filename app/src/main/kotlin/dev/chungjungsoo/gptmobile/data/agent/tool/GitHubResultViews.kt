@@ -378,7 +378,15 @@ internal class GitHubResultViews(
                 executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
             )
         }
-        return AgentToolResult(callId, ToolResultContent.Json(page), entry.originalError, errorCode = entry.originalErrorCode, sharedResult = true, dispatched = false, executionReceipt = sourceIdentity(entry))
+        return AgentToolResult(
+            callId,
+            ToolResultContent.Json(page),
+            entry.originalError,
+            errorCode = entry.originalErrorCode,
+            sharedResult = true,
+            dispatched = false,
+            executionReceipt = JsonObject(sourceIdentity(entry) + savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256))
+        )
     }
 
     /** A fragment links to its original observation; opening it cannot refresh that observation. */

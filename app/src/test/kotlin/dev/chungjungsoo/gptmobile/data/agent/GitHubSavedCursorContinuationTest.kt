@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -35,7 +36,13 @@ class GitHubSavedCursorContinuationTest {
         assertEquals("github_ci", next.name)
         assertEquals(setOf("view_cursor"), next.arguments.keys)
         assertEquals(recipe().getValue("arguments"), next.arguments)
-        val restored = AgentToolExchange(listOf(next), listOf(AgentToolResult(next.callId, ToolResultContent.Json(buildJsonObject { put("schema", "github.result.v1") }), false, dispatched = false)))
+        val page = buildJsonObject {
+            put("schema", "github.operation.v1")
+            put("operation", "github_ci")
+            put("fragment_offset", 0)
+            put("recovery_call", recipe())
+        }
+        val restored = AgentToolExchange(listOf(next), listOf(AgentToolResult(next.callId, ToolResultContent.Json(page), false, dispatched = false, executionReceipt = retainedReceipt(next))))
         assertNull(GitHubReplayRecovery.nextSavedRead(listOf(exchange(), restored), listOf(tool())))
     }
 
@@ -150,11 +157,13 @@ class GitHubSavedCursorContinuationTest {
     @Test fun nextLocalPageIsConsumedOnceAndOnlyFromTheIssuingTool() {
         val first = requireNotNull(GitHubReplayRecovery.nextSavedRead(listOf(exchange()), listOf(tool())))
         val page = buildJsonObject {
-            put("schema", "github.result.v1")
+            put("schema", "github.operation.v1")
+            put("operation", "github_ci")
+            put("fragment_offset", 0)
             put("recovery_call", recipe())
             put("continuation_call", recipe(cursor = "retained:1536:1536"))
         }
-        val completed = AgentToolExchange(listOf(first), listOf(AgentToolResult(first.callId, ToolResultContent.Json(page), false, dispatched = false)))
+        val completed = AgentToolExchange(listOf(first), listOf(AgentToolResult(first.callId, ToolResultContent.Json(page), false, dispatched = false, executionReceipt = retainedReceipt(first))))
         val second = requireNotNull(GitHubReplayRecovery.nextSavedRead(listOf(exchange(), completed), listOf(tool())))
         assertEquals(recipe(cursor = "retained:1536:1536").getValue("arguments"), second.arguments)
         val foreign = exchange(
@@ -170,11 +179,13 @@ class GitHubSavedCursorContinuationTest {
     @Test fun aConsumedPageCannotBeReopenedWithADifferentRecoveryPageSize() {
         val first = requireNotNull(GitHubReplayRecovery.nextSavedRead(listOf(exchange()), listOf(tool())))
         val page = buildJsonObject {
-            put("schema", "github.result.v1")
+            put("schema", "github.operation.v1")
+            put("operation", "github_ci")
+            put("fragment_offset", 0)
             put("recovery_call", recipe(cursor = "retained:0:8192"))
             put("continuation_call", recipe(cursor = "retained:1536:1536"))
         }
-        val completed = AgentToolExchange(listOf(first), listOf(AgentToolResult(first.callId, ToolResultContent.Json(page), false, dispatched = false)))
+        val completed = AgentToolExchange(listOf(first), listOf(AgentToolResult(first.callId, ToolResultContent.Json(page), false, dispatched = false, executionReceipt = retainedReceipt(first))))
         val next = requireNotNull(GitHubReplayRecovery.nextSavedRead(listOf(exchange(), completed), listOf(tool())))
         assertEquals(recipe(cursor = "retained:1536:1536").getValue("arguments"), next.arguments)
     }
@@ -218,6 +229,15 @@ class GitHubSavedCursorContinuationTest {
             }
         )
         assertNull(GitHubReplayRecovery.nextSavedRead(listOf(altered), listOf(tool())))
+    }
+
+    // Older successful wrappers retain exact issued handles even when their
+    // display body predates the native successful-read diagnostics.
+    private fun retainedReceipt(call: ProviderEvent.ToolCall) = buildJsonObject {
+        val cursor = call.arguments.getValue("view_cursor").jsonPrimitive.content
+        put("saved_view_id", cursor.substringBefore(':'))
+        put("saved_view_cursor_ids", JsonArray(listOf(JsonPrimitive(cursor))))
+        put("saved_view_source_sha256", "a".repeat(64))
     }
 
     private fun nativeSavedRead(context: JsonObject, scope: String = "scope"): NativeSavedRead {

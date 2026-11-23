@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b95004b425ae782509ce5d0b7c10e5e318710a97a6882ebff053c9261afa2b38",
+  "source_digest": "28fbcdae3fe9fa50816f7f50919710610c78eebcd640363cbec8ab44b9719eb0",
   "file_count": 2981,
-  "indexed_line_count": 500734,
+  "indexed_line_count": 500910,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,13 +53,13 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 246,
-      "indexed_line_count": 43523
+      "indexed_line_count": 43640
     },
     {
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 104,
-      "indexed_line_count": 24285
+      "indexed_line_count": 24293
     },
     {
       "id": "mcp_plugins",
@@ -167,7 +167,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 271,
-      "indexed_line_count": 99124
+      "indexed_line_count": 99175
     },
     {
       "id": "authentication_service",
@@ -1670,8 +1670,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "182b861582bc41c7d0896e36499752dfdbb46df3b0881a9028f5ecfeeb722594",
-      "indexed_lines": 404
+      "sha256": "85ed24c7dd4aae28ce36062c6540f5a34677c28373f9443405e1554ef191c2f7",
+      "indexed_lines": 513
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRequirementToolFocus.kt",
@@ -1684,8 +1684,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedReadProgress.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "028a5ded6b0fe1fcae05392195576da58c343046f42523bba259fcc30a6e71a8",
-      "indexed_lines": 90
+      "sha256": "dd8fd2678c02398afce9c36b8537edb25cc1a0c6afccac738638384e33ab6015",
+      "indexed_lines": 96
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidence.kt",
@@ -2153,8 +2153,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "6f1d663f350545ba9c52ba338682c4af90e6e5be3b35119320ca4c509d8eee0b",
-      "indexed_lines": 320
+      "sha256": "bfa0908c25b04898dec4f63aeaaa1e38828c8bd10e080ac9c53b4b770fc97180",
+      "indexed_lines": 322
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
@@ -2811,8 +2811,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "745b7a51c8fab56544679943cffa6a78e49325e3773858ba78734ba23c44c2c8",
-      "indexed_lines": 1027
+      "sha256": "f18fe12d87f4ef12be9f0d37b0ac00e952efcff63770f8c9a86a82c9c0e54c93",
+      "indexed_lines": 1035
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSavedFragments.kt",
@@ -19863,8 +19863,8 @@
       "path": "gateway/v14/agent_process.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "0d3ff8aaa1c84ed174380007e52645311ecc12f994362e1542f34c61c22fdfe0",
-      "indexed_lines": 479
+      "sha256": "12659459959d214c1e2452d300b729a735dfce82261a2a3bab3d9bebf37d58d0",
+      "indexed_lines": 530
     },
     {
       "path": "gateway/v14/agent_runs.py",

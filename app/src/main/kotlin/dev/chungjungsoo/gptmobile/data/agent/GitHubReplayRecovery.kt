@@ -7,14 +7,20 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Keep executable continuation arguments intact when replaying a large GitHub result. */
 internal object GitHubReplayRecovery {
+    private const val OMITTED_SAVED_RESULT = "GitHub result omitted from replay: its continuation exceeds the available replay budget. Do not invent a cursor or repeat a mutation; inspect retained evidence or request a narrower immutable read."
+
     /** Keep the recovery allowance and consumed pages outside the evictable provider replay. */
     class State(calls: Collection<ProviderEvent.ToolCall> = emptyList(), results: Collection<AgentToolResult> = emptyList()) {
+        private data class VerifiedRead(val call: ProviderEvent.ToolCall, val page: String, val resultIdentity: JsonObject)
         private val automaticCalls = mutableSetOf<String>()
-        private val readPages = mutableSetOf<String>()
+        private val readPages = mutableMapOf<String, String>()
+        private val verifiedReads = mutableMapOf<String, VerifiedRead>()
+        private val selectedReads = linkedMapOf<String, Pair<String, JsonObject>>()
         private val remoteReads = mutableSetOf<String>()
         private val deliveredReads = GitHubSavedReadProgress()
 
@@ -22,17 +28,52 @@ internal object GitHubReplayRecovery {
             record(calls, results)
         }
 
-        fun record(calls: Collection<ProviderEvent.ToolCall>, results: Collection<AgentToolResult> = emptyList()) {
-            val completed = results.associateBy { it.callId }
+        fun record(calls: Collection<ProviderEvent.ToolCall>, results: Collection<AgentToolResult>? = null) {
+            val completed = results?.groupBy { it.callId }
             calls.forEach { call ->
                 if (call.callId.startsWith("saved-result-consume-") || call.callId.startsWith("remote-result-consume-")) automaticCalls += call.callId
                 remoteReads += remoteKey(call.name, call.arguments)
-                savedPageKey(call, completed[call.callId])?.let(readPages::add)
+                if (completed == null) {
+                    if (verifiedReads[call.callId]?.call?.let { it != call } == true) {
+                        verifiedReads.remove(call.callId)
+                        readPages.remove(call.callId)
+                    }
+                    // Availability checks may plan the same call repeatedly. Only
+                    // recording that exact selected invocation reserves its page.
+                    if (selectedReads[call.callId] == (call.name to call.arguments)) {
+                        GitHubSavedReadProgress.cursor(call.arguments)?.let { readPages.putIfAbsent(call.callId, pageKey(call.name, it.value)) }
+                    }
+                } else {
+                    selectedReads.remove(call.callId)
+                    val result = completed[call.callId]?.singleOrNull()
+                    val page = result?.let { savedPageKey(call, it) }
+                    val previous = verifiedReads[call.callId]?.takeIf {
+                        result != null && it.call == call && it.resultIdentity == savedResultIdentity(result) && ordinarySavedProjection(call, result)
+                    }
+                    // A refusal releases only this call's provisional reservation;
+                    // another successful read of the same page remains consumed.
+                    when {
+                        page != null -> {
+                            readPages[call.callId] = page
+                            verifiedReads[call.callId] = VerifiedRead(call, page, savedResultIdentity(requireNotNull(result)))
+                        }
+                        previous != null -> readPages[call.callId] = previous.page
+                        else -> {
+                            readPages.remove(call.callId)
+                            verifiedReads.remove(call.callId)
+                        }
+                    }
+                }
             }
         }
 
         fun exhausted() = automaticCalls.size >= 32
-        fun hasRead(name: String, cursor: String) = pageKey(name, cursor) in readPages
+        fun hasRead(name: String, cursor: String) = pageKey(name, cursor) in readPages.values
+        fun hasAttempt(callId: String) = callId in automaticCalls
+        fun select(call: ProviderEvent.ToolCall) {
+            selectedReads[call.callId] = call.name to call.arguments
+            while (selectedReads.size > 256) selectedReads.remove(selectedReads.keys.first())
+        }
         fun hasRemoteRead(name: String, args: JsonObject) = remoteKey(name, args) in remoteReads
         fun observeDelivered(exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String>, cache: ToolExchangeCompactor.RenderCache? = null) = deliveredReads.observe(exchanges, deliveredResultDigests, cache)
         fun advanceSavedRead(call: ProviderEvent.ToolCall, tool: AgentToolDefinition?) = deliveredReads.advance(call, tool)
@@ -40,27 +81,89 @@ internal object GitHubReplayRecovery {
         private fun remoteKey(name: String, args: JsonObject) = remoteReadKey(name, args)
     }
 
-    // Native automatic reads reserve their cursor before execution. Carried-over
-    // selectors require a completed native read: only the retained view can prove
-    // that their repository, action and revision context actually matched.
-    private fun savedPageKey(call: ProviderEvent.ToolCall, result: AgentToolResult? = null): String? {
-        val cursor = (call.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
-        val contextKeys = call.arguments.keys - "view_cursor"
-        if (contextKeys.isNotEmpty() &&
-            (
-                GitHubOperationTool.operationName(call.name) == null ||
-                    !GitHubResultViews.SAVED_CONTEXT_KEYS.containsAll(contextKeys) ||
-                    result == null ||
-                    result.callId != call.callId ||
-                    result.isError ||
-                    result.dispatched ||
-                    result.errorCode in ToolResultEnvelope.unknownOutcomeCodes ||
-                    listOf("requires_reconciliation", "requiresReconciliation").any { result.executionReceipt?.get(it) == JsonPrimitive(true) }
-                )
+    /** A display projection may retain an existing witness, never establish one. */
+    private fun ordinarySavedProjection(call: ProviderEvent.ToolCall, result: AgentToolResult): Boolean {
+        if (ToolExchangeCompactor.isReplayPlaceholder(result.content) || (result.content as? ToolResultContent.Text)?.text == OMITTED_SAVED_RESULT) return true
+        val body = envelope(result.content) ?: return false
+        val operation = GitHubOperationTool.operationName(call.name) ?: return false
+        val summary = body["schema"] == JsonPrimitive("github.evidence-summary.v1")
+        if (!summary && (body["schema"] != JsonPrimitive("github.operation.v1") || body["replay_compacted"] != JsonPrimitive(true))) return false
+        if (body["previously_delivered"] !in listOf(JsonPrimitive(true), JsonPrimitive(false))) return false
+        if (((!summary || "operation" in body) && body["operation"] != JsonPrimitive(operation)) || body["page_capacity_exceeded"] == JsonPrimitive(true) || body["observationTruncated"] == JsonPrimitive(true)) return false
+        val value = (call.arguments["view_cursor"] as? JsonPrimitive)?.content ?: return false
+        val cursor = GitHubSavedReadProgress.cursor(value) ?: return false
+        val receipt = result.executionReceipt ?: return false
+        if ("source_sha256" in body && body["source_sha256"] != (receipt["saved_view_source_sha256"] ?: receipt["saved_view_source_hash"])) return false
+        if ("fragment_offset" in body && (body["fragment_offset"] as? JsonPrimitive)?.intOrNull != cursor.offset) return false
+        if ("recovery_call" in body) {
+            val recovery = (body["recovery_call"] as? JsonObject)?.let { GitHubSavedReadProgress.recipeCursor(it, call.name) } ?: return false
+            if (recovery.view != cursor.view || recovery.offset != cursor.offset) return false
+        }
+        return true
+    }
+
+    private fun savedResultIdentity(result: AgentToolResult) = buildJsonObject {
+        put("call_id", result.callId)
+        put("is_error", result.isError)
+        put("dispatched", result.dispatched)
+        result.errorCode?.let { put("error_code", it) }
+        result.executionReceipt?.let { put("execution_receipt", it) }
+        put("shared_result", result.sharedResult)
+        put("tool_call_budget_exhausted", result.toolCallBudgetExhausted)
+        put("output_budget_exhausted", result.outputBudgetExhausted)
+    }
+
+    // Only the native result can prove that the exact issued handle and any
+    // carried repository, action or revision selectors were admitted together.
+    private fun savedPageKey(call: ProviderEvent.ToolCall, result: AgentToolResult): String? {
+        val operation = GitHubOperationTool.operationName(call.name) ?: return null
+        val value = (call.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        val cursor = GitHubSavedReadProgress.cursor(value) ?: return null
+        val receipt = result.executionReceipt ?: return null
+        if (!GitHubResultViews.SAVED_CONTEXT_KEYS.containsAll(call.arguments.keys - "view_cursor") ||
+            result.callId != call.callId ||
+            result.isError ||
+            result.dispatched ||
+            result.errorCode in ToolResultEnvelope.unknownOutcomeCodes ||
+            listOf("requires_reconciliation", "requiresReconciliation").any { receipt[it] == JsonPrimitive(true) }
         ) {
             return null
         }
-        return pageKey(call.name, cursor)
+        fun text(key: String) = (receipt[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        val source = text("saved_view_source_sha256") ?: text("saved_view_source_hash") ?: return null
+        if (!source.matches(Regex("[a-f0-9]{64}")) ||
+            listOf("saved_view_source_sha256", "saved_view_source_hash").any { it in receipt && text(it) != source }
+        ) {
+            return null
+        }
+        val expectedHash = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("github.saved-view.cursor.v1\u0000${cursor.value}")
+        if (receipt["saved_view_cursor_issued"] == JsonPrimitive(false) ||
+            receipt["saved_view_expired"] == JsonPrimitive(true) ||
+            ("saved_view_cursor_hash" in receipt && text("saved_view_cursor_hash") != expectedHash) ||
+            ("saved_view_owner_operation" in receipt && text("saved_view_owner_operation") != operation)
+        ) {
+            return null
+        }
+        val issued = receipt["saved_view_cursor_issued"] == JsonPrimitive(true) &&
+            text("saved_view_cursor_hash") == expectedHash &&
+            text("saved_view_owner_operation") == operation
+        val retained = text("saved_view_id") == cursor.view &&
+            JsonPrimitive(cursor.value) in (receipt["saved_view_cursor_ids"] as? JsonArray).orEmpty()
+        if (!issued && !retained) return null
+        val body = envelope(result.content)
+        val fullPage = body?.get("schema") == JsonPrimitive("github.operation.v1") && body["replay_compacted"] != JsonPrimitive(true)
+        // Older wrapper proofs include newly issued continuation handles too.
+        // Without an exact consumed-handle hash, the full page must identify the
+        // offset actually read; membership in the issuance list is insufficient.
+        if (!issued && !fullPage) return null
+        if (fullPage) {
+            if (body["operation"] != JsonPrimitive(operation) || body["page_capacity_exceeded"] == JsonPrimitive(true) || body["observationTruncated"] == JsonPrimitive(true)) return null
+            if ("source_sha256" in body && body["source_sha256"] != JsonPrimitive(source)) return null
+            val recovery = (body["recovery_call"] as? JsonObject)?.let { GitHubSavedReadProgress.recipeCursor(it, call.name) } ?: return null
+            if (recovery.view != cursor.view || recovery.offset != cursor.offset) return null
+            if (body["source_page"] != JsonPrimitive(true) && (body["fragment_offset"] as? JsonPrimitive)?.intOrNull != cursor.offset) return null
+        }
+        return pageKey(call.name, cursor.value)
     }
 
     private fun pageKey(name: String, cursor: String) = "$name:${cursor.split(':').take(2).joinToString(":")}"
@@ -154,12 +257,13 @@ internal object GitHubReplayRecovery {
 
     /** Consume only an exact local read cursor issued by native replay recovery. */
     fun nextSavedRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, maxReplayResultTokens: Int = 512, state: State? = null): ProviderEvent.ToolCall? {
+        exchanges.forEach { state?.record(it.calls, it.results) }
         val calls = exchanges.flatMap { it.calls }
         val maximumBytes = (maxReplayResultTokens.toLong().coerceAtLeast(0) * 3).coerceAtMost(8192).toInt()
         if (state?.exhausted() == true || calls.count { it.callId.startsWith("saved-result-consume-") } >= 32) return null
         val readPages = exchanges.flatMap { exchange ->
-            val results = exchange.results.associateBy { it.callId }
-            exchange.calls.mapNotNull { savedPageKey(it, results[it.callId]) }
+            val results = exchange.results.groupBy { it.callId }
+            exchange.calls.mapNotNull { call -> results[call.callId]?.singleOrNull()?.let { savedPageKey(call, it) } }
         }.toSet()
         val recoverySources = exchanges.flatMap { exchange ->
             exchange.results.mapNotNull { result ->
@@ -198,8 +302,7 @@ internal object GitHubReplayRecovery {
                 for (recipe in recipes) {
                     val name = (recipe["tool"] as? JsonPrimitive)?.content ?: continue
                     val issuedArguments = recipe["arguments"] as? JsonObject ?: continue
-                    val issuedCursor = (issuedArguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
-                    if (issuedArguments.keys != setOf("view_cursor") || ':' !in issuedCursor || name != issuer.name || GitHubOperationTool.operationName(name) == null) continue
+                    if (GitHubSavedReadProgress.cursor(issuedArguments) == null || name != issuer.name || GitHubOperationTool.operationName(name) == null) continue
                     val tool = tools.firstOrNull { it.name == name && it.modelVisible } ?: continue
                     val proposed = ProviderEvent.ToolCall("saved-result-consume-planning", name, issuedArguments)
                     val arguments = state?.advanceSavedRead(proposed, tool)?.arguments ?: issuedArguments
@@ -211,7 +314,13 @@ internal object GitHubReplayRecovery {
                         continue
                     }
                     val key = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$name:$cursor").take(24)
-                    return ProviderEvent.ToolCall("saved-result-consume-$key", name, arguments)
+                    val baseId = "saved-result-consume-$key"
+                    // Failed attempts remain within the same allowance even if
+                    // their replay rows are evicted before an exact local retry.
+                    var callId = baseId
+                    var retry = 0
+                    while (state?.hasAttempt(callId) == true || calls.any { it.callId == callId }) callId = "$baseId-${++retry}"
+                    return ProviderEvent.ToolCall(callId, name, arguments).also { state?.select(it) }
                 }
             }
         }
@@ -258,7 +367,7 @@ internal object GitHubReplayRecovery {
         }
         // Never splice the middle of a cursor or a JSON argument object.
         if (JsonObject(result).toString().length > maxChars) {
-            return ToolResultContent.Text("GitHub result omitted from replay: its continuation exceeds the available replay budget. Do not invent a cursor or repeat a mutation; inspect retained evidence or request a narrower immutable read.")
+            return ToolResultContent.Text(OMITTED_SAVED_RESULT)
         }
         if (source["source_page"] == JsonPrimitive(true)) {
             result["source_page"] = JsonPrimitive(true)

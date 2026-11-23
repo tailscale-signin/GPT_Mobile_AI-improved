@@ -178,8 +178,20 @@ internal object GitHubEvidencePolicy {
             }
             return verify(claim, receipts, now, epoch, projected, allowHistorical = historicalReview(task))
         }
+        val engineeringTask = GitHubRequestCompletion.requiresRepositoryEvidence(task)
         val renderedLines = claims.map { raw ->
             val claim = raw as? JsonObject ?: error("Malformed claim")
+            if (engineeringTask &&
+                claim.string("kind") in setOf("inferred", "recommendation", "not_measured") &&
+                GitHubAnswerPresentation.runtimeClaim(claim.string("text") + " " + claim.string("subject"))
+            ) {
+                checked += buildJsonObject {
+                    put("kind", "not_measured")
+                    put("status", "NOT_MEASURED")
+                    put("reason", "RUNTIME_STATE_REQUIRES_LEDGER")
+                }
+                return@map ""
+            }
             when (claim.string("kind")) {
                 "calculation" -> {
                     val result = JsonObject(GitHubVerifiedCalculation.evaluate(claim, ::verifySelected) + ("kind" to JsonPrimitive("calculation"))).also { checked += it }
@@ -288,7 +300,8 @@ internal object GitHubEvidencePolicy {
             checklist?.let { put("test_checklist", it) }
             completion.forEach { (key, value) -> put(key, value) }
         }
-        val questions = (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.take(4)
+        val questions = (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            .filterNot { engineeringTask && GitHubAnswerPresentation.runtimeClaim(it) }.take(4)
         val facts = lines.filter { it.startsWith("| ") }.distinct()
         val notes = lines.filter { it.isNotBlank() && !it.startsWith("| ") }.distinct()
         val text = if (GitHubTaskCoverage.matches(task)) {

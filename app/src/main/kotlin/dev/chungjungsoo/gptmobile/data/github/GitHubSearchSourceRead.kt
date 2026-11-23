@@ -1,8 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.captureProviderInvocation
 import dev.chungjungsoo.gptmobile.data.agent.providerInvocation
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -45,6 +48,57 @@ internal object GitHubSearchSourceRead {
                 }
             )
         }
+    }
+
+    /** Follow the native selector only if its content, revision, repository and active tool still agree. */
+    fun next(
+        id: String,
+        receipt: JsonObject,
+        binding: String,
+        tools: List<AgentToolDefinition>,
+        authorized: List<AgentToolDefinition>,
+        receipts: Collection<JsonObject>
+    ): ProviderEvent.ToolCall? {
+        if (receipt.text("receipt_id") != id ||
+            receipt.text("binding") != binding ||
+            receipt["trusted"] != JsonPrimitive(true) ||
+            receipt["success"] != JsonPrimitive(true) ||
+            receipt["verification_eligible"] != JsonPrimitive(true)
+        ) {
+            return null
+        }
+        val issuer = receipt.text("tool")
+        if (issuer.substringBefore("__") != "github_search") return null
+        val readName = issuer.replaceFirst("github_search", "github_read")
+        val source = receipt["result"] as? JsonObject ?: return null
+        if (receipt.text("source_result_sha256") != GitHubRepositoryStateStore.digest(source.toString())) return null
+        val data = GitHubSemanticSummary.data(source)
+        val view = receipt["view"] as? JsonObject
+        val issued = (data["source_read_call"] ?: source["source_read_call"] ?: view?.get("source_read_call")) as? JsonObject ?: return null
+        val args = issued["arguments"] as? JsonObject ?: return null
+        val original = receipt["arguments"] as? JsonObject ?: return null
+        val owner = args.text("owner")
+        val repo = args.text("repo")
+        if (!"$owner/$repo".equals(receipt.text("repository"), true) ||
+            receipt.text("source_head_sha") != args.text("commit_sha") ||
+            listOf("owner", "repo").any { it in original && !original.text(it).equals(args.text(it), true) }
+        ) {
+            return null
+        }
+        val bound = JsonObject(original + mapOf("owner" to JsonPrimitive(owner), "repo" to JsonPrimitive(repo)))
+        if (issued != recipe(readName, bound, source) || GitHubOperationArguments.errors("github_read", args).isNotEmpty()) return null
+        val reader = tools.singleOrNull { it.name == readName && it.modelVisible }
+        val definition = reader ?: authorized.singleOrNull { it.name == readName && it.modelVisible } ?: return null
+        if (ToolArgumentValidator.errors(args, definition.inputSchema).isNotEmpty()) return null
+        val fingerprint = GitHubEvidenceBook.digest("$binding|$readName|${args.toSortedMap()}").take(24)
+        val readId = "pinned-source-$fingerprint"
+        if (receipts.any { it["call_id"] == JsonPrimitive(readId) || it["tool"] == JsonPrimitive(readName) && it["arguments"] == args }) return null
+        if (reader != null) return ProviderEvent.ToolCall(readId, readName, args)
+        val discovery = tools.singleOrNull { it.name == GitHubAuthorizedCatalog.TOOL && it.modelVisible } ?: return null
+        val discoverId = "pinned-source-schema-$fingerprint"
+        val names = buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(readName)))) }
+        if (receipts.any { it["call_id"] == JsonPrimitive(discoverId) } || ToolArgumentValidator.errors(names, discovery.inputSchema).isNotEmpty()) return null
+        return ProviderEvent.ToolCall(discoverId, discovery.name, names)
     }
 
     /** Caller supplies the bound, revalidated original from the encrypted evidence book. */

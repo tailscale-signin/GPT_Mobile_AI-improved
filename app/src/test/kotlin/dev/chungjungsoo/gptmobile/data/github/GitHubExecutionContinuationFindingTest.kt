@@ -62,6 +62,10 @@ class GitHubExecutionContinuationFindingTest {
         assertTrue(GitHubExecutionContinuation.requiresExhaustiveSearch("Examine all issues and bugs"))
         assertFalse(GitHubExecutionContinuation.requiresExhaustiveSearch("Find a sample of all matching files"))
         assertFalse(GitHubExecutionContinuation.requiresExhaustiveSearch("Explain this method"))
+        val lookup = Json.parseToJsonElement("""{"mode":"paths","query":"CONTRIBUTING"}""") as JsonObject
+        assertFalse(GitHubExecutionContinuation.requiresExhaustiveSearch("Inspect the repository instructions and relevant tests. Implement its complete fix.\nAcceptance criteria\n- Fix all issues", lookup))
+        assertTrue(GitHubExecutionContinuation.requiresExhaustiveSearch("Find every CONTRIBUTING.md in this repository", lookup))
+        assertTrue(GitHubExecutionContinuation.requiresExhaustiveSearch("Read all repository instructions", lookup))
     }
 
     @Test fun capturedSourceAndAStagedPatchAreDistinctFromVerifiedFeatureCompletion() {

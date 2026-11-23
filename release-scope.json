@@ -165,7 +165,8 @@
     "Retain bounded AndroidX and coroutine crash frames, including Kotlin-generated method names, through exact approved reporting with compatible hosted readiness; preserve existing privacy, frame and payload limits without claiming an unresolved original crash is fixed.",
     "Retain completed phone-index shards after an observed local interruption and settle actual Combined work exactly once across nested budget wrappers, preserving cancellation propagation, selected source/account identity and unrelated unknown remote-operation fences.",
     "Retain one bounded safe application frame from each inspected exception cause so framework and recovery wrappers cannot evict original failure evidence; preserve leading framework frames, privacy boundaries and approved-payload limits.",
-    "Admit the fixed 4 GiB release-lint heap plus 1 GiB metaspace and 2 GiB native reserve from current RAM/cgroup observations, retain bounded lint-specific text and GC diagnostics, and preserve both release compatibility/lint tasks and the existing 45-minute outer gate."
+    "Admit the fixed 4 GiB release-lint heap plus 1 GiB metaspace and 2 GiB native reserve from current RAM/cgroup observations, retain bounded lint-specific text and GC diagnostics, and preserve both release compatibility/lint tasks and the existing 45-minute outer gate.",
+    "Continue GitHub engineering tasks from validated pinned instruction reads and independent unfinished work, preserve the original task limits and report actual runtime resources and acceptance obligations."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1261,7 +1262,9 @@
     "scripts/test_gitleaks_model_pin.py",
     "docs/repairs/gitleaks-model-pin-2026-11-23-task.json",
     "scripts/scan_secret_history.sh",
-    "docs/repairs/gateway-producer-fixture-deadline-2026-11-23-task.json"
+    "docs/repairs/gateway-producer-fixture-deadline-2026-11-23-task.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogSelectorRecoveryTest.kt",
+    "docs/repairs/github-ordinary-continuation-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.14",

@@ -544,6 +544,28 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         val latest = exchanges.lastOrNull()
+        if (latest != null &&
+            GitHubExecutionContinuation.requestsInstructionRead(task) &&
+            latest.calls.any { it.name.githubOperationFamily() == "github_search" || it.callId.startsWith("pinned-source-schema-") }
+        ) {
+            val receipts = evidence.snapshot().first
+            val issued = receipts.filterValues { row ->
+                val args = row["arguments"] as? JsonObject
+                row["tool"]?.let { (it as? JsonPrimitive)?.content?.githubOperationFamily() } == "github_search" &&
+                    args != null &&
+                    GitHubExecutionContinuation.instructionLookup(args) &&
+                    !GitHubExecutionContinuation.requiresExhaustiveSearch(task, args)
+            }
+            val candidate = if (issued.isEmpty()) null else evidence.nextPinnedSearchRead(issued.keys.toList().asReversed(), tools, authorizedTools)
+            if (candidate != null && receipts.values.none { GitHubExecutionLedger.receiptState(it) == GitHubExecutionLedger.ReceiptState.UNKNOWN_OUTCOME }) {
+                validatePublication()
+                lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                progress(if (candidate.name == GitHubAuthorizedCatalog.TOOL) "Loading the source reader for the repository instructions" else "Reading the repository instructions at the commit returned by search")
+                emit(candidate)
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
+        }
         if (openExecutionContinuation != null && replannedReader == null && latest != null && readProgress.replan(latest, completedDecisionMillis)) {
             val saved = evidence.snapshot().first
             val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, saved, evidence.diagnostic()) +
@@ -618,11 +640,29 @@ internal class GitHubVerifiedSession(
         }
         val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls())
         if (remaining != null && remaining <= GitHubChecklistBudget.cleanupReserve(receipts)) return false
-        val call = GitHubExecutionContinuation.staleRead(staleIds, tools, receipts, resumeRequestKey) ?: return false
+        val live = GitHubExecutionContinuation.staleRead(staleIds, tools, receipts, resumeRequestKey)
+        val call = live ?: if (GitHubRequestCompletion.requiresRepositoryEvidence(task) &&
+            GitHubExecutionContinuation.canResume(report, receipts, remaining, evidence.remainingTaskMillis()) &&
+            (report["stage_budget"] as? JsonObject)?.get("acquisition_allowed") == JsonPrimitive(true)
+        ) {
+            evidence.nextPinnedSearchRead(staleIds, tools, authorizedTools)
+        } else {
+            null
+        }
+        if (call == null) return false
         validatePublication()
         evidence.retainVerdict(JsonObject(report + ("response_delivered" to JsonPrimitive(false))))
-        refreshDraft = draft
-        progress("Refreshing the expired GitHub observation before publishing the saved answer")
+        // Fresh transport can reverify the saved answer. A pinned read advances
+        // the task independently; the old search observation remains stale.
+        if (live != null || call.name == GitHubAuthorizedCatalog.TOOL) refreshDraft = draft
+        progress(
+            when {
+                live != null -> "Refreshing the expired GitHub observation before publishing the saved answer"
+                call.name == GitHubAuthorizedCatalog.TOOL -> "Loading the authorized reader for the pinned source"
+                else -> "Continuing from the source path and commit returned by search"
+            }
+        )
+        lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
         emit(call)
         emit(ProviderEvent.Completed)
         return true
@@ -993,6 +1033,11 @@ internal class GitHubVerifiedSession(
             val retentionComplete = retention["evidence_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(true)
             val publicationBudget = report["stage_budget"] as? JsonObject ?: checklist?.get("stage_budget") as? JsonObject
                 ?: evidence.stageBudget(publicationReceipts, remainingToolCalls(), GitHubSelfTestFixtures.minimumCalls(authorizedTools))
+            val resources = if (checklist == null && GitHubRequestCompletion.requiresRepositoryEvidence(task) && report["completion_verified"] != JsonPrimitive(true)) {
+                GitHubAnswerPresentation.resources(publicationBudget, authorizedTools, continuationTools)
+            } else {
+                null
+            }
             val partial = !retentionComplete || originalFailure != null || publicationFailureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
             val oversizedWithoutEvidence = draft != null && status == null && coverage == null && ciObservation == null && requests == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
@@ -1002,6 +1047,7 @@ internal class GitHubVerifiedSession(
                     progressDigest?.let { put("checklist_progress_digest", it) }
                     put("verification_restarts", verificationRestart)
                     put("stage_budget", publicationBudget)
+                    resources?.let { put("execution_resources", it) }
                     put("owned_descendants_settled", descendantsSettled)
                     put("progress_state", if (stalled) "BLOCKED_UNCHANGED" else "ADVANCED_OR_FIRST_REPORT")
                     if (checklist != null) {
@@ -1161,7 +1207,7 @@ internal class GitHubVerifiedSession(
                 ""
             }
             Publication(
-                cause + reconciliationNotice + approvalNotice + text + failures + retentionNotice,
+                cause + reconciliationNotice + approvalNotice + text + resources?.let(GitHubAnswerPresentation::resourceNotice).orEmpty() + failures + retentionNotice,
                 effectivePartial,
                 effectiveReport,
                 publicationEpoch,
@@ -1255,7 +1301,8 @@ internal class GitHubVerifiedSession(
         val newEvidenceProgress = (currentProgress - correctionProgress).isNotEmpty()
         // A new explicit continuation starts with the saved receipts already in correctionProgress.
         // Permit one attempt to collect the missing proof within the original acquisition budget.
-        val requestedCorrection = resumeAcceptance &&
+        val ledgerRequestsWork = (report["execution_ledger"] as? JsonObject)?.get("recovery") == JsonPrimitive("RESUME_UNFINISHED_WORK")
+        val requestedCorrection = (resumeAcceptance || ledgerRequestsWork && !executionCorrectionAttempted) &&
             progressCorrections == 0 &&
             (report["stage_budget"] as? JsonObject)?.get("acquisition_allowed") == JsonPrimitive(true)
         val currentSessionReview = GitHubRequestCompletion.requiresLiveSessionReviewRefresh(task)
@@ -1267,7 +1314,7 @@ internal class GitHubVerifiedSession(
             continuationTools.isNotEmpty() &&
             GitHubExecutionContinuation.hasAcquisitionBudget(remainingToolCalls(), evidence.remainingTaskMillis()) &&
             (newEvidenceProgress || requestedCorrection) &&
-            staleReceiptIds.isEmpty() &&
+            (staleReceiptIds.isEmpty() || !currentSessionReview && ledgerRequestsWork) &&
             (GitHubRequestCompletion.requiresRepositoryEvidence(task) || currentSessionReview) &&
             GitHubExecutionContinuation.canResume(
                 report,

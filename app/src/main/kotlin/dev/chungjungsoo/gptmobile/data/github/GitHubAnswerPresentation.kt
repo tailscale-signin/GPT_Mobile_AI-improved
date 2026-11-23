@@ -1,7 +1,45 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
+
 /** Presentation is selected from the user's task; factual values still come only from verified receipts. */
 internal object GitHubAnswerPresentation {
+    private val runtimeSubject = Regex("""(?i)\b(?:tool[- ]?(?:call[s]?|budget|allowance|limit|access|availability)|(?:call|execution|current|remaining|request) (?:budget|allowance)|(?:tool|write|branch|commit|test[- ]execution|pull[- ]request) (?:tools?|capabilit(?:y|ies)|permissions?|access)|(?:available|remaining|more|no) (?:tool )?calls|(?:tools?|capabilities|permissions?) (?:are |were |remain )?(?:unavailable|missing|disabled|exhausted)|(?:environment|session|workspace) (?:that |which )?(?:with|without|lacks?|has|supports?|cannot)|(?:cannot|can't|unable to) (?:write|run tests|create (?:a )?branch|open (?:a )?pull request))\b""")
+    fun runtimeClaim(text: String): Boolean = runtimeSubject.containsMatchIn(text)
+
+    fun resources(budget: JsonObject, authorized: List<AgentToolDefinition>, advertised: List<AgentToolDefinition>): JsonObject = buildJsonObject {
+        for (field in listOf("remaining_calls", "effective_call_limit", "used_calls", "remaining_source", "verification_reserve")) {
+            budget[field]?.let { put(field, it) }
+        }
+        fun families(definitions: List<AgentToolDefinition>) = definitions.asSequence().filter { it.modelVisible }
+            .map { it.name.substringBefore("__") }.filter { it.startsWith("github_") || it in setOf("github", "repository_workspace", "repository_graph", GitHubAuthorizedCatalog.TOOL) }
+            .distinct().sorted().take(64).map(::JsonPrimitive).toList()
+        put("authorized_tool_families", JsonArray(families(authorized)))
+        put("advertised_tool_families", JsonArray(families(advertised)))
+    }
+
+    fun resourceNotice(resources: JsonObject): String = buildString {
+        val remaining = (resources["remaining_calls"] as? JsonPrimitive)?.intOrNull
+        val limit = (resources["effective_call_limit"] as? JsonPrimitive)?.intOrNull
+        val available = (resources["advertised_tool_families"] as? JsonArray).orEmpty()
+        val catalog = (resources["authorized_tool_families"] as? JsonArray).orEmpty()
+        if (remaining != null) {
+            append("\n\nTool calls remaining: ").append(remaining)
+            if (limit != null) append(" of ").append(limit)
+            append('.')
+        }
+        fun names(values: List<kotlinx.serialization.json.JsonElement>) = values.joinToString(", ") { (it as JsonPrimitive).content }
+        if (available.isNotEmpty()) append("\n\nTools offered in this round: ").append(names(available)).append('.')
+        val discoverable = catalog.filterNot { it in available }
+        if (discoverable.isNotEmpty()) append("\n\nOther tools in the authorized catalog: ").append(names(discoverable)).append('.')
+    }
+
     fun title(task: String): String {
         val text = task.lowercase()
         return when {

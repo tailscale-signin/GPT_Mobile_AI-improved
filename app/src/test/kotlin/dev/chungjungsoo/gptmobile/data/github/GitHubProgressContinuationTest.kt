@@ -28,6 +28,96 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubProgressContinuationTest {
+    @Test fun cachedInstructionSearchAt504RemainingDispatchesThePinnedReadBeforePublishing() = runBlocking {
+        checkCachedSearchContinuation(issuedRead = true, task = "Inspect the repository instructions and relevant tests, and implement its complete fix.\nAcceptance criteria\n- Fix all issues")
+    }
+
+    @Test fun staleSearchInVerificationDispatchesItsPinnedReadOrContinuesIndependentWork() = runBlocking {
+        for (issued in listOf(true, false)) checkCachedSearchContinuation(issued, "Fix the repository source and run relevant tests")
+    }
+
+    private suspend fun checkCachedSearchContinuation(issuedRead: Boolean, task: String) {
+        val head = "a".repeat(40)
+        val search = GitHubOperationTool.definition("github_search", "github_search__selected")
+        val reader = GitHubOperationTool.definition("github_read", "github_read__selected")
+        val tools = listOf(search, reader)
+        val searchArgs = buildJsonObject {
+            put("owner", "owner")
+            put("repo", "repo")
+            put("mode", "paths")
+            put("query", "CONTRIBUTING")
+        }
+        val firstCall = ProviderEvent.ToolCall("find-instructions", search.name, searchArgs)
+        val hit = buildJsonObject {
+            put("path", "CONTRIBUTING.md")
+            put("sha", "b".repeat(40))
+        }
+        val page = buildJsonObject {
+            put("commit_sha", head)
+            put("items", JsonArray(listOf(hit)))
+        }
+        val recipe = requireNotNull(GitHubSearchSourceRead.recipe(reader.name, searchArgs, page))
+        val data = if (issuedRead) JsonObject(page + ("source_read_call" to recipe)) else page
+        val firstResult = AgentToolResult(firstCall.callId, ToolResultContent.Json(data), false, sharedResult = true)
+        val saved = mutableMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("cached-search", "owner/repo", "main", tools.map { it.name }.toSet(), load = { saved[it] }, save = { id, row -> saved[id] = row })
+        book.retainTaskContract(task, 1, tools, 512)
+        fun session(events: List<ProviderEvent>) = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(*(events + ProviderEvent.Completed).toTypedArray())
+        }
+        var rounds = 0
+        val delegate = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = if (rounds++ == 0) {
+                flowOf(firstCall, ProviderEvent.Completed)
+            } else {
+                flowOf(ProviderEvent.TextDelta("The tool-call budget is exhausted."), ProviderEvent.Completed)
+            }
+        }
+        val receiptId = "ev_" + GitHubEvidenceBook.digest("cached-search|${firstCall.callId}").take(24)
+        val independent = ProviderEvent.ToolCall("independent", reader.name, recipe.getValue("arguments").jsonObject)
+        val verified = GitHubVerifiedSession(
+            delegate, book, task, { 32_768 }, {
+                session(listOf(ProviderEvent.TextDelta("""{"claims":[{"kind":"fact","receipt_id":"$receiptId","pointer":"/items/0/path","value":"CONTRIBUTING.md"}]}""")))
+            }, {}, {}, authorizedTools = tools, executionCallLimit = 512, remainingToolCalls = { 504 },
+            openExecutionContinuation = { prompt ->
+                assertTrue(prompt.contains(receiptId))
+                session(listOf(independent))
+            }
+        )
+        assertEquals(firstCall, verified.streamRound(tools, emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>().single())
+        val events = verified.streamRound(tools, listOf(AgentToolExchange(listOf(firstCall), listOf(firstResult)))).toList()
+        val next = events.filterIsInstance<ProviderEvent.ToolCall>().single()
+        assertEquals(reader.name, next.name)
+        assertEquals(recipe["arguments"], next.arguments)
+        assertEquals(!issuedRead, next.callId == independent.callId)
+        assertTrue(events.none { it is ProviderEvent.TextDelta || it is ProviderEvent.Failed })
+        assertEquals(1, book.snapshot().first.size)
+    }
+
+    @Test fun runtimeLimitationsAndCapabilityQuestionsAreBoundToTheExecutionLedger() {
+        val task = "Fix the repository implementation and run tests"
+        val answer = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"claims":[{"kind":"not_measured","subject":"The tool-call budget was exhausted"}],"questions":["Should the changes be performed in an environment with write, test-execution, branch and pull-request capabilities?"]}"""
+        ).jsonObject
+        val (text, report) = GitHubEvidencePolicy.render(answer, emptyMap(), 1000, 0, task)
+        assertFalse(text.contains("budget was exhausted") || text.contains("environment with write"))
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        val read = GitHubOperationTool.definition("github_read", "github_read__selected")
+        val write = GitHubOperationTool.definition("github_stage_patch", "github_stage_patch__selected")
+        val resources = GitHubAnswerPresentation.resources(
+            buildJsonObject {
+                put("remaining_calls", 504)
+                put("effective_call_limit", 512)
+            },
+            listOf(read, write),
+            listOf(read)
+        )
+        val notice = GitHubAnswerPresentation.resourceNotice(resources)
+        assertTrue(notice.contains("504 of 512"))
+        assertTrue(notice.contains("this round: github_read"))
+        assertTrue(notice.contains("authorized catalog: github_stage_patch"))
+    }
+
     @Test fun progressingExecutionPassesThreeCorrectionsAndStopsAtItsOriginalFiniteAllowance() = runBlocking {
         val originalAllowance = 8
         val sourceSha = "a".repeat(40)

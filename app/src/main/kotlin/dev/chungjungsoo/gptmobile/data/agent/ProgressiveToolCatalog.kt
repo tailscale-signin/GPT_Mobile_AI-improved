@@ -429,6 +429,15 @@ class ProgressiveToolCatalog(
     internal fun canonicalArguments(arguments: JsonObject): JsonObject {
         if (arguments.keys.any { it !in setOf("query", "names", "action", "repository_hint", "catalog_only") }) return arguments
         val normalized = arguments.filterNot { (key, value) -> key in setOf("query", "names") && value == JsonNull }.toMutableMap()
+        // Providers sometimes put the catalog-only selector in the action slot.
+        // Keep the exact requested names and never upgrade this lookup into acquisition.
+        if (normalized["action"] == JsonPrimitive("catalog_only") &&
+            normalized["names"] is JsonArray &&
+            normalized["catalog_only"] in setOf(null, JsonPrimitive(true))
+        ) {
+            normalized.remove("action")
+            normalized["catalog_only"] = JsonPrimitive(true)
+        }
         val name = (normalized["names"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         if (name != null) {
             val candidate = candidates[name]?.takeIf { it.modelVisible && name.length in 1..160 } ?: return arguments

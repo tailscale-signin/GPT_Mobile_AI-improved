@@ -21,6 +21,30 @@ import org.junit.Test
 class ToolCatalogSelectorRecoveryTest {
     private fun reader(name: String, visible: Boolean = true) = AgentToolDefinition(name, "Read document status", JsonObject(emptyMap()), modelVisible = visible)
 
+    @Test fun catalogOnlySpelledAsAnActionKeepsAllRequestedNamesAndRemainsLocal() = runTest {
+        var acquired = false
+        val definitions = listOf(reader("github_read"), reader("github_search"))
+        val catalog = ProgressiveToolCatalog(definitions, "Read repository instructions", acquireCold = { _, _ ->
+            acquired = true
+            emptyList()
+        })
+        val names = JsonArray(definitions.map { JsonPrimitive(it.name) })
+        val original = buildJsonObject {
+            put("names", names)
+            put("action", "catalog_only")
+        }
+        val canonical = buildJsonObject {
+            put("names", names)
+            put("catalog_only", true)
+        }
+        assertEquals(canonical, catalog.canonicalArguments(original))
+        val result = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 1)).bind(catalog).execute("catalog", original)
+        assertFalse(result.toString(), result.isError)
+        assertFalse(acquired)
+        val otherAction = JsonObject(original + ("action" to JsonPrimitive("write")))
+        assertEquals(otherAction, catalog.canonicalArguments(otherAction))
+    }
+
     @Test fun exactAdvertisedScalarNameKeepsTheOriginalInvocationAndOnlySelectsItsSchema() = runTest {
         val definition = reader("read_document__selected")
         val catalog = ProgressiveToolCatalog(listOf(definition), "Read document")

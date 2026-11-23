@@ -105,9 +105,18 @@ internal object GitHubAcceptanceContract {
 
     /** Add a compiled view of a legacy frozen request without changing its accepted limits or wording. */
     fun refineRetained(contract: JsonObject): JsonObject {
-        if (contract["acceptance_contract"] != null) return contract
         val request = (contract["requested_actions"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull ?: return contract
         if (contract["request_digest"] != JsonPrimitive(GitHubEvidenceBook.digest(request))) return contract
+        val compiled = contract["acceptance_contract"]
+        val accepted = contract["acceptance_criteria"] as? JsonArray
+        if (accepted != null && accepted.all { it is JsonPrimitive && it.isString }) {
+            val old = accepted.map { (it as JsonPrimitive).content }
+            val retained = old.filterNot { GitHubRequestCompletion.sectionTitle(it) != null }
+            if (retained.isNotEmpty() && retained.size < old.size && (compiled == null || compiled == json(request, old))) {
+                return JsonObject(contract + mapOf("acceptance_criteria" to JsonArray(retained.map(::JsonPrimitive)), "acceptance_contract" to json(request, retained)))
+            }
+        }
+        if (compiled != null) return contract
         return JsonObject(contract + ("acceptance_contract" to json(request, GitHubRequestCompletion.requirements(request))))
     }
 }

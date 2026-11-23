@@ -643,6 +643,22 @@ internal class GitHubEvidenceBook(
         return augmented to currentEpoch
     }
 
+    suspend fun nextPinnedSearchRead(
+        ids: Collection<String>,
+        tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>,
+        authorized: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>
+    ): ProviderEvent.ToolCall? = mutex.withLock {
+        for (id in ids) {
+            val record = records[id] ?: continue
+            if (record["success"] != JsonPrimitive(true) || (record["tool"] as? JsonPrimitive)?.content?.substringBefore("__") != "github_search") continue
+            if (record["epoch"] != JsonPrimitive(epoch) || observedHead?.let { record["source_head_sha"] != JsonPrimitive(it) } == true) continue
+            val saved = if ("review_projection" in record) load(id)?.let { restoredOriginal(id, it) } ?: continue else record
+            val next = GitHubSearchSourceRead.next(id, revalidate(saved), binding, tools, authorized, records.values) ?: continue
+            if (next.name in trustedTools || next.name == GitHubAuthorizedCatalog.TOOL) return@withLock next
+        }
+        null
+    }
+
     /** Resolve a typed search receipt before the runner's ordinary read admission and authorization. */
     suspend fun repairSourceRead(call: ProviderEvent.ToolCall): ProviderEvent.ToolCall = mutex.withLock {
         if (call.name !in trustedTools || call.name.githubOperationFamily() != "github_read") return@withLock call

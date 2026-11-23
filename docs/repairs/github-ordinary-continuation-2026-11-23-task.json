@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "task": "github-ordinary-continuation-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "35b1556e07c83ed219dc741a070d4a14f8f73e8f",
+  "pullRequest": 2367,
+  "intent": "Continue a partially verified engineering task from a bound source-read recipe or independent authorized work within its original budget. Ground runtime reports and scope instruction search and acceptance extraction.",
+  "acceptance": [
+    "Use the matching pinned read or discover its authorized schema when a stale search cannot request fresh transport.",
+    "Continue independent work while stale observations stay unverified. Honor approvals, reconciliation, authority, time and call limits.",
+    "Bind automatic search paging to the current search purpose and retain explicitly exhaustive requests.",
+    "Exclude section headings while retaining actual obligations.",
+    "Use measured call allowance and catalog evidence for runtime statements and questions.",
+    "Exercise the captured case and controls, qualify the shared PR and main and verify both published packages."
+  ],
+  "integratedThrough": "a96ad30b9645090c50a1774dde6b1d721908fb0f",
+  "qualification": {
+    "host": "669 canonical host tests passed. Android execution is separately qualified by the PR and release workflows.",
+    "release": "Requires successful checks on the final PR and main revision and published asset readback."
+  }
+}

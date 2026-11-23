@@ -249,7 +249,7 @@ internal object GitHubReplayRecovery {
     }
 
     /** Advance only native-issued reads; exhaustive search is an explicit task policy. */
-    fun nextRemoteRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, state: State? = null, allowSearchContinuation: Boolean = false): ProviderEvent.ToolCall? {
+    fun nextRemoteRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, state: State? = null, allowSearchContinuation: Boolean = false, searchTask: String? = null): ProviderEvent.ToolCall? {
         if (state?.exhausted() == true) return null
         val calls = exchanges.flatMap { it.calls }
         if (calls.count { it.callId.startsWith("remote-result-consume-") } >= 32) return null
@@ -268,6 +268,7 @@ internal object GitHubReplayRecovery {
                 val issuer = exchange.calls.firstOrNull { it.callId == result.callId } ?: continue
                 val original = canonical(issuer.name, issuer.arguments)
                 if (allowSearchContinuation && GitHubOperationTool.operationName(issuer.name) == "github_search") {
+                    if (searchTask != null && !dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.requiresExhaustiveSearch(searchTask, original)) continue
                     val recipe = dev.chungjungsoo.gptmobile.data.github.GitHubSearchFrontier.continuation(issuer.name, original, result.executionReceipt) ?: continue
                     val args = recipe["arguments"] as? JsonObject ?: continue
                     val tool = tools.firstOrNull { it.name == issuer.name && it.modelVisible } ?: continue

@@ -335,7 +335,7 @@ class AgentRunner(
                     observedToolCalls < observedLimit &&
                     roundDefinitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" || exhaustiveSearch && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_search" }
                 ) {
-                    GitHubReplayRecovery.nextRemoteRead(exchanges, roundDefinitions, savedResultRecovery, allowSearchContinuation = exhaustiveSearch)
+                    GitHubReplayRecovery.nextRemoteRead(exchanges, roundDefinitions, savedResultRecovery, allowSearchContinuation = exhaustiveSearch, searchTask = limits.githubTaskRequest)
                 } else {
                     null
                 }

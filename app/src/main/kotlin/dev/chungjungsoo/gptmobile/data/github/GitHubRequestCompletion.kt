@@ -68,12 +68,12 @@ internal object GitHubRequestCompletion {
             return GitHubStatusRequest.requirements(task)
         }
         val lines = GitHubTaskContinuity.request(task).lineSequence().map(String::trim).toList()
-        val header = lines.indexOfFirst { it.equals("Acceptance criteria:", ignoreCase = true) }
+        val header = lines.indexOfFirst { sectionTitle(it) == "acceptance criteria" }
         val criteria = if (header < 0 || !GitHubTestChecklist.integration(task)) {
             emptyList()
         } else {
             val body = lines.drop(header + 1)
-            val detailsStart = body.indexOfFirst { it.equals("Request details:", ignoreCase = true) || it.startsWith("[github-workflow-preset:") }
+            val detailsStart = body.indexOfFirst { sectionTitle(it) == "request details" || it.startsWith("[github-workflow-preset:") }
             val criteriaLines = if (detailsStart < 0) body else body.take(detailsStart)
             val additions = if (detailsStart < 0) emptyList() else body.drop(detailsStart + 1)
             val bullets = criteriaLines.filter { it.startsWith("- ") }
@@ -81,14 +81,14 @@ internal object GitHubRequestCompletion {
                 emptyList()
             } else {
                 val details = additions.filter {
-                    it.isNotBlank() && !it.equals("Request details:", ignoreCase = true) && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:")
+                    it.isNotBlank() && sectionTitle(it) == null && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:")
                 }
                 (bullets + details).map { it.removePrefix("- ").trim() }.filter(String::isNotBlank).distinct()
             }
         }
         val requestedLines = criteria.ifEmpty {
             lines
-                .filter { it.isNotBlank() && it !in setOf("Acceptance criteria:", "Request details:") && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:") }
+                .filter { it.isNotBlank() && sectionTitle(it) == null && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:") }
                 .map { it.removePrefix("- ") }.toList().ifEmpty { listOf("Requested answer") }
         }
         val requested = if (informational(task) || GitHubTestChecklist.integration(task)) requestedLines else requestedLines.flatMap(GitHubAcceptanceContract::split).distinct()
@@ -103,6 +103,9 @@ internal object GitHubRequestCompletion {
             requested + GitHubIssueRemediation.requirements(task, issueWork)
         }
     }
+    private val sectionHeading = Regex("""(?i)^(?:#{1,6}\s+)?(?:\*\*|__)?(acceptance criteria|request details):?(?:\*\*|__)?:?$""")
+    internal fun sectionTitle(line: String): String? = sectionHeading.matchEntire(line)?.groupValues?.get(1)?.lowercase(java.util.Locale.ROOT)
+
     fun id(requirement: String): String = GitHubEvidenceBook.digest(requirement).take(24)
 
     private fun latestAttempts(receipts: Map<String, JsonObject>): Map<String, Int> = buildMap {

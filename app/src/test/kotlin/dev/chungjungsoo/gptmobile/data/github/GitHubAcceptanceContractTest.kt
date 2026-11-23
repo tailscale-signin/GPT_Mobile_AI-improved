@@ -13,6 +13,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubAcceptanceContractTest {
+    @Test fun headingsWithOrWithoutMarkdownNeverBecomeObligationsIncludingAfterRestore() {
+        for (heading in listOf("Acceptance criteria", "Acceptance criteria:", "## Acceptance Criteria", "**Acceptance criteria:**")) {
+            val prompt = "Inspect the repository instructions\n$heading\n- Fix all issues"
+            val expected = listOf("Inspect the repository instructions", "Fix all issues")
+            assertEquals(expected, GitHubRequestCompletion.requirements(prompt))
+            val old = listOf(expected.first(), heading, expected.last())
+            val contract = buildJsonObject {
+                put("requested_actions", prompt)
+                put("request_digest", GitHubEvidenceBook.digest(prompt))
+                put("acceptance_criteria", JsonArray(old.map(::JsonPrimitive)))
+                put("acceptance_contract", GitHubAcceptanceContract.json(prompt, old))
+                put("deadline_at_ms", 12345)
+            }
+            val restored = GitHubAcceptanceContract.refineRetained(contract)
+            assertEquals(JsonArray(expected.map(::JsonPrimitive)), restored["acceptance_criteria"])
+            assertEquals(contract["deadline_at_ms"], restored["deadline_at_ms"])
+            assertEquals(GitHubAcceptanceContract.json(prompt, expected), restored["acceptance_contract"])
+            assertEquals(restored, GitHubAcceptanceContract.refineRetained(restored))
+        }
+        assertEquals(listOf("Document the acceptance criteria"), GitHubRequestCompletion.requirements("Document the acceptance criteria"))
+    }
     private val request = "Inspect the repository instructions and relevant tests, identify the highest-confidence actionable correctness issue, and implement its complete fix on a new feature branch. Add a behavior regression, run relevant validation, review the diff and prepare a draft pull request. Report the exact changes and any validation that could not run."
 
     @Test fun capturedCompoundRequestHasStableAtomicCriteriaAndExactSourceSpans() {

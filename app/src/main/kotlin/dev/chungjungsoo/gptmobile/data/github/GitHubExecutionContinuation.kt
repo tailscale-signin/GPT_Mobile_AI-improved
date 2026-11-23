@@ -20,6 +20,7 @@ internal object GitHubExecutionContinuation {
             put("retained_receipt_count", receipts.size)
             put("included_receipt_count", minOf(receipts.size, 64))
             put("implementation_progress", implementationProgress(receipts))
+            verdict?.get("execution_resources")?.let { put("execution_resources", it) }
             put("search_frontiers", searchFrontiers(receipts))
             put(
                 "receipts",
@@ -89,7 +90,7 @@ internal object GitHubExecutionContinuation {
             put("task_completion_verified", verdict?.get("completion_verified") ?: JsonPrimitive(false))
             val stale = staleReceiptIds(verdict)
             put("stale_observation_receipt_ids", JsonArray(stale.map(::JsonPrimitive)))
-            put("targeted_refresh_only", stale.isNotEmpty())
+            put("targeted_refresh_only", readOnlyRefresh && stale.isNotEmpty())
         }
         return "Accepted task and constraints:\n$task\n\n" +
             "Newest user instruction:\n$current\n\n" +
@@ -99,19 +100,42 @@ internal object GitHubExecutionContinuation {
             (if (readOnlyRefresh) "Perform only the minimal authorized read needed to refresh a listed stale PR/CI observation. " else "Perform the next unfinished authorized operation using the available tools. ") +
             "Use exact returned cursors and identifiers. Reconcile uncertain outcomes before any write; do not repeat completed actions. " +
             (if (readOnlyRefresh || !implementationRequested(continuationRequest(task, current))) "" else "For this requested implementation, retained target source should lead to the next authorized branch or patch operation once its prerequisites are met. Name a specific missing prerequisite before restarting discovery. Source capture, staged patches, committed mutations and verified acceptance are separate milestones. ") +
-            "When stale_observation_receipt_ids are present, refresh only those observations at their bound repository and head; preserve every verified claim and completed read. " +
+            "Keep stale observations unverified. Refresh them only at their bound repository and head. An unavailable refresh does not block independent authorized work on another requirement. Preserve every verified claim and completed read. " +
             "Resume only unverified criteria; a passed criterion keeps its existing proof. Fixture teardown is an exact owned-resource absence check, never a request to recreate or delete it again. " +
             "This bounded ledger is a projection, not the full receipt store. Read retained evidence when a required selector or older result is absent; never invent it. " +
-            "Do not ask again for already accepted work or claim unobserved success. If execution cannot advance, identify the concrete blocker and remaining requirements. " +
+            "Use the measured remaining calls and catalog in execution_resources. A tool missing from this round may be discoverable. Do not ask again for already accepted work or claim unobserved success. If execution cannot advance, identify the concrete blocker and remaining requirements. " +
             if (corrective) "This is one bounded corrective attempt for the current progress checkpoint; do not produce another proposed sequence of calls." else "The newest instruction governs the remaining work within the accepted scope and budget."
     }
 
-    fun requiresExhaustiveSearch(task: String): Boolean {
-        val request = GitHubTaskContinuity.request(task)
-        if (Regex("(?i)\\b(?:sample|spot.check|not exhaustive|non.exhaustive|quick look)\\b").containsMatchIn(request)) return false
-        return Regex("(?i)\\b(?:all|every|entire|whole|complete|exhaustive|comprehensive)\\b").containsMatchIn(request) &&
-            Regex("(?i)\\b(?:search|find|review|examine|audit|check|issues|bugs|files|repository|codebase)\\b").containsMatchIn(request)
+    private val coverageQualifier = Regex("""(?i)\b(?:all|every|entire|whole|exhaustive(?:ly)?|comprehensive(?:ly)?|complete)\b""")
+    private val coverageSubject = Regex("""(?i)\b(?:search|scan|find|review|examine|audit|check|issues?|bugs?|occurrences?|matches|paths?|files?|instructions?|repository|codebase)\b""")
+    private val sampleScope = Regex("""(?i)\b(?:sample|spot.check|not exhaustive|non.exhaustive|quick look)\b""")
+    private val instructionName = Regex("""(?i)(?:^|/)(?:agents|contributing|readme|copilot-instructions|claude|gemini)(?:\.md)?$""")
+    private val instructionScope = Regex("""(?i)\b(?:instructions?|guidelines?|contributing|agents\.md)\b""")
+
+    fun instructionLookup(arguments: JsonObject): Boolean =
+        arguments["mode"] == JsonPrimitive("paths") &&
+            instructionName.containsMatchIn((arguments["query"] as? JsonPrimitive)?.content.orEmpty().trim('*', '/'))
+
+    fun requiresExhaustiveSearch(task: String, arguments: JsonObject? = null): Boolean {
+        val query = (arguments?.get("query") as? JsonPrimitive)?.content.orEmpty().trim('*', '/')
+        return GitHubTaskContinuity.request(task).split(Regex("""[\n;!?]|\.(?:\s|$)|,\s*(?:and\s+)?(?:then\s+)?(?=[a-z])""")).any { clause ->
+            if (sampleScope.containsMatchIn(clause) || !coverageQualifier.containsMatchIn(clause) || !coverageSubject.containsMatchIn(clause)) return@any false
+            if (arguments == null) return@any true
+            // A request to fix all issues does not ask for every path matching
+            // an incidental instruction lookup. Bind automatic paging to its query.
+            val namedQuery = query.isNotBlank() && clause.contains(query, ignoreCase = true)
+            if (instructionLookup(arguments)) {
+                val target = "(?:instruction(?:s| files)?|guidelines?|(?:repository |project )?guides?|" + Regex.escape(query) + ")"
+                return@any Regex("""(?i)\b(?:all|every|each)\s+(?:(?:matching|nested|repository|project|applicable)\s+)*$target\b""").containsMatchIn(clause) ||
+                    namedQuery &&
+                    Regex("""(?i)\b(?:whole|entire)\s+(?:repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)
+            }
+            namedQuery || query.isBlank() && Regex("""(?i)\b(?:files?|paths?|tree|repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)
+        }
     }
+
+    fun requestsInstructionRead(task: String): Boolean = instructionScope.containsMatchIn(GitHubTaskContinuity.request(task))
 
     fun replanInstruction(task: String, current: String): String {
         val request = continuationRequest(task, current)
@@ -276,9 +300,15 @@ internal object GitHubExecutionContinuation {
         if (!resumable || ledger["user_input_required"] == JsonPrimitive(true)) return false
         if (report["task_outcome"] in setOf(JsonPrimitive("BLOCKED"), JsonPrimitive("CONFIGURATION_INVALIDATED"))) return false
         val failureCode = (report["failure_code"] as? JsonPrimitive)?.content.orEmpty()
-        val retryableVerificationCodes = setOf("", "GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_MISSING", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION")
+        val retryableVerificationCodes = setOf("", "GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_MISSING", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION")
         if (failureCode !in retryableVerificationCodes) return false
-        if (receipts.values.lastOrNull()?.let { GitHubExecutionLedger.receiptState(it) != GitHubExecutionLedger.ReceiptState.COMPLETED } != false) return false
+        val latest = receipts.values.lastOrNull() ?: return false
+        val lastState = GitHubExecutionLedger.receiptState(latest)
+        val rejectedDiscovery = lastState == GitHubExecutionLedger.ReceiptState.PRECHECK_REJECTED &&
+            latest["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL) &&
+            latest["dispatched"] == JsonPrimitive(false) &&
+            latest["error_code"] == JsonPrimitive("INVALID_ARGUMENTS")
+        if (lastState != GitHubExecutionLedger.ReceiptState.COMPLETED && !rejectedDiscovery) return false
         return (ledger["remaining_criteria"] as? JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
     }
 

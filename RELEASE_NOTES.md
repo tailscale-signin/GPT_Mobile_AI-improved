@@ -9,6 +9,7 @@ Version code: **148**. Coordinated publication with Gateway **18.1.2**; retains 
 
 ## Repository references and automatic task context
 
+- GitHub chat can open the instructions found on the first matching search page. A stale search can lead to a read at the recorded commit or another authorized task step. Partial reports show the measured call budget and distinguish the tools offered in that round from other authorized tools.
 - Maintain a concise repository guide, generated build facts and a reviewed feature/source/test map with Git blob identities. Reject stale references and unsafe paths during validation.
 - Prepare repository-scoped document sections, ranked source ranges, related code and test candidates automatically in GitHub mode. Keep personal documents separate and preserve selected account, source, model and permissions.
 - Retain the encrypted compact phone index independently of disposable source bytes. Reuse unchanged blobs and cached local similarity work while refreshing selections after source changes.

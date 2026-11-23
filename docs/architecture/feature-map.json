@@ -400,7 +400,8 @@
         "Settle interrupted phone-index work only after exact local ownership and unwind evidence; preserve unrelated unknown remote operations.",
         "Argument canonicalization is separate from semantic repair and its observed execution outcome.",
         "A native saved-page read and proven provider delivery are separate facts; continuation retains original context, output and attempt limits.",
-        "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it."
+        "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it.",
+        "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery."
       ]
     },
     {
@@ -641,9 +642,9 @@
       "sha256": "cd05544c6d072e0da405d88519f55c82ed157936a01bcf4ec83bd638c6477d08"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt": {
-      "blob_sha": "fde3277b0e7adc9d28311196135412bece2cb72f",
-      "bytes": 46914,
-      "sha256": "285253396d673c3e1b92dc503ef25b56dcc03ab1485d4e7eed1bcaa095cda8b1"
+      "blob_sha": "eefe1686d45ab73da3d2b71b7cba1b96f7fc857d",
+      "bytes": 47642,
+      "sha256": "76c519a624a92cec5ef5931120da08258cd2fc7c03c484495f234414434919c9"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatch.kt": {
       "blob_sha": "2289f7afa7bc31c3f5977f44bbc40ecac547618d",
@@ -1256,14 +1257,14 @@
       "sha256": "fac70ab00894f0c81ef5a9858f1cf1a7c00135ff5548c0f3eb40edb039bc1a6c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageAdmissionRunnerTest.kt": {
-      "blob_sha": "de2340c96839a54c28c038ebca737a88e4280d79",
-      "bytes": 9256,
-      "sha256": "bc88c3f99aac584bc2c7626c5722e23b7752313459e1815a49fbcea019c87aca"
+      "blob_sha": "e69be648cade2cbe042c8f41aa7dfe9d6351beb3",
+      "bytes": 22997,
+      "sha256": "857dd9dd98f0b78a9feeae219c53cc6f7378d34ae41d93abb30d70bdbf3dd13b"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageCapacityTest.kt": {
-      "blob_sha": "7402cd54be9a063d38ef4024eef6ce972996381c",
-      "bytes": 20816,
-      "sha256": "1c953d8598afacbe93b764d10c0cec67cd5b684ec33a93da5a052e9ba27893c1"
+      "blob_sha": "4338c2dc0b64aef1cd363a349b9f536ff0cc9cb7",
+      "bytes": 25362,
+      "sha256": "bab27305547d69ea751d925e8c714406f05d2840ea86dce9ffbb422e5c0a423c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt": {
       "blob_sha": "b994cdb7f6485b04c374f1d16648d913dd8ff703",

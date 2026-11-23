@@ -253,7 +253,8 @@
     "Initialize the native speech smoke staging paths on the assigned runner before downloading the minified APKs and provisioning each speech model.",
     "Correct runner-context availability in native speech CI and require ordinary Android acceptance to execute every voice entry method without skips.",
     "Reject typed TLS and cancellation before retry callbacks can clear dispatch uncertainty, preserving ordinary DNS recovery ordering and every existing retry/ownership fence.",
-    "Revalidate captured privacy and inherited request authority after the private stream rendezvous, suppress pending events after revocation and emit one content-free partial failure without replay while preserving producer cleanup and the collecting conversation context."
+    "Revalidate captured privacy and inherited request authority after the private stream rendezvous, suppress pending events after revocation and emit one content-free partial failure without replay while preserving producer cleanup and the collecting conversation context.",
+    "Preserve complete native saved pages requested by ordinary provider calls, account for app-added instructions within the unchanged replay ceiling and reserve, and retain exact delivery proof and matching-context admission."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -556,6 +557,7 @@
     "docs/repairs/github-explicit-audit-restrictions-2026-11-23-task.json",
     "docs/repairs/github-negated-audit-scope-2026-11-23-task.json",
     "docs/repairs/github-ordinary-continuation-2026-11-23-task.json",
+    "docs/repairs/github-provider-page-allowance-2026-11-23-task.json",
     "docs/repairs/github-runtime-claim-scope-2026-11-23-task.json",
     "docs/repairs/github-search-coverage-followup-2026-11-23-task.json",
     "docs/repairs/gitleaks-model-pin-2026-11-23-task.json",

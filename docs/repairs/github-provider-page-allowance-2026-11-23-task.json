@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "task": "github-provider-page-allowance-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "e056d1378836ffc4eed08e879a71aac44b3fc10b",
+  "startingTree": "22f420df20c52b0edeb5eba7b15230856b88a438",
+  "workingBranch": "task/github-provider-page-allowance-e056",
+  "targetBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "pullRequest": 2367,
+  "status": "IMPLEMENTED_SOURCE_REVIEW_CLEAR_PENDING_FINAL_PROJECT_CI",
+  "intent": "Preserve complete native-admitted saved pages independently of provider call-ID spelling, include final app-added instructions in bounded replay accounting, and retain matching-context cursor eligibility without weakening admission or exact delivery proof.",
+  "finding": {
+    "evidence": "Source review only; no executed counterexample is claimed.",
+    "mismatch": "pendingSavedPageDeliveries covers every native-admitted page, while savedPageResultAllowances excludes ordinary provider call IDs. When retained raw history exceeds the total ceiling, an otherwise admissible new page can be projected and rejected even after already-delivered history could be compacted.",
+    "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
+    "runner": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt"
+  },
+  "preserve": [
+    "Native savedPageKey admission, issued cursor, body digest and source/scope identity",
+    "Consumed-body status and exact full-body delivery barrier",
+    "Total replay ceiling, existing 512-token reserve and normal result allowance",
+    "Failed, refused, unissued and mismatched page rejection",
+    "Existing automatic recovery, authorization and no-mutation boundaries",
+    "All original test methods and assertions"
+  ],
+  "validation": {
+    "regression": [
+      "ordinaryProviderPageKeepsItsFullBodyAfterEarlierDeliveredHistoryExceedsReplay",
+      "nativePageAllowanceIncludesTheRunnersFinalWrapUpInstruction",
+      "ordinaryCallIdsNeedTheSameNativeProofAndUnconsumedBudgetAsAutomaticPages"
+    ],
+    "rejectionControls": "Prepared ordinaryCallIdsNeedTheSameNativeProofAndUnconsumedBudgetAsAutomaticPages: consumed, reserve-limited, failed, dispatched, unrelated-call, missing/invalid/expired cursor, invalid source/operation, reconciliation-required, capacity-refused and duplicate-result cases retain rejection. All original test methods and assertions remain.",
+    "baselineExpectation": "Source-derived only: the unchanged parent excludes the ordinary call ID from the extra allowance; under the asserted compaction setup its full-body delivery barrier stops before provider round three. No baseline or corrected execution has been performed for this supplemental correction.",
+    "sourceReview": "CLEAR root review of exact source, native proof/State parity, UTF-8 compactor accounting, actual runner/finishBatch and ToolExecutionBudget setup; source only.",
+    "local": "Pinned formatting, generated references, canonical host checks and exact release scope on a frozen candidate.",
+    "projectRuntime": "Existing normal project CI remains required. No compilation, test, formatter or bespoke local harness execution was performed during source preparation.",
+    "runtime": "NOT_RUN_LOCALLY. Neither an executed baseline failure nor a corrected pass is claimed; actual project CI must distinguish asserted setup from delivery outcome.",
+    "preservation": "All previous test methods/assertions retained. Only the shared fixture helper gains an optional context parameter with its previous empty-context default.",
+    "nearCapacitySetup": "Real issued1536-byte page and actual ToolExecutionBudget(maxToolCalls3); require receipts1 and2, actual runner wrap-up, final body exceeding cursor capacity but fitting total minus512, and exact provider delivery.",
+    "contextControls": "Actual native matching owner/repo/action read admits; actual conflicting owner yields SAVED_VIEW_CONTEXT_MISMATCH and no allowance.",
+    "formattingPreparation": {
+      "tool": "ktlint1.3.1",
+      "change": "Pinned formatter expands two constructor arguments onto separate lines in new runner fixture; no behavior or assertions changed.",
+      "formattedTestSHA256": "857dd9dd98f0b78a9feeae219c53cc6f7378d34ae41d93abb30d70bdbf3dd13b",
+      "finalComposedQualification": "PENDING; preserve initial failed formatter receipt"
+    }
+  },
+  "concurrency": "Root owns refs and guarded non-forced publication. Reconcile every concurrent append before qualification and push; do not alter another owner's source reservation.",
+  "publication": "Retain draft until all source reservations and final-head checks close; finish both predecessor releases/readbacks, then normal merge, exact-main gates and verified Android/Gateway successor publication.",
+  "integrationWorkingBranch": "task/privacy-receiving-authority-0aef",
+  "integratedParent": "ebace5178d0d349949165f80fb73ec20402bdfd8",
+  "latestPublicParent": "8ba187495f467aa17d992fa6a6d753eb89e7db12",
+  "integrationRecordedBeforeSourceCopyAt": "2026-11-23T20:43:08.855034+00:00",
+  "correction": {
+    "eligibility": "Existing savedPageKey plus unconsumed status and complete unprojected github.operation.v1 envelope; no call-ID prefix authority.",
+    "cursor": "Parse the already native-validated view_cursor string, preserving permitted matching context selectors.",
+    "allowance": "ceil(max(native cursor byte allowance, final serialized UTF-8 body bytes)/3), only when above the normal per-result bound and within maxReplayTokens minus512.",
+    "preserved": "Native scope/source/cursor proof; failed/refused/unknown/mismatched/compacted/truncated-body rejection; consumed-body handling; global hard ceiling; exact-body delivery barrier; authorization and automatic recovery limits."
+  },
+  "integratedPublicParent": "8ba187495f467aa17d992fa6a6d753eb89e7db12",
+  "integration": "Preserve the prepared receiving-authority correction and all public source through8ba; retain all ten exact-main workflow requirements,27 limitations and successor15/149+18.1.3. Add only reviewed native-page allowance production/tests and refreshed generated references, notes and exact scope. New Kotlin tests remain unexecuted locally and require normal final-source CI."
+}

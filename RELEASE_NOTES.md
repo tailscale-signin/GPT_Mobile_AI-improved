@@ -92,6 +92,7 @@ Production accelerator admission establishes numerical consistency on the fixed 
 
 ## Recovery and request consistency
 
+- Preserve complete native saved pages requested by ordinary provider calls, account for app-added instructions within the unchanged replay ceiling and reserve, and retain exact delivery proof and matching-context admission.
 - Recover multi-tool catalog lookups that use the catalog action alias, preserving all requested tool names and local discovery boundaries.
 - Recover bounded local catalog searches and suggest a new discovery call for a scalar tool name, preserving its literal name and query, explicit catalog choice and exact advertised-tool admission checks.
 - Report a verification-reserve stop with its precise reason and remaining call allowance; keep unmet criteria visible and distinguish it from a generic chat or tool failure.

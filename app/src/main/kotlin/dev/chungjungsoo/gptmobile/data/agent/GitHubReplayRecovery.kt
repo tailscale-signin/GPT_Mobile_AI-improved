@@ -479,7 +479,7 @@ internal object GitHubReplayRecovery {
         return null
     }
 
-    /** Larger local pages get their admitted space only until their exact body was delivered. */
+    /** Native-admitted local pages get space until exact delivery, independently of the call ID's origin. */
     fun savedPageResultAllowances(exchanges: List<AgentToolExchange>, consumedCallIds: Set<String>, maxReplayTokens: Int, defaultResultTokens: Int): Map<String, Int> {
         val available = (maxReplayTokens.toLong() - 512).coerceAtLeast(0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         if (available <= defaultResultTokens) return emptyMap()
@@ -487,11 +487,21 @@ internal object GitHubReplayRecovery {
             exchanges.forEach { exchange ->
                 val results = exchange.results.groupBy { it.callId }
                 exchange.calls.forEach callLoop@{ call ->
-                    if (!call.callId.startsWith("saved-result-consume-") || call.callId in consumedCallIds) return@callLoop
+                    if (call.callId in consumedCallIds) return@callLoop
                     val result = results[call.callId]?.singleOrNull() ?: return@callLoop
                     if (savedPageKey(call, result) == null) return@callLoop
-                    val cursor = GitHubSavedReadProgress.cursor(call.arguments) ?: return@callLoop
-                    val required = (cursor.bytes + 2) / 3
+                    val body = envelope(result.content) ?: return@callLoop
+                    if (body["schema"] != JsonPrimitive("github.operation.v1") ||
+                        body["replay_compacted"] == JsonPrimitive(true) ||
+                        body["observationTruncated"] == JsonPrimitive(true)
+                    ) {
+                        return@callLoop
+                    }
+                    val cursor = GitHubSavedReadProgress.cursor((call.arguments["view_cursor"] as? JsonPrimitive)?.content.orEmpty()) ?: return@callLoop
+                    // Native cursor capacity precedes app-added instructions. The
+                    // final unprojected body must fit too; allowance is not a delivery proof.
+                    val bytes = maxOf(cursor.bytes.toLong(), ToolHandoffReceipt.payload(result.content).encodeToByteArray().size.toLong())
+                    val required = ((bytes + 2) / 3).toInt()
                     if (required > defaultResultTokens && required <= available) put(call.callId, required)
                 }
             }

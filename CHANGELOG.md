@@ -18,6 +18,7 @@
 - Recheck privacy and inherited request authority at the receiving side of the private stream handoff, stopping revoked pending events without changing producer completion evidence or replaying output.
 
 - Add explicit revision recovery and truthful normalization receipts, prioritize pinned source/test context, continue bounded review waves, and deliver admitted saved pages before further automatic reads.
+- Preserve complete native saved pages requested by ordinary provider calls, account for app-added instructions within the unchanged replay ceiling and reserve, and retain exact delivery proof and matching-context admission.
 - Clarify fixture-specific approval with an existing-repository read-only mode. Retain precise TLS phase/cause, memory-trim and startup evidence and bounded capture-local redaction reuse.
 - Require CPU-reference audio consistency for speech ranking, fix exact-shape cache accounting and memory admission, and expose retained sample coverage and unmeasured voice evidence.
 

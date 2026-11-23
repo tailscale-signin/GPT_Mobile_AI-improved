@@ -273,7 +273,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt",
+        "scripts/check_ci_policy.py",
+        "scripts/run_release0950_acceptance.sh"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineTest.kt",
@@ -298,7 +300,10 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePluginSetupTest.kt",
         "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceEntryInstrumentedTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendAudioAdmissionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+        "scripts/tests/test_ci_modernization.py",
+        "scripts/tests/test_prepare_emulator_ui.py",
+        "scripts/tests/test_native_memory_smoke.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",

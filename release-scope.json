@@ -250,7 +250,8 @@
     "Negotiate compatible Gateway binary PCM and private-sidecar transport with exact-route authorization, private-conversation blocking, bounded framing, slow-reader admission and principal-scoped cancellation.",
     "Replace native profile regex scans with bounded structured parsing; enforce released TTS JNI contracts and keep model-family timing and requested delegates separate from verified processor execution.",
     "Require complete paired CPU-reference audio qualification before manual or Auto accelerator playback; use CPU for unqualified or inconsistent receipts and prevent ordinary self-validation from granting accelerator admission.",
-    "Initialize the native speech smoke staging paths on the assigned runner before downloading the minified APKs and provisioning each speech model."
+    "Initialize the native speech smoke staging paths on the assigned runner before downloading the minified APKs and provisioning each speech model.",
+    "Correct runner-context availability in native speech CI and require ordinary Android acceptance to execute every voice entry method without skips."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -596,16 +597,21 @@
     "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeIntegration.java",
     "release-scope.json",
     "scripts/check_android_lint_memory.py",
+    "scripts/check_ci_policy.py",
     "scripts/check_mediapipe_android_smoke.py",
     "scripts/check_mediapipe_jni.py",
     "scripts/gradle_retry.py",
     "scripts/requirements-voice-mediapipe-smoke.txt",
     "scripts/run_mediapipe_android_smoke.sh",
+    "scripts/run_release0950_acceptance.sh",
     "scripts/smoke_mediapipe_speech.py",
     "scripts/tests/test_android_lint_memory.py",
+    "scripts/tests/test_ci_modernization.py",
     "scripts/tests/test_gradle_retry.py",
     "scripts/tests/test_mediapipe_android_smoke.py",
     "scripts/tests/test_mediapipe_jni.py",
+    "scripts/tests/test_native_memory_smoke.py",
+    "scripts/tests/test_prepare_emulator_ui.py",
     "scripts/tests/test_release_lint_workflow.py"
   ],
   "publicationRequest": {

@@ -40,7 +40,7 @@
     "admission": "35 current-source JVM admission/policy/qualification tests passed. A manual-admission bypass negative control failed 5 of 11 new admission regressions, including 1075ms versus2450ms. Two additional Robolectric persistence/preparation-timeout tests remain required in CI.",
     "canonicalFast": "687 canonical host tests passed on the integrated ebda voice candidate. Pinned ktlint1.3.1 passed all64 changed Kotlin/Kotlin-script files. The independent TLS append is preserved; final combined-source gates remain required before merge. Full Android/model smoke remains pending normal CI."
   },
-  "latestObservedPublicHead": "2630db65b9df55143f2fd61b1cd16dc9c60d2254",
+  "latestObservedPublicHead": "6ca4baf43fd6d8035f25ef6fa806d36f2ee8368d",
   "independentReview": {
     "sdkLifecycle": "Resolved cancellation/destructor lock contention and failed-native-retirement lease ownership; blocking-destructor regressions passed.",
     "entryAndPreview": "Resolved native-pack-only entry/saved-message gating and same-frame preview configuration ordering; actual Android tests are committed for CI.",
@@ -51,5 +51,13 @@
   "compositionHeads": [
     "537794706b93611e501bdc763f84f24ad44679ba",
     "2630db65b9df55143f2fd61b1cd16dc9c60d2254"
-  ]
+  ],
+  "ciRepairs": {
+    "invalidNativeWorkflowRun": 45259996983,
+    "source": "c2d24b795656ccc3ee430b12107abf5f2104a727",
+    "change": "Move runner-dependent job environment to an explicit Bash setup step; preserve all three model jobs and verification. Add a local policy regression that rejects both invalid declarations from the committed workflow.",
+    "entryExecution": "Run VoiceEntryInstrumentedTest in ordinary Android acceptance and require all three named methods to pass unskipped, including installed SDK entry without native Kokoro.",
+    "validation": "Independent source review clear. CI modernization21, native checker16 and emulator/runner52 focused host tests pass; final hosted Android execution remains pending.",
+    "concurrentWorkflowRepair": "6ca4baf43fd6d8035f25ef6fa806d36f2ee8368d independently corrected the same runner-context defect. Its complete workflow, smoke regression and task ledger are preserved; this append adds general CI policy enforcement and required voice-entry execution."
+  }
 }

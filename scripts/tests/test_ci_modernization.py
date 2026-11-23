@@ -129,6 +129,19 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertTrue(policy.check_text('uses: example/action@v4', '.github/actions/example/action.yml'))
         self.assertFalse(policy.check_text('uses: example/action@' + 'a' * 40, '.github/actions/example/action.yml'))
 
+    def test_runner_context_requires_step_scope_for_environment_values(self):
+        policy = module('check_ci_policy')
+        prefix = 'permissions:\n  contents: read\nconcurrency:\n  group: test\njobs:\n  smoke:\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n'
+        step = '    steps:\n      - run: echo ready\n'
+        for environment in (
+            '    env:\n      MODEL_DIR: ${{ runner.temp }}/models\n',
+            "    env: {MODEL_DIR: '${{runner.temp}}/models'}\n",
+        ):
+            with self.subTest(environment=environment):
+                self.assertTrue(policy.check_text(prefix + environment + step, '.github/workflows/speech.yml'))
+        allowed = prefix + '    env:\n      ENGINE: ${{ matrix.engine }}\n' + step + '        env:\n          MODEL_DIR: ${{ runner.temp }}/models\n'
+        self.assertEqual([], policy.check_text(allowed, '.github/workflows/speech.yml'))
+
     def test_candidate_ruleset_keeps_review_and_security_gates(self):
         policy = module('check_ci_policy')
         ruleset = json.loads((SCRIPTS.parent / 'docs/ci-cd/main-ruleset.json').read_text())

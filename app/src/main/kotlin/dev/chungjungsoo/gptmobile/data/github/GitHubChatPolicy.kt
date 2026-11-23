@@ -19,6 +19,7 @@ data class GitHubChatProfileOverride(
     val engineeringMode: EngineeringMode = EngineeringMode.ULTRA_MAX,
     val maximumContext: Boolean = true,
     val engineeringMemory: GitHubEngineeringMemoryMode = GitHubEngineeringMemoryMode.HYBRID,
+    val contextVariant: GitHubContextVariant = GitHubContextVariant.TASK,
     val allowCloudEngineeringMemory: Boolean = false,
     val workflowPreset: String = "heavy_work",
     val quickWorkflows: List<GitHubQuickWorkflow> = GitHubQuickWorkflow.defaults,

@@ -203,7 +203,8 @@ data class BenchmarkSample(
     val evidenceScope: String = "LEGACY_UNCLASSIFIED",
     val engineeringVerification: BenchmarkEngineeringVerification? = null,
     val engineeringAttempts: List<BenchmarkEngineeringAttemptReceipt> = emptyList(),
-    val adapterRequestSettings: Map<String, String> = emptyMap()
+    val adapterRequestSettings: Map<String, String> = emptyMap(),
+    val contextReceipt: BenchmarkContextReceipt? = null
 ) {
     val runtimeExecution: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? get() = runtimeExecutions.lastOrNull()
     val rawReferenceSpeed: Double? get() = firstTextMs?.let { first ->
@@ -322,7 +323,8 @@ data class BenchmarkRun(
     val verifiedStructuredCompatibilityKeys: Map<String, String> = emptyMap(),
     val pricingSnapshot: BenchmarkPricingSnapshot? = null,
     val engineeringPlan: BenchmarkEngineeringPlan? = null,
-    val engineeringRepeatIndex: Int? = null
+    val engineeringRepeatIndex: Int? = null,
+    val engineeringContextVariant: String? = null
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)

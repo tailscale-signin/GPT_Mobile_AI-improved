@@ -2,6 +2,17 @@
 
 Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains the Gateway 18 contract.
 
+## Repository references and automatic task context
+
+- Maintain a concise repository guide, generated build facts and a reviewed feature/source/test map with Git blob identities. Reject stale references and unsafe paths during validation.
+- Prepare repository-scoped document sections, ranked source ranges, related code and test candidates automatically in GitHub mode. Keep personal documents separate and preserve selected account, source, model and permissions.
+- Retain the encrypted compact phone index independently of disposable source bytes. Reuse unchanged blobs and cached local similarity work while refreshing selections after source changes.
+- Offer Current baseline, Repository reference, Task context and Task context with local similarity on Android and new desktop engineering tasks. Saved Gateway conversations retain their original choice.
+- Display prepared source references, coverage, cache use and available byte/token measurements. Prepared context is separate from confirmed provider delivery; test references remain unexecuted candidates.
+- Export exact source ranges from large files, with separate raw-input and output limits. Optional token limits use the selected model's supported tokenizer. Keep language-server reuse bounded to the existing isolated workspace and invalidate it when source changes.
+- Accept structured feature/symbol/path discovery hints and retain adaptive read concurrency across rounds within a run, preserving existing mutation and recovery authority.
+- Compare the four context variants using frozen public fixtures, the same selected model and limits, counterbalanced arms, actual prompt supplements and separate descriptive results. Hidden grading material stays outside preparation; unknown measurements stay unknown.
+
 ## Recovery and request consistency
 
 - Avoid redundant GitHub checkpoint writes caused by copied observation times, while retaining meaningful evidence and recovery-state changes. Legacy backup samples and events keep their original pending attempt identities even when an older backup lacks separate attempt rows.
@@ -68,7 +79,7 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Keep durable original request identities through interruption. Lost branch or evaluation responses are read back, not resubmitted; unknown shutdown pauses the queue until reconciliation. Recovery retains candidate and usage evidence and continues only unattempted tasks.
 - Retain the submitted benchmark job, its generation usage and its cleanup receipt when a surrounding task deadline expires. A stopped or uncertain job remains tied to the original request.
 - Include native candidates that start and exceed a time or output limit in the failed-attempt totals after the grader controls pass. Runtime setup failures and uncertain cleanup remain unqualified.
-- Require complete typed native benchmark results, SQLite observations and declared workflow jobs in local and exported GitHub verification. Malformed receipts and unavailable runtimes cannot establish model success or failure.
+- Require complete typed native benchmark results, SQLite observations and declared workflow jobs, with identical typed comparison in local and exported GitHub verification. Malformed receipts and unavailable runtimes cannot establish model success or failure.
 - Preserve that ownership after Gateway restart and when its configured journal location changes, including legacy results already marked interrupted. Retain the original completion receipt and append later cleanup observations. Pending remote results remain in Android history until cleanup or completion is confirmed; ordinary and settled results remain deletable.
 - Keep live benchmark publication and cleanup tied to the verified GitHub account when credentials change. Reject a different account before recording or sending a mutation, and retain uncertain replies for exact readback.
 - Restore backups without erasing pending benchmark work. Keep its original request, frozen batch, queue and attempt history even when the backup omits them or contains conflicting identifiers; restore unrelated and confirmed-settled results normally.

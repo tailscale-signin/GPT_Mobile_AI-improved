@@ -16,6 +16,7 @@ import io.mockk.mockk
 import io.mockk.mockkConstructor
 import io.mockk.unmockkConstructor
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -55,6 +56,7 @@ class GitHubEngineeringMemoryTest {
         coEvery { decisions.load() } returns Unit
         every { decisions.decisions } returns MutableStateFlow(emptyList())
         coEvery { dao.engineeringMemory(scope) } returns listOf(WorkspaceRecord("history", "github_engineering_memory", "", ""))
+        coEvery { dao.engineeringDecisions(scope) } returns emptyList()
         coEvery { workspace.protectedSynthesisCheckpoint("history") } returns buildJsonObject {
             put("kind", "requirements")
             put("scope", scope)
@@ -157,6 +159,28 @@ class GitHubEngineeringMemoryTest {
         assertTrue(notices.isEmpty())
         coVerify(exactly = 0) { dao.engineeringMemory(any()) }
         coVerify(exactly = 0) { semantic.rankEngineering(any(), any(), any()) }
+    }
+
+    @Test fun anOlderArchitecturalDecisionRemainsAvailableBeyondRecentActivity() = runTest {
+        val old = WorkspaceRecord("engineering:older:decision:architecture", "github_engineering_memory", "", "")
+        coEvery { dao.engineeringDecisions(scope) } returns listOf(old)
+        coEvery { workspace.protectedSynthesisCheckpoint(old.id) } returns buildJsonObject {
+            put("kind", "decision")
+            put("scope", scope)
+            put("content", "Continue work with the original repository architecture boundary")
+        }
+        assertTrue(prepare().contains("original repository architecture boundary"))
+        coVerify(exactly = 1) { dao.engineeringDecisions(scope) }
+    }
+
+    @Test fun slowOptionalRankingFallsBackToTheAuthorizedLexicalSelection() = runTest {
+        coEvery { semantic.rankEngineering(any(), any(), any()) } coAnswers {
+            delay(60_000)
+            emptyMap()
+        }
+        assertTrue(prepare().contains("PRIVATE_HISTORY_CANARY"))
+        assertTrue(testScheduler.currentTime < 2000)
+        assertTrue(notices.isEmpty())
     }
 
     @Test fun cancellationDuringRankingAndRemoteAuthorizationFailureRemainFatalToPreparation() = runTest {

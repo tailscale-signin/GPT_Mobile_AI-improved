@@ -30,6 +30,7 @@ internal fun benchmarkRunSelection(runs: List<BenchmarkRun>, snapshot: Benchmark
                 if (run.mode == BenchmarkMode.PERFORMANCE) add("SEPARATE_PERFORMANCE_DIMENSIONS_NO_OVERALL")
                 if (run.mode == BenchmarkMode.CPU_EXPERIMENT) add("CONTROLLED_CPU_DIAGNOSTIC_NOT_RANKED")
                 if (run.mode == BenchmarkMode.DELEGATION) add("SEPARATE_DELEGATION_SCORE_DOMAIN")
+                if (run.engineeringPlan?.contextExperiment != null) add("CONTEXT_EXPERIMENT_PAIRED_EVIDENCE_ONLY")
                 if (enrollment != null && benchmarkEnrolledRevision(enrollment, run) != run.configKey) add("INACTIVE_OR_UNENROLLED_REVISION")
                 if (snapshot != null && snapshot.createdAt - run.startedAt !in 0..DynamicScoreEngine.FRESHNESS_MS) add("OUTSIDE_SNAPSHOT_FRESHNESS_WINDOW")
                 if (run.suiteVersion !in 3..BenchmarkSuiteRegistry.VERSION) add("UNSUPPORTED_FIXTURE_COMPATIBILITY")

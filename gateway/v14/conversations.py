@@ -346,6 +346,8 @@ class Conversations:
                 raise ConversationConflict('The original selected execution binding changed')
             if kind == 'engineering' and saved_binding.get('execution_mode', 'standard') != binding.get('execution_mode', 'standard'):
                 raise ConversationConflict('The original Gateway execution mode changed')
+            if kind == 'engineering' and saved_binding.get('context_variant', 'TASK') != binding.get('context_variant', 'TASK'):
+                raise ConversationConflict('The original repository context variant changed')
             expected = request.get('expected_revision')
             if expected is not None and (type(expected) is not int or expected != row['revision']):
                 raise ConversationConflict('Conversation revision changed; refresh before sending')

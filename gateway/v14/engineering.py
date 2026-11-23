@@ -78,7 +78,7 @@ def principal_authorized(config, principal, devices):
 
 
 def validate_request(request):
-    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'adopt_pr', 'sampling_policy', 'execution_mode', 'batch_policy_version', 'batch_preferences', 'specialist_roles'}
+    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'context_variant', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'adopt_pr', 'sampling_policy', 'execution_mode', 'batch_policy_version', 'batch_preferences', 'specialist_roles'}
     if not isinstance(request, dict) or set(request) - allowed:
         raise ValueError('Unsupported engineering request fields')
     result = dict(request)
@@ -115,6 +115,9 @@ def validate_request(request):
             raise ValueError('Invalid engineering budget')
     if result.get('memory_mode', 'HYBRID') not in {'SESSION_ONLY', 'PERSISTENT', 'HYBRID'}:
         raise ValueError('Invalid engineering memory mode')
+    if 'context_variant' in result:
+        from v14.task_context import variant as context_variant
+        result['context_variant'] = context_variant(result['context_variant'])
     if 'profile_id' in result and (not isinstance(result['profile_id'], str) or not 1 <= len(result['profile_id']) <= 128):
         raise ValueError('Invalid engineering profile scope')
     if not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', str(result.get('repository', ''))):
@@ -389,7 +392,8 @@ class EngineeringStore:
                 self.conversations.engineering_projection(db, previous, 'CANCELLED')
             conversation_binding = {key: request.get(key) for key in ('profile_id', 'profile_name', 'model', 'repository', 'branch', 'base', 'source_sha')}
             conversation_binding.update(source_branch=request.get('source_branch', request['branch']), working_branch=request['branch'],
-                                        execution_binding=binding, execution_mode=request.get('execution_mode', 'standard'))
+                                        execution_binding=binding, execution_mode=request.get('execution_mode', 'standard'),
+                                        context_variant=request.get('context_variant', 'TASK'))
             receipt = self.conversations.admission(db, principal, request.get('command_id', request['request_id']), 'engineering', job['id'], request,
                 conversation_binding, request['objective'], now=now, replace_paused=replace_paused)
             previous = self.get_in_transaction(db, receipt.get('previous_job_id'), principal)
@@ -1025,6 +1029,8 @@ class EngineeringService:
             getattr(backend, 'cancelled', lambda identifier: False)(job['id']) or time.time() >= job.get('deadline', float('inf')))
         backend.record_evidence = lambda job, payload: self.evidence.append(job, 'github_api', payload)
         backend.recall_memory = self.memory.recall
+        backend.task_context_semantic_scores = self.memory.task_scores
+        backend.count_context_tokens = self.count_context_tokens
         backend.recall_graph = self.graph.recall
         self.stop = threading.Event()
         self.wake = threading.Event()
@@ -1157,6 +1163,52 @@ class EngineeringService:
     def execute_model(self, job, role, payload, cancellation):
         from v14.inference_execution import BoundModelInvocation
         return BoundModelInvocation(self, job, role).execute(payload, cancellation)
+
+    def count_context_tokens(self, job, text):
+        """Count an export with the selected provider's observed tokenizer.
+
+        The existing endpoint measures a framed user message. Preserve that
+        scope instead of calling it a raw-text count or a final prompt budget.
+        No generation, alternate model or tokenizer destination is selected.
+        """
+        if not isinstance(text, str) or len(text.encode()) > 262144:
+            raise ValueError('Tokenizer context exceeds the bounded export allowance')
+        cancellation = self.backend.cancellation(job)
+        source = job['data'].get('head_sha')
+        def current():
+            if cancellation.is_set() or self.stop.is_set() or time.time() >= job['deadline']:
+                raise InterruptedError('Context token count cancelled or expired')
+            binding, _, observation = self.validate_execution(job)
+            if source != job['data'].get('head_sha'):
+                raise ExecutionBindingError('EXECUTION_SOURCE_CHANGED', 'The source revision changed before context measurement.')
+            return binding, observation
+        binding, observation = current()
+        scope = 'CONTEXT_WITH_USER_MESSAGE_FRAMING'
+        endpoint = observation.get('tokenizer_endpoint')
+        if not endpoint:
+            return None, 'NOT_SUPPORTED', scope
+        metadata = self.backend.api(self.backend.root(job), job=job)
+        if metadata.get('permissions', {}).get('pull') is not True:
+            raise PermissionError('Repository context authorization was revoked')
+        payload = {'model': binding['requested_model_id'], 'messages': [{'role': 'user', 'content': text}]}
+        if 'reasoning' in binding.get('generation_parameters', {}):
+            payload['chat_template_kwargs'] = {'enable_thinking': binding['generation_parameters']['reasoning']}
+        def before_send():
+            selected, actual = current()
+            if selected != binding or actual.get('tokenizer_endpoint') != endpoint or actual.get('capability_revision') != observation.get('capability_revision'):
+                raise ExecutionBindingError('EXECUTION_CAPABILITY_INVALID', 'The selected tokenizer changed before context measurement.')
+        try:
+            measured = self.capabilities._json('POST', endpoint, body=payload, maximum=65536,
+                deadline_at=time.monotonic() + min(2, max(0, job['deadline'] - time.time())), on_start=before_send)
+        except ExecutionBindingError as error:
+            if error.code not in {'EXECUTION_CAPABILITY_UNSUPPORTED', 'EXECUTION_BACKEND_UNAVAILABLE',
+                                  'EXECUTION_METADATA_DEADLINE', 'EXECUTION_METADATA_OVERSIZE'}:
+                raise
+            current()
+            return None, 'NOT_MEASURED', scope
+        current()
+        count = measured.get('input_tokens', measured.get('prompt_tokens'))
+        return (count, 'SELECTED_TOKENIZER', scope) if type(count) is int and 0 <= count <= 2097152 else (None, 'NOT_MEASURED', scope)
 
     def evidence_access(self, principal, job_id):
         job = self.store.get(job_id, principal)
@@ -1786,6 +1838,7 @@ def public_job(job):
             'provider_retry_source': active_retry.get('source'), 'provider_retry_attempts': active_retry.get('attempts'),
             'retry': retry_summary(job), 'continuous_progress': continuous_progress(job),
             'execution_mode': job['request'].get('execution_mode', 'standard'),
+            'context_variant': job['request'].get('context_variant', 'TASK'),
             'batch_progress': batch_summary(data.get('integration_batch')),
             'cancellation_requested': bool(job.get('cancellation_requested')), 'cancellation_outcome': job.get('cancellation_outcome'),
             'id': job['id'], 'job_id': job['id'], 'repository': job['request']['repository'], 'branch': job['request']['branch'],

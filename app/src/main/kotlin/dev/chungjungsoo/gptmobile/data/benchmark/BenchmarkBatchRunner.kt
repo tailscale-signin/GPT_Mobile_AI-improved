@@ -263,7 +263,7 @@ class BenchmarkBatchRunner @Inject constructor(
             } else {
                 plan
             }
-            check(prepared.matches(cases, requireExternalReceipts = true) && prepared.copy(externalFixtureDigests = plan.externalFixtureDigests, graderDigest = plan.graderDigest, externalRouteDigests = plan.externalRouteDigests, externalAuthorityDigests = plan.externalAuthorityDigests, externalSetupMs = plan.externalSetupMs, externalSetupRequestCount = plan.externalSetupRequestCount, cohortId = plan.cohortId) == plan) {
+            check(prepared.matches(cases, requireExternalReceipts = true) && benchmarkPreparedPlanPreservesAcceptedScope(plan, prepared)) {
                 "ENGINEERING_PLAN_CHANGED: Fixture preparation changed accepted profiles, budgets, permissions or source identity."
             }
             check(batch.items.none { it.state != BenchmarkQueueState.QUEUED } || prepared.identityDigest() == plan.identityDigest()) {
@@ -336,7 +336,7 @@ class BenchmarkBatchRunner @Inject constructor(
         // audit must never be reconstructed as the default 114-action full audit.
         val previous = if (engineering != null) store.history.value.firstOrNull { it.id == item.runId } else null
         if (previous != null) {
-            check(previous.engineeringPlan?.identityDigest() == engineering?.identityDigest() && previous.caseManifest == plan && previous.configKey == item.configKey) { "ENGINEERING_RESUME_IDENTITY_CHANGED" }
+            check(previous.engineeringPlan?.identityDigest() == engineering?.identityDigest() && previous.caseManifest == plan && previous.configKey == item.configKey && previous.engineeringContextVariant == item.engineeringContextVariant) { "ENGINEERING_RESUME_IDENTITY_CHANGED" }
         }
         var run = (previous ?: newRun(batch, item, primary, plan.size)).copy(
             caseManifest = plan,
@@ -488,6 +488,7 @@ class BenchmarkBatchRunner @Inject constructor(
                                             test,
                                             requireNotNull(engineering),
                                             requestId,
+                                            contextVariant = item.engineeringContextVariant,
                                             onInterrupted = { interruptedSample = it },
                                             onCheckpoint = { observed ->
                                                 val durable = observed.copy(
@@ -910,7 +911,7 @@ class BenchmarkBatchRunner @Inject constructor(
             deviceBuild = Build.FINGERPRINT.takeIf { it.isNotBlank() },
             measurementPolicy = "benchmark-measurement-v${batch.measurementVersion}", aggregatePolicy = if (batch.suiteVersion >= 10) "benchmark-score-v6" else "benchmark-score-v5",
             pricingSnapshot = priceSnapshot,
-            engineeringPlan = batch.engineeringPlan, engineeringRepeatIndex = item.engineeringRepeatIndex
+            engineeringPlan = batch.engineeringPlan, engineeringRepeatIndex = item.engineeringRepeatIndex, engineeringContextVariant = item.engineeringContextVariant
         )
     }
 

@@ -6,7 +6,7 @@ from v14.engineering_scope import accepted_scope
 ACTIVE = {'PLAN', 'READ', 'IMPLEMENT', 'REVIEW'}
 INTELLIGENCE_ACTIONS = {
     'worker', 'worker_wave', 'worker_status', 'task_plan', 'task_plan_status', 'task_plan_complete',
-    'context_pack', 'context_summary', 'tool_profile', 'integration_status', 'integration_call', 'next_edit', 'next_edit_validate',
+    'context_pack', 'context_summary', 'task_context_bundle', 'tool_profile', 'integration_status', 'integration_call', 'next_edit', 'next_edit_validate',
     'environment_qualify', 'candidate_rank', 'terminal_open', 'terminal_fork', 'terminal_switch',
     'terminal_close', 'terminal_start', 'terminal_poll', 'terminal_cancel', 'code_intelligence'
 }

@@ -492,7 +492,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
         taskPack: String = "coding",
         budget: BenchmarkEngineeringBudget? = null,
         externalTransport: BenchmarkEngineeringExternalTransport = BenchmarkEngineeringExternalTransport.GATEWAY,
-        githubConnectionUid: String? = null
+        githubConnectionUid: String? = null,
+        contextExperiment: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkContextExperiment? = null
     ): Boolean {
         if (execution.isRunning || !mutableReady.value) return false
         if (selectedProfileUids.size !in 1..2 ||
@@ -503,6 +504,10 @@ class ProfileBenchmarkViewModel @Inject constructor(
             (taskPack != "coding" && lane !in setOf(BenchmarkEngineeringLane.EXECUTABLE_CODING, BenchmarkEngineeringLane.LIVE_GITHUB))
         ) {
             mutableError.value = "Select one profile or exactly two distinct profiles and between one and ten repeats."
+            return false
+        }
+        if (contextExperiment != null && (!contextExperiment.valid() || selectedProfileUids.size != 1 || lane !in setOf(BenchmarkEngineeringLane.EXECUTABLE_CODING, BenchmarkEngineeringLane.LIVE_GITHUB))) {
+            mutableError.value = "Context experiments use one unchanged profile and an executable coding or Live GitHub lane."
             return false
         }
         val targets = selectedProfileUids.mapNotNull { uid -> profiles.value.singleOrNull { it.uid == uid && it.enabled && it.model.isNotBlank() } }
@@ -550,7 +555,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
             benchmarkHash(localEnvironment.value),
             benchmarkHash(listOf(lane, repository, revision, externalTransport, connectionUid, "isolated-fixture-only-v1").joinToString("|")),
             preset = preset, repositoryFullName = repository, baseSha = revision, taskPack = taskPack,
-            externalTransport = externalTransport, githubConnectionUid = connectionUid.takeIf { externalTransport == BenchmarkEngineeringExternalTransport.PHONE_GITHUB_ACTIONS }
+            externalTransport = externalTransport, githubConnectionUid = connectionUid.takeIf { externalTransport == BenchmarkEngineeringExternalTransport.PHONE_GITHUB_ACTIONS },
+            contextExperiment = contextExperiment
         ).frozen()
         val batch = BenchmarkBatch(
             id = id, mode = BenchmarkMode.GITHUB_INTEGRATION, createdAt = System.currentTimeMillis(),

@@ -38,7 +38,8 @@ class BenchmarkEngineeringExternalExecutor @Inject constructor(
     private val chats: ChatRepository,
     private val settings: SettingRepository,
     private val client: GatewayEngineeringClient,
-    private val phone: BenchmarkPhoneGitHubExecutor
+    private val phone: BenchmarkPhoneGitHubExecutor,
+    private val semantic: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory? = null
 ) {
     private suspend fun route(profileUid: String, plan: BenchmarkEngineeringPlan): BenchmarkEngineeringTransport {
         if (plan.externalTransport == BenchmarkEngineeringExternalTransport.PHONE_GITHUB_ACTIONS) {
@@ -72,6 +73,7 @@ class BenchmarkEngineeringExternalExecutor @Inject constructor(
         test: BenchmarkCase,
         plan: BenchmarkEngineeringPlan,
         logicalRequestId: String,
+        contextVariant: String? = null,
         onInterrupted: (BenchmarkSample) -> Unit = {},
         onCheckpoint: suspend (BenchmarkSample) -> Unit = {}
     ): BenchmarkSample {
@@ -88,6 +90,8 @@ class BenchmarkEngineeringExternalExecutor @Inject constructor(
         var validationMs = 0L
         var validatingSince: Long? = null
         var cleanupReceipt: String? = null
+        var contextReceipt: BenchmarkContextReceipt? = null
+        var firstVerifiedPatchMs: Long? = null
         var firstPassed: Boolean? = null
         var bestPassed = false
         fun elapsed() = (System.nanoTime() / 1_000_000 - started).coerceAtLeast(0)
@@ -135,7 +139,8 @@ class BenchmarkEngineeringExternalExecutor @Inject constructor(
                     else -> "external_verification_incomplete"
                 },
                 gatewayJobIdHash = activeJob?.let(::benchmarkHash),
-                cleanupReceipt = cleanupReceipt
+                cleanupReceipt = cleanupReceipt,
+                contextReceipt = contextReceipt?.copy(dispatched = generations.any { it.requestDispatched == true }, firstVerifiedPatchMs = firstVerifiedPatchMs)
             )
         }
         try {
@@ -145,7 +150,17 @@ class BenchmarkEngineeringExternalExecutor @Inject constructor(
                 val fixture = selected.request("fixtures/${taskId.encodeURLParameter()}?seed=${plan.seed}&preset=${plan.preset}&task_pack=${plan.hostTaskPack()}")
                 check(fixture.text("taskDigest") == plan.externalFixtureDigests[taskId] && fixture.text("graderDigest") == plan.graderDigest) { "BENCHMARK_FIXTURE_CHANGED" }
                 check(benchmarkHash(selected.identityDigest + "\u0000" + fixture.text("environmentDigest")) == plan.externalRouteDigests[profile.uid]) { "BENCHMARK_ROUTE_CHANGED" }
-                val originalPrompt = requireNotNull(fixture.text("prompt"))
+                val preparedContext = if (plan.contextExperiment != null) {
+                    benchmarkPrepareContext(fixture, plan, taskId, requireNotNull(contextVariant), localRanker = { query, records ->
+                        withTimeoutOrNull(2_000) {
+                            semantic?.rankBenchmarkContext(query, "github:benchmark:${plan.id}:${plan.contextManifestDigests[taskId]}", records)
+                        }
+                    }).also { contextReceipt = it.receipt }
+                } else {
+                    check(contextVariant == null) { "BENCHMARK_CONTEXT_ARM_UNEXPECTED" }
+                    null
+                }
+                val originalPrompt = preparedContext?.prompt ?: requireNotNull(fixture.text("prompt"))
                 val schema = (fixture["outputSchema"] as? JsonObject)?.toString()
                 var prompt = originalPrompt
                 for (index in 0 until minOf(plan.budget.maxRepairAttempts + 1, plan.budget.maxModelRounds)) {
@@ -229,6 +244,7 @@ class BenchmarkEngineeringExternalExecutor @Inject constructor(
                     grade = benchmarkExternalCase(result, taskId, benchmarkHash(proposal), plan)
                     val currentGrade = requireNotNull(grade)
                     val passed = benchmarkExternalVerification(currentGrade, taskId, plan, firstPassed, bestPassed, attempts.size).taskComplete(plan, test)
+                    if (passed && firstVerifiedPatchMs == null) firstVerifiedPatchMs = elapsed()
                     if (index == 0) firstPassed = passed
                     bestPassed = bestPassed || passed
                     attempts[index] = generation.attemptReceipt(index, requestId, activeJob, passed, currentGrade.text("error")).copy(

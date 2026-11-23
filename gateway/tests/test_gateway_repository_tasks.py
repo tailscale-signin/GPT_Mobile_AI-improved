@@ -29,15 +29,18 @@ def trusted_observe(task, sources):
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         for path, source in sources.items():
-            (root / path).write_text(source)
-        (root / 'inputs.json').write_text(json.dumps(native.input_bundle(task)))
+            (root / path).write_text(source, encoding='utf-8', newline='\n')
+        (root / 'inputs.json').write_text(json.dumps(native.input_bundle(task)), encoding='utf-8', newline='\n')
         # Tests may execute only our fixed shipped references/mutants. Never
         # expose this adapter as a benchmark transport for generated candidates.
         if sources not in (task['sources'], task['referenceSources']):
             raise ValueError('Only repository-owned controls may execute on the host')
         code = native.DRIVER.replace("pathlib.Path('/candidate')", 'pathlib.Path(' + repr(str(root)) + ')')
         code = code.replace("pathlib.Path('/evaluator/inputs.json')", 'pathlib.Path(' + repr(str(root / 'inputs.json')) + ')')
-        path = root / 'driver.py'; path.write_text(code)
+        # This host-only adapter emulates the Linux container's LF byte protocol.
+        # Windows text translation must not alter the trusted execution marker.
+        code = "import sys\nsys.stdout.reconfigure(newline='\\n')\n" + code
+        path = root / 'driver.py'; path.write_text(code, encoding='utf-8', newline='\n')
         process = subprocess.run([sys.executable, str(path)], capture_output=True, timeout=35)
         if process.returncode:
             raise AssertionError(process.stderr.decode()[-2000:])
@@ -130,6 +133,16 @@ class NativeResourceAccountingTests(unittest.TestCase):
             self.assertFalse(receipt['outcomeKnown'])
             self.assertFalse(receipt['qualified'])
             self.assertFalse(receipt['graded'])
+
+    def test_container_framing_stays_exact_when_host_controls_pin_lf(self):
+        raw = (native.START + '\r\n' + json.dumps(self.reference)).encode()
+        with self.process_boundary([self.reference, self.broken, (raw, None)]):
+            receipt = native.grade(self.task, self.proposal, self.settings, None)
+        self.assertEqual('NATIVE_EXECUTION_NOT_CONFIRMED', receipt['error'])
+        self.assertEqual('BLOCKED', receipt['status'])
+        self.assertFalse(receipt['executed'])
+        self.assertFalse(receipt['qualified'])
+        self.assertFalse(receipt['outcomeKnown'])
 
     def test_unknown_cleanup_and_user_cancellation_never_publish_a_resource_failure(self):
         for cleanup, cancel in (('unknown', None), ('confirmed', threading.Event())):
@@ -461,6 +474,34 @@ class GeneratedNativeReceiptTests(unittest.TestCase):
         self.assertIs(True, receipt['qualified'])
         self.assertIs(True, receipt['resolved'])
 
+    def test_typed_output_comparison_matches_local_candidates_and_calibration(self):
+        typed = copy.deepcopy(self.reference)
+        cell = typed['outputs'][0]['checks'][1]['rows'][0]
+        self.assertIs(type(cell[0]), int)
+        self.assertEqual(1, cell[0])
+        cell[0] = 1.0
+        self.assertEqual(self.reference['outputs'], typed['outputs'])
+        self.assertFalse(native.coding.same(self.reference['outputs'], typed['outputs']))
+        local = NativeResourceAccountingTests()
+        local.setUp()
+        for label, responses, qualified, resolved, count in (
+                ('candidate', [self.reference, self.broken, typed], True, False, 3),
+                ('reference', [typed, self.broken, self.reference], False, False, 2),
+                ('broken control', [self.reference, typed, self.reference], True, True, 3)):
+            with self.subTest(stage=label), local.process_boundary(responses) as calls:
+                receipt = native.grade(local.task, local.proposal, local.settings, None)
+                self.assertEqual((qualified, resolved, count), (receipt['qualified'], receipt['resolved'], len(calls)))
+            code, exported, dispatched, error = self.generated_run(responses)
+            with self.subTest(stage=label, consumer='generated'):
+                self.assertIsNone(error)
+                self.assertEqual(count, dispatched)
+                if qualified:
+                    self.assertEqual((True, resolved), (exported.get('qualified'), exported.get('resolved')))
+                    self.assertEqual(0 if resolved else 1, code)
+                else:
+                    self.assertIsNot(True, exported.get('qualified'))
+                    self.assertNotEqual(0, code)
+
     def test_incomplete_candidate_runtime_cannot_publish_success(self):
         for runtime in ({}, {'kind': 'sqlite'}):
             malformed = dict(self.reference, runtime=runtime)
@@ -551,6 +592,20 @@ class GeneratedNativeReceiptTests(unittest.TestCase):
 
 
 class RepositoryNativeTests(unittest.TestCase):
+    def test_trusted_host_fixture_retains_linux_framing_with_windows_stdout(self):
+        task = tasks.task_spec('repository-room-add-default')
+        actual_run = subprocess.run
+        def windows_stdout(argv, **kwargs):
+            self.assertEqual(sys.executable, argv[0])
+            self.assertEqual('driver.py', Path(argv[1]).name)
+            bootstrap = "import runpy,sys; sys.stdout.reconfigure(newline='\\r\\n'); runpy.run_path(sys.argv[1], run_name='__main__')"
+            return actual_run([argv[0], '-c', bootstrap, argv[1]], **kwargs)
+        for sources in (task['referenceSources'], task['sources']):
+            expected = trusted_observe(task, sources)
+            with self.subTest(control='reference' if sources == task['referenceSources'] else 'broken'), \
+                    patch('subprocess.run', side_effect=windows_stdout):
+                self.assertEqual(expected, trusted_observe(task, sources))
+
     def test_workflow_expression_semantics_and_unsupported_bypass(self):
         namespace = {'re': re, 'json': json}
         source = native.DRIVER[native.DRIVER.index('TOKEN = '):native.DRIVER.index('def run():')]

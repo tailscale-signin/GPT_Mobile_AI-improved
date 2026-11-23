@@ -23,6 +23,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+
+    @Test fun adaptiveReadFeedbackSurvivesRoundsAndResetsForNextCollection() = runBlocking {
+        val reader = tool("github_read") { id, _ ->
+            AgentToolResult(id, ToolResultContent.Text("source receipt"), isError = id == "read-1", errorCode = if (id == "read-1") "REMOTE_UNAVAILABLE" else null)
+        }
+        fun provider(): AgentProviderSession {
+            var round = 0
+            return session { _, _ ->
+                flow {
+                    round++
+                    if (round <= 2) {
+                        emit(toolCall("read-$round", "github_read", buildJsonObject { put("path", "source-$round.kt") }))
+                    } else {
+                        emit(ProviderEvent.TextDelta("Finished checking the independent source."))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+        }
+        val runner = AgentRunner(AgentRunLimits(maxRounds = 3, maxToolCalls = 4, maxConcurrentTools = 5))
+        repeat(2) {
+            val starts = runner.run(provider(), listOf(reader)).toList().filterIsInstance<AgentRunEvent.BatchProgress>()
+                .map { it.progress }.filter { it.completed == 0 && it.active == 0 }
+            assertEquals(listOf(5, 2), starts.map { it.concurrency })
+        }
+    }
+
     @Test fun sourceCallCorrectedByTheSessionKeepsItsProviderEnvelopeAtTheRunnerBoundary() = runBlocking {
         val original = ProviderEvent.ToolCall(
             "source-read",

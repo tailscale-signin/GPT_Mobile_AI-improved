@@ -276,7 +276,8 @@ class ChatRepositoryImpl(
     private val gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository? = null,
     private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
     private val gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
-    private val privacyMode: PrivacyModeStore? = null
+    private val privacyMode: PrivacyModeStore? = null,
+    private val repositoryTaskContext: dev.chungjungsoo.gptmobile.data.github.GitHubTaskContextPreparation? = null
 ) : ChatRepository {
     private suspend fun privacyAlternatives(profile: PlatformV2): String =
         privacyMode?.verifier?.alternatives(settingRepository.fetchPlatformV2s(), profile.uid).orEmpty()
@@ -3321,8 +3322,9 @@ class ChatRepositoryImpl(
             emit(ApiState.Notice("Continuing from the saved partial response and tool results.", persistent = false))
         }
         val engineeringContext = if (input.verificationOnlyRequested) "" else engineeringMemoryContext(platform, chatToolConfig, latestUser, promptContextTokens, resolvedTools, runId, emit)
+        val repositoryReference = if (input.verificationOnlyRequested || input.stage?.writerRequestPlan != null) "" else repositoryReferenceContext(platform, chatToolConfig, latestUser, taskRecovery?.originalRequest ?: latestUser?.content.orEmpty(), promptContextTokens, resolvedTools, emit)
         val projectInstructions = latestUser?.let { knowledge?.scopeForChat(it.chatId) }
-            ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext
+            ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext + repositoryReference.takeIf(String::isNotBlank)?.let { "\n$it" }.orEmpty()
         val responseFeatures = settingRepository.getFeatureSettings()
         val quickRepliesEnabled = responseFeatures.smartSuggestions
         fun baseSystemPrompt(): String {
@@ -6532,6 +6534,20 @@ class ChatRepositoryImpl(
                 }
             }
         }
+    }
+
+    private suspend fun repositoryReferenceContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, task: String, contextTokens: Int, resolvedTools: List<ResolvedAgentTool>, emit: suspend (ApiState) -> Unit): String {
+        val github = tools?.github ?: return ""
+        if (user == null || repositoryTaskContext == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user.content) || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user.content).conversational) return ""
+        val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
+        val text = repositoryTaskContext.prepare(github, user.chatId, task, preferences.contextVariant, contextTokens, resolvedTools, preferences.engineeringMemory)
+        if (text.isNotBlank()) {
+            val labels = listOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "repository_graph", sourceProfileUid = platform.uid, sourceRef = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(text), categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.PRIVATE_CONTENT), retentionChatId = user.chatId, sourceConnectionUid = github.connectionUid))
+            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]?.add(labels)
+            emit(ApiState.Notice("", personalData = labels))
+        }
+        return text
     }
 
     private suspend fun engineeringMemoryContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, contextTokens: Int, resolvedTools: List<ResolvedAgentTool>, runId: String, emit: suspend (ApiState) -> Unit): String {

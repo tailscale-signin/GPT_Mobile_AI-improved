@@ -282,6 +282,8 @@ class BenchmarkStore:
                 summary.update(score=None, qualified=False, speedup=None, firstSubmissionScore=None,
                                passAtOne=None, finalResolvedRate=None, invalidatedBy=run['state'],
                                coverage=coverage(retained, run['planned']))
+                from benchmarks.context_experiment import invalidate_summary
+                summary = invalidate_summary(summary, run['state'])
                 run['summary'] = summary
             if run['state'] in TERMINAL:
                 cases = self.read_cases(db, ident)

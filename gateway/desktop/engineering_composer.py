@@ -107,6 +107,13 @@ class EngineeringForm(_ThemedForm):
             self.objective.focus_set()
 
         procedure.bind('<<ComboboxSelected>>', select_procedure)
+        if not self.conversation:
+            self.context_choices = {'Task context (recommended)': 'TASK', 'Current context baseline': 'CURRENT',
+                                    'Repository reference': 'REFERENCE', 'Task context with local similarity': 'SEMANTIC'}
+            self.context_choice = tk.StringVar(master=frame, value='Task context (recommended)')
+            ttk.Label(frame, text='Repository context').grid(row=12, column=0, sticky='w', pady=3)
+            ttk.Combobox(frame, textvariable=self.context_choice, values=tuple(self.context_choices), state='readonly').grid(row=12, column=1, sticky='ew', pady=3)
+            ttk.Label(frame, text='Task context selects source ranges, repository guidance and test candidates.', wraplength=450).grid(row=13, column=0, columnspan=2, sticky='w', pady=3)
         return self.objective
 
     def validate(self):
@@ -130,6 +137,8 @@ class EngineeringForm(_ThemedForm):
                 messagebox.showerror('Existing PR', 'Enter the PR number and reviewed base SHA. Working and source branches must both be the PR branch.', parent=self)
                 return False
             values['adopt_pr'] = {'number': pr_number, 'head_sha': values['source_sha'], 'base_sha': base_sha}
+        if not self.conversation:
+            values['context_variant'] = self.context_choices[self.context_choice.get()]
         self.result = dict({'provider': None}, **values, objective=prompt, task_scope=self.scope.get())
         return True
 

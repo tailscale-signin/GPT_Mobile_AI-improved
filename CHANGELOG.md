@@ -1,5 +1,8 @@
 # 0.9.66.13 — 2026-11-22
 
+- Add maintained revision-checked repository/feature references and automatic source-range/document context in GitHub mode, with independent encrypted phone index retention and incremental blob reuse.
+- Expose context choices and source/coverage/cache receipts on Android and Gateway, exact-range private context exports, selected-tokenizer limits, bounded warm language-server reuse and run-scoped adaptive read feedback.
+- Add structured feature/symbol discovery and controlled same-model context comparisons with frozen public fixtures, explicit semantic fallback and independent grading evidence.
 - Avoid duplicate GitHub checkpoint writes when only the copied observation time changes; preserve receipt timestamps, recovery authority and immutable state transitions.
 - Fit optional verification draft context within the original token budget without dropping the task or acceptance criteria, splitting Unicode characters or bypassing a later budget change.
 - Protect original pending benchmark attempt identities referenced by legacy samples and events even when their separate attempt rows are absent from a backup.
@@ -7,7 +10,7 @@
 - Retain successful saved-page reads with matching request context across replay compaction and recovery, preserving cursor authority and explicit rereads.
 - Preserve the original benchmark request, usage, attempts and cleanup receipt when an enclosing task deadline interrupts remote verification.
 - Count native coding candidates that start and exhaust a time or output limit as known failures after successful grader calibration; keep unavailable runtimes and uncertain cleanup unqualified.
-- Require complete typed native benchmark results, SQLite observations and declared workflow jobs in local and exported GitHub verification. Malformed receipts and unavailable runtimes cannot establish model success or failure.
+- Require complete typed native benchmark results, SQLite observations and declared workflow jobs, with identical typed comparison in local and exported GitHub verification. Malformed receipts and unavailable runtimes cannot establish model success or failure.
 - Prevent optional agent children from starting after a confirmed stop or being launched twice by concurrent startup requests.
 - Confirm agent model/session startup before concurrent prompts, stop children after failed initialization, and retain completed cancellation or timeout state.
 - Preserve operation-bound credential redaction across account rotation and persist cancellation dispatch atomically for truthful restart recovery.

@@ -34,7 +34,7 @@ internal val benchmarkExportJson = Json {
     encodeDefaults = true
 }
 
-internal val benchmarkExportMetadata = setOf("format", "schemaVersion", "storageSchemaVersion", "detail", "exportedAt", "snapshotState", "measurementPolicy", "measurementPolicies", "scoringPolicy", "units", "perRunMetrics", "perRunScores", "scoringNotes", "scoreSelection", "policyDomains", "coverage", "nativeSegmentMeasurements", "runtimeEvidenceScope", "performanceComparisonMatrix", "intelligenceFixtureScope", "auditModelQualificationEvidence", "engineeringComparisons", "engineeringExperimentEffort")
+internal val benchmarkExportMetadata = setOf("format", "schemaVersion", "storageSchemaVersion", "detail", "exportedAt", "snapshotState", "measurementPolicy", "measurementPolicies", "scoringPolicy", "units", "perRunMetrics", "perRunScores", "scoringNotes", "scoreSelection", "policyDomains", "coverage", "nativeSegmentMeasurements", "runtimeEvidenceScope", "performanceComparisonMatrix", "intelligenceFixtureScope", "auditModelQualificationEvidence", "engineeringComparisons", "engineeringExperimentEffort", "contextComparisons")
 
 /** Compatibility helper for retained JSON callers; app exports use the streaming store API. */
 internal fun benchmarkExport(raw: String, detailed: Boolean): String {
@@ -241,6 +241,7 @@ internal fun writeBenchmarkExport(output: BenchmarkExportOutput, source: Benchma
         put("performanceComparisonMatrix", benchmarkExportRecords(benchmarkComparisonMatrix(runs).asSequence().map { json.encodeToJsonElement(BenchmarkComparisonRow.serializer(), it) }))
         put("intelligenceFixtureScope", BenchmarkIntelligenceFixtures.LIMITATION)
         put("engineeringComparisons", benchmarkExportRecords(benchmarkEngineeringComparisons(runs).asSequence().map { json.encodeToJsonElement(BenchmarkEngineeringComparison.serializer(), it) }))
+        put("contextComparisons", benchmarkExportRecords(benchmarkContextComparisons(runs).asSequence().map { json.encodeToJsonElement(BenchmarkContextComparison.serializer(), it) }))
         put("engineeringExperimentEffort", benchmarkExportRecords(batches.asSequence().mapNotNull { benchmarkEngineeringExperimentEffort(it, runs) }.map { json.encodeToJsonElement(BenchmarkEngineeringExperimentEffort.serializer(), it) }))
         put(
             "perRunMetrics",

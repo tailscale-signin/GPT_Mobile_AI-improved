@@ -134,7 +134,7 @@ class GatewayEngineeringSubmissionTest {
     }
 
     @Test fun importedConversationUsesFrozenServerDestinationAndModelWithoutPhoneWorkspace() = runTest {
-        val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "canonical", profileId = selected.uid, model = "original-chat-model", repository = "original-owner/original-repository", branch = "original-work", base = "default-branch", revision = 42, sourceBranch = "original-source", sourceSha = "a".repeat(40), workingBranch = "original-work")
+        val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "canonical", profileId = selected.uid, model = "original-chat-model", repository = "original-owner/original-repository", branch = "original-work", base = "default-branch", revision = 42, sourceBranch = "original-source", sourceSha = "a".repeat(40), workingBranch = "original-work", contextVariant = GitHubContextVariant.REFERENCE)
         val local = GatewayConversationRecord("key", "gateway", "owner", "canonical", originalGateway.uid, originalGateway.apiUrl, selected.uid, 8, Json.encodeToString(snapshot))
         coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(githubProfileOverrides = mapOf(selected.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = "different-current-gateway", githubTools = true)))
@@ -161,6 +161,7 @@ class GatewayEngineeringSubmissionTest {
         assertEquals(11, saved.captured.localUserMessageId)
         assertEquals(12, saved.captured.localAssistantMessageId)
         assertEquals(GitHubSamplingSettings(), saved.captured.request.samplingPolicy)
+        assertEquals(GitHubContextVariant.REFERENCE, saved.captured.request.contextVariant)
         assertEquals(24, saved.captured.request.durationHours)
         assertEquals(512, saved.captured.request.executionBudget?.modelCalls)
         assertEquals(2_097_152, saved.captured.request.executionBudget?.modelTokens)

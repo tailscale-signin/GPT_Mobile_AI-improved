@@ -36,6 +36,7 @@ data class GatewayAgentWorkspace(
     @SerialName("next_edit_readiness") val nextEditReadiness: JsonObject = JsonObject(emptyMap()),
     @SerialName("next_edits") val nextEdits: List<JsonObject> = emptyList(),
     @SerialName("context_pack") val contextPack: JsonObject? = null,
+    @SerialName("task_context") val taskContext: JsonObject? = null,
     val summaries: List<JsonObject> = emptyList(),
     val commands: List<JsonObject> = emptyList(),
     @SerialName("review_drafts") val reviewDrafts: List<JsonObject> = emptyList(),

@@ -318,10 +318,37 @@ internal fun BenchmarkEngineeringWorkspace(
                     if (profiles.size < 2) Text("Save two AI profiles to compare them.", style = MaterialTheme.typography.bodySmall)
                     Text("General Quick 5 and Full 50 remain available in Queue. Changing a suite or policy starts a separate comparison.", style = MaterialTheme.typography.labelSmall)
                 }
-                selectedComparison?.let { EngineeringComparisonSummary(it) } ?: EngineeringEmpty("No matched result yet", "Saved contract checks can be inspected in History. A coding winner requires matched, independently verified task outcomes.")
+                if (externalLane) {
+                    BenchmarkContextExperimentControls(
+                        profileName = first?.name,
+                        enabled = ready && !busy && first != null && liveTargetValid && (!directActions || connectionConfigured),
+                        busy = busy,
+                        taskCount = preview.taskCount,
+                        repeats = repeats,
+                        start = { context ->
+                            first?.let { profile ->
+                                if (viewModel.startEngineeringBenchmark(
+                                        selectedProfileUids = listOf(profile.uid), lane = lane, repeats = repeats,
+                                        ordering = BenchmarkEngineeringOrdering.COUNTERBALANCED, strictDeterministic = strict, preset = preset,
+                                        repositoryFullName = repository.trim().takeIf { lane == BenchmarkEngineeringLane.LIVE_GITHUB },
+                                        baseSha = baseSha.trim().takeIf { lane == BenchmarkEngineeringLane.LIVE_GITHUB },
+                                        taskPack = selectedTaskPack, budget = budget, externalTransport = selectedTransport,
+                                        githubConnectionUid = selectedConnection?.connectionUid.takeIf { directActions }, contextExperiment = context
+                                    )
+                                ) {
+                                    firstId = profile.uid
+                                    destination = 1
+                                }
+                            }
+                        }
+                    )
+                }
+                selectedComparison?.let { EngineeringComparisonSummary(it) }
+                    ?: if (laneRuns.none { it.engineeringPlan?.contextExperiment != null }) EngineeringEmpty("No matched result yet", "Saved contract checks can be inspected in History. A coding winner requires matched, independently verified task outcomes.") else Unit
             }
             1 -> {
-                if (selectedComparison == null) EngineeringEmpty("No comparable pair", "Start a matched comparison from Overview. A single model's score cannot establish superiority.")
+                BenchmarkContextExperimentResults(laneRuns)
+                if (selectedComparison == null && laneRuns.none { it.engineeringPlan?.contextExperiment != null }) EngineeringEmpty("No comparable pair", "Start a matched comparison from Overview. A single model's score cannot establish superiority.")
                 selectedComparison?.let { comparison ->
                     EngineeringComparisonSummary(comparison)
                     focusedRuns.groupBy { it.profileUid }.forEach { (_, runs) ->
@@ -406,7 +433,7 @@ internal fun BenchmarkEngineeringWorkspace(
                 }
                 EngineeringCard("Individual runs · ${laneRuns.size}") {
                     laneRuns.take(tasksShown).forEach { run ->
-                        Text("${run.profileName} · ${benchmarkResultDate(run.startedAt)}", style = MaterialTheme.typography.titleSmall)
+                        Text("${benchmarkEngineeringRunTitle(run)} · ${benchmarkResultDate(run.startedAt)}", style = MaterialTheme.typography.titleSmall)
                         Text("${run.state} · ${run.samples.size}/${run.plannedTrials} outcomes${if (run.engineeringPlan == null) " · legacy evidence; no matched cohort" else " · episode ${(run.engineeringRepeatIndex ?: 0) + 1}"}", style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = {
                             runId = run.id
@@ -454,6 +481,9 @@ private fun EngineeringRunEvidence(run: BenchmarkRun, selectedTask: BenchmarkSam
         run.engineeringPlan?.let { plan ->
             Text("${plan.lane.label} · ${plan.ordering} · ${plan.repeats} fresh episodes\nTask manifest ${plan.fixtureManifestHash}\nGrader ${plan.graderDigest ?: "Not recorded"}\nCohort ${plan.cohortId}", style = MaterialTheme.typography.bodySmall)
             Text("Pack: ${plan.taskPack} · budget: ${plan.budget.taskDeadlineMs / 1000} s per task · ${plan.budget.outputTokensPerGeneration} output tokens per generation · ${plan.budget.maxToolCalls} tool calls · ${plan.budget.maxModelRounds} model rounds · ${plan.budget.maxRepairAttempts} repairs", style = MaterialTheme.typography.bodySmall)
+            plan.contextExperiment?.let { experiment ->
+                Text("Frozen context arm: ${benchmarkContextArm(run.engineeringContextVariant)} · supplement budget: ${benchmarkContextBudget(experiment)}", style = MaterialTheme.typography.bodySmall)
+            }
             Text("Transport: ${plan.externalTransport} · GitHub connection: ${plan.githubConnectionUid ?: "Gateway-owned route"}", style = MaterialTheme.typography.bodySmall)
             plan.repositoryFullName?.let { Text("Repository $it\nPinned base ${plan.baseSha ?: "Unknown"}", style = MaterialTheme.typography.bodySmall) }
         }
@@ -466,6 +496,12 @@ private fun EngineeringRunEvidence(run: BenchmarkRun, selectedTask: BenchmarkSam
         phases.forEach { (phase, duration) -> Text("${phase.replace('_', ' ')}: ${benchmarkMetricText(duration / 1000.0, "s", 2)}", style = MaterialTheme.typography.bodySmall) }
         if (phases.isEmpty()) Text("Phase timing not recorded.", style = MaterialTheme.typography.bodySmall)
         selectedTask?.let { sample ->
+            if (run.engineeringPlan?.contextExperiment != null || sample.contextReceipt != null) {
+                HorizontalDivider()
+                Text("Repository context receipt", style = MaterialTheme.typography.titleSmall)
+                benchmarkContextReceiptDetails(sample.contextReceipt).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                HorizontalDivider()
+            }
             sample.settingsReceipt?.let { receipt -> Text("Requested temperature ${receipt.requested.temperature ?: "Default"} · reasoning ${receipt.requested.reasoning} · output limit ${sample.effectiveRequestOutputTokens ?: receipt.requested.outputTokens ?: "Unknown"}\nAcknowledged fields ${receipt.acknowledgedFields.joinToString().ifBlank { "None" }}", style = MaterialTheme.typography.bodySmall) }
             sample.engineeringVerification?.let { receipt ->
                 if (receipt.verificationScope == "LOCAL_GENERATION_CONTRACT") Text("The observed response violated its output contract. No remote code check ran for this attempt.", style = MaterialTheme.typography.bodySmall)
@@ -561,10 +597,10 @@ private fun EngineeringConnectionPicker(connections: List<ToolConnection>, selec
 private fun EngineeringRunPicker(runs: List<BenchmarkRun>, selected: BenchmarkRun?, onSelect: (BenchmarkRun) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }, enabled = runs.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text(selected?.let { "${it.profileName} · ${benchmarkResultDate(it.startedAt)}" } ?: "Choose recorded run") }
+        OutlinedButton(onClick = { expanded = true }, enabled = runs.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text(selected?.let { "${benchmarkEngineeringRunTitle(it)} · ${benchmarkResultDate(it.startedAt)}" } ?: "Choose recorded run") }
         DropdownMenu(expanded, { expanded = false }) {
             runs.forEach { run ->
-                DropdownMenuItem(text = { Text("${run.profileName} · ${benchmarkResultDate(run.startedAt)} · ${run.state}") }, onClick = {
+                DropdownMenuItem(text = { Text("${benchmarkEngineeringRunTitle(run)} · ${benchmarkResultDate(run.startedAt)} · ${run.state}") }, onClick = {
                     expanded = false
                     onSelect(run)
                 })

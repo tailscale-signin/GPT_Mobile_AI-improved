@@ -176,6 +176,7 @@ POLICY_FIELD_NAMES = {
     'githubProfileOverride.githubTools',
     'githubProfileOverride.engineeringMode',
     'githubProfileOverride.maximumContext',
+    'githubProfileOverride.contextVariant',
     'githubProfileOverride.engineeringMemory',
     'githubProfileOverride.allowCloudEngineeringMemory',
     'githubProfileOverride.workflowPreset',

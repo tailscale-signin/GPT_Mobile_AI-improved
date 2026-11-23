@@ -108,14 +108,17 @@ def act(backend, job, action):
                     prepare_source(job, backend.token(), parent['tree']['sha'], cancel)
                     checkout = materialize_checkout(job, mirror, changes, root, cancel)
                     from v14.workspace_environment import read as read_environment
+                    from v14 import workspace_lsp
                     _, _, limits = read_environment(policy)
                     argv = ['run', '--detach', '--rm', '--pull=never', '--name', name, '--label', 'gpt.workspace=' + identity,
-                            '--network=none', '--env=GITHUB_SHA=' + head, '--read-only', '--cap-drop=ALL', '--cap-add=CHOWN', '--cap-add=SETUID',
+                            '--network=none', '--env=GITHUB_SHA=' + head, '--env=GATEWAY_WORKSPACE_IDENTITY=' + identity,
+                            '--read-only', '--cap-drop=ALL', '--cap-add=CHOWN', '--cap-add=SETUID',
                             '--cap-add=SETGID', '--cap-add=KILL', '--security-opt=no-new-privileges',
                             '--pids-limit=256', '--memory=' + str(limits['memory_gib']) + 'g', '--cpus=' + str(limits['cpus']), '--user=0:0', '--log-driver=none',
                             '--tmpfs=/task:rw,exec,nosuid,nodev,size=' + str(limits['checkout_gib']) + 'g', '--tmpfs=/tmp:rw,nosuid,nodev,size=512m',
                             '--tmpfs=/control:rw,noexec,nosuid,nodev,mode=0700,size=272m', '--entrypoint=python3',
-                            image, '-I', '-u', '-c', Path(workspace_process.__file__).read_text(encoding='utf-8'), str(job['deadline'])]
+                            image, '-I', '-u', '-c', Path(workspace_process.__file__).read_text(encoding='utf-8'), str(job['deadline']),
+                            Path(workspace_lsp.__file__).read_text(encoding='utf-8')]
                     container = docker(argv, root)
                     if not re.fullmatch('[a-f0-9]{64}', container):
                         raise ValueError('Docker did not return a workspace container ID')
@@ -162,11 +165,9 @@ def act(backend, job, action):
         if state is None:
             raise ValueError('Workspace interrupted. The container no longer exists; commands were not replayed.')
         if kind == 'code_intelligence':
-            from v14 import workspace_lsp
             query = {k: action[k] for k in ('language', 'operation', 'path', 'line', 'column', 'new_name') if k in action}
-            action = {'action': 'terminal_start', 'process_id': workspace_process.identifier(action.get('process_id')),
-                      'argv': ['python3', '-I', '-c', Path(workspace_lsp.__file__).read_text(encoding='utf-8'), json.dumps(query)],
-                      'timeout_seconds': 300}
+            action = dict(query, action='code_intelligence', process_id=workspace_process.identifier(action.get('process_id')),
+                          workspace_identity=saved['identity'], source_sha=head)
         if action.get('action') == 'terminal_start':
             from v14.workspace_environment import read as read_environment
             _, defaults, _ = read_environment(policy)

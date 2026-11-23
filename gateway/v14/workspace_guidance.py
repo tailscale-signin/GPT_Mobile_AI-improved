@@ -90,7 +90,7 @@ def dependencies(data, tools, capabilities):
     admission = data.get('admission') or {}
     available = {'read', 'search', 'paths', 'glob', 'symbols', 'relationships', 'repo_search', 'explore', 'instructions',
                  'progress', 'skills', 'skill', 'requirements', 'workflow_step', 'workflow_batch', 'workflow_batch_status', 'workflow_batch_step',
-                 'worker', 'worker_wave', 'worker_status', 'task_plan', 'task_plan_status', 'context_pack', 'context_summary', 'tool_profile', 'integration_status'}
+                 'worker', 'worker_wave', 'worker_status', 'task_plan', 'task_plan_status', 'context_pack', 'context_summary', 'task_context_bundle', 'tool_profile', 'integration_status'}
     supported = {'repository'}
     if admission.get('policy_sha256'):
         available.update(('checks', 'check', 'check_output', 'discover_tests', 'inspect_failure', 'candidates', 'compare_candidates', 'candidate_files', 'run_test', 'compile_module', 'lint_changed_files', 'check_patch', 'task_plan_complete'))

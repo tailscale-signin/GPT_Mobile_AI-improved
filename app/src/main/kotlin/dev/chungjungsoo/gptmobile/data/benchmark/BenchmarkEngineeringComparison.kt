@@ -41,7 +41,7 @@ data class BenchmarkEngineeringComparison(
 )
 
 fun benchmarkEngineeringComparisons(history: List<BenchmarkRun>): List<BenchmarkEngineeringComparison> = history
-    .filter { it.engineeringPlan != null }
+    .filter { it.engineeringPlan != null && it.engineeringPlan.contextExperiment == null }
     .groupBy { it.engineeringPlan!!.id }
     .values.map(::benchmarkEngineeringComparison)
 

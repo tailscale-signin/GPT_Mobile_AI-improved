@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import java.io.File
+import java.nio.file.Files
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
@@ -32,6 +34,7 @@ class PhoneRepositoryGraphSessionTest {
     private var treeSize = 50
     private var truncated = false
     private var invalidSource = false
+    private var sourceText: String? = null
 
     private suspend fun request(path: String): JsonElement = when {
         "/commits/" in path -> buildJsonObject {
@@ -62,18 +65,18 @@ class PhoneRepositoryGraphSessionTest {
             buildJsonObject {
                 put("sha", path.substringAfterLast('/'))
                 put("encoding", "base64")
-                put("content", Base64.getEncoder().encodeToString((if (invalidSource) "\u0000" else "package sample\nfun useful() = 1\n").toByteArray()))
+                put("content", Base64.getEncoder().encodeToString((if (invalidSource) "\u0000" else sourceText ?: "package sample\nfun useful() = 1\n").toByteArray()))
             }
         }
         else -> error("Unexpected transport $path")
     }
 
-    private fun session(task: String = "map", account: String = "account") = GitHubRepositorySession(
+    private fun session(task: String = "map", account: String = "account", store: GitHubRepositoryStateStore = state) = GitHubRepositorySession(
         account,
         "connection",
         "map-conversation",
         task,
-        state,
+        store,
         ::request,
         { _, _ -> error("Phone map must never write to GitHub") }
     )
@@ -109,6 +112,144 @@ class PhoneRepositoryGraphSessionTest {
         assertTrue((map["nodes"] as JsonArray).isNotEmpty())
         assertEquals(0, blobs)
         assertFalse(map.getValue("graph").jsonObject.getValue("coverage_complete").jsonPrimitive.boolean)
+    }
+
+    @Test fun preparedTaskContextReusesPinnedPacketAndPublishesScopedMetadataOnly() = runTest {
+        val reader = session()
+        val task = JsonObject(arguments("task_context_bundle") + mapOf("query" to JsonPrimitive("src/File1.kt useful"), "variant" to JsonPrimitive("TASK")))
+        val first = reader.repositoryMap("owner", "repo", task)
+        assertTrue((first["selected_ranges"] as JsonArray).isNotEmpty())
+        val fetched = blobs
+        val again = reader.repositoryMap("owner", "repo", task)
+        assertEquals(fetched, blobs)
+        assertEquals(JsonPrimitive("PINNED_PACKET_REUSED"), again["cache_status"])
+        val summary = reader.repositoryMap("owner", "repo", arguments("status"))["task_context"]!!.jsonObject
+        assertEquals(JsonPrimitive(head), summary["source_sha"])
+        assertEquals(JsonPrimitive(true), summary["source_current"])
+        assertFalse(summary.toString().contains("excerpt"))
+        assertFalse(summary.toString().contains("query"))
+        assertTrue(session(account = "another-account").repositoryMap("owner", "repo", arguments("status"))["task_context"] == null)
+        assertTrue(session("new-revision").repositoryMap("owner", "repo", arguments("status", revision = otherHead))["task_context"] == null)
+    }
+
+    @Test fun aSharedCommitKeepsTheSelectedBranchWhileReusingImmutableSource() = runTest {
+        treeSize = 1
+        val task = JsonObject(arguments("task_context_bundle") + ("query" to JsonPrimitive("src/File1.kt useful")))
+        session("main-task").repositoryMap("owner", "repo", task)
+        val featureTask = JsonObject(task + ("ref" to JsonPrimitive("feature/same-source")))
+        val feature = session("feature-task").repositoryMap("owner", "repo", featureTask)
+        assertEquals(JsonPrimitive(head), feature["source_sha"])
+        assertEquals(JsonPrimitive("feature/same-source"), feature["branch"])
+        assertEquals(JsonPrimitive("SOURCE_REUSED"), feature["cache_status"])
+        assertEquals(1, blobs)
+        val again = session("feature-follow-up").repositoryMap("owner", "repo", featureTask)
+        assertEquals(JsonPrimitive("feature/same-source"), again["branch"])
+        assertEquals(JsonPrimitive("PINNED_PACKET_REUSED"), again["cache_status"])
+        assertEquals(1, blobs)
+    }
+
+    @Test fun packetReuseRequiresTheSameRepositoryRevisionQueryAndConfiguration() = runTest {
+        treeSize = 1
+        val task = JsonObject(arguments("task_context_bundle") + ("query" to JsonPrimitive("src/File1.kt useful")))
+        session("original").repositoryMap("owner", "repo", task)
+        val variants = listOf(
+            "query" to JsonObject(task + ("query" to JsonPrimitive("src/File1.kt"))),
+            "variant" to JsonObject(task + ("variant" to JsonPrimitive("REFERENCE"))),
+            "bytes" to JsonObject(task + ("budget_bytes" to JsonPrimitive(4096))),
+            "preparation" to JsonObject(task + ("preparation_budget_ms" to JsonPrimitive(2000))),
+            "revision" to JsonObject(task + ("commit_sha" to JsonPrimitive(otherHead)))
+        )
+        for ((label, changed) in variants) {
+            val result = session(label).repositoryMap("owner", "repo", changed)
+            assertFalse("Changed $label cannot reuse another request's packet", result["cache_status"] == JsonPrimitive("PINNED_PACKET_REUSED"))
+            assertEquals(JsonPrimitive("PINNED_PACKET_REUSED"), session("$label-again").repositoryMap("owner", "repo", changed)["cache_status"])
+        }
+        assertEquals("Request changes can still reuse immutable source", 1, blobs)
+        val spelling = session("repository-spelling").repositoryMap("Owner", "repo", task)
+        assertEquals(JsonPrimitive("Owner/repo"), spelling["repository"])
+        assertEquals(JsonPrimitive("SOURCE_REUSED"), spelling["cache_status"])
+        assertEquals(1, blobs)
+        val repository = session("other-repository").repositoryMap("owner", "other-repo", task)
+        assertEquals(JsonPrimitive("owner/other-repo"), repository["repository"])
+        assertEquals(JsonPrimitive("SOURCE_FETCHED"), repository["cache_status"])
+        assertEquals(2, blobs)
+        val account = session("other-account", account = "another-account").repositoryMap("owner", "repo", task)
+        assertEquals(JsonPrimitive("SOURCE_FETCHED"), account["cache_status"])
+        assertEquals(3, blobs)
+    }
+
+    @Test fun forceLivePolicyBypassesThePreparedPacketAndSourceCache() = runTest {
+        treeSize = 1
+        val task = JsonObject(arguments("task_context_bundle") + ("query" to JsonPrimitive("src/File1.kt useful")))
+        val reader = session()
+        reader.repositoryMap("owner", "repo", task)
+        assertEquals(JsonPrimitive("PINNED_PACKET_REUSED"), reader.repositoryMap("owner", "repo", task)["cache_status"])
+        val live = withContext(GitHubDispatchAccounting(forceLiveReads = true)) { reader.repositoryMap("owner", "repo", task) }
+        assertEquals(2, blobs)
+        assertEquals(JsonPrimitive("SOURCE_FETCHED"), live["cache_status"])
+        assertEquals(JsonPrimitive(false), live["cache_hit"])
+        assertEquals(JsonPrimitive(0), live["cached_files"])
+    }
+
+    @Test fun unreadableRetainedSourceIsReportedAsFetchedAfterRestart() = runTest {
+        treeSize = 1
+        val directory = Files.createTempDirectory("phone-context-source-refetch").toFile()
+        try {
+            val task = JsonObject(arguments("task_context_bundle") + mapOf("query" to JsonPrimitive("src/File1.kt useful"), "variant" to JsonPrimitive("SEMANTIC")))
+            session("original", store = GitHubRepositoryStateStore(directory)).repositoryMap("owner", "repo", task)
+            assertEquals(1, blobs)
+            val blobSha = "%040x".format(1)
+            val record = File(File(directory, "source-blobs"), GitHubRepositoryStateStore.digest("account:owner/repo:blob:$blobSha") + ".record")
+            assertTrue(record.isFile)
+            record.writeText("unreadable retained source")
+            val restored = GitHubRepositoryStateStore(directory)
+            assertTrue(restored.contains("account:owner/repo", "blob:$blobSha"))
+            val recovered = session("recovered", store = restored).repositoryMap("owner", "repo", task)
+            assertEquals(2, blobs)
+            assertEquals(JsonPrimitive("SOURCE_FETCHED"), recovered["cache_status"])
+            assertEquals(JsonPrimitive(false), recovered["cache_hit"])
+            assertEquals(JsonPrimitive(0), recovered["cached_files"])
+            val retained = session("retained", store = GitHubRepositoryStateStore(directory)).repositoryMap("owner", "repo", task)
+            assertEquals(2, blobs)
+            assertEquals(JsonPrimitive("SOURCE_REUSED"), retained["cache_status"])
+            assertEquals(JsonPrimitive(true), retained["cache_hit"])
+            assertEquals(JsonPrimitive(1), retained["cached_files"])
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun preparedSymbolCatalogCanFindAFunctionWhoseFilenameDoesNotMatch() = runTest {
+        session().repositoryMap("owner", "repo", arguments("index"))
+        val fetched = blobs
+        val result = session().repositoryMap("owner", "repo", JsonObject(arguments("task_context_bundle") + ("query" to JsonPrimitive("useful"))))
+        assertTrue((result["selected_ranges"] as JsonArray).isNotEmpty())
+        assertEquals(fetched, blobs)
+        assertTrue(result["coverage"]!!.jsonObject["indexed_files"]!!.jsonPrimitive.int >= 24)
+    }
+
+    @Test fun compactCatalogFindsADeepFunctionBeyondTheFirstDeclarations() = runTest {
+        treeSize = 1
+        sourceText = (1..80).joinToString("\n") { "fun ordinary$it() = $it" } + "\nfun archiveReceipt() = true\n"
+        session().repositoryMap("owner", "repo", arguments("index"))
+        val result = session().repositoryMap("owner", "repo", JsonObject(arguments("task_context_bundle") + ("query" to JsonPrimitive("archiveReceipt"))))
+        val range = (result["selected_ranges"] as JsonArray).single().jsonObject
+        assertEquals(81, range["start_line"]!!.jsonPrimitive.int)
+        assertTrue(range["excerpt"]!!.jsonPrimitive.content.contains("archiveReceipt"))
+    }
+
+    @Test fun semanticRankingReceivesTheSourceAccountsAdmittedIdentity() = runTest {
+        var account: String? = null
+        val ranker = GitHubTaskContextRanking { _, records, admittedAccount ->
+            account = admittedAccount
+            records.mapValues { 0.5 }
+        }
+        val result = withContext(ranker) {
+            session(account = "source-account").repositoryMap("owner", "repo", JsonObject(arguments("task_context_bundle") + mapOf("query" to JsonPrimitive("src/File1.kt"), "variant" to JsonPrimitive("SEMANTIC"))))
+        }
+        assertEquals("source-account", account)
+        assertEquals(JsonPrimitive(true), result["semantic_applied"])
+        assertFalse(result.toString().contains("source-account"))
     }
 
     @Test fun phoneIndexResumesAfterRestartAndReusesImmutableSourceAcrossCommits() = runTest {

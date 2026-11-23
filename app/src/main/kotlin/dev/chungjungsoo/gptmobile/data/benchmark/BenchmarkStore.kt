@@ -313,20 +313,12 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                     val after = requireNotNull(accepted.engineeringPlan) { "The accepted engineering plan cannot be removed." }
                     val firstPreparation = before.externalFixtureDigests.isEmpty() && event == "ENGINEERING_MANIFEST_VERIFIED"
                     val sameIdentity = if (firstPreparation) {
-                        after.copy(
-                            externalFixtureDigests = before.externalFixtureDigests,
-                            graderDigest = before.graderDigest,
-                            externalRouteDigests = before.externalRouteDigests,
-                            externalAuthorityDigests = before.externalAuthorityDigests,
-                            externalSetupMs = before.externalSetupMs,
-                            externalSetupRequestCount = before.externalSetupRequestCount,
-                            cohortId = before.cohortId
-                        ) == before
+                        benchmarkPreparedPlanPreservesAcceptedScope(before, after)
                     } else {
                         before.identityDigest() == after.identityDigest()
                     }
                     require(sameIdentity && before.valid() && after.valid() && saved.caseManifest == accepted.caseManifest) { "The accepted engineering cohort and task manifest cannot change." }
-                    require(saved.items.map { listOf(it.ordinal, it.profile, it.runId, it.configKey, it.engineeringRepeatIndex) } == accepted.items.map { listOf(it.ordinal, it.profile, it.runId, it.configKey, it.engineeringRepeatIndex) }) { "Accepted engineering profile snapshots, order and repeat membership cannot change." }
+                    require(saved.items.map { listOf(it.ordinal, it.profile, it.runId, it.configKey, it.engineeringRepeatIndex, it.engineeringContextVariant) } == accepted.items.map { listOf(it.ordinal, it.profile, it.runId, it.configKey, it.engineeringRepeatIndex, it.engineeringContextVariant) }) { "Accepted engineering profile snapshots, order, repeat and context arm membership cannot change." }
                 }
                 if (saved?.audit != null) {
                     val before = saved.audit

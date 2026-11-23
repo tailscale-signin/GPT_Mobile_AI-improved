@@ -162,6 +162,38 @@ Histories above 512 rows are fully measured when within that bound. The saved
 benchmark journal allows 10,000 retained runs so repeated Deep one-task
 comparisons can retain more than 500 receipts.
 
+### Same-model context experiments
+
+The desktop coding workspace offers CURRENT paired with REFERENCE, TASK,
+SEMANTIC, or all four. The equivalent request adds `context_variants` (starting
+with CURRENT), `context_repeats` (1–5), and `context_budget_bytes` (4096–24000).
+The selected generation model, route, settings, public starting sources, tasks,
+seeds and repair limits remain fixed. Arm order alternates across repeats. A run
+may contain at most 1000 task episodes; the Deep/all-four desktop choice shows
+two repeats before submission.
+
+For SEMANTIC, an already configured local encoder can rerank the public fixture
+source ranges. Configure the existing `GATEWAY_ENGINEERING_EMBEDDINGS_URL`
+(loopback HTTP(S)), `GATEWAY_ENGINEERING_EMBEDDING_MODEL`, and
+`GATEWAY_ENGINEERING_EMBEDDING_REVISION` (an immutable 40/64 lowercase-hex revision,
+optionally prefixed `sha256:`) in the Gateway process environment. The benchmark
+does not download or prepare an encoder. Missing configuration/revision, strict
+selected-model or session-only policy, unavailable local capacity, and unusable
+vectors preserve lexical fallback. An existing background inference ticket
+governs the bounded optional request. Endpoint/model hashes and the declared
+revision are frozen at admission and appear in exported experiment identity;
+a changed configuration cannot silently enter the accepted run. The declared
+revision does not establish an independently measured model artifact.
+
+Comparison results retain observed completion, generation usage, preparation
+time, source-cache reads and added context bytes. Estimated context tokens are
+labelled. Semantic fallback remains visible, and missing cost or independently
+annotated retrieval recall remains unknown. These tasks already supply all
+public starting source in the base prompt, so the experiment measures the effect
+of additional source supplements. It does not measure a full-repository agent's
+remote-read reduction. The result has no new capability score and is excluded
+from ordinary model-score selection.
+
 ## Disposable live GitHub qualification
 
 For one-task live qualification, use `evidence_lane: LIVE_GITHUB` with explicit

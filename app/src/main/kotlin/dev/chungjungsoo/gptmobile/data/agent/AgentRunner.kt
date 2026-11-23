@@ -160,7 +160,7 @@ class AgentRunner(
     }
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
-        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope() + dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope()))
+        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope() + dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope() + AdaptiveBatchScope(limits.maxConcurrentTools)))
     }
 
     private fun runWithRepairScope(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): Flow<AgentRunEvent> = flow {
@@ -2268,7 +2268,7 @@ class AgentRunner(
         val nodes = fullPlan.map {
             it.copy(dependencies = it.dependencies.intersect(admittedIds), failureDependencies = it.failureDependencies.intersect(admittedIds))
         }
-        return IntelligentToolBatch(AdaptiveBatchWindow(limits.maxConcurrentTools)).execute(
+        return IntelligentToolBatch(kotlinx.coroutines.currentCoroutineContext()[AdaptiveBatchScope]?.window ?: AdaptiveBatchWindow(limits.maxConcurrentTools)).execute(
             nodes,
             dispatch = { call ->
                 if (call.callId in blocked) {

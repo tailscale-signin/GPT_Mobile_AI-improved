@@ -49,6 +49,7 @@ class BenchmarkBatchRunnerTest {
         store: BenchmarkStore,
         savedProfiles: List<PlatformV2> = profiles.reversed().map { it.copy(model = "edited-model") },
         onExecution: () -> Unit = {},
+        engineeringExecutor: BenchmarkEngineeringExternalExecutor? = null,
         validate: suspend (PlatformV2) -> Unit
     ): BenchmarkBatchRunner {
         val settings = mockk<SettingRepository>()
@@ -71,7 +72,58 @@ class BenchmarkBatchRunnerTest {
         }
         val runtime = mockk<LocalRuntime>(relaxed = true)
         every { runtime.loadedEngineSpec() } returns null
-        return BenchmarkBatchRunner(store, chat, settings, runtime, context)
+        return BenchmarkBatchRunner(store, chat, settings, runtime, context, engineeringExecutor = engineeringExecutor)
+    }
+
+    @Test fun contextManifestFreezeReachesEveryAcceptedArmWithoutChangingTheProfile() = runBlocking {
+        val fixture = BenchmarkEngineeringTestFixtures(families = 1, repeats = 1)
+        val profile = fixture.profiles.first()
+        val task = requireNotNull(fixture.cases.single().engineeringTaskId)
+        val accepted = fixture.plan.copy(
+            sourceCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT,
+            profileUids = listOf(profile.uid),
+            profileConfigKeys = fixture.plan.profileConfigKeys.filterKeys { it == profile.uid },
+            externalFixtureDigests = emptyMap(),
+            graderDigest = null,
+            externalRouteDigests = emptyMap(),
+            contextExperiment = BenchmarkContextExperiment(listOf("CURRENT", "TASK"))
+        ).frozen()
+        val prepared = accepted.copy(
+            externalFixtureDigests = fixture.plan.externalFixtureDigests,
+            graderDigest = fixture.plan.graderDigest,
+            externalRouteDigests = fixture.plan.externalRouteDigests.filterKeys { it == profile.uid },
+            contextManifestDigests = mapOf(task to benchmarkHash("public manifest")),
+            contextSourceIdentities = mapOf(task to BenchmarkContextSourceIdentity(benchmarkHash("public source"), benchmarkHash("public reference"), 1, 2))
+        ).frozen()
+        val batch = BenchmarkBatch(
+            accepted.id,
+            BenchmarkMode.GITHUB_INTEGRATION,
+            1,
+            BenchmarkEngineeringRegistry.queue(listOf(profile), accepted),
+            executionPolicy = accepted.executionPolicy,
+            caseManifest = fixture.cases,
+            engineeringPlan = accepted
+        )
+        val executor = mockk<BenchmarkEngineeringExternalExecutor>()
+        coEvery { executor.preparePlan(accepted, fixture.cases, any()) } returns prepared
+        val store = BenchmarkStore(context)
+        try {
+            store.checkpoint(batch, event = "MANIFEST_SAVED")
+            var preflights = 0
+            runner(store, savedProfiles = listOf(profile), engineeringExecutor = executor) {
+                assertEquals(profile.uid, it.uid)
+                assertEquals(profile.model, it.model)
+                preflights++
+                // Stop at the generation boundary after verifying real queue admission.
+                throw IllegalArgumentException("Deliberate provider preflight boundary")
+            }.run(batch.id) {}
+            assertEquals(2, preflights)
+            assertEquals(prepared, store.batch(batch.id)?.engineeringPlan)
+            assertEquals(setOf("CURRENT", "TASK"), store.history.value.map { it.engineeringContextVariant }.toSet())
+            assertTrue(store.history.value.none { run -> run.samples.any { it.failureCategory == "ENGINEERING_PREREQUISITE_UNAVAILABLE" } })
+        } finally {
+            store.close()
+        }
     }
 
     @Test fun freshBlankProviderDefaultsStillReachTheAcceptedRoute() = runBlocking {

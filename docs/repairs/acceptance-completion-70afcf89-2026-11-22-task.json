@@ -9,7 +9,7 @@
   "working_branch": "work/acceptance-published-70afcf89",
   "intent": "Implement all 16 diagnostic review findings, preserve other workers changes, validate the current PR head, merge after required checks pass, validate the exact main commit and publish the scoped release.",
   "authorization": "User explicitly authorized implementation, draft PR push, merge after green, and publication after green on 2026-11-22.",
-  "state": "NATIVE_RECEIPT_VERIFIED_SHARED_CONTEXT_BACKUP_AND_ANDROID_INTEGRATION_ACTIVE",
+  "state": "CONTEXT_SOURCE_LOCAL_GATES_PASSED_READY_FOR_GUARDED_DRAFT_PUSH_SPEECH_HOLD_ACTIVE",
   "guardrails": [
     "Preserve concurrent commits; never force push",
     "Never substitute earlier-head checks for current-head evidence",
@@ -654,7 +654,7 @@
     "release": null,
     "status_receipt": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254"
   },
-  "integrated_remote_head": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+  "integrated_remote_head": "753d07cde88fd58f8c90ca266c5450c66838a6c6",
   "preserved_concurrent_commits": [
     "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
     "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
@@ -689,7 +689,13 @@
     "e094773cb40c3fbd52a2e0218cb3478145249cee",
     "7ede6c33f6dc0da14e354b46dde95bde063e4beb",
     "087e312de01e2df0d08be71728957d0835bc47fa",
-    "b715797b347cebc835757a06ffe6a8eb2e3996ea"
+    "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+    "f261446103518ad9dc97ac239bae5f47a7c4cbb6",
+    "bcf1c4523f4b615390f3cecdf8ab436ea4023e7d",
+    "f9ea57ae5436ee747cadffa01e5cc7f360473c71",
+    "2f1afbf3180508b8326a9cc0b1b6c2dd640b34fc",
+    "744268da3005cc9cf6813ae6f2ce5ad9740aac6e",
+    "12b34b08ce5a8bb8ff3535b25d2d2b0d730ccd9e"
   ],
   "qualification_limits": [
     "Do not mark all30 scenarios passed: physical audio, frame latency and device export timing remain unmeasured.",
@@ -975,7 +981,7 @@
     "published_code": "030345b52ca97965d37914859b949e08d7d974a6"
   },
   "shared_context_package": {
-    "state": "ANNOUNCED_ACTIVE_EXTERNAL_WORKSTREAM",
+    "state": "C01_C15_AND_REVIEW_FOLLOWUPS_INTEGRATED_PENDING_DRAFT_PUSH_AND_HOSTED_GATES",
     "marker": "github-context-reference-2026-11-22",
     "checkpoint": "docs/engineering/github-context-reference-2026-11-22-task.json",
     "announced_starting_head": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
@@ -989,10 +995,10 @@
     ],
     "gate": "Preserve and independently review the announced package before final PR readiness; existing privacy, authority, validation and publication gates remain unchanged.",
     "local_owner_checkpoint": "/workspace/scratch/7a1223082cce/implementation/docs/engineering/github-context-reference-2026-11-22-task.json",
-    "requirements": "C01-C15 implementation active; C16 integration/qualification/publication pending in the declared workstream."
+    "requirements": "Original C01-C15 fa40 package and all independently qualified context assistance are locally integrated with shared753d. Final canonical/generated/format verification, guarded draft push and exact-head/main/publication gates remain; separately announced speech source is active."
   },
   "native_receipt_followup": {
-    "state": "INTEGRATED_INDEPENDENTLY_VERIFIED_PENDING_DRAFT_PUSH",
+    "state": "PROTOCOL_PUSHED_TYPED_COMPARISON_FOLLOWUP_INTEGRATED_INDEPENDENTLY_CLEAR",
     "source": "f06624d7a7dcafbf838bc1cd5e1150b39fe641f7",
     "scope": "Strict native execution receipt schema and closed candidate-error reasons after successful independent calibration. Malformed or uncertain runtime evidence must stay unqualified.",
     "evidence": "Two frozen regression methods fail in seven malformed-envelope/arbitrary-error subcases; three positive methods pass. Independently verified enclosing-deadline retention passes on f066 and fails when only its parent executor is substituted.",
@@ -1000,7 +1006,7 @@
     "reserved_files": [
       "gateway/benchmarks/repository_sandbox.py"
     ],
-    "remaining": "Guarded draft upload, remaining shared integration and exact-head/main/publication gates.",
+    "remaining": "Qualify combined source and final draft/current-head/main/publication gates.",
     "candidates": [
       "463c2c25297fd53ef1f173a051962f5f4af318b3",
       "3d13dae74322e403707d3831486a1a72d951af0a",
@@ -1037,6 +1043,23 @@
         "seconds": 28.928,
         "result": "PASS"
       }
+    },
+    "published_code": "f261446103518ad9dc97ac239bae5f47a7c4cbb6",
+    "published_manifest": "bcf1c4523f4b615390f3cecdf8ab436ea4023e7d",
+    "typed_comparison_followup": {
+      "candidate": "636040e025cc4d36163759d47cf0556b8c201a48",
+      "integrated": "6e75de39a89ea60f7de937c0cd773ba3cd0fc6fa",
+      "repair": "Export the actual coding.same implementation for identical typed comparison of reference, broken control and candidate. Pin only the trusted host fixture stdout/files to UTF-8/LF; retain strict production Docker framing.",
+      "baseline": "One actual correct/broken positive passed; four frozen methods failed in five integer/float and Windows host framing assertions.",
+      "independent": "Five unchanged typed/framing probes, four nested and three exported-error methods pass; complete native suite39 passed with two explicitly optional runtime skips. Configured owner gate41 passed with zero skips.",
+      "root_integrated_gate": {
+        "source": "6e75de39a89ea60f7de937c0cd773ba3cd0fc6fa",
+        "configured_native_methods": 41,
+        "skips": 0,
+        "unchanged_typed_framing_probes": 5,
+        "result": "PASS",
+        "qualification": "Exact combinedcontext/native source; fixed shipped Kotlin/JVM,SQLite,YAML controls; fullDocker and hostedWindows remain separate."
+      }
     }
   },
   "shared_benchmark_followups": {
@@ -1051,7 +1074,16 @@
       "snapshot_files": 506,
       "scope": "Legacy interrupted ownership projects through every consumer without rewriting raw completion; cancellation is not replayed and exact append-only settlement releases ownership."
     },
-    "backup_restore": "Benchmark workstream owns pending engineering ownership preservation or refusal through backup replacement, including preflight and canonical atomic guard.",
+    "backup_restore": {
+      "state": "INTEGRATED_INDEPENDENTLY_CLEAR_WITHIN_SCOPE",
+      "identity_source": "71db6456e094397dc062be8bfcbcdb85778101c9",
+      "load_source": "7b36b1f552b087a518fe50140cc9aaa1c26e72d1",
+      "integration": "5a8ed10eac6bfc0d050b40f7a5dab05afd49b09e",
+      "identity_review": "15 actual helper/Store methods pass against current C14 domain; four expected failures on prior helper. Raw opaque receipt retention and settled/unrelated controls retained.",
+      "load_review": "All38 actual-source scoped methods pass:13 selected Store,4 unchanged incoming Store,11 helper,4 C14 Store,4 unchanged identity probes and2 unchanged cold-load probes in fresh JVM groups. All28 compiler inputs,12 full repository sources,6 fragment origins,52 domain repository inputs,19 explicit domain boundaries and83 dependencies bind exact integrated5a8e.",
+      "qualification": "Six whole Complete/User manager regressions remain hosted Android obligations.",
+      "compiled_jar_sha256": "551d5c32a39c56c68e6b4f4ad81bd40bbb01231fd71c188045424155516732d4"
+    },
     "gate": "Preserve and independently review these announced repairs before readiness; do not duplicate their reserved production edits."
   },
   "cursor_process_draft_push": {
@@ -1071,19 +1103,161 @@
     "scope": "Quota and stop after identity, captured credential rotation and owner revocation before dispatch all preserve truthful fences. Canonical Room deletion reviewed; full Android execution pending."
   },
   "context_assistance_followup": {
-    "state": "ISOLATED_CANDIDATES_INDEPENDENTLY_VERIFIED_AWAITING_SHARED_CONTEXT_INTEGRATION",
+    "state": "ALL_SCOPED_REPAIRS_INTEGRATED_INDEPENDENTLY_CLEAR",
     "phone_candidate": "a37c13b9e9e0cf5173192ca45b70b929940d2b90",
     "phone_behavior": "Bind packets to exact selected branch/repository/commit/tree/query/variant/budgets and report reuse only from the successful retained read; unreadable cached data physically refetched is reported fetched.",
     "phone_validation": "Root immutable archive independently recompiles45 focused tests and3 unchanged probes; all29 compiled inputs,21 dependencies and complete consulted source blobs verified.",
     "catalog_candidate": "3d974c92aa75b90f0628c2cab6c7b1c1c63bc007",
     "catalog_behavior": "Validate proposed repository task-context arguments against the current presented schema of an already admitted alias without changing discovery or acquisition.",
     "catalog_validation": "Independent immutable8-method focused/frozen suite and3 additional contract-replacement/multiple-alias/required-selector probes pass;13 full source/test blobs,20 compiler inputs and20 dependencies verified.",
-    "qualification": "Actual scoped Kotlin components with explicit platform/service boundaries; final integrated full Android/provider/Room execution remains required."
+    "qualification": "Actual scoped Kotlin components with explicit platform/service boundaries; final integrated full Android/provider/Room execution remains required.",
+    "owner_source": "fa40ab8104e7119308c81d85834b63000a054291",
+    "package_merge": "183eb4dd5f6a4f0165d7d171fc0dd1e6ee6f7834",
+    "phone_integrated": "486b80ef1c",
+    "catalog_integrated": "3ba9b785c2",
+    "summary": {
+      "candidate": "6f65e1197b33cbc24a83eac2e204bb93c62d80f9",
+      "integrated": "a2a90893b5",
+      "repair": "Derive independent families and task membership from the retained frozen task manifest. Require complete matching source identities and internally consistent known grader outcomes; preserve actual rejected submissions and measured candidate failures.",
+      "root_independent": "27 context methods and8 unchanged frozen probes pass;514 archived Gateway inputs verified. Six probe methods failed at fa40 with two actual-grader positives preserved.",
+      "android_scope": "99 actual domain methods and4 actual Room Store methods pass on fa40; no full Android or isolated scoring qualification.",
+      "additional_findings": {
+        "baseline": "6f65e1197b33cbc24a83eac2e204bb93c62d80f9",
+        "state": "INTEGRATED_INDEPENDENTLY_CLEAR_WITHIN_SCOPE",
+        "findings": [
+          "Missing frozen execution/settings/selector or task/grader identities still produce paired values.",
+          "Delivered task/grader identities can differ from the frozen task manifest without rejection.",
+          "Caller planned can understate frozen task times repeat coverage.",
+          "Actual delivered output allowances can diverge after adaptive retries while retaining a same-budget scope."
+        ],
+        "requirements": "Preserve individual measured attempts and costs. Require typed complete frozen identities and exact delivered task/grader binding, derive coverage from immutable task/repeat plan, and withhold same-budget claims for divergent or unobserved effective allowances.",
+        "presentation_owner": "Narrow isolated assistanceb472 independently clear and integratedf380; original owner checkout remains unchanged atfa40. Preserve any later owner changes before push.",
+        "candidate": "a7828c1dd4316620a9970af9b5510d7c29d1eb94",
+        "integrated": "184f7e021778b6b640166818c46c00a6cc03f759",
+        "independent": "35 actual context methods and7 unchanged independent methods pass, zero skips;517 immutable archived inputs reverified. Frozen baseline1 positive passes and6 negatives fail20assertions.",
+        "root_combined": "35 context methods pass in0.901s and7 unchanged integrity methods pass in2.307s on integrated184f. Complete72case/36pair/12family control retained.",
+        "measurement": "Recorded requested output allowance before the selected-profile clamp; no claim of measured provider-effective limits. Unknown or unequal allowances retain outcomes/attempts/usage while withholding paired difference and interval."
+      }
+    },
+    "lsp": {
+      "candidate": "e20e998b19f38775839a727d322a8da61d59a2e1",
+      "integrated": "9b2e87319a",
+      "repair": "Own startup failures, preserve terminal observer state, serialize reply admission with close/deadline/invalidation and use cancellable bounded framed IO independent of inherited-pipe EOF.",
+      "independent": "20 tracked methods,41 existing workspace integration methods,5 unchanged frozen fault probes and1 exact embedded-source execution control pass:67 methods, zero skips;514 Gateway inputs verified.",
+      "baseline": "Same20 tracked methods on fa40 produce10 expected failures; all8 prior method bodies retained.",
+      "platform": "17 warm-server cases target POSIX inside the Linux workspace;3 portable diagnostics cases remain applicable on Windows. Pool owns its process group; container bounds outside-group descendants."
+    },
+    "context_review": "145 focused context/cache/authority methods pass at fa40 with zero skips and519 archived inputs verified. C14 comparison admission and presentation findings are tracked separately and remain active.",
+    "reference_review": "Eight actual generator tests pass, including canonical Windows text and custom clean-filter refusal; references are navigation data, never execution authority.",
+    "ui": {
+      "candidate": "b47257f271810eda3fbe2a4f24604166378760e1",
+      "integrated": "f3809bf28ee9f605d3b0fed8ba08d25fe600870a",
+      "scope": "Retain accepted profile UID; use the same displayed/passed supplement budget; expose frozen arm and budget and privacy-safe per-task receipt metadata with explicit unknowns. Comparison logic unchanged.",
+      "independent": "15 actual formatter/domain methods pass:7 new and8 retained, zero failures/skips.84 dependencies,67 repository source paths and19 explicit domain boundaries verified;6779 archived files rehashed.",
+      "full_android": "Four actual Compose regressions authored and source-reviewed; no local Compose compilation/execution claim."
+    }
   },
   "remaining_shared_holds": [
-    "Repository-context C01-C15 owner integration and independent Gateway/LSP/C14 reviews",
-    "Backup-manager admission, committed recovery and cold-initialization/locked-chat integration owned by map/integration",
-    "Nine actual Android failures from45088632015/ac503 owned by voice-response, with independent privacy cause review",
-    "Every applicable final-head check, expected-head merge, exact-main qualification and signed publication/asset readback"
-  ]
+    "Speech S01-S14 benchmark/qualification/playback package remains implementing in its isolated owner checkout.",
+    "Final regenerated combined references/format/scope gate and guarded draft upload of originalC01package plus all scoped followups.",
+    "Every applicable exact-final-head check and current main rule, expected-head merge, exact-main qualification, signed Android/Gateway publication and downloaded asset/provenance readback."
+  ],
+  "android_nine_review": {
+    "source": "71db6456e094397dc062be8bfcbcdb85778101c9",
+    "state": "CLEAR_WITHIN_SCOPE",
+    "distinct_focused_methods": 85,
+    "executions_including_coroutine_modes": 129,
+    "source_method_bindings": 12,
+    "result": "PASS",
+    "qualification": "Actual-source checkpoint/planner and scoped alias/cancellation/continuation helpers; complete runner/session/privacy assertions require final-head hosted Android. Baseline artifact contains13220 Android plus4 portable-domain tests,9 failures,5 skips."
+  },
+  "combined_context_validation": {
+    "source": "5a8ed10eac6bfc0d050b40f7a5dab05afd49b09e",
+    "canonical_fast": {
+      "tests": 635,
+      "seconds": 33.275,
+      "result": "PASS",
+      "literal_regexes": 2034,
+      "dynamic_regexes_excluded": 100,
+      "xml_resources": 36
+    },
+    "changed_kotlin_format": {
+      "files": 65,
+      "ktlint": "1.3.1",
+      "result": "PASS"
+    },
+    "gateway_suite": {
+      "source": "5a8ed10eac6bfc0d050b40f7a5dab05afd49b09e",
+      "python_suites": 146,
+      "reported_python_tests": 2003,
+      "explicit_optional_skips": 35,
+      "browser_tests": 7,
+      "durable_diagnostic_events": 50000,
+      "source_unchanged_through": "fc7bbc63d77271de2d20559bc740b9a5c6d029ea",
+      "result": "PASS",
+      "log": "combined-context-backup-gateway.log"
+    },
+    "authentication_contracts": {
+      "source": "184f7e021778b6b640166818c46c00a6cc03f759",
+      "tests": 209,
+      "seconds": 2.008,
+      "result": "PASS",
+      "command": "python -m unittest discover -s authentication -t ."
+    },
+    "final_local": {
+      "source_base": "f3809bf28ee9f605d3b0fed8ba08d25fe600870a",
+      "canonical_fast": {
+        "tests": 635,
+        "seconds": 25.724,
+        "result": "PASS"
+      },
+      "changed_kotlin": {
+        "files": 67,
+        "ktlint": "1.3.1",
+        "result": "PASS"
+      },
+      "literal_regexes": 2035,
+      "dynamic_regexes_excluded": 100,
+      "xml_resources": 36,
+      "gateway_package_files": 513,
+      "workflow_inventory_entries": 32,
+      "generated_and_scope": "PASS",
+      "qualification": "Final UI/source/reference/inventory union; evidence-ledger update follows without modifying tested production/test or generated bytes. Full hosted Android, Windows/Docker, final-head/main and publication remain separate."
+    }
+  },
+  "android_tenth_review": {
+    "candidate": "18a8dc464dc5673606032f905a462f4807b220a9",
+    "state": "INTEGRATED_INDEPENDENTLY_CLEAR_WITHIN_SCOPE",
+    "methods": 56,
+    "result": "PASS",
+    "baseline": "55 component controls pass and1 fixture fails before correction; same harness56 pass after actual GitHubResultViews issuance/readback.",
+    "qualification": "Original3remote/1saved/5model-round/completion assertions remain. Component proof covers cursor admission and no duplicate next page; full AgentRunner and five rounds remain hosted obligations.",
+    "hosted_baseline": {
+      "pr_head": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+      "merge_checkout": "c792afd",
+      "run": 45092816803,
+      "tests": 13253,
+      "failures": 10,
+      "skips": 5
+    },
+    "integrated": "d2979e6724ceb0e3480acd62768876097bcbb7b9",
+    "published": "753d07cde88fd58f8c90ca266c5450c66838a6c6",
+    "combined_binding": "All35 directly compiled source inputs and final fixture match.45of46 dependency files match fully; consultedAgentRunner C01delta leaves exact savedRead expression/limits/defaults unchanged. Fullrunner remains hosted."
+  },
+  "workflow_gate_review": {
+    "source": "184f7e021778b6b640166818c46c00a6cc03f759",
+    "active_ruleset": 27005122,
+    "required_checks": [
+      "Required verification",
+      "Analyze (java-kotlin)"
+    ],
+    "integration_id": 15368,
+    "strict": true,
+    "bypass": false,
+    "pr_workflows": 15,
+    "main_workflows": 9,
+    "required_main_prerequisites": 8,
+    "note": "Recompute after all source changes. Latest applicable run/attempt and complete pagination are mandatory. PR body/readiness events trigger validation; avoid unnecessary metadata edits during final settling.",
+    "documentation_repair": "Correct workflow inventory to all32 entry points and document actual cancellation/readiness behavior; no executable workflow policy changed."
+  }
 }

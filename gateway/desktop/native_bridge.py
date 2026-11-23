@@ -544,8 +544,11 @@ def dispatch(root, action, args, output):
                        'seed': 17, 'concurrency': 2}
             if args.get('task_pack', 'python') != 'python':
                 payload['task_pack'] = args['task_pack']
+            for key in ('context_variants', 'context_repeats', 'context_budget_bytes'):
+                if key in args:
+                    payload[key] = args[key]
             from benchmarks.contracts import validate_request
-            validate_request(payload)
+            payload = validate_request(payload)
             benchmark.save_pending(root, dict(payload, _binding=binding))
             try:
                 result = benchmark.start_run(root, binding=binding, **{k: v for k, v in payload.items() if k != 'seed'})

@@ -314,6 +314,7 @@ internal fun GitHubGatewayConnectionCheck(profileUid: String?, onCheck: (String)
 private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride, enabled: Boolean, configuredCallLimit: Int?, onChange: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var workflowMenu by remember { mutableStateOf(false) }
+    var contextMenu by remember { mutableStateOf(false) }
     var advanced by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -341,6 +342,21 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
             }
             GitHubOverrideSwitch("Web search", "Search the web and read source pages.", value.webSearch, enabled) { onChange(value.copy(webSearch = it)) }
             GitHubOverrideSwitch("GitHub tools", "Use the connected repository and review changes before committing.", value.githubTools, enabled) { onChange(value.copy(githubTools = it)) }
+            Column {
+                Text("Repository context", style = MaterialTheme.typography.titleSmall)
+                OutlinedButton(onClick = { contextMenu = true }, enabled = enabled && value.githubTools, modifier = Modifier.testTag("github_context_variant")) {
+                    Text(repositoryContextLabel(value.contextVariant))
+                }
+                DropdownMenu(expanded = contextMenu, onDismissRequest = { contextMenu = false }) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant.entries.forEach { variant ->
+                        DropdownMenuItem(text = { Text(repositoryContextLabel(variant)) }, onClick = {
+                            contextMenu = false
+                            onChange(value.copy(contextVariant = variant))
+                        })
+                    }
+                }
+                Text("Task context selects source ranges, repository guidance and test candidates for your request. Semantic context adds local similarity ranking. All choices keep the selected model, permissions and source revision.", style = MaterialTheme.typography.bodySmall)
+            }
             TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced settings" else "Advanced settings") }
             if (advanced) {
                 GitHubOverrideSwitch("Maximum context expansion", "Expand up to the provider or local model capacity, with room for results and review.", value.maximumContext, enabled) { onChange(value.copy(maximumContext = it)) }
@@ -450,4 +466,11 @@ private fun GatewayAdmissionControl(loadOrToggle: suspend (GatewayAdmissionSetti
             Text("Current setting unknown. Check the connection, host version and engineering access, then read it again.", style = MaterialTheme.typography.bodySmall)
         }
     }
+}
+
+private fun repositoryContextLabel(variant: dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant): String = when (variant) {
+    dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant.CURRENT -> "Current context baseline"
+    dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant.REFERENCE -> "Repository reference"
+    dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant.TASK -> "Task context (recommended)"
+    dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant.SEMANTIC -> "Task context with local similarity"
 }

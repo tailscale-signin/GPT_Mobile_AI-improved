@@ -190,13 +190,16 @@ def service_request(root, path='', *, method='GET', payload=None, binding=None):
             return value
 
 
-def start_run(root, model, suite='quick_check', preset='quick', *, request_id=None, seed=17, concurrency=2, binding=None, comparison_context=None, task_pack='python'):
+def start_run(root, model, suite='quick_check', preset='quick', *, request_id=None, seed=17, concurrency=2, binding=None, comparison_context=None, task_pack='python',
+              context_variants=None, context_repeats=3, context_budget_bytes=12000):
     payload = {'request_id': request_id or 'benchmark-' + uuid.uuid4().hex,
                'model': model, 'suite': suite, 'preset': preset, 'seed': seed, 'concurrency': concurrency}
     if comparison_context is not None:
         payload['comparison_context'] = comparison_context
     if task_pack != 'python':
         payload['task_pack'] = task_pack
+    if context_variants is not None:
+        payload.update(context_variants=context_variants, context_repeats=context_repeats, context_budget_bytes=context_budget_bytes)
     return service_request(root, method='POST', binding=binding, payload=payload)
 
 

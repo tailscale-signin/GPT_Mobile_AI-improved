@@ -27,7 +27,8 @@ def content_digest(value):
 
 def validate_request(value):
     extra = {'comparison_context', 'execution_binding_id', 'task_id', 'fixture_digest', 'proposal_digest', 'grader_digest', 'environment_digest',
-             'generation_receipt', 'evidence_lane', 'repository', 'base_sha', 'cohort', 'task_pack'}
+             'generation_receipt', 'evidence_lane', 'repository', 'base_sha', 'cohort', 'task_pack',
+             'context_variants', 'context_repeats', 'context_budget_bytes'}
     if not isinstance(value, dict) or set(value) - {'request_id', 'model', 'suite', 'preset', 'seed', 'concurrency'} - extra:
         raise ValueError('Unsupported benchmark request')
     request = dict(value)
@@ -83,6 +84,8 @@ def validate_request(value):
         raise ValueError('External grading fields require the one-task evaluation endpoint')
     if 'task_pack' in request and (request['suite'] not in {'coding', 'coding_submission'} or request['task_pack'] not in {'python', 'repository'}):
         raise ValueError('A task pack requires a supported coding suite')
+    from benchmarks.context_experiment import validate_context_request
+    validate_context_request(request)
     return request
 
 

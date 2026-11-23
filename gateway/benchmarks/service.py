@@ -158,6 +158,9 @@ class BenchmarkService:
             provenance.update(modelIdentityScope='AUTHENTICATED_CLIENT_OBSERVATION', graderDigest=request['grader_digest'])
         else:
             provenance.update(modelIdentityScope='CONFIGURED_GATEWAY_ROUTE')
+        if 'SEMANTIC' in request.get('context_variants', []):
+            from benchmarks.context_semantic import describe
+            provenance['contextEncoderIdentity'] = describe(request, provenance, self.engineering)
         # The maintenance prepare path holds this same admission fence.
         with self.runtime.gateway_service.lock:
             if self.draining or self.stop.is_set() or self.runtime.gateway_service.draining or getattr(self.runtime, 'gateway_draining', False):
@@ -327,7 +330,17 @@ class BenchmarkService:
             def qualify_live(run_value, task, candidate, grade, cancellation):
                 from benchmarks.live_github import qualify
                 return qualify(self, owner, run_value, task, candidate, grade, cancellation)
-            runner = BenchmarkRunner(self.store, self.origin(), cancel, identity, lambda: load_settings(self.root), external_qualifier=qualify_live)
+            context_ranker = None
+            if 'SEMANTIC' in run['request'].get('context_variants', []):
+                from benchmarks.context_semantic import ContextSemanticRanker
+                def guard_context():
+                    if identity() != run['provenance']['executionIdentity']:
+                        raise ValueError('SELECTED_EXECUTION_CHANGED')
+                    if self.stop.is_set() or self.draining or self.runtime.gateway_service.draining or getattr(self.runtime, 'gateway_draining', False):
+                        raise InterruptedError('Benchmark stopped before local context ranking')
+                context_ranker = ContextSemanticRanker(self.engineering, run, owner, cancel, guard_context)
+            runner = BenchmarkRunner(self.store, self.origin(), cancel, identity, lambda: load_settings(self.root),
+                                     external_qualifier=qualify_live, context_ranker=context_ranker)
             summary = runner.execute(run)
             self.store.update(ident, state='COMPLETED', summary=summary, endedAt=time.time(), progress='Results saved')
         except InterruptedError as error:

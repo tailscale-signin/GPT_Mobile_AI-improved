@@ -117,6 +117,7 @@ internal fun GatewayWorkspaceEnvironment(board: GatewayAgentWorkspace, binding: 
 
 @Composable
 internal fun GatewayWorkspaceTools(board: GatewayAgentWorkspace, binding: GatewayEngineeringBinding, enabled: Boolean, model: GatewayEngineeringViewModel) {
+    RepositoryTaskContextCard(board.taskContext, board.headSha)
     Text("Tools for this task", style = MaterialTheme.typography.titleMedium)
     Text("Tool profiles narrow the current job's admitted tools. Selecting a profile does not grant new access.", style = MaterialTheme.typography.bodySmall)
     if (board.canRun("tool_profile")) {
@@ -157,24 +158,22 @@ private fun GatewayWorkspaceContextPack(board: GatewayAgentWorkspace, binding: G
     var paths by remember(board.jobId, board.headSha) { mutableStateOf(binding.job?.changedFiles.orEmpty().take(60).joinToString("\n")) }
     var format by remember(board.jobId) { mutableStateOf("markdown") }
     var engine by remember(board.jobId) { mutableStateOf("builtin") }
-    val selected = paths.lineSequence().map { it.trim() }.filter(String::isNotEmpty).distinct().toList()
+    var ranges by remember(board.jobId) { mutableStateOf(false) }
+    var tokenLimit by remember(board.jobId) { mutableStateOf("") }
+    val selection = dev.chungjungsoo.gptmobile.data.github.RepositoryContextPackSelection.arguments(paths, ranges, engine, format, tokenLimit)
     Text("Bounded repository context", style = MaterialTheme.typography.titleMedium)
-    Text("Package observed files at this commit, with blob identities and explicit omissions. The complete pack remains a private job artifact.", style = MaterialTheme.typography.bodySmall)
-    OutlinedTextField(paths, { paths = it.take(24000) }, label = { Text("Observed paths, one per line (up to 60)") }, modifier = Modifier.fillMaxWidth())
+    Text("Package observed source at this commit, with blob identities and explicit omissions. Use line ranges to select relevant sections of large files. The pack remains a private job artifact.", style = MaterialTheme.typography.bodySmall)
+    Row {
+        FilterChip(selected = !ranges, onClick = { ranges = false }, label = { Text("Whole files") })
+        FilterChip(selected = ranges, onClick = { ranges = true }, label = { Text("Line ranges") })
+    }
+    OutlinedTextField(paths, { paths = it.take(24000) }, label = { Text(if (ranges) "path:start-end, one range per line" else "Observed paths, one per line (up to 60)") }, modifier = Modifier.fillMaxWidth())
+    if (ranges) Text("Select up to 60 ranges of at most 1,000 lines each. Repomix accepts one range per path; the built-in exporter also accepts separate ranges in the same file.", style = MaterialTheme.typography.bodySmall)
     Row { listOf("markdown", "json", "xml").forEach { value -> FilterChip(selected = value == format, onClick = { format = value }, label = { Text(value) }) } }
     Row { listOf("builtin" to "Built-in", "repomix" to "Configured Repomix").forEach { (value, label) -> FilterChip(selected = value == engine, onClick = { engine = value }, label = { Text(label) }) } }
-    TextButton(enabled = enabled && selected.size in 1..60, onClick = {
-        model.workspaceCommand(
-            binding,
-            "context_pack",
-            buildJsonObject {
-                put("paths", JsonArray(selected.map(::JsonPrimitive)))
-                put("format", format)
-                put("engine", engine)
-                put("max_bytes", 65536)
-            }
-        )
-    }) { Text("Create context pack") }
+    OutlinedTextField(tokenLimit, { tokenLimit = it.take(8) }, label = { Text("Maximum tokens (optional, 128–131072)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+    Text("The export keeps separate input and output byte limits. Token counts use the selected model's supported tokenizer. An explicit token limit requires that tokenizer; other unavailable counts stay unknown.", style = MaterialTheme.typography.bodySmall)
+    TextButton(enabled = enabled && selection != null, onClick = { selection?.let { model.workspaceCommand(binding, "context_pack", it) } }) { Text("Create context pack") }
     board.contextPack?.let { GatewayWorkspaceReceipt("Retained context pack manifest", it.toString()) }
 }
 

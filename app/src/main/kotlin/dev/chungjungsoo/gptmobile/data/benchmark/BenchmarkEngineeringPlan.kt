@@ -70,16 +70,21 @@ data class BenchmarkEngineeringPlan(
     val externalSetupRequestCount: Int? = null,
     val practicalMarginPercentagePoints: Double = 5.0,
     val minimumIndependentFamilies: Int = 12,
-    val minimumRepeats: Int = 3
+    val minimumRepeats: Int = 3,
+    val contextExperiment: BenchmarkContextExperiment? = null,
+    val contextManifestDigests: Map<String, String> = emptyMap(),
+    val contextSourceIdentities: Map<String, BenchmarkContextSourceIdentity> = emptyMap()
 ) {
     fun identityDigest(): String = benchmarkHash(
-        listOf(
-            id, registryVersion, lane, repeats, ordering, profileUids.joinToString(","),
-            profileConfigKeys.toSortedMap(), fixtureManifestHash, executionPolicy, budget,
-            sourceCommit, environmentDigest, permissionsDigest, preset, seed, taskPack,
-            repositoryFullName, baseSha, externalTransport, githubConnectionUid, externalFixtureDigests.toSortedMap(), graderDigest, externalRouteDigests.toSortedMap(), externalAuthorityDigests.toSortedMap(),
-            practicalMarginPercentagePoints, minimumIndependentFamilies, minimumRepeats
-        ).joinToString("\u0000")
+        (
+            listOf(
+                id, registryVersion, lane, repeats, ordering, profileUids.joinToString(","),
+                profileConfigKeys.toSortedMap(), fixtureManifestHash, executionPolicy, budget,
+                sourceCommit, environmentDigest, permissionsDigest, preset, seed, taskPack,
+                repositoryFullName, baseSha, externalTransport, githubConnectionUid, externalFixtureDigests.toSortedMap(), graderDigest, externalRouteDigests.toSortedMap(), externalAuthorityDigests.toSortedMap(),
+                practicalMarginPercentagePoints, minimumIndependentFamilies, minimumRepeats
+            ) + if (contextExperiment == null && contextManifestDigests.isEmpty() && contextSourceIdentities.isEmpty()) emptyList() else listOf(contextExperiment, contextManifestDigests.toSortedMap(), contextSourceIdentities.toSortedMap())
+            ).joinToString("\u0000")
     )
 
     fun frozen(): BenchmarkEngineeringPlan = copy(cohortId = identityDigest())
@@ -110,6 +115,11 @@ data class BenchmarkEngineeringPlan(
         practicalMarginPercentagePoints in 0.0..25.0 &&
         minimumIndependentFamilies >= 2 &&
         minimumRepeats >= 1 &&
+        (contextExperiment == null || contextExperiment.valid() && profileUids.size == 1 && lane in setOf(BenchmarkEngineeringLane.EXECUTABLE_CODING, BenchmarkEngineeringLane.LIVE_GITHUB)) &&
+        contextManifestDigests.all { (task, hash) -> task.isNotBlank() && hash.matches(Regex("[0-9a-f]{64}")) } &&
+        contextSourceIdentities.keys == contextManifestDigests.keys &&
+        contextSourceIdentities.values.all { it.valid() } &&
+        (contextExperiment != null || contextManifestDigests.isEmpty()) &&
         (externalRouteDigests.isEmpty() || externalRouteDigests.keys == profileUids.toSet() && externalRouteDigests.values.all { it.matches(Regex("[0-9a-f]{64}")) }) &&
         (externalAuthorityDigests.isEmpty() || externalAuthorityDigests.keys == profileUids.toSet() && externalAuthorityDigests.values.all { it.matches(Regex("[0-9a-f]{64}")) }) &&
         externalFixtureDigests.all { (task, digest) -> task.isNotBlank() && digest.matches(Regex("[0-9a-f]{64}")) } &&
@@ -132,6 +142,7 @@ data class BenchmarkEngineeringPlan(
         return !external ||
             !requireExternalReceipts ||
             externalFixtureDigests.keys == cases.mapNotNull { it.engineeringTaskId }.toSet() &&
+            (contextExperiment == null || contextManifestDigests.keys == externalFixtureDigests.keys) &&
             graderDigest != null &&
             externalRouteDigests.keys == profileUids.toSet()
     }
@@ -202,16 +213,16 @@ object BenchmarkEngineeringRegistry {
     fun queue(profiles: List<PlatformV2>, plan: BenchmarkEngineeringPlan): List<BenchmarkQueueItem> {
         require(plan.valid())
         require(profiles.map { it.uid } == plan.profileUids)
-        return (0 until plan.repeats).flatMap { repeat ->
-            val ordered = if (plan.ordering == BenchmarkEngineeringOrdering.COUNTERBALANCED && repeat % 2 == 1) profiles.reversed() else profiles
-            ordered.map { repeat to it }
-        }.mapIndexed { ordinal, (repeat, profile) ->
+        return benchmarkEngineeringQueueOrder(plan).mapIndexed { ordinal, entry ->
+            val (uid, repeat, variant) = entry
+            val profile = profiles.single { it.uid == uid }
             BenchmarkQueueItem(
                 ordinal,
                 profile.benchmarkSnapshot(),
                 UUID.randomUUID().toString(),
                 requireNotNull(plan.profileConfigKeys[profile.uid]),
-                engineeringRepeatIndex = repeat
+                engineeringRepeatIndex = repeat,
+                engineeringContextVariant = variant
             )
         }
     }
@@ -306,11 +317,8 @@ internal fun benchmarkEngineeringQueueMatches(batch: BenchmarkBatch, plan: Bench
     ) {
         return false
     }
-    val expected = (0 until plan.repeats).flatMap { repeat ->
-        val profiles = if (plan.ordering == BenchmarkEngineeringOrdering.COUNTERBALANCED && repeat % 2 == 1) plan.profileUids.reversed() else plan.profileUids
-        profiles.map { it to repeat }
-    }
-    return batch.items.map { it.profile.uid to it.engineeringRepeatIndex } == expected &&
+    val expected = benchmarkEngineeringQueueOrder(plan)
+    return batch.items.map { Triple(it.profile.uid, it.engineeringRepeatIndex, it.engineeringContextVariant) } == expected &&
         batch.items.withIndex().all { (index, item) ->
             item.ordinal == index &&
                 item.configKey == plan.profileConfigKeys[item.profile.uid] &&

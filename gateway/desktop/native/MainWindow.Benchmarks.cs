@@ -32,11 +32,15 @@ public partial class MainWindow
         var model = Ui.Select(overview, "Exact Gateway model", models);
         var suite = Ui.Select(overview, "Suite", ["Quick check", "HTTP scheduling comparison", "Executable coding", "Repository native"]);
         var preset = Ui.Select(overview, "Coding extent", ["Quick · 12", "Standard · 36", "Deep · 100"]);
+        var context = Ui.Select(overview, "Repository context experiment", ["Standard benchmark", "Current / Reference", "Current / Task context", "Current / Local semantic", "All four variants"]);
+        context.IsEnabled = suite.SelectedIndex >= 2;
         suite.SelectionChanged += (_, _) => {
             int previous = Math.Max(preset.SelectedIndex, 0);
             preset.ItemsSource = suite.SelectedIndex == 3 ? new[] { "Quick · 4", "Standard · 8", "Deep · 12" } : new[] { "Quick · 12", "Standard · 36", "Deep · 100" };
             preset.SelectedIndex = previous;
+            context.IsEnabled = suite.SelectedIndex >= 2;
         };
+        overview.Children.Add(Ui.Text("Context experiments use the same selected model, public starting source and limits: three repeats per arm, alternating order, with a 12 KB supplement. Deep coding with all four uses two repeats (800 episodes) to fit the durable journal. Quick coding runs 72 episodes for two arms or 144 for all four; repository native runs 24 or 48. Semantic unavailability is recorded as lexical fallback.", 13, "MutedBrush"));
         overview.Children.Add(Ui.Text("Quick check keeps five short fixtures. Coding uses twelve problem families with seeded variants; Deep adds four capstones. The phone's general Quick/Full screen is unchanged. Coding results certify only the executed fixture contract.", 13, "MutedBrush"));
         var metric = Ui.Text("Choose a saved result to inspect measured completion and qualification.", 15, "MutedBrush");
         var graph = new StackPanel();
@@ -88,7 +92,10 @@ public partial class MainWindow
             var summary = observedRun.Object("summary");
             string runSuite = observedRun.Object("request").Text("suite");
             string progress = $"{observedRun.Text("state")} · {observedRun.Text("completed", "0")} / {observedRun.Text("planned", "0")} trials";
-            metric.Text = runSuite == "coding"
+            bool contextExperiment = observedRun.Object("request").Array("context_variants").Count > 0;
+            metric.Text = contextExperiment
+                ? progress + $" · {summary.Text("resolved", "0")} independently verified resolutions · same-model context experiment"
+                : runSuite == "coding"
                 ? progress + $" · {summary.Text("finalResolved", summary.Text("resolved", "0"))} final verified resolutions · " +
                   (summary.Flag("qualified") ? "Qualified for this fixture suite" : "Qualification incomplete") +
                   $"\nFirst {summary.Text("initialResolved", summary.Text("firstSubmissionResolved", "Unknown"))} · final {summary.Text("finalResolved", "Unknown")} · best {summary.Text("bestResolved", "Unknown")} · secondary rubric {summary.Text("score", "Unavailable")} / 1000"
@@ -96,6 +103,17 @@ public partial class MainWindow
                   (summary.Flag("qualified") ? "Qualified matched scheduling comparison" : "Exploratory; no qualified speedup")
                 : progress + $" · contract score {summary.Text("score", "Unavailable")} / {summary.Text("maximum", "100")}";
             graph.Children.Clear();
+            if (contextExperiment)
+            {
+                foreach (var pair in summary.Array("contextComparisons").OfType<JsonObject>())
+                    graph.Children.Add(Ui.Text($"CURRENT / {pair.Text("variant")} · {pair.Text("matchedPairs", "0")}/{pair.Text("plannedPairs", "0")} matched · {pair.Text("differencePercentagePoints", "Unknown")} percentage points · {pair.Text("state").Replace('_', ' ')}", 13));
+                foreach (var arm in summary.Object("contextArms"))
+                {
+                    if (arm.Value is not JsonObject value) continue;
+                    graph.Children.Add(Ui.Text($"{arm.Key} · {value.Text("resolved", "0")}/{value.Text("evaluated", "0")} verified · context {value.Text("medianContextBytes", "Unknown")} bytes · local preparation cold {value.Text("medianColdPreparationMs", "Unknown")} / warm {value.Text("medianWarmPreparationMs", "Unknown")} ms · input/output tokens {value.Text("inputTokens", "Unknown")} / {value.Text("outputTokens", "Unknown")}", 13));
+                }
+                graph.Children.Add(Ui.Text("Evidence and export include immutable context identity, cache reads and measured effort. Source coverage is not independently labelled retrieval recall. Unknown usage and claim assessment remain unknown.", 13, "MutedBrush"));
+            }
             foreach (var row in summary.Object("dimensions"))
             {
                 if (row.Value is not JsonObject dimension) continue;
@@ -112,10 +130,19 @@ public partial class MainWindow
         overview.Children.Add(Ui.Actions(Ui.Button("Start benchmark", () => Run(async () =>
         {
             await EnsureConnected();
-            await Call("benchmark-start", new JsonObject { ["model"] = model.SelectedItem?.ToString(),
+            var request = new JsonObject { ["model"] = model.SelectedItem?.ToString(),
                 ["suite"] = new[] { "quick_check", "batch_comparison", "coding", "coding" }[Math.Max(suite.SelectedIndex, 0)],
                 ["task_pack"] = suite.SelectedIndex == 3 ? "repository" : "python",
-                ["preset"] = new[] { "quick", "standard", "deep" }[Math.Max(preset.SelectedIndex, 0)], ["request_id"] = "desktop-" + Guid.NewGuid().ToString("N") });
+                ["preset"] = new[] { "quick", "standard", "deep" }[Math.Max(preset.SelectedIndex, 0)], ["request_id"] = "desktop-" + Guid.NewGuid().ToString("N") };
+            if (suite.SelectedIndex >= 2 && context.SelectedIndex > 0)
+            {
+                string[] arms = context.SelectedIndex == 4 ? ["CURRENT", "REFERENCE", "TASK", "SEMANTIC"]
+                    : ["CURRENT", new[] { "", "REFERENCE", "TASK", "SEMANTIC" }[context.SelectedIndex]];
+                request["context_variants"] = new JsonArray(arms.Select(arm => (JsonNode?)JsonValue.Create(arm)).ToArray());
+                request["context_repeats"] = arms.Length == 4 && suite.SelectedIndex == 2 && preset.SelectedIndex == 2 ? 2 : 3;
+                request["context_budget_bytes"] = 12000;
+            }
+            await Call("benchmark-start", request);
             status.Text = "Benchmark accepted by Gateway. Admitted work keeps running when this window closes."; await History();
         }), true), Ui.Button("Check original submission", () => Run(async () => { Evidence(await Call("benchmark-reconcile")); Destination("Evidence"); await History(); })),
             Ui.Button("Setup coding sandbox", () => Navigate("Tools/Environments")),

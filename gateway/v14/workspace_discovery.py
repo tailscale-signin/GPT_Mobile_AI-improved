@@ -14,7 +14,7 @@ def tools(job):
                 'scope': 'DISCOVERY_ONLY', 'grants_authority': False}
     from v14.workspace_workers import ROLES
     actions = set().union(*ROLES.values()) | {'candidates', 'tool_profile', 'worker', 'worker_wave', 'worker_status',
-        'task_plan', 'task_plan_status', 'task_plan_complete', 'context_pack', 'context_summary', 'integration_status',
+        'task_plan', 'task_plan_status', 'task_plan_complete', 'context_pack', 'context_summary', 'task_context_bundle', 'integration_status',
         'integration_call', 'next_edit', 'next_edit_validate', 'terminal_open', 'terminal_start', 'terminal_poll',
         'terminal_cancel', 'terminal_close', 'terminal_fork', 'terminal_switch', 'terminal_timeline', 'code_intelligence',
         'agent_status', 'agent_events', 'agent_artifacts', 'agent_import', 'requirements', 'skills', 'skill', 'workflow_step',
@@ -73,7 +73,8 @@ def instruction(job):
         'code_intelligence uses the open session, process_id, language kotlin/python/typescript, path, one-based line, UTF-16 column, '
         'operation definition/references/diagnostics/callers/supertypes/rename_preview and optional new_name. Poll for results. Missing servers need lexical fallback. ')
     if default:
-        chunks.append('context_summary retains a bounded extractive summary and immutable evidence references. context_pack takes selected paths and engine builtin/repomix; '
+        chunks.append('task_context_bundle retrieves current exact source ranges, related tests and reference sections using variant CURRENT/REFERENCE/TASK/SEMANTIC and budget_bytes. '
+                      'context_summary retains a bounded extractive summary and immutable evidence references. context_pack takes selected paths or ranges and engine builtin/repomix; '
                       'only an installed host-approved Repomix is used. integration_status discovers configured versioned-docs/browser tools; '
                       'integration_call must use an observed integration, exact tool and its input schema. '
                       'next_edit takes path and instruction only for a selected LOCAL_ONLY binding; next_edit_validate takes next_edit_id and approved check_index. '

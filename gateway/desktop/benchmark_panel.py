@@ -18,6 +18,9 @@ from benchmarks.settings import (load_settings, save_settings, prepare_sandbox,
 
 SUITES = {'Quick check': 'quick_check', 'Batch comparison': 'batch_comparison', 'GitHub coding': 'coding', 'Repository native': 'coding'}
 PRESETS = {'Quick': 'quick', 'Standard': 'standard', 'Deep': 'deep'}
+CONTEXT_EXPERIMENTS = {'Standard benchmark': None, 'Current / Reference': ['CURRENT', 'REFERENCE'],
+                       'Current / Task context': ['CURRENT', 'TASK'], 'Current / Local semantic': ['CURRENT', 'SEMANTIC'],
+                       'All four context variants': ['CURRENT', 'REFERENCE', 'TASK', 'SEMANTIC']}
 
 
 def pretty(value, suffix='', digits=1):
@@ -91,6 +94,12 @@ class BenchmarkPanel(tk.Frame):
         self.start.grid(row=0, column=3)
         ttk.Button(controls, text='Live qualification…', command=self.production_tasks).grid(row=1, column=0, columnspan=2, sticky='w', pady=6)
         ttk.Button(controls, text='Setup coding sandbox…', command=lambda: open_benchmark_settings(self, self.root)).grid(row=1, column=2, columnspan=2, sticky='e', pady=6)
+        self.context_experiment = ttk.Combobox(controls, state='readonly', values=list(CONTEXT_EXPERIMENTS), width=29)
+        self.context_experiment.set(next((label for label, arms in CONTEXT_EXPERIMENTS.items()
+                                         if arms == (self.pending_start or {}).get('context_variants')), 'Standard benchmark'))
+        self.context_experiment.grid(row=2, column=0, columnspan=2, sticky='w', pady=6)
+        theme.label(controls, 'Same model · 3 repeats (Deep/all four: 2) · 12 KB', size=9, color=theme.MUTED).grid(row=2, column=2, columnspan=2, sticky='w')
+        self.context_experiment.bind('<<ComboboxSelected>>', lambda _: self.explain())
         self.model.bind('<<ComboboxSelected>>', lambda _: self.update_controls())
         self.suite.bind('<<ComboboxSelected>>', lambda _: self.explain())
         self.preset.bind('<<ComboboxSelected>>', lambda _: self.explain())
@@ -397,12 +406,20 @@ class BenchmarkPanel(tk.Frame):
             'quick_check': 'Five short answer fixtures. Scores apply to this check only.',
             'batch_comparison': {'quick': '3', 'standard': '10', 'deep': '30'}[preset] + ' matched pairs: serial versus two concurrent HTTP requests. Native inference batching is not inferred.',
             'coding': {'quick': '12 trials across 12 repair problems.', 'standard': '36 seeded trials across 12 repair problems.', 'deep': '96 seeded repair trials and 4 integration capstones: 16 problems, 100 trials.'}[preset] + ' Requires prepared Python sandbox; choose Setup coding sandbox. No production GitHub writes.'}
-        self.status.configure(text=(f"{ {'quick': 4, 'standard': 8, 'deep': 12}[preset]} distinct repository defects: compiled Kotlin, SQLite migrations and parsed workflow gates. Requires an operator-prepared native image." if self.suite.get() == 'Repository native' else descriptions[suite]))
+        detail = f"{ {'quick': 4, 'standard': 8, 'deep': 12}[preset]} distinct repository defects: compiled Kotlin, SQLite migrations and parsed workflow gates. Requires an operator-prepared native image." if self.suite.get() == 'Repository native' else descriptions[suite]
+        arms = CONTEXT_EXPERIMENTS[self.context_experiment.get()] if suite == 'coding' else None
+        if arms:
+            count = ({'quick': 4, 'standard': 8, 'deep': 12} if self.suite.get() == 'Repository native' else {'quick': 12, 'standard': 36, 'deep': 100})[preset]
+            repeats = min(3, 1000 // (count * len(arms)))
+            detail += f' {count * repeats * len(arms)} context episodes with {repeats} repeats per arm: same selected model, source, tasks and repair limits. Arm order alternates. Added reference uses public starting source only. Semantic unavailability is reported as lexical fallback.'
+        self.status.configure(text=detail)
+        self.update_controls()
 
     def update_controls(self):
         frozen = self.busy or self.pending_start is not None
         for control in (self.model, self.suite, self.preset):
             control.configure(state='disabled' if frozen else 'readonly')
+        self.context_experiment.configure(state='disabled' if frozen or SUITES[self.suite.get()] != 'coding' else 'readonly')
         self.start.configure(state='normal' if not self.busy and (self.pending_start or self.model.get()) else 'disabled', text='Check submission' if self.pending_start else 'Run benchmark')
         self.reload.configure(state='disabled' if self.busy else 'normal')
         active = bool(self.selected and self.selected.get('state') not in TERMINAL)
@@ -463,6 +480,10 @@ class BenchmarkPanel(tk.Frame):
             self.pending_start = {'model': self.model.get(), 'suite': SUITES[self.suite.get()], 'preset': PRESETS[self.preset.get()], 'request_id': 'desktop-' + uuid.uuid4().hex}
             if self.suite.get() == 'Repository native':
                 self.pending_start['task_pack'] = 'repository'
+            arms = CONTEXT_EXPERIMENTS[self.context_experiment.get()] if self.pending_start['suite'] == 'coding' else None
+            if arms:
+                repeats = 2 if len(arms) == 4 and self.preset.get() == 'Deep' and self.suite.get() != 'Repository native' else 3
+                self.pending_start.update(context_variants=list(arms), context_repeats=repeats, context_budget_bytes=12000)
         pending = self.pending_start
         def submit():
             # Offline verification happens before any request or idempotency receipt is sent.
@@ -587,7 +608,16 @@ class BenchmarkPanel(tk.Frame):
         self.metrics['state'].configure(text=run['state'].replace('_', ' ').title())
         self.status.configure(text=run.get('progress', ''))
         suite = run['request']['suite']
-        if suite == 'coding':
+        if suite == 'coding' and run['request'].get('context_variants'):
+            self.metrics['score'].configure(text=f"{summary.get('resolved', 0)} verified")
+            arms = summary.get('contextArms', {})
+            self.chart.set([(name, 100 * item['resolved'] / item['evaluated'] if item.get('evaluated') else None, theme.CYAN)
+                            for name, item in arms.items()], '%')
+            detail = 'Same-model context experiment. Completion is independently graded; source coverage is not relevant-file recall. '
+            detail += ' '.join(f"{pair['baseline']} / {pair['variant']}: {pair['matchedPairs']}/{pair['plannedPairs']} matched, {pretty(pair.get('differencePercentagePoints'), ' percentage points')}, {pair['state'].replace('_', ' ').lower()}."
+                              for pair in summary.get('contextComparisons', []))
+            detail += ' Evidence and export retain context bytes, cold/warm local cache preparation, repeated reads and measured usage. Missing usage, semantic ranking and claim assessment remain unknown.'
+        elif suite == 'coding':
             self.metrics['score'].configure(text=f"{summary.get('finalResolved', summary.get('resolved', 0))} resolved" if summary.get('qualified') else 'Unqualified')
             self.chart.set([(name.title(), item.get('value'), theme.CYAN) for name, item in summary.get('dimensions', {}).items()], ' pts')
             native = run['request'].get('task_pack') == 'repository'

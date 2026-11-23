@@ -173,15 +173,59 @@ public partial class MainWindow
             AddTab("Requirements",environment);
 
             var tools=new StackPanel();
+            var taskContext=board.Object("task_context");
+            if(taskContext.Text("schema")=="repository.task_context.v1")
+            {
+                bool current=taskContext.Text("source_sha")==board.Text("head_sha")&&taskContext["source_current"]?.ToString()!="false";
+                tools.Children.Add(Ui.Text(current?"Prepared repository context":"Context needs refreshing",16,bold:true));
+                if(current)
+                {
+                    tools.Children.Add(Ui.Text(taskContext.Text("variant")+" · source "+taskContext.Text("source_sha").Substring(0,Math.Min(12,taskContext.Text("source_sha").Length)),12));
+                    if(taskContext.Text("variant")=="SEMANTIC")
+                        tools.Children.Add(Ui.Text(taskContext.Text("retrieval")=="LOCAL_SEMANTIC_AND_LEXICAL"?"Local similarity and lexical ranking applied.":"Local similarity was unavailable or deferred; lexical ranking applied.",12,"MutedBrush"));
+                    tools.Children.Add(Ui.Text("Prepared selection; final request admission may trim or reject this context.",12,"MutedBrush"));
+                    tools.Children.Add(Ui.Text(taskContext.Array("selected_ranges").Count+" source ranges · "+taskContext.Array("documents").Count+" document sections · "+taskContext.Array("test_candidates").Count+" test candidates",12));
+                    long tokenCount=0;
+                    bool measuredTokens=taskContext.Text("token_count_status")=="MEASURED_SELECTED_TOKENIZER"&&taskContext["token_count"] is JsonValue tokenValue&&tokenValue.TryGetValue<long>(out tokenCount)&&tokenCount>=0;
+                    tools.Children.Add(Ui.Text(taskContext.Text("bytes","Unknown")+" bytes · "+(measuredTokens?tokenCount+" measured tokens":"token count unavailable"),12));
+                    var coverage=taskContext.Object("coverage");
+                    tools.Children.Add(Ui.Text("Loaded "+coverage.Text("loaded_files","?")+" of "+coverage.Text("eligible_files","?")+" eligible files · "+(coverage.Flag("exhaustive")?"complete coverage":"selected coverage"),12));
+                    tools.Children.Add(Ui.Text("Test candidates are references; they do not establish passing tests.",12,"MutedBrush"));
+                    tools.Children.Add(Ui.Button("Source references and retrieval receipt",()=>ShowDetails("Prepared repository context",taskContext)));
+                }
+                else tools.Children.Add(Ui.Text("Refresh the saved job to prepare context for its current source.",12,"MutedBrush"));
+            }
+
             var profile=Ui.Select(tools,"Task tools",new[]{"retrieve","plan","edit","test","review"});
             tools.Children.Add(ActionButton("Use task tool profile","tool_profile",()=>new JsonObject{["profile"]=profile.SelectedItem?.ToString()}));
             tools.Children.Add(ActionButton("Retain compact context","context_summary",()=>new JsonObject()));
             tools.Children.Add(ActionButton("Export selected source","context_pack",()=>{
-                var form=new StackPanel();var paths=Editor("Source paths, one per line");form.Children.Add(paths);
+                var form=new StackPanel();var selection=Ui.Select(form,"Source selection",new[]{"Whole files","Line ranges"});
+                var paths=Editor("One path or path:start-end range per line");form.Children.Add(paths);
                 var format=Ui.Select(form,"Export format",new[]{"markdown","json","xml"});var engine=Ui.Select(form,"Exporter",new[]{"builtin","repomix"});
+                var tokenLimit=Ui.Field(form,"Maximum tokens (optional, 128–131072)");
+                form.Children.Add(Ui.Text("Select up to 60 ranges of at most 1,000 lines each. An explicit token limit requires the selected model's supported tokenizer.",12,"MutedBrush"));
                 if(!EditDialog("Selective source export",form,"Prepare private artifact"))return null;
-                return new JsonObject{["paths"]=new JsonArray(paths.Text.Split('\n',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries).Select(p=>(JsonNode?)JsonValue.Create(p)).ToArray()),
-                    ["format"]=format.SelectedItem?.ToString(),["engine"]=engine.SelectedItem?.ToString(),["max_bytes"]=65536};
+                var lines=paths.Text.Split('\n',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries).Distinct().ToArray();
+                if(lines.Length<1||lines.Length>60)throw new InvalidOperationException("Select between 1 and 60 source paths or ranges.");
+                var request=new JsonObject{["format"]=format.SelectedItem?.ToString(),["engine"]=engine.SelectedItem?.ToString(),["max_bytes"]=65536,["max_input_bytes"]=2097152};
+                if(selection.SelectedIndex==1){
+                    var ranges=new JsonArray();var seen=new HashSet<string>(StringComparer.Ordinal);
+                    foreach(var line in lines){
+                        var match=System.Text.RegularExpressions.Regex.Match(line,@"^(.+):([0-9]+)-([0-9]+)$");
+                        if(!match.Success||!int.TryParse(match.Groups[2].Value,out int start)||!int.TryParse(match.Groups[3].Value,out int end)||start<1||end<start||(long)end-start>=1000)
+                            throw new InvalidOperationException("Use path:start-end, with at most 1,000 lines in each range.");
+                        string path=match.Groups[1].Value;
+                        if(!seen.Add(path)&&engine.SelectedItem?.ToString()=="repomix")throw new InvalidOperationException("Use the built-in exporter for separate ranges in the same file.");
+                        ranges.Add(new JsonObject{["path"]=path,["start_line"]=start,["end_line"]=end});
+                    }
+                    request["ranges"]=ranges;
+                }else request["paths"]=new JsonArray(lines.Select(p=>(JsonNode?)JsonValue.Create(p)).ToArray());
+                if(tokenLimit.Text.Trim().Length>0){
+                    if(!int.TryParse(tokenLimit.Text.Trim(),out int tokens)||tokens<128||tokens>131072)throw new InvalidOperationException("Enter a token limit from 128 to 131072, or leave it blank.");
+                    request["max_tokens"]=tokens;
+                }
+                return request;
             }));
             tools.Children.Add(Ui.Button("Configured integrations",()=>ShowDetails("Versioned docs and browser tools",board.Object("integrations"))));
             tools.Children.Add(ActionButton("Discover configured tools","integration_status",()=>new JsonObject()));

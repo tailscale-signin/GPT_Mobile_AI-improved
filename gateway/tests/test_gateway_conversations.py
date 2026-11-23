@@ -834,6 +834,21 @@ class EngineeringConversationTests(unittest.TestCase):
             return db
         self.runtime._durable_connect = connect
 
+    def test_repository_context_variant_is_frozen_in_conversation_snapshot(self):
+        self.request.update(context_variant='reference', client_conversation_id='same-context')
+        job = self.store.create('owner', self.request)
+        snapshot = self.store.conversations.snapshot('owner', job['conversation_id'])
+        self.assertEqual('REFERENCE', snapshot['context_variant'])
+        claimed, lease, _ = self.store.claim(job['id'])
+        self.assertTrue(self.store.complete(claimed, lease, 'COMPLETED', {}))
+        snapshot = self.store.conversations.snapshot('owner', job['conversation_id'])
+        followup = dict(self.request, request_id='changed-context', conversation_id=job['conversation_id'],
+                        expected_revision=snapshot['revision'], context_variant='TASK')
+        with self.assertRaisesRegex(ConversationConflict, 'context variant'):
+            self.store.create('owner', followup)
+        followup.update(request_id='same-context-followup', context_variant='REFERENCE')
+        self.assertEqual(job['conversation_id'], self.store.create('owner', followup)['conversation_id'])
+
     def test_production_row_factory_accepts_current_owner_and_fences_stale_dispatch(self):
         job = self.store.create('owner', self.request)
         claimed, lease, _ = self.store.claim(job['id'])

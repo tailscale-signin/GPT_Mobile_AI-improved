@@ -43,7 +43,9 @@ def generation_receipt(value):
 
 
 def public_task(task, suite_seed=17):
+    from benchmarks.context_fixture import project_public_context
     return {
+        **project_public_context(task),
         'schema': 'gateway.coding-task-public.v2', 'id': task['id'], 'task_id': task['id'],
         'problemId': task['problemId'], 'family': task['family'], 'title': task['title'],
         'taskDigest': task['taskDigest'], 'fixture_digest': task['taskDigest'], 'manifestDigest': task['manifestDigest'],

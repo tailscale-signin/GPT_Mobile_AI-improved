@@ -24,6 +24,150 @@ import org.junit.Test
 
 class ProgressiveToolCatalogTest {
 
+    @Test fun structuredRepositoryHintsSelectReadsWithoutEnglishAndNeverAcquireOtherConnections() = runTest {
+        var acquisitions = 0
+        val names = listOf("github_context", "github_read", "github_search", "github_write", "github_commit", "repository_graph", "personal_health")
+        val definitions = names.map { AgentToolDefinition(it, "authorized fixture", buildJsonObject { put("type", "object") }) }
+        val catalog = ProgressiveToolCatalog(definitions, "continue", githubMode = true, acquireCold = { _, _ ->
+            acquisitions++
+            emptyList()
+        })
+        val request = buildJsonObject {
+            put(
+                "repository_hint",
+                buildJsonObject {
+                    put("feature_ids", JsonArray(listOf(JsonPrimitive("语音字幕"))))
+                    // Even a name matching a mutation stays discovery data.
+                    put("symbols", JsonArray(listOf(JsonPrimitive("github_write"))))
+                    put("paths", JsonArray(listOf(JsonPrimitive("src/Voice.kt"))))
+                }
+            )
+        }
+        val result = catalog.execute("hint", request)
+        assertFalse(result.isError)
+        val data = (result.content as ToolResultContent.Json).value.jsonObject
+        val selected = data["available_next_round"]!!.jsonArray.map { it.jsonObject["name"]!!.jsonPrimitive.content }.toSet()
+        assertTrue("repository_graph" in selected)
+        val nextRead = data["repository_context_call"]!!.jsonObject
+        assertEquals("task_context_bundle", nextRead["arguments"]!!.jsonObject["action"]!!.jsonPrimitive.content)
+        assertTrue(nextRead["arguments"]!!.jsonObject["query"]!!.jsonPrimitive.content.contains("语音字幕"))
+        assertTrue("github_read" in selected)
+        assertFalse("github_write" in selected)
+        assertFalse("github_commit" in selected)
+        assertFalse("personal_health" in selected)
+        assertEquals(0, acquisitions)
+    }
+
+    @Test fun repositoryContextCallsRequireTheObservedGraphContract() = runTest {
+        for ((action, supportsQuery) in listOf("status" to true, "task_context_bundle" to false, "task_context_bundle" to true)) {
+            val graph = AgentToolDefinition(
+                "repository_graph__observed",
+                "Authorized graph fixture",
+                buildJsonObject {
+                    put("type", "object")
+                    put("additionalProperties", false)
+                    put("required", JsonArray(listOf(JsonPrimitive("action"))))
+                    put(
+                        "properties",
+                        buildJsonObject {
+                            put(
+                                "action",
+                                buildJsonObject {
+                                    put("type", "string")
+                                    put("enum", JsonArray(listOf(JsonPrimitive(action))))
+                                }
+                            )
+                            if (supportsQuery) put("query", buildJsonObject { put("type", "string") })
+                        }
+                    )
+                },
+                capabilities = setOf(AgentToolCapability.GITHUB)
+            )
+            var acquisitions = 0
+            val catalog = ProgressiveToolCatalog(listOf(graph), "continue", githubMode = true, acquireCold = { _, _ ->
+                acquisitions++
+                emptyList()
+            })
+            val result = catalog.execute(
+                "hint",
+                buildJsonObject { put("repository_hint", buildJsonObject { put("feature_ids", JsonArray(listOf(JsonPrimitive("compiler")))) }) }
+            )
+            assertFalse(result.isError)
+            val data = (result.content as ToolResultContent.Json).value.jsonObject
+            assertTrue(data["available_next_round"]!!.jsonArray.any { it.jsonObject["name"] == JsonPrimitive(graph.name) })
+            val proposed = data["repository_context_call"] as? JsonObject
+            if (action == "task_context_bundle" && supportsQuery) {
+                val call = requireNotNull(proposed)
+                assertEquals(JsonPrimitive(graph.name), call["name"])
+                assertTrue(ToolArgumentValidator.errors(call["arguments"]!!.jsonObject, graph.inputSchema).isEmpty())
+            } else {
+                assertNull("Unsupported graph contract must not produce a call: $action / $supportsQuery", proposed)
+            }
+            assertEquals(0, acquisitions)
+        }
+    }
+
+    @Test fun repositoryHintsRequireGitHubScopeAndCannotContinueInventory() = runTest {
+        val hint = buildJsonObject { put("repository_hint", buildJsonObject { put("symbols", JsonArray(listOf(JsonPrimitive("VoiceState")))) }) }
+        val generic = ProgressiveToolCatalog(emptyList(), "hello")
+        assertFalse(generic.definition.inputSchema["properties"]!!.jsonObject.containsKey("repository_hint"))
+        assertEquals("INVALID_ARGUMENTS", generic.execute("outside", hint).errorCode)
+        val github = ProgressiveToolCatalog(emptyList(), "continue", githubMode = true)
+        assertTrue(github.definition.inputSchema["properties"]!!.jsonObject.containsKey("repository_hint"))
+        val mixed = JsonObject(hint + ("inventory_cursor" to JsonPrimitive(10)))
+        assertEquals("INVALID_ARGUMENTS", github.execute("mixed", mixed).errorCode)
+        val empty = buildJsonObject { put("repository_hint", buildJsonObject {}) }
+        assertEquals("INVALID_ARGUMENTS", github.execute("empty", empty).errorCode)
+    }
+
+    @Test fun repositoryHintRuntimeBoundsRejectBeforeAnyColdAcquisition() = runTest {
+        var acquisitions = 0
+        val catalog = ProgressiveToolCatalog(emptyList(), "continue", githubMode = true, acquireCold = { _, _ ->
+            acquisitions++
+            emptyList()
+        })
+        val invalidLists = listOf(
+            JsonArray((1..13).map { JsonPrimitive("identifier$it") }),
+            JsonArray(listOf(JsonPrimitive("x".repeat(257)))),
+            JsonArray(listOf(JsonPrimitive("   "))),
+            JsonArray(listOf(JsonPrimitive("same"), JsonPrimitive("same"))),
+            JsonArray(listOf(JsonPrimitive(1)))
+        )
+        for (field in listOf("feature_ids", "symbols", "paths")) {
+            for (values in invalidLists + JsonPrimitive("not an array")) {
+                val request = buildJsonObject { put("repository_hint", buildJsonObject { put(field, values) }) }
+                val result = catalog.execute("invalid", request)
+                assertEquals("$field: $values", "INVALID_ARGUMENTS", result.errorCode)
+                assertFalse(result.dispatched)
+            }
+        }
+        val unknown = buildJsonObject {
+            put(
+                "repository_hint",
+                buildJsonObject {
+                    put("symbols", JsonArray(listOf(JsonPrimitive("VoiceState"))))
+                    put("connection", "other")
+                }
+            )
+        }
+        assertEquals("INVALID_ARGUMENTS", catalog.execute("unknown", unknown).errorCode)
+        val accepted = buildJsonObject {
+            put("repository_hint", buildJsonObject { put("symbols", JsonArray((1..12).map { JsonPrimitive(it.toString().padEnd(256, 'x')) })) })
+        }
+        assertFalse(catalog.execute("bounded", accepted).isError)
+        assertEquals(0, acquisitions)
+    }
+
+    @Test fun selectedGitHubHintsFitTheExistingCompactNativeSchemaBudget() {
+        val suffix = dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext(null).toolDescription()
+        val definitions = listOf("github_context_inspect", "github_read", "github_search").map { name ->
+            GitHubOperationTool.definition(name).let { it.copy(description = it.description + suffix) }
+        }
+        val catalog = ProgressiveToolCatalog(definitions, "show git branches", githubMode = true)
+        val costs = (definitions + catalog.definition).map { it.name to ProgressiveToolCatalog.schemaTokens(it) }
+        assertTrue("Compact GitHub schema costs: $costs", costs.sumOf { it.second } <= 2000)
+    }
+
     @Test fun discoveryActionRequiresOneToolBeforeColdAcquisition() = runTest {
         var acquisitions = 0
         val catalog = ProgressiveToolCatalog(emptyList(), "continue", acquireCold = { _, _ ->
@@ -43,7 +187,9 @@ class ProgressiveToolCatalogTest {
         assertTrue(ToolArgumentValidator.errors(JsonObject(emptyMap()), schema).isEmpty())
         val noNames = JsonObject(exact + ("names" to JsonArray(emptyList())))
         val multipleNames = JsonObject(exact + ("names" to JsonArray(listOf(JsonPrimitive("github_ci"), JsonPrimitive("github_pr")))))
-        for (invalid in listOf(mixed, noNames, multipleNames)) {
+        val nullAction = JsonObject(exact + ("action" to kotlinx.serialization.json.JsonNull))
+        val unknownField = JsonObject(exact + ("unrecognized" to JsonPrimitive(true)))
+        for (invalid in listOf(mixed, noNames, multipleNames, nullAction, unknownField)) {
             assertTrue(ToolArgumentValidator.errors(invalid, schema).isNotEmpty())
             val result = catalog.execute("discovery", invalid)
             assertEquals("INVALID_ARGUMENTS", result.errorCode)

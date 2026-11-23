@@ -118,12 +118,13 @@ def best_verified_attempt_index(attempts):
 
 
 class BenchmarkRunner:
-    def __init__(self, store, origin, cancelled, identity, settings, *, external_qualifier=None):
+    def __init__(self, store, origin, cancelled, identity, settings, *, external_qualifier=None, context_ranker=None):
         self.store, self.origin, self.cancelled = store, origin, cancelled
         self.identity, self.settings = identity, settings
         self.receipt_lock = threading.Lock()
         self.cancellation_receipts = []
         self.external_qualifier = external_qualifier
+        self.context_ranker = context_ranker
 
     def cancel_request(self, job_id):
         receipt = {'jobId': job_id, 'outcome': 'unknown'}
@@ -227,7 +228,10 @@ class BenchmarkRunner:
         snapshot = self.store.get(run['id'])
         cases, planned = snapshot['cases'], snapshot['planned']
         suite = run['request']['suite']
-        if suite == 'coding':
+        if suite == 'coding' and run['request'].get('context_variants'):
+            from benchmarks.context_experiment import summary
+            partial = summary(cases, planned, run['request'], (snapshot.get('summary') or {}).get('contextExperimentIdentity'))
+        elif suite == 'coding':
             score = repository_score if run['request'].get('task_pack') == 'repository' else coding_score
             partial = score(cases, planned, run['request']['preset'])
         elif suite == 'coding_submission':
@@ -351,6 +355,7 @@ class BenchmarkRunner:
             self.cancellation_receipts.append(dict(receipt))
         observed = error.observation or {}
         case = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
+        case.update({key: task[key] for key in ('taskId', 'contextVariant', 'contextRepeat', 'contextReceipt') if key in task})
         previous = self.store.get(run['id'])
         checkpoint = next((item for item in previous.get('activeCases', []) if item.get('id') == task['id']), {})
         case.update(startedAt=checkpoint.get('startedAt'), endedAt=time.time(), phase=stage,
@@ -367,6 +372,7 @@ class BenchmarkRunner:
 
     def code(self, run):
         from benchmarks.calibration import self_check, task_check
+        from benchmarks import context_experiment
         native = run['request'].get('task_pack') == 'repository'
         calibration = {'status': 'PER_TASK_NATIVE_RUNTIME'} if native else self_check()
         if not native and calibration['status'] != 'PASSED':
@@ -376,20 +382,35 @@ class BenchmarkRunner:
             tasks = repository_tasks.task_manifest(run['request']['preset'], run['request']['seed'])
         else:
             tasks = fixtures.suite(run['request']['preset'], run['request']['seed'])
-        self.store.update(run['id'], planned=len(tasks), casePlan=[task['id'] for task in tasks],
+        trial_plan = context_experiment.trials(tasks, run['request'])
+        if len(trial_plan) > 1000:
+            raise ValueError('BENCHMARK_CONTEXT_TRIAL_LIMIT')
+        def trial_id(task, arm, repeat):
+            return task['id'] if arm is None else f'{task["id"]}:{arm}:{repeat}'
+        self.store.update(run['id'], planned=len(trial_plan), casePlan=[trial_id(*trial) for trial in trial_plan],
                           progress='Checking isolated evaluator')
         settings = self.settings()
+        context_identity = context_experiment.freeze(tasks, run, settings,
+            semantic_identity=self.context_ranker.identity if self.context_ranker else None) if run['request'].get('context_variants') else None
+        if context_identity is not None:
+            self.store.update(run['id'], summary=context_experiment.summary([], len(trial_plan), run['request'], context_identity))
         docker = sandbox.preflight(dict(settings, sandbox_image=settings.get('repository_image', '')) if native else settings)
         cases = []
-        for ordinal, task in enumerate(tasks):
+        for ordinal, (task, context_variant, context_repeat) in enumerate(trial_plan):
             self.guard(run)
             calibrated = {} if native else task_check(task)
             if not native and calibrated['status'] != 'PASSED':
                 raise sandbox.SandboxUnavailable('A hidden grader control failed.', 'GRADER_NEGATIVE_CONTROL_FAILED')
-            self.store.update(run['id'], progress=f'{ordinal + 1}/{len(tasks)} · {task["title"]}')
+            self.store.update(run['id'], progress=f'{ordinal + 1}/{len(trial_plan)} · {context_variant or "Coding"} · {task["title"]}')
             started_at = time.time()
+            monotonic_started = time.monotonic()
+            first_verified_ms = None
             active = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
-            active.update(status='RUNNING', startedAt=started_at, phase='REFERENCE', executed=False, graded=False)
+            journal_task = dict(task, id=trial_id(task, context_variant, context_repeat))
+            active.update(status='RUNNING', startedAt=started_at, phase='REFERENCE', executed=False, graded=False, id=journal_task['id'])
+            if context_variant is not None:
+                active.update(taskId=task['id'], contextVariant=context_variant, contextRepeat=context_repeat)
+                journal_task.update(taskId=task['id'], contextVariant=context_variant, contextRepeat=context_repeat)
             self.store.case(run['id'], ordinal, active)
             # Pin a fresh, trusted reference evaluation before trusting this
             # task's environment; its expected answers remain outside Docker.
@@ -397,12 +418,21 @@ class BenchmarkRunner:
                 try:
                     baseline = self.execute_sandbox(run, task['referenceSources'], task['vectors'], settings, self.cancelled, docker=docker)
                 except sandbox.SandboxInterrupted as error:
-                    self.sandbox_interrupted(run, ordinal, task, error, 'REFERENCE')
+                    self.sandbox_interrupted(run, ordinal, journal_task, error, 'REFERENCE')
                     raise
                 if baseline.get('status') != 'COMPLETED' or len(baseline.get('outputs', [])) != len(task['vectors']) or any('output' not in row or not coding.same(row['output'], fixtures.expected(task, vector))
                         for row, vector in zip(baseline.get('outputs', []), task['vectors'])):
                     raise sandbox.SandboxUnavailable('The trusted reference failed in this sandbox; no model score was recorded.')
             task_prompt = task['prompt'] if native else fixtures.prompt(task)
+            context_receipt = None
+            if context_variant is not None:
+                supplement, context_receipt = context_experiment.prepare(task, context_variant, run['request']['context_budget_bytes'],
+                                                                         cancelled=self.cancelled.is_set, frozen=context_identity,
+                                                                         semantic_ranker=self.context_ranker)
+                task_prompt += supplement
+                context_receipt['promptDigest'] = content_digest(task_prompt)
+                active['contextReceipt'] = context_receipt
+                journal_task['contextReceipt'] = context_receipt
             turns = [{'role': 'user', 'content': task_prompt}]
             attempts = []
             evaluated_attempts = []
@@ -421,6 +451,10 @@ class BenchmarkRunner:
                 def record_invocation(**fields):
                     self.store.case(run['id'], ordinal, dict(active, phase='MODEL_INVOCATION', attempt=attempt + 1,
                                                             attempts=attempts, admissionRejections=admission_rejections, **fields))
+                def admitted(job_id):
+                    if context_receipt is not None:
+                        context_receipt['dispatched'] = True
+                    record_invocation(gatewayJobId=job_id)
                 try:
                     record_invocation()
                     # Reduce the requested cap only after typed context rejection.
@@ -429,7 +463,9 @@ class BenchmarkRunner:
                         try:
                             timing = self.measure_case(run, task['id'], turns, None, validate=capture,
                                                        output_tokens=allowance, output_format=output_format,
-                                                       on_admitted=lambda job_id: record_invocation(gatewayJobId=job_id))
+                                                       on_admitted=admitted)
+                            if context_receipt is not None:
+                                context_receipt['dispatched'] = True
                             break
                         except BenchmarkInvocationError as error:
                             rejected_before_admission = error.job_id is None and error.status in {400, 409, 413, 422}
@@ -493,7 +529,7 @@ class BenchmarkRunner:
                     final['submissionBytes'] = timing.get('outputBytes')
                     final['executionScope'] = task.get('executionScope', 'ISOLATED_PYTHON_CONTRACT')
                 except sandbox.SandboxInterrupted as error:
-                    self.sandbox_interrupted(run, ordinal, task, error, 'CANDIDATE', attempts, timing)
+                    self.sandbox_interrupted(run, ordinal, journal_task, error, 'CANDIDATE', attempts, timing)
                     raise
                 except (requests.RequestException, TimeoutError, ValueError, TypeError) as error:
                     if isinstance(error, sandbox.SandboxUnavailable):
@@ -503,6 +539,11 @@ class BenchmarkRunner:
                              'integrity': 'VERIFIED', **benchmark_error_receipt(error, phase),
                              'admissionRejections': admission_rejections,
                              'dimensions': {key: None for key in coding.CODING_WEIGHTS}}
+                if context_variant is not None:
+                    if final.get('resolved') is True and final.get('graded') is True and first_verified_ms is None:
+                        first_verified_ms = max(0, (time.monotonic() - monotonic_started) * 1000)
+                    final.update(id=journal_task['id'], taskId=task['id'], contextVariant=context_variant, contextRepeat=context_repeat,
+                                 contextReceipt=dict(context_receipt), firstVerifiedPatchMs=first_verified_ms)
                 evaluated_attempts.append(final)
                 attempts.append({key: value for key, value in final.items() if key not in {'dimensionDefinitions'}})
                 self.store.case(run['id'], ordinal, dict(final, status='RUNNING', startedAt=started_at, phase='ATTEMPT_RECORDED', graded=False,
@@ -537,8 +578,13 @@ class BenchmarkRunner:
             final['firstSubmissionScore'] = attempts[0].get('score')
             final['firstSubmissionResolved'] = attempts[0].get('resolved', False)
             final['repairBudget'] = settings['repair_attempts']
+            if context_variant is not None:
+                final.update(id=journal_task['id'], taskId=task['id'], contextVariant=context_variant, contextRepeat=context_repeat,
+                             contextReceipt=dict(context_receipt), firstVerifiedPatchMs=first_verified_ms)
             cases.append(final)
             self.checkpoint(run, ordinal, final)
+        if run['request'].get('context_variants'):
+            return context_experiment.summary(cases, len(trial_plan), run['request'], context_identity)
         summary = (repository_score if native else coding_score)(cases, len(tasks), run['request']['preset'])
         if native:
             calibration = {'status': 'PASSED' if all(case.get('taskCalibration', {}).get('status') == 'PASSED' for case in cases) else 'INCOMPLETE',

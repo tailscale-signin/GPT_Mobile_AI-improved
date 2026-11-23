@@ -50,7 +50,8 @@ data class BenchmarkQueueItem(
     val completedCases: Int = 0,
     val retryOfRunId: String? = null,
     val auditModelBinding: AppAuditModelBenchmarkBinding? = null,
-    val engineeringRepeatIndex: Int? = null
+    val engineeringRepeatIndex: Int? = null,
+    val engineeringContextVariant: String? = null
 ) {
     val terminal: Boolean get() = state !in setOf(BenchmarkQueueState.QUEUED, BenchmarkQueueState.RUNNING)
 }

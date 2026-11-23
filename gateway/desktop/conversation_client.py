@@ -223,6 +223,10 @@ class Client:
             raise ClientError('Choose the exact model before preparing an engineering task.', not_dispatched=True)
         payload = dict(values, model=model, request_id=command, command_id=command)
         provider = payload.pop('provider')
+        if not conversation:
+            payload.setdefault('context_variant', 'TASK')
+            if payload['context_variant'] not in {'CURRENT', 'REFERENCE', 'TASK', 'SEMANTIC'}:
+                raise ClientError('Choose a supported repository context option.', not_dispatched=True)
         if conversation:
             current = self.engineering_job(conversation.get('active_job_id'))
             if (conversation.get('active_job_kind') != 'engineering' or
@@ -232,7 +236,8 @@ class Client:
             payload.update(conversation_id=conversation['conversation_id'], expected_revision=conversation['revision'],
                            repository=current['repository'], base=current['base'], branch=current['branch'],
                            source_branch=current['branch'], source_sha=current.get('head_sha') or current['source_sha'],
-                           profile_id=current['profile_id'], execution_binding_id=current['execution_binding_id'])
+                           profile_id=current['profile_id'], execution_binding_id=current['execution_binding_id'],
+                           context_variant=current.get('context_variant', 'TASK'))
         else:
             if provider not in {'LLAMA', 'OLLAMA'}:
                 raise ClientError('Choose the configured local inference provider.', not_dispatched=True)

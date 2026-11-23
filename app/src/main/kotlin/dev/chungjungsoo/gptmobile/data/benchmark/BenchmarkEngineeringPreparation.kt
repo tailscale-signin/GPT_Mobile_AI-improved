@@ -30,6 +30,8 @@ internal suspend fun benchmarkPrepareEngineeringPlan(
         }
         val ids = cases.map { requireNotNull(it.engineeringTaskId) }.toSet()
         val frozen = linkedMapOf<String, String>()
+        val contextManifests = linkedMapOf<String, String>()
+        val contextIdentities = linkedMapOf<String, BenchmarkContextSourceIdentity>()
         val routes = linkedMapOf<String, String>()
         val authorities = linkedMapOf<String, String>()
         var grader: String? = null
@@ -67,15 +69,21 @@ internal suspend fun benchmarkPrepareEngineeringPlan(
                 check(task.setupText("graderDigest") == observedGrader) { "BENCHMARK_GRADER_MISMATCH" }
                 check(frozen[id] == null || frozen[id] == hash) { "BENCHMARK_FIXTURE_MISMATCH" }
                 frozen[id] = hash
+                if (plan.contextExperiment != null) {
+                    val (inputs, contextHash) = benchmarkContextInputs(task)
+                    check(contextManifests[id] == null || contextManifests[id] == contextHash) { "BENCHMARK_CONTEXT_MANIFEST_MISMATCH" }
+                    contextManifests[id] = contextHash
+                    contextIdentities[id] = benchmarkContextSourceIdentity(inputs)
+                }
             }
             cacheKey?.let { phoneManifests[it] = manifest }
         }
         prepared = if (plan.externalFixtureDigests.isNotEmpty()) {
-            check(plan.externalFixtureDigests == frozen && plan.graderDigest == grader && plan.externalRouteDigests == routes) { "BENCHMARK_FROZEN_ENVIRONMENT_CHANGED" }
+            check(plan.externalFixtureDigests == frozen && plan.graderDigest == grader && plan.externalRouteDigests == routes && plan.contextManifestDigests == contextManifests && plan.contextSourceIdentities == contextIdentities) { "BENCHMARK_FROZEN_ENVIRONMENT_CHANGED" }
             check(plan.externalAuthorityDigests.isEmpty() || plan.externalAuthorityDigests == authorities) { "BENCHMARK_AUTHORITY_CHANGED" }
             plan
         } else {
-            plan.copy(externalFixtureDigests = frozen, graderDigest = grader, externalRouteDigests = routes, externalAuthorityDigests = authorities).frozen()
+            plan.copy(externalFixtureDigests = frozen, graderDigest = grader, externalRouteDigests = routes, externalAuthorityDigests = authorities, contextManifestDigests = contextManifests, contextSourceIdentities = contextIdentities).frozen()
         }
     } finally {
         val elapsed = (nowMs() - started).coerceAtLeast(0)
@@ -104,6 +112,25 @@ internal fun benchmarkEngineeringPreparationDeadlineMs(plan: BenchmarkEngineerin
     // Immutable descriptor reuse may reduce actual work; it never shortens this accepted ceiling.
     val reads = plan.profileUids.size.toLong() * (taskCount.toLong() + 3)
     return (30_000 + 2_000 * reads).coerceIn(60_000, 600_000)
+}
+
+/** Both queue admission and canonical persistence allow only the first verified environment freeze. */
+internal fun benchmarkPreparedPlanPreservesAcceptedScope(accepted: BenchmarkEngineeringPlan, prepared: BenchmarkEngineeringPlan): Boolean {
+    if (accepted.externalFixtureDigests.isNotEmpty()) {
+        return prepared.copy(externalSetupMs = accepted.externalSetupMs, externalSetupRequestCount = accepted.externalSetupRequestCount) == accepted
+    }
+    if (accepted.contextManifestDigests.isNotEmpty() || accepted.contextSourceIdentities.isNotEmpty()) return false
+    return prepared.copy(
+        externalFixtureDigests = accepted.externalFixtureDigests,
+        graderDigest = accepted.graderDigest,
+        externalRouteDigests = accepted.externalRouteDigests,
+        externalAuthorityDigests = accepted.externalAuthorityDigests,
+        contextManifestDigests = accepted.contextManifestDigests,
+        contextSourceIdentities = accepted.contextSourceIdentities,
+        externalSetupMs = accepted.externalSetupMs,
+        externalSetupRequestCount = accepted.externalSetupRequestCount,
+        cohortId = accepted.cohortId
+    ) == accepted
 }
 
 /** Only observed counters can change during a preparation checkpoint, including on cancellation. */

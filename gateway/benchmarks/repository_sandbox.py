@@ -641,10 +641,11 @@ def _remote_verifier(image, task):
     config = repr({'image': image, 'scope': task['executionScope'], 'taskDigest': task['taskDigest'], 'graderDigest': task['graderDigest'],
                    'receiptContract': _receipt_contract(task)})
     # The exported consumer uses the same source-owned protocol as local
-    # execution. The validator depends only on json/math and built-in types.
+    # execution, including typed JSON equality for calibration and candidates.
+    # Both source-owned helpers depend only on json/math and built-in types.
     return '''import json, math, pathlib, subprocess, sys, uuid
 CONFIG = ''' + config + '''
-''' + inspect.getsource(_native_receipt) + '''
+''' + inspect.getsource(_native_receipt) + '\n' + inspect.getsource(coding.same) + '''
 root = pathlib.Path(__file__).resolve().parent
 expected = json.loads((root / 'expected.json').read_text())
 def observe(folder):
@@ -664,7 +665,7 @@ def observe(folder):
     finally:
         subprocess.run(['docker', '--context', 'default', 'rm', '-f', name], capture_output=True, timeout=15)
 def correct(value):
-    return isinstance(value.get('runtime'), dict) and not any(value.get(key) for key in ('runtimeError', 'candidateError')) and value.get('outputs') == expected
+    return isinstance(value.get('runtime'), dict) and not any(value.get(key) for key in ('runtimeError', 'candidateError')) and same(value.get('outputs'), expected)
 reference, broken = observe('reference'), observe('broken')
 if not correct(reference) or not isinstance(broken.get('runtime'), dict) or any(broken.get(key) for key in ('runtimeError', 'candidateError')) or correct(broken):
     raise SystemExit('Native verifier calibration failed; result unqualified')

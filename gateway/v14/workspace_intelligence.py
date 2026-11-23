@@ -6,7 +6,7 @@ from v14.workspace_checkpoint import save
 from v14.workspace_workers import ROLES, projection, wave
 
 ACTIONS = frozenset({'worker_wave', 'worker_status', 'task_plan', 'task_plan_status', 'task_plan_complete',
-                     'context_pack', 'context_summary', 'tool_profile', 'integration_status', 'integration_call',
+                     'context_pack', 'context_summary', 'task_context_bundle', 'tool_profile', 'integration_status', 'integration_call',
                      'next_edit', 'next_edit_validate'})
 PROFILES = {'plan': 'planner', 'edit': 'editor', 'review': 'reviewer', 'test': 'test worker', 'retrieve': 'retrieval'}
 
@@ -71,6 +71,7 @@ def snapshot(backend, job):
     from v14.workspace_task_plan import status as plan_status
     from v14.workspace_tool_integrations import status as integration_status
     from v14.workspace_next_edit import readiness
+    from v14.task_context import workspace_receipt
     data, omissions = job['data'], {}
     def page(name, rows, maximum):
         selected = []
@@ -149,7 +150,7 @@ def snapshot(backend, job):
             'task_plan': plan, 'tool_profile': data.get('workspace_tool_profile'),
             'tool_profiles': [{'id': name, 'tools': tools(job, name)[0], 'missing_tools': tools(job, name)[1]} for name in PROFILES],
             'guidance': guidance, 'summaries': summaries,
-            'context_pack': context_pack, 'integrations': integrations,
+            'context_pack': context_pack, 'task_context': workspace_receipt(data), 'integrations': integrations,
             'next_edit_readiness': readiness(backend, job),
             'next_edits': page('next_edits', edits, 32768)}
     profile = result.get('tool_profile')
@@ -189,6 +190,10 @@ def act(backend, job, action):
         if job['data'].get('workspace_context_pack'):
             save(backend, job, 'workspace_context_pack', job['data']['workspace_context_pack'])
         return result
+    if kind == 'task_context_bundle':
+        from v14.task_context import prepare
+        return prepare(backend, job, 'coding agent', {'plan': job['data'].get('plan', {})}, {},
+                       chosen=action.get('variant'), max_bytes=action.get('budget_bytes', 12000), query=action.get('query'))
     if kind == 'context_summary':
         return summary(backend, job, action.get('max_bytes', 4096))
     if kind == 'tool_profile':

@@ -119,6 +119,7 @@ internal fun RepositoryGraphStatusContent(
         modifier = Modifier.fillMaxWidth().testTag("github_status_repository_map")
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            RepositoryTaskContextCard((state.indexStatus?.get("task_context") ?: state.result?.get("task_context")) as? JsonObject, context.commitSha)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = RoundedCornerShape(14.dp), color = colors.primary.copy(alpha = .12f)) {
                     Icon(Icons.Outlined.AccountTree, null, Modifier.padding(10.dp).size(24.dp), tint = colors.primary)

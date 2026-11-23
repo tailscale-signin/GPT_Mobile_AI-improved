@@ -318,6 +318,46 @@ class WorkspaceIntelligenceTests(unittest.TestCase):
         self.assertEqual(sha, result['omitted'][0]['blob_sha'])
         self.assertFalse(result['complete'])
 
+    def test_pack_exact_ranges_preserve_original_lines_and_blob(self):
+        text = 'first\nsecond\nthird\nfourth\n'
+        sha = blob_sha(text)
+        self.job['data']['tree']['ranges.py'] = {'mode': '100644', 'sha': sha}
+        self.job['data']['files']['ranges.py'] = {'sha': sha, 'content': text}
+        result = pack(self.backend, self.job, {'ranges': [{'path': 'ranges.py', 'start_line': 2, 'end_line': 3}]})
+        exported = self.artifacts.json_value(self.job, result['artifact_ref'])['files'][0]
+        self.assertEqual('second\nthird\n', exported['content'])
+        self.assertEqual((2, 3, sha), (exported['start_line'], exported['end_line'], exported['blob_sha']))
+        disjoint = pack(self.backend, self.job, {'ranges': [{'path': 'ranges.py', 'start_line': 1, 'end_line': 1},
+                                                          {'path': 'ranges.py', 'start_line': 4, 'end_line': 4}]})
+        self.assertEqual(1, disjoint['file_count'])
+        self.assertEqual(2, disjoint['range_count'])
+        with self.assertRaises(ValueError):
+            pack(self.backend, self.job, {'ranges': [{'path': 'ranges.py', 'start_line': 2, 'end_line': 9}]})
+
+    def test_repomix_compresses_large_raw_input_before_output_budget(self):
+        text = 'value = 1\n' * 1000
+        sha = blob_sha(text)
+        self.job['data']['tree']['large.py'] = {'mode': '100644', 'sha': sha}
+        self.job['data']['files']['large.py'] = {'sha': sha, 'content': text}
+        with patch('v14.workspace_context_pack._repomix', return_value=(b'compressed source', {'status': 'COMPLETED', 'engine': 'repomix'})) as compress:
+            result = pack(self.backend, self.job, {'paths': ['large.py'], 'engine': 'repomix', 'max_bytes': 1024, 'max_input_bytes': 20000})
+        self.assertEqual(text, compress.call_args.args[2][0]['content'])
+        self.assertEqual(10000, result['raw_input_bytes'])
+        self.assertEqual(0, result['omitted_count'])
+        self.assertLessEqual(result['byte_length'], 1024)
+
+    def test_pack_token_budget_only_claims_selected_tokenizer_measurement(self):
+        with self.assertRaisesRegex(ValueError, 'supported tokenizer'):
+            pack(self.backend, self.job, {'paths': ['src/a.py'], 'max_tokens': 128})
+        self.assertNotIn('workspace_context_pack', self.job['data'])
+        self.backend.count_context_tokens = lambda job, text: (120, 'SELECTED_TOKENIZER')
+        measured = pack(self.backend, self.job, {'paths': ['src/a.py'], 'max_tokens': 128})
+        self.assertEqual(120, measured['token_count'])
+        self.assertTrue(measured['token_budget_satisfied'])
+        self.backend.count_context_tokens = lambda job, text: (200, 'SELECTED_TOKENIZER')
+        with self.assertRaises(ValueError):
+            pack(self.backend, self.job, {'paths': ['src/a.py'], 'max_tokens': 128})
+
     def test_summary_retains_full_evidence_while_projecting_bounded_context(self):
         receipts = [{'receipt_sha256': str(index), 'head_sha': 'a' * 40, 'content': 'original-' * 1000} for index in range(100)]
         self.job['data']['workspace_receipts'] = copy.deepcopy(receipts)

@@ -273,7 +273,8 @@
     "Avoid the pinned emulator action's premature MENU unlock before acceptance readiness, using verified upstream source/runtime bytes while retaining the API34/API36 matrix, resource/time limits and all launcher/ANR health checks.",
     "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming.",
     "Describe paired privacy results by their actual checks: three bounded distinct text entries, literal anxiety omission and reported runtime-label/output-limit equality, without changing scoring, dispatch or lifecycle.",
-    "Retain the final aligned unmet-criterion sample and observed total/omission counts when bounded diagnostic capsules saturate, while preserving closed validation, approval, byte limits and acceptance authority."
+    "Retain the final aligned unmet-criterion sample and observed total/omission counts when bounded diagnostic capsules saturate, while preserving closed validation, approval, byte limits and acceptance authority.",
+    "Cover original cancellation and joined cleanup while a non-null comparison provider-authority check is suspended at opening or collection in both protection modes, without changing dispatch behavior or existing regressions."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -493,6 +494,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticContentPolicyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticDatabaseSourceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticRedactionReuseTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnosticsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt",
@@ -574,6 +576,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantDebugVisibilityTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatExportDialogPrivacyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModelTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModelTest.kt",
@@ -590,6 +593,7 @@
     "docs/architecture/repository-guide.md",
     "docs/architecture/repository-index.json",
     "docs/architecture/voice-streaming.md",
+    "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json",
     "docs/repairs/android-cmake-package-recovery-2026-11-23-task.json",
     "docs/repairs/assistant-debug-visibility-dispatcher-2026-11-23-task.json",
     "docs/repairs/calibration-preference-scanner-2026-11-23-task.json",
@@ -621,6 +625,8 @@
     "docs/repairs/pillow-speech-smoke-security-2026-11-23-task.json",
     "docs/repairs/privacy-address-context-review-2026-11-23-task.json",
     "docs/repairs/privacy-cancellation-health-controls-2026-11-23-task.json",
+    "docs/repairs/privacy-comparison-authority-cancellation-2026-11-23-task.json",
+    "docs/repairs/privacy-comparison-labels-2026-11-23-task.json",
     "docs/repairs/privacy-export-ui-scroll-2026-11-23-task.json",
     "docs/repairs/privacy-independent-review-2026-11-23-task.json",
     "docs/repairs/privacy-modal-provenance-2026-11-23-task.json",
@@ -693,11 +699,7 @@
     "scripts/tests/test_native_memory_smoke.py",
     "scripts/tests/test_prepare_emulator_action.py",
     "scripts/tests/test_prepare_emulator_ui.py",
-    "scripts/tests/test_release_lint_workflow.py",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt",
-    "docs/repairs/privacy-comparison-labels-2026-11-23-task.json",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt",
-    "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json"
+    "scripts/tests/test_release_lint_workflow.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

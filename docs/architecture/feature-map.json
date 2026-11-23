@@ -158,7 +158,8 @@
       "documents": [
         "docs/architecture/repository-guide.md",
         "docs/repairs/privacy-receiving-accounting-2026-11-23-task.json",
-        "docs/repairs/privacy-paired-comparison-2026-11-23-task.json"
+        "docs/repairs/privacy-paired-comparison-2026-11-23-task.json",
+        "docs/repairs/privacy-comparison-authority-cancellation-2026-11-23-task.json"
       ],
       "invariants": [
         "Saved private-chat authority follows its conversation and queued work independently of global availability.",
@@ -173,7 +174,8 @@
         "Private stream events are revalidated after the channel handoff under captured conversation authority; denial stops upstream before one content-free partial failure, preserves cancellation and caller context, and never grants an error-code bypass.",
         "A receiving-side denial carries generation_completed only from an actual observed Completed event; final accounting retains that content-free fact separately from failed delivery, transport completion and replay permission, never from upstream failure metadata.",
         "An explicit provider comparison accepts only closed fictional fixtures, preserves the actual private dispatch/restoration and live authority checks, excludes saved personal text and tools, and keeps observed detection, task criteria, usage and timing separate. Only completed pairs with matching observed runtime/output ceilings enter grouped nearest-rank sample percentiles; warmups, incomplete or mismatched pairs and unverified strict-route settings are excluded.",
-        "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming."
+        "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming.",
+        "Cancellation during a suspended non-null configured provider-authority check propagates unchanged at opening and pre-dispatch collection, retires owning and validating work, restores caller context and opens no provider in either comparison protection mode."
       ]
     },
     {
@@ -1728,9 +1730,9 @@
       "sha256": "010b0f447db1b704b3328643c2c54c8e21951373a35421c94be116805f5c0841"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonProviderBindingTest.kt": {
-      "blob_sha": "3110cf868b88153cd716a8c83bfe3cb31dffd472",
-      "bytes": 33788,
-      "sha256": "a168f27dd8584c9f0e6adf4cbb44a1dad2de4e4758c932685704fff99ca2da7b"
+      "blob_sha": "bb19425912b9c88ac43ff21446f07bfba6d216c4",
+      "bytes": 39120,
+      "sha256": "8c203f7622c7babb5b88e0068252872793991611ccc37ba411fd3b2df8116ee6"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonRunnerTest.kt": {
       "blob_sha": "0efda4111418e6ba6f91b32da356837b77e17d45",
@@ -2136,6 +2138,11 @@
       "blob_sha": "23da70ead0d18768ec4376fc0e79c5375e8b6a50",
       "bytes": 15662,
       "sha256": "407c31ecf1d058064c91c24067ed8103a9e2c8034acd42df5b447c6bfbe7f5fc"
+    },
+    "docs/repairs/privacy-comparison-authority-cancellation-2026-11-23-task.json": {
+      "blob_sha": "b9924b5cfb713d96ebb1089e5f069d530a03ea4b",
+      "bytes": 6349,
+      "sha256": "e4a620ffbe93570a5335a37404789b02831d2c28ce756937fd4a3a5aea54d584"
     },
     "docs/repairs/privacy-paired-comparison-2026-11-23-task.json": {
       "blob_sha": "663cdee6876c8bb5788555f35dba8ac91ee3077a",

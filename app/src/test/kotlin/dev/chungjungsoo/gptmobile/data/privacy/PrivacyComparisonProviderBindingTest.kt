@@ -31,7 +31,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
@@ -548,6 +550,101 @@ class PrivacyComparisonProviderBindingTest {
         assertTrue(events.none { it is ProviderEvent.TextDelta || it == ProviderEvent.Completed })
         coVerify(exactly = 0) { fixture.store.privateTerms() }
     }
+
+    @Test
+    fun cancellingSuspendedConfiguredAuthorityDuringOpeningPreservesCancellationWithoutDispatch() = runBlocking {
+        assertSuspendedConfiguredAuthorityCancellation(duringCollection = false)
+    }
+
+    @Test
+    fun cancellingSuspendedConfiguredAuthorityDuringCollectionPreservesCancellationWithoutDispatch() = runBlocking {
+        assertSuspendedConfiguredAuthorityCancellation(duringCollection = true)
+    }
+
+    private suspend fun assertSuspendedConfiguredAuthorityCancellation(duringCollection: Boolean) = coroutineScope {
+        for (protection in listOf(false, true)) {
+            val previousConversation = ConversationPrivacyContext.currentOrNull()
+            val previousAuthority = currentCoroutineContext()[RequestAuthorizationGuard]
+            val caller = ConversationPrivacyContext(42, false)
+            val inherited = RequestAuthorizationGuard("synthetic-cancellation-caller") {}
+            withContext(caller + inherited) {
+                var suspendValidation = !duringCollection
+                val validatorEntered = CompletableDeferred<Job>()
+                val validatorExited = CompletableDeferred<Unit>()
+                val callerExited = CompletableDeferred<Unit>()
+                val original = AuthorityCancellation(duringCollection, protection)
+                var validatorCancellation: CancellationException? = null
+                var callerCancellation: CancellationException? = null
+                var laterLegAttempts = 0
+                val fixture = Fixture(
+                    providerAuthority = RequestAuthorizationGuard("synthetic-suspended-provider-authority") {
+                        if (suspendValidation) {
+                            validatorEntered.complete(requireNotNull(currentCoroutineContext()[Job]))
+                            try {
+                                awaitCancellation()
+                            } catch (cancelled: CancellationException) {
+                                validatorCancellation = cancelled
+                                throw cancelled
+                            } finally {
+                                validatorExited.complete(Unit)
+                            }
+                        }
+                    }
+                )
+                // Collection must pass the real opening checks before its first
+                // producer validation is suspended, still before any provider open.
+                val prepared = if (duringCollection) fixture.open(protection) else null
+                suspendValidation = true
+                val events = mutableListOf<ProviderEvent>()
+                val job = launch {
+                    try {
+                        val first = prepared ?: fixture.open(protection)
+                        first.session.streamRound(emptyList(), emptyList()).toList(events)
+                        laterLegAttempts++
+                        fixture.open(!protection).session.streamRound(emptyList(), emptyList()).toList(events)
+                    } catch (cancelled: CancellationException) {
+                        callerCancellation = cancelled
+                        throw cancelled
+                    } finally {
+                        callerExited.complete(Unit)
+                    }
+                }
+                try {
+                    val validatingJob = withTimeout(2_000) { validatorEntered.await() }
+                    assertFalse(validatorExited.isCompleted)
+                    assertEquals(0, fixture.opened)
+                    job.cancel(original)
+                    withTimeout(2_000) {
+                        job.join()
+                        validatingJob.join()
+                        validatorExited.await()
+                        callerExited.await()
+                    }
+                    assertSame(original, validatorCancellation)
+                    assertSame(original, callerCancellation)
+                    assertTrue(job.isCancelled)
+                    assertTrue(validatingJob.isCompleted)
+                    assertEquals(0, fixture.opened)
+                    assertEquals(0, laterLegAttempts)
+                    assertTrue(events.isEmpty())
+                    assertNull(fixture.sentProfile)
+                    assertTrue(fixture.sentTurns.isEmpty())
+                    assertNull(fixture.constraints)
+                    assertSame(caller, ConversationPrivacyContext.currentOrNull())
+                    assertSame(caller, currentCoroutineContext()[ConversationPrivacyContext])
+                    assertSame(inherited, currentCoroutineContext()[RequestAuthorizationGuard])
+                } finally {
+                    job.cancelAndJoin()
+                }
+            }
+            assertSame(previousConversation, ConversationPrivacyContext.currentOrNull())
+            assertSame(previousAuthority, currentCoroutineContext()[RequestAuthorizationGuard])
+        }
+    }
+
+    // A distinct constructor keeps the sentinel identifiable across coroutine
+    // debug stack recovery as well as the real producer context handoff.
+    private class AuthorityCancellation(duringCollection: Boolean, protection: Boolean) : CancellationException("Synthetic authority cancellation: collecting=$duringCollection; protection=$protection")
 
     private suspend fun expectBlocked(code: PrivacyComparisonFailure, block: suspend () -> Unit) {
         var failure: PrivacyComparisonFailure? = null

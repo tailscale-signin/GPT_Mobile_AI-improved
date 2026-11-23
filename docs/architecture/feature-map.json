@@ -593,9 +593,9 @@
       "sha256": "19b30f2c5fb8cc72f6c57e90a97ef043a54611afaa3daff7264c0986cc45dd78"
     },
     ".github/workflows/native-memory-smoke.yml": {
-      "blob_sha": "6c35ef7a7fcd518e558567ce796f95c95d0bbb64",
-      "bytes": 12922,
-      "sha256": "880556b3526ea3d87e8542ffa8f354dfa09cd792b9930bd296b61d970cd13900"
+      "blob_sha": "743f6dcc6670815a83e12257573fcbe3c056764a",
+      "bytes": 13042,
+      "sha256": "f3b4a480ce1ea9fd0001199644fb96af6fd849a4ecc6a9f4caa3fcda6e8e254d"
     },
     ".github/workflows/speech-engine-smoke.yml": {
       "blob_sha": "9f33aaafb5f418f785ee2a1679c5ee0cdccb6910",
@@ -2048,9 +2048,9 @@
       "sha256": "7c3c7bfaf0cbd32f9b280ad99d19899594b8db1ba9122b86e2b6216b99b141de"
     },
     "scripts/tests/test_mediapipe_android_smoke.py": {
-      "blob_sha": "d9d0a21ff2dc4f0554604be3dc54fb476dea043b",
-      "bytes": 14464,
-      "sha256": "d332d6cce199a2494c3292d7fb1270c8c498c8928f562e1578c89226e8c88618"
+      "blob_sha": "03ebd88b4866f6ae00add5a82fe9ddd125b2c30d",
+      "bytes": 15975,
+      "sha256": "809a0d5df204a8c265932f8f89ed9d3375ff36dffd5372b96fbf9bb97c6b3f4f"
     },
     "scripts/tests/test_mediapipe_jni.py": {
       "blob_sha": "04601cc689fe63370796485b448a6af4c03fca3e",

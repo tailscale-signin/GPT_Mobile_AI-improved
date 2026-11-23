@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "task": "native-speech-smoke-paths-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2367,
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "c2d24b795656ccc3ee430b12107abf5f2104a727",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "failure": {
+    "workflow": ".github/workflows/native-memory-smoke.yml",
+    "runId": 45259996983,
+    "conclusion": "failure",
+    "scheduledJobs": 0,
+    "reason": "The speech matrix referenced runner.temp in job-level env. GitHub supplies the runner context during steps.",
+    "contextReference": "https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability"
+  },
+  "change": "Export the model and APK staging directories from RUNNER_TEMP to GITHUB_ENV before the artifact download. The subsequent download, provisioning and emulator steps use the same directories.",
+  "qualification": {
+    "regression": "The original workflow fails the new job-context assertion. The corrected workflow executes its actual setup shell with a runner path containing spaces, preserves an existing environment entry and passes both paths to subsequent consumers.",
+    "focused": "11 Android speech smoke tests passed, including the three engine invocations and negative receipt controls.",
+    "hosted": "The shared PR and actual publishing main must run the native build and each Android JNI engine."
+  }
+}

@@ -196,11 +196,13 @@ jobs:
       matrix:
         engine: [kokoro, phonon, pocket]
     env:
-      MEDIAPIPE_SMOKE_MODEL_DIR: ${{ runner.temp }}/mediapipe-speech-models
-      MEDIAPIPE_SMOKE_APK_DIR: ${{ runner.temp }}/native-smoke-apks
       MEDIAPIPE_SMOKE_EVIDENCE_DIR: app/build/native-speech-smoke/${{ matrix.engine }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set speech smoke staging paths
+        run: |
+          printf 'MEDIAPIPE_SMOKE_MODEL_DIR=%s/mediapipe-speech-models\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'MEDIAPIPE_SMOKE_APK_DIR=%s/native-smoke-apks\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Retrieve the verified APKs from this workflow run
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

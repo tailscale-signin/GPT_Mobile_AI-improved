@@ -249,7 +249,8 @@
     "Prepare local speech earlier after capture, cancel withdrawn warmup generations, calibrate selected native voice/rate across balanced one-through-four thread trials, and adapt AUTO pending phrases to measured production and queued audio.",
     "Negotiate compatible Gateway binary PCM and private-sidecar transport with exact-route authorization, private-conversation blocking, bounded framing, slow-reader admission and principal-scoped cancellation.",
     "Replace native profile regex scans with bounded structured parsing; enforce released TTS JNI contracts and keep model-family timing and requested delegates separate from verified processor execution.",
-    "Require complete paired CPU-reference audio qualification before manual or Auto accelerator playback; use CPU for unqualified or inconsistent receipts and prevent ordinary self-validation from granting accelerator admission."
+    "Require complete paired CPU-reference audio qualification before manual or Auto accelerator playback; use CPU for unqualified or inconsistent receipts and prevent ordinary self-validation from granting accelerator admission.",
+    "Initialize the native speech smoke staging paths on the assigned runner before downloading the minified APKs and provisioning each speech model."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -555,6 +556,7 @@
     "docs/repairs/github-search-coverage-followup-2026-11-23-task.json",
     "docs/repairs/gitleaks-model-pin-2026-11-23-task.json",
     "docs/repairs/hosted-privacy-stream-and-health-2026-11-23-task.json",
+    "docs/repairs/native-speech-smoke-paths-2026-11-23-task.json",
     "docs/repairs/open-pr-issue-remediation-2026-11-23-task.json",
     "docs/repairs/privacy-address-context-review-2026-11-23-task.json",
     "docs/repairs/privacy-cancellation-health-controls-2026-11-23-task.json",

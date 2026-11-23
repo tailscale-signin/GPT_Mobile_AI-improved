@@ -273,6 +273,29 @@ class MediaPipeAndroidRunnerTest(unittest.TestCase):
                 self.assertNotEqual(0, result.returncode)
                 self.assertEqual("NOT_VERIFIED", json.loads((evidence / "status.json").read_text())["status"])
 
+    def test_workflow_sets_runner_paths_before_the_speech_artifact_download(self):
+        workflow = (ROOT / ".github/workflows/native-memory-smoke.yml").read_text()
+        speech = workflow.split("\n  speech:\n", 1)[1]
+        job, steps = speech.split("    steps:\n", 1)
+        self.assertNotIn("runner.", job, "Runner context is unavailable in job-level env")
+        before_download, download = steps.split("      - name: Retrieve the verified APKs", 1)
+        setup = before_download.split("      - name: Set speech smoke staging paths\n", 1)[1]
+        command = textwrap.dedent(setup.split("        run: |\n", 1)[1])
+
+        with tempfile.TemporaryDirectory(prefix="speech runner ") as directory:
+            env_file = Path(directory) / "job env"
+            env_file.write_text("EXISTING=preserved\n")
+            subprocess.run(["bash", "-eu", "-c", command], check=True,
+                           env={**os.environ, "RUNNER_TEMP": directory, "GITHUB_ENV": str(env_file)})
+            values = dict(line.split("=", 1) for line in env_file.read_text().splitlines())
+            self.assertEqual({
+                "EXISTING": "preserved",
+                "MEDIAPIPE_SMOKE_MODEL_DIR": str(Path(directory) / "mediapipe-speech-models"),
+                "MEDIAPIPE_SMOKE_APK_DIR": str(Path(directory) / "native-smoke-apks"),
+            }, values)
+        self.assertIn("path: ${{ env.MEDIAPIPE_SMOKE_APK_DIR }}", download)
+        self.assertIn('--model-dir "$MEDIAPIPE_SMOKE_MODEL_DIR"', download)
+
     def test_ci_reuses_one_minified_build_and_runs_exact_main_and_three_engines(self):
         workflow = (ROOT / ".github/workflows/native-memory-smoke.yml").read_text()
         self.assertRegex(workflow, r"on:\n  push:\n    branches: \[main\]")

@@ -6,6 +6,7 @@ import re
 import unittest
 
 from authentication import incident_report_contract as capsule
+from authentication import issue_report_diagnostics as diagnostics
 from authentication.issue_report_diagnostics import CORE_FIELDS, GATEWAY_CAPABILITY_DECODE_REASONS, GATEWAY_CAPABILITY_FAILURE_KINDS, GATEWAY_CAPABILITY_FIELDS, MAX_DIAGNOSTIC_BYTES, PRIVACY_ELIGIBILITY_REASONS, validate_diagnostics
 from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CONTEXT_FIELDS_V5, ReportError, issue_from_report
 
@@ -135,6 +136,79 @@ class IncidentReportContractTest(unittest.TestCase):
         for field in ("speech_text", "voice_provider_request_id", "voice_native_exception"):
             with self.subTest(field=field), self.assertRaises(ReportError):
                 issue_from_report(self.report(self.capture("VOICE", {**values, field: "private-canary"})))
+
+    def test_active_mediapipe_voice_report_preserves_engine_without_unverified_provider(self):
+        for backend in ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"):
+            with self.subTest(backend=backend):
+                capture = self.capture("VOICE", {
+                    "voice_engine": "MEDIAPIPE", "voice_phase": "SPEAKING", "voice_selected_backend": backend,
+                })
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn("| voice_engine | `MEDIAPIPE` |", issue["body"])
+                self.assertIn(f"| voice_selected_backend | `{backend}` |", issue["body"])
+                self.assertNotIn("voice_effective_provider", issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        for invalid in ("MEDIAPIPE_GPU", "MEDIAPIPE_PHONON", "private speech or engine path", True, None):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {"voice_engine": invalid}))
+            with self.subTest(invalid=invalid), self.assertRaises(ReportError):
+                issue_from_report(self.report(self.capture("VOICE", {"voice_engine": invalid})))
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt").read_text()
+        match = re.search(r'"voice_engine" to setOf\(([^)]+)\)', source)
+        self.assertIsNotNone(match)
+        self.assertEqual(diagnostics.ENUMS["voice_engine"], set(re.findall(r'"([^"\n]+)"', match.group(1))))
+
+    def test_streaming_voice_selection_and_fallback_survive_approved_report(self):
+        for backend, engine in (
+            ("LITERT_KOKORO_CPU", "LITERT_KOKORO"),
+            ("LITERT_KOKORO_GPU", "LITERT_KOKORO"),
+            ("PHONON_CPU", "PHONON"),
+            ("POCKET_CPU", "POCKET"),
+        ):
+            with self.subTest(backend=backend):
+                values = {
+                    "voice_engine": "SYSTEM", "voice_phase": "SPEAKING",
+                    "voice_selected_backend": backend, "voice_effective_provider": "SYSTEM",
+                    "voice_fallback_source": engine, "voice_fallback_target": "SYSTEM",
+                    "voice_fallback_outcome": "SUCCEEDED", "voice_fallback_failure": "SYNTHESIS_FAILED",
+                    "voice_fallback_count": 1,
+                }
+                capture = self.capture("VOICE", values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(f"| voice_selected_backend | `{backend}` |", issue["body"])
+                self.assertIn(f"| voice_fallback_source | `{engine}` |", issue["body"])
+                self.assertIn("| voice_effective_provider | `SYSTEM` |", issue["body"])
+                self.assertIn("| voice_fallback_failure | `SYNTHESIS_FAILED` |", issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                for unverified_provider in (backend, engine):
+                    with self.subTest(unverified_provider=unverified_provider), self.assertRaises(ValueError):
+                        validate_diagnostics(self.capture("VOICE", {**values, "voice_effective_provider": unverified_provider}))
+                    with self.subTest(unverified_provider=unverified_provider), self.assertRaises(ReportError):
+                        issue_from_report(self.report(self.capture("VOICE", {**values, "voice_effective_provider": unverified_provider})))
+
+    def test_streaming_voice_execution_still_rejects_unknown_or_wrong_area_values(self):
+        for field, invalid in (
+            ("voice_selected_backend", "LITERT_KOKORO_NPU"),
+            ("voice_selected_backend", "PHONON_GPU"),
+            ("voice_selected_backend", "POCKET_GPU"),
+            ("voice_selected_backend", "private speech or model path"),
+            ("voice_fallback_source", "PHONON_CPU"),
+            ("voice_fallback_source", "POCKET_CPU"),
+            ("voice_fallback_source", "private speech or exception"),
+        ):
+            with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {field: invalid}))
+            with self.subTest(field=field, invalid=invalid), self.assertRaises(ReportError):
+                issue_from_report(self.report(self.capture("VOICE", {field: invalid})))
+        for field, valid in (("voice_selected_backend", "PHONON_CPU"), ("voice_fallback_source", "PHONON")):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {field: valid}))
 
     def test_voice_execution_count_and_enums_are_closed_and_match_native_contract(self):
         for field, choices in capsule.VOICE_EXECUTION_ENUMS.items():

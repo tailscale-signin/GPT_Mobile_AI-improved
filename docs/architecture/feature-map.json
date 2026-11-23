@@ -279,7 +279,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt",
         "scripts/check_ci_policy.py",
-        "scripts/run_release0950_acceptance.sh"
+        "scripts/run_release0950_acceptance.sh",
+        "authentication/incident_report_contract.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineTest.kt",
@@ -307,7 +308,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
         "scripts/tests/test_ci_modernization.py",
         "scripts/tests/test_prepare_emulator_ui.py",
-        "scripts/tests/test_native_memory_smoke.py"
+        "scripts/tests/test_native_memory_smoke.py",
+        "authentication/test_incident_report_contract.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -564,7 +566,11 @@
         "authentication/issue_reports.py",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticRedactionReuse.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/HttpAttemptEvidence.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparation.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparation.kt",
+        "authentication/incident_report_contract.py",
+        "authentication/issue_report_diagnostics.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingWindowTest.kt",
@@ -575,7 +581,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticRedactionReuseTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportPrecheckTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/HttpAttemptEvidenceTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparationTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparationTest.kt",
+        "authentication/test_incident_report_contract.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -752,6 +759,11 @@
       "bytes": 9612,
       "sha256": "d03b0d900d206aa16daff91a4c3fdd280dd497b1d49788c1fe32084b27490af8"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt": {
+      "blob_sha": "94e05062121b0717dae61e3f0462c2243866ce84",
+      "bytes": 83198,
+      "sha256": "5a789a6169d9e46a74566cb0c8c495f850fba6bd752bf6e98c6350cfc28ec669"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": {
       "blob_sha": "629bb13a08db28473c92e18b78c690dd2f2356f7",
       "bytes": 19223,
@@ -766,6 +778,11 @@
       "blob_sha": "100356277f4bfafd7f9e768fb56aea7d151aa3ce",
       "bytes": 40757,
       "sha256": "d23679232fd6ef44ba7391ca2d180c4f520b41f2e0a2b746e798a06c0ccddb4c"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt": {
+      "blob_sha": "afd6c8f9f209047d2b2ee3abcc2899133ca33118",
+      "bytes": 1904,
+      "sha256": "f15a4f75e101491bc01533d1dfeb9ac726a76531421ca98a3643956038fa52dc"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayAgentWorkspace.kt": {
       "blob_sha": "bcbb5aa2d1b3f4fbb4c5eb185819f593931a1bf9",
@@ -1762,6 +1779,16 @@
       "bytes": 5974,
       "sha256": "c5df2ebb16457aa4cce8447bf5855b99429c00615888bf8cbb9e86b50fdaa36d"
     },
+    "authentication/incident_report_contract.py": {
+      "blob_sha": "53ef00f3cec87dc5c1148592c4a88556e8e47f79",
+      "bytes": 53095,
+      "sha256": "cf595f16ca97806d4bf364a71fb3c8a9e3c72d289a977565a2f43a9cd7f8a660"
+    },
+    "authentication/issue_report_diagnostics.py": {
+      "blob_sha": "43fa5f76bda789ab507b2c839a0c9b4b36e9f742",
+      "bytes": 51757,
+      "sha256": "87877b4f52be3928a59007e6312e731c7a19f899f3f67fc05ab1e0ca3cf44f5d"
+    },
     "authentication/issue_reports.py": {
       "blob_sha": "5fc4e495d2fb62c39276f884a7222c111f47e4e5",
       "bytes": 42586,
@@ -1781,6 +1808,11 @@
       "blob_sha": "6fc778e13c08dd57597162a0dc7c6113f17da6b4",
       "bytes": 3416,
       "sha256": "a9fca5be129d805197175d5091cfb6dec7cd0f3f4c21322a830fda475632026c"
+    },
+    "authentication/test_incident_report_contract.py": {
+      "blob_sha": "82ba6acce0f0b1c1864e8755f6285ae1af7101be",
+      "bytes": 178484,
+      "sha256": "471b157b502fbefbb8829c799636ab75702f8146fdb8c90801f352e65426693b"
     },
     "docs/architecture/repository-guide.md": {
       "blob_sha": "7624e5cc7c5720c40a928448e2257b50e66674fa",

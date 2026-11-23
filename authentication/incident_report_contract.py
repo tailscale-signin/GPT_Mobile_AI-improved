@@ -359,9 +359,9 @@ VOICE_PLAYBACK_FAILURES = {
     'PRONUNCIATION_UNAVAILABLE', 'LEXICON_UNAVAILABLE',
 }
 VOICE_EXECUTION_ENUMS = {
-    'voice_selected_backend': {'AUTO', 'CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
+    'voice_selected_backend': {'AUTO', 'CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA', 'LITERT_KOKORO_CPU', 'LITERT_KOKORO_GPU', 'PHONON_CPU', 'POCKET_CPU'},
     'voice_effective_provider': {'SYSTEM', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
-    'voice_fallback_source': {'KOKORO', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
+    'voice_fallback_source': {'KOKORO', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA', 'LITERT_KOKORO', 'PHONON', 'POCKET'},
     'voice_fallback_target': {'SYSTEM', 'KOKORO_CPU'},
     'voice_fallback_outcome': {'STARTED', 'SUCCEEDED', 'FAILED'},
     'voice_fallback_failure': VOICE_PLAYBACK_FAILURES,

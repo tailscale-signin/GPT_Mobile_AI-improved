@@ -252,7 +252,8 @@
     "Require complete paired CPU-reference audio qualification before manual or Auto accelerator playback; use CPU for unqualified or inconsistent receipts and prevent ordinary self-validation from granting accelerator admission.",
     "Initialize the native speech smoke staging paths on the assigned runner before downloading the minified APKs and provisioning each speech model.",
     "Correct runner-context availability in native speech CI and require ordinary Android acceptance to execute every voice entry method without skips.",
-    "Reject typed TLS and cancellation before retry callbacks can clear dispatch uncertainty, preserving ordinary DNS recovery ordering and every existing retry/ownership fence."
+    "Reject typed TLS and cancellation before retry callbacks can clear dispatch uncertainty, preserving ordinary DNS recovery ordering and every existing retry/ownership fence.",
+    "Align server voice report vocabularies with the new SDK engine family, selected backends and fallback sources while retaining strict unknown-value rejection and truthful effective-provider semantics."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",

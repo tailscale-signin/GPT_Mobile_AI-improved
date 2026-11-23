@@ -40,7 +40,7 @@
     "admission": "35 current-source JVM admission/policy/qualification tests passed. A manual-admission bypass negative control failed 5 of 11 new admission regressions, including 1075ms versus2450ms. Two additional Robolectric persistence/preparation-timeout tests remain required in CI.",
     "canonicalFast": "687 canonical host tests passed on the integrated ebda voice candidate. Pinned ktlint1.3.1 passed all64 changed Kotlin/Kotlin-script files. The independent TLS append is preserved; final combined-source gates remain required before merge. Full Android/model smoke remains pending normal CI."
   },
-  "latestObservedPublicHead": "6ca4baf43fd6d8035f25ef6fa806d36f2ee8368d",
+  "latestObservedPublicHead": "8ba187495f467aa17d992fa6a6d753eb89e7db12",
   "independentReview": {
     "sdkLifecycle": "Resolved cancellation/destructor lock contention and failed-native-retirement lease ownership; blocking-destructor regressions passed.",
     "entryAndPreview": "Resolved native-pack-only entry/saved-message gating and same-frame preview configuration ordering; actual Android tests are committed for CI.",
@@ -58,6 +58,20 @@
     "change": "Move runner-dependent job environment to an explicit Bash setup step; preserve all three model jobs and verification. Add a local policy regression that rejects both invalid declarations from the committed workflow.",
     "entryExecution": "Run VoiceEntryInstrumentedTest in ordinary Android acceptance and require all three named methods to pass unskipped, including installed SDK entry without native Kokoro.",
     "validation": "Independent source review clear. CI modernization21, native checker16 and emulator/runner52 focused host tests pass; final hosted Android execution remains pending.",
-    "concurrentWorkflowRepair": "6ca4baf43fd6d8035f25ef6fa806d36f2ee8368d independently corrected the same runner-context defect. Its complete workflow, smoke regression and task ledger are preserved; this append adds general CI policy enforcement and required voice-entry execution."
+    "concurrentWorkflowRepair": "6ca4baf43fd6d8035f25ef6fa806d36f2ee8368d independently corrected the same runner-context defect. Its complete workflow, smoke regression and task ledger are preserved; this append adds general CI policy enforcement and required voice-entry execution.",
+    "incidentReportContract": {
+      "source": "8ba187495f467aa17d992fa6a6d753eb89e7db12",
+      "failedWorkflowRun": 45262887512,
+      "failedJobs": [
+        138002193078,
+        138002193069
+      ],
+      "failure": "Existing closed-enum parity test rejected the four new selected SDK backends. Root inspection also found MEDIAPIPE engine family absent from the server vocabulary.",
+      "change": "Align selected backend, fallback source and engine family with exact Android values; preserve effective-provider closure, unknown-value rejection and report-area restrictions.",
+      "validation": "All 219 authentication tests pass: the existing 216 methods plus three active-engine, fallback-roundtrip and unknown/wrong-area regression methods. Hosted final-head qualification remains required.",
+      "command": "python3 -m unittest discover -s authentication -t . -p 'test_*.py' -v",
+      "logSha256": "e22ba3610a029d4886beb9347f640fd4811f7c854f829d5f819df03c33673b1b",
+      "independentReview": "Clear: exact Android/server selected-backend, fallback-source and engine-family parity; effective-provider vocabulary unchanged; active/fallback report serialization and strict unknown/type/area rejection retained."
+    }
   }
 }

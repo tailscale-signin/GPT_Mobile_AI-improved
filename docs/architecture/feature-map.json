@@ -688,9 +688,9 @@
       "sha256": "92f10bddb6b85ba62d570febc77b0d12cc011f13d55fc41371c6ec8de4fc5226"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryTest.kt": {
-      "blob_sha": "54447ff52b8bb600b6cdd97850184f2f32707eb3",
-      "bytes": 10638,
-      "sha256": "062b2303a17595597096c4dcacede182efd43e3e3d44bfaf80f452f6264315b8"
+      "blob_sha": "f532e9c73ae3a1fbf443f3a785b8dd5867fcdd1e",
+      "bytes": 11193,
+      "sha256": "f5d591290a31f6e095ff9034433421cb58bb55cc7a93288c4cc4bf73d8750d34"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceStorageTest.kt": {
       "blob_sha": "05af5601016c56373b8cc7123a1e97e1263698b9",

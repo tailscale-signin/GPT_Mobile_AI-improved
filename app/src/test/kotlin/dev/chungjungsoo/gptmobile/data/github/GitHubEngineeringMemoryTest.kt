@@ -186,8 +186,14 @@ class GitHubEngineeringMemoryTest {
     @Test fun cancellationDuringRankingAndRemoteAuthorizationFailureRemainFatalToPreparation() = runTest {
         val cancelled = CancellationException("cancelled while ranking")
         coEvery { semantic.rankEngineering(any(), any(), any()) } throws cancelled
-        assertSame(cancelled, runCatching { prepare() }.exceptionOrNull())
+        val propagated = runCatching { prepare() }.exceptionOrNull()
+        assertTrue(propagated is CancellationException)
+        assertEquals(cancelled.message, propagated?.message)
+        // Coroutine stack-trace recovery may copy the exception while retaining its original cause.
+        assertTrue("The original cancellation must remain in its cause chain", generateSequence(propagated) { it.cause }.take(16).any { it === cancelled })
         assertTrue(notices.isEmpty())
+        coVerify(exactly = 1) { semantic.rankEngineering(any(), any(), any()) }
+        coVerify(exactly = 1) { anyConstructed<GitHubWorkspaceClient>().execute("get_repository", any()) }
         val denied = GitHubRequestRejected(403, "Authorization could not be established")
         coEvery { anyConstructed<GitHubWorkspaceClient>().execute(any(), any()) } throws denied
         assertSame(denied, runCatching { prepare() }.exceptionOrNull())

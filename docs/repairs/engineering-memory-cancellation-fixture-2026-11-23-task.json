@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_head": "f0d0a7257966a43d6b61bf0a937e355ca1fa9bab",
+  "working_branch": "work/engineering-memory-cancellation-2026-11-23",
+  "source_owner": "map/integration",
+  "intent": "Reproduce the actual engineering-memory ranking cancellation boundary and correct its unsupported outer exception identity assertion while retaining fatal cancellation, exact original causal identity, no authorization fallback, and unchanged remote403 propagation assertions.",
+  "status": "FOCUSED_AND_CANONICAL_VALIDATION_PASSED_INDEPENDENT_COMMIT_REVIEW_PENDING",
+  "hosted_failure": {
+    "source": "f0d0a7257966a43d6b61bf0a937e355ca1fa9bab",
+    "audit_run": 45113124784,
+    "audit_job": 137489857018,
+    "artifact": 14791666775,
+    "artifact_sha256": "94706156e41198759f2b08b7c00faed080d258e9904a6fe0870d63bdfc6b7250",
+    "failing_xml_sha256": "ffacc158aec056cf846e17ff8f4e0d75f989f178dc4fcfa58deadbccb7200827",
+    "tests": 13424,
+    "passed": 13418,
+    "failed": 1,
+    "skipped": 5,
+    "test": "GitHubEngineeringMemoryTest.cancellationDuringRankingAndRemoteAuthorizationFailureRemainFatalToPreparation",
+    "assertion": "assertSame at line189 expects the outer CancellationException to be the original instance.",
+    "additional_observation": "The signed-release validation job reports the same sole failure after fresh4GiB unit compilation."
+  },
+  "hypothesis": "Confirmed by actual-source focused reproduction: hosted assertions/default coroutine recovery reproduce the sole outer-identity failure; disabling recovery preserves all11 original tests. Production withTimeoutOrNull cancellation propagation remains unchanged.",
+  "invariants": [
+    "Production engineering-memory, preparation, authorization and coroutine behavior remain unchanged unless actual reproduction demonstrates a separate defect.",
+    "Require CancellationException, its original message and the exact injected original in a bounded cause chain; a fresh same-message cancellation without that cause must fail.",
+    "Keep remote403 exception identity and empty optional-preparation notices unchanged.",
+    "Verify one ranking attempt and only the initial authorization read before cancellation; no lexical or authorization fallback after cancellation.",
+    "Preserve all concurrent app, compiler, Windows and phone-index work; integrate with an expected-head update without force."
+  ],
+  "validation": {
+    "baseline": {
+      "tests": 11,
+      "hosted_assertions_default_recovery_failures": 1,
+      "explicit_recovery_disabled_failures": 0,
+      "manifest_sha256": "a52876ec75ad4ce1549a7c09bec01df3e5676645da80b01a048041b2d5e99d87",
+      "default_log_sha256": "bec2c806977d2fced4d28c23c5c0f7cda5f3cff24087c911c1f1d4ce3c864627"
+    },
+    "canonical": {
+      "tests": 657,
+      "seconds": 22.866,
+      "result": "PASS",
+      "literal_regexes": 2038,
+      "dynamic_patterns_excluded": 100,
+      "xml_resources": 36
+    },
+    "format": "ktlint1.3.1 PASS",
+    "generated_references": "PASS",
+    "production_source": "All three actual runtime inputs remain byte-identical to f0d0.",
+    "corrected": {
+      "tests": 11,
+      "hosted_assertions_default_recovery_failures": 0,
+      "default_seconds": 1.985,
+      "explicit_recovery_disabled_failures": 0,
+      "recovery_disabled_seconds": 1.893,
+      "manifest_sha256": "57a521de04dd74585a37d5488d4280677302c88e3019c5e52c99b7294395cbc7",
+      "jar_sha256": "5238c9f0f703792dedcd9d33e27cf5efca0bec42d49f71379db5724d577240a6"
+    },
+    "cause_loss_negative": {
+      "mutation": "Only in a separate scratch compiler input, replace the propagated ranking cancellation outside withTimeoutOrNull with a new same-type/same-message exception lacking the original cause.",
+      "tests_per_mode": 11,
+      "expected_failures_per_mode": 1,
+      "passing_controls_per_mode": 10,
+      "modes": [
+        "hosted assertions with default recovery",
+        "hosted assertions with recovery explicitly disabled"
+      ],
+      "failure": "The exact original-cause assertion; the legitimate750ms optional-ranking lexical fallback and other10 cases remain green.",
+      "manifest_sha256": "1509a2f4407a4cd55417af37464ac59b368a17c2d3f9ae1ea4083fb21abd0ed1"
+    },
+    "qualification_receipt_sha256": "401fd1446a7de190cd858040b26f2a86faa94ca61ea505771532171e7cfacb29",
+    "source_binding": {
+      "full_actual_inputs": 10,
+      "production_inputs": 9,
+      "test_inputs": 1,
+      "compiled_inputs_per_phase": 29,
+      "runtime": "JDK21, Kotlin2.4.20, coroutines1.11;512MiB heap/two processors",
+      "phase_differences": "Baseline to corrected changes only the test input. Corrected to negative changes only the scratch Memory input. Dependencies remain identical."
+    },
+    "boundaries": "Complete actual Memory, Preparation, Policy and current authorization/context types execute with the original MockK services represented by signature ports. Platform/default-type/unused policy support remains isolated; the exercised Continue-work requirement parser boundary is source-derived and explicitly limited to that fixture. This does not qualify the full parser, Room, real HTTP/semantic backend, AgentRunner or complete Android app.",
+    "independent_review": "Map UI reviewer cleared source and baseline/corrected/negative proof; immutable commit binding remains before guarded publication."
+  },
+  "source_sha256": {
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryTest.kt": "f5d591290a31f6e095ff9034433421cb58bb55cc7a93288c4cc4bf73d8750d34",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemory.kt": "0118ed839abf08087fc1e1e3fe20deac55f03212ea8fc32ae2705cc70f320233",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryPreparation.kt": "6291dba9427b51d2450c2d0d3645bb2d23dc9a783ba53c159b0186dbc9aeea25",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryPolicy.kt": "57bbb9bfe5debeb9c85ad22e75e6c34a302c7beb9d0b85576a7c61a0f056d391"
+  },
+  "remaining": [
+    "Bind the immutable commit to the independently reviewed test/proof inputs.",
+    "Preserve every concurrent source commit, integrate regenerated references, and push with an expected-head guard.",
+    "All applicable latest-head tests and current merge rules, exact-main checks and actual Android0.9.66.13/build147 plus Gateway18.1.1 downloaded-byte/attestation publication readback."
+  ],
+  "baseline_fixture_sha256": "062b2303a17595597096c4dcacede182efd43e3e3d44bfaf80f452f6264315b8",
+  "correction": [
+    "Require propagated CancellationException, the original message and the exact injected original object in a cause chain bounded to16 nodes; preserve all11 test methods.",
+    "Require exactly one ranking attempt and initial get_repository authorization read before cancellation. Keep original remote403 instance identity and both empty-notice assertions unchanged.",
+    "No application runtime, authorization, ranking timeout, memory policy, transport, build budgets or test selection changed."
+  ],
+  "evidence": {
+    "host": "/workspace/scratch/c067b3dc0a58/engineering-memory-cancellation-host/",
+    "canonical": "/workspace/scratch/c067b3dc0a58/engineering-memory-fixture-proof/canonical-fast.log",
+    "full_audit": "/workspace/scratch/c067b3dc0a58/ci-monitor/f0d0-audit-unit-results-14791666775.json",
+    "signed_validation": "/workspace/scratch/c067b3dc0a58/ci-monitor/f0d0-signed-unit-results-14791677121.json"
+  }
+}

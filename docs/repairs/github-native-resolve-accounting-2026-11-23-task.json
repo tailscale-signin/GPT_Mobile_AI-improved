@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "task": "Bind concurrent graph revision test accounting to the actual native resolve response",
+  "state": "IMPLEMENTED_FOCUSED_PROOF_PASSED_PENDING_ROOT_INTEGRATION_AND_FULL_HOSTED_GATE",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2363,
+  "base_branch": "fix/github-evidence-progress-2026-11-23",
+  "public_base_commit": "3f05e97d910520b122e85c30f711a9053ab3601f",
+  "base_commit": "b4c4dc6049ebc2f2ffa634197937883cf835057b",
+  "base_tree": "beaf9fc6a2a28e2faf79a46c32eed9b8b01d5442",
+  "work_branch": "work/github-native-resolve-accounting-20261123",
+  "worktree": "/workspace/scratch/6b5c8b09c56b/github-native-resolve-accounting-work",
+  "intent": "Reproduce the exact nested native read receipt assertion with the actual resolve response materialization and physical HTTP request sequence; adjust only the fixture after demonstrating the operation ownership. Preserve the graph revision rejection, outer local/remote dispatch isolation, stale-content exclusion and zero mutation/reconciliation assertions.",
+  "owned_paths": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphRevisionAuthorityTest.kt",
+    "docs/repairs/github-native-resolve-accounting-2026-11-23-task.json"
+  ],
+  "failure_evidence": {
+    "head": "3f05e97d910520b122e85c30f711a9053ab3601f",
+    "checkout": "76e36be9c013baa81d3b9bd267cf73aa3400bd66",
+    "checkout_tree": "74d1baa338157d02dd4cc2cac23b951bdfaadc47",
+    "run": 45176683689,
+    "job": 137702518697,
+    "artifact": 14823225585,
+    "artifact_sha256": "1ba87a48a90e5193b4949d6652efef1fa27a9bb1d1a3df5d706ba067acfb7e08",
+    "xml_path": "/workspace/scratch/6b5c8b09c56b/pr2363-3f05-unit-proof/graph-revision-authority.xml",
+    "xml_sha256": "f3496b54b933c44ad6f04732f4a640ce90eaf51cab202057fb982702018480f1",
+    "method": "GitHubGraphRevisionAuthorityTest.aConcurrentNativeRevisionChangeRejectsTheFinishedMap",
+    "assertion_line": 250,
+    "failure": "expected:<1> but was:<2>",
+    "field": "nested resolveReceipt.read_requests",
+    "full_suite": {
+      "tests": 13564,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 5
+    }
+  },
+  "hypothesis": "The complete native resolve_context response includes indexStatus(context), whose cold tree read follows the branch commit read. The earlier focused port called only resolve() and omitted result materialization. This hypothesis requires the physical request/receipt probe before changing expectations.",
+  "constraints": [
+    "No production source changes or weakened revision, privacy, authorization, mutation or replay guards.",
+    "The exact test is the hosted acceptance boundary; focused native fragments must identify all unrelated fail-closed ports and source hashes.",
+    "Preserve existing frozen proof directories and prior task receipts.",
+    "No full Gradle, memory-policy overrides, workflow mutations, remote writes, app-reference generation or release-scope edits. Root owns integrated canonical and hosted gates."
+  ],
+  "validation": {
+    "baseline": {
+      "path": "/workspace/scratch/6b5c8b09c56b/github-native-resolve-accounting-proof/baseline-bootstrap-4/qualification.json",
+      "sha256": "be24754c6f3d0da2cb11ac0e4f2e03c8a6ecda27718d380375135d27945f17d2",
+      "tests": 3,
+      "failures": 1,
+      "time_seconds": 0.863,
+      "result": "Original hosted nested count assertion reproduced exactly; both traced physical variants and denied-credential zero-HTTP control passed."
+    },
+    "corrected": {
+      "path": "/workspace/scratch/6b5c8b09c56b/github-native-resolve-accounting-proof/corrected-native-response/qualification.json",
+      "sha256": "e0ba30a0421bd01d0b645774fd68aa7d9ae849235b0f663030f53ab3a3a98061",
+      "tests": 3,
+      "failures": 0,
+      "time_seconds": 0.567
+    },
+    "comparison": {
+      "path": "/workspace/scratch/6b5c8b09c56b/github-native-resolve-accounting-proof/phase-comparison.json",
+      "sha256": "a240bd9c86aa0ac3aa0d909510f1fb2988e6a0b8b63c2e558838972f15c1eda7",
+      "unchanged_compiled_inputs": 109,
+      "changed_compiled_input": "GraphHostedFixture.kt",
+      "dependencies_unchanged": 60,
+      "native_spans_unchanged": 39,
+      "repository_origins_bound": 90,
+      "all_baseline_repository_inputs_equal_failed_public_head": true
+    },
+    "ktlint": {
+      "version": "1.3.1",
+      "file": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphRevisionAuthorityTest.kt",
+      "exit_code": 0,
+      "source_sha256": "bb7cea7b706cb8059ee81d573d9e3aeb7df0e56388643f768e22e6d2f6a5d091"
+    },
+    "diff_check": "PASS",
+    "bootstrap_attempts": {
+      "baseline-bootstrap-1": "Harness source path lookup failed before compilation; no repository changes.",
+      "baseline-bootstrap-2": "Host compilation failed on extraction anchoring and missing host declarations; no repository changes.",
+      "baseline-bootstrap-3": "Host compilation failed on four remaining missing symbols; no repository changes.",
+      "baseline-bootstrap-4": "First complete executable baseline, retained unchanged."
+    },
+    "canonical": "ROOT_OWNED_PENDING_INTEGRATION",
+    "generated_references_and_release_scope": "ROOT_OWNED_PENDING_INTEGRATION",
+    "hosted": "FINAL_HEAD_FULL_ANDROID_UNIT_EXECUTION_REQUIRED; the focused closure is not whole application qualification."
+  },
+  "diagnosis": "The native resolve_context response correctly reads the branch commit and then indexStatus(context) reads that commit tree. The previous focused graph port omitted Session.execute result materialization. The unchanged production has two distinct native physical reads, each counted once; neither is borrowed by the outer graph receipt.",
+  "change": {
+    "production_changes": [],
+    "fixture_changes": [
+      "Expect two nested read requests and response observations.",
+      "Require optional outer map tree read followed by native commit and native tree read in order.",
+      "Add explicit nested requires_reconciliation=false assertion."
+    ],
+    "retained_assertions": [
+      "Both mapRead=false and mapRead=true variants",
+      "Original pinned scope and GRAPH_REVISION_MISMATCH rejection",
+      "Outer dispatched flag and own 0/1 request/response observations",
+      "Outer and nested zero mutations",
+      "Outer no reconciliation",
+      "No source_current stale content in rejected result"
+    ],
+    "all_other_test_methods_unchanged": true,
+    "gateway_component_preserved": true,
+    "test_sha256": "bb7cea7b706cb8059ee81d573d9e3aeb7df0e56388643f768e22e6d2f6a5d091"
+  },
+  "proof_boundaries": [
+    "Full original hosted target method and its helpers are copied exactly; other methods in its class are not run.",
+    "Actual source spans execute the native GitHubTool graph factory, selected-repository/admission/execute path, WorkspaceClient resolve invocation and full read transport, and Session.execute resolve response/indexStatus/tree.",
+    "Actual full dispatch accounting, bounded Ktor transport, request retry/scheduler/cache/ref/rate helpers and repository storage/index helpers compile; tests use real Ktor MockEngine, no GitHub service.",
+    "Constructor, Android/settings/catalog and unrelated callbacks remain explicit host ports; every alternate effective action is rejected and unrelated mutations fail closed. This does not qualify OAuth, all native actions, whole Session or Android application.",
+    "Separate unchanged probe executes both mapRead variants with full path/query/header observations and credentialAdmissionFailed zero-HTTP control.",
+    "Final-head full Android unit execution, app/reference generators and canonical validation remain root-owned.",
+    "Native exact-span qualification binds excerpt bytes and offsets. Two final-member display end_line values use the exclusive preceding-newline convention; their full excerpt bytes are retained and compiled."
+  ],
+  "fresh_head_guard": {
+    "observed_at_utc": "2026-11-23T13:53:54.557292+00:00",
+    "source": "https://api.github.com/repos/tailscale-signin/GPT_Mobile_AI-improved/pulls/2363",
+    "head": "3f05e97d910520b122e85c30f711a9053ab3601f",
+    "base": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+    "state": "open",
+    "draft": true,
+    "local_base": "b4c4dc6049ebc2f2ffa634197937883cf835057b"
+  },
+  "independent_review": {
+    "reviewer": "speech_acceleration",
+    "verdict": "CLEAR",
+    "path": "/workspace/scratch/6b5c8b09c56b/github-native-resolve-peer-review/review.json",
+    "sha256": "1cad39cbb9ca4f871e418a98af141af13fc1cb9daca5055c723aebafb348b6ae",
+    "read_only_binding_checks": 1447,
+    "reruns": false,
+    "qualification": "Focused exact-source native-path proof; final complete hosted application still required."
+  }
+}

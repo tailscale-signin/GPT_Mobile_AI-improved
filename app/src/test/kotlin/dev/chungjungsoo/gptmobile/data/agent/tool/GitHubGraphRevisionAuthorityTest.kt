@@ -247,10 +247,12 @@ class GitHubGraphRevisionAuthorityTest {
                 assertEquals(JsonPrimitive(if (mapRead) 1 else 0), result.executionReceipt?.get("read_response_observations"))
                 assertEquals(JsonPrimitive(0), result.executionReceipt?.get("mutation_requests"))
                 assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
-                assertEquals(JsonPrimitive(1), resolveReceipt?.get("read_requests"))
-                assertEquals(JsonPrimitive(1), resolveReceipt?.get("read_response_observations"))
+                // Native resolve reads the branch head, then its tree to materialize index status.
+                assertEquals(JsonPrimitive(2), resolveReceipt?.get("read_requests"))
+                assertEquals(JsonPrimitive(2), resolveReceipt?.get("read_response_observations"))
                 assertEquals(JsonPrimitive(0), resolveReceipt?.get("mutation_requests"))
-                assertEquals((if (mapRead) listOf(mapPath) else emptyList()) + "/repos/owner/repo/commits/main", requests)
+                assertEquals(JsonPrimitive(false), resolveReceipt?.get("requires_reconciliation"))
+                assertEquals((if (mapRead) listOf(mapPath) else emptyList()) + listOf("/repos/owner/repo/commits/main", mapPath), requests)
                 assertFalse((result.content as ToolResultContent.Json).value.jsonObject.containsKey("source_current"))
             }
         }

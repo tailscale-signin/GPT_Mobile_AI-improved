@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "task": "pr2363-model-pin-history-scan-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/github-evidence-progress-2026-11-23",
+  "baseCommit": "b4c4dc6049ebc2f2ffa634197937883cf835057b",
+  "baseTree": "beaf9fc6a2a28e2faf79a46c32eed9b8b01d5442",
+  "publicHeadAtStart": "3f05e97d910520b122e85c30f711a9053ab3601f",
+  "parentPullRequest": 2363,
+  "workingBranch": "work/model-pin-scan-3f05",
+  "owner": "root/voice_design_review",
+  "integrationOwner": "root",
+  "status": "COMPONENT_VALIDATED_PENDING_INTEGRATION",
+  "intent": "Reuse the exact reviewed public model-pin scanner component from 35b1556e to classify the existing public model-file checksum without reducing credential detection for other values, paths, fields or trailing content.",
+  "originalComponent": {
+    "publicCommit": "35b1556e07c83ed219dc741a070d4a14f8f73e8f",
+    "publicTree": "f0e908cfa8d1031c2b394b88bc33e43aed507ab9",
+    "reviewedLocalCommit": "30d6c4c1ebbe72fc4cf3c8eb8ce1d99cc5f729d5",
+    "owner": "PR2367 native_speech_review",
+    "provenance": "Existing independently reviewed component; copied functional bytes will be verified identical. Foreign source, refs, checkpoint and proof files remain untouched."
+  },
+  "ownedPaths": [
+    ".gitleaks.toml",
+    "scripts/scan_secret_history.sh",
+    "scripts/test_gitleaks_model_pin.py",
+    "docs/repairs/pr2363-model-pin-history-scan-2026-11-23-task.json"
+  ],
+  "failureEvidence": {
+    "run": 45176683613,
+    "job": 137710961060,
+    "head": "3f05e97d910520b122e85c30f711a9053ab3601f",
+    "checkout": "76e36be9c013baa81d3b9bd267cf73aa3400bd66",
+    "scannerVersion": "8.30.1",
+    "hostedProcessedCommits": 8863,
+    "hostedFindings": 2,
+    "reproducedPublicRange": "8abda66c9040d2c679cee8fe84452d67125a3fd7..76e36be9c013baa81d3b9bd267cf73aa3400bd66",
+    "reproducedCommits": 6,
+    "reproducedFindings": 2,
+    "rule": "generic-api-key",
+    "path": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-qnn.json",
+    "line": 8,
+    "commits": [
+      "8fd1454d3065ce27049c2a57056633ea921677fd",
+      "76e36be9c013baa81d3b9bd267cf73aa3400bd66"
+    ],
+    "fieldPath": [
+      "model_sha256",
+      "tokens.txt"
+    ],
+    "classification": "DOCUMENTED_PUBLIC_MODEL_CHECKSUM_FALSE_POSITIVE_REPEATED_IN_PR_MERGE",
+    "sourceEvidenceSha256": "c51174fc4a2aee2150c281050c16a7c6434fdbad96561a1a27fcf00ffb28ebdc",
+    "redactedReportSha256": "529086d0eddc0bc4db0e814b07e68a39c035504d9df07a177e8496491c196eed"
+  },
+  "constraints": [
+    "Copy only the three named functional files from the existing public component; no unrelated changes from PR2367.",
+    "Preserve default rules, redaction, pinned scanner checksum/version, exact-history flags and existing fingerprint ignores.",
+    "Do not modify release-scope, generated references, workflows, production application/Gateway code, foreign checkouts or remote state.",
+    "Root owns integrated metadata/scope/canonical validation and final hosted gates."
+  ],
+  "plannedValidation": [
+    "Byte-bind all three reused functional files to public35b1556e.",
+    "Run the actual pinned scanner six-control suite, plus the relevant existing nine unit controls.",
+    "Use the identical six-public-commit history subset and unchanged ignore file for baseline2 findings versus corrected0.",
+    "Check syntax/whitespace and retain source/scanner/receipt hashes. Do not claim a complete local all-public-ref scan."
+  ],
+  "limitations": [
+    "The initial 6,296-ancestor local diagnostic scan exceeded its 55-second bound and produced no verdict.",
+    "The six-commit reproduction is a subset, not qualification of all 8,863 processed hosted commits. Final integrated hosted full-history scanning remains mandatory.",
+    "No history rewrite, broad exemption, workflow rerun, merge or publication is part of this isolated component."
+  ],
+  "validation": {
+    "reusedFunctionalFiles": [
+      {
+        "path": ".gitleaks.toml",
+        "sha256": "f25120f48e6f66ef872ef36f09a1444b9d9f2321833ea7646fd9f88b7a3c083e",
+        "git_mode": "100644",
+        "bytes": 1645,
+        "exact_public_source": "35b1556e07c83ed219dc741a070d4a14f8f73e8f"
+      },
+      {
+        "path": "scripts/scan_secret_history.sh",
+        "sha256": "89da17c274b71560cd900c61021f4f422e6e805923c88c52e3ad36d11145bfbe",
+        "git_mode": "100644",
+        "bytes": 1272,
+        "exact_public_source": "35b1556e07c83ed219dc741a070d4a14f8f73e8f"
+      },
+      {
+        "path": "scripts/test_gitleaks_model_pin.py",
+        "sha256": "f1a962ab4b9253b91320bba79e79cbfb4e3ec22bfbd0ba1ac2c9d985c72dffdc",
+        "git_mode": "100644",
+        "bytes": 6164,
+        "exact_public_source": "35b1556e07c83ed219dc741a070d4a14f8f73e8f"
+      }
+    ],
+    "byteEqualityToOriginalPublicComponent": true,
+    "scanner": {
+      "version": "8.30.1",
+      "archiveSha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "binarySha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+      "redactionPercent": 100
+    },
+    "actualScannerControls": {
+      "cases": 6,
+      "baselinePassed": 5,
+      "baselineIntendedFailure": "exact_evidence",
+      "correctedPassed": 6,
+      "negativeControlsRetained": [
+        "different_checksum",
+        "different_path",
+        "different_field",
+        "trailing_content"
+      ],
+      "existingNativeHarnessAllowanceRetained": true
+    },
+    "existingUnitControls": {
+      "cases": 9,
+      "passed": 9,
+      "selection": [
+        "RequiredGateTest (1)",
+        "DiagnosticsTest (6)",
+        "WorkflowPolicyTest.test_floating_action_rejected_and_sha_accepted",
+        "WorkflowPolicyTest.test_candidate_ruleset_keeps_review_and_security_gates"
+      ],
+      "qualification": "Unchanged actual Python repository tests; one DiagnosticsTest method is an existing workspace source-threading check, not Android execution.",
+      "sourceBindingReceiptSha256": "721e9ba20fa80eafe26cf27ab32ffb01b909df7d0d7fe913e56b39ca0524914e"
+    },
+    "exactPublicHistorySubset": {
+      "range": "8abda66c9040d2c679cee8fe84452d67125a3fd7..76e36be9c013baa81d3b9bd267cf73aa3400bd66",
+      "commits": 6,
+      "baseline_findings": 2,
+      "corrected_findings": 0,
+      "original_ignore_file_unchanged": true,
+      "private_refs_included": false,
+      "complete_hosted_all_ref_scan": false
+    },
+    "syntaxAndWhitespace": "PASS: bash -n, Python AST parse and git diff --check.",
+    "proofDirectory": "/workspace/scratch/6b5c8b09c56b/pr2363-3f05-contract-proof",
+    "reuseValidationReceiptSha256": "59e3fa7740410bf00d56a117ce1b41b66493001dad036ca7ec7172ed7bd96725",
+    "precommitPublicState": {
+      "observed_at": "2026-11-23T13:50:09.871Z",
+      "number": 2363,
+      "head_sha": "3f05e97d910520b122e85c30f711a9053ab3601f",
+      "base_sha": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+      "state": "open",
+      "draft": true
+    },
+    "canonicalFast": "DEFERRED_TO_ROOT_INTEGRATION_BY_TASK_OWNERSHIP",
+    "generatedReferencesAndReleaseScope": "DEFERRED_TO_ROOT_INTEGRATION; no generated or release-scope files changed in this component.",
+    "fullHostedHistoryGate": "REQUIRED_ON_FINAL_INTEGRATED_PUBLIC_SOURCE"
+  },
+  "proofArtifacts": {
+    "reuse-validation.json": "59e3fa7740410bf00d56a117ce1b41b66493001dad036ca7ec7172ed7bd96725",
+    "unit-control-inputs.json": "721e9ba20fa80eafe26cf27ab32ffb01b909df7d0d7fe913e56b39ca0524914e",
+    "copied-component-inputs.json": "33fa67a7404e040827eea8ba0f50ba85bb9e7fa55cce4abfec1ab3d0c075a275",
+    "existing-component-binding.json": "02f52b330fb9f07f5b7ddd4acc5b93e8efd9ef8b40ee97bf627c0a2de97394a3",
+    "baseline-six-controls.json": "31f8c2cb4c68de8aedd3be8722ec89e3ae00bf65f79bb9d2522cfacb731ee058",
+    "corrected-six-controls.json": "be381b8ba3a15b188e9ee471f5f865b958f3fd51b8f2a4a157e60d5faae95d3e",
+    "nine-existing-unit-controls.log": "282d4e18390b1eece90cc08c96dad9a208ca6627697ef596d2e0bd549efd103c",
+    "public-merge-subset-scan.json": "35f1123f33dd5cb46753d5b225ebe1d1a9f121bc402bd77f2a9b1d634492d6fb",
+    "public-merge-subset-redacted-report.json": "529086d0eddc0bc4db0e814b07e68a39c035504d9df07a177e8496491c196eed",
+    "corrected-public-merge-redacted-report.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "corrected-public-merge-scan.log": "ec8332c14da28b95952ce05631fc194e28e00636bbdbad77d1260fe2296c6284",
+    "scanner-input.json": "24c2a329f89f988b8fa2630fc9f354ac280a702b323c5d90a1e3fee8f5612f1e",
+    "merge-subset-input.json": "5473d75fa0ceb2480a53dd85aa267da55a1e2d32d72345778b5d23499b2e8160",
+    "model-pin-safe-source-binding.json": "88fab3ad0b0488ddde4d527ccb8f0be6e2e8df3bb747c40aa30ef99ea40b210d",
+    "pre-edit-task.json": "366c26575bf196fb1bd52f57b6f2dc4fa3d0a5c997ba434f41c6fa2b57857007",
+    "initial-subset-timeout.json": "df6d7a6ec3fec43df6416e1e285020b118f8777cf863e2c81f653f020ee51050",
+    "completed-job-safe-evidence.json": "6b6a4bb4e8f09d3b998440ba1e03ec38843291084e3f3d3898c22ecbc1f7eebc",
+    "run_reuse_validation.py": "7c0f083fcd9238c70e1611f5ced813f778194c4a77a3287835c448fc913357e4"
+  }
+}

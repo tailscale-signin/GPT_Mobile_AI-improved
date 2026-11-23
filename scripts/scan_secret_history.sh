@@ -20,4 +20,5 @@ else
   tar -xzf "$scratch/scanner.tgz" -C "$scratch" gitleaks
   scanner="$scratch/gitleaks"
 fi
+python3 scripts/test_gitleaks_model_pin.py --scanner "$scanner"
 "$scanner" git --redact=100 --no-banner --no-color --log-opts='--all --full-history --diff-merges=first-parent --root' .

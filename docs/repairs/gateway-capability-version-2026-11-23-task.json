@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "task": "Refresh current Gateway18 capability fixtures for the actual18.1.2 response",
-  "state": "FIXTURES_RECAPTURED_BASELINE_REPRODUCED_PENDING_PACKAGE_AND_CORRECTED_PROOF",
+  "task": "Refresh current Gateway 18 capability fixtures for the actual 18.1.2 response",
+  "state": "IMPLEMENTATION_COMPLETE_LOCAL_PROOF_PASSED_PENDING_ROOT_INTEGRATION_AND_HOSTED_GATES",
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "base_branch": "fix/github-evidence-progress-2026-11-23",
   "parent_pr": 2363,
   "public_base_commit": "3f05e97d910520b122e85c30f711a9053ab3601f",
   "local_equivalent_base_commit": "32ccb04f8961c911e9c23fbdcef5c16e1df9f203",
   "base_tree": "74d1baa338157d02dd4cc2cac23b951bdfaadc47",
-  "work_branch": "work/gateway-capability-version-20261123",
-  "worktree": "/workspace/scratch/6b5c8b09c56b/gateway-capability-version-work",
+  "work_branch": "work/gateway-capability-public-anchor-20261123",
+  "worktree": "/workspace/scratch/6b5c8b09c56b/gateway-capability-public-anchor-work",
   "intent": "Recapture the complete current v18 capability response through the existing real HTTP helper, keep all non-version fields, synchronize its Android resource, correct the current short contract version and regenerate only the necessary Gateway package manifest.",
   "owned_paths": [
     "gateway/contracts/v18/capabilities.json",
@@ -26,18 +26,26 @@
     "checkout_tree": "74d1baa338157d02dd4cc2cac23b951bdfaadc47",
     "jobs": [
       137699631513,
-      137699631668
+      137699631668,
+      137699631604,
+      137699631877
     ],
     "methods": [
       "test_gateway_capabilities.GatewayCapabilitiesContractTests.test_full_shared_fixture_matches_the_actual_http_response",
       "test_gateway_v14.RuntimeTests.test_actual_capabilities_ready_and_facade"
     ],
-    "cause": "Runtime VERSION and validated manifest are18.1.2; three current v18 fixture files still retain18.1.1. Both Linux3.12/3.13 jobs fail the same two strict version assertions.",
+    "cause": "Runtime VERSION and the validated manifest are 18.1.2; three current v18 fixture files retained 18.1.1. All four Linux/Windows Python 3.12/3.13 jobs failed the same two strict version assertions, with no additional unittest failure or error methods.",
     "proof_directory": "/workspace/scratch/6b5c8b09c56b/gateway-capability-version-proof",
     "logs": {
       "job-137699631513.log": "4581bca6d9892b17bc18751b78a7db5f53b5b6ec2c1fd51fd7af2474ce22997e",
       "job-137699631668.log": "e50382698b1724d657f31dc7ef174da750106f413bb6cc2f69b5016d30c28c3b",
-      "hosted-metadata.json": "7728c3a1b434300283b3f1477a877ed438beeb5c6c66085d8c8c348d4d28748d"
+      "hosted-metadata.json": "7728c3a1b434300283b3f1477a877ed438beeb5c6c66085d8c8c348d4d28748d",
+      "job-137699631604.log": "29a844724675490ef1f3b0ec814951df40b7a4d573f2ce8565ba2e64a42f8adf",
+      "job-137699631877.log": "87353ca54cd30573a370b06e42e990b3865c7f72941b6cb0672fa51dd5dc10b4"
+    },
+    "complete_matrix_source_binding": {
+      "path": "/workspace/scratch/6b5c8b09c56b/gateway-capability-version-proof/failure-source-binding.json",
+      "sha256": "cad1248a58289e4649b4b2e4bd1ff2705693566abb0e11bbf32fa9ce051ff9b6"
     }
   },
   "constraints": [
@@ -62,10 +70,63 @@
       ],
       "model_inference_requests": 0
     },
-    "corrected": [],
+    "corrected": {
+      "path": "/workspace/scratch/6b5c8b09c56b/gateway-capability-version-proof/corrected/receipt.json",
+      "sha256": "26bc8021cfcbe37e8f4e5abda65cf53cefbb10de85dd7502ebd7bd1c54738d12",
+      "source_commit": "eef75d975973b746d0dc9c15fe8c637762168a95",
+      "source_tree": "bfc4a35d9f871527197aa5229fa34f4544786da3",
+      "tests": 31,
+      "passed": 31,
+      "failures": 0,
+      "errors": 0,
+      "suite_counts": {
+        "capabilities": 4,
+        "runtime": 26,
+        "android_fixture_mirrors": 1
+      },
+      "python": "3.12.14",
+      "pinned_dependencies": 28,
+      "all_dependency_versions_match": true,
+      "source_inputs": 518,
+      "sources_unchanged_during_run": true,
+      "actual_http_capture_sha256": "35924ec944d031062cc4fa3c19d014813f360101fa6bc571c2eea4e6f428d27f",
+      "actual_response_fields": 33,
+      "boolean_feature_flags": 105,
+      "complete_body_differences": {},
+      "model_inference_requests": 0
+    },
     "canonical": "Root-owned after integration",
     "hosted": "Final-head matrix and complete Android qualification pending",
-    "bootstrap_note": "The first local capability suite reproduced its expected assertion failure; a scratch log parser incorrectly required both full version strings despite unittest truncating the dictionary diff. Its evidence is retained in baseline-bootstrap-log-assertion. The corrected harness checks the exact failing method and the complete real HTTP body; no repository test assertion changed."
+    "bootstrap_note": "The first local capability suite reproduced its expected assertion failure; a scratch log parser incorrectly required both full version strings despite unittest truncating the dictionary diff. Its evidence is retained in baseline-bootstrap-log-assertion. The corrected harness checks the exact failing method and the complete real HTTP body; no repository test assertion changed.",
+    "local_package_contract": {
+      "path": "/workspace/scratch/6b5c8b09c56b/gateway-capability-version-proof/manifest-contract.json",
+      "sha256": "5589d3927d5d1ba654d712e6411d86642a9113ca10c8b6376f858b3fb99133f0"
+    },
+    "public_source_binding": {
+      "path": "/workspace/scratch/6b5c8b09c56b/gateway-capability-version-proof/public-anchor-binding.json",
+      "sha256": "f9b42aa16c32c18f17ab61f8a853e9b99307038a4dfba19f75225c3fba937496",
+      "actual_remote_source_commit": "681f2707eef4ce4d63ecb8c42455aee7dc0a7da5",
+      "manifest_sha256": "0da37dd2be96c0bab063493ea2d40b12fc4fd0e26e819ed461b4df89d1ca5f60",
+      "payload_entries": 513,
+      "payload_entries_unchanged_from_public_base": 511,
+      "payload_entries_changed": 2,
+      "all_payload_bytes_match_actual_remote_source": true,
+      "unchanged_tested_inputs_excluding_manifest": 517,
+      "only_manifest_difference_from_tested_package": "sourceCommit",
+      "official_generator_ran_at_actual_remote_anchor": true
+    },
+    "independent_review": {
+      "path": "/workspace/scratch/6b5c8b09c56b/gateway-capability-version-peer-review/review-before-public-anchor.json",
+      "sha256": "8cf97691c457e40f8329ccf3576d41e2c435e161c3b88c1dadb0ef680d9af152",
+      "verdict": "CLEAR",
+      "scope": "Fixture-only source, preserved assertions, 31-case baseline/corrected proof, all payload hashes and dependency bindings. Final public-anchor and component readback is recorded separately by the reviewer."
+    },
+    "qualification_limits": [
+      "The existing capability and runtime suites and real isolated HTTP capture ran under Linux Python 3.12.14 with all 28 pinned dependencies; this is not a new local Python 3.13 or Windows execution.",
+      "The Android resource is byte-identical and all five mirror contracts pass; actual Kotlin capability consumer execution remains part of final hosted Android qualification.",
+      "The official builder and validator ran again at the actual remote source anchor. The 31-case proof is carried forward by exact source equality; it is not claimed to have been repeated after the sourceCommit-only manifest update.",
+      "Final app/reference generation, release scope registration, canonical validation, all applicable hosted gates and publication are root-owned and remain pending."
+    ]
   },
   "android_consumer_review": {
     "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayV14CapabilitiesTest.kt",
@@ -74,5 +135,28 @@
     "historical_fixture_versions_unchanged": true,
     "exact_android_mirror_test": "scripts/tests/test_gateway_capability_fixtures.py passed across all five full/legacy pairs",
     "actual_jvm_execution": "Not run by this component; final hosted Android remains required."
+  },
+  "source_anchors": {
+    "local_fixture_commit": "ac2e2957747b377ee494cb639e6e0e60260ba121",
+    "local_tested_package_commit": "eef75d975973b746d0dc9c15fe8c637762168a95",
+    "remote_fixture_commit": "681f2707eef4ce4d63ecb8c42455aee7dc0a7da5",
+    "remote_fixture_parent": "3f05e97d910520b122e85c30f711a9053ab3601f",
+    "identical_fixture_tree": "6c587c99292187a3d599291c401f56141f2f33a8",
+    "transport": "Root created an immutable remote source commit without advancing the branch, verified and imported its actual Git identity. The official generator runs at this actual remote HEAD; no sourceCommit override or invented commit identity is used."
+  },
+  "preservation": {
+    "changed_fixture_version_fields": 7,
+    "non_version_fixture_bytes_preserved": true,
+    "production_and_test_source_unchanged": true,
+    "legacy_fixtures_unchanged": true,
+    "official_generator_source_unchanged": true,
+    "dependency_pins_unchanged": true,
+    "no_remote_branch_or_workflow_mutation_by_this_component": true
+  },
+  "final_owned_source_hashes": {
+    "gateway/contracts/v18/capabilities.json": "434c0d844cb7adcfdf33a28d23a635d03e67522593545743b981d34464a8c6b7",
+    "gateway/contracts/v18/gateway-v18-capabilities-full.json": "35924ec944d031062cc4fa3c19d014813f360101fa6bc571c2eea4e6f428d27f",
+    "app/src/test/resources/gateway-v18-capabilities-full.json": "35924ec944d031062cc4fa3c19d014813f360101fa6bc571c2eea4e6f428d27f",
+    "gateway/manifest-v14.json": "0da37dd2be96c0bab063493ea2d40b12fc4fd0e26e819ed461b4df89d1ca5f60"
   }
 }

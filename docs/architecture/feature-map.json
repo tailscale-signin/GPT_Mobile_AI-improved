@@ -876,9 +876,9 @@
       "sha256": "ceaddcfa4f184b8a5772a97b6a435cdd0d346237ec0eb6f54df477092eb2924d"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphRevisionAuthorityTest.kt": {
-      "blob_sha": "e225fd2ae662a64165641a933794562239c167b0",
-      "bytes": 13104,
-      "sha256": "7bef4a5b77a210c6ad5e65cf6c4006d4766c93297807d384dab444fd81b8fdeb"
+      "blob_sha": "b3a69a88002e337486f66d4ea4b33a871780975f",
+      "bytes": 13320,
+      "sha256": "bb7cea7b706cb8059ee81d573d9e3aeb7df0e56388643f768e22e6d2f6a5d091"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt": {
       "blob_sha": "7ec767b716934ab9104c9d8389d6b641b8d70517",

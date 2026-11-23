@@ -1269,7 +1269,8 @@
     "docs/repairs/github-search-coverage-followup-2026-11-23-task.json",
     "docs/repairs/github-broad-audit-continuation-2026-11-23-task.json",
     "docs/repairs/github-runtime-claim-scope-2026-11-23-task.json",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRuntimeClaimScopeTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRuntimeClaimScopeTest.kt",
+    "docs/repairs/github-negated-audit-scope-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.14",

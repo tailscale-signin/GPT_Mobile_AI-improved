@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "task": "github-negated-audit-scope-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "startingHead": "91bc80c36114fd1fe3e08d7693be69424246e35f",
+  "workingBranch": "work/github-negated-audit-scope-2026-11-23",
+  "parentPullRequest": 2367,
+  "intent": "Exclude a negated broad repository-audit clause from automatic search paging without suppressing an independent explicitly requested query.",
+  "acceptance": [
+    "Do not audit all bugs in the repository; inspect one config file does not authorize paging an issued TODO search frontier.",
+    "A positive repository-wide audit still permits an exact issued derived-query frontier.",
+    "A separately requested Find every TODO clause still permits TODO paging beside a denied broad audit, while unrelated queries remain bounded.",
+    "Preserve native repository, tool, commit, query and cursor binding, explicit samples, unknown-outcome guards and the original finite call limits.",
+    "Exercise the existing actual GitHubReplayRecovery.nextRemoteRead fixture and distinguish local host validation from unexecuted hosted Kotlin/device checks."
+  ],
+  "constraints": [
+    "Keep integration and publication under the parent coordinator, with exact latest-head and main qualification.",
+    "Preserve the reconciled public append and incoming work; do not commit or publish from this private worker.",
+    "Do not broaden natural-language scope parsing beyond the confirmed negated broad-audit boundary."
+  ],
+  "qualification": {
+    "status": "RECONCILED_PRIVATE_IMPLEMENTATION; FINAL_HEAD_HOSTED_QUALIFICATION_REQUIRED",
+    "kotlinExecution": "Not run locally; exact final-head hosted Kotlin execution remains required.",
+    "hostValidation": "Require pinned ktlint 1.3.1, generated-reference checks and canonical fast validation on this reconciled tree before parent integration; retain actual results in the review receipt. These checks do not execute the Kotlin regressions."
+  },
+  "reconciledHead": "4f1ee3aafb1e1106535a019b5a5c309decb945c3",
+  "reconciledTree": "00907fa9450934b87c7e05fb346c434a53107630",
+  "preparation": {
+    "phase": "Private preparation and independent source review completed before reconciliation.",
+    "restriction": "No commit, push, workflow action or external write was performed during private preparation.",
+    "incomingWork": "The actual 4f1ee3a public append retained the negated repository-audit finding; all of its positive standalone-audit tests and rendering corrections are preserved."
+  }
+}

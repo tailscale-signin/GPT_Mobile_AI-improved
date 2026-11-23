@@ -95,6 +95,31 @@ class GitHubRemoteContinuationTest {
         }
     }
 
+    @Test fun negatedRepositoryAuditsDoNotAuthorizeDerivedQueryPaging() {
+        val fixture = SearchScopeFixture("TODO", "literal")
+        for (task in listOf(
+            "Do not audit all bugs in the repository; inspect one config file",
+            "Do not review the entire codebase; inspect one config file",
+            "Don't audit all bugs in the repository; inspect one config file"
+        )) {
+            assertNull(task, fixture.next(task))
+        }
+    }
+
+    @Test fun negatedRepositoryAuditPreservesAnIndependentExplicitQueryOnly() {
+        val requested = SearchScopeFixture("TODO", "literal")
+        val unrelated = SearchScopeFixture("FIXME", "literal")
+        val instructions = SearchScopeFixture("CONTRIBUTING", "paths")
+        for (task in listOf(
+            "Do not audit all bugs in the repository; find every TODO",
+            "Find every TODO; do not audit all bugs in the repository"
+        )) {
+            assertEquals(task, requested.nextArguments, requested.next(task)?.arguments)
+            assertNull(task, unrelated.next(task))
+            assertNull(task, instructions.next(task))
+        }
+    }
+
     @Test fun taskScopedPagingKeepsExactAuthorityDuplicateAndAttemptFences() {
         val fixture = SearchScopeFixture("TODO", "literal")
         val task = "Audit all bugs in the repository"

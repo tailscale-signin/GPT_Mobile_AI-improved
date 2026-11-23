@@ -118,6 +118,7 @@ internal object GitHubExecutionContinuation {
     private val standaloneIssueAudit = Regex(
         """(?i)^(?:please\s+)?(?:review|audit|examine|inspect|check|scan|find)\s+(?:all|every)\s+(?:(?:known|current|remaining)\s+)*(?:issues?|bugs?)(?:\s+and\s+(?:issues?|bugs?))?$"""
     )
+    private val negatedRepositoryAudit = Regex("""(?i)\b(?:do\s+not|don't)\s+(?:review|audit|examine|inspect|check|scan)\b""")
 
     fun instructionLookup(arguments: JsonObject): Boolean =
         arguments["mode"] == JsonPrimitive("paths") &&
@@ -130,6 +131,9 @@ internal object GitHubExecutionContinuation {
         if (query.isNotBlank() && clauses.any { sampleScope.containsMatchIn(it) && it.contains(query, ignoreCase = true) }) return false
         return clauses.any { clause ->
             if (sampleScope.containsMatchIn(clause) || !coverageQualifier.containsMatchIn(clause) || !coverageSubject.containsMatchIn(clause)) return@any false
+            val broadAudit = repositoryAudit.containsMatchIn(clause)
+            // A denied audit supplies no coverage authority; another explicit clause may still do so.
+            if (broadAudit && negatedRepositoryAudit.containsMatchIn(clause)) return@any false
             if (arguments == null) return@any true
             // A request to fix all issues does not ask for every path matching
             // an incidental instruction lookup. Bind automatic paging to its query.
@@ -144,7 +148,7 @@ internal object GitHubExecutionContinuation {
             // An unqualified issue audit covers the selected repository; a component qualifier
             // must not grant exhaustive coverage to an unrelated derived query.
             namedQuery ||
-                repositoryAudit.containsMatchIn(clause) ||
+                broadAudit ||
                 standaloneIssueAudit.matches(clause.trim()) ||
                 query.isBlank() &&
                 Regex("""(?i)\b(?:files?|paths?|tree|repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)

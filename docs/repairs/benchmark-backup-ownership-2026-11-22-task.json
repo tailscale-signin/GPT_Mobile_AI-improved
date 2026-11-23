@@ -7,7 +7,7 @@
   "working_branch": "work/phone-repository-map-2026-11-22",
   "pull_request": 2254,
   "owner": "phone-map and shared integration workstream",
-  "state": "IMPLEMENTED_LOCAL_CHECKS_PASSED_HOSTED_PENDING",
+  "state": "SHARED_INITIALIZATION_LOCAL_CHECKS_PASSED_EXACT_HEAD_HOSTED_PENDING",
   "authorization": "User authorized every latest feature and change on the shared draft through final-head checks, merge, exact-main qualification and publication. This is a concrete unassigned integration defect in preserving pending remote benchmark cleanup.",
   "finding": "BenchmarkStore.importBackupJson calls dao.restoreAll, which can remove omitted or overwrite matching pending runs and clear batch, queue, attempt and event identity. UserBackupManager and CompleteBackupManager invoke it after broader restore mutations; single-result deletion protection does not cover replacement.",
   "intent": [
@@ -113,7 +113,14 @@
     ],
     "preserved_local_snapshot": "/workspace/scratch/c067b3dc0a58/benchmark-backup-option-a-freeze",
     "no_incoming_test_changes": "Incoming BenchmarkRestoreOwnershipTest and BenchmarkPendingBackupOwnershipRegressionTest remain intact.",
-    "incoming_helper_and_tests_unchanged": true
+    "incoming_helper_and_tests_unchanged": true,
+    "subsequent_helper_revision": {
+      "source": "71db6456e094397dc062be8bfcbcdb85778101c9",
+      "decision": "Preserve newly incoming canonical attempt-reference closure and both new helper regressions; root does not modify those files. Protected IDs are sourced from retained canonical runs/events, not imported rows.",
+      "independent_review": "No concrete finding; integrated30 actual-Room/helper cases passed. Original28 evidence and immutable2f red/control proof preserved.",
+      "helper_sha256": "81371ac218b9ec47d4c87e3b54d3471611d84183159ef9bc911f50dd8a65526e",
+      "helper_test_sha256": "614370a439ffd56c47f5984afcfcd417768da6071f2830f5690a712343f4bd8a"
+    }
   },
   "privacy_followup": {
     "observed_at_utc": "2026-11-23T01:20:57Z",
@@ -125,11 +132,57 @@
     "validation": "Encrypted public-manager import and real Room reopen regression authored and independently reviewed; actual execution pending hosted Android."
   },
   "source_hashes": {
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt": "f50556c991903ca272ffdad5799d603438ce0c00b861c31ac5c13c1fcc690cf6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt": "947cfd8529180494a87b6fb6665fbad6de2883cf35103af353bc0a2cba4a23fb",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/UserBackupManager.kt": "4a80f9788a2152d5f81e2caaae4699c8a43c509d09f8f686e151fe86efdab2a0",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupManager.kt": "62398c1e63b052a8a9b47eac75401bdea11ff0b81fe6518f9be29255415307e3",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStoreTest.kt": "1451a7c099d165e3ee27e5c3a21180f219b21537d3b459023863fc70797cce3d",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStoreTest.kt": "7b535b6d66e6e925a7e2e4b100ba2d4013ed339f5526a0dbe338bef4cd91fc21",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupManagerTest.kt": "4cda2b95fc3d4821c1a64dab528df48f19842ec5fa9dec191c5d580dccc49884"
   },
-  "latest_reconciled_parent": "f9ea57ae5436ee747cadffa01e5cc7f360473c71"
+  "latest_reconciled_parent": "71db6456e094397dc062be8bfcbcdb85778101c9",
+  "published_integration": {
+    "commit": "2f1afbf3180508b8326a9cc0b1b6c2dd640b34fc",
+    "parent": "f9ea57ae5436ee747cadffa01e5cc7f360473c71",
+    "tree": "2a0b75614f7fd5f08edcd67e28b48c223addbae2",
+    "guarded_push_and_readback": "VERIFIED",
+    "hosted": "PENDING"
+  },
+  "initialization_followup": {
+    "source_commit": "2f1afbf3180508b8326a9cc0b1b6c2dd640b34fc",
+    "source_sha256": "f50556c991903ca272ffdad5799d603438ce0c00b861c31ac5c13c1fcc690cf6",
+    "finding": "The import path serializes legacy initialization, but public load and the preferences listener still call loadLocked without that Room transaction; a concurrent owner can be erased through ordinary startup loading.",
+    "evidence": "Reviewer real Room probe source hash matches the pushed Store. Public cold load fails while direct import control passes. Own exact-source replay pending.",
+    "intent": "Move canonical legacy read/initialization serialization into the shared loadLocked boundary so every caller preserves independently committed ownership, while retaining existing optional-mirror recovery, derived-score behavior, cancellation and failure semantics. Keep the direct merge, bulk preflight and committed retention paths intact.",
+    "owned_paths": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStoreTest.kt"
+    ],
+    "validation": {
+      "baseline_commit": "2f1afbf3180508b8326a9cc0b1b6c2dd640b34fc",
+      "baseline_cases": 2,
+      "expected_public_load_failure": 1,
+      "import_control": "PASSED",
+      "current_cases": 30,
+      "current_result": "PASSED",
+      "composition": "15 selected Store cases, four unchanged incoming Room ownership cases, and 11 current ownership-helper cases including both incoming71db legacy-reference regressions.",
+      "critical_oracle": "Zero-timeout writer must be blocked inside initialization; this assertion is unchanged. After the assertion, normal persistence verification uses a 2,000 ms SQLite busy timeout to permit actual Room asynchronous invalidation bookkeeping; a stuck transaction still fails.",
+      "harness_boundaries": "Actual Room/SQLite/generated DAOs. Unused domain services throw AssertionError so unrelated service failures cannot masquerade as storage warnings. No complete backup-manager execution is claimed.",
+      "evidence": "/workspace/scratch/c067b3dc0a58/benchmark-backup-room-host/load-current-71db",
+      "baseline_evidence": "/workspace/scratch/c067b3dc0a58/benchmark-backup-room-host/load-baseline-2f",
+      "canonical": {
+        "result": "PASSED",
+        "tests": 627,
+        "source_parent": "71db6456e094397dc062be8bfcbcdb85778101c9",
+        "evidence": "/workspace/scratch/c067b3dc0a58/benchmark-shared-load-71db-fast.log"
+      },
+      "ktlint": {
+        "result": "PASSED",
+        "version": "1.3.1",
+        "scope": "Two unchanged tested Kotlin source/test files and regenerated integrated inventory."
+      },
+      "previous_28_evidence": "/workspace/scratch/c067b3dc0a58/benchmark-backup-room-host/load-current",
+      "integrated_parent": "71db6456e094397dc062be8bfcbcdb85778101c9",
+      "independent_review": "Shared load and newly incoming ownership helper both source-clear, no concrete finding."
+    },
+    "implementation": "All loadLocked callers serialize canonical read and legacy migration in one Room transaction. Loaded state is published after successful initialization. Optional scores use a separate transaction with fresh canonical runs; non-cancellation failures are caught outside it so failed scores cannot roll back canonical initialization or republish a stale owner."
+  }
 }

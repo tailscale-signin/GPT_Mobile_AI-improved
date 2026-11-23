@@ -160,52 +160,85 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         enrollmentLoaded = true
     }
 
+    private data class LoadedBenchmarkState(
+        val runs: List<BenchmarkRun>,
+        val snapshot: BenchmarkScoreSnapshot?,
+        val batches: List<BenchmarkBatch>,
+        val trials: List<RuntimeTrial>,
+        val qualifications: List<RuntimeQualificationResult>
+    )
+
     private suspend fun loadLocked(refreshScores: Boolean = true) {
         if (loaded) return
         loadEnrollmentLocked()
-        // Canonical rows are read independently of optional preferences recovery.
-        val records = dao.runs()
-        val stored = records.mapNotNull { runCatching { json.decodeFromString<BenchmarkRun>(it.payload) }.getOrNull() }
-        val existing = dao.current()
-        val initialized = records.isNotEmpty() || dao.canonicalInitialized()
-        val saved = try {
-            preferences.getString("history", null)
-        } catch (failure: Exception) {
-            if (failure is kotlinx.coroutines.CancellationException) throw failure
-            loadWarning = "The optional backup mirror could not be read. Canonical results remain available."
-            null
-        }
-        val recovered = saved?.let { raw ->
-            val entries = runCatching { json.parseToJsonElement(raw) as? JsonArray }.getOrNull()
-            val valid = entries.orEmpty().mapNotNull { entry -> runCatching { json.decodeFromJsonElement<BenchmarkRun>(entry) }.getOrNull() }
-            if (entries == null || valid.size != entries.size) {
-                // Keep the original for recovery instead of letting a later save destroy it.
-                val preserved = try {
-                    preferences.edit().putString("recovery_history", raw).commit()
-                } catch (failure: Exception) {
-                    if (failure is kotlinx.coroutines.CancellationException) throw failure
-                    false
-                }
-                mirrorRecoveryBlocked = !preserved
-                loadWarning = if (preserved) "Some backup records could not be read. Canonical results and recovered valid records remain available." else "The optional backup mirror is damaged and its recovery copy could not be saved. Canonical results remain available; the original mirror is retained."
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Benchmark", "Recovered benchmark history with invalid records", "W")
+        // Every caller, including ordinary loading and preference notifications, must
+        // serialize the canonical read with legacy migration before publishing state.
+        val state = database.withTransaction {
+            // Canonical rows are read independently of optional preferences recovery.
+            val records = dao.runs()
+            val stored = records.mapNotNull { runCatching { json.decodeFromString<BenchmarkRun>(it.payload) }.getOrNull() }
+            val existing = dao.current()
+            val initialized = records.isNotEmpty() || dao.canonicalInitialized()
+            val saved = try {
+                preferences.getString("history", null)
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                loadWarning = "The optional backup mirror could not be read. Canonical results remain available."
+                null
             }
-            valid
-        }.orEmpty()
-        // Room is authoritative after a crash between the transaction and backup mirror write.
-        val source = if (!initialized) recovered else stored
+            val recovered = saved?.let { raw ->
+                val entries = runCatching { json.parseToJsonElement(raw) as? JsonArray }.getOrNull()
+                val valid = entries.orEmpty().mapNotNull { entry -> runCatching { json.decodeFromJsonElement<BenchmarkRun>(entry) }.getOrNull() }
+                if (entries == null || valid.size != entries.size) {
+                    // Keep the original for recovery instead of letting a later save destroy it.
+                    val preserved = try {
+                        preferences.edit().putString("recovery_history", raw).commit()
+                    } catch (failure: Exception) {
+                        if (failure is kotlinx.coroutines.CancellationException) throw failure
+                        false
+                    }
+                    mirrorRecoveryBlocked = !preserved
+                    loadWarning = if (preserved) "Some backup records could not be read. Canonical results and recovered valid records remain available." else "The optional backup mirror is damaged and its recovery copy could not be saved. Canonical results remain available; the original mirror is retained."
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Benchmark", "Recovered benchmark history with invalid records", "W")
+                }
+                valid
+            }.orEmpty()
+            // Room is authoritative after a crash between the transaction and backup mirror write.
+            val source = if (!initialized) recovered else stored
+            if (source != stored) dao.insertRuns(source.map { BenchmarkRunRecord(it.id, it.startedAt, json.encodeToString(it)) })
+            // Initialization is canonical even if the optional first score snapshot fails.
+            // Otherwise deleting the last row could later resurrect an obsolete mirror.
+            if (!initialized) dao.pointTo(BenchmarkCurrentRecord(generation = 0))
+            LoadedBenchmarkState(
+                runs = source,
+                snapshot = existing?.let { runCatching { json.decodeFromString<BenchmarkScoreSnapshot>(it.payload) }.getOrNull() },
+                batches = dao.batches().map { json.decodeFromString<BenchmarkBatch>(it.payload) },
+                trials = dao.runtimeTrials().map { json.decodeFromString<RuntimeTrial>(it.payload) },
+                qualifications = dao.runtimeQualifications().map { json.decodeFromString<RuntimeQualificationResult>(it.payload) }
+            )
+        }
         restoreRequested = false
-        mutableSnapshot.value = existing?.let { runCatching { json.decodeFromString<BenchmarkScoreSnapshot>(it.payload) }.getOrNull() }
-        if (source != stored) dao.insertRuns(source.map { BenchmarkRunRecord(it.id, it.startedAt, json.encodeToString(it)) })
-        // Initialization is canonical even if the optional first score snapshot fails.
-        // Otherwise deleting the last row could later resurrect an obsolete mirror.
-        if (!initialized) dao.pointTo(BenchmarkCurrentRecord(generation = 0))
-        mutableHistory.value = source
-        mutableBatches.value = dao.batches().map { json.decodeFromString<BenchmarkBatch>(it.payload) }
-        mutableRuntimeTrials.value = dao.runtimeTrials().map { json.decodeFromString<RuntimeTrial>(it.payload) }
-        mutableQualifications.value = dao.runtimeQualifications().map { json.decodeFromString<RuntimeQualificationResult>(it.payload) }
+        mutableSnapshot.value = state.snapshot
+        mutableHistory.value = state.runs
+        mutableBatches.value = state.batches
+        mutableRuntimeTrials.value = state.trials
+        mutableQualifications.value = state.qualifications
         loaded = true
-        if (refreshScores) publishBestEffort(source)
+        if (refreshScores) {
+            try {
+                // A failed optional snapshot must not roll back canonical initialization.
+                // Re-read under this transaction so publication cannot overwrite a newer owner.
+                val current = database.withTransaction {
+                    val runs = dao.runs().mapNotNull { runCatching { json.decodeFromString<BenchmarkRun>(it.payload) }.getOrNull() }
+                    publish(runs)
+                    runs
+                }
+                mutableHistory.value = current
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                loadWarning = "Measurements are saved. Derived scores could not refresh and will be rebuilt from saved results."
+            }
+        }
     }
 
     internal suspend fun updateEnrollment(revisions: Map<String, String>) = withContext(Dispatchers.IO) {

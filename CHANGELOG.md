@@ -20,7 +20,7 @@
 - Keep GitHub benchmark publication and cleanup bound to the verified account through credential rotation, recording dispatch only after account admission succeeds.
 - Preserve pending benchmark ownership and original receipt bytes when restoring backups, including conflicting imported IDs; settled and unrelated results keep normal restore behavior.
 - Check pending benchmark cleanup before wider backup changes; retain the complete current benchmark section and finish an already committed restore when late cleanup ownership appears, with a visible recovery notice.
-- Serialize legacy benchmark initialization with canonical storage and keep unreadable ownership errors free of saved payload details.
+- Serialize benchmark initialization during startup, preference refreshes and backup imports with canonical storage; preserve committed history if optional scores fail and keep unreadable ownership errors free of saved payload details.
 - Check conversation privacy and exact integration permissions before discovering or calling optional workspace tools.
 - Restrict optional workspace discovery to each admitted tool's configured connection, preserve other callers when discovery is cancelled, and isolate concurrent exact-route bindings without replacing the global tool cache.
 - Add a source-bound Android/Windows agent workspace with actual optional SDK/API/ACP coding runtimes, scoped workers, dependency-ready task evidence, graph-ranked context, private review drafts, local next-edit validation and configured documentation/browser tools. Keep agent comparisons separate from model benchmarks and preserve unknown-command/cancellation evidence.

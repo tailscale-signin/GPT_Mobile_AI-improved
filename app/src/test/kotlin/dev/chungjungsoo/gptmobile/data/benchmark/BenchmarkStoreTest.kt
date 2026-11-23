@@ -503,7 +503,11 @@ class BenchmarkStoreTest {
         }
     }
 
-    @Test fun legacyMirrorInitializationCannotOverwriteAConcurrentPendingOwner() = runBlocking {
+    @Test fun legacyMirrorInitializationCannotOverwriteAConcurrentPendingOwner() = assertColdInitializationPreservesPendingOwner { it.importBackupJson("[]") }
+
+    @Test fun publicLoadCannotOverwriteAConcurrentPendingOwnerDuringLegacyInitialization() = assertColdInitializationPreservesPendingOwner { it.load() }
+
+    private fun assertColdInitializationPreservesPendingOwner(initialize: suspend (BenchmarkStore) -> Unit) = runBlocking {
         val application = ApplicationProvider.getApplicationContext<Context>()
         val preferences = application.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE)
         preferences.edit().clear().commit()
@@ -537,9 +541,11 @@ class BenchmarkStoreTest {
         }
         val store = BenchmarkStore(context)
         try {
-            store.importBackupJson("[]")
+            initialize(store)
             assertTrue(attempted.get())
             assertTrue("The pending writer must not commit between the empty canonical read and legacy publication.", blockedByInitialization)
+            // Room may still be updating its invalidation log after the protected transaction returns.
+            writer.rawQuery("PRAGMA busy_timeout=2000", null).use { it.moveToFirst() }
             admitOwner()
             val retained = writer.rawQuery("SELECT payload FROM benchmark_runs WHERE id = ?", arrayOf(pending.id)).use { cursor ->
                 assertTrue(cursor.moveToFirst())

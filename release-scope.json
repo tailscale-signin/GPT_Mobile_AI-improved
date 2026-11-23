@@ -242,7 +242,8 @@
     "Keep terminal free-form diagnostic detail and recognized continuation payload opaque in default export, preserving typed prefix evidence and explicit forensic content consent.",
     "Protect explicit whole-word is/at address colon forms while preserving ordinary-language exclusions, complete masking ranges and exact local restoration.",
     "Use the supported Compose v2 rule for asynchronous assistant debug-visibility tests, preserving real background preparation and all five visibility, fallback, fragment and stable-node assertions.",
-    "Restore the voice thermal-negative fixture with valid audio evidence and a same-measurement normal-thermal positive control, preserving all production qualification rules."
+    "Restore the voice thermal-negative fixture with valid audio evidence and a same-measurement normal-thermal positive control, preserving all production qualification rules.",
+    "Align actual provider retry admission with typed TLS and cancellation diagnostics through the existing bounded cause classifier, preserve ordinary transient retries and verify actual retry-loop attempt counts."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -340,6 +341,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderTransportFailure.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ReadinessHttpTrace.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ResilientStreamingClient.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderSession.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyBenchmark.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProtectionReceipt.kt",
@@ -420,6 +422,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/NetworkFailureKindTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/PrivateFinalRequestBoundaryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ReadinessHttpTraceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ResilientStreamingClientTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/TlsTransportFailureTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayV14CapabilitiesTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderCallTest.kt",
@@ -494,6 +497,7 @@
     "docs/repairs/privacy-tool-result-projection-2026-11-23-task.json",
     "docs/repairs/release-lint-budget-2026-11-23-task.json",
     "docs/repairs/shared-release-integration-2026-11-23-task.json",
+    "docs/repairs/tls-transport-retry-policy-2026-11-23-task.json",
     "docs/repairs/verification-reserve-reporting-2026-11-23-task.json",
     "docs/repairs/voice-thermal-qualification-review-2026-11-23-task.json",
     "gateway/contracts/v18/capabilities.json",

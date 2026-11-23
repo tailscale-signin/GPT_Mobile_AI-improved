@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "c1594c070043174f9454eac650d00e034a8bbf901da8803b4b7585a664418f23",
+  "source_digest": "c65123d5cca6c78215e02bf9cf99e119b72e98340610827dd9320b5789668802",
   "file_count": 3035,
-  "indexed_line_count": 514307,
+  "indexed_line_count": 514311,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -101,7 +101,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 112,
-      "indexed_line_count": 11368
+      "indexed_line_count": 11372
     },
     {
       "id": "github",
@@ -10560,8 +10560,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ResilientStreamingClient.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "4c976b0782b3021f452cf05bf2b88abe8d315092a3f3c568dcb02a0def069b54",
-      "indexed_lines": 180
+      "sha256": "aa4bed7093ff365958f56482bc1660d5c0edfa5a9f80a44fd94749222ca59f74",
+      "indexed_lines": 184
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/SelectedProfileRoute.kt",

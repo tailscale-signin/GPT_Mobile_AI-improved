@@ -90,6 +90,10 @@ object ResilientStreamingClient {
     }
 
     fun isRetryable(throwable: Throwable): Boolean {
+        // Keep retry admission aligned with the typed, cycle-safe 16-cause report
+        // classifier before an outer HTTP status or IOException can authorize replay.
+        val kind = networkFailureKind(throwable)
+        if (kind == NetworkFailureKind.TLS || kind == NetworkFailureKind.CANCELLED) return false
         if (generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it is kotlinx.serialization.SerializationException }) return false
 
         val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()

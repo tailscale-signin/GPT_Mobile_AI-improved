@@ -6,6 +6,84 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResilientStreamingClientTest {
+    @Test fun typedTlsCausesCannotBecomeRetryableThroughDeepIoOrHttpWrappers() {
+        for (depth in listOf(1, 2, 9, 16)) {
+            for (cause in listOf(
+                javax.net.ssl.SSLProtocolException("SSLV3_ALERT_BAD_RECORD_MAC"),
+                javax.net.ssl.SSLException("TLS transport failed"),
+                java.security.cert.CertPathValidatorException("certificate path failed")
+            )) {
+                var failure: Throwable = cause
+                repeat(depth - 1) { failure = IOException("HTTP 502: transient wrapper", failure) }
+                org.junit.Assert.assertEquals(NetworkFailureKind.TLS, networkFailureKind(failure))
+                assertFalse("Typed TLS at cause depth $depth must not authorize replay", ResilientStreamingClient.isRetryable(failure))
+            }
+        }
+    }
+
+    @Test fun tlsFailuresStopTheActualRetryLoopBeforeAnotherAttempt() = kotlinx.coroutines.test.runTest {
+        var deepCertificate: Throwable = java.security.cert.CertPathValidatorException("certificate path failed")
+        repeat(15) { deepCertificate = IOException("HTTP 502: transient wrapper", deepCertificate) }
+        for (failure in listOf(
+            javax.net.ssl.SSLProtocolException("SSLV3_ALERT_BAD_RECORD_MAC"),
+            IOException("HTTP 502: transient wrapper", javax.net.ssl.SSLProtocolException("TLS record error")),
+            deepCertificate
+        )) {
+            var attempts = 0
+            var retries = 0
+            val caught = runCatching {
+                ResilientStreamingClient.executeWithRetry(
+                    ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+                    onRetry = { _, _, _ -> retries++ }
+                ) {
+                    attempts++
+                    throw failure
+                }
+            }.exceptionOrNull()
+            org.junit.Assert.assertSame(failure, caught)
+            org.junit.Assert.assertEquals(1, attempts)
+            org.junit.Assert.assertEquals(0, retries)
+        }
+    }
+
+    @Test fun ordinaryTransientFailuresStillUseTheBoundedRetryLoop() = kotlinx.coroutines.test.runTest {
+        for (failure in listOf(IOException("HTTP 502: backend unavailable"), java.net.SocketTimeoutException("socket timed out"))) {
+            var attempts = 0
+            val retries = mutableListOf<Int>()
+            val result = ResilientStreamingClient.executeWithRetry(
+                ResilientStreamingClient.RetryConfig(maxAttempts = 2, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+                onRetry = { attempt, _, _ -> retries += attempt }
+            ) {
+                if (++attempts == 1) throw failure
+                "recovered"
+            }
+            org.junit.Assert.assertEquals("recovered", result)
+            org.junit.Assert.assertEquals(2, attempts)
+            org.junit.Assert.assertEquals(listOf(1), retries)
+        }
+    }
+
+    @Test fun cancellationNeverStartsAnotherClientAttemptEvenWhenDeeplyWrapped() = kotlinx.coroutines.test.runTest {
+        var wrapped: Throwable = kotlinx.coroutines.CancellationException("cancelled")
+        repeat(15) { wrapped = IOException("HTTP 502: transient wrapper", wrapped) }
+        for (failure in listOf(kotlinx.coroutines.CancellationException("cancelled"), wrapped)) {
+            var attempts = 0
+            var retries = 0
+            val caught = runCatching {
+                ResilientStreamingClient.executeWithRetry(
+                    ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+                    onRetry = { _, _, _ -> retries++ }
+                ) {
+                    attempts++
+                    throw failure
+                }
+            }.exceptionOrNull()
+            org.junit.Assert.assertSame(failure, caught)
+            org.junit.Assert.assertEquals(1, attempts)
+            org.junit.Assert.assertEquals(0, retries)
+        }
+    }
+
     @Test fun provider429HonorsRetryAfterAndStopsAfterThreeInteractiveAttempts() = kotlinx.coroutines.test.runTest {
         var attempts = 0
         val waits = mutableListOf<Long>()
@@ -91,8 +169,8 @@ class ResilientStreamingClientTest {
     }
 
     @Test
-    fun `TLS record errors permit bounded retry but trust failures never do`() {
-        assertTrue(ResilientStreamingClient.isRetryable(javax.net.ssl.SSLProtocolException("SSLV3_ALERT_BAD_RECORD_MAC")))
+    fun `TLS record errors and trust failures never permit automatic retry`() {
+        assertFalse(ResilientStreamingClient.isRetryable(javax.net.ssl.SSLProtocolException("SSLV3_ALERT_BAD_RECORD_MAC")))
         assertFalse(ResilientStreamingClient.isRetryable(IOException("wrapped", javax.net.ssl.SSLPeerUnverifiedException("hostname mismatch"))))
         assertFalse(ResilientStreamingClient.isRetryable(IOException("wrapped", java.security.cert.CertificateException("expired"))))
     }

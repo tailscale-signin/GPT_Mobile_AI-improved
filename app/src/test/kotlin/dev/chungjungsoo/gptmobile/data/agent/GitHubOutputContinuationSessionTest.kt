@@ -15,6 +15,72 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOutputContinuationSessionTest {
+    @Test fun fallbackWaitCannotReplaceARetainedStoredProjectionOrSemanticWitness() = runBlocking {
+        val call = ProviderEvent.ToolCall("retained-page", "github_read", JsonObject(emptyMap()))
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("Original result"), false, dispatched = false)
+        val original = ToolHandoffReceipt.from(call, result).copy(receiptSource = "TOOL_BATCH_CHECKPOINT")
+        val replay = result.copy(
+            content = ToolResultContent.Text("Compacted replay"),
+            sharedResult = true,
+            executionReceipt = buildJsonObject {
+                put("journal_projection_sha256", original.projectionSha256)
+                put("journal_projection_scope", "PERSISTED_JOURNAL_PROJECTION_UTF8")
+                put("journal_semantics_sha256", requireNotNull(original.resultSemanticsSha256))
+                put("journal_semantics_scope", ToolHandoffReceipt.PERSISTED_SEMANTICS)
+            }
+        )
+        val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("TEST", "profile", "model", 30_000, "scope", "PROVIDER_RATE_LIMITED", true)
+        for (changed in listOf(original.copy(projectionSha256 = "f".repeat(64)), original.copy(resultSemanticsSha256 = "f".repeat(64)))) {
+            val output = GitHubOutputContinuationSession(
+                session(ProviderEvent.Failed("Provider cooldown", errorCode = "429", providerLimit = limit)),
+                checkpointContext = buildJsonObject { put("task_binding", "a".repeat(64)) },
+                durableToolReceipts = { listOf(changed) }
+            ) { _, _, _ -> error("Changed witnesses cannot authorize reopening") }
+            val failure = runCatching { output.streamRound(listOf(tool), listOf(AgentToolExchange(listOf(call), listOf(replay)))).toList() }.exceptionOrNull() as ProviderRecoveryFailure
+            assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", failure.code)
+            assertEquals(JsonPrimitive("TOOL_JOURNAL_CHANGED"), failure.correlation["checkpoint_mismatch_reason"])
+            assertEquals(JsonPrimitive("429"), failure.original?.get("code"))
+        }
+    }
+
+    @Test fun emptyCompleteJournalResumesOnlyAfterTheFullJournalLookup() = runBlocking {
+        for (fullLookup in listOf(false, true)) {
+            var checkpoint: JsonObject? = null
+            var requests = 0
+            val context = buildJsonObject { put("task_binding", "a".repeat(64)) }
+            val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("TEST", "profile", "model", 30_000, "scope", "PROVIDER_RATE_LIMITED", true)
+            val first = GitHubOutputContinuationSession(
+                session(ProviderEvent.Failed("Provider cooldown", errorCode = "429", providerLimit = limit)),
+                checkpointContext = context,
+                durableProviderJournal = { emptyList() },
+                saveCheckpoint = { checkpoint = it }
+            ) { _, _, _ -> error("The protected wait owns continuation") }.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+            assertEquals(JsonPrimitive(2), checkpoint?.get("tool_journal_digest_version"))
+            assertEquals(JsonPrimitive(0), checkpoint?.get("tool_journal_receipt_count"))
+            val expected = requireNotNull(first.providerLimit?.gitHubCheckpoint)
+            val resumed = GitHubOutputContinuationSession(
+                session(),
+                expectedProviderCheckpoint = expected,
+                checkpointContext = context,
+                durableProviderJournal = { if (fullLookup) emptyList() else null },
+                readCheckpoint = { checkpoint },
+                saveCheckpoint = { checkpoint = it }
+            ) { _, _, _ ->
+                requests++
+                session(ProviderEvent.TextDelta("Continued without repeating any tool."), ProviderEvent.Completed)
+            }
+            val outcome = runCatching { resumed.streamRound(emptyList(), emptyList()).toList() }
+            if (fullLookup) {
+                assertEquals(ProviderEvent.Completed, outcome.getOrThrow().last())
+                assertEquals(1, requests)
+            } else {
+                assertEquals("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", outcome.exceptionOrNull()?.message)
+                assertEquals(0, requests)
+                assertEquals(JsonPrimitive("BLOCKED_RECOVERY"), checkpoint?.get("state"))
+            }
+        }
+    }
+
     @Test fun toolRoundPreambleUsesThePrimarySessionAfterRestoringItsReceipt() = runBlocking {
         val call = ProviderEvent.ToolCall("read", tool.name, JsonObject(emptyMap()))
         val exchange = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("source"), false)))

@@ -6,7 +6,7 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 
 - Fix a verification crash when GitHub evidence contains missing or malformed timestamps. Keep unread saved pages eligible for recovery after an invalid cursor call.
 - Show token shortfalls after generation and offer a valid discovery query for an unavailable URL or evidence tool. Incident reports now distinguish unsent budget and prerequisite refusals and record the single-pass Combined repair stop when observed.
-- Reject altered saved tool-result bytes with the typed recovery-integrity error, without fabricating observed receipt counts or digests.
+- Reject altered saved tool-result bytes or execution semantics with a versioned complete-journal integrity check, without fabricating observed receipt counts or digests.
 - Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.
 
 ## Voice chat and captions
@@ -91,7 +91,10 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Compile compound engineering requests into stable source-linked acceptance criteria with explicit dependencies and evidence producers; preserve original scope and budgets when refining saved contracts.
 - Require actual pinned source content, complete instruction coverage, a changed regression at the tested revision, complete diff coverage and the matching live draft pull request before their individual obligations can pass.
 - Bind provider cooldown recovery to the complete atomic durable tool journal independently of compacted provider replay; retain local projection identity, original failure provenance, settled-write replay and unknown-write reconciliation.
-- Validate each retained projection hash against the saved result body before recovery, replay or an explicit budget retry. Older entries without this hash retain their existing compatible recovery path; changed saved results cannot authorize another dispatch.
+- Validate saved replay bytes, payload type, error state, budget flags and execution metadata before provider recovery. Preserve legacy journal file decoding, but require independently protected content and semantic proof before an old provider-wait checkpoint can resume.
+
+Older provider-wait checkpoints without protected replay-content and result-semantics evidence require recovery review; completed work is retained and writes are not automatically repeated to manufacture missing proof.
+
 - Keep task acceptance, delivered responses and output attempts independent; reconcile same-task recovery refusals and require observed scheduler ownership instead of inferring a live executor from saved state.
 - Execute every currently admissible GitHub checklist lane, discover exact missing schemas within the accepted budget, retain candidate admission reasons and correct a proven legacy invalid status recipe once.
 - Route instruction discovery through native path search, replay exact saved continuation selectors, convert search receipts to pinned source reads and derive CI run/job selectors from observed identities.
@@ -128,6 +131,7 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 
 ## GitHub agent workspace and optional runtimes
 
+- Redact credentials captured by an agent operation even if the configured credential rotates before its response arrives. Preserve cancellation dispatch consistently across the durable operation and run records, including restart and stale callers.
 - Open the accepted task's workspace on Android or Windows to inspect scoped workers, delegated agents, pinned source, paged candidate diffs, executed checks and private review drafts.
 - Delegate through configured Codex, Copilot cloud/SDK, Jules, Cursor, OpenHands, Cline, Claude SDK, Kiro/Devin ACP or Aider adapters. Explicit user commands and durable run receipts retain the accepted source and account; optional setup remains visible.
 - Use graph-ranked context, role-specific tool discovery, dependency-ready requirement plans, compact evidence summaries, selective context exports and optional local next-edit proposals. Approved checks and final validation remain required before publication.

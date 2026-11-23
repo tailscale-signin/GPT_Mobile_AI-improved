@@ -37,16 +37,36 @@ internal object GitHubProviderToolCheckpoint {
             val reason = if (context?.get("task_binding") != JsonPrimitive(expected.binding)) "TASK_BINDING_CHANGED" else "EVIDENCE_DIGEST_INVALID"
             throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(saved), ProviderRecoveryFailure.checkpointCorrelation(expected, saved, reason))
         }
-        val journalDigest = GitHubProviderReplayEvidence.protectedJournalDigest(saved)
-        if ("tool_journal_complete" in saved && (saved["tool_journal_complete"] != JsonPrimitive(true) || journalDigest == null)) {
-            throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(saved), ProviderRecoveryFailure.checkpointCorrelation(expected, saved, "EVIDENCE_DIGEST_INVALID"))
+        val protectedDigest = GitHubProviderReplayEvidence.protectedJournalDigest(saved)
+        val completeJournal = GitHubProviderReplayEvidence.journalBindingKeys.any { it in saved }
+        if (completeJournal && protectedDigest == null) {
+            val validLegacyBoundary = GitHubProviderReplayEvidence.hasProtectedJournalBoundary(saved)
+            throw ProviderRecoveryFailure(
+                if (validLegacyBoundary) "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE" else "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+                ProviderRecoveryFailure.interruption(saved),
+                ProviderRecoveryFailure.checkpointCorrelation(expected, saved, if (validLegacyBoundary) "TOOL_RESULT_SEMANTICS_UNPROVEN" else "EVIDENCE_DIGEST_INVALID")
+            )
         }
         val legacy = if (persistent && context["tool_checkpoint_binding"] == null) {
             ToolBatchCheckpoint.legacyProviderBinding(directory, chatId, scope, expected, saved)
         } else {
             null
         }
-        return Resolved(legacy ?: retained, digest, journalDigest)
+        val selected = legacy ?: retained
+        val journalDigest = if (completeJournal || !persistent) {
+            protectedDigest
+        } else {
+            val journal = ToolBatchCheckpoint.forTurn(directory, chatId, selected, persistent = true)
+            try {
+                journal.reconciledProviderJournalDigest(saved)
+            } catch (failure: ProviderRecoveryFailure) {
+                throw ProviderRecoveryFailure(failure.code, ProviderRecoveryFailure.interruption(saved), failure.correlation)
+            }
+        }
+        if (!completeJournal && persistent && journalDigest == null) {
+            throw ProviderRecoveryFailure("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", ProviderRecoveryFailure.interruption(saved), ProviderRecoveryFailure.checkpointCorrelation(expected, saved, GitHubProviderReplayEvidence.unprovenReason(saved)))
+        }
+        return Resolved(selected, digest, journalDigest)
     }
 
     fun binding(scope: String, authorityRevision: String, expected: GitHubProviderCheckpoint?, checkpoint: JsonObject?): String {

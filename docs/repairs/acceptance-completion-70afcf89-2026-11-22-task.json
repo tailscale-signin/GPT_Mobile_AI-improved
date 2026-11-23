@@ -6,10 +6,10 @@
   "base_commit": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
   "starting_head": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
   "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
-  "working_branch": "work/acceptance-completion-70afcf89",
+  "working_branch": "work/acceptance-published-70afcf89",
   "intent": "Implement all 16 diagnostic review findings, preserve other workers changes, validate the current PR head, merge after required checks pass, validate the exact main commit and publish the scoped release.",
   "authorization": "User explicitly authorized implementation, draft PR push, merge after green, and publication after green on 2026-11-22.",
-  "state": "POST_INTEGRATION_FOLLOWUP_VALIDATED_DRAFT_PUSH_PENDING",
+  "state": "REVIEWED_DRAFT_FOLLOWUPS_PREPARING_WITH_CURSOR_AND_PROCESS_HOLDS",
   "guardrails": [
     "Preserve concurrent commits; never force push",
     "Never substitute earlier-head checks for current-head evidence",
@@ -46,7 +46,9 @@
         "GitHubProviderJournalRecoveryTest",
         "Captured 103-call / 82-provider-view mismatch behavior regression",
         "ProviderToolReplayTest actual OpenAI/Anthropic/Gemini replay envelopes",
-        "AgentRunnerTest corrected source original-envelope regression (hosted Android execution pending)"
+        "AgentRunnerTest corrected source original-envelope regression (hosted Android execution pending)",
+        "Version2 full stored-result envelope:126 exact-source tests and8 independent adversarial probes pass",
+        "Frozen integrated47b9078:126 tests,113 input hashes and83 repository blobs verified; compiled recovery slices match the qualified879f candidate"
       ]
     },
     {
@@ -111,10 +113,11 @@
         "T16",
         "T17"
       ],
-      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "state": "IN_PROGRESS_REJECTED_CURSOR_FOLLOWUP",
       "evidence": [
         "GitHubExecutionContinuation selector tests",
-        "GitHubOperationTool saved-call tests (hosted Android execution pending)"
+        "GitHubOperationTool saved-call tests (hosted Android execution pending)",
+        "Independent live/restored probes reproduce size-stripped rejected cursor suppressing its exact native-issued correction on6f887"
       ]
     },
     {
@@ -430,7 +433,7 @@
       "title": "Saved cursor replay",
       "scenario": "Replay all18 captured malformed saved-view shapes and an authentic issued correction.",
       "pass_condition": "Invalid calls dispatch nothing; the exact same-scope correction advances the correct saved view without repeated model reconstruction.",
-      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "execution_status": "REJECTED_CURSOR_FOLLOWUP_REGRESSION_PENDING",
       "evidence": [
         "GitHubExecutionContinuation selector tests",
         "GitHubOperationTool saved-call tests (hosted Android execution pending)"
@@ -614,13 +617,15 @@
     {
       "gate": "canonical_fast",
       "state": "PASSED",
-      "tests": 616,
+      "tests": 623,
       "command": "bash scripts/validate-local.sh fast",
-      "qualification": "Canonical host validation on integrated c818 source; full Android and device checks remain separate."
+      "qualification": "Combined benchmark/privacy/adapter/journal host validation; all 2023 literal regex patterns pass, 99 dynamic patterns remain outside literal checking. Full Android and device gates remain separate.",
+      "source": "03423377a1f290026afb87f3cee7c6e02cd66475",
+      "seconds": 28.317
     },
     {
       "gate": "required_current_pr_head",
-      "state": "PENDING_PUSH_AND_HOSTED_CI"
+      "state": "PENDING_FINAL_INTEGRATION_AND_HOSTED_CI"
     },
     {
       "gate": "exact_main",
@@ -633,9 +638,10 @@
     {
       "gate": "changed_kotlin_format",
       "state": "PASSED",
-      "files": 54,
+      "files": 11,
       "tool": "ktlint1.3.1",
-      "qualification": "All54 changed Kotlin files formatted and checked."
+      "qualification": "Every changed Kotlin file relative to acknowledged shared head e315; preserves earlier full changed-file formatting evidence.",
+      "source": "03423377a1f290026afb87f3cee7c6e02cd66475"
     }
   ],
   "publication": {
@@ -644,12 +650,27 @@
     "release": null,
     "status_receipt": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254"
   },
-  "integrated_remote_head": "c818b9161978e03a6a8e848d1a1066159f7c2718",
+  "integrated_remote_head": "e315be06e0c943c442f7f74b216930ee3f32aae4",
   "preserved_concurrent_commits": [
     "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
     "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
     "ba7752460bb0c1f9de4adc99a6a24943976fca61",
-    "c818b9161978e03a6a8e848d1a1066159f7c2718"
+    "c818b9161978e03a6a8e848d1a1066159f7c2718",
+    "f0250cf0c82b0a1939af9721a814c89129be377a",
+    "35228794d6fb667a56f0ff97c80672852093d74b",
+    "c14e2eb10ff90bf6da0f1f45734e9bc42c25f580",
+    "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
+    "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e",
+    "2f95744ca528f23ae23bf822ac1e8e022b8f5835",
+    "57ee520c5b4d99947e724c4eff13e413ddc7ce78",
+    "368e9a8373cad17586de8b7287fa240097ab0352",
+    "8504366c8edf4e1911284ea6426ccb53e449141c",
+    "6f887cc3f4e81deb497879c9f83cf773fc002189",
+    "3a7563e3cad2707dbe577470811ab05b5d67728b",
+    "5efa5446ddd644c119cbfdf86d77c2e4cf8d157b",
+    "e0915300b1f5413d105203da7abf28fc6c6b196e",
+    "b541378f5257c8f21d73fd4a7c0c18e4c7bcf83d",
+    "e315be06e0c943c442f7f74b216930ee3f32aae4"
   ],
   "qualification_limits": [
     "Do not mark all30 scenarios passed: physical audio, frame latency and device export timing remain unmeasured.",
@@ -661,7 +682,7 @@
     "journal_finding": "A source-less settled result body could change while its stored projectionSha256 and protected output checkpoint remained unchanged. Actual recovery accepted the unchanged journal identity and replayed the altered bytes.",
     "journal_baseline": "Actual ToolBatchCheckpoint, compactor, source receipt, replay digest, resolver, GitHubProviderCheckpoint and output continuation session: 20 tests, 19 passing and the new damaged-body rejection regression failing. All 18 existing cases and intact-source-less control pass. protected_output_hash_valid=true; journal_digest_unchanged=true; reopened=1; provider_rounds=1; damaged_body_reached_provider=true; no failure.",
     "criterion_finding": "The splitter supports a leading please but producer classification does not, so polite inspection requests lose the dedicated pinned-source evidence obligation. The original wording, IDs and source spans must remain unchanged while classification and draft-operation prefix rewriting agree.",
-    "status": "LOCAL_VALIDATION_COMPLETE_DRAFT_PUSH_PENDING",
+    "status": "PUSHED_891e77_FOCUSED_VALIDATION_PASSED",
     "qualification": "Focused actual-source host harnesses isolate Android AtomicFile and unrelated platform/data ports. The criterion harness uses actual receipt classification and real positive draft verification, while unrelated comparison/bulk issue adapters fail closed. Original-cause Room attachment was independently reviewed but is not executed by the journal harness. Full exact-current-head Android/JVM, instrumentation and publication gates remain required.",
     "integrated_parent": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
     "journal_correction": "Retain the incoming projection checks for current results and prior budget rejections, emit the existing typed PROVIDER_WAIT_CHECKPOINT_CHANGED with TOOL_JOURNAL_CHANGED before restoring receipts or replay, and omit unavailable observed digest/count fields instead of fabricating zero evidence. Keep legacy missing/null hashes compatible.",
@@ -704,5 +725,163 @@
       "git diff --check passed"
     ],
     "concurrent_followup_preserved": "c14 keeps the incoming stronger private callback/missing-policy tests, actual private Gateway admission guard test and real Robolectric denied-web-search wrapper. Our supplemental guard-order/context assertions are retained alongside them. Preserve the subsequent ede2 PCM queue-full priming correction and current 5.9-second bounded reserve declaration."
+  },
+  "integrity_followup": {
+    "source": "35228794d6fb667a56f0ff97c80672852093d74b",
+    "state": "IMPLEMENTED_INDEPENDENTLY_VERIFIED",
+    "baseline_repository_tests_passed": 113,
+    "new_behavior_probes_failed": 2,
+    "cause": "The full journal digest prefers original source identity and therefore does not bind replay projection changes when a source hash exists.",
+    "observed": "Changing saved body bytes while removing or recomputing projectionSha256 allows actual output resume under the unchanged protected checkpoint; no tool write was repeated.",
+    "repair": "Version2 binds the complete call set, original source, stored replay bytes and canonical result type/error/budget/execution semantics; runner and direct output validate independently.",
+    "candidate_commit": "879f62616a61cc4fd074b963ee8c43259fc61d16",
+    "integrated_candidate": "47b9078cd642fe2d3f7971412a54a02628424e78",
+    "repository_tests_passed": 126,
+    "independent_adversarial_probes_passed": 8,
+    "compiled_input_hashes_verified": 113,
+    "repository_input_blobs_verified": 83,
+    "legacy_qualification": "Ordinary older v1 proofs lack authenticated semantics and receive typed TOOL_RESULT_SEMANTICS_UNPROVEN without dispatch; migration requires protected stored-byte and typed semantic witnesses."
+  },
+  "integration_followups": [
+    {
+      "case": "OpenRouterPrivacySetupTest.cancellationAfterIoCompletesDiscardsUndeliveredPreviews",
+      "state": "INTEGRATED_INDEPENDENTLY_VERIFIED_PENDING_DRAFT_PUSH",
+      "source": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
+      "local_candidate": "f87cceccd0dc9dce5a295fdff012230b1e451070",
+      "root_commit": "d0d2dfae8a",
+      "scope": "Merged the incoming revision-access handshake and robust finally cleanup, retaining five-second timeouts, the queued-delivery incomplete check, all four slots, exact fifth-slot rejection and discard/reopen.",
+      "validation": {
+        "unchanged_target": "Fails on repetition3 waiting for absent second caller Runnable",
+        "corrected_full_tests": 20,
+        "corrected_target_repetitions": 20,
+        "cancellation_windows": 100,
+        "cleanup_omission_negative_control": "Fails with SetupException on session capacity, proving cancellation cleanup remains mandatory",
+        "canonical_fast_tests": 616,
+        "format": "ktlint1.3.1 PASS",
+        "merged_full_tests": 20,
+        "merged_target_repetitions": 10,
+        "merged_cancellation_windows": 50,
+        "merged_cleanup_omission_negative_control": "Fails exactly once with the original SetupException capacity message after removing only prepared?.let(::discard) in an isolated source copy.",
+        "merged_production_sha256": "2e22b626c477790fa6c72b8d6688b5feca25899d85a626ebc1db241a69345c5b",
+        "merged_test_sha256": "7d7e2b6fe73418c3d61f6792e249926c53dff567cd20f769f8fafa9a2546dcea"
+      },
+      "qualification": "Actual-source coroutines/HTTP tests with declared platform ports; final-head Android qualification remains mandatory.",
+      "merged_source": "c50f2267669e2eb1bb5ced374481d47bd6b3a37a"
+    }
+  ],
+  "draft_push": {
+    "state": "PUSHED_DRAFT_FOLLOWUPS_ACTIVE",
+    "commit": "f0250cf0c82b0a1939af9721a814c89129be377a",
+    "tree": "459dbf3dccd13fa6725290c4ef2586a6e6f6f2ef",
+    "parent": "c818b9161978e03a6a8e848d1a1066159f7c2718",
+    "verified": "Remote parent and tree match the reviewed local candidate; expected-head update without force."
+  },
+  "independent_incoming_reviews": [
+    {
+      "source": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
+      "scope": "Bounded PCM queue-full priming escape",
+      "tests": 27,
+      "state": "PASS",
+      "qualification": "Actual PCM/performance source, real60-slot blocked producer; physical AudioTrack latency unmeasured."
+    },
+    {
+      "source": "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e",
+      "scope": "Polite acceptance classification and exact draft suffix evidence",
+      "tests": 25,
+      "state": "PASS",
+      "qualification": "6contract,15criterion,4task-recovery tests; actual receipt classification, exact source spans/IDs, successful live-draft proof and negative suffix controls."
+    },
+    {
+      "source": "2f95744ca528f23ae23bf822ac1e8e022b8f5835",
+      "scope": "Phone capabilities, Gateway privacy receipts and nested MCP cancellation",
+      "state": "PASS",
+      "graph_tests": 36,
+      "gateway_privacy_tests": 8,
+      "mcp_tests": 29
+    },
+    {
+      "source": "8504366c8edf4e1911284ea6426ccb53e449141c",
+      "scope": "Agent workspace Gateway suites",
+      "tests": 113,
+      "state": "PASS",
+      "qualification": "Exact Gateway tree c58e29c393a0fe9cf02fbad435137e636bebabef; all28 pinned dependency versions matched."
+    },
+    {
+      "source": "6f887cc3f4e81deb497879c9f83cf773fc002189",
+      "scope": "Authentication/incident contracts",
+      "tests": 206,
+      "state": "PASS",
+      "qualification": "Actual service tests with mocked publisher; no live issue submission."
+    },
+    {
+      "source": "7b34915ec5",
+      "scope": "Integrated Gateway workspace after benchmark/privacy/adapter changes",
+      "tests": 116,
+      "state": "PASS",
+      "qualification": "Existing pinned Gateway environment; actual repository suites. Live optional provider accounts and hardware remain separate."
+    }
+  ],
+  "adapter_followup": {
+    "source": "8504366c8edf4e1911284ea6426ccb53e449141c",
+    "state": "INTEGRATED_INDEPENDENTLY_VERIFIED_PENDING_CURRENT_HEAD_GATES",
+    "candidate_commit": "a19c8f40f9e6069b1bcc8f1552ebeb0df3bee304",
+    "findings": [
+      "Credential rotation after dispatch left old secrets in retained output/candidates",
+      "Cancellation dispatch persisted SQL state without matching JSON, allowing restart to misreport NOT_DISPATCHED"
+    ],
+    "tests": {
+      "adapter": 55,
+      "desktop": 2,
+      "workspace_commands": 17,
+      "workspace_http": 3,
+      "engineering_worker": 2,
+      "engineering_completion": 16,
+      "negative_controls": 4
+    },
+    "remaining": "Regenerate package metadata, complete integrated canonical and current-head hosted gates; preserve the separate process startup/cancellation race repair.",
+    "integrated_commit": "ebe4332b17",
+    "independent_review": {
+      "adapter_tests": 55,
+      "additional_fault_probes": 4,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "immutable_files_verified": 482,
+      "coverage": [
+        "Actual cloud-header credential rotation redacts both original and current synthetic values from retained artifacts",
+        "SQLite final-run-update fault rolls back operation and run fences with zero transport dispatch",
+        "Retained outcome or dispatch timestamp prevents stale caller from relabeling a dispatch NOT_DISPATCHED",
+        "Concurrent credential contexts remain isolated and clear after SystemExit or KeyboardInterrupt"
+      ]
+    },
+    "integrated_tests": {
+      "source": "7b34915ec5",
+      "adapter": 55,
+      "workspace": 116,
+      "state": "PASS"
+    }
+  },
+  "cursor_followup": {
+    "source": "6f887cc3f4e81deb497879c9f83cf773fc002189",
+    "state": "REPRODUCED_IMPLEMENTING",
+    "new_red_probes": 2,
+    "scope": "Rejected altered saved cursors must not consume unread offsets or suppress their exact issued correction; preserve successful-page deduplication and existing recovery budget."
+  },
+  "benchmark_integration": {
+    "source": "b541378f5257c8f21d73fd4a7c0c18e4c7bcf83d",
+    "manifest": "e315be06e0c943c442f7f74b216930ee3f32aae4",
+    "state": "INTEGRATED_INDEPENDENTLY_VERIFIED_PENDING_CURRENT_HEAD_GATES",
+    "scope": "All B01-B16 implemented, including final setup/failure accounting. Four evidence lanes, frozen paired comparisons, independent grading, native runtime controls, phone Actions verification and durable recovery.",
+    "independent_review": {
+      "source": "e315be06e0c943c442f7f74b216930ee3f32aae4",
+      "domain_phone_preparation_tests": 90,
+      "generation_external_preparation_tests": 38,
+      "gateway_api_grader_phone_comparison_tests": 60,
+      "immutable_files_verified": 4885,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "qualification": "Preparation cases overlap between JVM suites. Full Android wiring, native Windows, Docker and current-head hosted gates remain separate."
+    }
   }
 }

@@ -77,6 +77,8 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
 
         fun hasValidProjection(): Boolean = projectionSha256 == null || projectionSha256 == dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(body)
 
+        fun semanticsDigest(): String = ToolHandoffReceipt.semanticsDigest(json, error, callLimit, outputLimit, execution)
+
         fun restore(id: String): AgentToolResult {
             // The body is an evictable replay projection. Its original identity was
             // captured before compaction and must survive a process restart.
@@ -86,7 +88,9 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             val journalIdentity = JsonObject(
                 identity.orEmpty() + mapOf(
                     "journal_projection_sha256" to JsonPrimitive(projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(body)),
-                    "journal_projection_scope" to JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8")
+                    "journal_projection_scope" to JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8"),
+                    "journal_semantics_sha256" to JsonPrimitive(semanticsDigest()),
+                    "journal_semantics_scope" to JsonPrimitive(ToolHandoffReceipt.PERSISTED_SEMANTICS)
                 )
             )
             return AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit, executionReceipt = journalIdentity))
@@ -178,6 +182,13 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                     }
                 )
             )
+            if (expectedProviderJournalDigest == null) {
+                ProviderRecoveryFailure.require(
+                    saved.provesInvocationIdentities() && GitHubProviderReplayEvidence.legacyEvidenceMatches(receipts, requireNotNull(expectedProviderEvidenceDigest)),
+                    "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE",
+                    providerRecoveryCorrelation(saved, receipts, "TOOL_RESULT_SEMANTICS_UNPROVEN")
+                )
+            }
         }
         if (initialJob != null && saved.jobContext != null) {
             require(initialJob.objective == saved.jobContext.objective && initialJob.repository == saved.jobContext.repository) { "Saved engineering objective or repository changed; reconcile the previous job before starting another." }
@@ -286,6 +297,24 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         receipts
     }
 
+    /** Derive a v2 fence only from bytes independently witnessed by the protected legacy checkpoint. */
+    internal suspend fun reconciledProviderJournalDigest(checkpoint: JsonObject): String? = locked {
+        val state = read()
+        val receipts = state.journalReceipts()
+        ProviderRecoveryFailure.require(
+            state.entries.values.none { it.started && it.result == null } && receipts.none { it.requiresReconciliation },
+            "PROVIDER_WAIT_OUTCOME_UNKNOWN",
+            providerRecoveryCorrelation(state, receipts, "TOOL_OUTCOME_UNKNOWN")
+        )
+        if (state.entries.values.any { it.result == null }) return@locked null
+        if ("completed_results" !in checkpoint && !state.provesInvocationIdentities()) return@locked null
+        GitHubProviderReplayEvidence.reconciledJournalDigest(checkpoint, receipts)
+    }
+
+    private fun State.provesInvocationIdentities(): Boolean = entries.values.all { entry ->
+        runCatching { entry.call.event().providerInvocation() }.isSuccess
+    }
+
     private fun State.journalReceipts(): List<ToolHandoffReceipt> = entries.values.mapNotNull { entry ->
         val fingerprint = ToolHandoffReceipt.fingerprint(entry.call.event())
         val result = entry.result ?: return@mapNotNull null
@@ -300,7 +329,9 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 result.execution?.get("requires_reconciliation") == JsonPrimitive(true) ||
                 GatewayOutcomeRecovery.requiresReconciliation("", result.code),
             "TOOL_BATCH_CHECKPOINT",
-            result.projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body)
+            result.projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body),
+            result.semanticsDigest(),
+            ToolHandoffReceipt.PERSISTED_SEMANTICS
         )
     }
 
@@ -548,9 +579,8 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             if (!scope.startsWith("$chatId:") || scope.length > 1024 || !expected.matches(checkpoint)) return@withContext null
             val context = checkpoint["context"] as? JsonObject ?: return@withContext null
             if (context["task_binding"] != JsonPrimitive(expected.binding) || "tool_checkpoint_binding" in context) return@withContext null
-            val evidenceDigest = (checkpoint["provider_evidence_digest"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            (checkpoint["provider_evidence_digest"] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return@withContext null
-            val journalDigest = GitHubProviderReplayEvidence.protectedJournalDigest(checkpoint)
             val folder = File(directory, "tool-batches/$chatId")
             val entries = folder.listFiles()?.filter { it.name.matches(Regex("[a-f0-9]{64}\\.json(?:\\.bak)?")) } ?: return@withContext null
             // An incomplete scan cannot establish uniqueness. Large or malformed
@@ -583,12 +613,8 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 if (settled.entries.values.any { it.result == null }) continue
                 val receipts = candidate.run { settled.journalReceipts() }
                 if (receipts.isEmpty() || receipts.any { it.requiresReconciliation }) continue
-                val matches = if (journalDigest != null) {
-                    GitHubProviderReplayEvidence.journalDigest(receipts) == journalDigest
-                } else {
-                    GitHubProviderReplayEvidence.digest(receipts) == evidenceDigest
-                }
-                if (!matches) continue
+                if ("completed_results" !in checkpoint && !candidate.run { settled.provesInvocationIdentities() }) continue
+                if (GitHubProviderReplayEvidence.reconciledJournalDigest(checkpoint, receipts) == null) continue
                 if (matched != null) return@withContext null
                 matched = retained
             }

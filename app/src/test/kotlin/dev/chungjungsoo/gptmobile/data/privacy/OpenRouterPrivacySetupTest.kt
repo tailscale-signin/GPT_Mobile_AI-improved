@@ -130,18 +130,19 @@ class OpenRouterPrivacySetupTest {
                 fixture.onAuthorityAccess = { operation ->
                     if (operation == "revision") {
                         entered.countDown()
-                        check(release.await(10, TimeUnit.SECONDS)) { "The caller did not release the inspection worker." }
+                        check(release.await(5, TimeUnit.SECONDS)) { "The caller did not release the inspection worker." }
                     }
                 }
                 val inspection = scope.async { setup.inspect(fixture.profile, MANAGEMENT) }
                 try {
-                    checkNotNull(queued.poll(10, TimeUnit.SECONDS)) { "The inspection did not reach the caller dispatcher." }.run()
-                    assertTrue(entered.await(10, TimeUnit.SECONDS))
+                    checkNotNull(queued.poll(5, TimeUnit.SECONDS)) { "The inspection did not reach the caller dispatcher." }.run()
+                    assertTrue(entered.await(5, TimeUnit.SECONDS))
                     assertFalse(inspection.isCompleted)
                     // Hold IO until the caller has suspended. A fast IO result can
                     // otherwise return in the first caller turn without a dispatch.
                     release.countDown()
-                    val delivery = checkNotNull(queued.poll(10, TimeUnit.SECONDS)) { "The completed inspection did not return to the caller." }
+                    val delivery = checkNotNull(queued.poll(5, TimeUnit.SECONDS)) { "The completed inspection did not return to the caller." }
+                    assertFalse(inspection.isCompleted)
                     inspection.cancel()
                     delivery.run()
                     assertTrue(inspection.isCancelled)
@@ -150,7 +151,7 @@ class OpenRouterPrivacySetupTest {
                     release.countDown()
                     inspection.cancel()
                     while (!inspection.isCompleted) {
-                        checkNotNull(queued.poll(10, TimeUnit.SECONDS)) { "The cancelled inspection did not finish." }.run()
+                        checkNotNull(queued.poll(5, TimeUnit.SECONDS)) { "The cancelled inspection did not finish." }.run()
                     }
                     while (true) (queued.poll() ?: break).run()
                     fixture.onAuthorityAccess = {}
@@ -162,7 +163,8 @@ class OpenRouterPrivacySetupTest {
             try {
                 runBlocking {
                     repeat(4) { previews += setup.inspect(fixture.profile, MANAGEMENT) }
-                    expectSetupFailure { setup.inspect(fixture.profile, MANAGEMENT) }
+                    val failure = expectSetupFailure { setup.inspect(fixture.profile, MANAGEMENT) }
+                    assertEquals("Close the other privacy setup and check this account again.", failure.userMessage)
                 }
             } finally {
                 previews.forEach(setup::discard)

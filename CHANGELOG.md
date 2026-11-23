@@ -1,5 +1,8 @@
 # 0.9.66.13 — 2026-11-22
 
+- Preserve operation-bound credential redaction across account rotation and persist cancellation dispatch atomically for truthful restart recovery.
+- Bind resumed provider waits to a versioned complete journal covering original source identity, stored replay bytes, payload type, error state, budget flags and execution metadata; preserve settled writes and reject unproven legacy semantics.
+- Make OpenRouter preview-cancellation coverage deterministic at the IO-to-caller boundary, retaining all four reusable session slots and the unchanged cancellation cleanup contract.
 - Add four distinct engineering benchmark lanes, frozen two-profile comparisons, conservative family-based uncertainty and five-view Android/Gateway comparison workspaces.
 - Add independent Python behavioral and input-preservation grading, distinct Kotlin/SQLite/CI defects, mandatory native controls and exact-revision disposable GitHub verification through Gateway or direct phone-to-Actions execution.
 - Preserve original request and cancellation identities across interruptions; retain all failed and repaired attempts, physical-request usage ownership, immutable evidence and unknown costs.
@@ -12,7 +15,7 @@
 - Reject altered saved tool-result bytes with the typed recovery-integrity error, without fabricating observed receipt counts or digests.
 - Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.
 - Preserve the selected Phone or Gateway source through repository-map status recovery, saved jobs and cursor continuation, keeping their evidence and pending work separate.
-- Validate retained result bytes before reusing a saved journal projection hash, preserving legacy recovery and settled-call deduplication while rejecting changed results before dispatch.
+- Validate retained result bytes before reusing a saved journal projection hash, preserving legacy file decoding and settled-call deduplication while requiring protected replay and semantic proof before automatic provider recovery.
 - Keep saved-conversation privacy admission, reporter capability negotiation, audit metadata and compact tool-schema limits aligned across the full-suite integration fixtures.
 
 - Compile compound engineering requests into stable source-linked acceptance criteria with explicit dependencies and evidence producers; preserve original scope and budgets when refining saved contracts.

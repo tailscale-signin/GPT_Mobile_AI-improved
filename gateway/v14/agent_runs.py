@@ -5,6 +5,7 @@ controller invokes ``act``/``advance`` under its current lease. External writes
 have durable dispatch fences in the same SQLite journal as the parent job.
 Unknown outcomes are observed, never resubmitted automatically.
 """
+from functools import wraps
 import json
 import re
 
@@ -17,6 +18,14 @@ from v14.engineering_scope import accepted_scope
 TERMINAL = {'COMPLETED', 'FAILED', 'CANCELLED', 'TIMED_OUT', 'RUNTIME_LOST', 'BLOCKED', 'START_FAILED', 'REMOTE_CONTINUES'}
 SAFE_STATES = TERMINAL | {'PREPARED', 'QUEUED', 'RUNNING', 'WAITING_FOR_INPUT', 'STATE_UNVERIFIED', 'OUTCOME_UNKNOWN', 'DISCONNECTED', 'CANCELLING'}
 QUALIFICATION_SECONDS = 600
+
+
+def credential_bound(operation):
+    @wraps(operation)
+    def invoke(*args, **kwargs):
+        with agent_config.credential_scope():
+            return operation(*args, **kwargs)
+    return invoke
 
 
 class AgentRuns:
@@ -105,7 +114,8 @@ class AgentRuns:
         references = dict(config.get('environment_references', {}))
         if config.get('credential_reference'):
             references['credential'] = config['credential_reference']
-        credentials = digest({key: digest(credential(ref)) for key, ref in references.items()})
+        resolved = {key: credential(ref) for key, ref in references.items()}
+        credentials = digest({key: digest(value) for key, value in resolved.items()})
         if saved and (saved['config_digest'] != config_identity or saved['credential_digest'] != credentials):
             raise AgentError('AGENT_CONFIGURATION_CHANGED', 'The runtime configuration or account changed; restore the original account to observe this run.')
         return config, config_identity, credentials, revision
@@ -175,6 +185,7 @@ class AgentRuns:
             return CloudAgent(backend, config, cancel=cancel, deadline=deadline)
         return LocalAgent(backend, config)
 
+    @credential_bound
     def qualify(self, job, backend):
         if not self.privacy(job):
             raise AgentError('AGENT_PRIVACY_BLOCKED', 'Local-only jobs cannot delegate to an external agent.')
@@ -223,7 +234,9 @@ class AgentRuns:
         return self.tx(save)
 
     def secrets(self, job):
-        values = set()
+        # The response may arrive after settings/credentials rotate. Keep the
+        # exact values used by this call alongside currently configured values.
+        values = set(agent_config.observed_credentials())
         try:
             document, _ = self.config_loader()
             for backend in document['agents']:
@@ -237,7 +250,7 @@ class AgentRuns:
                     continue
         except (AgentError, ValueError, OSError):
             pass
-        return [value for value in values if isinstance(value, str) and value]
+        return sorted((value for value in values if isinstance(value, str) and value), key=len, reverse=True)
 
     def redact(self, job, value):
         """Provider/SDK output may echo auth errors or tool environments."""
@@ -267,11 +280,18 @@ class AgentRuns:
         request_digest = digest([kind, payload])
         def prepare(db):
             self.owner(db, job)
-            existing = db.execute('SELECT request_digest,payload FROM engineering_agent_operations WHERE operation_id=?', (operation_id,)).fetchone()
+            existing = db.execute('SELECT request_digest,state,payload FROM engineering_agent_operations WHERE operation_id=?', (operation_id,)).fetchone()
             if existing:
                 if existing[0] != request_digest:
                     raise AgentError('AGENT_REQUEST_CONFLICT', 'This command identity already belongs to a different agent operation.')
-                return json.loads(existing[1])
+                record = json.loads(existing[2])
+                if record.get('state') != existing[1]:
+                    # Older parent-cancel fences wrote only the state column.
+                    # A stale PREPARED projection cannot authorize a replay.
+                    record['state'] = existing[1]
+                    db.execute('UPDATE engineering_agent_operations SET payload=? WHERE operation_id=?',
+                               (canonical(record), operation_id))
+                return record
             count = db.execute('SELECT COUNT(*) FROM engineering_agent_operations WHERE run_id=?', (run['run_id'],)).fetchone()[0]
             if count >= 64:
                 raise AgentError('AGENT_OPERATION_LIMIT', 'This agent run reached its retained command allowance.')
@@ -316,14 +336,18 @@ class AgentRuns:
         run.update(updates)
 
     def complete_operation(self, job, run, operation, result=None, error=None):
-        state = 'CONFIRMED' if error is None else ('OUTCOME_UNKNOWN' if operation['state'] == 'DISPATCHED' else 'NOT_DISPATCHED')
         result = self.redact(job, result)
         def complete(db):
             self.owner(db, job)
-            saved = db.execute('SELECT payload FROM engineering_agent_operations WHERE operation_id=?', (operation['operation_id'],)).fetchone()
+            saved = db.execute('SELECT state,payload FROM engineering_agent_operations WHERE operation_id=?', (operation['operation_id'],)).fetchone()
             if not saved:
                 raise AgentError('AGENT_OPERATION_UNAVAILABLE', 'The operation journal is unavailable.')
-            record = dict(json.loads(saved[0]), state=state, finished_at=self.store.now())
+            retained = json.loads(saved[1])
+            dispatched = (any(value in {'DISPATCHED', 'OUTCOME_UNKNOWN', 'CONFIRMED'}
+                              for value in (saved[0], retained.get('state'), operation.get('state')))
+                          or retained.get('dispatched_at') is not None)
+            state = 'CONFIRMED' if error is None else ('OUTCOME_UNKNOWN' if dispatched else 'NOT_DISPATCHED')
+            record = dict(retained, state=state, finished_at=self.store.now())
             if result is not None:
                 record['result_ref'] = self.service.artifacts.put_json(job, result, 'agent-operation-result', transaction=db)
             if error is not None:
@@ -332,7 +356,7 @@ class AgentRuns:
                        (state, canonical(record), operation['operation_id']))
             return record
         record = self.tx(complete)
-        self.save(job, run, operation_state=state, last_operation_id=operation['operation_id'],
+        self.save(job, run, operation_state=record['state'], last_operation_id=operation['operation_id'],
                   **({'error_code': record.get('error_code')} if error is not None else {}))
         return record
 
@@ -349,6 +373,7 @@ class AgentRuns:
             raise AgentError('AGENT_SOURCE_CHANGED', 'The source branch moved before delegation.')
         return branch
 
+    @credential_bound
     def start(self, job, action, *, experiment_id=None):
         if experiment_id is None:
             self.user_command(job, action)
@@ -470,6 +495,7 @@ class AgentRuns:
             values['candidate_status'] = run.get('candidate_status', 'NOT_CAPTURED')
         return self.save(job, run, **values)
 
+    @credential_bound
     def observe(self, job, run):
         config, _, _, _ = self.configuration(job, run['backend'], run)
         capture_local = False
@@ -591,6 +617,7 @@ class AgentRuns:
             seen.add(following); page = following
         return None
 
+    @credential_bound
     def control(self, job, run, kind, action):
         if kind not in run['capabilities']:
             raise AgentError('AGENT_CAPABILITY_UNAVAILABLE', 'This runtime does not advertise the requested control.')
@@ -648,6 +675,7 @@ class AgentRuns:
             raise AgentError('AGENT_CANDIDATE_TURN_CHANGED', 'Capture a complete candidate from the exact completed runtime session and turn.')
         return self.protect_candidate(job, result)
 
+    @credential_bound
     def capture(self, job, run, kind):
         config, _, _, _ = self.configuration(job, run['backend'], run)
         if kind not in run['capabilities']:
@@ -668,6 +696,7 @@ class AgentRuns:
         self.save(job, run, **values)
         return dict(self.public(run), result_ref=reference, next_cursor=result.get('next_cursor'), complete=result.get('complete'))
 
+    @credential_bound
     def import_candidate(self, job, run):
         from v14.agent_candidates import cursor_changes, unified_changes, verify_changes
         from v14.engineering_validation import patch_identity
@@ -746,6 +775,7 @@ class AgentRuns:
         self.save(job, run, candidate_status='IMPORTED_UNVALIDATED', candidate_check_id=check_id, artifacts_ref=candidate['candidate_ref'])
         return dict(self.public(run), candidate=candidate)
 
+    @credential_bound
     def compare(self, job, action):
         self.user_command(job, action)
         names = action.get('backends')
@@ -849,6 +879,7 @@ class AgentRuns:
             return self.import_candidate(job, run)
         return self.control(job, run, kind, action)
 
+    @credential_bound
     def cancel_one(self, job, run):
         """Parent cancellation closes its container even after config revocation."""
         if CATALOG[run['backend']][1] not in {'https', 'copilot'}:
@@ -868,15 +899,23 @@ class AgentRuns:
                 def dispatch_cancel():
                     def mark(db):
                         self.owner(db, job, source=False)
-                        if db.execute("UPDATE engineering_agent_operations SET state='DISPATCHED' WHERE operation_id=? AND state='PREPARED'", (operation['operation_id'],)).rowcount != 1:
+                        current = dict(operation, state='DISPATCHED', dispatched_at=self.store.now())
+                        if db.execute("UPDATE engineering_agent_operations SET state='DISPATCHED',payload=? WHERE operation_id=? AND state='PREPARED'",
+                                      (canonical(current), operation['operation_id'])).rowcount != 1:
                             raise AgentError('AGENT_OPERATION_ALREADY_DISPATCHED', 'Cancellation was already dispatched.')
-                    self.tx(mark); operation['state'] = 'DISPATCHED'
+                        retained = dict(run, operation_state='DISPATCHED', last_operation_id=operation['operation_id'])
+                        db.execute('UPDATE engineering_agent_runs SET payload=? WHERE run_id=? AND job_id=? AND principal=?',
+                                   (canonical(retained), run['run_id'], job['id'], job['principal']))
+                    self.tx(mark)
+                    operation['state'] = 'DISPATCHED'
+                    run.update(operation_state='DISPATCHED', last_operation_id=operation['operation_id'])
                 try:
                     result = self.transport(run['backend'], config).control(run, 'cancel', None, dispatch_cancel)
-                    self.complete_operation(job, run, operation, result)
+                    operation = self.complete_operation(job, run, operation, result)
                 except Exception as error:
-                    self.complete_operation(job, run, operation, error=error)
-            self.save(job, run, state='REMOTE_CONTINUES', detached=True, holding=False, error_code='AGENT_REMOTE_STOP_UNCONFIRMED')
+                    operation = self.complete_operation(job, run, operation, error=error)
+            self.save(job, run, state='REMOTE_CONTINUES', detached=True, holding=False, error_code='AGENT_REMOTE_STOP_UNCONFIRMED',
+                      operation_state=operation['state'], last_operation_id=operation['operation_id'])
         return self.public(run)
 
     def cancel_all(self, job):
@@ -902,6 +941,7 @@ class AgentRuns:
                 or json.loads(row[2]).get('data', {}).get('head_sha') != job['data'].get('head_sha')):
             raise AgentError('AGENT_PARENT_CHANGED', 'Cleanup requires the current cancelled or terminal parent revision and source.')
 
+    @credential_bound
     def stop_parent(self, job):
         """Cleanup after Store.control revoked the old execution lease.
 

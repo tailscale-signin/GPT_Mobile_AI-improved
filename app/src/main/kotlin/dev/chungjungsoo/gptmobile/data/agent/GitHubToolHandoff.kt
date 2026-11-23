@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -18,7 +20,9 @@ internal data class ToolHandoffReceipt(
     val errorCode: String?,
     val requiresReconciliation: Boolean,
     val receiptSource: String = "OBSERVED_TOOL_RESULT",
-    val journalProjectionSha256: String? = null
+    val journalProjectionSha256: String? = null,
+    val resultSemanticsSha256: String? = null,
+    val resultSemanticsScope: String = REPLAY_SEMANTICS
 ) {
     fun settled(reconciled: Set<String>): Boolean = !requiresReconciliation || callId in reconciled
 
@@ -28,18 +32,79 @@ internal data class ToolHandoffReceipt(
         put("receipt_reference", "tool-batch/$callId")
         put("receipt_source", receiptSource)
         sourceResultSha256?.let { put("source_result_sha256", it) }
-        journalProjectionSha256?.let { put("journal_projection_sha256", it) }
+        val storedProjection = if (receiptSource == "TOOL_BATCH_CHECKPOINT") projectionSha256 else journalProjectionSha256
+        storedProjection?.let {
+            put("journal_projection_sha256", it)
+            put("journal_projection_scope", "PERSISTED_JOURNAL_PROJECTION_UTF8")
+        }
         put("projection_sha256", projectionSha256)
         put("hash_scope", "TOOL_RESULT_PAYLOAD_UTF8")
         put("source_hash_scope", "ORIGINAL_TOOL_RESULT_PAYLOAD_UTF8")
-        put("projection_hash_scope", "REPLAY_PROJECTION_PAYLOAD_UTF8")
+        put("projection_hash_scope", if (receiptSource == "TOOL_BATCH_CHECKPOINT") "PERSISTED_JOURNAL_PROJECTION_UTF8" else "REPLAY_PROJECTION_PAYLOAD_UTF8")
         put("source_hash_available", sourceResultSha256 != null)
+        resultSemanticsSha256?.let {
+            put("result_semantics_sha256", it)
+            put("result_semantics_hash_scope", if (receiptSource == "TOOL_BATCH_CHECKPOINT") PERSISTED_SEMANTICS else resultSemanticsScope)
+        }
         put("dispatched", dispatched)
         put("requires_reconciliation", requiresReconciliation)
         errorCode?.let { put("error_code", it) }
     }
 
+    /** A later replay summary must not erase the independently retained stored-byte witness. */
+    fun retaining(previous: JsonObject?): JsonObject {
+        val sameResult = previous?.get("invocation_fingerprint") == JsonPrimitive(invocationFingerprint) &&
+            previous["dispatched"] == JsonPrimitive(dispatched) &&
+            previous["error_code"] == errorCode?.let(::JsonPrimitive) &&
+            previous["requires_reconciliation"] == JsonPrimitive(requiresReconciliation)
+        val prior = if (sameResult) previous.orEmpty() else previous.orEmpty() - setOf("source_result_sha256", "journal_projection_sha256", "journal_projection_scope", "result_semantics_sha256", "result_semantics_hash_scope")
+        val merged = prior + json()
+        val priorProjection = if (previous?.get("projection_hash_scope") == JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8") &&
+            previous["receipt_source"] == JsonPrimitive("TOOL_BATCH_CHECKPOINT")
+        ) {
+            previous["projection_sha256"]
+        } else {
+            previous?.get("journal_projection_sha256")
+        }
+        val retained = if (sameResult && receiptSource != "TOOL_BATCH_CHECKPOINT" && priorProjection != null) {
+            merged + mapOf("journal_projection_sha256" to priorProjection, "journal_projection_scope" to JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8"))
+        } else {
+            merged
+        }
+        val semantics = if (sameResult && previous["result_semantics_hash_scope"] == JsonPrimitive(PERSISTED_SEMANTICS)) {
+            retained + mapOf(
+                "result_semantics_sha256" to previous.getValue("result_semantics_sha256"),
+                "result_semantics_hash_scope" to JsonPrimitive(PERSISTED_SEMANTICS)
+            )
+        } else {
+            retained
+        }
+        return JsonObject(semantics + ("source_hash_available" to JsonPrimitive(semantics["source_result_sha256"] != null)))
+    }
+
     companion object {
+        const val PERSISTED_SEMANTICS = "PERSISTED_TOOL_RESULT_SEMANTICS_V1"
+        const val REPLAY_SEMANTICS = "REPLAY_TOOL_RESULT_SEMANTICS_V1"
+
+        /** Every stored field that can change restored control or provider-result semantics. */
+        fun semanticsDigest(json: Boolean, error: Boolean, callLimit: Boolean, outputLimit: Boolean, execution: JsonObject?): String {
+            fun canonical(value: JsonElement): JsonElement = when (value) {
+                is JsonObject -> JsonObject(value.toSortedMap().mapValues { canonical(it.value) })
+                is JsonArray -> JsonArray(value.map(::canonical))
+                else -> value
+            }
+            return GitHubEvidenceBook.digest(
+                buildJsonObject {
+                    put("schema", "github.stored-tool-result-semantics.v1")
+                    put("json", json)
+                    put("error", error)
+                    put("call_limit", callLimit)
+                    put("output_limit", outputLimit)
+                    put("execution", canonical(execution ?: JsonNull))
+                }.toString()
+            )
+        }
+
         fun fingerprint(call: ProviderEvent.ToolCall): String = call.originalInvocationFingerprint
             ?: GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}")
 
@@ -74,6 +139,8 @@ internal data class ToolHandoffReceipt(
 
         fun from(call: ProviderEvent.ToolCall, result: AgentToolResult, originalAvailable: Boolean = true): ToolHandoffReceipt {
             require(call.callId == result.callId) { "Handoff receipt does not match its invocation." }
+            val journalSemantics = result.executionReceipt?.takeIf { it["journal_semantics_scope"] == JsonPrimitive(PERSISTED_SEMANTICS) }
+                ?.get("journal_semantics_sha256")?.let { it as? JsonPrimitive }?.takeIf { it.isString && it.content.matches(Regex("[a-f0-9]{64}")) }?.content
             return ToolHandoffReceipt(
                 call.callId,
                 fingerprint(call),
@@ -86,7 +153,9 @@ internal data class ToolHandoffReceipt(
                     GatewayOutcomeRecovery.requiresReconciliation("", result.errorCode),
                 if (originalAvailable) "OBSERVED_TOOL_RESULT" else "REPLAY_PROJECTION",
                 result.executionReceipt?.takeIf { it["journal_projection_scope"] == JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8") }
-                    ?.get("journal_projection_sha256")?.let { it as? JsonPrimitive }?.takeIf { it.isString && it.content.matches(Regex("[a-f0-9]{64}")) }?.content
+                    ?.get("journal_projection_sha256")?.let { it as? JsonPrimitive }?.takeIf { it.isString && it.content.matches(Regex("[a-f0-9]{64}")) }?.content,
+                journalSemantics ?: semanticsDigest(result.content is ToolResultContent.Json, result.isError, result.toolCallBudgetExhausted, result.outputBudgetExhausted, result.executionReceipt),
+                if (journalSemantics != null) PERSISTED_SEMANTICS else REPLAY_SEMANTICS
             )
         }
     }
@@ -118,6 +187,7 @@ internal object GitHubToolHandoff {
     /** Reentrant projection of durable terminal receipts; unknown effects remain pending. */
     fun reconcile(checkpoint: JsonObject, receipts: Collection<ToolHandoffReceipt>, reconciled: Set<String>): JsonObject {
         if (checkpoint["state"] !in states) return checkpoint
+        if (GitHubProviderReplayEvidence.journalBindingKeys.any { it in checkpoint } && GitHubProviderReplayEvidence.protectedJournalDigest(checkpoint) == null) return checkpoint
         val pending = pending(checkpoint)
         if (pending.isEmpty()) return checkpoint
         val matching = receipts.filter { it.invocationFingerprint in pending }.groupBy { it.invocationFingerprint }.values.map { versions ->
@@ -134,14 +204,14 @@ internal object GitHubToolHandoff {
         val completed = (checkpoint["completed_results"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             .associateByTo(linkedMapOf()) { (it["call_id"] as? JsonPrimitive)?.contentOrNull.orEmpty() }
         matching.forEach { receipt ->
-            val prior = completed[receipt.callId]
-            val merged = prior.orEmpty() + receipt.json()
-            completed[receipt.callId] = JsonObject(merged + ("source_hash_available" to JsonPrimitive(merged["source_result_sha256"] != null)))
+            completed[receipt.callId] = receipt.retaining(completed[receipt.callId])
         }
         val ids = (checkpoint["reconciled_call_ids"] as? JsonArray).orEmpty().mapNotNullTo(linkedSetOf()) { (it as? JsonPrimitive)?.contentOrNull }
         ids += resolved.map { it.callId }
         return JsonObject(
-            checkpoint + buildJsonObject {
+            // New results change the complete set. Keep individual byte witnesses,
+            // and let the next provider wait rebuild all full-journal fields together.
+            checkpoint - GitHubProviderReplayEvidence.journalBindingKeys + buildJsonObject {
                 put("state", if (remaining.isEmpty()) "TOOL_RESULTS_READY" else "TOOL_HANDOFF")
                 put("pending_calls", JsonArray(remaining.map(::JsonPrimitive)))
                 put("completed_results", JsonArray(completed.values.toList()))

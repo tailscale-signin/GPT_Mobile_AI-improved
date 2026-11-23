@@ -100,7 +100,7 @@ internal class GitHubOutputContinuationSession(
         val evidence = continuationEvidenceDigests(exchanges)
         val evidenceDigest = evidence.full
         val providerEvidenceDigest = evidence.provider
-        val loaded = loadCheckpointForRound(evidence.receipts, providerEvidenceDigest)
+        val loaded = loadCheckpointForRound(evidence.receipts)
         val previous = loaded.checkpoint
         val reconciled = reconciledCallIds()
         val sameEvidence = if (previous?.get("state") == JsonPrimitive("WAITING_PROVIDER_LIMIT")) {
@@ -588,10 +588,7 @@ internal class GitHubOutputContinuationSession(
         return GeneratedSegment(segment.toString(), segmentLineage.lineage, calls, completed, finishReason, failure, receivedToolResult, reasoningBytes, invocationIds.singleOrNull(), outputTokens, reasoningTokens, effectiveOutputTokens, serializedOutputTokens)
     }
 
-    private suspend fun loadCheckpointForRound(
-        replayReceipts: List<ToolHandoffReceipt>,
-        providerEvidenceDigest: String
-    ): LoadedCheckpoint = checkpointMutex.withLock {
+    private suspend fun loadCheckpointForRound(replayReceipts: List<ToolHandoffReceipt>): LoadedCheckpoint = checkpointMutex.withLock {
         val saved = readCheckpoint() ?: currentCheckpoint
         if (!providerCheckpointValidated && expectedProviderCheckpoint != null) {
             val resume = kotlinx.coroutines.currentCoroutineContext()[GitHubProviderResumeContext]
@@ -602,13 +599,17 @@ internal class GitHubOutputContinuationSession(
             if (saved == null || !expectedProviderCheckpoint.matches(saved)) throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", saved?.let(ProviderRecoveryFailure::interruption), correlation)
             val retained = (saved["completed_results"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             val fingerprints = retained.mapNotNullTo(linkedSetOf()) { (it["invocation_fingerprint"] as? JsonPrimitive)?.contentOrNull } + replayReceipts.map { it.invocationFingerprint }
-            val durable = durableToolReceipts(fingerprints)
+            val fullJournal = durableProviderJournal()
+            val durable = fullJournal ?: durableToolReceipts(fingerprints)
             val reconciledIds = reconciledCallIds()
             val unknown = durable.any { it.requiresReconciliation && it.callId !in reconciledIds }
-            val sameReplay = saved["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)
-            val reconciled = providerBoundaryMatches(retained, replayReceipts, durable, sameReplay)
+            val reconciled = providerBoundaryMatches(saved, replayReceipts, durable, fullJournal != null)
             if (unknown || !reconciled) {
-                val failure = ProviderRecoveryFailure(if (unknown) "PROVIDER_WAIT_OUTCOME_UNKNOWN" else "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", ProviderRecoveryFailure.interruption(saved), correlation)
+                val failure = ProviderRecoveryFailure(
+                    if (unknown) "PROVIDER_WAIT_OUTCOME_UNKNOWN" else "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE",
+                    ProviderRecoveryFailure.interruption(saved),
+                    JsonObject(correlation + ("checkpoint_mismatch_reason" to JsonPrimitive(if (unknown) "TOOL_OUTCOME_UNKNOWN" else GitHubProviderReplayEvidence.unprovenReason(saved, durable))))
+                )
                 val blocked = failure.block(saved)
                 if (!withContext(NonCancellable) { saveRecoveryCheckpoint(saved, blocked) }) {
                     currentCheckpoint = readCheckpoint()
@@ -647,49 +648,26 @@ internal class GitHubOutputContinuationSession(
 
     private data class LoadedCheckpoint(val checkpoint: JsonObject?, val handoffEvidence: JsonObject? = null)
 
-    /** Replay may regroup or omit consumed calls; only durable source identities may prove that change safe. */
-    private fun providerBoundaryMatches(saved: List<JsonObject>, replay: List<ToolHandoffReceipt>, durable: List<ToolHandoffReceipt>, sameReplay: Boolean): Boolean {
-        if ((!sameReplay && saved.isEmpty()) || saved.size > 1024 || replay.size > 1024 || durable.size > 1024) return false
-        val byCall = durable.associateBy { it.callId }
-        if (byCall.size != durable.size || durable.map { it.invocationFingerprint }.distinct().size != durable.size) return false
-        val savedIds = saved.mapNotNull { (it["call_id"] as? JsonPrimitive)?.contentOrNull }.toSet()
-        if (savedIds.size != saved.size) return false
-        val expectedIds = savedIds + replay.map { it.callId }
-        if (durable.any { it.callId !in expectedIds }) return false
-        if (!saved.all { receipt ->
-                val id = (receipt["call_id"] as? JsonPrimitive)?.contentOrNull ?: return@all false
-                val actual = byCall[id] ?: return@all sameReplay
-                val source = (receipt["source_result_sha256"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
-                actual.receiptSource == "TOOL_BATCH_CHECKPOINT" &&
-                    receipt["invocation_fingerprint"] == JsonPrimitive(actual.invocationFingerprint) &&
-                    (
-                        if (source != null) {
-                            source == actual.sourceResultSha256
-                        } else {
-                            (sameReplay || receipt["projection_hash_scope"] == JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8")) &&
-                                receipt["projection_sha256"] == JsonPrimitive(actual.projectionSha256)
-                        }
-                        ) &&
-                    receipt["dispatched"] == JsonPrimitive(actual.dispatched) &&
-                    receipt["error_code"] == actual.errorCode?.let(::JsonPrimitive)
-            }
+    /** Replay compaction cannot replace the separately authenticated complete stored-byte boundary. */
+    private fun providerBoundaryMatches(checkpoint: JsonObject, replay: List<ToolHandoffReceipt>, durable: List<ToolHandoffReceipt>, completeJournalAvailable: Boolean): Boolean {
+        if (replay.size > 1024 ||
+            replay.map { it.callId }.distinct().size != replay.size ||
+            replay.map { it.invocationFingerprint }.distinct().size != replay.size ||
+            durable.any { it.receiptSource != "TOOL_BATCH_CHECKPOINT" }
         ) {
             return false
         }
+        if (GitHubProviderReplayEvidence.journalBindingKeys.any { it in checkpoint } && !completeJournalAvailable) return false
+        // Temporary sessions can prove the exact protected replay bytes directly.
+        // A complete persisted checkpoint always requires the whole journal lookup.
+        val actual = if (completeJournalAvailable || durable.isNotEmpty()) durable else replay.map { it.copy(receiptSource = "TOOL_BATCH_CHECKPOINT") }
+        if (GitHubProviderReplayEvidence.reconciledJournalDigest(checkpoint, actual) == null) return false
+        val byCall = actual.associateBy { it.callId }
+        val saved = (checkpoint["completed_results"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .associateBy { (it["call_id"] as? JsonPrimitive)?.contentOrNull }
         return replay.all { receipt ->
-            val actual = byCall[receipt.callId] ?: return@all sameReplay && receipt.callId in savedIds
-            actual.receiptSource == "TOOL_BATCH_CHECKPOINT" &&
-                receipt.invocationFingerprint == actual.invocationFingerprint &&
-                (
-                    if (receipt.sourceResultSha256 != null) {
-                        receipt.sourceResultSha256 == actual.sourceResultSha256
-                    } else {
-                        receipt.journalProjectionSha256 == actual.projectionSha256 || sameReplay && receipt.projectionSha256 == actual.projectionSha256
-                    }
-                    ) &&
-                receipt.dispatched == actual.dispatched &&
-                receipt.errorCode == actual.errorCode &&
-                receipt.requiresReconciliation == actual.requiresReconciliation
+            val observed = byCall[receipt.callId] ?: return@all false
+            GitHubProviderReplayEvidence.replayMatches(receipt, observed, saved[receipt.callId])
         }
     }
 
@@ -701,9 +679,7 @@ internal class GitHubOutputContinuationSession(
         val retained = (previous?.get("completed_results") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             .associateByTo(linkedMapOf()) { (it["call_id"] as? JsonPrimitive)?.contentOrNull.orEmpty() }
         current.forEach { receipt ->
-            val projection = receipt.json()
-            val merged = retained[receipt.callId].orEmpty() + projection
-            retained[receipt.callId] = JsonObject(merged + ("source_hash_available" to JsonPrimitive(merged["source_result_sha256"] != null)))
+            retained[receipt.callId] = receipt.retaining(retained[receipt.callId])
         }
         val settled = (previous?.get("reconciled_call_ids") as? JsonArray).orEmpty()
             .mapNotNullTo(linkedSetOf()) { (it as? JsonPrimitive)?.contentOrNull } + reconciled
@@ -759,6 +735,7 @@ internal class GitHubOutputContinuationSession(
                 put("tool_journal_complete", true)
                 put("tool_journal_receipt_count", waitReceipts.completed.size)
                 put("tool_journal_digest", it)
+                put("tool_journal_digest_version", GitHubProviderReplayEvidence.JOURNAL_DIGEST_VERSION)
             }
             put("reconciled_call_ids", JsonArray(settledCallIds.sorted().map(::JsonPrimitive)))
             put(
@@ -814,11 +791,19 @@ internal class GitHubOutputContinuationSession(
                 boundary.all { element ->
                     val saved = element as? JsonObject ?: return@all false
                     val actual = byCall[(saved["call_id"] as? JsonPrimitive)?.contentOrNull] ?: return@all false
+                    val storedProjection = if (saved["projection_hash_scope"] == JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8")) {
+                        saved["projection_sha256"]
+                    } else {
+                        saved["journal_projection_sha256"]
+                    }
+                    val storedSemantics = saved["result_semantics_sha256"].takeIf { saved["result_semantics_hash_scope"] == JsonPrimitive(ToolHandoffReceipt.PERSISTED_SEMANTICS) }
                     saved["invocation_fingerprint"] == JsonPrimitive(actual.invocationFingerprint) &&
                         saved["dispatched"] == JsonPrimitive(actual.dispatched) &&
                         saved["error_code"] == actual.errorCode?.let(::JsonPrimitive) &&
                         saved["requires_reconciliation"] == JsonPrimitive(false) &&
-                        (saved["source_result_sha256"] == null || saved["source_result_sha256"] == actual.sourceResultSha256?.let(::JsonPrimitive))
+                        (saved["source_result_sha256"] == null || saved["source_result_sha256"] == actual.sourceResultSha256?.let(::JsonPrimitive)) &&
+                        (storedProjection == null || storedProjection == JsonPrimitive(actual.projectionSha256)) &&
+                        (storedSemantics == null || storedSemantics == actual.resultSemanticsSha256?.let(::JsonPrimitive))
                 }
             ProviderRecoveryFailure.require(
                 matches,
@@ -855,9 +840,29 @@ internal class GitHubOutputContinuationSession(
                 ) {
                     return@map row
                 }
+                val storedProjection = if (saved["projection_hash_scope"] == JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8")) saved["projection_sha256"] else saved["journal_projection_sha256"]
+                val storedSemantics = saved["result_semantics_sha256"].takeIf { saved["result_semantics_hash_scope"] == JsonPrimitive(ToolHandoffReceipt.PERSISTED_SEMANTICS) }
+                ProviderRecoveryFailure.require(
+                    (storedProjection == null || storedProjection == JsonPrimitive(durable.projectionSha256)) &&
+                        (storedSemantics == null || storedSemantics == durable.resultSemanticsSha256?.let(::JsonPrimitive)),
+                    "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+                    buildJsonObject {
+                        put("checkpoint_validation_stage", "TOOL_JOURNAL")
+                        put("checkpoint_mismatch_reason", "TOOL_JOURNAL_CHANGED")
+                    }
+                )
                 // The provider's projection still has its own hash. Only the journal
                 // identifies the original payload, which may have been compacted.
-                JsonObject(saved + mapOf("source_hash_available" to JsonPrimitive(true), "source_result_sha256" to JsonPrimitive(source)))
+                JsonObject(
+                    saved + mapOf(
+                        "source_hash_available" to JsonPrimitive(true),
+                        "source_result_sha256" to JsonPrimitive(source),
+                        "journal_projection_sha256" to JsonPrimitive(durable.projectionSha256),
+                        "journal_projection_scope" to JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8")
+                    ) + durable.resultSemanticsSha256?.let {
+                        mapOf("result_semantics_sha256" to JsonPrimitive(it), "result_semantics_hash_scope" to JsonPrimitive(ToolHandoffReceipt.PERSISTED_SEMANTICS))
+                    }.orEmpty()
+                )
             }
         )
         return WaitReceiptBoundary(completed)

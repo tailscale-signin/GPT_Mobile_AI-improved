@@ -19,6 +19,7 @@ from unittest.mock import Mock, patch
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from v14 import agent_config
 from v14.agent_config import AgentError, credential, digest, load, save, validate
 from v14.agent_cloud import CloudAgent
 from v14.agent_candidates import unified_changes, verify_changes
@@ -36,6 +37,19 @@ class ConfigurationTests(unittest.TestCase):
     def row(self):
         return {'schema_version': 1, 'agents': {'cursor': {'enabled': True, 'repositories': ['owner/repo'],
                 'principals': ['owner'], 'model_id': 'model-x', 'credential_reference': 'env:AGENT_TEST_TOKEN'}}}
+
+    def test_credential_scopes_restore_nested_values_and_expire_on_error(self):
+        with self.assertRaisesRegex(RuntimeError, 'outer failure'):
+            with agent_config.credential_scope():
+                credential('env:AGENT_TEST_TOKEN', {'AGENT_TEST_TOKEN': 'outer-credential'})
+                with self.assertRaisesRegex(RuntimeError, 'inner failure'):
+                    with agent_config.credential_scope():
+                        credential('env:AGENT_TEST_TOKEN', {'AGENT_TEST_TOKEN': 'inner-credential'})
+                        self.assertEqual({'outer-credential', 'inner-credential'}, agent_config.observed_credentials())
+                        raise RuntimeError('inner failure')
+                self.assertEqual({'outer-credential'}, agent_config.observed_credentials())
+                raise RuntimeError('outer failure')
+        self.assertFalse(agent_config.observed_credentials())
 
     def test_settings_compare_revision_atomically_without_storing_secrets(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -510,6 +524,52 @@ class DurableAgentTests(unittest.TestCase):
         self.assertEqual('AGENT_CONFIGURATION_CHANGED', error.exception.code)
         self.assertEqual(0, self.transport.reads)
 
+    def test_credential_rotation_during_start_redacts_original_and_current_material(self):
+        self.qualify()
+        original, rotated = os.environ['AGENT_TEST_TOKEN'], 'rotated-test-credential'
+        def response_after_rotation(*args):
+            args[-1]()
+            self.transport.starts += 1
+            os.environ['AGENT_TEST_TOKEN'] = rotated
+            return {'state': 'RUNNING', 'session_id': 'session-1', 'remote_run_id': 'turn-1',
+                    'response': {'diagnostic': original + ' ' + rotated}}
+        self.transport.start = response_after_rotation
+        result = self.start()
+        retained = self.agents.get(self.job, result['run_id'])
+        row = self.agents.tx(lambda db: db.execute('SELECT payload FROM engineering_agent_operations WHERE operation_id=?',
+                                                  (retained['last_operation_id'],)).fetchone())
+        operation = json.loads(row[0])
+        self.assertEqual('CONFIRMED', operation['state'])
+        for reference in (retained['status_ref'], operation['result_ref']):
+            evidence = json.dumps(self.service.artifacts.json_value(self.job, reference))
+            self.assertNotIn(original, evidence)
+            self.assertNotIn(rotated, evidence)
+            self.assertIn('REDACTED_AGENT_CREDENTIAL', evidence)
+        self.assertNotIn(original, self.agents.secrets(self.job))
+        with self.assertRaises(AgentError) as error:
+            self.action('status', run_id=result['run_id'])
+        self.assertEqual('AGENT_CONFIGURATION_CHANGED', error.exception.code)
+        self.assertNotIn(original, self.agents.secrets(self.job))
+        self.assertEqual(1, self.transport.starts)
+        self.assertEqual(0, self.transport.reads)
+
+    def test_credential_rotation_during_candidate_capture_blocks_original_secret(self):
+        self.local(); result = self.start('codex'); self.transport.state = 'COMPLETED'
+        original = os.environ['AGENT_TEST_TOKEN']
+        artifact = self.transport.artifacts
+        def response_after_rotation(saved):
+            value = artifact(saved)
+            value['changes'][0]['content'] = 'token = ' + repr(original) + '\n'
+            os.environ['AGENT_TEST_TOKEN'] = 'rotated-test-credential'
+            return value
+        self.transport.artifacts = response_after_rotation
+        observed = self.action('status', run_id=result['run_id'])
+        self.assertEqual('COMPLETED', observed['state'])
+        self.assertEqual('CAPTURE_BLOCKED', observed['candidate_status'])
+        self.assertEqual('AGENT_CREDENTIAL_IN_CANDIDATE', observed['error_code'])
+        self.assertIsNone(self.agents.get(self.job, result['run_id']).get('candidate_raw_ref'))
+        self.assertNotIn(original, self.agents.secrets(self.job))
+
     def test_evidence_redacts_runtime_credentials_and_candidate_capture_rejects_them(self):
         self.local(); result = self.start('codex')
         self.transport.events = Mock(return_value={'events': [{'text': 'token private-test-credential'}], 'complete': True})
@@ -650,6 +710,51 @@ class DurableAgentTests(unittest.TestCase):
         self.assertFalse(result['all_stopped'])
         self.assertEqual('REMOTE_CONTINUES', result['runs'][0]['state'])
         self.assertTrue(result['runs'][0]['detached'])
+        self.assertEqual(0, self.transport.controls)
+
+    def test_parent_cancel_crash_keeps_dispatch_fence_after_restart(self):
+        self.config['agents']['cursor'] = dict(self.config['agents']['jules'], model_id='model-x')
+        self.qualify('cursor'); result = self.start('cursor')
+        saved = self.agents.get(self.job, result['run_id'])
+        def die_after_fence(*args):
+            args[-1]()
+            self.transport.controls += 1
+            raise SystemExit('Simulated process death after cancellation dispatch')
+        self.transport.control = die_after_fence
+        with self.assertRaises(SystemExit):
+            self.agents.cancel_one(self.job, saved)
+        row = self.agents.tx(lambda db: db.execute(
+            "SELECT state,payload FROM engineering_agent_operations WHERE run_id=? AND json_extract(payload,'$.kind')='cancel'",
+            (saved['run_id'],)).fetchone())
+        self.assertEqual('DISPATCHED', row[0])
+        self.assertEqual('DISPATCHED', json.loads(row[1])['state'])
+        self.agents = AgentRuns(self.service, config_loader=self.agents.config_loader, transport_factory=self.agents.transport_factory)
+        observed = self.agents.cancel_one(self.job, self.agents.get(self.job, saved['run_id']))
+        self.assertEqual('REMOTE_CONTINUES', observed['state'])
+        self.assertEqual('DISPATCHED', observed['operation_state'])
+        self.assertEqual(1, self.transport.controls)
+
+    def test_cancel_reconciliation_keeps_legacy_persisted_dispatch(self):
+        self.config['agents']['cursor'] = dict(self.config['agents']['jules'], model_id='model-x')
+        self.qualify('cursor'); result = self.start('cursor')
+        saved = self.agents.get(self.job, result['run_id'])
+        operation = self.agents.operation(self.job, saved, 'cancel', 'parent-cancel',
+                                         {'source_sha': saved['source_sha'], 'run_id': saved['run_id']})
+        # Older cancellation fences persisted only the column. The JSON and
+        # caller object can both still say PREPARED after a real dispatch.
+        self.agents.tx(lambda db: db.execute("UPDATE engineering_agent_operations SET state='DISPATCHED' WHERE operation_id=?",
+                                            (operation['operation_id'],)))
+        observed = self.agents.cancel_one(self.job, saved)
+        self.assertEqual('REMOTE_CONTINUES', observed['state'])
+        self.assertEqual('DISPATCHED', observed['operation_state'])
+        self.assertEqual(operation['operation_id'], observed['last_operation_id'])
+        self.assertEqual(0, self.transport.controls)
+        row = self.agents.tx(lambda db: db.execute('SELECT state,payload FROM engineering_agent_operations WHERE operation_id=?',
+                                                  (operation['operation_id'],)).fetchone())
+        self.assertEqual('DISPATCHED', row[0])
+        self.assertEqual('DISPATCHED', json.loads(row[1])['state'])
+        reconciled = self.agents.complete_operation(self.job, saved, operation, error=AgentError('AGENT_CANCEL_UNCONFIRMED', 'Unconfirmed'))
+        self.assertEqual('OUTCOME_UNKNOWN', reconciled['state'])
         self.assertEqual(0, self.transport.controls)
 
     def test_post_cancel_cleanup_uses_terminal_revision_without_revoked_lease(self):

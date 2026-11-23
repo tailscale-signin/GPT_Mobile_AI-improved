@@ -3,6 +3,8 @@
 Credentials are environment references, never values in config or public rows.
 Local runtimes execute in digest-pinned containers, not in the Gateway process.
 """
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import os
@@ -30,6 +32,7 @@ ORIGINS = {'jules': 'https://jules.googleapis.com', 'cursor': 'https://api.curso
 ENV = re.compile(r'[A-Z_][A-Z0-9_]{0,63}')
 IMAGE = re.compile(r'[A-Za-z0-9./:_-]+@sha256:[a-f0-9]{64}')
 REPOSITORY = re.compile(r'[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}')
+_CREDENTIAL_VALUES = ContextVar('gateway_agent_credential_values', default=None)
 
 
 class AgentError(Exception):
@@ -46,6 +49,22 @@ def digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
+@contextmanager
+def credential_scope():
+    """Retain resolved credentials only for this synchronous provider call."""
+    # Nested calls keep their parent's already-bound values, then restore that
+    # snapshot even when a transport or reconciliation raises BaseException.
+    token = _CREDENTIAL_VALUES.set(_CREDENTIAL_VALUES.get() or frozenset())
+    try:
+        yield
+    finally:
+        _CREDENTIAL_VALUES.reset(token)
+
+
+def observed_credentials():
+    return _CREDENTIAL_VALUES.get() or frozenset()
+
+
 def credential(reference, environment=None):
     if reference is None:
         return None
@@ -54,6 +73,11 @@ def credential(reference, environment=None):
     value = (os.environ if environment is None else environment).get(reference[4:])
     if not isinstance(value, str) or not value or len(value) > 8192 or any(c in value for c in '\r\n\0'):
         raise AgentError('AGENT_CREDENTIAL_UNAVAILABLE', 'The configured agent credential is unavailable on this Gateway.')
+    captured = _CREDENTIAL_VALUES.get()
+    if captured is not None:
+        # Capture the same value returned for hashing/transport, not a second
+        # environment read that may already belong to a rotated account.
+        _CREDENTIAL_VALUES.set(captured | {value})
     return value
 
 

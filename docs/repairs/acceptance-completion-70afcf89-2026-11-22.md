@@ -2,7 +2,7 @@
 
 ## Scope and authority
 
-This change implements the software corrections from the 16-finding diagnostic review of capture `70afcf89` on PR 2254. The user authorized implementation, a draft PR update, merge after green current-head checks, exact-main validation and publication. Work started at `4c48b77621b603f80a480ea45e0d7eedcddde86e`. Concurrent voice and privacy commits through `c818b9161978e03a6a8e848d1a1066159f7c2718` are preserved.
+This change implements the software corrections from the 16-finding diagnostic review of capture `70afcf89` on PR 2254. The user authorized implementation, a draft PR update, merge after green current-head checks, exact-main validation and publication. Work started at `4c48b77621b603f80a480ea45e0d7eedcddde86e`. Concurrent voice, privacy, map, agent-workspace and open-issue and coding-benchmark repairs through `e315be06e0c943c442f7f74b216930ee3f32aae4` are preserved.
 
 The paired task JSON retains all 30 proposed acceptance scenarios and separates software regression evidence from hosted Android and physical-device qualification. No host-only result qualifies a merge or publication. This remains the explicitly scoped Android 0.9.66.13 / Gateway 18.1.1 release.
 
@@ -28,6 +28,24 @@ The captured failing run contained 103 settled journal calls but only 82 calls i
 Provider waits now bind the complete atomic durable journal separately from the compacted replay view. Both retain their own identities and counts. Local/reused results can carry an explicit persisted projection identity without falsely claiming it is an original-source hash. Malformed complete-journal markers remain blocking; missing, pending or uncertain writes still require reconciliation. A settled write stays at one dispatch. Repeated runner capture validates and preserves the original provider invocation after trusted source correction; it cannot overwrite or launder a malformed original identity. Actual OpenAI, Anthropic and Gemini replay converters retain the same original envelope.
 
 Failure reporting scopes a rejected resume to `RECOVERY_ATTEMPT`, preserves the original upstream failure and retains earlier completed work. `ChatRepositoryImpl.latestVerdict` reads the actual same-binding protected output checkpoint, so the recovery projection is connected to the production loader.
+
+## Complete journal integrity follow-up
+
+Independent actual-output probes exposed three weaknesses beyond the initial source-identity repair: changed bodies could keep a source-only journal digest valid after their projection hash was removed or recomputed, and changing only a stored error flag could turn an `INVALID_ARGUMENTS` failure into a successful provider result. The protected checkpoint remained unchanged in each reproduction. Both the runner path and the direct output-session path reopened the provider; no original write was dispatched twice.
+
+The version2 journal boundary now binds the complete call set, original invocation and source identity, stored replay projection, dispatch/outcome fields, and a canonical digest of payload type, error state, both budget flags and the entire execution metadata object. The disk reader recomputes semantic proof from actual stored fields. Reordered object keys remain equivalent. All explicit resolution, legacy lookup, settled handoff, receipt retention, fallback writer and direct output-session paths enforce the boundary. Complete/count/digest/version fields are cleared and rebuilt together when a handoff adds results; protected per-result proof survives provider compaction.
+
+True older provider-wait checkpoints lack authenticated result semantics. They receive the typed `TOOL_RESULT_SEMANTICS_UNPROVEN` refusal while preserving their work; the implementation does not infer missing authority fields from payload prose or reset them to enable replay. A v1-format boundary can migrate only when independently protected typed semantics and stored-byte evidence are both present. Legacy journal files with absent projection fields remain decodable, without inventing proof for their old checkpoint.
+
+The exact committed candidate `879f62616a61cc4fd074b963ee8c43259fc61d16` passes 126 focused recovery/provider tests, including separate error, valid-JSON payload-type, call-budget, output-budget and authority-metadata mutations; zero provider reopen and no duplicate dispatch are required. Eight independent adversarial probes pass. An immutable integrated-source rerun also passes all 126 tests, with 113 harness inputs and 83 repository blobs verified. The combined current-head Android gate remains a separate receipt.
+
+## Shared integration review
+
+Incoming polite-request classification and draft-prefix handling pass25 actual-source tests without changing criterion wording, IDs, spans or suffix constraints. The phone/Gateway planner passes36 source-specific producer/consumer and scheduler tests; both previously rejected automatic phone plans now use supported native actions. Gateway privacy dispatch passes8 tests and nested MCP cancellation/transport evidence passes29 tests. The queue-full PCM priming repair passes27 actual-source cases. The five voice fixture changes preserve all ten historical failure assertions; independent lifecycle/buffer execution passes24 tests, and all6 streaming/terminal reporting inputs reach the real producer. Full reporting execution remains a hosted Android obligation.
+
+The OpenRouter setup regression now proves caller suspension before IO completion, then cancels before queued delivery. The initial candidate passes all 20 setup tests and 20 repeated target runs, exercising 100 cancellation windows. After reconciliation with the shared revision hook and robust cleanup, the final merged fixture independently passes all 20 tests and ten further repetitions covering 50 cancellation windows. All four session slots remain available afterward; a fifth correctly rejects, and discard/reopen succeeds. Removing production cancellation cleanup makes this test fail on session capacity. The fix changes only the fixture and keeps the five-second timeouts.
+
+The incoming agent workspace passes 113 actual Gateway workspace tests on its exact source and all 116 tests after integration with the privacy, adapter and benchmark packages; the authentication service passes 206 tests. Optional-runtime adapter review reproduced two further defects: credential rotation during retained-output redaction and restart after cancellation dispatch. The repair retains the exact credential used by each operation in a temporary isolated context, redacts both original and current values, and clears the context even on interruption. Cancellation fencing writes the operation column, JSON payload and run metadata in one transaction; restart normalization and stale-caller handling preserve actual dispatch evidence. All 55 adapter tests and four independent cloud-transport, transaction-fault, stale-caller and context-isolation probes pass against 482 verified snapshot files. The separate process-start/cancellation race repair remains with its original worker. The complete coding-benchmark package is integrated and under independent review.
 
 ## Continued execution and native tool contracts
 
@@ -67,7 +85,7 @@ Focused host harnesses compile production sources with documented Android/platfo
 | --- | --- | --- |
 | Atomic contract and task/output recovery | 9 passed | Production helpers; unrelated proof branches fail closed in this harness |
 | Native source, draft PR and changed-regression acceptance | 13 passed | Real native receipt shapes, operation evaluator, exact revision and complete job evidence; includes adjacent windows and missing/cross-identity negatives |
-| Durable journal, output recovery and provider envelopes | 110 passed | Includes captured 103/82 mismatch, local projections, restart, settled-write replay and integrity/unknown-write negatives |
+| Durable journal, output recovery and provider envelopes | 126 passed plus eight independent probes | Includes captured 103/82 mismatch, full v2 stored-envelope proof, rejected semantic/body downgrade, provable legacy migration, restart, settled-write replay and unknown-write negatives |
 | Same-task checkpoint projection | 3 passed | Actual typed saved refusal and binding isolation |
 | Native recipes and independent lane scheduling | 15 passed | Authorized/advertised inventories, failed discovery and bounded correction |
 | Source, search, cursor and CI helpers | 62 passed | Action-specific schema and provenance recovery; compact schema remains within its 1,600-token budget |
@@ -79,7 +97,7 @@ Focused host harnesses compile production sources with documented Android/platfo
 | Voice controller, backend policy and benchmark | 81 passed | Captured-tail regression failed at the old cap; deterministic engine/clock fixtures |
 | Voice fallback and cancellation | 4 passed | Retired producer and cancellation ownership |
 
-Canonical fast validation passes all 616 tests plus policy, resource, regex, dependency and provenance checks. Final formatting/generated metadata, hosted Android orchestration, Hilt/Room/Compose, unit/instrumentation suites, packaging, security, exact-main checks and signed publication readback are recorded separately in the paired task checkpoint and CI receipts.
+Combined canonical fast validation at `03423377a1f290026afb87f3cee7c6e02cd66475` passes all 623 tests plus policy, resource, regex, dependency and provenance checks. All 2,023 literal Android regex patterns pass; 99 dynamic patterns are excluded from literal-only checking. Final formatting/generated metadata, hosted Android orchestration, Hilt/Room/Compose, unit/instrumentation suites, packaging, security, exact-main checks and signed publication readback are recorded separately in the paired task checkpoint and CI receipts.
 
 ## Remaining qualification
 

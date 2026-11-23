@@ -95,7 +95,7 @@
     "Separate full agent-system comparisons from model benchmarks, reject comparison of unexecuted checks, and retain optional-runtime and provider qualification limits.",
     "Start speech when all bounded PCM queue slots are occupied even when partial phrase tails leave accepted duration below the measured reserve; retain queue and reserve limits, lifecycle fences and deadline behavior.",
     "Report invalid retained journal projections as typed recovery-integrity failures while omitting unverified observed digests and counts; preserve legacy file decoding and provable recovery, settled-call deduplication and prior budget refusal checks.",
-    "Apply the same evidence requirements to requests beginning with \u201cPlease,\u201d preserving their original wording and source references.",
+    "Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.",
     "Keep automatic phone-map recipes within native capabilities while retaining explicit Gateway analysis and source provenance.",
     "Preserve actual Gateway graph exchange evidence through local privacy rejection and clear only a proven unsent new index attempt.",
     "Propagate wrapped MCP cancellation before reconnect or replay while retaining earlier response and interruption facts.",
@@ -118,7 +118,12 @@
     "Preserve publisher-pinned runtime downloads with independent per-host cooldowns and separate bounded Android acceptance code-generation and compilation processes while retaining every device and artifact gate.",
     "Preserve operation-bound credential redaction across account rotation and persist cancellation dispatch atomically for truthful restart recovery.",
     "Scope optional workspace discovery to the admitted tool's exact configured connection, retain other discovery owners during cancellation, and isolate concurrent router bindings without replacing the public global catalogue.",
-    "Retain successful native saved-page reads carrying supported matching context across replay compaction and restoration, while preserving cursor-only reservations, authorization, exact call-result identity, uncertain-outcome exclusions and delivery proofs."
+    "Retain successful native saved-page reads carrying supported matching context across replay compaction and restoration, while preserving cursor-only reservations, authorization, exact call-result identity, uncertain-outcome exclusions and delivery proofs.",
+    "Separate Android source generation, production compilation, instrumentation compilation and packaging into bounded fresh processes while retaining every provenance, native, size, device and publication gate.",
+    "Serialize optional agent process startup and cancellation, preventing child launch after a confirmed stop and duplicate child publication from concurrent startup requests.",
+    "Preserve the original benchmark request, usage, attempts and cleanup receipt when an enclosing task deadline interrupts remote verification.",
+    "Count native coding candidates that start and exhaust a time or output limit as known failures after successful grader calibration; keep unavailable runtimes and uncertain cleanup unqualified.",
+    "Preserve the closed diagnostic report contract for the three exact new journal projection and result-semantics recovery reasons."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -150,6 +155,7 @@
   ],
   "allowedPaths": [
     ".github/workflows/audit-workspace.yml",
+    ".github/workflows/build-apk.yml",
     ".github/workflows/gateway-stability.yml",
     ".github/workflows/marketplace-contracts.yml",
     ".github/workflows/pr-validation.yml",
@@ -1046,6 +1052,7 @@
     "scripts/tests/test_benchmark_native_controls.py",
     "scripts/tests/test_chat_method_size.py",
     "scripts/tests/test_ci_modernization.py",
+    "scripts/tests/test_delivery_pipeline.py",
     "scripts/tests/test_issue_reporting_configuration.py",
     "scripts/tests/test_kokoro_apk_inventory.py",
     "scripts/tests/test_native_memory_smoke.py",

@@ -65,9 +65,34 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Verify QNN dependency provenance
+        run: python3 scripts/check_qnn_provenance.py
+
+      # Bound generation and production compilation independently before APK
+      # packaging, as in PR Validation and the Android acceptance workflow.
+      - name: Generate application sources
+        timeout-minutes: 15
+        run: >-
+          python3 scripts/gradle_retry.py -- :app:kspDebugKotlin
+          --no-daemon --max-workers=1 --console=plain --stacktrace
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+
+      - name: Generate application annotations
+        timeout-minutes: 15
+        run: >-
+          python3 scripts/gradle_retry.py -- :app:kaptDebugKotlin
+          --no-daemon --max-workers=1 --console=plain --stacktrace
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+
+      - name: Compile application sources
+        timeout-minutes: 25
+        run: >-
+          python3 scripts/gradle_retry.py -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac
+          --no-daemon --max-workers=1 --console=plain --stacktrace
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+
       - name: Build Debug APK
         run: |
-          python3 scripts/check_qnn_provenance.py
           ./gradlew assembleDebug --no-daemon --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
 
       - name: Verify local runtime native libraries

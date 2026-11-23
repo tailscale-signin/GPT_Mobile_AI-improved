@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "80dec0b1edb1e7e182c9242b58b21330e6566b6a6148fc05eadcf7ce82e00142",
+  "source_digest": "5be1f655a17d77ff7b51efaf191edb8f7fa18b7209c4c9e174c84d635a3e391f",
   "file_count": 2981,
-  "indexed_line_count": 500636,
+  "indexed_line_count": 500665,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -137,7 +137,7 @@
       "id": "benchmark",
       "label": "Benchmarks and app audit",
       "file_count": 141,
-      "indexed_line_count": 23415
+      "indexed_line_count": 23417
     },
     {
       "id": "auth_and_security",
@@ -167,13 +167,13 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 271,
-      "indexed_line_count": 99038
+      "indexed_line_count": 99064
     },
     {
       "id": "authentication_service",
       "label": "Authentication broker software",
       "file_count": 9,
-      "indexed_line_count": 2891
+      "indexed_line_count": 2892
     },
     {
       "id": "external_integrations",
@@ -4099,8 +4099,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringExternalExecutor.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "8b6acea55acb1b9c20acaf56239a18fcc4a70ff4cfa9b99e791a15a44b954f18",
-      "indexed_lines": 488
+      "sha256": "00b3b013287048b674d7f22f384506f06136f5e779efa0404d7baabf7215f0b9",
+      "indexed_lines": 490
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringGeneration.kt",
@@ -18778,8 +18778,8 @@
       "path": "authentication/incident_report_contract.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "9ef9b5e361d0807c8d403c793fc281c0cc0d98b404f65bd11cdfb3308df0029f",
-      "indexed_lines": 911
+      "sha256": "0587b2a20fe2a1d9833fde78ad50f775e878d874e9f8823a371da6f4a106a0e2",
+      "indexed_lines": 912
     },
     {
       "path": "authentication/issue_report_app.py",
@@ -18925,8 +18925,8 @@
       "path": "gateway/benchmarks/repository_sandbox.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "6063b567acffed275117a6fb396dc2ce472d479a222ade3c4b7b056bec2915df",
-      "indexed_lines": 510
+      "sha256": "1a0d789defd3fb6e50af7c65058580e84175aba2fae503cc2ca87f18e5313ce0",
+      "indexed_lines": 525
     },
     {
       "path": "gateway/benchmarks/repository_tasks.py",
@@ -19863,8 +19863,8 @@
       "path": "gateway/v14/agent_process.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "4589a4e68ede5210d7f46cd4187f46044caa762f949a518cd8d14eb619358510",
-      "indexed_lines": 468
+      "sha256": "0d3ff8aaa1c84ed174380007e52645311ecc12f994362e1542f34c61c22fdfe0",
+      "indexed_lines": 479
     },
     {
       "path": "gateway/v14/agent_runs.py",

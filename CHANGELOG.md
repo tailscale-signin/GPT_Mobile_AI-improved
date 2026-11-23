@@ -1,6 +1,9 @@
 # 0.9.66.13 — 2026-11-22
 
 - Retain successful saved-page reads with matching request context across replay compaction and recovery, preserving cursor authority and explicit rereads.
+- Preserve the original benchmark request, usage, attempts and cleanup receipt when an enclosing task deadline interrupts remote verification.
+- Count native coding candidates that start and exhaust a time or output limit as known failures after successful grader calibration; keep unavailable runtimes and uncertain cleanup unqualified.
+- Prevent optional agent children from starting after a confirmed stop or being launched twice by concurrent startup requests.
 - Preserve operation-bound credential redaction across account rotation and persist cancellation dispatch atomically for truthful restart recovery.
 - Bind resumed provider waits to a versioned complete journal covering original source identity, stored replay bytes, payload type, error state, budget flags and execution metadata; preserve settled writes and reject unproven legacy semantics.
 - Make OpenRouter preview-cancellation coverage deterministic at the IO-to-caller boundary, retaining all four reusable session slots and the unchanged cancellation cleanup contract.

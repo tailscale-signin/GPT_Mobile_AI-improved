@@ -923,6 +923,118 @@ class ProcessProtocolTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 runtime.prompt('another paid turn')
 
+    def test_cancel_during_source_preparation_cannot_launch_a_child_after_confirmation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); work = root / 'checkout'; control = root / 'control'
+            work.mkdir(); control.mkdir(); (root / 'home').mkdir()
+            script = root / 'fake_agent.py'
+            script.write_text('''import json,sys
+for line in sys.stdin:
+    value=json.loads(line)
+    if 'id' not in value: continue
+    result={'thread':{'id':'thread-1'},'model':'model-x'} if value.get('method')=='thread/start' else {}
+    print(json.dumps({'jsonrpc':'2.0','id':value['id'],'result':result}),flush=True)
+''')
+            (control / 'launch.json').write_text(json.dumps({
+                'backend': 'codex', 'model_id': 'model-x',
+                'command': [sys.executable, '-u', str(script)], 'baseline': {}}))
+            runtime = AgentProcess(work, control, time.time() + 10)
+            prepared, release = threading.Event(), threading.Event()
+            errors = []
+            source_catalog = runtime.source_catalog
+            def prepare():
+                source_catalog()
+                prepared.set()
+                if not release.wait(3):
+                    raise TimeoutError('Test did not release prepared startup')
+            def start():
+                try:
+                    runtime.dispatch({'action': 'start', 'objective': 'accepted task', 'operation_id': 'start-1'})
+                except Exception as error:
+                    errors.append(error)
+            runtime.source_catalog = prepare
+            worker = threading.Thread(target=start)
+            worker.start()
+            try:
+                self.assertTrue(prepared.wait(2), 'Startup did not reach its source preparation boundary')
+                result = runtime.dispatch({'action': 'cancel', 'operation_id': 'cancel-1'})
+                self.assertEqual('CANCELLED', result['state'])
+                self.assertIsNone(runtime.process)
+                release.set(); worker.join(timeout=3)
+                self.assertFalse(worker.is_alive(), 'Cancelled startup did not finish')
+                self.assertEqual('CANCELLED', runtime.snapshot()['state'])
+                self.assertEqual(1, len(errors))
+                self.assertRegex(str(errors[0]), 'stopped runtime')
+                self.assertIsNone(runtime.process, 'Confirmed cancellation must prevent a later child launch')
+            finally:
+                release.set(); worker.join(timeout=3)
+                runtime.stop('CANCELLED')
+                if runtime.process:
+                    runtime.process.wait(timeout=2)
+                    for stream in (runtime.process.stdin, runtime.process.stdout, runtime.process.stderr):
+                        stream.close()
+
+    def test_concurrent_launches_publish_one_real_child_after_preparation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); work = root / 'checkout'; control = root / 'control'
+            work.mkdir(); control.mkdir(); (root / 'home').mkdir()
+            script = root / 'fake_agent.py'
+            script.write_text('''import json,sys
+for line in sys.stdin:
+    value=json.loads(line)
+    if 'id' not in value: continue
+    result={'thread':{'id':'thread-1'},'model':'model-x'} if value.get('method')=='thread/start' else {}
+    print(json.dumps({'jsonrpc':'2.0','id':value['id'],'result':result}),flush=True)
+''')
+            config = {'backend': 'codex', 'model_id': 'model-x',
+                      'command': [sys.executable, '-u', str(script)], 'baseline': {}}
+            runtime = AgentProcess(work, control, time.time() + 10)
+            prepared = threading.Barrier(2)
+            catalog_lock, child_lock = threading.Lock(), threading.Lock()
+            children, results, errors = [], [], []
+            source_catalog, popen = runtime.source_catalog, subprocess.Popen
+            def prepare():
+                with catalog_lock:
+                    source_catalog()
+                prepared.wait(timeout=3)
+            def create(argv, **kwargs):
+                child = popen(argv, **kwargs)
+                if argv == config['command']:
+                    with child_lock:
+                        children.append(child)
+                return child
+            def launch():
+                try:
+                    results.append(runtime.launch(config))
+                except Exception as error:
+                    errors.append(error)
+            runtime.source_catalog = prepare
+            workers = [threading.Thread(target=launch) for _ in range(2)]
+            try:
+                with patch('v14.agent_process.subprocess.Popen', side_effect=create):
+                    for worker in workers:
+                        worker.start()
+                    for worker in workers:
+                        worker.join(timeout=3)
+                self.assertEqual(1, len(children), 'Concurrent preparation must not replace an already published child')
+                self.assertTrue(all(not worker.is_alive() for worker in workers))
+                self.assertEqual([], errors)
+                self.assertEqual(2, len(results))
+                self.assertTrue(any(result['session_id'] == 'thread-1' for result in results))
+                self.assertIs(children[0], runtime.process)
+            finally:
+                prepared.abort()
+                runtime.stop('CANCELLED')
+                for child in children:
+                    if child.poll() is None:
+                        child.kill()
+                    child.wait(timeout=2)
+                for worker in workers:
+                    worker.join(timeout=2)
+                for child in children:
+                    for stream in (child.stdin, child.stdout, child.stderr):
+                        stream.close()
+
     def test_fast_sdk_aborted_response_stays_cancelled(self):
         with tempfile.TemporaryDirectory() as temporary:
             runtime = AgentProcess(temporary, temporary, time.time() + 10)

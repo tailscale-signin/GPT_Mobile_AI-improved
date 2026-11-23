@@ -11,8 +11,10 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -20,6 +22,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -327,6 +330,105 @@ class BenchmarkEngineeringExternalTest {
             assertEquals(if (changedAuthority) emptyList<String>() else listOf("?request_id=original_request"), reads)
             assertEquals(original.engineeringAttempts, reconciled.engineeringAttempts)
         }
+    }
+
+    @Test fun enclosingDeadlineRetainsOriginalGenerationAndConfirmedOrUnknownCleanupBeforeRethrowing() = runBlocking {
+        for (settled in listOf(true, false)) {
+            val routeIdentity = benchmarkHash("phone-route")
+            val selected = plan(BenchmarkEngineeringLane.LIVE_GITHUB).copy(
+                externalTransport = BenchmarkEngineeringExternalTransport.PHONE_GITHUB_ACTIONS,
+                githubConnectionUid = "original-connection",
+                repositoryFullName = "owner/disposable",
+                baseSha = "a".repeat(40),
+                externalRouteDigests = mapOf(profile.uid to benchmarkHash("$routeIdentity\u0000$hash"))
+            ).frozen()
+            val chats = mockk<ChatRepository>()
+            coEvery { chats.openBenchmarkSession(any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+                val invocation = arg<(String) -> Unit>(5)
+                val physical = arg<(String) -> Unit>(6)
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                        invocation("original-invocation")
+                        physical("original-physical")
+                        emit(ProviderEvent.TextDelta("{\"changes\":[]}"))
+                        emit(ProviderEvent.Usage(inputTokens = 13, outputTokens = 7))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+            }
+            val settings = mockk<SettingRepository>()
+            coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
+            var submitted = false
+            var cancelCalls = 0
+            val job = "bench_" + "f".repeat(32)
+            val originalRequest = "eng_${benchmarkHash("original-logical:0").take(48)}"
+            fun remoteRun() = buildJsonObject {
+                put("id", job)
+                put("state", if (cancelCalls > 0 && settled) "CANCELLED" else "RUNNING")
+            }
+            val transport = object : BenchmarkEngineeringTransport {
+                override val identityDigest = routeIdentity
+                override suspend fun request(path: String, body: JsonObject?): JsonObject = when {
+                    path.startsWith("fixtures/") -> buildJsonObject {
+                        put("taskDigest", hash)
+                        put("graderDigest", grader)
+                        put("environmentDigest", hash)
+                        put("prompt", "Repair the exact pinned fixture")
+                        put("outputSchema", buildJsonObject {})
+                    }
+                    path.startsWith("?request_id=") -> buildJsonObject {
+                        assertEquals("?request_id=$originalRequest", path)
+                        if (submitted) put("run", remoteRun()) else put("submissionState", "NOT_OBSERVED")
+                    }
+                    path == "evaluate" -> {
+                        assertEquals(JsonPrimitive(originalRequest), body?.get("request_id"))
+                        submitted = true
+                        remoteRun()
+                    }
+                    path == job -> remoteRun()
+                    path == "cancel-request" -> {
+                        assertEquals(JsonPrimitive(originalRequest), body?.get("request_id"))
+                        cancelCalls++
+                        if (!settled) error("TEST_REMOTE_STOP_UNCONFIRMED")
+                        buildJsonObject { put("run", remoteRun()) }
+                    }
+                    else -> error("Unexpected test route: $path")
+                }
+            }
+            val phone = mockk<BenchmarkPhoneGitHubExecutor>()
+            coEvery { phone.open(profile.uid, selected) } returns transport
+            val executor = BenchmarkEngineeringExternalExecutor(chats, settings, mockk(), phone)
+            var interrupted: BenchmarkSample? = null
+            var checkpoint: BenchmarkSample? = null
+            val timeout = try {
+                withTimeout(2_000) {
+                    executor.execute(profile, test, selected, "original-logical", { interrupted = it }, { checkpoint = it })
+                }
+                null
+            } catch (error: TimeoutCancellationException) {
+                error
+            }
+            assertTrue(submitted)
+            assertNotNull(timeout)
+            assertEquals(1, cancelCalls)
+            val retained = assertNotNullSample(interrupted)
+            assertEquals(BenchmarkOutcome.CANCELED, retained.outcome)
+            assertEquals(listOf("original-physical"), retained.physicalRequestIds)
+            assertEquals(listOf("original-invocation"), retained.invocationIds)
+            assertEquals(13, retained.inputTokens)
+            assertEquals(7, retained.outputTokens)
+            assertEquals("original-logical", retained.logicalRequestId)
+            assertEquals(assertNotNullSample(checkpoint).engineeringAttempts, retained.engineeringAttempts)
+            assertEquals(1, retained.engineeringAttempts.size)
+            assertEquals(if (settled) "gateway:terminal_readback_confirmed" else "gateway:shutdown_unconfirmed", retained.cleanupReceipt)
+            assertEquals(!settled, retained.engineeringCleanupPending())
+            coVerify(exactly = 1) { chats.openBenchmarkSession(any(), any(), any(), any(), any(), any(), any()) }
+        }
+    }
+
+    private fun assertNotNullSample(sample: BenchmarkSample?): BenchmarkSample {
+        assertNotNull("Cancellation must retain the original generation and pending attempt", sample)
+        return requireNotNull(sample)
     }
 
     @Test fun observedOutputBoundsAreModelFailuresWithoutInventedHiddenChecksOrRemoteExecution() = runBlocking {

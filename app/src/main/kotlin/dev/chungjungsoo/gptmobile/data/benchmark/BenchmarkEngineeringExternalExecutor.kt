@@ -17,6 +17,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -246,12 +247,13 @@ class BenchmarkEngineeringExternalExecutor @Inject constructor(
                 }
                 sample(BenchmarkOutcome.FAILED, localVerification?.reasonCode ?: grade?.text("error")?.safeCode() ?: "TASK_CHECKS_FAILED")
             }
-        } catch (timeout: TimeoutCancellationException) {
-            currentCoroutineContext().ensureActive()
-            cleanupReceipt = cancelJob(activeRoute, activeJob, activeRequestId)
-            return sample(BenchmarkOutcome.TIMED_OUT, "ENGINEERING_TASK_DEADLINE")
         } catch (cancel: CancellationException) {
             cleanupReceipt = cancelJob(activeRoute, activeJob, activeRequestId)
+            // The enclosing case deadline can expire first. Retain its latest
+            // attempt and cleanup obligation before propagating cancellation.
+            if (cancel is TimeoutCancellationException && currentCoroutineContext().isActive) {
+                return sample(BenchmarkOutcome.TIMED_OUT, "ENGINEERING_TASK_DEADLINE")
+            }
             onInterrupted(sample(BenchmarkOutcome.CANCELED, "ENGINEERING_INTERRUPTED"))
             throw cancel
         } catch (failure: Exception) {

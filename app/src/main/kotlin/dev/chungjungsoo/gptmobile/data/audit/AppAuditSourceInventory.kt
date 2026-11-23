@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "80dec0b1edb1e7e182c9242b58b21330e6566b6a6148fc05eadcf7ce82e00142"
+    val sourceDigest: String = "5be1f655a17d77ff7b51efaf191edb8f7fa18b7209c4c9e174c84d635a3e391f"
     val fileCount: Int = 2981
-    val lineCount: Int = 500636
+    val lineCount: Int = 500665
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -41,13 +41,13 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 45, 5037),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 111, 15083),
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 101, 15972),
-        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 141, 23415),
+        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 141, 23417),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 41, 5289),
         AppAuditSourceArea("voice_and_media", "Voice and media", 73, 11852),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4095),
-        AppAuditSourceArea("gateway_software", "Companion gateway software", 271, 99038),
-        AppAuditSourceArea("authentication_service", "Authentication broker software", 9, 2891),
+        AppAuditSourceArea("gateway_software", "Companion gateway software", 271, 99064),
+        AppAuditSourceArea("authentication_service", "Authentication broker software", 9, 2892),
         AppAuditSourceArea("external_integrations", "External integration servers", 63, 6513),
         AppAuditSourceArea("other_production", "Additional production source", 62, 2868)
     )

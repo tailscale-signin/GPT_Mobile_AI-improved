@@ -361,9 +361,17 @@ def execute(task, sources, settings, cancel=None, *, retain=None, release=None):
         watcher.start()
         output_path = root / 'output'; successful = False; start = time.perf_counter()
         observation = {'executed': False, 'outputs': [], 'error': 'NATIVE_OBSERVATION_UNAVAILABLE'}
+        process_bound = None
         try:
             with sandbox.docker_command(docker, *_arguments(image, name, candidate, evaluator)) as argv, output_path.open('wb') as output:
-                measured = run_bounded(argv, root, min(180, max(60, settings.get('sandbox_seconds', 60))), 524288, destination=output)
+                try:
+                    measured = run_bounded(argv, root, min(180, max(60, settings.get('sandbox_seconds', 60))), 524288, destination=output)
+                except TimeoutError:
+                    process_bound = 'NATIVE_EXECUTION_DEADLINE'
+                    raise
+                except ValueError:
+                    process_bound = 'NATIVE_OUTPUT_LIMIT'
+                    raise
             successful = measured['exit_code'] == 0
             raw = output_path.read_bytes(); marker = (START + '\n').encode()
             started = raw.startswith(marker)
@@ -382,6 +390,13 @@ def execute(task, sources, settings, cancel=None, *, retain=None, release=None):
             raw = output_path.read_bytes() if output_path.exists() else b''
             observation.update(executed=raw.startswith((START + '\n').encode()), durationMs=round((time.perf_counter() - start) * 1000),
                                error='NATIVE_OBSERVATION_UNAVAILABLE', outputDigest=hashlib.sha256(raw).hexdigest())
+            # A started process that hits a measured resource bound is an
+            # observed candidate failure once the independent controls pass.
+            # Startup/transport failures and malformed runtime receipts remain
+            # unqualified; their ValueErrors cannot masquerade as output limits.
+            if observation['executed'] and process_bound is not None:
+                observation.pop('error', None)
+                observation['candidateError'] = process_bound
         finally:
             finished.set(); remove(); watcher.join(timeout=1)
         if successful and cleanup['outcome'] != 'confirmed': cleanup['outcome'] = 'terminal'

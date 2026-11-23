@@ -63,6 +63,8 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Inspect paired family uncertainty, the practical improvement margin, first-attempt, delivered-final and best-within-budget outcomes. Repeats and related variants do not inflate independent family counts. A single model or an incomplete comparison cannot establish a winner.
 - Select the Gateway evaluator or **Direct GitHub Actions** for live disposable tasks. Direct Actions keeps generation on the selected phone profile, uses the exact saved GitHub connection, and verifies the immutable trusted workflow, tested commit, required job/steps and digest-bound result artifact. See the [fixture provisioning guide](gateway/benchmarks/PHONE_ACTIONS.md).
 - Keep durable original request identities through interruption. Lost branch or evaluation responses are read back, not resubmitted; unknown shutdown pauses the queue until reconciliation. Recovery retains candidate and usage evidence and continues only unattempted tasks.
+- Retain the submitted benchmark job, its generation usage and its cleanup receipt when a surrounding task deadline expires. A stopped or uncertain job remains tied to the original request.
+- Include native candidates that start and exceed a time or output limit in the failed-attempt totals after the grader controls pass. Runtime setup failures and uncertain cleanup remain unqualified.
 - Include setup, unsuccessful work, repairs and verification in effort reporting. Sum separately identified physical request usage and retain unknown totals for ambiguous retries or missing prices. Use **Overview**, **Compare**, **Tasks**, **Evidence** and **History** to inspect the result and export its evidence.
 
 ## Task efficiency and provider consistency
@@ -131,6 +133,7 @@ Older provider-wait checkpoints without protected replay-content and result-sema
 
 ## GitHub agent workspace and optional runtimes
 
+- Prevent an agent runtime from starting after cancellation is confirmed, and prevent simultaneous startup requests from creating duplicate child processes.
 - Redact credentials captured by an agent operation even if the configured credential rotates before its response arrives. Preserve cancellation dispatch consistently across the durable operation and run records, including restart and stale callers.
 - Open the accepted task's workspace on Android or Windows to inspect scoped workers, delegated agents, pinned source, paged candidate diffs, executed checks and private review drafts.
 - Delegate through configured Codex, Copilot cloud/SDK, Jules, Cursor, OpenHands, Cline, Claude SDK, Kiro/Devin ACP or Aider adapters. Explicit user commands and durable run receipts retain the accepted source and account; optional setup remains visible.

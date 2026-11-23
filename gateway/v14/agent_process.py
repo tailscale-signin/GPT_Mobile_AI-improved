@@ -208,10 +208,11 @@ class AgentProcess:
                 'last_sequence': self.sequence, 'error_code': self.error_code, 'capabilities': self.capabilities}
 
     def launch(self, config):
-        if self.stopped_state is not None:
-            raise ValueError('A stopped runtime cannot start another turn')
-        if self.process is not None:
-            return self.snapshot()
+        with self.lock:
+            if self.stopped_state is not None:
+                raise ValueError('A stopped runtime cannot start another turn')
+            if self.process is not None:
+                return self.snapshot()
         self.backend = config['backend']
         self.model_id = config['model_id']
         self.baseline = config['baseline']
@@ -221,8 +222,16 @@ class AgentProcess:
         environment['HOME'] = str(self.workspace.parent / 'home')
         argv = config['command']
         privileges = {'user': self.user, 'group': self.user, 'extra_groups': []} if self.user is not None else {}
-        self.process = subprocess.Popen(argv, cwd=self.workspace, env=environment, stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, **privileges)
+        # Preparation can outlive a cancellation. Publish the child under the
+        # same gate as stop: cancellation either prevents launch or owns the
+        # published process it must terminate. Protocol waits stay outside it.
+        with self.lock:
+            if self.stopped_state is not None:
+                raise ValueError('A stopped runtime cannot start another turn')
+            if self.process is not None:
+                return self.snapshot()
+            self.process = subprocess.Popen(argv, cwd=self.workspace, env=environment, stdin=subprocess.PIPE,
+                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, **privileges)
         threading.Thread(target=self.read, daemon=True).start()
         threading.Thread(target=self.stderr, daemon=True).start()
         if self.backend == 'codex':
@@ -299,11 +308,13 @@ class AgentProcess:
         return self.snapshot()
 
     def stop(self, state):
-        self.stopped_state = self.stopped_state or state
-        self.state = self.stopped_state
-        if self.process is not None and self.process.poll() is None:
+        with self.lock:
+            self.stopped_state = self.stopped_state or state
+            self.state = self.stopped_state
+            process = self.process
+        if process is not None and process.poll() is None:
             try:
-                os.killpg(self.process.pid, signal.SIGKILL)
+                os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
         if self.user is not None:

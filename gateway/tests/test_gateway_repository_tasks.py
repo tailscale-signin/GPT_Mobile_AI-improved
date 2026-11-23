@@ -4,7 +4,9 @@ Untrusted model proposals remain container-only. No Docker availability is
 invented by these host reference tests; actual execution is a separate gate.
 """
 import base64
+from contextlib import contextmanager
 import copy
+import hashlib
 import json
 import os
 import re
@@ -12,12 +14,13 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmarks import repository_tasks as tasks, repository_sandbox as native
-from benchmarks.sandbox import SandboxUnavailable
+from benchmarks.sandbox import SandboxInterrupted, SandboxUnavailable
 from v14.engineering_backend import blob_sha
 
 
@@ -40,6 +43,93 @@ def trusted_observe(task, sources):
         marker = (native.START + '\n').encode()
         if not process.stdout.startswith(marker): raise AssertionError('No execution receipt')
         return json.loads(process.stdout[len(marker):])
+
+
+class NativeResourceAccountingTests(unittest.TestCase):
+    def setUp(self):
+        self.task = tasks.task_spec('repository-room-add-default')
+        path = 'migration.sql'
+        self.proposal = json.dumps({'changes': [{'path': path,
+            'expected_blob_sha': blob_sha(self.task['sources'][path]),
+            'content': self.task['referenceSources'][path]}]})
+        self.settings = {'repository_image': 'native/runtime@sha256:' + 'a' * 64, 'sandbox_seconds': 60}
+        self.started = (native.START + '\n').encode()
+        self.reference = {'runtime': {'kind': 'sqlite'}, 'outputs': self.task['expected']}
+        self.broken = {'runtime': {'kind': 'sqlite'}, 'outputs': []}
+
+    @contextmanager
+    def process_boundary(self, responses, *, cleanup='confirmed', cancel=None):
+        """Only container/process I/O is replaced; execute and grade stay real."""
+        remaining = list(responses)
+        calls = []
+        def bounded(argv, cwd, timeout, maximum, destination=None):
+            calls.append(argv)
+            response = remaining.pop(0)
+            if isinstance(response, tuple):
+                raw, failure = response
+                destination.write(raw)
+                destination.flush()
+                if cancel is not None:
+                    cancel.set()
+                if failure is not None:
+                    raise failure
+            else:
+                raw = self.started + json.dumps(response).encode()
+                destination.write(raw)
+            return {'exit_code': 0, 'elapsed_ms': 17, 'output_sha256': hashlib.sha256(raw).hexdigest()}
+        def removal(name, **kwargs):
+            return {'kind': 'sandbox', 'container': name,
+                    'outcome': cleanup if not remaining else 'confirmed'}
+        with patch.object(native.sandbox, 'preflight', return_value='docker'), \
+                patch.object(native, 'run_bounded', side_effect=bounded), \
+                patch.object(native.sandbox, 'remove_container', side_effect=removal), \
+                patch.object(native.sandbox, 'confirm_container_absent', side_effect=removal):
+            yield calls
+
+    def test_started_native_resource_bounds_remain_known_model_failures_after_calibration(self):
+        for failure, code in ((TimeoutError, 'NATIVE_EXECUTION_DEADLINE'), (ValueError, 'NATIVE_OUTPUT_LIMIT')):
+            with self.subTest(bound=code), self.process_boundary([
+                    self.reference, self.broken, (self.started, failure('PRIVATE_PROCESS_DETAIL'))]) as calls:
+                receipt = native.grade(self.task, self.proposal, self.settings, None)
+                self.assertEqual(3, len(calls))
+                self.assertEqual('PASSED', receipt['calibration']['status'])
+                self.assertEqual(('FAILED', True, True, True, True, 'MODEL', code),
+                                 tuple(receipt[key] for key in ('status', 'executed', 'graded', 'qualified', 'outcomeKnown', 'failureDomain', 'error')))
+                self.assertFalse(receipt['resolved'])
+                self.assertIsNone(receipt['score'])
+                self.assertNotIn('PRIVATE_PROCESS_DETAIL', json.dumps(receipt))
+
+    def test_unstarted_transport_and_malformed_native_observations_stay_unqualified(self):
+        observations = [(b'', TimeoutError('startup')), (b'', ValueError('startup output')),
+                        (self.started, OSError('transport')),
+                        (self.started + b'not-json', None), (self.started + b'[]', None)]
+        for raw, failure in observations:
+            with self.subTest(raw=raw, failure=type(failure).__name__), \
+                    self.process_boundary([self.reference, self.broken, (raw, failure)]):
+                receipt = native.grade(self.task, self.proposal, self.settings, None)
+            self.assertEqual('BLOCKED', receipt['status'])
+            self.assertEqual('HARNESS', receipt['failureDomain'])
+            self.assertFalse(receipt['outcomeKnown'])
+            self.assertFalse(receipt['qualified'])
+            self.assertFalse(receipt['graded'])
+
+    def test_unknown_cleanup_and_user_cancellation_never_publish_a_resource_failure(self):
+        for cleanup, cancel in (('unknown', None), ('confirmed', threading.Event())):
+            released = []
+            with self.subTest(cleanup=cleanup), self.process_boundary([
+                    self.reference, self.broken, (self.started, TimeoutError('bounded'))], cleanup=cleanup, cancel=cancel):
+                with self.assertRaises(SandboxInterrupted) as caught:
+                    native.grade(self.task, self.proposal, self.settings, cancel, release=released.append)
+            self.assertEqual(cleanup, caught.exception.cancellation['outcome'])
+            self.assertEqual(2 if cleanup == 'unknown' else 3, len(released))
+
+    def test_reference_resource_failure_blocks_grading_before_candidate_dispatch(self):
+        with self.process_boundary([(self.started, TimeoutError('reference deadline')), self.broken]) as calls:
+            receipt = native.grade(self.task, self.proposal, self.settings, None)
+        self.assertEqual(2, len(calls))
+        self.assertEqual('NATIVE_CALIBRATION_FAILED', receipt['error'])
+        self.assertFalse(receipt['qualified'])
+        self.assertFalse(receipt['outcomeKnown'])
 
 
 class RepositoryNativeTests(unittest.TestCase):

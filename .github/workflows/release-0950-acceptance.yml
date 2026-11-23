@@ -95,6 +95,25 @@ jobs:
             -Pandroid.injected.build.abi=x86_64 --no-daemon --max-workers=1 --console=plain --stacktrace \
             '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' \
             2>&1 | tee acceptance-production.log
+      - name: Generate device regression instrumentation sources
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 840 -- :app:kspDebugAndroidTestKotlin \
+            -Pandroid.injected.build.abi=x86_64 --no-daemon --max-workers=1 --console=plain --stacktrace \
+            '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' \
+            2>&1 | tee acceptance-instrumentation-ksp.log
+      - name: Generate device regression instrumentation annotations
+        timeout-minutes: 15
+        shell: bash
+        # Stub generation executes even when the AndroidTest KAPT processor is skipped.
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 840 -- :app:kaptGenerateStubsDebugAndroidTestKotlin :app:kaptDebugAndroidTestKotlin \
+            -Pandroid.injected.build.abi=x86_64 --no-daemon --max-workers=1 --console=plain --stacktrace \
+            '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' \
+            2>&1 | tee acceptance-instrumentation-kapt.log
       - name: Compile device regression tests in a fresh process
         timeout-minutes: 25
         shell: bash

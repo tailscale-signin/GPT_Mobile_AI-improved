@@ -228,6 +228,43 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertNotIn("private_payload", capsule.fields_for("INCIDENT"))
         self.assertNotIn("no_output_kind", capsule.fields_for("TOOL"))
 
+    def test_journal_integrity_reasons_survive_approved_report_without_private_values(self):
+        for reason in (
+            "TOOL_REPLAY_PROJECTION_UNPROVEN",
+            "TOOL_RESULT_SEMANTICS_UNPROVEN",
+            "TOOL_RESULT_SEMANTICS_CHANGED",
+        ):
+            with self.subTest(reason=reason):
+                capture = self.capture("INCIDENT", {
+                    "incident_phase": "lifecycle", "causal_failure_code": "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE",
+                    "checkpoint_validation_stage": "TOOL_JOURNAL", "checkpoint_mismatch_reason": reason,
+                })
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE"
+                report["context"].update(stage="lifecycle", recoveryAction="REVIEW_SAVED_RECOVERY")
+                report["context"]["unavailableFields"] = [
+                    field for field in report["context"]["unavailableFields"] if field not in report["context"]
+                ]
+                approved = json.dumps(report, separators=(",", ":"))
+                restored = json.loads(approved)
+                _, issue = issue_from_report(restored)
+                self.assertIn(f"| checkpoint_mismatch_reason | `{reason}` |", issue["body"])
+                self.assertIn("REVIEW_SAVED_RECOVERY", issue["body"])
+                self.assertEqual(approved, json.dumps(restored, separators=(",", ":")))
+        for invalid in ("TOOL_UNKNOWN_REASON", "private checkpoint body", True, 0, None, [], {}):
+            capture = self.capture("INCIDENT", {"checkpoint_mismatch_reason": invalid})
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(copy.deepcopy(capture))
+            with self.subTest(invalid=invalid), self.assertRaises(ReportError):
+                issue_from_report(self.report(capture))
+
+    def test_checkpoint_mismatch_reasons_match_the_closed_native_contract(self):
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt").read_text()
+        match = re.search(r"val CHECKPOINT_MISMATCH_REASONS = setOf\(([^)]+)\)", source)
+        self.assertIsNotNone(match)
+        self.assertEqual(capsule.ENUMS["checkpoint_mismatch_reason"], set(re.findall(r'"([^"\n]+)"', match.group(1))))
+
     def test_numeric_stream_denials_survive_approved_report_without_changing_http_status(self):
         for code, kind, failure in (
             ("401", "AUTHENTICATION", "AUTHENTICATION_FAILED"),

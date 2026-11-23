@@ -2,6 +2,7 @@ import binascii
 import hashlib
 import json
 from pathlib import Path
+import re
 import struct
 import subprocess
 import sys
@@ -27,6 +28,80 @@ def write_png(path, color, width=1, filter_mode=0):
 
 
 class PipelineTest(unittest.TestCase):
+    def assert_android_compile_stages(self, filename, stages, job_timeout, device_abi=False):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / '.github/workflows' / filename).read_text()
+        steps = re.split(r'(?m)^      - ', workflow.split('    steps:\n', 1)[1])[1:]
+        tasks = {task for stage in stages for task in stage}
+        matched = []
+        for index, step in enumerate(steps):
+            if '        run:' not in step:
+                continue
+            command = step.split('        run:', 1)[1]
+            present = {task for task in tasks if re.search(r'(?<![\w:])(?::app:)?' + re.escape(task) + r'(?!\w)', command)}
+            if not present:
+                continue
+            matched.append((index, present, step))
+            for flag in ('--no-daemon', '--max-workers=1'):
+                self.assertIn(flag, command)
+            self.assertEqual(['4096'], re.findall(r'-Xmx(\d+)m', command))
+            self.assertEqual(['768'], re.findall(r'-XX:MaxMetaspaceSize=(\d+)m', command))
+            self.assertNotRegex(command, r'(?<!\S)-x(?:\s|=)')
+            self.assertNotIn('--continue', command)
+            self.assertNotIn('continue-on-error:', step)
+            self.assertNotIn('|| true', command)
+            if device_abi:
+                self.assertIn('-Pandroid.injected.build.abi=x86_64', command)
+        # Each task group must run in its own process, after its prerequisites;
+        # a monolithic compile pulls generation heaps into the same invocation.
+        self.assertEqual([set(stage) for stage in stages], [present for _, present, _ in matched])
+        for _, _, step in matched[:-1]:
+            timeout = re.search(r'(?m)^        timeout-minutes: (\d+)$', step)
+            self.assertIsNotNone(timeout)
+            self.assertGreater(int(timeout[1]), 0)
+            self.assertLessEqual(int(timeout[1]), 25)
+        self.assertIn(f'    timeout-minutes: {job_timeout}', workflow)
+        properties = (root / 'gradle.properties').read_text()
+        self.assertIn('kotlin.compiler.execution.strategy=in-process', properties)
+        self.assertIn('ksp.run.in.process=true', properties)
+        return workflow, steps, matched[-1][0]
+
+    def test_acceptance_build_separates_both_variants_generation_and_compilation(self):
+        workflow, steps, package_index = self.assert_android_compile_stages(
+            'release-0950-acceptance.yml',
+            [('kspDebugKotlin',), ('kaptDebugKotlin',),
+             ('compileDebugKotlin', 'compileDebugJavaWithJavac'),
+             ('kspDebugAndroidTestKotlin',),
+             ('kaptGenerateStubsDebugAndroidTestKotlin', 'kaptDebugAndroidTestKotlin'),
+             ('compileDebugAndroidTestKotlin', 'compileDebugAndroidTestJavaWithJavac'),
+             ('assembleDebug', 'assembleDebugAndroidTest')],
+            job_timeout=60, device_abi=True,
+        )
+        self.assertIn('timeout-minutes: 25', steps[package_index])
+        verification = next(i for i, step in enumerate(steps) if 'scripts/select_android_test_apk.py' in step)
+        emulator = next(i for i, step in enumerate(steps) if 'ReactiveCircus/android-emulator-runner@' in step)
+        self.assertLess(package_index, verification)
+        self.assertLess(verification, emulator)
+        self.assertIn('api: 34', workflow)
+        self.assertIn('api: 36', workflow)
+        self.assertIn('bash scripts/run_release0950_acceptance.sh', steps[emulator])
+
+    def test_distribution_apk_build_preserves_native_and_size_gates_after_staged_compilation(self):
+        _, steps, package_index = self.assert_android_compile_stages(
+            'build-apk.yml',
+            [('kspDebugKotlin',), ('kaptDebugKotlin',),
+             ('compileDebugKotlin', 'compileDebugJavaWithJavac'), ('assembleDebug',)],
+            job_timeout=90,
+        )
+        provenance = next(i for i, step in enumerate(steps) if 'python3 scripts/check_qnn_provenance.py' in step)
+        generation = next(i for i, step in enumerate(steps) if ':app:kspDebugKotlin' in step)
+        native = next(i for i, step in enumerate(steps) if 'scripts/check_local_runtime_apk.py' in step)
+        size = next(i for i, step in enumerate(steps) if 'scripts/check_apk_size.py' in step)
+        self.assertLess(provenance, generation)
+        self.assertLess(generation, package_index)
+        self.assertLess(package_index, native)
+        self.assertLess(native, size)
+
     def test_geniex_packaging_has_bounded_parallelism_and_stall_evidence(self):
         workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/geniex-preview.yml').read_text()
         debug = workflow.split('- name: Build isolated preview APK', 1)[1].split('- name: Validate release shrinker', 1)[0]

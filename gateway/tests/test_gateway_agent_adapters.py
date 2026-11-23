@@ -62,7 +62,10 @@ class ConfigurationTests(unittest.TestCase):
                 save(self.row(), initial, target)
             self.assertEqual('AGENT_CONFIG_CHANGED', changed.exception.code)
             self.assertEqual('env:AGENT_TEST_TOKEN', json.loads(target.read_text())['agents']['cursor']['credential_reference'])
-            self.assertEqual(0, target.stat().st_mode & 0o077)
+            # mkstemp supplies owner-only POSIX mode bits. Windows st_mode does
+            # not describe its inherited ACL, so it cannot verify that policy.
+            if os.name == 'posix':
+                self.assertEqual(0, target.stat().st_mode & 0o077)
 
     def test_config_refuses_secret_values_unpinned_images_endpoints_and_shell_strings(self):
         for key, value in [('credential_reference', 'real-secret-value'), ('endpoint', 'https://attacker.invalid')]:
@@ -240,6 +243,7 @@ assert.ok(Date.now() - started < 2500);
             result = subprocess.run(['node', str(root / 'harness.mjs')], cwd=root, capture_output=True, text=True, timeout=5)
             self.assertEqual(0, result.returncode, result.stderr)
 
+    @unittest.skipUnless(os.name == 'posix', 'Isolated Linux SDK tools require POSIX no-follow and FIFO primitives')
     def test_file_tools_do_not_allow_shell_links_fifo_or_ambiguous_edits(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); (root / 'file.py').write_text('value = 1\n')
@@ -885,6 +889,7 @@ class ProcessProtocolTests(unittest.TestCase):
                 self.assertTrue(state['removed'])
                 self.assertFalse(state['created'])
 
+    @unittest.skipUnless(os.name == 'posix', 'Isolated Linux supervisor checks POSIX file modes and special files')
     def test_candidate_mode_changes_and_special_files_fail_explicitly(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); path = root / 'file.py'; path.write_text('original\n')
@@ -902,6 +907,7 @@ class ProcessProtocolTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'nonregular'):
                 runtime.changes()
 
+    @unittest.skipUnless(os.name == 'posix', 'Isolated Linux supervisor uses POSIX directory and no-follow descriptors')
     def test_root_candidate_open_does_not_follow_a_raced_parent_link(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); work = root / 'checkout'; control = root / 'control'
@@ -975,6 +981,7 @@ for line in sys.stdin:
                     for stream in (runtime.process.stdin, runtime.process.stdout, runtime.process.stderr):
                         stream.close()
 
+    @unittest.skipUnless(os.name == 'posix', 'Real Linux supervisor children require POSIX process-group cleanup')
     def test_concurrent_launches_publish_one_real_child_after_preparation(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); work = root / 'checkout'; control = root / 'control'
@@ -1044,6 +1051,7 @@ for line in sys.stdin:
             runtime.results['prompt-1'] = {'result': {'stopReason': 'cancelled'}}
             self.assertEqual('CANCELLED', runtime.prompt('finish the accepted task')['state'])
 
+    @unittest.skipUnless(os.name == 'posix', 'Isolated Linux supervisor uses POSIX source modes and directory descriptors')
     def test_root_owned_source_index_ignores_build_output_but_keeps_tracked_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); work = root / 'checkout'; control = root / 'control'
@@ -1077,6 +1085,7 @@ for line in sys.stdin:
         with self.assertRaises(AgentError):
             transport.dispose(dict(run, principal='other', **intended))
 
+    @unittest.skipUnless(os.name == 'posix', 'Real Linux supervisor children require POSIX process and file primitives')
     def test_real_json_rpc_child_is_retained_and_edits_only_its_candidate(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); work = root / 'checkout'; control = root / 'control'
@@ -1124,6 +1133,7 @@ for line in sys.stdin:
                     for stream in (runtime.process.stdin, runtime.process.stdout, runtime.process.stderr):
                         stream.close()
 
+    @unittest.skipUnless(os.name == 'posix', 'Isolated Linux supervisor uses POSIX directory and no-follow descriptors')
     def test_candidate_snapshot_accepts_unchanged_large_binary_but_rejects_changed_link(self):
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
@@ -1138,6 +1148,7 @@ for line in sys.stdin:
                 runtime.changes()
 
 
+@unittest.skipUnless(os.name == 'posix', 'Real Linux supervisor lifecycle requires POSIX process-group cleanup')
 class AgentProcessLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

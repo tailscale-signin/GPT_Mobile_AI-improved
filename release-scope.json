@@ -131,6 +131,7 @@
     "Require complete typed native benchmark receipts, exact vector coverage and closed driver error reasons in both local grading and exported GitHub verification; keep runtime or malformed observations unqualified while preserving calibrated candidate resource failures.",
     "Retain pending engineering benchmark ownership during backup restoration, preserving original run, batch, queue, attempt and event receipts atomically even when an imported backup omits or conflicts with them.",
     "Separate native-smoke and APK-download KSP, KAPT and production compilation into bounded fresh processes before the existing minifier, lint, packaging, real JNI and selected download-contract gates, retaining the existing memory and job ceilings.",
+    "Keep benchmark and agent contract fixtures reproducible across Linux and Windows while preserving exact source/workflow bytes, isolated Linux execution and portable Windows validation.",
     "Preflight wider backup imports before mutations, retain the complete canonical benchmark section when a late pending-ownership conflict follows a committed restore, and finish safe startup recovery without replaying remote work.",
     "Protect cold benchmark initialization with the canonical Room transaction and expose only generic cause-free errors for unreadable ownership.",
     "Retain existing permanent conversation privacy locks across direct user-backup imports that clear current data, preserving the incoming masking history and ordinary conversation behavior."
@@ -1009,6 +1010,7 @@
     "gateway/tests/test_gateway_phone_benchmark.py",
     "gateway/tests/test_gateway_repository_tasks.py",
     "gateway/tests/test_gateway_repository_validation_setup.py",
+    "gateway/tests/test_gateway_repository_validation_ui.py",
     "gateway/tests/test_gateway_workspace_board.py",
     "gateway/tests/test_gateway_workspace_client.py",
     "gateway/tests/test_gateway_workspace_commands.py",

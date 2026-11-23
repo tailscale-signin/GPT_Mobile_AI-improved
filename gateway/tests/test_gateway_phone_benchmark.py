@@ -26,6 +26,9 @@ def command(root, *args):
 def configure(root):
     command(root, 'config', 'user.email', 'benchmark-fixture@example.invalid')
     command(root, 'config', 'user.name', 'Benchmark contract test')
+    # Fixtures, Git archives and the verifier must observe the same pinned bytes.
+    command(root, 'config', 'core.autocrlf', 'false')
+    command(root, 'config', 'core.eol', 'lf')
 
 
 def sandbox_observation(sources, inputs, *_args, **_kwargs):
@@ -63,7 +66,9 @@ class PhoneBenchmarkTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.submitted = Path(self.directory.name) / 'submitted'
-        subprocess.run(['git', 'clone', '--local', '--no-hardlinks', str(self.base), str(self.submitted)], check=True,
+        # Configure before checkout; a later change cannot undo CRLF bundle rewrites.
+        subprocess.run(['git', 'clone', '--config', 'core.autocrlf=false', '--config', 'core.eol=lf',
+                       '--local', '--no-hardlinks', str(self.base), str(self.submitted)], check=True,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         configure(self.submitted)
         self.ident = 'phone_' + 'c' * 32
@@ -84,10 +89,10 @@ class PhoneBenchmarkTests(unittest.TestCase):
         path = self.submitted / submission_path(self.ident)
         path.parent.mkdir(parents=True)
         path.write_bytes(json_bytes(value))
-        template = self.files[selected['workflowTemplatePath']].decode()
+        template = self.files[selected['workflowTemplatePath']].decode('utf-8')
         workflow = self.submitted / workflow_path(self.ident)
         workflow.parent.mkdir(parents=True)
-        workflow.write_text(render_workflow(template, self.ident, self.base_sha, self.branch))
+        workflow.write_bytes(render_workflow(template, self.ident, self.base_sha, self.branch).encode('utf-8'))
         return value
 
     def run_case(self, *, grader=None):
@@ -103,6 +108,7 @@ class PhoneBenchmarkTests(unittest.TestCase):
     def test_catalog_raw_and_manifest_digests_cover_both_real_packs(self):
         catalog = verify_bundle(self.base)
         self.assertEqual(self.catalog, catalog)
+        self.assertEqual(catalog, verify_bundle(self.submitted))
         self.assertEqual(digest(catalog['bundleManifest']), catalog['bundleDigest'])
         for pack, sizes in [('python', [12, 36, 100]), ('repository', [4, 8, 12])]:
             selected = catalog['packs'][pack]
@@ -177,7 +183,7 @@ class PhoneBenchmarkTests(unittest.TestCase):
 
     def test_extra_file_and_modified_trusted_workflow_are_infrastructure_not_model_failures(self):
         self.candidate()
-        (self.submitted / 'unrelated-source.py').write_text('print("not allowed")')
+        (self.submitted / 'unrelated-source.py').write_bytes(b'print("not allowed")')
         result = self.run_case(grader=lambda *_: self.fail('Scope violation cannot grade'))
         self.assertEqual('PHONE_PROPOSAL_SCOPE_CHANGED', result['errorCode'])
         self.assertFalse(result['outcomeKnown'])
@@ -186,7 +192,7 @@ class PhoneBenchmarkTests(unittest.TestCase):
     def test_workflow_bytes_are_checked_against_exact_pinned_template(self):
         self.candidate()
         path = self.submitted / workflow_path(self.ident)
-        path.write_text(path.read_text().replace('contents: read', 'contents: write'))
+        path.write_bytes(path.read_bytes().replace(b'contents: read', b'contents: write'))
         result = self.run_case(grader=lambda *_: self.fail('Changed workflow cannot grade'))
         self.assertEqual('PHONE_WORKFLOW_CONTENT_CHANGED', result['errorCode'])
         self.assertFalse(result['qualified'])
@@ -214,7 +220,7 @@ class PhoneBenchmarkTests(unittest.TestCase):
             build_bundle(source_commit='a' * 40, python_image='python:latest')
         with self.assertRaises(ValueError):
             write_bundle(self.base / '.benchmark-phone', self.files)
-        template = self.files[self.catalog['packs']['python']['workflowTemplatePath']].decode()
+        template = self.files[self.catalog['packs']['python']['workflowTemplatePath']].decode('utf-8')
         with self.assertRaises(ValueError):
             render_workflow(template, self.ident, self.base_sha, 'main')
 

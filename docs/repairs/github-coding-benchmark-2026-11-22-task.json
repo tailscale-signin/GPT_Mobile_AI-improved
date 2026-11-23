@@ -9,7 +9,7 @@
   "working_branch": "work/github-coding-benchmark-2026-11-22",
   "intent": "Implement the complete GitHub and coding model benchmark audit design, preserve concurrent changes, qualify the current PR and main commits, and publish the signed application and scoped Gateway release.",
   "authorization": "User explicitly requested every feature, a draft PR, merge after green checks, and publication after green main checks.",
-  "status": "READY_FOR_EXACT_HEAD_HOSTED_VERIFICATION",
+  "status": "INTEGRATING_FINAL_CI_CORRECTIONS",
   "requirements": [
     {
       "id": "B01",
@@ -295,7 +295,7 @@
     "gateway": "18.1.1",
     "status": "PENDING_EXACT_HEAD_AND_MAIN_GATES"
   },
-  "last_reconciled_remote_head": "087e312de01e2df0d08be71728957d0835bc47fa",
+  "last_reconciled_remote_head": "2f1afbf3180508b8326a9cc0b1b6c2dd640b34fc",
   "qualification_limits": [
     "No claim of physical-phone, real selected-provider or live disposable GitHub execution from host fixtures.",
     "Python language support is the bounded interpreter; native fixtures do not claim Compose instrumentation or Room annotation-processing coverage.",
@@ -304,7 +304,7 @@
     "Unified Reliability v2 remains incomplete; existing scoped release gates and disclosures remain mandatory."
   ],
   "backup_ownership_followup": {
-    "status": "IMPLEMENTED_AND_COMPONENT_VERIFIED",
+    "status": "DIRECT_COMPONENT_PUBLISHED_WIDER_POLICY_PUBLISHED_REVIEWING",
     "source_parent": "087e312de01e2df0d08be71728957d0835bc47fa",
     "paths": [
       "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
@@ -362,6 +362,104 @@
         "source": "7ede6c33/087e312d",
         "result": "48 Gateway cleanup/live/API cases and eight legacy actual-SQLite combinations pass. Original payload/completion bytes stay unchanged; repeated recovery and lost cancellation do not replay mutation; confirmed settlement remains append-only."
       }
-    ]
+    ],
+    "wider_policy_owner": "phone-map/integration workstream; no further benchmark-team production edits reserved",
+    "wider_policy_requirements": [
+      "Early canonical refusal before wider restore side effects.",
+      "After a proven committed complete restore, retain the entire current benchmark section transactionally with a typed partial outcome and finish recovery so cleanup remains accessible.",
+      "Protect cold initialization and permanent conversation privacy locks; preserve direct raw-byte and settled controls."
+    ],
+    "wider_policy_commit": "2f1afbf3180508b8326a9cc0b1b6c2dd640b34fc"
+  },
+  "windows_fixture_followup": {
+    "status": "IMPLEMENTED_COMPONENT_VERIFIED_HOSTED_PENDING",
+    "failure_source": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+    "workflow_run": 45092551952,
+    "paths": [
+      "gateway/tests/test_gateway_agent_adapters.py",
+      "gateway/tests/test_gateway_phone_benchmark.py",
+      "gateway/tests/test_gateway_repository_validation_ui.py",
+      "gateway/tests/test_gateway_workspace_intelligence.py"
+    ],
+    "behavior": [
+      "Qualify only isolated Linux supervisor/SDK POSIX tests by platform; keep portable Windows HTTP/configuration/ownership controls active.",
+      "Verify POSIX permission bits only on POSIX, without asserting Windows ACL verification.",
+      "Pin temporary fixture Git newline policy before clone checkout and write exact UTF-8 workflow bytes; production archive and workflow integrity checks remain unchanged.",
+      "Assert the actual empty workspace integration default and compare selected repository paths in portable slash form without relaxing offline/image/file-selection boundaries."
+    ],
+    "evidence": [
+      {
+        "check": "Agent adapter Linux tests",
+        "passed": 66,
+        "skipped": 0
+      },
+      {
+        "check": "Linux-host Windows OS boundary proxy",
+        "passed": 49,
+        "skipped": 17,
+        "scope": "Only POSIX-only container cases excluded; not actual Windows execution."
+      },
+      {
+        "check": "Phone fixture native Linux and Windows-boundary matrices",
+        "passed_per_matrix": 11,
+        "skipped": 0,
+        "scope": "Real temporary Git repositories; Windows Git autocrlf/eol and text newline translation simulated on Linux."
+      },
+      {
+        "check": "Phone fixture prior-source negative control",
+        "failures": 7,
+        "errors": 1,
+        "scope": "Same actual Git and translated-newline boundary reproduces the hosted Windows mismatch."
+      },
+      {
+        "check": "Workspace intelligence",
+        "passed": 34,
+        "skipped": 0
+      },
+      {
+        "check": "Repository validation UI on Linux without display",
+        "passed": 3,
+        "skipped": 19,
+        "scope": "Actual native Tk execution remains mandatory in hosted Windows."
+      }
+    ],
+    "hosted_qualification": "PENDING_EXACT_FINAL_HEAD",
+    "integration_validation": {
+      "canonical_fast": {
+        "passed": 627,
+        "duration_seconds": 23.361,
+        "literal_regex_patterns": 2024,
+        "dynamic_regex_patterns_excluded": 99,
+        "regex_errors": 0,
+        "resources_xml": 36
+      },
+      "combined_fixture_suites": {
+        "reported": 133,
+        "passed": 114,
+        "skipped": 19,
+        "duration_seconds": 12.298,
+        "skip_reason": "Native Tk display unavailable on this Linux host; required Windows execution remains pending."
+      },
+      "package_files_verified": 505,
+      "release_scope": "EXACT_COMMIT_CHECK_REQUIRED_BEFORE_PUSH"
+    }
+  },
+  "native_receipt_independent_review": {
+    "source_commit": "f261446103518ad9dc97ac239bae5f47a7c4cbb6",
+    "package_commit": "bcf1c4523f4b615390f3cecdf8ab436ea4023e7d",
+    "result": "ENVELOPE_CLOSURE_CLEAR_TYPED_OUTPUT_CONSISTENCY_OPEN",
+    "owner_suite": {
+      "passed": 37,
+      "skipped": 1,
+      "scope": "Actual SQLite and YAML/shell executed; optional Kotlin/JVM compiler unavailable in this independent invocation. Owner separately qualified configured native controls."
+    },
+    "negative_controls": "Three malformed receipt defects (missing runtime, missing nested SQLite observations, arbitrary candidate error) are unqualified in both actual local and generated exported verifier paths; all incorrectly qualified on b715. Actual correct/broken task outputs preserve qualified pass/model failure.",
+    "limits": "No independent Docker/native Windows or live-provider claim; separate Windows host CRLF framing is retained as an acceptance-owned follow-up.",
+    "typed_output_followup": {
+      "owner": "acceptance workstream",
+      "status": "REPRODUCED_REPAIR_PENDING",
+      "defect": "Local coding.same rejects integer/float substitution while exported verifier Python equality accepts it. Actual shipped SQLite repository-room-add-default controls with candidate cell 1 changed to 1.0 produce qualified MODEL failure locally versus qualified PASS remotely.",
+      "required_behavior": "Use the same declared typed JSON comparison for local and exported grading; preserve valid-output controls, malformed envelope refusal and calibrated model-failure accounting."
+    }
   }
 }

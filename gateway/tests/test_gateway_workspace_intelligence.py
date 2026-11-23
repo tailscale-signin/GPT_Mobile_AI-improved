@@ -448,7 +448,7 @@ class WorkspaceIntelligenceTests(unittest.TestCase):
             self.assertIn('--read-only', argv)
             self.assertIn(image, argv)
             self.assertIn('--compress', argv)
-            self.assertEqual(['src/a.py'], [str(path.relative_to(cwd / 'selected')) for path in (cwd / 'selected').rglob('*') if path.is_file()])
+            self.assertEqual(['src/a.py'], [path.relative_to(cwd / 'selected').as_posix() for path in (cwd / 'selected').rglob('*') if path.is_file()])
             self.assertEqual({}, json.loads((cwd / 'gateway-repomix.json').read_text()))
             destination.write(b'<repomix>selected source</repomix>')
             return {'exit_code': 0}

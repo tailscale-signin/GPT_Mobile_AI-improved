@@ -35,3 +35,11 @@ condition = "AND"
 paths = ['''^local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle\.py$''', '''^docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-qnn\.json$''']
 regexTarget = "line"
 regexes = ['''^\s*"tokens\.txt": "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425",\s*$''']
+
+# Exact public SharedPreferences name for the integer CPU-calibration order.
+# Other declarations, values, paths and trailing content continue to scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol\.kt$''']
+regexTarget = "line"
+regexes = ['''^\s*const val ORDER_KEY = "cpu-calibration-order-v3"\s*$''']

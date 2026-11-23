@@ -8,6 +8,30 @@ from scripts.check_issue_reporting_configuration import MAX_READINESS_BYTES, REQ
 
 
 class IssueReportingConfigurationTest(unittest.TestCase):
+    def test_tls_phase_and_read_revision_probe_require_the_existing_implemented_capabilities(self):
+        for feature in ("TLS_TRANSPORT_PHASE_EVIDENCE_V1", "GITHUB_READ_REVISION_EVIDENCE_V1"):
+            with self.subTest(feature=feature):
+                self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)
+                readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                             "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                             "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {feature})}
+                with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+                    check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+                readiness["reportDiagnosticFeatures"].append(feature)
+                check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+
+    def test_streaming_voice_reporter_probe_rejects_a_legacy_v1_receiver(self):
+        feature = "VOICE_STREAMING_BACKEND_EVIDENCE_V1"
+        self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {feature})}
+        self.assertIn("VOICE_EXECUTION_EVIDENCE_V1", readiness["reportDiagnosticFeatures"])
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+        readiness["reportDiagnosticFeatures"].append(feature)
+        check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+
     def test_framework_frames_require_the_extended_reporter_contract(self):
         feature = "FRAMEWORK_EXCEPTION_FRAMES_V1"
         self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)

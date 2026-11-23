@@ -583,6 +583,7 @@ class IssueReportHttpTest(unittest.TestCase):
                      "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "GITHUB_SEARCH_ARGUMENT_EVIDENCE_V1", "REPORT_TEXT_ATTACHMENT_V1", "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1", "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1", "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1", "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1", "PRIVACY_ELIGIBILITY_EVIDENCE_V1", "GATEWAY_CAPABILITY_EVIDENCE_V1", "STATUS_COVERAGE_EVIDENCE_V1", "AUDIO_FOCUS_MODE_V1", "GITHUB_VALIDATION_CONTEXT_V1", "RUNTIME_INCIDENT_DETAILS_V1", "SELECTED_MODEL_ADMISSION_V1", "REVIEW_CATALOG_OBSERVATION_V1", "ACTION_ONLY_TOOL_PRECHECK_V1", "TOOL_REPEAT_PRIOR_CAUSE_V1", "PROFILE_BEHAVIOR_CHANGE_V1", "APP_SEARCH_READINESS_V1", "VOICE_SILENCED_INPUT_V1", "TASK_AND_TOOL_FAILURE_DETAILS_V1", "READER_AND_RUN_FAILURE_DETAILS_V1", "REPLAY_BUDGET_EVIDENCE_V1", "GRAPH_TRANSPORT_EVIDENCE_V1", "EXECUTION_COMPLETION_EVIDENCE_V1"]
         additions.insert(additions.index("ACCEPTANCE_OBSERVATION_CAUSES_V1") + 1, "ACCEPTANCE_EMPTY_EXPLANATION_V1")
         additions.insert(1, "VOICE_EXECUTION_EVIDENCE_V1")
+        additions.insert(2, "VOICE_STREAMING_BACKEND_EVIDENCE_V1")
         additions[additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1:additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1] = ["TLS_TRANSPORT_PHASE_EVIDENCE_V1", "GITHUB_READ_REVISION_EVIDENCE_V1"]
         additions.extend(["VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1", "REPOSITORY_READ_PROGRESS_V1"])
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
@@ -604,6 +605,31 @@ class IssueReportHttpTest(unittest.TestCase):
         check_readiness(self.origin, fetch)
         self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
         self.assertFalse(self.issued)
+
+    def test_streaming_voice_report_values_are_advertised_then_preserved_by_the_http_receiver(self):
+        from authentication import incident_report_contract as capsule
+        feature = "VOICE_STREAMING_BACKEND_EVIDENCE_V1"
+        self.assertNotIn(feature, self.client.get("/health/ready").json()["reportDiagnosticFeatures"])
+        self.assertIn(feature, self.client.get("/health/ready?capabilities=extended").json()["reportDiagnosticFeatures"])
+        additions = {
+            "voice_engine": ("MEDIAPIPE",),
+            "voice_selected_backend": ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"),
+            "voice_fallback_source": ("LITERT_KOKORO", "PHONON", "POCKET"),
+        }
+        for field, choices in additions.items():
+            for value in choices:
+                with self.subTest(field=field, value=value):
+                    self.now += 601
+                    capture = self.diagnostics("VOICE", {field: value})
+                    capture["schemaVersion"] = 3
+                    capture["unavailableFields"] = sorted((CORE_FIELDS["VOICE"] | capsule.CORE) - capture["values"].keys())
+                    report = {**self.manual(), "context": self.context(schemaVersion=7, source="VOICE_STATE", diagnostics=capture)}
+                    approved = json.dumps(report, separators=(",", ":"))
+                    response = self.submit(report)
+                    self.assertEqual(200, response.status_code, response.text)
+                    self.assertIn(f"| {field} | `{value}` |", self.issued[-1]["body"])
+                    self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        self.assertEqual(8, len(self.issued))
 
     def test_advertised_visible_output_recovery_contract_accepts_exact_approved_http_reports(self):
         from authentication.test_incident_report_contract import IncidentReportContractTest

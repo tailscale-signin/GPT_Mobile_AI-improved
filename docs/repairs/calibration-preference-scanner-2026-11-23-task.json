@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "task": "calibration-preference-scanner-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "8ba187495f467aa17d992fa6a6d753eb89e7db12",
+  "baseTree": "81cd935398c5b3c4ed533a3a00e8ed1b1e868b33",
+  "parentPullRequest": 2367,
+  "workingBranch": "fix/calibration-preference-scanner-2026-11-23",
+  "owner": "root/latest_branch_review",
+  "integrationOwner": "root",
+  "status": "COMPONENT_VALIDATED_PENDING_INTEGRATION",
+  "intent": "Classify only the exact public CPU-calibration preference declaration without weakening other credential rules or reachable-history coverage.",
+  "failureEvidence": {
+    "scannerVersion": "8.30.1",
+    "rule": "generic-api-key",
+    "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol.kt",
+    "line": 9,
+    "field": "ORDER_KEY",
+    "introducingCommits": [
+      "c2d24b795656ccc3ee430b12107abf5f2104a727",
+      "537794706b93611e501bdc763f84f24ad44679ba"
+    ],
+    "classification": "PUBLIC_INTEGER_PREFERENCE_NAME_FALSE_POSITIVE",
+    "sourceSemantics": "The constant is used only as the SharedPreferences name in KokoroVoiceOutput getInt and putInt calls. Matched values are not reproduced in this ledger."
+  },
+  "ownedPaths": [
+    ".gitleaks.toml",
+    "scripts/test_gitleaks_model_pin.py",
+    "docs/repairs/calibration-preference-scanner-2026-11-23-task.json",
+    "release-scope.json"
+  ],
+  "constraints": [
+    "Restrict classification to generic-api-key, the exact source path and the complete known-public declaration line.",
+    "Changed values, paths, field names and trailing content remain subject to scanning; retain every existing model-pin fixture.",
+    "Preserve default rules, complete all-ref history options, redaction, scanner pin and archive checksum. No history rewrite or remote mutation."
+  ],
+  "plannedValidation": [
+    "Use the actual pinned Gitleaks scanner on isolated Git fixture commits, retaining all existing model-pin controls and adding preference-declaration boundary controls.",
+    "Compare baseline and corrected configuration over both complete introducing-commit diffs with first-parent merge semantics.",
+    "Run canonical local fast validation and exact scope checks; retain hosted complete-history and aggregate verification as mandatory integration gates."
+  ],
+  "limitations": [
+    "The local whole-history attempt reported missing historical objects. Successful bounded commit scans do not establish a complete graph scan; hosted full-history verification remains required.",
+    "No matched credential value is included in reports, and no physical or live-provider qualification is inferred."
+  ],
+  "validation": {
+    "scanner": {
+      "version": "8.30.1",
+      "archiveSha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "binarySha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+      "binaryMatchesPinnedArchive": true
+    },
+    "correctedConfigSha256": "4bfe5f962383830c88b76d9dc223e4eb8302c0bb8a62886136a440c4ece2409b",
+    "actualPinnedScannerFixtures": {
+      "passed": true,
+      "count": 14,
+      "existingModelPinCases": 6,
+      "calibrationBoundaryCases": 8,
+      "matchedValuesRedacted": true,
+      "rulePathLineAndCommitIdentitiesChecked": true
+    },
+    "baselineFixtureControl": "The unchanged baseline still flags the exact public declaration and both adjacency copies; other cases retain their expected classifications.",
+    "introducingHistory": {
+      "scope": "Two complete selected introducing-commit diffs under first-parent merge semantics; not a complete reachable-history scan",
+      "results": [
+        {
+          "configuration": "baseline",
+          "commit": "c2d24b795656ccc3ee430b12107abf5f2104a727",
+          "completeSelectedCommit": true,
+          "exitCode": 1,
+          "findings": 1,
+          "passed": true
+        },
+        {
+          "configuration": "baseline",
+          "commit": "537794706b93611e501bdc763f84f24ad44679ba",
+          "completeSelectedCommit": true,
+          "exitCode": 1,
+          "findings": 1,
+          "passed": true
+        },
+        {
+          "configuration": "corrected",
+          "commit": "c2d24b795656ccc3ee430b12107abf5f2104a727",
+          "completeSelectedCommit": true,
+          "exitCode": 0,
+          "findings": 0,
+          "passed": true
+        },
+        {
+          "configuration": "corrected",
+          "commit": "537794706b93611e501bdc763f84f24ad44679ba",
+          "completeSelectedCommit": true,
+          "exitCode": 0,
+          "findings": 0,
+          "passed": true
+        }
+      ]
+    },
+    "canonicalFast": {
+      "command": "bash scripts/validate-local.sh fast",
+      "exitCode": 0,
+      "hostTests": 690,
+      "qualification": "Host validation only; full-history scanning and hosted aggregate gates remain required."
+    },
+    "localCompleteHistory": {
+      "status": "NOT_COMPLETED",
+      "evidence": "Prior exact-base local full-history attempts stopped at missing historical objects after 24 commits. The complete selected-commit scans above do not cover that missing graph."
+    },
+    "hostedCompleteHistory": "REQUIRED_AT_INTEGRATED_HEAD",
+    "unchangedHistoryControls": [
+      {
+        "path": "scripts/scan_secret_history.sh",
+        "sha256": "89da17c274b71560cd900c61021f4f422e6e805923c88c52e3ad36d11145bfbe"
+      },
+      {
+        "path": ".gitleaksignore",
+        "sha256": "0c416dea2ec20fd56d7bc192c6f06eedb60a95f9e7236ba199fe094784484fd4"
+      }
+    ]
+  }
+}

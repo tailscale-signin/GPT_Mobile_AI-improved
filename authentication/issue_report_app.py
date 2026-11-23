@@ -52,6 +52,7 @@ def create_app(public_url, reporter, rate_key):
                 "FRAMEWORK_EXCEPTION_FRAMES_V1",
                 "CONVERSATION_RECOVERY_DIAGNOSTICS_V1",
                 "VOICE_EXECUTION_EVIDENCE_V1",
+                "VOICE_STREAMING_BACKEND_EVIDENCE_V1",
                 "REQUEST_BYTE_BUDGET_V1",
                 "CLAIM_EXTRACTION_SCHEMA_HASH_V1",
                 "TLS_TRANSPORT_PHASE_EVIDENCE_V1",

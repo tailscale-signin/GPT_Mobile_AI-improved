@@ -15,6 +15,39 @@ import org.junit.Test
 
 class IssueReportDiagnosticsTest {
 
+    @Test fun streamingVoiceCapabilityDependsOnEmittedValuesAcrossSnapshotAndContextRestoration() {
+        val feature = VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
+        val additions = mapOf(
+            "voice_engine" to setOf("MEDIAPIPE"),
+            "voice_selected_backend" to setOf("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"),
+            "voice_fallback_source" to setOf("LITERT_KOKORO", "PHONON", "POCKET")
+        )
+        for ((field, choices) in additions) {
+            for (value in choices) {
+                val snapshot = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", field to value), 1_000L))
+                assertEquals(JsonPrimitive(value), snapshot.values[field])
+                assertTrue(feature in snapshot.requiredServiceFeatures())
+                val restored = requireNotNull(IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), snapshot)))
+                assertEquals(snapshot, restored)
+                val context = IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = 1_000L).withDiagnostics(restored)
+                assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.encodeToJsonElement(IssueReportContext.serializer(), context)))
+                assertTrue(feature in requireNotNull(context.diagnostics).requiredServiceFeatures())
+                val absent = requireNotNull(snapshot.copy(values = emptyMap(), unavailableFields = snapshot.unavailableFields + listOfNotNull(field.takeIf { it == "voice_engine" })).validated())
+                val omitted = requireNotNull(absent.copy(omittedFields = listOf(field)).validated())
+                assertFalse(feature in omitted.requiredServiceFeatures())
+                assertFalse(feature in absent.requiredServiceFeatures())
+            }
+        }
+        for ((field, values) in mapOf("voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO")) + VoiceExecutionDiagnostics.enums) {
+            for (value in values - additions[field].orEmpty()) {
+                val snapshot = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", field to value), 1_000L))
+                assertFalse("$field=$value is an existing value", feature in snapshot.requiredServiceFeatures())
+            }
+        }
+        val noCapture = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "diagnostic_capture_mode" to "NO_CAPTURE", "voice_engine" to "MEDIAPIPE"), 1_000L))
+        assertFalse(feature in noCapture.requiredServiceFeatures())
+    }
+
     @Test fun singlePassRepairStopIsPreservedAndNegotiatedOnlyWhenObserved() {
         fun capture(stop: String) = requireNotNull(
             IssueReportDiagnostics.fromFields(

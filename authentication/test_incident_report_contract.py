@@ -12,6 +12,31 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_streaming_voice_values_roundtrip_only_in_voice_without_claiming_an_observed_delegate(self):
+        additions = {
+            "voice_engine": {"MEDIAPIPE"},
+            "voice_selected_backend": {"LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"},
+            "voice_fallback_source": {"LITERT_KOKORO", "PHONON", "POCKET"},
+        }
+        for field, choices in additions.items():
+            for value in choices:
+                with self.subTest(field=field, value=value):
+                    capture = self.capture("VOICE", {field: value})
+                    self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                    approved = self.report(capture)
+                    before = json.dumps(approved, separators=(",", ":"))
+                    _, issue = issue_from_report(approved)
+                    self.assertIn(f"| {field} | `{value}` |", issue["body"])
+                    self.assertEqual(before, json.dumps(approved, separators=(",", ":")))
+                    with self.assertRaises(ValueError):
+                        validate_diagnostics(self.capture("PROVIDER", {field: value}))
+                    for observed in ("voice_effective_provider", "voice_fallback_target"):
+                        with self.assertRaises(ValueError):
+                            validate_diagnostics(self.capture("VOICE", {observed: value}))
+            for invalid in (True, 1, None, [], {}, "private speech or SDK details"):
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("VOICE", {field: invalid}))
+
     def test_tls_phase_reaches_public_report_with_only_closed_protocol_and_boundary_values(self):
         values = {"tls_failure_kind": "PROTOCOL", "tls_last_observed_phase": "REQUEST_BODY_COMPLETE",
                   "tls_request_body_completed": True, "tls_connection_reused": True,

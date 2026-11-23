@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the model-checksum exception with the actual pinned history scanner.
+"""Exercise exact public declarations with the actual pinned history scanner.
 
 Invoked after scanner selection by scan_secret_history.sh. Temporary Git fixtures
 contain generated test values; only classifications and counts leave this check.
@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION = "8.30.1"
 NATIVE_PATH = "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py"
 EVIDENCE_PATH = "docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-qnn.json"
+CALIBRATION_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol.kt"
 HISTORY_OPTIONS = "--all --full-history --diff-merges=first-parent --root"
 
 
@@ -32,6 +33,14 @@ def model_digest():
     if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
         raise ValueError("model_pin_contract")
     return value
+
+
+def calibration_order_line():
+    lines = (ROOT / CALIBRATION_PATH).read_text(encoding="utf-8").splitlines()
+    declarations = [line for line in lines if re.match(r"\s*const val ORDER_KEY\s*=", line)]
+    if len(declarations) != 1 or not re.fullmatch(r'[ \t]*const val ORDER_KEY = "[a-z0-9-]+"[ \t]*', declarations[0]):
+        raise ValueError("calibration_preference_contract")
+    return declarations[0]
 
 
 def isolated_environment():
@@ -51,7 +60,7 @@ def quiet(command, directory, environment, timeout=10):
     return result.stdout.strip()
 
 
-def scan_case(scanner, config, parent, environment, name, path, line, expected):
+def scan_case(scanner, config, parent, environment, name, path, line, expected, expected_line=2):
     directory = parent / name
     directory.mkdir()
     quiet(["git", "init", "--quiet", "--template="], directory, environment)
@@ -73,7 +82,7 @@ def scan_case(scanner, config, parent, environment, name, path, line, expected):
     redacted = all(item.get("Secret") == "REDACTED" and "REDACTED" in item.get("Match", "")
                    for item in findings)
     identity = all(item.get("RuleID") == "generic-api-key" and item.get("File") == path
-                   and item.get("StartLine") == 2 and item.get("Commit") == commit for item in findings)
+                   and item.get("StartLine") == expected_line and item.get("Commit") == commit for item in findings)
     passed = observed == expected and result.returncode == (1 if expected else 0) and redacted and identity
     return {"case": name, "expectedFindings": expected, "observedFindings": observed,
             "exitCode": result.returncode, "redacted": redacted,
@@ -96,6 +105,8 @@ def main():
         known_digest = model_digest()
         alternate_digest = hashlib.sha256(b"unapproved model-file regression fixture").hexdigest()
         exact_line = '  "tokens.txt": "' + known_digest + '",'
+        calibration_line = calibration_order_line()
+        alternate_calibration = re.sub(r'"[^"]+"', '"' + alternate_digest + '"', calibration_line, count=1)
         cases = [
             ("exact_evidence", EVIDENCE_PATH, exact_line, 0),
             ("existing_native_harness", NATIVE_PATH, exact_line, 0),
@@ -103,6 +114,14 @@ def main():
             ("different_path", EVIDENCE_PATH.replace("native-qnn.json", "other-native-qnn.json"), exact_line, 1),
             ("different_field", EVIDENCE_PATH, '  "tokens_other.txt": "' + known_digest + '",', 1),
             ("trailing_content", EVIDENCE_PATH, exact_line + ' "extra": true,', 1),
+            ("calibration_exact_declaration", CALIBRATION_PATH, calibration_line, 0),
+            ("calibration_different_value", CALIBRATION_PATH, alternate_calibration, 1),
+            ("calibration_different_path", CALIBRATION_PATH.replace("VoiceCpuCalibrationProtocol.kt", "OtherCalibrationProtocol.kt"), calibration_line, 1),
+            ("calibration_different_field", CALIBRATION_PATH, calibration_line.replace("ORDER_KEY", "OTHER_KEY"), 1),
+            ("calibration_trailing_content", CALIBRATION_PATH, calibration_line + " // unrelated trailing content", 1),
+            ("calibration_prefix_content", CALIBRATION_PATH, "private " + calibration_line.lstrip(), 1),
+            ("calibration_secret_after", CALIBRATION_PATH, calibration_line + "\n" + alternate_calibration, 1, 3),
+            ("calibration_secret_before", CALIBRATION_PATH, alternate_calibration + "\n" + calibration_line, 1),
         ]
         with tempfile.TemporaryDirectory(prefix="gitleaks-model-pin-") as temporary:
             parent = Path(temporary)

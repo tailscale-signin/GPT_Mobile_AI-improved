@@ -23,6 +23,87 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IssueReportSubmissionTest {
+    @Test fun streamingVoiceValuesRequireTheirOwnCapabilityBeforePostingRestoredApprovedBytes() {
+        val feature = VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
+        val cases = listOf(
+            "voice_engine" to "MEDIAPIPE",
+            "voice_selected_backend" to "LITERT_KOKORO_CPU",
+            "voice_selected_backend" to "LITERT_KOKORO_GPU",
+            "voice_selected_backend" to "PHONON_CPU",
+            "voice_selected_backend" to "POCKET_CPU",
+            "voice_fallback_source" to "LITERT_KOKORO",
+            "voice_fallback_source" to "PHONON",
+            "voice_fallback_source" to "POCKET"
+        )
+        for ((field, value) in cases) {
+            val captured = requireNotNull(IssueReportDiagnostics.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", field to value), 1_000L))
+            val restored = requireNotNull(IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), captured)))
+            val context = IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = 1_000L).withDiagnostics(restored)
+            val approved = report.copy(context = context)
+            val payload = approved.approvedPayload()
+            assertEquals(JsonPrimitive(value), restored.values[field])
+            val needed = restored.requiredServiceFeatures()
+            assertTrue(feature in needed)
+            var supported = false
+            var dispatched = 0
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    assertEquals("extended", request.url.queryParameter("capabilities"))
+                    // A receiver can already implement V1 without understanding streaming values.
+                    val features = JsonArray((needed.filter { supported || it != feature } + VoiceExecutionDiagnostics.FEATURE).distinct().map(::JsonPrimitive))
+                    response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                } else {
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${approved.reportId}","number":941}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(approved.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+            assertFalse(blocked.automaticRetry)
+            assertEquals(listOf("GET"), methods)
+            assertEquals(0, dispatched)
+            assertTrue(posted.isEmpty())
+            supported = true
+            assertEquals(IssueReportSubmission.Confirmed(941), submission.send(approved.reportId, payload) { dispatched++ })
+            assertEquals(listOf("GET", "GET", "POST"), methods)
+            assertEquals(1, dispatched)
+            assertEquals(listOf(payload), posted)
+            assertEquals(payload, approved.approvedPayload())
+        }
+    }
+
+    @Test fun ordinaryVoiceV1PayloadsStillPostWithoutStreamingBackendSupport() {
+        val context = IssueReportContext.fromFields(
+            "VOICE_STATE",
+            mapOf("diagnostic_area" to "VOICE", "voice_engine" to "KOKORO", "voice_selected_backend" to "CPU", "voice_fallback_source" to "KOKORO"),
+            1_000L
+        )
+        val needed = requireNotNull(context.diagnostics).requiredServiceFeatures()
+        assertTrue(VoiceExecutionDiagnostics.FEATURE in needed)
+        assertFalse(VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE in needed)
+        val approved = report.copy(context = context)
+        val payload = approved.approvedPayload()
+        val methods = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            methods += request.method
+            if (request.method == "GET") {
+                val features = JsonArray(needed.map(::JsonPrimitive))
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+            } else {
+                assertEquals(payload, body(request))
+                response(request, 200, """{"reportId":"${approved.reportId}","number":941}""")
+            }
+        }.build()
+        assertEquals(IssueReportSubmission.Confirmed(941), IssueReportSubmission(origin, client).send(approved.reportId, payload))
+        assertEquals(listOf("GET", "POST"), methods)
+    }
+
     @Test fun tlsPhaseAndReadRevisionReasonNegotiateTheirOwnCapabilitiesBeforePosting() {
         val cases = listOf(
             IssueReportIncidentCapsule.TLS_TRANSPORT_PHASE_FEATURE to mapOf<String, Any?>(

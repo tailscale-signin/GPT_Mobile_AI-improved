@@ -158,7 +158,8 @@
     "Prevent empty protected cache-key files on secure entropy failure and preserve OS runtime settings while isolating Gateway semantic fixtures and closing their SQLite handles.",
     "Bound isolated production Kotlin compilation to6GiB only after observed RAM/cgroup headroom, release KSP/KAPT heaps before compilation on cold CI/publication runners, and retain bounded memory/GC receipts without weakening non-production limits or qualification gates.",
     "Exclude only the exact token-estimate schema label and public model-file SHA256 pin in their exact source files from generic API-key false positives; retain other fields, values, paths, neighboring material and complete history scanning.",
-    "Invalidate prior native-runtime capability keys after the first-profile lifecycle repair; retain historical results while requiring fresh matching success and failure receipts for current Auto selection."
+    "Invalidate prior native-runtime capability keys after the first-profile lifecycle repair; retain historical results while requiring fresh matching success and failure receipts for current Auto selection.",
+    "Correct two hosted test-fixture calls for the current GitHub planning-context and benchmark callback signatures, retaining every assertion, original default context and production behavior."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1222,7 +1223,8 @@
     "scripts/check_android_compile_memory.py",
     "scripts/tests/test_android_compile_boundaries.py",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityRuntimeIdentityTest.kt",
-    "docs/repairs/native-capability-runtime-identity-2026-11-23-task.json"
+    "docs/repairs/native-capability-runtime-identity-2026-11-23-task.json",
+    "docs/repairs/hosted-test-call-contracts-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.13",

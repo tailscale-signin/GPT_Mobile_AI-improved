@@ -402,7 +402,14 @@ class BenchmarkEngineeringExternalTest {
             var checkpoint: BenchmarkSample? = null
             val timeout = try {
                 withTimeout(2_000) {
-                    executor.execute(profile, test, selected, "original-logical", { interrupted = it }, { checkpoint = it })
+                    executor.execute(
+                        profile,
+                        test,
+                        selected,
+                        "original-logical",
+                        onInterrupted = { interrupted = it },
+                        onCheckpoint = { checkpoint = it }
+                    )
                 }
                 null
             } catch (error: TimeoutCancellationException) {

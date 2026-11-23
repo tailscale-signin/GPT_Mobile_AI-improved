@@ -1,0 +1,89 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "working_branch": "work/phone-repository-map-2026-11-22",
+  "parent_head": "1988acea98323346fbd836f1a6e0b3952c9d4450",
+  "intent": "Correct two test-only call sites to current production signatures with named parameters; preserve assertions and all qualification gates.",
+  "source_owner": "map/integration",
+  "failed_run": 45106244792,
+  "failed_job": 137468174977,
+  "status": "FIXTURE_CORRECTION_FOCUSED_AND_CANONICAL_VALIDATION_PASSED",
+  "task_id": "hosted-test-call-contracts-2026-11-23",
+  "production_changed": false,
+  "diagnosis": [
+    "GitHubPlanningContext now requires connectionUid and toolSuffix before nullable repository; prior one-argument null constructor cannot compile.",
+    "BenchmarkEngineeringExternalExecutor.execute now has optional contextVariant before the two callbacks; positional lambdas bind to the wrong parameter."
+  ],
+  "correction": [
+    "Supply inert fixture connectionUid and empty toolSuffix with repository=null using named fields. toolDescription depends only on repository, preserving the existing no-selection text and schema-budget assertion.",
+    "Name onInterrupted and onCheckpoint explicitly while retaining default contextVariant=null, original logical request, timeout, asserted cancellation cleanup, receipts and all counters."
+  ],
+  "preservation": [
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt",
+      "baseline_sha256": "02f8707ebc4e694b961773f431fba6e53c102698bb35e04de470090872620d01",
+      "corrected_sha256": "709ef1a6085e2efc2caadc076793459267936688b44609c837517630f1f0de35",
+      "entire_remainder_byte_identical": true,
+      "test_methods_before": 42,
+      "test_methods_after": 42
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringExternalTest.kt",
+      "baseline_sha256": "88f896d3981d889e35360d9492578c26c6d6917eb8c25a25fde1165fac1321bd",
+      "corrected_sha256": "f64aa24f6dd04cafe65dc7dff5a50340e6f1d6590c22dad9b6f9cbcf7853dcc8",
+      "entire_remainder_byte_identical": true,
+      "test_methods_before": 17,
+      "test_methods_after": 17
+    }
+  ],
+  "validation": [
+    {
+      "phase": "source_preservation",
+      "result": "PASS",
+      "test_methods": 59,
+      "scope": "Exactly two call expressions differ; every other byte and assertion in both test classes is unchanged."
+    },
+    {
+      "phase": "changed_kotlin_format",
+      "version": "1.3.1",
+      "result": "PASS"
+    },
+    {
+      "phase": "canonical_fast",
+      "result": "PASS",
+      "tests": 650,
+      "seconds": 22.376,
+      "literal_regexes": 2038,
+      "dynamic_regexes_excluded": 100,
+      "xml_resources": 36
+    },
+    {
+      "phase": "actual_planning_context_compilation_and_schema_budget",
+      "result": "PASS",
+      "baseline_compile_errors": 3,
+      "corrected_tests": 1,
+      "corrected_failures": 0,
+      "assertion": "Existing compact GitHub schema total remains <=2000 tokens.",
+      "scope": "Full current GitHubPlanningContext class/constructor and actual current ProgressiveToolCatalog/schema/contracts/estimator, with explicit unrelated service boundaries; only the unchanged target test method is executed. Not the full42-test class, AgentRunner, Gradle or Android.",
+      "evidence": "/workspace/scratch/c067b3dc0a58/progressive-fixture-host/qualification.json"
+    },
+    {
+      "phase": "benchmark_callback_signature_review",
+      "result": "PASS",
+      "scope": "Named callbacks bind to current unchanged production signature; contextVariant stays at its original null default. Complete17-test execution remains a hosted gate."
+    }
+  ],
+  "limits": [
+    "These changes affect test calls only. Full final-head hosted compilation and test execution remain mandatory.",
+    "No production behavior, assertion, selector, budget, security rule or publication gate is changed."
+  ],
+  "hosted_diagnostic_receipt": {
+    "path": "/workspace/scratch/c067b3dc0a58/ci-monitor/48bf-unit-compilation-137468174977.json",
+    "sha256": "00daeedf58f0917922c17f6f4b1e7700c9c8ac24988f3d3df9f86ecb5fe1627e"
+  },
+  "source_signatures": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningContext.kt": "d9993add9c8c0e8695128819ef44ec1b5291e2bdede6750d10615ee6fc25fef1",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringExternalExecutor.kt": "4d714b49ab92fe5ca22b20ccd9c46000b6a545bbdf6f13e82d47092dacd92286"
+  }
+}

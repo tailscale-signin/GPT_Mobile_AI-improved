@@ -159,7 +159,11 @@ class ProgressiveToolCatalogTest {
     }
 
     @Test fun selectedGitHubHintsFitTheExistingCompactNativeSchemaBudget() {
-        val suffix = dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext(null).toolDescription()
+        val suffix = dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext(
+            connectionUid = "fixture-connection",
+            toolSuffix = "",
+            repository = null
+        ).toolDescription()
         val definitions = listOf("github_context_inspect", "github_read", "github_search").map { name ->
             GitHubOperationTool.definition(name).let { it.copy(description = it.description + suffix) }
         }

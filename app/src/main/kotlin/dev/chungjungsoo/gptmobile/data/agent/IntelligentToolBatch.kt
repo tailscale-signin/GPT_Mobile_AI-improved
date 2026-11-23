@@ -116,6 +116,12 @@ internal fun contextRefreshPrerequisite(
     return null
 }
 
+/** One collection owns one window; feedback survives rounds without crossing runs or profiles. */
+internal class AdaptiveBatchScope(maximum: Int) : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+    companion object Key : kotlin.coroutines.CoroutineContext.Key<AdaptiveBatchScope>
+    val window = AdaptiveBatchWindow(maximum)
+}
+
 /** Bounded AIMD window. It never exceeds the profile's existing tool budget. */
 internal class AdaptiveBatchWindow(maximum: Int) {
     val maximum = maximum.coerceIn(1, 20)

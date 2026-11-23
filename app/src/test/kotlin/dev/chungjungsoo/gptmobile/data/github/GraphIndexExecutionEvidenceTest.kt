@@ -156,7 +156,7 @@ class GraphIndexExecutionEvidenceTest {
             retainedIds = { saved.keys.toList() }
         )
         val result = result(action, mode, hash)
-        book().observe(ProviderEvent.ToolCall(result.callId, "repository_graph__selected", buildJsonObject { put("action", action) }), result)
+        book().observe(ProviderEvent.ToolCall(result.callId, "repository_graph__selected", arguments(action)), result)
         val restored = book()
         restored.restore()
         return restored.snapshot().first.values.single()
@@ -187,6 +187,11 @@ class GraphIndexExecutionEvidenceTest {
                 )
             }
         }
-        return tool.execute("$action-$mode-${hash.first()}", buildJsonObject { put("action", action) })
+        return tool.execute("$action-$mode-${hash.first()}", arguments(action))
+    }
+
+    private fun arguments(action: String) = buildJsonObject {
+        put("action", action)
+        put("map_source", "gateway")
     }
 }

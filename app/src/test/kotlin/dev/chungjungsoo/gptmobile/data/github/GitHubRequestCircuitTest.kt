@@ -9,6 +9,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubRequestCircuitTest {
+    @Test fun policyDenialDoesNotTripHealOrExtendARealTransportCircuit() {
+        var time = 0L
+        val circuit = GitHubRequestCircuit(1, 100, now = { time })
+        val denied = IOException("wrapper", dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied())
+        repeat(4) { circuit.failed(circuit.admit(), denied) }
+        assertEquals(0L, circuit.retryAfterMillis())
+        circuit.failed(circuit.admit(), IOException("real connection failure"))
+        time = 100
+        val recovery = circuit.admit()
+        assertTrue(recovery.probe)
+        circuit.failed(recovery, denied)
+        assertTrue(circuit.admit().probe)
+        assertEquals(0L, circuit.retryAfterMillis())
+    }
+
     @Test fun transientFailuresOpenTheCircuitAndOneProbeRecoversIt() {
         var time = 1000L
         val circuit = GitHubRequestCircuit(threshold = 2, cooldownMillis = 5000, now = { time })

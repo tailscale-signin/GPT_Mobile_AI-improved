@@ -223,6 +223,10 @@ class Client:
             raise ClientError('Choose the exact model before preparing an engineering task.', not_dispatched=True)
         payload = dict(values, model=model, request_id=command, command_id=command)
         provider = payload.pop('provider')
+        if not conversation:
+            payload.setdefault('context_variant', 'TASK')
+            if payload['context_variant'] not in {'CURRENT', 'REFERENCE', 'TASK', 'SEMANTIC'}:
+                raise ClientError('Choose a supported repository context option.', not_dispatched=True)
         if conversation:
             current = self.engineering_job(conversation.get('active_job_id'))
             if (conversation.get('active_job_kind') != 'engineering' or
@@ -232,7 +236,8 @@ class Client:
             payload.update(conversation_id=conversation['conversation_id'], expected_revision=conversation['revision'],
                            repository=current['repository'], base=current['base'], branch=current['branch'],
                            source_branch=current['branch'], source_sha=current.get('head_sha') or current['source_sha'],
-                           profile_id=current['profile_id'], execution_binding_id=current['execution_binding_id'])
+                           profile_id=current['profile_id'], execution_binding_id=current['execution_binding_id'],
+                           context_variant=current.get('context_variant', 'TASK'))
         else:
             if provider not in {'LLAMA', 'OLLAMA'}:
                 raise ClientError('Choose the configured local inference provider.', not_dispatched=True)
@@ -293,10 +298,15 @@ class Client:
             raise ClientError('Checkpoint job identity changed.', not_dispatched=True)
         return job, history
 
-    def candidate_details(self, job, check_id):
+    def candidate_details(self, job, check_id, offset=0, left_check_id=None):
         if not isinstance(check_id, str) or not re.fullmatch('[a-f0-9]{64}', check_id):
             raise ClientError('Invalid candidate identity.', not_dispatched=True)
-        value = self.request('GET', '/gateway/engineering/jobs/' + job['id'] + '/checkpoints/' + check_id)
+        if type(offset) is not int or offset < 0 or left_check_id is not None and not re.fullmatch('[a-f0-9]{64}', str(left_check_id)):
+            raise ClientError('Invalid comparison or diff cursor.', not_dispatched=True)
+        params = {'offset': offset}
+        if left_check_id is not None:
+            params['left_check_id'] = left_check_id
+        value = self.request('GET', '/gateway/engineering/jobs/' + job['id'] + '/checkpoints/' + check_id, params=params)
         if value.get('job_id') != job['id'] or value.get('check_id') != check_id:
             raise ClientError('Candidate identity changed.', not_dispatched=True)
         return value

@@ -39,10 +39,12 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
+import dev.chungjungsoo.gptmobile.data.readiness.ConfiguredInferenceRoute
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -66,6 +68,23 @@ class GatewayProfileAvailabilityTest {
 
     @get:Rule val compose = createComposeRule(effectContext = durationScale)
     private val profile = PlatformV2(uid = "saved", name = "A long saved gateway profile name", compatibleType = ClientType.LLAMA, model = "selected-model", apiUrl = "http://127.0.0.1/v1")
+
+    @Test fun profileDetailsKeepTheRouteShownWhenTheCardWasTapped() {
+        val insight = ProfileInsight(profile, null, false, null, AppFeatureSettings(), 0L)
+        var receipt by mutableStateOf<GatewayAvailability?>(GatewayAvailability(gatewayProfileUid = profile.uid, instanceId = "gateway-one"))
+        var opened by mutableStateOf<ConfiguredInferenceRoute?>(null)
+        compose.setContent {
+            MaterialTheme {
+                SelectPlatformProfileCard(profile, false, insight, {}, {}, { opened = it }, receipt)
+                opened?.let { ProfileInsightDetailsDialog(insight, {}, {}, { opened = null }, it) }
+            }
+        }
+        compose.onNodeWithTag("profile_insights_${profile.uid}").performClick()
+        compose.runOnIdle { receipt = null }
+        compose.onNodeWithText(ConfiguredInferenceRoute.GATEWAY.detail).assertExists()
+        compose.runOnIdle { opened = null }
+        compose.onNodeWithText(ConfiguredInferenceRoute.NETWORK.label).assertExists()
+    }
 
     // Legacy graphics reports one line regardless of width; wrapping needs native font metrics.
     @GraphicsMode(GraphicsMode.Mode.NATIVE)

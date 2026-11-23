@@ -174,6 +174,7 @@ internal fun VoiceChatScreen(
     presentation: VoiceRoomPresentationViewModel = hiltViewModel()
 ) {
     val room by model.chatRoom.collectAsStateWithLifecycle()
+    dev.chungjungsoo.gptmobile.presentation.common.PrivateConversationScreenProtection(room.id, room.privacyModeLocked)
     LaunchedEffect(room.id, room.createdAt, room.isTemporary) {
         presentation.rememberVoiceRoom(VoiceRoomIdentity.persistent(room.id, room.createdAt, room.isTemporary))
     }
@@ -217,12 +218,17 @@ private fun VoiceChatSessionScreen(
     destinations: VoiceChatDestinations,
     bottomInteractionContent: (@Composable () -> Unit)?,
     runtimeOwner: VoiceRuntimeViewModel = hiltViewModel(),
-    backendOwner: VoiceBackendViewModel = hiltViewModel()
+    backendOwner: VoiceBackendViewModel = hiltViewModel(),
+    benchmarkOwner: VoiceSpeechBenchmarkViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val lifecycleState by lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     val backend by backendOwner.state.collectAsStateWithLifecycle()
+    // A canceled worker can outlive both its settings subtree and its navigation owner.
+    val benchmarkOwnership = VoiceSpeechBenchmarkViewModel.audioOwnership
+    val benchmarkLease by benchmarkOwnership.collectAsStateWithLifecycle()
+    val benchmarkRunning = benchmarkLease != null
     val loaded by model.isLoaded.collectAsStateWithLifecycle()
     val roomReady by model.voiceRoomReady.collectAsStateWithLifecycle()
     val admission by model.voiceAdmission.collectAsStateWithLifecycle()
@@ -265,6 +271,7 @@ private fun VoiceChatSessionScreen(
     LaunchedEffect(kokoroOutput, backend.factory) { kokoroOutput?.configureEngine(backend.factory) }
     val audio = runtime.audio
     val session = runtime.session
+    SideEffect { session.holdAudio(benchmarkOwnership.value != null) }
     val tuningConfiguration = runtime.tuningConfiguration
     val playback = runtime.playback
     val replyProjection = runtime.replyProjection
@@ -306,9 +313,9 @@ private fun VoiceChatSessionScreen(
     val feedback = remember(context) { VoiceButtonFeedback(context.applicationContext) }
     DisposableEffect(feedback) { onDispose { feedback.close() } }
     SideEffect { localRecognition.onManualCaptureReady = if (buttonSounds) feedback::start else null }
-    var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(1.25f) }
-    var pause by rememberSaveable { mutableStateOf(VoicePauseDuration.SHORT) }
-    var performance by rememberSaveable { mutableStateOf(VoicePerformanceMode.BALANCED) }
+    var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(1.1f) }
+    var pause by rememberSaveable { mutableStateOf(VoicePauseDuration.NATURAL) }
+    var performance by rememberSaveable { mutableStateOf(VoicePerformanceMode.AUTO) }
     var speakWhileGenerating by rememberSaveable { mutableStateOf(true) }
     var tuning by remember { mutableStateOf(VoiceTuningPreferences()) }
     var preferencesInitialized by rememberSaveable { mutableStateOf(false) }
@@ -399,12 +406,15 @@ private fun VoiceChatSessionScreen(
     SideEffect {
         if (preferencesApplied) applyAudioConfiguration()
     }
+    LaunchedEffect(preferencesApplied, kokoroVoice, rate) {
+        if (preferencesApplied) backendOwner.configureSpeech(kokoroVoice, rate)
+    }
     var route by remember { mutableStateOf(systemAudio.routeName()) }
     var routeOpen by remember { mutableStateOf(false) }
     var remaining by remember { mutableIntStateOf(0) }
     DisposableEffect(audio, session) {
         systemAudio.routeChanged = {
-            session.pause()
+            session.pause("audio_route_changed")
             route = systemAudio.routeName()
         }
         onDispose { systemAudio.routeChanged = null }
@@ -418,15 +428,16 @@ private fun VoiceChatSessionScreen(
         remaining = 0
     }
     LaunchedEffect(state.transcript) { draft = state.transcript }
-    LaunchedEffect(state.awaitingReply, performance, speakWhileGenerating, lifecycleState, settingsOpen, routeOpen) {
-        if (!state.awaitingReply || performance != VoicePerformanceMode.AUTO || !speakWhileGenerating || lifecycleState != Lifecycle.State.RESUMED || settingsOpen || routeOpen) return@LaunchedEffect
+    LaunchedEffect(state.awaitingReply, performance, speakWhileGenerating, lifecycleState, settingsOpen, routeOpen, benchmarkRunning) {
+        if (!state.awaitingReply || performance != VoicePerformanceMode.AUTO || !speakWhileGenerating || lifecycleState != Lifecycle.State.RESUMED || settingsOpen || routeOpen || benchmarkRunning) return@LaunchedEffect
         while (true) {
             delay(100)
             session.flushSpeech()
         }
     }
-    LaunchedEffect(preferencesApplied, enabled, voiceReady, spokenReplies, language, kokoroVoice, kokoroThreads, kokoroModel.status, lifecycleState, state.phase, state.awaitingReply, admission?.stage) {
+    LaunchedEffect(preferencesApplied, enabled, voiceReady, spokenReplies, language, kokoroVoice, kokoroThreads, kokoroModel.status, lifecycleState, state.phase, state.awaitingReply, admission?.stage, settingsOpen, benchmarkRunning) {
         if (!preferencesApplied) return@LaunchedEffect
+        if (settingsOpen || benchmarkOwnership.value != null) return@LaunchedEffect
         if (enabled && loaded && roomReady && LocalVoiceModelStore.supportsLanguage(language) && lifecycleState == Lifecycle.State.RESUMED) {
             // Opening the route only starts recognition. Native warmup begins after decoder release,
             // while an accepted reply is generating; the worker gate also fences preview/retry races.
@@ -435,8 +446,8 @@ private fun VoiceChatSessionScreen(
             kokoroOutput?.releaseWarmModel()
         }
     }
-    LaunchedEffect(settingsOpen, routeOpen, recognitionReady, preferencesApplied, listeningEnabled) {
-        if (!preferencesApplied) return@LaunchedEffect
+    LaunchedEffect(settingsOpen, routeOpen, recognitionReady, preferencesApplied, listeningEnabled, benchmarkRunning) {
+        if (!preferencesApplied || benchmarkOwnership.value != null) return@LaunchedEffect
         applyAudioConfiguration()
         if (voiceReady && recognitionReady && !settingsOpen && !routeOpen && listeningEnabled && started && !state.muted && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED) {
             if (state.phase == VoicePhase.PAUSED) session.resume()
@@ -449,7 +460,8 @@ private fun VoiceChatSessionScreen(
         if (!granted) session.permissionDenied()
     }
     fun listen(manual: Boolean = false) {
-        if (!enabled || !voiceReady || !preferencesApplied || !recognitionReady && !state.hasDraft) return
+        session.holdAudio(benchmarkOwnership.value != null)
+        if (benchmarkOwnership.value != null || !enabled || !voiceReady || !preferencesApplied || !recognitionReady && !state.hasDraft) return
         applyAudioConfiguration()
         permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
@@ -483,7 +495,7 @@ private fun VoiceChatSessionScreen(
     fun pauseCapture() {
         listeningEnabled = false
         session.autoContinue = false
-        if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) session.pause()
+        if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) session.pause("transcript_opened")
     }
     fun openChat() {
         if (preferencesApplied) savePreferences()
@@ -491,6 +503,7 @@ private fun VoiceChatSessionScreen(
         chatView = true
     }
     fun closeSettings() {
+        benchmarkOwner.cancel()
         audio.stop()
         savePreferences()
         settingsOpen = false
@@ -504,15 +517,17 @@ private fun VoiceChatSessionScreen(
             end()
         }
     }
-    DisposableEffect(lifecycle, session) {
+    DisposableEffect(lifecycle, session, benchmarkOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
                     runtimeOwner.resume()
                     permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    session.holdAudio(benchmarkOwnership.value != null)
                     session.access(currentEnabled, permission, true)
                 }
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    if (event == Lifecycle.Event.ON_STOP) benchmarkOwner.cancel()
                     refreshMutedBaseline = true
                     session.access(currentEnabled, permission, false)
                     systemAudio.releaseRecognition()
@@ -524,15 +539,17 @@ private fun VoiceChatSessionScreen(
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            benchmarkOwner.cancel()
             refreshMutedBaseline = true
             session.access(currentEnabled, permission, false)
             systemAudio.releaseRecognition()
             runtimeOwner.pause()
         }
     }
-    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, resumeWhenReady, recognitionReady, recognitionBackend, settingsOpen, listeningEnabled) {
+    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, resumeWhenReady, recognitionReady, recognitionBackend, settingsOpen, listeningEnabled, benchmarkRunning) {
+        session.holdAudio(benchmarkOwnership.value != null)
         session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-        if (enabled && voiceReady && preferencesApplied && recognitionReady && listeningEnabled && !settingsOpen && !routeOpen && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || !state.muted && state.phase == VoicePhase.PAUSED)) {
+        if (benchmarkOwnership.value == null && enabled && voiceReady && preferencesApplied && recognitionReady && listeningEnabled && !settingsOpen && !routeOpen && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || !state.muted && state.phase == VoicePhase.PAUSED)) {
             started = true
             resumeWhenReady = false
             listen()
@@ -542,8 +559,8 @@ private fun VoiceChatSessionScreen(
         val accepted = admission ?: return@LaunchedEffect
         session.admission(accepted.stage, accepted.reason, accepted.requestId)
     }
-    LaunchedEffect(loaded, roomReady, messages, runs, enabled, backend.loaded, spokenReplies, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick) {
-        if (!loaded || !roomReady) return@LaunchedEffect
+    LaunchedEffect(loaded, roomReady, messages, runs, enabled, backend.loaded, spokenReplies, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick, benchmarkRunning) {
+        if (!loaded || !roomReady || benchmarkOwnership.value != null) return@LaunchedEffect
         // Restoration publishes messages before loaded=true. Read the current flow snapshot so
         // separate Compose collectors cannot accidentally prime from an empty history.
         val messageSnapshot = model.groupedMessages.value
@@ -601,6 +618,7 @@ private fun VoiceChatSessionScreen(
                 lifecycle.currentState != Lifecycle.State.RESUMED ||
                 settingsOpen ||
                 routeOpen ||
+                benchmarkOwnership.value != null ||
                 manualMessage ||
                 session.states.value.speaker != speakerAtRead ||
                 currentMessage == null ||
@@ -660,6 +678,8 @@ private fun VoiceChatSessionScreen(
         activeMessage = null
     }
     fun toggleMicrophone() {
+        session.holdAudio(benchmarkOwnership.value != null)
+        if (benchmarkOwnership.value != null) return
         if (state.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) {
             stopMessage()
             if (buttonSounds) feedback.stop()
@@ -674,11 +694,12 @@ private fun VoiceChatSessionScreen(
             listen(manual = true)
         }
     }
-    fun readResponse(identity: VoiceMessageIdentity, text: String) {
-        if (text.isBlank()) return
+    fun readResponse(identity: VoiceMessageIdentity, text: String, includeDetails: Boolean = false) {
+        session.holdAudio(benchmarkOwnership.value != null)
+        if (benchmarkOwnership.value != null || text.isBlank()) return
         pauseCapture()
         session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-        if (session.beginMessage(identity.key, manual = true, diagnosticRunId = identity.runId.ifBlank { identity.key })) {
+        if (session.beginMessage(identity.key, manual = true, diagnosticRunId = identity.runId.ifBlank { identity.key }, includeDetails = includeDetails)) {
             playback.manual(identity)
             manualMessage = true
             activeMessage = identity
@@ -689,9 +710,12 @@ private fun VoiceChatSessionScreen(
     val latestRead = rememberUpdatedState<(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2, String) -> Unit> { message, text ->
         readResponse(message.voiceIdentity(), text)
     }
+    val latestReadDetails = rememberUpdatedState<(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2, String) -> Unit> { message, text ->
+        readResponse(message.voiceIdentity(), text, includeDetails = true)
+    }
     val latestStop = rememberUpdatedState(::stopMessage)
     val latestPauseCapture = rememberUpdatedState(::pauseCapture)
-    val outputAvailable = enabled && preferencesApplied && loaded && roomReady && backend.loaded && kokoroModel.status == LocalVoiceModelStatus.READY
+    val outputAvailable = !benchmarkRunning && enabled && preferencesApplied && loaded && roomReady && backend.loaded && kokoroModel.status == LocalVoiceModelStatus.READY
     // Meter ticks do not replace controls or invalidate every transcript message.
     val messageControls = remember(activeMessage, state.phase, outputAvailable) {
         VoiceMessageControls(
@@ -700,7 +724,8 @@ private fun VoiceChatSessionScreen(
             available = outputAvailable,
             read = { message, text -> latestRead.value(message, text) },
             stop = { latestStop.value() },
-            pauseCapture = { latestPauseCapture.value() }
+            pauseCapture = { latestPauseCapture.value() },
+            readDetails = { message, text -> latestReadDetails.value(message, text) }
         )
     }
     VoiceHealthObservation(session.performanceHistory, sampleMemory = settingsOpen)
@@ -727,18 +752,19 @@ private fun VoiceChatSessionScreen(
                     rate = rate,
                     pause = pause,
                     performance = performance,
-                    speakWhileGenerating = speakWhileGenerating
+                    speakWhileGenerating = speakWhileGenerating,
+                    benchmarkRunning = benchmarkRunning
                 ),
                 actions = VoiceSettingsActions(
                     done = ::closeSettings,
                     selectProfile = { uid ->
-                        session.pause()
+                        session.pause("profile_changed")
                         model.selectVoiceProfile(uid) { changed -> if (changed) closeSettings() }
                     },
                     installLocalModel = voiceSettings::installLocalModel,
                     cancelLocalModelInstall = voiceSettings::cancelLocalModelInstall,
                     removeLocalModel = {
-                        session.pause()
+                        session.pause("model_removed")
                         localRecognition.releaseWarmModel(voiceSettings::removeLocalModel)
                     },
                     changeLanguage = {
@@ -805,32 +831,59 @@ private fun VoiceChatSessionScreen(
                         speakWhileGenerating = true
                         savePreferences()
                     },
+                    useNaturalSpeech = {
+                        rate = 1.1f
+                        pause = VoicePauseDuration.NATURAL
+                        performance = VoicePerformanceMode.AUTO
+                        speakWhileGenerating = true
+                        savePreferences()
+                    },
                     changeSpeakWhileGenerating = {
                         speakWhileGenerating = it
                         savePreferences()
                     }
                 ),
                 tuningContent = {
-                    VoiceSpeechBackendSettings(backend, backendOwner::selectBackend, backendOwner::selectGateway, state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING))
-                    VoiceTuningSettings(
-                        tuning,
-                        {
-                            tuning = it
-                            savePreferences()
-                        },
-                        session.performanceHistory,
-                        kokoroOutput?.synthesisFeedback,
-                        if (kokoroOutput != null && kokoroVoice != null && kokoroModel.status == LocalVoiceModelStatus.READY) {
-                            { completed -> kokoroOutput.benchmark(requireNotNull(kokoroVoice), completed) }
-                        } else {
-                            null
-                        },
-                        adjustCaptionOffset = { milliseconds ->
-                            kokoroOutput?.configureCaptionOffset(milliseconds)
-                            tuning = tuning.copy(captionOffsetMs = milliseconds)
-                            savePreferences()
-                        }
+                    VoiceSpeechBackendSettings(
+                        value = backend,
+                        selectBackend = backendOwner::selectBackend,
+                        selectGateway = backendOwner::selectGateway,
+                        recheckBackend = backendOwner::recheckBackend,
+                        enabled = !benchmarkRunning && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING)
                     )
+                    VoiceSpeechBenchmarkSettings(
+                        voice = kokoroVoice,
+                        threads = kokoroThreads,
+                        speechRate = rate,
+                        enabled = !benchmarkRunning && !state.awaitingReply && kokoroModel.status == LocalVoiceModelStatus.READY && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
+                        beforeStart = {
+                            session.pause("speech_benchmark_started")
+                            localRecognition.releaseWarmModel()
+                            kokoroOutput?.releaseWarmModel()
+                        },
+                        viewModel = benchmarkOwner
+                    )
+                    if (!benchmarkRunning) {
+                        VoiceTuningSettings(
+                            tuning,
+                            {
+                                tuning = it
+                                savePreferences()
+                            },
+                            session.performanceHistory,
+                            kokoroOutput?.synthesisFeedback,
+                            if (kokoroOutput != null && kokoroVoice != null && kokoroModel.status == LocalVoiceModelStatus.READY) {
+                                { completed -> kokoroOutput.benchmark(requireNotNull(kokoroVoice), completed) }
+                            } else {
+                                null
+                            },
+                            adjustCaptionOffset = { milliseconds ->
+                                kokoroOutput?.configureCaptionOffset(milliseconds)
+                                tuning = tuning.copy(captionOffsetMs = milliseconds)
+                                savePreferences()
+                            }
+                        )
+                    }
                 }
             )
         },
@@ -851,11 +904,11 @@ private fun VoiceChatSessionScreen(
                 },
                 microphone = ::toggleMicrophone,
                 audioRoute = {
-                    session.pause()
+                    session.pause("audio_route_opened")
                     routeOpen = true
                 },
                 settings = {
-                    session.pause()
+                    session.pause("settings_opened")
                     settingsOpen = true
                 },
                 end = ::leaveTranscript,
@@ -892,7 +945,7 @@ private fun VoiceChatSessionScreen(
                 ),
                 actions = VoiceConversationActions(
                     selectProfile = { uid ->
-                        session.pause()
+                        session.pause("profile_changed")
                         model.selectVoiceProfile(uid) {}
                     },
                     openTranscript = { chatView = true },
@@ -900,7 +953,7 @@ private fun VoiceChatSessionScreen(
                         val currentState = session.states.value
                         val currentAdmission = model.voiceAdmission.value
                         if (currentState.shouldCheckpointDraft(currentAdmission?.requestId, currentAdmission?.stage)) model.checkpointVoiceDraft(currentState.transcript)
-                        session.pause()
+                        session.pause("settings_opened")
                         settingsOpen = true
                     },
                     showSettings = { settingsOpen = true },
@@ -917,11 +970,11 @@ private fun VoiceChatSessionScreen(
                         listen()
                     },
                     repair = { action ->
-                        session.pause()
+                        session.pause("repair_settings_opened")
                         if (action == VoiceRecoveryAction.LOCAL_MODEL) settingsOpen = true else openVoiceRepairSettings(context, action)
                     },
                     openVoiceConfiguration = {
-                        session.pause()
+                        session.pause("settings_opened")
                         settingsOpen = true
                     },
                     replay = { readResponse(VoiceMessageIdentity(retainedMessageId, retainedRunId, retainedRevision), state.reply) },
@@ -934,7 +987,7 @@ private fun VoiceChatSessionScreen(
                         }
                     },
                     openAudioRoute = {
-                        session.pause()
+                        session.pause("audio_route_opened")
                         if (buttonSounds) feedback.click()
                         routeOpen = true
                     },
@@ -1005,7 +1058,8 @@ private data class VoiceSettingsUiState(
     val rate: Float,
     val pause: VoicePauseDuration,
     val performance: VoicePerformanceMode,
-    val speakWhileGenerating: Boolean
+    val speakWhileGenerating: Boolean,
+    val benchmarkRunning: Boolean = false
 )
 
 private class VoiceSettingsActions(
@@ -1029,6 +1083,7 @@ private class VoiceSettingsActions(
     val changePause: (VoicePauseDuration) -> Unit,
     val changePerformance: (VoicePerformanceMode) -> Unit,
     val useConversationalFast: () -> Unit,
+    val useNaturalSpeech: () -> Unit,
     val changeSpeakWhileGenerating: (Boolean) -> Unit
 )
 
@@ -1040,55 +1095,62 @@ private fun VoiceSettingsScreen(
 ) {
     var previewError by remember { mutableStateOf<String?>(null) }
     VoiceSettingsPage(actions.done) {
-        VoiceChoice(
-            "AI profile",
-            state.activeProfiles.singleOrNull().orEmpty(),
-            state.profiles.filter { it.enabled }.map {
-                it.uid to it.name.ifBlank { it.model }
-            },
-            actions.selectProfile,
-            enabled = !state.session.awaitingReply
-        )
-        state.saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        VoiceSettingsSection("Speech recognition")
-        LocalVoiceSetupCard(state.localModel, actions.installLocalModel, actions.cancelLocalModelInstall, actions.removeLocalModel, showRemove = true)
-        val regions = remember(state.language) {
-            (Locale.getISOCountries().map { "en-$it" } + state.language).distinct().sortedBy {
-                Locale.forLanguageTag(it).displayCountry
-            }.map { it to Locale.forLanguageTag(it).displayCountry.ifBlank { "English (default)" } }
+        if (state.benchmarkRunning) {
+            Text("Speech benchmark is running. Playback and voice settings are paused until it finishes or you stop it.", style = MaterialTheme.typography.bodyMedium)
+        } else {
+            VoiceChoice(
+                "AI profile",
+                state.activeProfiles.singleOrNull().orEmpty(),
+                state.profiles.filter { it.enabled }.map {
+                    it.uid to it.name.ifBlank { it.model }
+                },
+                actions.selectProfile,
+                enabled = !state.session.awaitingReply
+            )
+            state.saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            VoiceSettingsSection("Speech recognition")
+            LocalVoiceSetupCard(state.localModel, actions.installLocalModel, actions.cancelLocalModelInstall, actions.removeLocalModel, showRemove = true)
+            val regions = remember(state.language) {
+                (Locale.getISOCountries().map { "en-$it" } + state.language).distinct().sortedBy {
+                    Locale.forLanguageTag(it).displayCountry
+                }.map { it to Locale.forLanguageTag(it).displayCountry.ifBlank { "English (default)" } }
+            }
+            VoiceChoice("Country or region", state.language, regions, actions.changeLanguage)
+            VoiceSettingsSection("Conversation")
+            Text("Replies begin with a short spoken answer. Longer details stay available in chat.", style = MaterialTheme.typography.bodySmall)
+            VoiceSettingSwitch("Review before sending", state.editBeforeSend, actions.changeReview)
+            VoiceSettingSwitch("Live captions", state.captions, actions.changeCaptions)
+            VoiceSettingSwitch("Spoken replies", state.spokenReplies, actions.changeSpokenReplies)
+            VoiceSettingSwitch("Button sounds", state.buttonSounds, actions.changeButtonSounds)
+            VoiceSettingsSection("Playback")
+            KokoroPlaybackCard(
+                state = state.kokoroModel,
+                voice = state.kokoroVoice,
+                threads = state.kokoroThreads,
+                english = LocalVoiceModelStore.supportsLanguage(state.language),
+                previewError = previewError,
+                select = {
+                    previewError = null
+                    actions.selectKokoroVoice(it)
+                },
+                selectThreads = actions.selectKokoroThreads,
+                install = actions.installKokoroModel,
+                cancel = actions.cancelKokoroInstall,
+                remove = {
+                    previewError = null
+                    actions.removeKokoroModel()
+                },
+                preview = { selected -> actions.previewKokoro(selected) { previewError = it } }
+            )
+            Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.2f", state.rate)}×")
+            Text("Speech rate changes how quickly the voice talks. Performance mode changes how soon speech starts.", style = MaterialTheme.typography.bodySmall)
+            Slider(state.rate, actions.changeRate, valueRange = .5f..2f)
+            VoiceChoice("Pause duration", state.pause.name, VoicePauseDuration.entries.map { it.name to it.label }, { actions.changePause(VoicePauseDuration.valueOf(it)) })
+            VoiceChoice("Performance mode", state.performance.name, VoicePerformanceMode.entries.map { it.name to it.label }, { actions.changePerformance(VoicePerformanceMode.valueOf(it)) })
+            VoiceSettingSwitch("Speak while the reply is generating", state.speakWhileGenerating, actions.changeSpeakWhileGenerating)
+            OutlinedButton(onClick = actions.useNaturalSpeech) { Text("Use Natural Speech") }
+            OutlinedButton(onClick = actions.useConversationalFast) { Text("Use Conversational Fast") }
         }
-        VoiceChoice("Country or region", state.language, regions, actions.changeLanguage)
-        VoiceSettingsSection("Conversation")
-        VoiceSettingSwitch("Review before sending", state.editBeforeSend, actions.changeReview)
-        VoiceSettingSwitch("Live captions", state.captions, actions.changeCaptions)
-        VoiceSettingSwitch("Spoken replies", state.spokenReplies, actions.changeSpokenReplies)
-        VoiceSettingSwitch("Button sounds", state.buttonSounds, actions.changeButtonSounds)
-        VoiceSettingsSection("Playback")
-        KokoroPlaybackCard(
-            state = state.kokoroModel,
-            voice = state.kokoroVoice,
-            threads = state.kokoroThreads,
-            english = LocalVoiceModelStore.supportsLanguage(state.language),
-            previewError = previewError,
-            select = {
-                previewError = null
-                actions.selectKokoroVoice(it)
-            },
-            selectThreads = actions.selectKokoroThreads,
-            install = actions.installKokoroModel,
-            cancel = actions.cancelKokoroInstall,
-            remove = {
-                previewError = null
-                actions.removeKokoroModel()
-            },
-            preview = { selected -> actions.previewKokoro(selected) { previewError = it } }
-        )
-        Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.2f", state.rate)}×")
-        Slider(state.rate, actions.changeRate, valueRange = .5f..2f)
-        VoiceChoice("Pause duration", state.pause.name, VoicePauseDuration.entries.map { it.name to it.label }, { actions.changePause(VoicePauseDuration.valueOf(it)) })
-        VoiceChoice("Performance mode", state.performance.name, VoicePerformanceMode.entries.map { it.name to it.label }, { actions.changePerformance(VoicePerformanceMode.valueOf(it)) })
-        VoiceSettingSwitch("Speak while the reply is generating", state.speakWhileGenerating, actions.changeSpeakWhileGenerating)
-        OutlinedButton(onClick = actions.useConversationalFast) { Text("Use Conversational Fast") }
         tuningContent()
     }
 }

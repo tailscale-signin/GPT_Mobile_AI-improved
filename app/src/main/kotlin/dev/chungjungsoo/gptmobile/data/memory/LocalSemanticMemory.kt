@@ -179,9 +179,18 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     }
 
     /** A separate encrypted namespace; never mixes repository vectors with personal facts. */
-    suspend fun rankEngineering(query: String, scope: String, records: Map<String, String>): Map<String, Double>? = withContext(ownerDispatcher) {
+    suspend fun rankEngineering(query: String, scope: String, records: Map<String, String>): Map<String, Double>? =
+        rankEngineeringOwned(query, scope, records, false)
+
+    /** Only the actual isolated measurement owner may prepare its synthetic public context. */
+    suspend fun rankBenchmarkContext(query: String, scope: String, records: Map<String, String>): Map<String, Double>? {
+        if (!benchmarkSemanticContextOwner(scope)) return null
+        return rankEngineeringOwned(query, scope, records, true)
+    }
+
+    private suspend fun rankEngineeringOwned(query: String, scope: String, records: Map<String, String>, isolatedOwner: Boolean): Map<String, Double>? = withContext(ownerDispatcher) {
         mutex.withLock {
-            if (retryDeferred() || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy) return@withLock null
+            if (retryDeferred() || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy && !isolatedOwner) return@withLock null
             require(scope.startsWith("github:") && records.size <= 48)
             try {
                 val queryVector = embed(query)

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
 import dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudio
 import dev.chungjungsoo.gptmobile.data.voice.KokoroOutput
 import dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer
@@ -49,8 +50,15 @@ internal class VoiceRuntimeViewModel @Inject constructor(@ApplicationContext pri
         runtime?.session?.close()
         owner = model
         val system = AndroidVoiceAudio(context)
+        val privacy = {
+            val room = model.chatRoom.value
+            // A visible runtime may be allocated before Room finishes loading. No
+            // online audio is admitted until its saved conversation is known.
+            ConversationPrivacyContext(room.id.takeIf { it > 0 }, room.id <= 0 || room.privacyModeLocked)
+        }
+        system.bindConversationPrivacy(privacy)
         val recognition = MoonshineVoiceRecognizer(context, stores.moonshine)
-        val kokoro = createKokoroVoiceOutput(context, stores.kokoro, system::playbackAttributes) { system.speechRate }
+        val kokoro = createKokoroVoiceOutput(context, stores.kokoro, system::playbackAttributes, { system.speechRate }, privacy)
         val audio = VoicePluginAudio(system, recognition, kokoro, system::speakOffline, system::releaseRecognition)
         var checkpoint: String? = null
         val session = VoiceSession(audio, submit = model::submitVoiceTranscript, awaitsAdmission = true, submittedRequestId = { model.voiceAdmission.value?.requestId }, changed = { state ->

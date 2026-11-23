@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "task": "gateway-viewmodel-teardown-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "9b4879c80065721c09b0546b9a86333bcffc0b32",
+  "workingBranch": "work/gateway-viewmodel-teardown-9b",
+  "owner": "root/voice_design_review",
+  "integrationOwner": "root",
+  "status": "READY_FOR_INTEGRATION",
+  "intent": "Make the Gateway conversations test fixture await completion of its actual ViewModel and monitor coroutine jobs before resetting Dispatchers.Main, preserving every existing account-isolation assertion and all production source.",
+  "failureEvidence": {
+    "workflowRun": 45124026810,
+    "job": 137524195770,
+    "testedMergeCommit": "805b6e188d6cafb34b42a35eb24d1e87bd1cdd30",
+    "artifact": 14797540424,
+    "artifactSha256": "0bfdb537d7df64e464082bf1b4f8cf23438b3ae1881ed4d39c08e07fdeb2d871",
+    "test": "GatewayConversationsViewModelTest.changedCredentialOrVerifiedPrincipalClearsThePreviousAccountBeforeLoading",
+    "observedFailure": "Dispatchers.Main is used concurrently with setting it at resetMain line 433; the recorded reader is cancellation triggered by ViewModelStore.clear at line 432.",
+    "qualification": "The recorded failure is in finally; it does not alone prove all preceding assertions completed. The same method passed in an independent same-head hosted unit run."
+  },
+  "constraints": [
+    "Production ViewModel, account identity, generation fencing and repository behavior remain unchanged.",
+    "Keep every existing test method and body assertion, including immediate account-history clearing and zero old-account opens.",
+    "Use actual kotlinx.coroutines and AndroidX lifecycle dependencies for the focused cleanup proof; no local full Android build.",
+    "Bound compiler and test JVM heaps to 512 MiB and active processor count to two.",
+    "Foreign worktrees and evidence are read-only; no remote writes or workflow mutations.",
+    "Full original fixture execution remains a hosted CI gate unless a fully qualified actual-source local harness is available."
+  ],
+  "plannedValidation": [
+    "Freeze the original teardown and demonstrate a deterministic missing-completion boundary failure.",
+    "Run the smallest actual-coroutine/lifecycle regression against corrected cleanup with source and dependency hashes.",
+    "Run pinned ktlint, generated-reference checks, exact release scope and one canonical fast validation after source stabilizes."
+  ],
+  "implementation": {
+    "testSource": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt",
+    "testSourceSha256": "ec189a13a453c7e05bb7c756a065690b54572355020e46476218127f155c8e1b",
+    "existingTestMethodsPreserved": 23,
+    "existingTeardownBlocksAwaited": 22,
+    "newDeterministicRegression": "fixtureCleanupWaitsForViewModelAndMonitorChildrenBeforeResettingMain",
+    "behavior": "Capture each fixture-created ViewModel and monitor scope Job. Clear the real ViewModelStore and cancel owned jobs on the caller context, then join their completion under a five-second real Default-dispatcher deadline while Main stays installed. Each existing finally resets Main only after that helper returns.",
+    "productionSourceChanged": false,
+    "timeoutBoundary": "A failed retirement bound fails qualification; it does not reset Main while an owned reader may still be live."
+  },
+  "validation": {
+    "focusedActualLifecycle": {
+      "status": "PASSED",
+      "correctedTests": 1,
+      "correctedFailures": 0,
+      "correctedSeconds": 0.173,
+      "missingJoinControlTests": 1,
+      "missingJoinControlExpectedFailures": 1,
+      "missingJoinControlSeconds": 0.129,
+      "missingJoinControlAssertion": "Cleanup must await both owned dispatcher children",
+      "actualDependencies": [
+        "AndroidX lifecycle-viewmodel-android 2.11.0",
+        "kotlinx.coroutines 1.11.0"
+      ],
+      "compiler": "Kotlin 2.4.20, JVM target 21",
+      "jvmHeapMiB": 512,
+      "activeProcessorCount": 2,
+      "sourceManifestSha256": "0749ca5a5673eb034ed22c0b1dbb4df075f29d5b19a42c43638a921d1e979c97",
+      "resultSha256": "b5a954b3b830fa74753c92481abe314c18f78f3181e7748e5616d3a0a81d8a60",
+      "runnerSha256": "c54019faad99bbec0699816219a57ff6b214dd15ef92493928c80b406dac3d02",
+      "proofDirectory": "/workspace/scratch/6b5c8b09c56b/gateway-viewmodel-teardown-proof",
+      "scope": "Compiles the exact actual fixture helper and new deterministic method with real AndroidX ViewModel/ViewModelStore and kotlinx.coroutines. The class wrapper and imports are a host adapter. It does not compile GatewayConversationsViewModel, MockK/Room, Robolectric, or the original 23 application tests.",
+      "negativeControl": "Removes only the actual helper bounded join block; cancellation and the regression remain unchanged. This is a causal missing-join control, not a rerun of the full original fixture.",
+      "failureCleanup": "Both gates are released and captured jobs are cancelled and joined before resetting Main, even when a control assertion fails."
+    },
+    "originalFixturePreservation": "All 23 original method bodies match the base byte-for-byte after normalizing only the 22 store.clear-to-clearFixture substitutions; the production ViewModel and monitor are unchanged.",
+    "ktlint": {
+      "version": "1.3.1",
+      "formatted": true,
+      "status": "PASSED"
+    },
+    "canonicalFast": {
+      "status": "PASSED",
+      "runs": 1,
+      "sourceCommit": "4b74832317d8d2a90b2874cfb3d010bcbe271e6f",
+      "sourceTree": "277d91727a7e3e183261a28a2c6b652d18b23813",
+      "tests": 658,
+      "failures": 0,
+      "testSeconds": 26.413,
+      "commandSeconds": 30.203,
+      "actualTrackedInputs": 6828,
+      "inputManifestSha256": "277fdcf661d55704d3819f2520a3a86f614d42f4a5a9047d4adb7dd6f0ed3eda",
+      "receiptSha256": "20f2717e7acf12a06cfb7636baa567ffe54b472360442c343cf0b33f1591c4fe",
+      "logSha256": "32bb471ab5c0671b895b7ea0c7eb27399375b2a04b30132b93ae1ef2c090a1a7",
+      "cleanAfterRun": true,
+      "inventoryFiles": 3006,
+      "inventoryAreas": 26,
+      "literalRegexPatterns": 2040,
+      "dynamicRegexPatternsSkipped": 100,
+      "xmlFiles": 36,
+      "scope": "Canonical host validation; it does not execute the full Android/Robolectric fixture or qualify physical device behavior."
+    },
+    "hostedOriginalFixture": {
+      "status": "REQUIRED_ON_FINAL_SOURCE",
+      "scope": "Full application/Robolectric execution of the original 23 tests and the new regression remains a hosted CI gate."
+    },
+    "independentReview": {
+      "source": "root and voice_repo_review read-only source review clear",
+      "evidence": "root and voice_repo_review independently matched actual input, dependency and phase artifact hashes without rerunning tests",
+      "rootReceiptSha256": "997e3fbf096223836dfa8fde06d8554a4ddf2256b8fd30353a2d4723fd5ea0b6"
+    },
+    "releaseScope": {
+      "status": "PASSED",
+      "sourceCommit": "4b74832317d8d2a90b2874cfb3d010bcbe271e6f",
+      "mode": "scoped",
+      "newAllowedPaths": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt",
+        "docs/repairs/gateway-viewmodel-teardown-2026-11-23-task.json"
+      ]
+    },
+    "generatedReferences": {
+      "status": "PASSED",
+      "commands": [
+        "python3 scripts/sync_agent_metadata.py",
+        "python3 scripts/generate_repository_reference.py"
+      ],
+      "navigation": "The existing Gateway workspace feature now references the unchanged conversations ViewModel, monitor, and corrected fixture."
+    }
+  },
+  "validatedSourceCommit": "4b74832317d8d2a90b2874cfb3d010bcbe271e6f",
+  "validatedSourceTree": "277d91727a7e3e183261a28a2c6b652d18b23813",
+  "finalizationBoundary": "The following commit updates this checkpoint with completed receipts only. Test/helper, generated source references, release scope and all production/configuration bytes remain exactly those validated at the pinned source commit. Full hosted current-head checks remain mandatory before merge/publication."
+}

@@ -88,7 +88,9 @@ jobs:
 
       - name: Shrink release code in a separate process
         run: |
-          # Release the compiler/R8 analysis heap before packaging all ABI splits.
+          # Isolate generation and production compilation on this cold runner.
+          python3 scripts/android_pipeline.py --variant release --phase compile --output build/reports/pipeline/compile.json
+          # Release the R8 analysis heap before packaging all ABI splits.
           python3 scripts/android_pipeline.py --variant release --phase shrink --output build/reports/pipeline/shrink.json
 
       - name: Build optimized release APKs

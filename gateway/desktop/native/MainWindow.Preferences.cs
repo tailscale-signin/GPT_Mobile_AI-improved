@@ -63,6 +63,11 @@ public partial class MainWindow
         body.Children.Add(Ui.Actions(Ui.Button("Connect phone",()=>Navigate("Connect phone"),true),Ui.Button("Test reachability",()=>Run(async()=>{
             await EnsureConnected(true);status.Text="Confirmed Gateway "+identity.Text("gateway_id")+" · "+identity.Text("principal_id");
         }))));
+        var hostObservation=Ui.Text("Inspect this PC to observe the saved port, routes, VPN adapter signals, startup and firewall rule. No settings are changed.",13,"MutedBrush");
+        body.Children.Add(Ui.Button("Inspect this PC",()=>Run(async()=>{
+            var observed=await Call("workspace-connection-diagnostics");hostObservation.Text=observed.Text("summary");
+        })));
+        body.Children.Add(hostObservation);
         page.Children.Add(Card("Listener and network",body));Run(async()=>{
             var result=await Call("workspace-connection-read");var original=result.Object("settings");
             var host=Ui.Field(body,"Listen interface IP",original.Text("bind_host"));var port=Ui.Field(body,"Gateway port",original.Text("port"));

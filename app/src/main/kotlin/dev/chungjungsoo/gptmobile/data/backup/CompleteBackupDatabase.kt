@@ -95,11 +95,13 @@ internal object CompleteBackupDatabase {
 
     fun restore(source: SupportSQLiteDatabase, destination: SupportSQLiteDatabase) {
         validate(source, destination)
+        val protectedChatIds = lockedConversationIds(destination)
         val order = dependencyOrder(destination).filterNot { it in AMAZON_OPERATIONAL }
         order.asReversed().forEach { destination.execSQL("DELETE FROM ${quote(it)}") }
         order.forEach { table ->
             copyCompatibleRows(source, destination, table)
         }
+        preserveConversationPrivacy(destination, protectedChatIds)
         destination.execSQL("DELETE FROM sqlite_sequence")
         source.query("SELECT name, seq FROM sqlite_sequence").use { rows ->
             copyRows("sqlite_sequence", rows) { sql, values -> destination.execSQL(sql, values) }
@@ -146,6 +148,7 @@ internal object CompleteBackupDatabase {
         validate(source, destination)
         val selectedTables = tablesFor(selection.normalized())
         if (selectedTables.isEmpty()) return
+        val protectedChatIds = if ("chats_v2" in selectedTables) lockedConversationIds(destination) else emptyList()
 
         val order = dependencyOrder(destination)
         order.asReversed()
@@ -155,6 +158,7 @@ internal object CompleteBackupDatabase {
         order.filter { it in selectedTables }.forEach { table ->
             copyCompatibleRows(source, destination, table)
         }
+        preserveConversationPrivacy(destination, protectedChatIds)
 
         selectedTables.forEach { table ->
             destination.execSQL("DELETE FROM sqlite_sequence WHERE name = ?", arrayOf<Any>(table))
@@ -192,6 +196,21 @@ internal object CompleteBackupDatabase {
         }
         quarantineRestoredGatewayQueue(destination)
         rebuildSearch(destination)
+    }
+
+    private fun lockedConversationIds(database: SupportSQLiteDatabase): List<Long> {
+        if ("privacy_mode_locked" !in columns(database, "chats_v2")) return emptyList()
+        return database.query("SELECT chat_id FROM chats_v2 WHERE privacy_mode_locked = 1").use { rows ->
+            buildList { while (rows.moveToNext()) add(rows.getLong(0)) }
+        }
+    }
+
+    private fun preserveConversationPrivacy(database: SupportSQLiteDatabase, chatIds: List<Long>) {
+        // An older backup cannot revoke the current conversation's permanent policy.
+        // Masking history still describes only the content actually present in the backup.
+        chatIds.forEach { chatId ->
+            database.execSQL("UPDATE chats_v2 SET privacy_mode_locked = 1 WHERE chat_id = ?", arrayOf<Any>(chatId))
+        }
     }
 
     private fun quarantineRestoredGatewayQueue(database: SupportSQLiteDatabase) {

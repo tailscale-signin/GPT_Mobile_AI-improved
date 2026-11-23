@@ -21,7 +21,7 @@ import org.junit.Test
 
 class GatewayCoordinatorRecoveryTest {
     private class Fixture(old: Boolean = false, github: Boolean = false) {
-        val chats = mockk<ChatRepository>()
+        val chats = mockk<ChatRepository>().also { repository -> coEvery { repository.conversationPrivacyLocked(any()) } returns false }
         val gateway = mockk<GatewayAPI>()
         private val settings = mockk<SettingRepository>()
         var state = AgentRunStatus.INTERRUPTED
@@ -60,6 +60,16 @@ class GatewayCoordinatorRecoveryTest {
         coVerify(exactly = 1) { f.gateway.getJobResult("saved-job", any()) }
         coVerify(exactly = 0) { f.gateway.getCapabilities(any()) }
         coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
+    }
+
+    @Test fun reopenedPrivateConversationCannotPollAnUnverifiedSavedGatewayJob() = runTest {
+        val fixture = Fixture(old = true)
+        coEvery { fixture.chats.conversationPrivacyLocked(1) } returns true
+        fixture.coordinator().recoverInterruptedGatewayRuns()
+        coVerify(exactly = 0) { fixture.gateway.getJobResult(any(), any()) }
+        coVerify(exactly = 0) { fixture.gateway.cancelJob(any(), any()) }
+        coVerify(exactly = 0) { fixture.chats.restoreGatewayAnswer(any(), any(), any(), any(), any(), any()) }
+        assertTrue(fixture.state != AgentRunStatus.COMPLETED)
     }
 
     @Test fun interruptedTerminalJobWithoutTextStopsPollingWithoutReplayingIt() = runTest {

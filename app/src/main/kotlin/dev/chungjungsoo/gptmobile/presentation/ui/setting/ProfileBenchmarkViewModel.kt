@@ -14,6 +14,13 @@ import dev.chungjungsoo.gptmobile.data.audit.AppAuditSourceInventory
 import dev.chungjungsoo.gptmobile.data.audit.appAuditBenchmarkProfileHash
 import dev.chungjungsoo.gptmobile.data.audit.writeAppAuditExport
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkEngineeringBudget
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkEngineeringExternalTransport
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkEngineeringLane
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkEngineeringOrdering
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkEngineeringPlan
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkEngineeringPreview
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkEngineeringRegistry
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionCoordinator
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
@@ -22,12 +29,16 @@ import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueueItem
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueueState
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey
+import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkEngineeringComparisons
+import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkHash
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSnapshot
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -153,6 +164,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
     internal val scoreSnapshot = store.snapshot
     val history = store.history
     val batches = store.batches
+    val engineeringComparisons = history.map(::benchmarkEngineeringComparisons)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val storageWarning = store.warning
     internal val resultPresentations = combine(profiles, history, batches, scoreSnapshot) { list, runs, batches, snapshot ->
         benchmarkResultPresentations(list, runs, batches, snapshot?.rows.orEmpty())
@@ -164,12 +177,40 @@ class ProfileBenchmarkViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private val mutableAuditLabelWarning = MutableStateFlow<String?>(null)
     val auditLabelWarning = mutableAuditLabelWarning.asStateFlow()
-    private val auditConnections = database.toolConnectionDao().observeConnections()
+    private val connectionDao = database.toolConnectionDao()
+    private val auditConnections = connectionDao.observeConnections()
         .onEach { mutableAuditLabelWarning.value = null }
         .catch {
             mutableAuditLabelWarning.value = "Current connection names could not be loaded. Historical target aliases and audit evidence remain available."
             emit(emptyList())
         }
+    private val mutableEngineeringGitHubConnections = MutableStateFlow<List<ToolConnection>>(emptyList())
+    val engineeringGitHubConnections = mutableEngineeringGitHubConnections.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            auditConnections.collect { connections ->
+                mutableEngineeringGitHubConnections.value = connections.filter { it.type == ToolConnectionType.GITHUB }
+            }
+        }
+    }
+
+    /** Retained selections are never replaced when a connection disappears. */
+    fun refreshEngineeringGitHubConnections() {
+        viewModelScope.launch {
+            try {
+                mutableEngineeringGitHubConnections.value = withContext(Dispatchers.IO) {
+                    connectionDao.listConnections().filter { it.type == ToolConnectionType.GITHUB }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                mutableEngineeringGitHubConnections.value = emptyList()
+                mutableError.value = "Saved GitHub connections could not be refreshed. Reopen connection settings and retry."
+            }
+        }
+    }
+
     internal val auditTargetNames = combine(profiles, auditConnections) { currentProfiles, connections ->
         appAuditCurrentTargetNames(currentProfiles.map { it.uid to it.name }, connections.map { it.connectionUid to it.name })
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
@@ -429,6 +470,113 @@ class ProfileBenchmarkViewModel @Inject constructor(
         if (debugMode.value) start(BenchmarkMode.FULL, diagnostics = true)
     }
 
+    fun previewEngineeringBenchmark(
+        lane: BenchmarkEngineeringLane,
+        repeats: Int = 3,
+        preset: String = "quick",
+        allActions: Boolean = true,
+        taskPack: String = "coding",
+        externalTransport: BenchmarkEngineeringExternalTransport = BenchmarkEngineeringExternalTransport.GATEWAY
+    ): BenchmarkEngineeringPreview = BenchmarkEngineeringRegistry.preview(lane, repeats, preset, allActions, taskPack, externalTransport)
+
+    /** One frozen experiment; selected profile order stays unchanged unless counterbalancing is selected. */
+    fun startEngineeringBenchmark(
+        selectedProfileUids: List<String>,
+        lane: BenchmarkEngineeringLane,
+        repeats: Int = 3,
+        ordering: BenchmarkEngineeringOrdering = BenchmarkEngineeringOrdering.SELECTED_ORDER,
+        strictDeterministic: Boolean = false,
+        preset: String = "quick",
+        repositoryFullName: String? = null,
+        baseSha: String? = null,
+        taskPack: String = "coding",
+        budget: BenchmarkEngineeringBudget? = null,
+        externalTransport: BenchmarkEngineeringExternalTransport = BenchmarkEngineeringExternalTransport.GATEWAY,
+        githubConnectionUid: String? = null,
+        contextExperiment: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkContextExperiment? = null
+    ): Boolean {
+        if (execution.isRunning || !mutableReady.value) return false
+        if (selectedProfileUids.size !in 1..2 ||
+            selectedProfileUids.distinct().size != selectedProfileUids.size ||
+            repeats !in 1..10 ||
+            preset !in setOf("quick", "standard", "deep") ||
+            taskPack !in setOf("coding", "repository") ||
+            (taskPack != "coding" && lane !in setOf(BenchmarkEngineeringLane.EXECUTABLE_CODING, BenchmarkEngineeringLane.LIVE_GITHUB))
+        ) {
+            mutableError.value = "Select one profile or exactly two distinct profiles and between one and ten repeats."
+            return false
+        }
+        if (contextExperiment != null && (!contextExperiment.valid() || selectedProfileUids.size != 1 || lane !in setOf(BenchmarkEngineeringLane.EXECUTABLE_CODING, BenchmarkEngineeringLane.LIVE_GITHUB))) {
+            mutableError.value = "Context experiments use one unchanged profile and an executable coding or Live GitHub lane."
+            return false
+        }
+        val targets = selectedProfileUids.mapNotNull { uid -> profiles.value.singleOrNull { it.uid == uid && it.enabled && it.model.isNotBlank() } }
+        if (targets.size != selectedProfileUids.size) {
+            mutableError.value = "A selected profile is unavailable. Its replacement will not be selected automatically."
+            return false
+        }
+        val repository = repositoryFullName?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val revision = baseSha?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        if (lane == BenchmarkEngineeringLane.LIVE_GITHUB &&
+            (repository?.matches(Regex("[a-z0-9_.-]+/[a-z0-9_.-]+")) != true || revision?.matches(Regex("[0-9a-f]{40}")) != true)
+        ) {
+            mutableError.value = "Live GitHub requires an explicitly selected disposable repository and its exact 40-character base commit."
+            return false
+        }
+        val connectionUid = githubConnectionUid?.trim()?.takeIf { it.isNotEmpty() && externalTransport == BenchmarkEngineeringExternalTransport.PHONE_GITHUB_ACTIONS }
+        if (externalTransport == BenchmarkEngineeringExternalTransport.PHONE_GITHUB_ACTIONS &&
+            (
+                lane != BenchmarkEngineeringLane.LIVE_GITHUB ||
+                    engineeringGitHubConnections.value.singleOrNull { it.connectionUid == connectionUid }?.let {
+                        it.toolPolicy in setOf("ASK_WRITES", "TRUSTED") && !it.secretRef.isNullOrBlank()
+                    } != true
+                )
+        ) {
+            mutableError.value = "Direct GitHub Actions requires Live GitHub and an explicitly selected connected GitHub account with write permission."
+            return false
+        }
+        val policy = dev.chungjungsoo.gptmobile.data.benchmark.githubAuditExecutionPolicy(strictDeterministic)
+        val acceptedBudget = budget ?: BenchmarkEngineeringRegistry.defaultBudget(lane)
+        if (!acceptedBudget.valid()) {
+            mutableError.value = "Choose a valid task deadline, output allowance and repair budget; the model round limit must cover every permitted submission."
+            return false
+        }
+        val cases = BenchmarkEngineeringRegistry.cases(lane, preset, taskPack = taskPack).map { it.copy(engineeringBudget = acceptedBudget) }
+        if (cases.isEmpty()) {
+            mutableError.value = "The selected engineering suite has no executable tasks in this build."
+            return false
+        }
+        val id = UUID.randomUUID().toString()
+        val plan = BenchmarkEngineeringPlan(
+            id, lane, repeats, ordering, targets.map { it.uid },
+            targets.associate { it.uid to benchmarkConfigKey(it, localEnvironment.value, policy) },
+            BenchmarkEngineeringRegistry.manifestHash(cases), policy, acceptedBudget,
+            dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT,
+            benchmarkHash(localEnvironment.value),
+            benchmarkHash(listOf(lane, repository, revision, externalTransport, connectionUid, "isolated-fixture-only-v1").joinToString("|")),
+            preset = preset, repositoryFullName = repository, baseSha = revision, taskPack = taskPack,
+            externalTransport = externalTransport, githubConnectionUid = connectionUid.takeIf { externalTransport == BenchmarkEngineeringExternalTransport.PHONE_GITHUB_ACTIONS },
+            contextExperiment = contextExperiment
+        ).frozen()
+        val batch = BenchmarkBatch(
+            id = id, mode = BenchmarkMode.GITHUB_INTEGRATION, createdAt = System.currentTimeMillis(),
+            items = BenchmarkEngineeringRegistry.queue(targets, plan),
+            measurementVersion = 4, scoringVersion = 4,
+            orderPolicy = if (ordering == BenchmarkEngineeringOrdering.COUNTERBALANCED) "paired-ab-ba-v1" else "selected-order-v1",
+            caseManifest = cases, localEnvironment = localEnvironment.value, executionPolicy = policy,
+            paired = targets.size == 2, engineeringPlan = plan,
+            recoveryPolicy = "INDEPENDENT_CASES_AFTER_CONFIRMED_CLEANUP_V1"
+        )
+        mutableError.value = null
+        mutableProgress.value = BenchmarkProgress(lane.label, "Saving frozen tasks and profile settings", 0, cases.size * batch.items.size)
+        val accepted = execution.startBatch(batch) != null
+        if (!accepted) {
+            mutableProgress.value = null
+            mutableError.value = "Another benchmark owns execution. This comparison has not been queued."
+        }
+        return accepted
+    }
+
     /** Uses exactly the selected saved AI profile, never the active chat, a reviewer or another provider. */
     fun startGitHubToolAudit(profileUid: String, allActions: Boolean, strictDeterministic: Boolean = false): Boolean {
         if (execution.isRunning || !mutableReady.value) return false
@@ -439,7 +587,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
             mutableError.value = "Select a currently enabled AI profile for the GitHub tool audit."
             return false
         }
-        val suite = dev.chungjungsoo.gptmobile.data.benchmark.GitHubProfileAuditSuite.cases(allActions)
+        val suite = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.githubAuditCases(allActions)
         if (suite.isEmpty()) {
             mutableError.value = "GitHub tool contracts are unavailable in this build."
             return false
@@ -606,6 +754,14 @@ class ProfileBenchmarkViewModel @Inject constructor(
     fun retryFailed(batchId: String, requestedPolicy: BenchmarkExecutionPolicy? = null) {
         if (execution.isRunning) return
         val previous = batches.value.firstOrNull { it.id == batchId } ?: return
+        previous.engineeringPlan?.let { plan ->
+            // A manual retest is a new experiment. It cannot replace only the losing side of an old pair.
+            startEngineeringBenchmark(
+                plan.profileUids, plan.lane, plan.repeats, plan.ordering,
+                (requestedPolicy ?: plan.executionPolicy) == BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1, plan.preset, plan.repositoryFullName, plan.baseSha, plan.taskPack, plan.budget, plan.externalTransport, plan.githubConnectionUid
+            )
+            return
+        }
         val now = System.currentTimeMillis()
         val policy = requestedPolicy ?: previous.executionPolicy ?: BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1
         val currentProfiles = profiles.value.associateBy { it.uid }

@@ -27,7 +27,8 @@ internal object GitHubRunAcceptance {
         val approvalState: String? = null,
         val taskOutcome: String? = null,
         val diagnosticsComplete: Boolean = false,
-        val evidenceProvenance: JsonObject? = null
+        val evidenceProvenance: JsonObject? = null,
+        val explanation: JsonObject? = null
     )
 
     data class CommitEvidence(val expected: Boolean, val acceptance: Assessment?)
@@ -157,6 +158,7 @@ internal object GitHubRunAcceptance {
             responseHash?.let { put("response_sha256", it) }
             put("required_criteria", criteria.size)
             put("verified_criteria", verified)
+            put(GitHubAcceptanceExplanation.KEY, GitHubAcceptanceExplanation.from(report))
             put("unresolved_remote_outcomes", unresolved ?: -1)
             put("diagnostics_complete", diagnosticsComplete)
             put("diagnostic_projection", diagnostics)
@@ -216,7 +218,8 @@ internal object GitHubRunAcceptance {
             value.text("approval_state").takeIf(String::isNotBlank),
             value.text("task_outcome").takeIf(String::isNotBlank),
             diagnosticsComplete,
-            value["verdict_evidence_provenance"] as? JsonObject
+            value["verdict_evidence_provenance"] as? JsonObject,
+            GitHubAcceptanceExplanation.retained(value[GitHubAcceptanceExplanation.KEY] as? JsonObject)
         )
     }
 
@@ -229,6 +232,7 @@ internal object GitHubRunAcceptance {
                 put("status", "NOT_RETAINED")
                 put("required", assessment.requiredCriteria)
                 put("verified", assessment.verifiedCriteria)
+                assessment.explanation?.let { put(GitHubAcceptanceExplanation.KEY, it) }
             }.toString()
         )
         val digest = projection.text("criteria_sha256")
@@ -251,6 +255,7 @@ internal object GitHubRunAcceptance {
                     put("diagnostics_complete", assessment.diagnosticsComplete)
                     put("required", assessment.requiredCriteria)
                     put("verified", assessment.verifiedCriteria)
+                    assessment.explanation?.let { put(GitHubAcceptanceExplanation.KEY, it) }
                     put("counts_scope", if (rows.size == total) "ALL_RETAINED_CRITERIA" else "INCLUDED_CRITERIA_ONLY")
                     put("requirement_counts", GitHubAcceptanceLedger.counts(rows.filter { it.text("kind") == "REQUIREMENT" }))
                     put("capability_counts", GitHubAcceptanceLedger.counts(rows.filter { it.text("kind") == "CAPABILITY" }))

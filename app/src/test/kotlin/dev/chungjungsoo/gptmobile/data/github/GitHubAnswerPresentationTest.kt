@@ -11,6 +11,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubAnswerPresentationTest {
+    @Test fun failureFilteredObservationsAreNotPresentedAsTheLatestWorkflow() {
+        val text = GitHubAnswerPresentation.render(
+            "Repository status",
+            listOf("| Observed failed workflow · name | Historical failure | 2026-11-22 |"),
+            emptyList(),
+            emptyList(),
+            emptyList()
+        )
+        assertTrue(text, text.contains("## Observed workflow failures"))
+        assertFalse(text, text.contains("## Latest workflow"))
+    }
+
     private val revision = "a".repeat(40)
     private fun receipt(text: String = "val answer = 42\nreturn answer"): JsonObject = buildJsonObject {
         put("trusted", true)

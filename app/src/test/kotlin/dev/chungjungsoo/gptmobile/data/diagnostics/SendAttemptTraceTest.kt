@@ -25,4 +25,12 @@ class SendAttemptTraceTest {
         assertEquals(2, events.size)
         assertTrue(events.last().endsWith("ATTACHMENT_PREPARING"))
     }
+
+    @Test fun queuedContinuationRetainsFrozenVoicePresentationAndRequestIdentity() {
+        val trace = SendAttemptTrace("voice-request", record = {}, voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.CONVERSATIONAL)
+        trace.finish("SESSION_QUEUED")
+        val resumed = trace.queuedContinuation()
+        assertEquals("voice-request", resumed.requestId)
+        assertEquals(dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.CONVERSATIONAL, resumed.voiceResponsePolicy)
+    }
 }

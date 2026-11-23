@@ -1,0 +1,59 @@
+{
+  "scope": "x86_htp_emulator_graph_regression",
+  "physical_device_qualified": false,
+  "onnxruntime": "1.28.0",
+  "qnn_plugin": "2.7.0",
+  "qairt": "2.51.0",
+  "model_sha256": "75635ea3b85a32d00094dcdd61a258aba87c160f7c264c304a7b3ae9d734195e",
+  "provider_library_sha256": "a4e047fe3485aef632ef950695ac472e52ded73e753323c0caa8cb5e93e28eed",
+  "cases": [
+    {
+      "tokens": 17,
+      "samples": 60600,
+      "positive_durations": 17,
+      "finite_nonzero_audio": true,
+      "same_inference_timing_valid": true,
+      "cpu_duration_array_equal": true,
+      "cpu_sample_count_equal": true,
+      "cpu_samples": 60600,
+      "maximum_token_duration_delta": 0,
+      "total_duration_delta": 0,
+      "qnn_kernels": 39,
+      "cpu_kernels": 1345,
+      "qnn_audio_rms": 0.06637778133153915,
+      "cpu_audio_rms": 0.06677562743425369
+    },
+    {
+      "tokens": 31,
+      "samples": 75000,
+      "positive_durations": 31,
+      "finite_nonzero_audio": true,
+      "same_inference_timing_valid": true,
+      "cpu_duration_array_equal": true,
+      "cpu_sample_count_equal": true,
+      "cpu_samples": 75000,
+      "maximum_token_duration_delta": 0,
+      "total_duration_delta": 0,
+      "qnn_kernels": 39,
+      "cpu_kernels": 1513,
+      "qnn_audio_rms": 0.06067447364330292,
+      "cpu_audio_rms": 0.061251528561115265
+    },
+    {
+      "tokens": 83,
+      "samples": 126000,
+      "positive_durations": 83,
+      "finite_nonzero_audio": true,
+      "same_inference_timing_valid": true,
+      "cpu_duration_array_equal": false,
+      "cpu_sample_count_equal": false,
+      "cpu_samples": 124800,
+      "maximum_token_duration_delta": 1,
+      "total_duration_delta": 2,
+      "qnn_kernels": 39,
+      "cpu_kernels": 2137,
+      "qnn_audio_rms": 0.05117267742753029,
+      "cpu_audio_rms": 0.05194760113954544
+    }
+  ]
+}

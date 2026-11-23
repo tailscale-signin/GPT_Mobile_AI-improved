@@ -35,7 +35,7 @@ internal object GitHubVerificationCatalog {
         }.sortedWith(
             compareByDescending<JsonObject> { receipt ->
                 (receipt["facts"] as? JsonObject).orEmpty().entries.maxOfOrNull { score(it.key, it.value) } ?: 0
-            }.thenByDescending { (it["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }
+            }.thenByDescending { (it["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0L }
         )
         // Cover each operation before spending the context on repeated reads of one file.
         val groups = ranked.groupBy { "${it["tool"]}:${(it["arguments"] as? JsonObject)?.get("action")}" }

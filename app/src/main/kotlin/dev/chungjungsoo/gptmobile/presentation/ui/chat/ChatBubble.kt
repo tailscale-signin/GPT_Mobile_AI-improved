@@ -102,6 +102,7 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -146,6 +147,7 @@ internal fun shouldShowContinuePrompt(
 fun UserChatBubble(
     modifier: Modifier = Modifier,
     text: String,
+    privacyProtectedValues: List<String> = emptyList(),
     timestamp: Long? = null,
     files: List<String> = emptyList(),
     hasDetails: Boolean = false,
@@ -163,6 +165,12 @@ fun UserChatBubble(
         disabledContainerColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.38f)
     )
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
+    val protectedText = rememberPrivacyProtectedText(
+        text = remember(text) { AnnotatedString(text) },
+        surface = cardColor.containerColor,
+        values = privacyProtectedValues,
+        sourceText = text
+    )
 
     val actions = listOf(
         BubbleAction(stringResource(R.string.select_text), ImageVector.vectorResource(R.drawable.ic_select), invoke = onSelectClick),
@@ -179,7 +187,7 @@ fun UserChatBubble(
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                     Text(
-                        text = text,
+                        text = protectedText,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         style = MaterialTheme.typography.bodyMedium.copy(
                             platformStyle = PlatformTextStyle(includeFontPadding = false),
@@ -225,6 +233,7 @@ fun OpponentChatBubble(
     isLoading: Boolean,
     isError: Boolean = false,
     text: String,
+    privacyProtectedValues: List<String> = emptyList(),
     timestamp: Long? = null,
     thoughts: String = "",
     timeline: List<AssistantTimelineItem> = emptyList(),
@@ -299,6 +308,10 @@ fun OpponentChatBubble(
         if (githubTask != null) gitHubResponsePresentation(text, timeline, holdGitHubAnswer) else null
     }
     val displayedText = githubPresentation?.text ?: text
+    val voicePresentation = dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoiceMessageControls.current != null
+    val voiceRichText = remember(displayedText, voicePresentation, isLoading) {
+        if (voicePresentation) dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText.richDetails(displayedText, final = !isLoading) else displayedText
+    }
     val hasFinalGitHubAnswer =
         githubTask != null &&
             !holdGitHubAnswer &&
@@ -462,66 +475,79 @@ fun OpponentChatBubble(
                         hasUnavailableAssistantOrder(contentTimeline, text, visibleThoughts, processToolEvents.isNotEmpty())
                     }
 
-                    AssistantChronologicalContent(
-                        selectedModel = agentRun?.modelSnapshot,
-                        outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
-                        animateResponse = debugSettings.responseAnimation && !hasFinalGitHubAnswer, timeline = contentTimeline,
-                        proseColor = if (hasFinalGitHubAnswer) {
-                            finalGitHubColor
-                        } else {
-                            profileColorIdentity?.let {
-                                ProfileAttributionPalette.foreground(
-                                    it,
-                                    bubbleColor.compositeOver(MaterialTheme.colorScheme.background)
-                                )
-                            }
-                        },
-                        responseSurface = bubbleColor.compositeOver(MaterialTheme.colorScheme.background),
-                        toolEvents = processToolEvents,
-                        fallbackText = displayedText,
-                        fallbackThoughts = visibleThoughts,
-                        contentIdentity = contentIdentity,
+                    dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceAnswerPresentation(
+                        text = displayedText,
+                        richText = voiceRichText,
+                        identity = contentIdentity,
                         isLoading = isLoading,
-                        debugMode = debugMode,
-                        showExecutionTrace = effectiveExecutionTrace,
-                        responseIcon = responseIcon ?: { GPTMobileIcon(loading = false) },
-                        activityToggleTag = when {
-                            githubTask != null -> "github_activity_history"
-                            isLoading || effectiveExecutionTrace && hasDetails || timeline.any { it.progressCheckpoint } || toolEvents.isNotEmpty() -> "chat_activity_history"
-                            else -> null
-                        },
-                        beforeAnswer = {
-                            if (githubTask == null && (isLoading || activityExpanded)) {
-                                UniversalChatActivityFeed(
-                                    task = conversationTask,
-                                    timeline = timeline,
-                                    toolEvents = toolEvents,
-                                    active = isLoading,
-                                    animate = debugSettings.responseAnimation,
-                                    expanded = activityExpanded
-                                )
-                            }
-                            if (githubTask != null && (activityExpanded || holdGitHubAnswer)) {
-                                GitHubLiveProgressCard(timeline, githubTask, toolEvents, expanded = activityExpanded, active = isLoading)
-                            }
-                            if (githubPresentation?.progressOnly == true) {
-                                Text(if (isLoading) "Progress update" else "Saved progress", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        },
-                        debugSettings = debugSettings,
-                        debugMemorySources = debugMemorySources,
-                        showReasoning = showReasoning,
-                        isError = isError,
-                        expanded = activityExpanded,
-                        onExpandedChange = { activityExpanded = it },
-                        articleCards = articleCards,
-                        combinedWording = combinedWording,
-                        splitForPassageIndicators = splitForPassageIndicators,
-                        passageIndicators = passageIndicators,
-                        combinedManifest = combinedManifest,
-                        originalSource = originalSource,
-                        loadCombinedBlocks = loadCombinedBlocks
-                    )
+                        privacyProtectedValues = privacyProtectedValues,
+                        enabled = !holdGitHubAnswer,
+                        hasAdditionalDetails = combinedManifest != null || originalSource != null || effectiveExecutionTrace && hasDetails,
+                        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                    ) {
+                        AssistantChronologicalContent(
+                            privacyProtectedValues = privacyProtectedValues.takeIf { voiceRichText == displayedText }.orEmpty(),
+                            selectedModel = agentRun?.modelSnapshot,
+                            outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
+                            animateResponse = debugSettings.responseAnimation && !hasFinalGitHubAnswer,
+                            timeline = if (voicePresentation) contentTimeline.filter { it.type != AssistantTimelineItemType.TEXT && it.type != AssistantTimelineItemType.THINKING } else contentTimeline,
+                            proseColor = if (hasFinalGitHubAnswer) {
+                                finalGitHubColor
+                            } else {
+                                profileColorIdentity?.let {
+                                    ProfileAttributionPalette.foreground(
+                                        it,
+                                        bubbleColor.compositeOver(MaterialTheme.colorScheme.background)
+                                    )
+                                }
+                            },
+                            responseSurface = bubbleColor.compositeOver(MaterialTheme.colorScheme.background),
+                            toolEvents = processToolEvents,
+                            fallbackText = voiceRichText,
+                            fallbackThoughts = if (voicePresentation) "" else visibleThoughts,
+                            contentIdentity = contentIdentity,
+                            isLoading = isLoading,
+                            debugMode = debugMode,
+                            showExecutionTrace = effectiveExecutionTrace,
+                            responseIcon = responseIcon ?: { GPTMobileIcon(loading = false) },
+                            activityToggleTag = when {
+                                githubTask != null -> "github_activity_history"
+                                isLoading || effectiveExecutionTrace && hasDetails || timeline.any { it.progressCheckpoint } || toolEvents.isNotEmpty() -> "chat_activity_history"
+                                else -> null
+                            },
+                            beforeAnswer = {
+                                if (githubTask == null && (isLoading || activityExpanded)) {
+                                    UniversalChatActivityFeed(
+                                        task = conversationTask,
+                                        timeline = timeline,
+                                        toolEvents = toolEvents,
+                                        active = isLoading,
+                                        animate = debugSettings.responseAnimation,
+                                        expanded = activityExpanded
+                                    )
+                                }
+                                if (githubTask != null && (activityExpanded || holdGitHubAnswer)) {
+                                    GitHubLiveProgressCard(timeline, githubTask, toolEvents, expanded = activityExpanded, active = isLoading)
+                                }
+                                if (githubPresentation?.progressOnly == true) {
+                                    Text(if (isLoading) "Progress update" else "Saved progress", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            },
+                            debugSettings = debugSettings,
+                            debugMemorySources = debugMemorySources,
+                            showReasoning = showReasoning && !voicePresentation,
+                            isError = isError,
+                            expanded = activityExpanded,
+                            onExpandedChange = { activityExpanded = it },
+                            articleCards = articleCards,
+                            combinedWording = combinedWording,
+                            splitForPassageIndicators = splitForPassageIndicators,
+                            passageIndicators = passageIndicators,
+                            combinedManifest = combinedManifest,
+                            originalSource = originalSource,
+                            loadCombinedBlocks = loadCombinedBlocks
+                        )
+                    }
                     if (showTerminalFallback) {
                         Text(
                             text = if (isError) "The response failed before displayable content was returned." else "The model finished without returning displayable text.",

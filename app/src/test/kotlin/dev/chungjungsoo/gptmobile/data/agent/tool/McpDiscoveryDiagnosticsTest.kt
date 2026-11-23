@@ -32,4 +32,18 @@ class McpDiscoveryDiagnosticsTest {
         val unsafe = McpConnectionConfig("same", "https://example.com/mcp", false, configurationRevision = "token=private")
         assertTrue(mcpDiscoveryDiagnostic(unsafe, McpDiscoveryTrigger.AUDIT_REFRESH, true, McpDiscoveryDecision.REQUESTED).contains("configurationRevision=unobserved"))
     }
+
+    @Test fun cacheMissDiagnosticsExposeOnlyClosedReasonsAndEpochs() {
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance(reason = "private-token https://private.example/mcp")
+        val config = McpConnectionConfig("private-connection", "https://private.example/mcp?token=hidden", false, "Bearer secret")
+        val diagnostic = mcpDiscoveryDiagnostic(config, McpDiscoveryTrigger.AUTOMATIC_RESOLUTION, false, McpDiscoveryDecision.START_ACQUISITION, McpCatalogueCacheReason.IDENTITY_CHANGED)
+        assertTrue(diagnostic.contains("cacheReason=IDENTITY_CHANGED"))
+        assertTrue(diagnostic.contains("invalidationReason=AUTHORITY_OR_CONFIGURATION_CHANGED"))
+        assertTrue(diagnostic.contains("catalogueEpoch=${dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.catalogueEpoch}"))
+        assertTrue(diagnostic.contains("networkEpoch=${dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch}"))
+        assertFalse(diagnostic.contains("private"))
+        assertFalse(diagnostic.contains("hidden"))
+        assertFalse(diagnostic.contains("Bearer"))
+        assertFalse(diagnostic.contains("secret"))
+    }
 }

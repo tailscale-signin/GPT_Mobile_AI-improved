@@ -1,0 +1,109 @@
+{
+  "task_id": "isolated-unit-compiler-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "working_branch": "work/phone-repository-map-2026-11-22",
+  "parent_head": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+  "intent": "Correct the measured isolated3GiB unit-compiler heap failure with a bounded4GiB compiler-only override, preserving1GiB metaspace and all execution limits/selectors/gates. Observe stage-specific headroom before compilation and retain bounded numeric/GC receipts.",
+  "owner": "map/integration",
+  "failed_run": 45109108290,
+  "failed_job": 137477217075,
+  "status": "CORRECTION_FOCUSED_AND_CANONICAL_VALIDATION_PASSED",
+  "production_source_changed": false,
+  "runtime_tests_executed_in_failed_job": false,
+  "observed_heap_mib": 3072,
+  "observed_metaspace_mib": 1024,
+  "proposed_heap_mib": 4096,
+  "proposed_metaspace_mib": 1024,
+  "proposed_reserve_mib": 2048,
+  "limits": [
+    "4GiB compiler sufficiency remains a hosted gate; no local Android compilation is claimed.",
+    "No test assertion, selector, coverage, timeout or signing/publication gate may be relaxed."
+  ],
+  "affected_workflows": [
+    "pr-validation.yml",
+    "release-build.yml",
+    "audit-workspace.yml",
+    "marketplace-contracts.yml"
+  ],
+  "unchanged_existing_four_gib_paths": [
+    "github-build-downloads.yml",
+    "geniex-preview.yml",
+    "scripts/android_pipeline.py"
+  ],
+  "headroom_design": "A unit-only adapter re-evaluates complete known numeric observations from the byte-unchanged production observer against fixed4096+1024+2048MiB. Unknown stays refused; swap never counts; no global mutation or arbitrary budget option.",
+  "failed_compiler_evidence": {
+    "path": "/workspace/scratch/c067b3dc0a58/ci-monitor/8318-marketplace-unit-compiler-137477217075.json",
+    "sha256": "635210dec5f6dc06a049cab54a3f5c7dfa01998d6c2b916f4ebf3d1914e9ef9c"
+  },
+  "same_head_hosted_positive": {
+    "run": 45109108278,
+    "job": 137477212343,
+    "head": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+    "heap_mib": 4096,
+    "metaspace_mib": 768,
+    "compiled_task": ":app:compileDebugUnitTestKotlin",
+    "task_executed_utc": "2026-11-23T04:15:35Z",
+    "build_success_utc": "2026-11-23T04:20:09Z",
+    "scope": "Actual fresh whole unit-source compilation and selected GitHubBuildCatalogTest/GitHubApkFilesTest execution only; not a full-suite pass.",
+    "evidence": "/workspace/scratch/c067b3dc0a58/ci-monitor/8318-downloads-4g-unit-compiler-137477212343.json",
+    "sha256": "28274d86afd7caaba457a99d6798514ea1854065b7e18ab4b60e7130e76776c9",
+    "qualification": "Proves current whole unit-source compilation at4GiB and only selected download tests. The corrected four workflow stages still need their own final-head run, and full Android suite remains required."
+  },
+  "production_sources_unchanged": {
+    "gradle.properties": "5dd83fefac25b418d0676e4b1b90ae9fed776dbabed7c95bd8c05508196f4b0d",
+    "scripts/check_android_compile_memory.py": "234d03a8f70e9f9d69ae903dc93b6570f456dd15947541657d4d130f98bec53b",
+    "gateway/desktop/development_profiles.py": "018227fb43d790f54fce33e376aa0db48613c2b61f2ef585a859e89fb4d50d09",
+    "scripts/android_pipeline.py": "09acf97db1efa43e4d73eed7e942fb8c0197bf07dd2cba798fc40d4ce6e00009"
+  },
+  "validation": [
+    {
+      "phase": "new_adapter_and_unchanged_production_observer",
+      "result": "PASS",
+      "tests": 14,
+      "boundary": "Actual bounded resource parser/observer and adapter CLI using supplied proc/cgroup fixtures, not Android compilation.",
+      "evidence": "/workspace/scratch/c067b3dc0a58/unit-compile-memory-proof/manifest.json"
+    },
+    {
+      "phase": "combined_host_contracts",
+      "result": "PASS",
+      "tests": 61,
+      "seconds": 0.177
+    },
+    {
+      "phase": "workflow_preservation_and_actual_shell_control",
+      "result": "PASS",
+      "unchanged_steps": 141,
+      "changed_compiler_steps": 4,
+      "expanded_failure_artifact_uploads": 4,
+      "actual_shell_scenarios": 16,
+      "controls": "Original task/flag arrays and all other step metadata unchanged; insufficient/unknown stop before Gradle; successful headroom permits exactly one original compile command plus fixed JVM/GC override.",
+      "evidence": "/workspace/scratch/c067b3dc0a58/unit-compiler-proof/workflow-preservation.json"
+    },
+    {
+      "phase": "generated_metadata_release_scope_whitespace",
+      "result": "PASS"
+    },
+    {
+      "phase": "canonical_fast",
+      "result": "PASS",
+      "tests": 657,
+      "seconds": 22.297,
+      "literal_regexes": 2038,
+      "dynamic_regexes_excluded": 100,
+      "xml_resources": 36
+    }
+  ],
+  "independent_source_review": "Unit observer design independently reviewed; existing production helper and Gateway embedded wrapper are byte-identical. Four workflow diffs preserve all original commands except the bounded test-compiler JVM override and its fresh resource/GC receipts.",
+  "source_sha256": {
+    "scripts/check_android_unit_compile_memory.py": "f6d997e5debe8a39ca713a1530ddb4fb59207ad2e612fac0ef5bc574baef5235",
+    "scripts/tests/test_android_unit_compile_memory.py": "731eb275b7d31031bd5c412ec188fd2e2a2015c399b61d5a55c145ae66b9a839"
+  },
+  "proof_hashes": {
+    "/workspace/scratch/c067b3dc0a58/unit-compiler-proof/workflow-preservation.json": "e4fadcab70b42c0b682b6c549012fadc2e3b93de402bf5d1255ff419fcd88f9e",
+    "/workspace/scratch/c067b3dc0a58/unit-compiler-proof/combined-host-contracts.log": "7c92e48d723877287e986e440b1971f4e3d8aec9257ebc0ef04f4763a66a16c0",
+    "/workspace/scratch/c067b3dc0a58/unit-compiler-proof/canonical-fast.log": "13ea93ac93ceef2197880d946a4ff7e21923e0142353e5a1280f0206628b0c71",
+    "/workspace/scratch/c067b3dc0a58/unit-compile-memory-proof/manifest.json": "69e492f40dfd74e87dba130c727c74bccea34ec179b6089e0f136cb182d61ba7"
+  }
+}

@@ -146,7 +146,13 @@ class GatewayGraphTest {
                         throw failure.atRevision(context)
                     }
                 }
-                val result = tool.execute("status", buildJsonObject { put("action", "status") })
+                val result = tool.execute(
+                    "status",
+                    buildJsonObject {
+                        put("action", "status")
+                        put("map_source", "gateway")
+                    }
+                )
                 val diagnostic = (result.content as ToolResultContent.Json).value as JsonObject
                 assertTrue(result.isError)
                 assertEquals(JsonPrimitive(expected), diagnostic["failure_category"])
@@ -158,7 +164,7 @@ class GatewayGraphTest {
                 assertFalse(diagnostic.toString().contains("secret-token"))
                 assertEquals(JsonPrimitive(expected), result.executionReceipt?.get("reason_code"))
                 assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
-                val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "run", 0, result.callId, null, null, "repository_graph", "repository_graph", """{"action":"status"}""", null, null, "FAILED")
+                val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "run", 0, result.callId, null, null, "repository_graph", "repository_graph", """{"action":"status","map_source":"gateway"}""", null, null, "FAILED")
                 val fields = dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(event, result)
                 assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("tool-reason-code", expected), fields["original_reason_code_hash"])
             }
@@ -180,7 +186,13 @@ class GatewayGraphTest {
                     dev.chungjungsoo.gptmobile.data.agent.AgentToolResult(it, ToolResultContent.Text("native"), false)
                 }
             ) { throw GatewayGraphOperationException(cause, "host", "private host", null, false) }
-            val result = tool.execute("status", buildJsonObject { put("action", "status") })
+            val result = tool.execute(
+                "status",
+                buildJsonObject {
+                    put("action", "status")
+                    put("map_source", "gateway")
+                }
+            )
             assertTrue(result.isError)
             assertEquals(JsonPrimitive(false), result.executionReceipt?.get("index_outcome_unknown"))
             assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
@@ -224,7 +236,13 @@ class GatewayGraphTest {
                 }) { arguments ->
                     client.graph(ProviderRequestConfig("http://127.0.0.1:8090/v1", null), GatewayGraphRepository.boundRequest(context, arguments))
                 }
-                val result = tool.execute("http-status", buildJsonObject { put("action", "status") })
+                val result = tool.execute(
+                    "http-status",
+                    buildJsonObject {
+                        put("action", "status")
+                        put("map_source", "gateway")
+                    }
+                )
                 assertTrue(result.isError)
                 assertEquals("REPOSITORY_GRAPH_UNAVAILABLE", result.errorCode)
                 assertEquals(JsonPrimitive(status.value), result.executionReceipt?.get("http_status"))
@@ -262,7 +280,13 @@ class GatewayGraphTest {
                 val tool = RepositoryGraphTool("repository_graph") { arguments ->
                     GatewayEngineeringClient(http).graph(ProviderRequestConfig("http://127.0.0.1:8090/v1", null), GatewayGraphRepository.boundRequest(context, arguments))
                 }
-                val result = tool.execute("rate-response", buildJsonObject { put("action", "status") })
+                val result = tool.execute(
+                    "rate-response",
+                    buildJsonObject {
+                        put("action", "status")
+                        put("map_source", "gateway")
+                    }
+                )
                 val receipt = requireNotNull(result.executionReceipt)
                 assertTrue(result.dispatched)
                 assertEquals(JsonPrimitive(true), receipt["dispatched"])
@@ -274,7 +298,7 @@ class GatewayGraphTest {
                 assertEquals(observation, ((result.content as ToolResultContent.Json).value as JsonObject)["rate_limit"])
                 assertFalse(result.content.toString().contains("private-body"))
                 assertEquals(1, requests)
-                val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "run", 0, result.callId, null, null, "repository_graph", "repository_graph", """{"action":"status"}""", null, null, "FAILED")
+                val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "run", 0, result.callId, null, null, "repository_graph", "repository_graph", """{"action":"status","map_source":"gateway"}""", null, null, "FAILED")
                 val fields = dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(event, result)
                 assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("tool-reason-code", (observation["code"] as JsonPrimitive).content), fields["original_reason_code_hash"])
                 val report = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.fromFields("TOOL_RESULT", receipt + fields, 1_800_000_000_000)

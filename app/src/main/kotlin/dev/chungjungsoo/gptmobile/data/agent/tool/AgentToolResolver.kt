@@ -106,9 +106,13 @@ class AgentToolResolver @Inject constructor(
     private val repositoryGraphs: dev.chungjungsoo.gptmobile.data.github.GatewayGraphRepository? = null,
     private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
     private val repositoryTransfers: dev.chungjungsoo.gptmobile.data.github.GatewayRepositoryOperations? = null,
-    private val copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null
+    private val copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null,
+    private val repositoryMaps: dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
+        val privateTurn = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn]
+        privateTurn?.validate()
+        if (privateTurn != null || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) return
         val features = settingRepository.getFeatureSettings()
         val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } ?: return
         if (!features.remoteMcpConnections || !profile.enabled || profile.disableAllTools || profile.disableRemoteTools) return
@@ -178,7 +182,8 @@ class AgentToolResolver @Inject constructor(
         cachedCataloguesOnly: Boolean = false,
         requestedModel: String? = null
     ): List<ResolvedAgentTool> {
-        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) return emptyList()
+        val privateTurn = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn]
+        privateTurn?.validate()
         if (chatToolConfig?.github != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sessionAudit(userMessage?.content.orEmpty())) return emptyList()
         val platforms = settingRepository.fetchPlatformV2s()
         val featureSettings = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
@@ -198,6 +203,26 @@ class AgentToolResolver @Inject constructor(
         val freeProfile = consentPlatform?.let { it.compatibleType == ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null } == true
         val disableRemote = platform?.disableRemoteTools == true
         val disableLocal = platform?.disableLocalTools == true
+        if (privateTurn != null || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) {
+            privateTurn?.validate()
+            if (platform?.enabled != true || disableLocal || chatToolConfig?.allToolsDisabled == true) return emptyList()
+            // Do not load bindings, discover services, or instantiate tools with external dependencies.
+            return finalizeResolvedTools(
+                resolveTransportFreeBuiltIns(profileUid, platform, featureSettings, chatToolConfig),
+                profileUid,
+                platform,
+                featureSettings,
+                emptyList(),
+                chatToolConfig,
+                freeProfile,
+                disableRemote = true,
+                disableLocal = false,
+                onConnectionError = onConnectionError,
+                chatId = userMessage?.chatId,
+                consentPlatform = consentPlatform,
+                personalContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]
+            )
+        }
         val researchSelection = chatToolConfig?.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(depth = featureSettings.delegationFor(profileUid).strategy)
         fun paperAccess(features: AppFeatureSettings, current: PlatformV2?, selection: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection): Boolean = if (examinationRunKey == null) {
             dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, current?.disableRemoteTools == false && !current.disableAllTools) == null
@@ -231,7 +256,8 @@ class AgentToolResolver @Inject constructor(
                     current?.enabled == true && !current.disableAllTools && !current.disableLocalTools && selected?.sameWorkspace(decisionWorkspace) == true
                 },
                 offered = { gitHubDecisionNotifications?.offered(it) },
-                useSuggestion = { settingRepository.getFeatureSettings().githubDecisionMode(userMessage.chatId, decisionWorkspace) != GitHubDecisionMode.ASK }
+                useSuggestion = { settingRepository.getFeatureSettings().githubDecisionMode(userMessage.chatId, decisionWorkspace) != GitHubDecisionMode.ASK },
+                conversationIdentity = settingRepository.ensureConversationIdentity(userMessage.chatId)
             )
             resolved += ResolvedAgentTool(tool, null, "GitHub decisions", tool.definition.name, tool.definition.name)
         }
@@ -586,16 +612,34 @@ class AgentToolResolver @Inject constructor(
                 resolved += tool.resolved(null, "Memory", tool.definition.name)
             }
         }
+        resolved += resolveTransportFreeBuiltIns(profileUid, platform, featureSettings, chatToolConfig)
+        return resolved
+    }
+
+    private fun resolveTransportFreeBuiltIns(profileUid: String, platform: PlatformV2?, featureSettings: AppFeatureSettings, chatToolConfig: ChatMcpToolConfig?): List<ResolvedAgentTool> {
+        val resolved = mutableListOf<Pair<ResolvedAgentTool, String>>()
         if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CURRENT_DATE)) {
-            resolved += CurrentDateTool(java.time.Clock.system(runCatching { java.time.ZoneId.of(featureSettings.pluginExecution[ToolPluginId.CURRENT_DATE]?.timeZone.orEmpty()) }.getOrDefault(java.time.ZoneId.systemDefault()))).resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
+            resolved += CurrentDateTool(java.time.Clock.system(runCatching { java.time.ZoneId.of(featureSettings.pluginExecution[ToolPluginId.CURRENT_DATE]?.timeZone.orEmpty()) }.getOrDefault(java.time.ZoneId.systemDefault()))).resolved(null, null, BuiltInAgentTool.CURRENT_DATE) to ToolPluginId.CURRENT_DATE
         }
         if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CALCULATOR)) {
-            resolved += CalculatorTool(featureSettings.pluginExecution[ToolPluginId.CALCULATOR]?.decimalPlaces ?: 8).resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
+            resolved += CalculatorTool(featureSettings.pluginExecution[ToolPluginId.CALCULATOR]?.decimalPlaces ?: 8).resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION) to ToolPluginId.CALCULATOR
         }
         if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_FILES)) {
-            resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
+            resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE) to ToolPluginId.READ_FILES
         }
-        return resolved
+        return resolved.map { (tool, plugin) ->
+            tool.withAdmissionGate {
+                val features = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
+                val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, chatToolConfig?.github) }
+                current != null &&
+                    platform != null &&
+                    current.enabled &&
+                    !current.disableAllTools &&
+                    !current.disableLocalTools &&
+                    dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
+                    features.isToolPluginEnabledForProfile(profileUid, plugin)
+            }
+        }
     }
 
     private suspend fun resolveRemoteBuiltIns(
@@ -1443,6 +1487,16 @@ class AgentToolResolver @Inject constructor(
             val sha = ((result?.get("object") as? JsonObject)?.get("sha") as? kotlinx.serialization.json.JsonPrimitive)?.content
             require(sha.equals(context.commitSha, ignoreCase = true)) { "Refresh the selected GitHub revision before sharing graph results." }
         }
+        suspend fun verifyGatewayGraphRead(context: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) {
+            val liveFeatures = settingRepository.getFeatureSettings()
+            val liveProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+            if (!dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.allowed(approvalProfile, features.githubProfileOverrides[profileUid], context, requestedModel) ||
+                !dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.allowed(liveProfile, liveFeatures.githubProfileOverrides[profileUid], context, requestedModel)
+            ) {
+                throw dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException("GRAPH_SOURCE_SHARING_REQUIRED", "Enable repository map sharing for this repository and the selected AI destination in GitHub settings.")
+            }
+            verifyRepositoryRead(context)
+        }
         val workspacePreferences = features.githubProfileOverrides[profileUid]
         val checkConsent = workspacePreferences?.workspaceCheckConsent
         val checkAllowed = !authorizationFailed &&
@@ -1559,16 +1613,15 @@ class AgentToolResolver @Inject constructor(
             credentialAdmissionFailed = authorizationFailed,
             workspaceQuery = workspaceQuery,
             graphQuery = if (!authorizationFailed &&
-                repositoryGraphs != null &&
-                features.githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid != null &&
-                features.githubProfileOverrides[profileUid]?.engineeringMemory != dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.SESSION_ONLY &&
+                repositoryMaps != null &&
+                actualConnection != null &&
                 workspaceContext != null &&
-                dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.allowed(approvalProfile, features.githubProfileOverrides[profileUid], workspaceContext, requestedModel) &&
                 userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } == true
             ) {
                 { args ->
-                    verifyRepositoryRead(workspaceContext)
-                    repositoryGraphs.execute(workspaceContext, args).also { verifyRepositoryRead(workspaceContext) }
+                    val gateway = dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository.source(args) == dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository.GATEWAY
+                    if (gateway) verifyGatewayGraphRead(workspaceContext)
+                    repositoryMaps.execute(workspaceContext, args).also { if (gateway) verifyGatewayGraphRead(workspaceContext) }
                 }
             } else {
                 null

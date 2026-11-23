@@ -282,7 +282,10 @@ class DurablePromptQueue @Inject constructor(
         }
         val turn = PersistAgentTurnRequest(
             chatRoom = room,
-            userMessage = MessageV2(chatId = chatId, content = prompt.text, attachments = payload.attachments, platformType = null),
+            userMessage = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.attach(
+                MessageV2(chatId = chatId, content = prompt.text, attachments = payload.attachments, platformType = null),
+                dispatchTools.voiceResponsePolicy
+            ),
             runs = resolved.map { AgentRunDraft(UUID.randomUUID().toString(), it.uid, it.compatibleType.name, it.model, synthesisSnapshot = acceptedRecord) },
             chatPlatformModels = chats.fetchChatPlatformModels(chatId),
             queuedPromptId = prompt.id,

@@ -34,6 +34,7 @@ internal class GitHubDispatchAccounting(
             currentCoroutineContext()[Key]?.response(mutation, status, requestId, serverRequestId, false)
         suspend fun responded(mutation: Boolean, status: Int, requestId: String?, serverRequestId: String?, expectedAbsence: Boolean) =
             currentCoroutineContext()[Key]?.response(mutation, status, requestId, serverRequestId, expectedAbsence)
+        suspend fun locallyRejected(requestId: String?) = currentCoroutineContext()[Key]?.localRejection(requestId)
         suspend fun cached(observedAt: Long?, immutable: Boolean = false) = currentCoroutineContext()[Key]?.cache(observedAt, immutable)
         suspend fun freshness(path: String, reason: GitHubReadFreshness, observedAt: Long? = null) =
             currentCoroutineContext()[Key]?.recordFreshness(path, reason, observedAt)
@@ -54,6 +55,7 @@ internal class GitHubDispatchAccounting(
     private val pending = LinkedHashMap<String, Pending>()
     private var sequence = 0L
     private var reads = 0
+    private var localRequestRejections = 0
     private var readResponses = 0
     private var recoveredReadRequests = 0
     private val observedRetryTargets = mutableMapOf<GitHubReadRetry.Scope, MutableMap<Int, MutableSet<String>>>()
@@ -135,8 +137,21 @@ internal class GitHubDispatchAccounting(
         } else {
             reads++
         }
-        emit("REQUEST_EXECUTION_STATE · state=DISPATCHED · invocationId=$invocationId · requestId=$requestId · mutation=$mutation")
+        emit("REQUEST_EXECUTION_STATE · state=ATTEMPT_STARTED · invocationId=$invocationId · requestId=$requestId · mutation=$mutation")
         return requestId
+    }
+
+    /** Settle only this app-owned pre-send rejection; earlier requests retain their own uncertainty. */
+    @Synchronized private fun localRejection(requestId: String?) {
+        val request = requestId?.let(pending::remove) ?: return
+        if (request.mutation) {
+            mutations--
+            unknown--
+        } else {
+            reads--
+        }
+        localRequestRejections++
+        emit("REQUEST_EXECUTION_STATE · state=NOT_DISPATCHED · invocationId=$invocationId · requestId=$requestId · mutation=${request.mutation} · cause=LOCAL_POLICY_REJECTION")
     }
 
     @Synchronized private fun response(mutation: Boolean, status: Int, requestId: String?, serverRequestId: String?, expectedAbsence: Boolean) {
@@ -288,6 +303,7 @@ internal class GitHubDispatchAccounting(
                     }
                 )
                 put("read_requests", reads)
+                put("local_request_rejections", localRequestRejections)
                 put("read_response_observations", readResponses)
                 put("recovered_read_requests", recoveredReadRequests)
                 put("read_http_failures", readHttpFailures)

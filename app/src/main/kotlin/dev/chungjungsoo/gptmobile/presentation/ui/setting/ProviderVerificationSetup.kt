@@ -61,8 +61,10 @@ internal fun ProviderVerificationSetup(
     var advancedBusy by remember { mutableStateOf(false) }
     var operation by remember { mutableStateOf<Job?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
-    val managed = remember(source, refresh) { source.managedSetup() }
-    val summary = remember(source, profile, refresh) { profile?.let(source::personalSetupSummary) }
+    var savedStatus by remember(setup, profile, refresh) { mutableStateOf<OpenRouterPrivacySetup.SavedStatus?>(null) }
+    var savedStatusFailed by remember(setup, profile, refresh) { mutableStateOf(false) }
+    val observedStatus = savedStatus
+    val summary = observedStatus?.summary
     val scope = rememberCoroutineScope()
     val handler = LocalUriHandler.current
     val anyBusy = busy || advancedBusy
@@ -76,7 +78,16 @@ internal fun ProviderVerificationSetup(
         clearPreview()
         refresh++
     }
-    LaunchedEffect(profile) {
+    LaunchedEffect(setup, profile, refresh) {
+        try {
+            savedStatus = setup.savedStatus(profile)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            savedStatusFailed = true
+        }
+    }
+    LaunchedEffect(profile, setup) {
         operation?.cancel()
         clearPreview()
         status = ""
@@ -91,7 +102,22 @@ internal fun ProviderVerificationSetup(
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("OpenRouter privacy setup", style = MaterialTheme.typography.titleMedium)
-        if (managed) {
+        if (observedStatus == null) {
+            if (savedStatusFailed) {
+                Text(
+                    "Saved account verification could not be read. Privacy Mode and profile selection remain available.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("privacy_setup_read_error")
+                )
+                TextButton(onClick = { refresh++ }, modifier = Modifier.testTag("privacy_setup_retry_read")) {
+                    Text("Retry saved setup")
+                }
+            } else {
+                Text("Reading saved account verification…", style = MaterialTheme.typography.bodySmall)
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().testTag("privacy_setup_loading"))
+            }
+        } else if (observedStatus.managed) {
             Text("Your organization manages account verification. Its settings take priority. Contact your administrator if a profile remains unavailable.", style = MaterialTheme.typography.bodySmall)
         } else if (profile == null) {
             Text("Add and enable an OpenRouter profile with its API key to set up cloud privacy. On-device models and your private Gateway do not need this account setup.", style = MaterialTheme.typography.bodySmall)

@@ -99,7 +99,11 @@ class FactVaultRepository @Inject constructor(
         }
     }
 
-    suspend fun load() = mutex.withLock { loadLocked() }
+    suspend fun load() = mutex.withLock {
+        loadLocked()
+        val protected = protectedSnapshot(_state.value, scopes?.privacyLockedChatIds().orEmpty())
+        if (protected != _state.value) persist(protected)
+    }
 
     suspend fun setEnabled(enabled: Boolean) = mutex.withLock {
         loadLocked()
@@ -143,7 +147,7 @@ class FactVaultRepository @Inject constructor(
         loadLocked()
         persistentGraph?.releaseChatEntities(chatId)
         indexedFacts = null
-        val current = _state.value
+        val current = protectedSnapshot(_state.value, scopes?.privacyLockedChatIds().orEmpty())
         val affected = current.facts.filter { it.sourceChatId == chatId || it.evidenceSources.any { key -> key.startsWith("$chatId:") } }
         val removed = affected.filter { fact -> fact.evidenceSources.none { !it.startsWith("$chatId:") } }
         val retained = current.facts.filterNot { it in removed }.map { fact ->
@@ -237,8 +241,8 @@ class FactVaultRepository @Inject constructor(
             val recallBoundary = if (scopes == null) boundary.copy(key = scope) else boundary
             loadLocked()
             if (!_state.value.enabled) return@withLock FactRecall()
-            require(scope == "personal" || scope.startsWith("project:") || scope.startsWith("personal:branch:"))
-            val original = _state.value
+            require(dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.validScope(scope))
+            val original = protectedSnapshot(_state.value, boundary.privateChatIds)
             val settings = original.settings.normalized()
             val now = System.currentTimeMillis()
             val cutoff = if (settings.retentionDays > 0) now - settings.retentionDays * 86_400_000L else 0L
@@ -414,7 +418,7 @@ class FactVaultRepository @Inject constructor(
     suspend fun saveManual(text: String, id: String? = null, scope: String = "personal", expectedRevision: Int? = null, localOnly: Boolean? = null, memoryType: String? = null, validUntilMillis: Long? = null) = mutex.withLock {
         loadLocked()
         require(text.isNotBlank() && text.length <= 1000) { "Use 1–1000 characters for a memory." }
-        require(scope == "personal" || scope.startsWith("project:") || scope.startsWith("personal:branch:"))
+        require(dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.validScope(scope))
         val old = _state.value.facts.firstOrNull { it.id == id }
         require(expectedRevision == null || old?.revision == expectedRevision) { "This memory changed. Review the latest version." }
         require(id == null || old != null) { "This memory was removed. Add a new memory instead." }
@@ -423,7 +427,8 @@ class FactVaultRepository @Inject constructor(
             KnowledgeRelation("user", "REMEMBERS", text.trim().lowercase(Locale.ROOT), 1f, ""),
             KnowledgeEntity(text.trim().lowercase(Locale.ROOT), text.trim(), "FACT")
         )
-        val effectiveScope = old?.scope ?: scope
+        val protectedOld = old?.let { dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.protect(it, scopes?.privacyLockedChatIds().orEmpty()) }
+        val effectiveScope = protectedOld?.scope?.takeIf { dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.isPrivate(it) } ?: scope
         val canonicalId = scopedFactId(fact, effectiveScope)
         require(_state.value.facts.none { it.id != old?.id && it.scope == effectiveScope && scopedFactId(it.fact, effectiveScope) == canonicalId }) { "This memory already exists. Merge the records instead." }
         // Edits keep their original ID, which may still be the hash of an older value.
@@ -437,7 +442,7 @@ class FactVaultRepository @Inject constructor(
             revision = (old?.revision ?: 0) + 1,
             memoryType = memoryType ?: old?.memoryType ?: "NOTE",
             meaning = MemoryLearning.meaning(text),
-            localOnly = localOnly ?: old?.localOnly ?: false,
+            localOnly = dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.isPrivate(effectiveScope) || (localOnly ?: protectedOld?.localOnly ?: false),
             validFromMillis = old?.validFromMillis,
             validUntilMillis = validUntilMillis ?: old?.validUntilMillis,
             evidenceSources = old?.evidenceSources.orEmpty(),
@@ -607,7 +612,7 @@ class FactVaultRepository @Inject constructor(
         loadLocked()
         val current = _state.value
         require(current.enabled && current.settings.learningEnabled) { "Memory learning is disabled." }
-        require(scope == "personal" || scope.startsWith("project:") || scope.startsWith("personal:branch:"))
+        require(dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.validScope(scope))
         val relation = relationType.trim().uppercase(Locale.ROOT)
             .replace(Regex("[^A-Z0-9_]+"), "_")
             .trim('_')
@@ -778,7 +783,11 @@ class FactVaultRepository @Inject constructor(
         }
     }
 
-    private suspend fun persist(snapshot: FactVaultSnapshot, allowUnreadablePrevious: Boolean = false, discardHistory: Boolean = false) {
+    private fun protectedSnapshot(snapshot: FactVaultSnapshot, privateChats: Set<Int>): FactVaultSnapshot =
+        dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.protect(snapshot, privateChats)
+
+    private suspend fun persist(incoming: FactVaultSnapshot, allowUnreadablePrevious: Boolean = false, discardHistory: Boolean = false) {
+        val snapshot = protectedSnapshot(incoming, scopes?.privacyLockedChatIds().orEmpty())
         if (durable != null) {
             _state.value = durable.commit(snapshot, _state.value, discardHistory)
             scheduleIndexes(snapshot)

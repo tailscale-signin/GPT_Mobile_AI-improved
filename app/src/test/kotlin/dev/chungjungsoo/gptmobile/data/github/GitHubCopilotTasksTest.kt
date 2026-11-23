@@ -33,6 +33,42 @@ class GitHubCopilotTasksTest {
         put("create_pull_request", true)
     }
 
+    @Test fun emptyTaskDiscoveryIsAValidReadAndMalformedTaskListsNeverTriggerCreation() = runTest {
+        val directory = Files.createTempDirectory("copilot-empty-list").toFile()
+        var payload = """{"tasks":[]}"""
+        var reads = 0
+        val http = HttpClient(
+            MockEngine { req ->
+                assertEquals(HttpMethod.Get, req.method)
+                assertEquals("/agents/repos/owner/repo/tasks", req.url.encodedPath)
+                reads++
+                respond(payload)
+            }
+        )
+        try {
+            val client = client(http, GitHubRepositoryStateStore(directory), "list-turn")
+            val args = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("action", "copilot_tasks")
+            }
+            val empty = client.execute("copilot_tasks", args).jsonObject
+            assertEquals(Json.parseToJsonElement("[]"), empty["tasks"])
+            assertEquals(JsonPrimitive(false), empty["has_more"])
+            val assessed = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubPaginationBoundary().assessPage("github_pr", args, empty)
+            assertEquals(null, assessed.errorCode)
+            assertEquals(JsonPrimitive(true), assessed.data["complete"])
+            for (malformed in listOf("{}", """{"tasks":{}}""", """{"tasks":[null]}""", """{"tasks":[{}]}""")) {
+                payload = malformed
+                assertTrue(malformed, runCatching { client.execute("copilot_tasks", args) }.isFailure)
+            }
+            assertEquals(5, reads)
+        } finally {
+            http.close()
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun acceptedNativeTaskResumesAfterStoreAndClientRestartWithoutGatewayOrAnotherPost() = runTest {
         val directory = Files.createTempDirectory("copilot-receipt").toFile()
         val calls = mutableListOf<Pair<HttpMethod, String>>()

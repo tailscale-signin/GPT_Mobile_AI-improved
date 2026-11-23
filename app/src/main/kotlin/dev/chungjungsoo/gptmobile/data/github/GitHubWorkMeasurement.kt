@@ -8,13 +8,14 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 /** One observation for an accepted task, independent of attempts, model calls and progress notices. */
-internal data class GitHubWorkMeasurement(val state: String, val passing: Int, val required: Int, val completed: Boolean, val assessed: Boolean) {
+internal data class GitHubWorkMeasurement(val state: String, val passing: Int, val required: Int, val completed: Boolean, val assessed: Boolean, val timing: GitHubTaskWorkTiming? = null) {
     fun json() = buildJsonObject {
         put("task_state", state)
         put("receipt_backed_requirements", passing)
         put("required_requirements", required)
         put("completion_verified_and_delivered", completed)
         put("acceptance_assessed", assessed)
+        timing?.let { put("timing", it.json()) }
     }
 
     companion object {
@@ -70,6 +71,18 @@ internal data class GitHubConversationWork(val tasks: List<GitHubWorkMeasurement
             if (tasks.size > assessed.size) append(" ${tasks.size - assessed.size} awaiting an acceptance assessment.")
             val pending = tasks.filterNot { it.completed }.groupingBy { it.state }.eachCount()
             if (pending.isNotEmpty()) append(pending.entries.joinToString(", ", prefix = "\n") { (key, count) -> "$count ${key.lowercase().replace('_', ' ')}" })
+            if (tasks.any { it.timing != null }) {
+                append("\nTiming uses retained wall-clock observations. Unobserved time can include gaps or suspension; it is not measured active work. Task intervals count overlapping runs once.")
+                tasks.forEachIndexed { index, task ->
+                    task.timing?.let { timing ->
+                        append("\n\nTask ${index + 1}: ")
+                        append(timing.task?.description() ?: "Elapsed timing is unavailable.")
+                        if (timing.startBasis == "EARLIEST_RETAINED_RUN") append(" Start is the earliest retained run; task acceptance time is unavailable.")
+                        timing.runs.take(4).forEachIndexed { runIndex, run -> append("\nRun ${runIndex + 1}: ${run.timing?.description() ?: "Timing unavailable."}") }
+                        if (timing.runs.size > 4) append("\n${timing.runs.size - 4} further runs contribute to the task breakdown.")
+                    }
+                }
+            }
         }
     }
 }

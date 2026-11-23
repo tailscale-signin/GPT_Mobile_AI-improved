@@ -22,6 +22,7 @@ import dev.chungjungsoo.gptmobile.data.repository.ToolEventRecorder
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -41,6 +42,26 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class ToolPrecheckIssueReportTest {
+    @Test fun aLocallyRejectedGitHubRequestKeepsItsCanonicalPolicyCodeThroughRecording() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val accounting = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting(record = {})
+        withContext(accounting) {
+            val request = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false)
+            dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.locallyRejected(request)
+        }
+        val result = accounting.finish(ToolResultEnvelope.error("privacy-call", "PRIVACY_SERVICE_UNVERIFIED", "private rejected request"), false)
+        val normalized = dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(result, "github_read")
+        assertEquals(JsonPrimitive(1), normalized.executionReceipt?.get("local_request_rejections"))
+        val report = record("github_read", normalized)
+        assertEquals("PRIVACY_SERVICE_UNVERIFIED", report.errorCode)
+        assertEquals(false, report.context?.dispatched)
+        assertEquals(false, report.context?.requiresReconciliation)
+        assertEquals("tool_precheck", report.context?.stage)
+        assertEquals(JsonPrimitive("PRIVACY_SERVICE_UNVERIFIED"), report.context?.diagnostics?.values?.get("tool_error_code"))
+        assertNull(report.context?.httpStatus)
+        assertFalse(report.toString().contains("private rejected request"))
+    }
+
     @Before
     @After
     fun reset() {

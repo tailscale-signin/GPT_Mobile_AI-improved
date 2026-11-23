@@ -618,7 +618,8 @@ class GraphService:
             raise InterruptedError('Repository context retrieval cancelled')
         if self.backend.api('/user')['id'] != job['data']['actor_id']:
             raise PermissionError('GitHub account changed during graph retrieval')
-        result = dict(graph.query(query, 12, 1, paths), graph=graph.metadata())
+        from v14.graph_context import rank_graph
+        result = rank_graph(dict(graph.query(query, 36, 1, paths), graph=graph.metadata()), query, paths)
         result['retrieval'] = {'status': result['status'], 'reason': 'MATCHES_FOUND' if result['nodes'] else 'NO_MATCH_IN_INDEX',
                                'provider': provider, 'commit_sha': snapshot['sha'], 'indexed_sha': snapshot['sha'],
                                'role': (role or 'unspecified')[:64], 'coverage_complete': result['graph']['coverage_complete'],

@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
 @HiltViewModel
-class GitHubEvidenceViewModel @Inject constructor(private val workspace: WorkspaceRepository) : ViewModel() {
+class GitHubEvidenceViewModel @Inject constructor(private val workspace: WorkspaceRepository, private val decisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions) : ViewModel() {
     private val mutable = MutableStateFlow<List<WorkspaceRecord>>(emptyList())
     val rows = mutable.asStateFlow()
     private val content = MutableStateFlow<Pair<String, String>?>(null)
@@ -48,7 +48,10 @@ class GitHubEvidenceViewModel @Inject constructor(private val workspace: Workspa
         mutable.value = emptyList()
         job = viewModelScope.launch { workspace.dao.observeGitHubEvidence(id).collectLatest { if (chatId == id) mutable.value = it } }
     }
-    internal suspend fun conversationWork(id: Int) = workspace.conversationWork(id).description()
+    internal suspend fun conversationWork(id: Int): String {
+        decisions.load()
+        return workspace.conversationWork(id, decisions.decisions.value).description()
+    }
 
     fun inspect(row: WorkspaceRecord) {
         if (row.chatId != chatId) return

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -9,17 +10,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceCaptionTest {
-    @Test fun longRepliesRetainTheirEntireEndingAndUnicode() {
+    @Test fun longRepliesDisplayTheBoundedSpeechAndKeepTheFullSourceAvailable() {
         val reply = "A complete phrase with punctuation. ".repeat(500) + "The important ending: 你好 👋"
-        for (phase in listOf(VoicePhase.THINKING, VoicePhase.PREPARING)) {
-            assertNull(VoiceCaption.from(VoiceState(phase = phase, reply = reply)))
-        }
-        for (phase in listOf(VoicePhase.SPEAKING, VoicePhase.PAUSED)) {
-            val caption = requireNotNull(VoiceCaption.from(VoiceState(phase = phase, transcript = "My question", reply = reply)))
-            assertEquals(reply, caption.text)
+        for (phase in listOf(VoicePhase.THINKING, VoicePhase.PREPARING, VoicePhase.SPEAKING, VoicePhase.PAUSED)) {
+            val state = VoiceState(phase = phase, transcript = "My question", reply = reply)
+            val caption = requireNotNull(VoiceCaption.from(state))
+            assertEquals(VoiceSpeechText.project(reply), caption.text)
+            assertTrue(caption.text.length < reply.length)
+            assertTrue(state.reply.endsWith("The important ending: 你好 👋"))
             assertEquals("AI reply", caption.speaker)
-            assertEquals(phase != VoicePhase.PAUSED, caption.live)
+            assertEquals(phase == VoicePhase.SPEAKING, caption.live)
         }
+    }
+
+    @Test fun availableReplyTextIsVisibleBeforeAudioStartsWithoutInventingASpokenRange() {
+        val state = VoiceState(phase = VoicePhase.THINKING, reply = "The first sentence. ", awaitingReply = true)
+        val caption = requireNotNull(VoiceCaption.from(state))
+        assertEquals("The first sentence.", caption.text.trim())
+        assertFalse(caption.live)
+        assertNull(caption.highlightRange(state.spokenRange))
+    }
+
+    @Test fun preaudioPreviewBeginsAtTheFirstWordAndPauseKeepsItsLastSpokenPosition() {
+        val reply = "First line.\nSecond line.\nLast line."
+        val preview = requireNotNull(VoiceCaption.from(VoiceState(phase = VoicePhase.PREPARING, reply = reply)))
+        assertEquals(0, preview.focusOffset(null, -1, speaking = false))
+        assertEquals(0, preview.focusOffset(null, -1, speaking = true))
+        assertEquals(12, preview.focusOffset(12..17, -1, speaking = true))
+        assertEquals(12, preview.focusOffset(null, 12, speaking = false))
+        val reading = VoiceCaptionReader().scroll(1.5f, 10)
+        assertEquals(1.5f, reading.position(0, 10))
+        assertEquals(1.5f, reading.position(5, 10))
+        val listening = requireNotNull(VoiceCaption.from(VoiceState(phase = VoicePhase.LISTENING, transcript = reply)))
+        assertEquals(reply.length, listening.focusOffset(null, -1, speaking = false))
+    }
+
+    @Test fun captionsMatchTheAnswerProjectionAndOnlyIncludeDetailsWhenSelected() {
+        val source = "<think>Private planning</think>Read [the guide](https://example.test/private). <details>Additional facts.</details>"
+        val answer = VoiceCaption.from(VoiceState(phase = VoicePhase.PAUSED, reply = source))
+        assertEquals("Read the guide.", answer?.text?.trim())
+        val details = VoiceCaption.from(VoiceState(phase = VoicePhase.PAUSED, reply = source, readingDetails = true))
+        assertTrue(requireNotNull(details).text.contains("Additional facts."))
+        assertFalse(details.text.contains("Private planning"))
+        assertFalse(details.text.contains("https://"))
     }
 
     @Test fun aNewCaptureShowsTheCurrentWordsInsteadOfThePreviousAnswer() {

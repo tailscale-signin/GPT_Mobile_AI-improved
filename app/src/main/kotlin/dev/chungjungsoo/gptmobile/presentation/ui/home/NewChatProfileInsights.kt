@@ -20,12 +20,20 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.pricing.PriceFreshness
 import dev.chungjungsoo.gptmobile.data.pricing.PriceSource
 import dev.chungjungsoo.gptmobile.data.pricing.formatRate
+import dev.chungjungsoo.gptmobile.data.readiness.ConfiguredInferenceRoute
+import dev.chungjungsoo.gptmobile.data.readiness.configuredInferenceRoute
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import java.text.DateFormat
 import java.util.Date
 
 @Composable
-internal fun ProfileInsightDetailsDialog(insight: ProfileInsight, refresh: () -> Unit, onFavorite: () -> Unit, onDismiss: () -> Unit) {
+internal fun ProfileInsightDetailsDialog(
+    insight: ProfileInsight,
+    refresh: () -> Unit,
+    onFavorite: () -> Unit,
+    onDismiss: () -> Unit,
+    route: ConfiguredInferenceRoute = configuredInferenceRoute(insight.profile.compatibleType, insight.profile.apiUrl)
+) {
     val locale = LocalLocale.current.platformLocale
     val dateFormat = DateFormat.getDateTimeInstance(DateFormat.DEFAULT, DateFormat.DEFAULT, locale)
     val local = insight.profile.compatibleType == ClientType.LITERT_LM
@@ -55,6 +63,8 @@ internal fun ProfileInsightDetailsDialog(insight: ProfileInsight, refresh: () ->
     AlertDialog(onDismissRequest = onDismiss, title = { Text(insight.profile.name) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(insight.profile.model)
+            Text(route.label, style = MaterialTheme.typography.titleSmall)
+            Text(route.detail, style = MaterialTheme.typography.bodySmall)
             if (insight.settings.newChatScores) {
                 Text(benchmarkText, style = MaterialTheme.typography.titleMedium)
                 Text(stringResource(R.string.insights_benchmark_scope))

@@ -30,7 +30,8 @@ internal class GitHubDecisionTool(
     private val persistent: Boolean,
     private val allowed: suspend () -> Boolean,
     private val offered: suspend (GitHubChatDecision) -> Unit = {},
-    private val useSuggestion: suspend () -> Boolean = { false }
+    private val useSuggestion: suspend () -> Boolean = { false },
+    private val conversationIdentity: String = ""
 ) : AgentTool {
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
@@ -106,8 +107,9 @@ internal class GitHubDecisionTool(
                 enterValue = item.jsonObject["enter_value"] == JsonPrimitive(true)
             )
         }
-        val proposal = GitHubChatDecision("", chatId, sourceMessageId, profileUid, scope, question, context, options, arguments["recommended"]?.jsonPrimitive?.intOrNull, persistent)
-        val id = GitHubRepositoryStateStore.digest(Json.encodeToString(GitHubChatDecision.serializer(), proposal.copy(persistent = false)))
+        val runId = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolRunContext]?.runId
+        val proposal = GitHubChatDecision("", chatId, sourceMessageId, profileUid, scope, question, context, options, arguments["recommended"]?.jsonPrimitive?.intOrNull, persistent, conversationIdentity = conversationIdentity, runId = runId)
+        val id = GitHubRepositoryStateStore.digest(Json.encodeToString(GitHubChatDecision.serializer(), proposal.copy(persistent = false, runId = null)))
         val answer = decisions.request(proposal.copy(id = id), useSuggestion = useSuggestion(), offered = offered)
         check(allowed()) { "The GitHub conversation or profile changed while waiting. The choice is saved; no new action is authorized." }
         decisions.delivered(id)

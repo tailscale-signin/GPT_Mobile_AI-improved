@@ -1,7 +1,7 @@
 """Original executable repository tasks. Expected values stay in the host grader.
 
-The pack contains twelve different contracts, eight independently seeded data
-variants per contract and four composed, multi-module capstones. It measures this
+The pack contains twelve different contracts, eight calibrated source defects
+per contract with seeded inputs and four composed, multi-module capstones. It measures this
 fixture pack, not general intelligence or an external benchmark leaderboard.
 """
 from copy import deepcopy
@@ -13,7 +13,7 @@ from types import ModuleType
 from benchmarks.contracts import PRESETS, digest
 from v14.engineering_backend import blob_sha
 
-VERSION = 'gateway-coding-fixtures-v1'
+VERSION = 'gateway-coding-fixtures-v2'
 WRAPPER = '''from core import solve
 
 def handle(request):
@@ -331,11 +331,18 @@ def examples(family, seed):
 def task(family, seed, variant=0):
     spec = next(x for x in SPECS if x[0] == family)
     broken = spec[3].replace(spec[4], spec[5], 1)
+    vectors = examples(family, seed)
+    if variant:
+        from benchmarks.variants import distinct_defects
+        defects = distinct_defects(family, spec[3], broken, WRAPPER,
+                                   json.dumps(vectors, sort_keys=True),
+                                   json.dumps([reference(family, vector) for vector in vectors], sort_keys=True))
+        broken = defects[variant]
     sources = {'core.py': broken, 'service.py': BROKEN_WRAPPER}
-    return {'id': family + '-' + str(variant + 1), 'problemId': family, 'family': family, 'title': spec[1],
+    return {'id': family + '-' + str(variant + 1), 'problemId': family + ':' + digest(broken)[:16], 'family': family, 'title': spec[1],
             'seed': seed, 'capstone': False, 'requirements': spec[2], 'sources': sources,
             'referenceSources': {'core.py': spec[3], 'service.py': WRAPPER},
-            'vectors': examples(family, seed), 'manifestDigest': digest([VERSION, family, seed, sources, spec[2]])}
+            'vectors': vectors, 'manifestDigest': digest([VERSION, family, seed, sources, spec[2]])}
 
 
 def suite(preset='quick', seed=17):
@@ -346,7 +353,24 @@ def suite(preset='quick', seed=17):
     if preset == 'deep':
         from benchmarks.capstones import build
         result.extend(build(seed + 100000))
-    return result
+    from benchmarks.grader_manifest import seal
+    return [seal(row, [expected(row, vector) for vector in row['vectors']]) for row in result]
+
+
+def find_task(task_id, seed=17):
+    from benchmarks.grader_manifest import seal
+    task_value = None
+    for family_index, spec in enumerate(SPECS):
+        for variant in range(PRESETS['deep']):
+            if task_id == spec[0] + '-' + str(variant + 1):
+                task_value = task(spec[0], seed + family_index * 1009 + variant * 7919, variant)
+                break
+    if task_value is None and isinstance(task_id, str) and task_id.startswith('capstone-'):
+        from benchmarks.capstones import build
+        task_value = next((row for row in build(seed + 100000) if row['id'] == task_id), None)
+    if task_value is None:
+        raise ValueError('Unknown immutable coding task')
+    return seal(task_value, [expected(task_value, vector) for vector in task_value['vectors']])
 
 
 def trusted_fixture(task_value, vector, *, broken=False):
@@ -393,4 +417,9 @@ def prompt(task_value):
             'Use regression cases that fail on each original faulty module and pass after repair. '
             'For top-level boundaries, use exact JSON types and compare the complete service result. '
             'For capstones use the integrated service contract. You have not executed tests; do not claim execution. '
-            'The evaluator is separate and expected hidden answers are not available. Preserve function interfaces.')
+            'The evaluator is separate and expected hidden answers are not available. Preserve function interfaces. '
+            'Execution uses a bounded Python subset: ordinary functions, loops, comprehensions, lambdas, '
+            'JSON primitives and container methods. Imports may use the displayed local modules, json, heapq, copy or math. '
+            'Classes, decorators, introspection, dynamic execution, file/network operations, private attributes, '
+            'global/nonlocal declarations, assignment expressions and str.format are outside this declared task language. '
+            'Input preservation is observed independently by the interpreter; returned verification claims are data only.')

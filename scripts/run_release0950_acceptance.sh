@@ -45,10 +45,18 @@ timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.d
 native_memory_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.agent.ToolCallBudgetFenceInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/tool-budget-fence-instrumentation.txt"
 tool_budget_fence_status=${PIPESTATUS[0]}
+# Execute the real Room migration and transaction regressions on each device;
+# compiling their test APK does not establish database or privacy persistence.
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.database.PrivacyModeMigrationInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/privacy-migration-instrumentation.txt"
+privacy_migration_status=${PIPESTATUS[0]}
+timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.database.AgentPersistenceDaoInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/agent-persistence-instrumentation.txt"
+agent_persistence_status=${PIPESTATUS[0]}
 timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/picker-instrumentation.txt"
 picker_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.GatewayProfileCardInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/gateway-profile-card-instrumentation.txt"
 gateway_profile_card_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.PrivacyProfileSelectionInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/privacy-profile-selection-instrumentation.txt"
+privacy_profile_selection_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.BubbleActionMenuInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/bubble-actions-instrumentation.txt"
 bubble_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/glass-instrumentation.txt"
@@ -161,6 +169,8 @@ for conversation_theme in light dark; do
   done
 done
 if [ "$secret_vault_status" -ne 0 ]; then exit "$secret_vault_status"; fi
+if [ "$privacy_migration_status" -ne 0 ]; then exit "$privacy_migration_status"; fi
+if [ "$agent_persistence_status" -ne 0 ]; then exit "$agent_persistence_status"; fi
 if [ "$local_voice_status" -ne 0 ]; then exit "$local_voice_status"; fi
 if [ "$voice_conversation_status" -ne 0 ]; then exit "$voice_conversation_status"; fi
 if [ "$voice_message_controls_status" -ne 0 ]; then exit "$voice_message_controls_status"; fi
@@ -188,6 +198,7 @@ if [ "$glass_status" -ne 0 ]; then exit "$glass_status"; fi
 if [ "$bubble_status" -ne 0 ]; then exit "$bubble_status"; fi
 if [ "$picker_status" -ne 0 ]; then exit "$picker_status"; fi
 if [ "$gateway_profile_card_status" -ne 0 ]; then exit "$gateway_profile_card_status"; fi
+if [ "$privacy_profile_selection_status" -ne 0 ]; then exit "$privacy_profile_selection_status"; fi
 if [ "$editor_status" -ne 0 ]; then exit "$editor_status"; fi
 if [ "$performance_status" -ne 0 ]; then exit "$performance_status"; fi
 if [ "$memory_status" -ne 0 ]; then exit "$memory_status"; fi
@@ -206,15 +217,58 @@ from check_native_memory_smoke import check_instrumentation
 folder = Path('app/build/acceptance-0950')
 check_instrumentation(folder / 'native-memory-instrumentation.txt')
 for test in (
+    'upgradePreservesConversationHistoryAndPrivacyUseSurvivesReopen',
+    'upgradeLocksOnlyPreviouslyPrivateRoomsAndStaleUpdatesCannotUnlockThem',
+):
+    check_instrumentation(folder / 'privacy-migration-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.database.PrivacyModeMigrationInstrumentedTest', test)
+for test in (
+    'unmaskedProfilePermanentlyRemovesTheSharedUserHighlightInEitherOrder',
+    'staleUserSnapshotCannotRestoreHighlightsAfterAnUnmaskedSend',
+    'staleSnapshotCannotClearPrivacyMarkerOrChangeAnotherConversation',
+    'permanentPrivacySurvivesAllSnapshotWritesAndRemainsSeparateFromUseEvidence',
+    'durablePrivatePolicyMarksInputPendingEvenOutsidePrivateExecutionContext',
+    'duplicatesBranchesAndEvidenceFreeRetriesInheritPermanentPrivacy',
+    'staleSnapshotsCannotRestoreOrWidenProtectionForCurrentBodyAndRevisions',
+    'editedSnapshotBodiesAndUnownedRevisionsCannotBorrowProtection',
+    'snapshotRejectsMessagesOwnedByAnotherConversation',
+    'protectionReceiptCannotAuthorizeLegacyOrEditedMessageText',
+    'recordingProtectionPreservesCompressedArchivedBodies',
+    'removedQueuedProfileCannotDispatchOrOverwriteCurrentMembership',
+    'persistAgentTurn_assignsIdsAndQueuesEveryProfileInOneTransaction',
+    'interruptActiveRuns_marksQueuedAndRunningWithoutTouchingTerminalRuns',
+    'finishActiveRun_terminalizesRunningRunBeforeLateCompletion',
+    'persistAgentRetry_preservesPriorRunRevisionAndQueuesNewRun',
+    'finalAnswerCommit_rollsBackAnswerWhenTerminalStatusWriteFails',
+    'finalAnswerCommit_rejectsCanceledAndSupersededRuns',
+    'finishAgentRun_persistsAssistantAndTerminalStatusTogether',
+    'editedTurn_truncatesFutureHistoryBeforeQueuingReplacementRun',
+    'duplicateChatWithHistory_regeneratesMessageRunAndEventIds',
+    'deletePlatform_removesItsToolBindings',
+    'builtInToolBinding_rejectsDuplicateProfileAndTool',
+    'builtInToolBinding_replacesAtomicallyDuringConcurrentEnables',
+    'builtInToolBinding_replacesImportedBindingsWithinItsExactScope',
+    'builtInToolBinding_rejectsForeignOwnershipAndInvalidRequests',
+    'builtInToolBinding_failedReplacementRollsBackThePreviousGrant',
+    'builtInToolBinding_concurrentUiAndImportWritesKeepOneGrant',
+    'builtInToolBinding_stagedRestorePreservesUnselectedTools',
+):
+    check_instrumentation(folder / 'agent-persistence-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.database.AgentPersistenceDaoInstrumentedTest', test)
+for test in (
     'longCaptionsAndLargeTextKeepTheMicrophoneVisibleAndFixed',
+    'readablePreviewKeepsItsOpacityAndReaderWhenTimingArrivesAndSameTextReplayStartsFresh',
+    'captionsWaitForRestoredPreferencesAndExposeCheckedState',
     'theProfilePickerChangesProfileOnlyBetweenTurns',
+    'drawnHighlightsKeepGlyphGeometryAndSilenceKeepsItsPlace',
     'accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing',
     'accessibilityCaptionScrollingPausesObservedRangeFollowingUntilTheReaderReturnsToTheBottom',
+    'returnToLiveUsesTheCurrentSpokenLineAndDoesNotChangePlayback',
     'correctedCaptionTextKeepsTheReadersPositionAndControlsStable',
     'themedVoiceStagesRetainRenderedEvidence',
 ):
     check_instrumentation(folder / 'voice-conversation-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest', test)
 for test in (
+    'fullDetailsActionKeepsTheOriginalMessageAndUsesTheSingleStopControl',
+    'voiceAnswerShowsItsSpeechAndKeepsDetailsCollapsedUntilSelected',
     'everyResponseHasItsOwnThemedReadActionAndOnlyTheActiveReplyStops',
     'autoplayStopBelongsToTheLatestRunAndHistoricalReplayKeepsItsOwnRevision',
 ):
@@ -261,6 +315,8 @@ for test in ('compactLightSelectionAndAccessibleFavorite', 'compactDarkRtlSelect
     check_instrumentation(folder / 'picker-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest', test)
 for test in ('onlineStatusRemainsReadableAndDoesNotChangeSelectionAtLargeText', 'onlineStatusRemainsReadableAndDoesNotChangeSelectionInDarkRtl'):
     check_instrumentation(folder / 'gateway-profile-card-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.GatewayProfileCardInstrumentedTest', test)
+for test in ('privacyOffAndEveryVerificationStatusAllowSelectionAndDeselection',):
+    check_instrumentation(folder / 'privacy-profile-selection-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.PrivacyProfileSelectionInstrumentedTest', test)
 for test in ('dialogBlurSwitchActuallyFiltersTheBackground', 'stackedDialogSamplesItsVisibleParentInsteadOfOnlyTheActivity', 'settingsBackdropAndTypographyChangesKeepNavigationContentComposed', 'openingSettingsWhileHomeBlurStillDrawsDoesNotReplayLiveHomeLayers'):
     check_instrumentation(folder / 'glass-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest', test)
 for test in ('largeFontConversationRetainsSenderLabelsAndAnnouncesTerminalFailureAfterRestoration', 'selectedPdfPageRendersAsABoundedImageForTheVisionComposer', 'previewedImageReturnsToItsOriginalComposer', 'typingFollowUpKeepsStopAndSendIndependent', 'glassComposerKeepsSendStopAndLatestActionsIndependent', 'backgroundRunStartingDoesNotTakeFocusFromADraft'):

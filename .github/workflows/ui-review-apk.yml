@@ -58,9 +58,12 @@ jobs:
           '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
       - name: Compile review application
         timeout-minutes: 20
-        run: >-
-          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --stacktrace --console=plain --max-workers=1
-          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/check_android_compile_memory.py | tee review-production-memory.log
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --stacktrace --console=plain --max-workers=1 \
+            "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/review-production-gc.log:time,level,tags:filecount=2,filesize=8M"
       - name: Build review APK
         timeout-minutes: 30
         # Zipflinger's compression pool is separate from Gradle's worker limit.
@@ -73,7 +76,7 @@ jobs:
         shell: bash
         run: |
           for apk in app/build/outputs/apk/debug/*.apk; do
-            python3 scripts/check_chat_method_size.py "$apk" --source-commit "$GITHUB_SHA" --report "build/reports/chat-method-size/${apk##*/}.json"
+            python3 scripts/check_chat_method_size.py "$apk" --require-gateway-recovery --require-agent-execution --source-commit "$GITHUB_SHA" --report "build/reports/chat-method-size/${apk##*/}.json"
           done
       - name: Retain packaged chat and voice method sizes
         if: always()
@@ -95,9 +98,14 @@ jobs:
         run: python3 scripts/gradle_retry.py -- :app:kaptBenchmarkKotlin --no-daemon --stacktrace --console=plain --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
       - name: Compile benchmark app
         timeout-minutes: 30
+        shell: bash
         # This variant compiles the same main sources plus benchmark fixtures.
-        # Keep the measured production-compile bound; generation/tests stay separate.
-        run: python3 scripts/gradle_retry.py -- :app:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+        # Use the same isolated production heap; generation/tests stay separate.
+        run: |
+          set -o pipefail
+          python3 scripts/check_android_compile_memory.py | tee review-benchmark-production-memory.log
+          python3 scripts/gradle_retry.py -- :app:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain --max-workers=1 \
+            "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/review-benchmark-production-gc.log:time,level,tags:filecount=2,filesize=8M"
       - name: Compile benchmark regressions
         timeout-minutes: 20
         run: python3 scripts/gradle_retry.py -- :macrobenchmark:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain --max-workers=1
@@ -117,3 +125,16 @@ jobs:
       - name: Review instructions
         run: |
           echo 'Download the draft-review-apk artifact below for this exact commit. Device verification is still required; compiling instrumentation tests does not execute them.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain review compiler diagnostics
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: review-production-compile-${{ github.sha }}
+          path: |
+            review-production-memory.log
+            review-benchmark-production-memory.log
+            ${{ runner.temp }}/review-production-gc.log*
+            ${{ runner.temp }}/review-benchmark-production-gc.log*
+          if-no-files-found: warn
+          retention-days: 14

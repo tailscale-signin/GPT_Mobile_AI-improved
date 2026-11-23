@@ -1,0 +1,63 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2254,
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
+  "working_branch": "fix/verification-budget-observation-20261123",
+  "intent": "Correct the late verification-budget regression fixture to retain one genuine tool observation before expecting publication metadata, preserving the original512-to128 cap change and zero extractor dispatch.",
+  "status": "FIXTURE_SOURCE_REVIEWED_AWAITING_EXACT_HEAD_ANDROID",
+  "observed_failure": {
+    "run": 45098738048,
+    "job": 137444456543,
+    "source": "753d07cde88fd58f8c90ca266c5450c66838a6c6",
+    "test": "GitHubVerifiedSessionTest.verificationRechecksTheInputLimitAfterFittingTheExcerpt",
+    "error": "Key publication_observation is missing in the map.",
+    "artifact": 14785964189,
+    "artifact_sha256": "d63bb57fbc57583ec8f4cdb522c435cc35ed9185b51009acf463f445b25adb70"
+  },
+  "diagnosis": "The original zero-receipt fixture reaches the intentional oversizedWithoutEvidence refusal before publication_observation can be retained. The planner-only proof qualified the cap rejection but did not execute this complete-session publication boundary.",
+  "production_changed": false,
+  "validation": [
+    {
+      "scope": "Hosted baseline",
+      "result": "Exact original fixture failed at publication_observation access; source and verified test artifact retained."
+    },
+    {
+      "scope": "Changed test ktlint1.3.1",
+      "result": "PASS"
+    },
+    {
+      "scope": "Focused actual-session host compilation attempt",
+      "result": "NOT_EXECUTED",
+      "record": "/workspace/scratch/6b5c8b09c56b/verification-budget-session-proof/qualification.json",
+      "reason": "No compatible complete Session runtime found. Existing helper jars use a digest-only EvidenceBook object; actual Session/Book dependency closure does not compile against those substituted ABIs. No runtime test pass is inferred."
+    }
+  ],
+  "limits": [
+    "The production Session and EvidenceBook remain byte-identical.",
+    "The previous actual-planner proof qualifies the planning boundary only; it did not execute this publication guard.",
+    "The revised complete Session test has not executed locally; exact final-head hosted Android is mandatory."
+  ],
+  "change": "Seed one actual app-owned successful GitHub context/status receipt before expecting publication metadata. Preserve the512-to128 late limit change; require2limit reads,129..512required tokens,1unchanged receipt,0extractor calls,incomplete terminal failure and no private draft.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "ee6e88200bb28c6fd6b9ecb1d08528b616a584f5a4862736e3d2b20d286ec7a0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt": "6a29e0cf801ab9bd0b00bc66ca36e860a86d3b4eef25975dfb17434673ac362c",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": "8d39e6828f519980aa6751cb4dbd72dda9baff27ce2d2333f9602bfc068ec722"
+  },
+  "independent_review": "Speech peer source review clear: actual receipt setup reaches the existing publication guard without weakening production or another test.",
+  "integration": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "parent_pr": 2254,
+    "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "base_commit": "6227953bcd4bc3579466789fc405743fce913837",
+    "working_branch": "voice-after-unit-20261122",
+    "intent": "Preserve published speech follow-ups while integrating both actual full-suite fixture corrections; source and test semantics are unchanged from the independently reviewed immutable candidates. Final-head full Android execution remains required.",
+    "canonical_fast": {
+      "result": "PASSED",
+      "tests": 635,
+      "seconds": 26.002,
+      "log_sha256": "4bc76e6a8989ee1dd02a97722a9c8a87f4df6ec01120f036c46b2f4c66f8d614",
+      "scope": "Host validation only; exact final-head hosted Android, applicable checks, main gates and publication remain required."
+    }
+  }
+}

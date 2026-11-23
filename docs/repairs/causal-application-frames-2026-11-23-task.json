@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_pr": 2254,
+  "parent_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "parent_head_at_start": "4889e40156f5359dc4053ea3949ef5791e225c4f",
+  "working_branch": "work/github-coding-benchmark-2026-11-22",
+  "intent": "Preserve bounded application evidence from each inspected exception cause when framework and recovery frames crowd the report budget.",
+  "authorization": "User requested every implementation fix, green exact-head and main validation, and verified publication.",
+  "status": "IMPLEMENTED_COMPONENT_VERIFIED_PENDING_FINAL_HOSTED_QUALIFICATION",
+  "observed_failure": {
+    "workflow_run": 45119433717,
+    "job": 137509667733,
+    "source": "4889e40156f5359dc4053ea3949ef5791e225c4f",
+    "tests": 13458,
+    "passed": 13452,
+    "failed": 1,
+    "skipped": 5,
+    "errors": 0,
+    "test": "ChatRepositoryResearchIncidentTest.genericPreparationExceptionRetainsEvidenceThroughCollector",
+    "assertion": "Retain ChatRepositoryImpl.preparedCompleteChat:1879 through the actual reporting collector.",
+    "artifact": 14793724976,
+    "artifact_sha256": "ddd032d9b5e42248d70ef0fe312a795b59bb5a6c2a943f2bf65ab685eecaaf09"
+  },
+  "preservation_contract": [
+    "Retain the original collector assertion and first-four leading safe-frame ordering.",
+    "Inspect at most four causes and the first 48 frames of each; select at most eight unique safe frames.",
+    "Keep the bounded frame grammar, application-only captured bridge, fingerprint projection and approved-byte validation.",
+    "Never collect exception messages, filenames or arbitrary stack text; retain the 8192-byte approved payload bound.",
+    "Require baseline-negative and corrected actual-source controls, canonical validation and all latest hosted gates before merge."
+  ],
+  "validation": [
+    {
+      "check": "Immutable4889 actual-source negative control",
+      "tests": 20,
+      "passed": 19,
+      "failed": 1,
+      "seconds": 1.061,
+      "scope": "Only the new crowded recovery/cause retention case fails; cause/frame bounds and all previous controls pass."
+    },
+    {
+      "check": "Fresh corrected actual-source compilation and replay",
+      "tests": 20,
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 0.842,
+      "repository_inputs": 60,
+      "compiled_inputs": 73,
+      "dependency_files": 23,
+      "jar_sha256": "e4f24c03a29f1d0f56c1d3a54ac87c11849f3515d5cdaac2506c8de8769dd76b",
+      "receipt_sha256": "51f3ef1a43704e3592a273d449736d849164c250b7f329c6f891a1fd400fc60a",
+      "scope": "Actual model, capsule, context, serialization and complete submission; explicit unrelated platform/provider ports. Pure native renderer extracted verbatim. No full Android/device/live dispatch claim. The final test differs from the negative snapshot only by ktlint-required whitespace."
+    },
+    {
+      "check": "Independent source review",
+      "result": "CLEAR",
+      "scope": "Leading-frame order, per-cause reservation, null/repeated-cause behavior, unchanged grammar/inspection/output/privacy bounds and original collector assertion."
+    },
+    {
+      "check": "Pinned ktlint1.3.1 and git diff --check",
+      "result": "PASS"
+    },
+    {
+      "check": "Canonical fast validation",
+      "tests": 658,
+      "passed": 658,
+      "seconds": 22.892,
+      "literal_regex_patterns": 2040,
+      "dynamic_patterns_excluded": 100,
+      "regex_errors": 0,
+      "resource_xml": 36,
+      "result": "PASS"
+    },
+    {
+      "check": "Latest exact-head hosted Android and all applicable gates",
+      "result": "PENDING"
+    },
+    {
+      "check": "Exact-main validation and published Android/Gateway readback",
+      "result": "PENDING"
+    }
+  ],
+  "solution": "Keep the first four leading safe frames, reserve the first safe application frame from each inspected throwable, then fill the same eight-frame budget with existing application and safe-frame order. This prevents a crowded recovery wrapper from consuming every slot before an original cause.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReport.kt": "d03b0d900d206aa16daff91a4c3fdd280dd497b1d49788c1fe32084b27490af8",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportFrameworkFramesTest.kt": "0fa29dac18b467ed2f0694882923c6acdb0bc4123069a1cedb298777c87dc7f2"
+  },
+  "corroboration": {
+    "workflow_run": 45119433778,
+    "job": 137509664070,
+    "tests": 13458,
+    "failures": 1,
+    "skipped": 5,
+    "same_failure": true,
+    "old_f0d_unchanged_collector_test": "PASS"
+  }
+}

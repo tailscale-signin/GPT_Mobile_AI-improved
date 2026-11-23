@@ -9,7 +9,50 @@ import kotlinx.serialization.json.put
 
 /** One policy is applied before binding tools and again before opening the model loop. */
 internal object GitHubExecutionLimits {
-    enum class DeadlineCheck { BEFORE_TOOL_RESTORE, BEFORE_MODEL_LOOP, MODEL_LOOP_TIMEOUT, VERIFIED_SESSION_ENTRY }
+    enum class DeadlineCheck { ADMISSION, BEFORE_TOOL_RESTORE, BEFORE_MODEL_LOOP, MODEL_LOOP_TIMEOUT, VERIFIED_SESSION_ENTRY }
+
+    data class Admission(val observation: String, val remainingMillis: Long?, val timing: JsonObject, val contractRequired: Boolean) {
+        fun failure(check: DeadlineCheck = DeadlineCheck.ADMISSION): ProviderEvent.Failed? {
+            val failure = when (observation) {
+                "WINDOW_EXPIRED" -> expiredTaskFailure(check)
+                "CONTRACT_UNAVAILABLE", "TIMING_UNAVAILABLE" -> if (contractRequired) {
+                    admissionFailure("GITHUB_TASK_IDENTITY_CHANGED", "The saved task contract or its time allowance is unavailable. Restore the accepted task before starting more work.", "RESTORE_ACCEPTED_TASK_CONTRACT")
+                } else {
+                    null
+                }
+                else -> null
+            } ?: return null
+            return failure.copy(failureDetails = JsonObject(failure.failureDetails.orEmpty() + timing))
+        }
+    }
+
+    fun admission(contract: JsonObject?, observedAt: Long, contractRequired: Boolean = true): Admission {
+        val timing = deadlineTiming(contract, observedAt)
+        val observation = (timing["task_deadline_observation"] as JsonPrimitive).content
+        val end = (contract?.get("deadline_at_ms") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+        val remaining = when (observation) {
+            "WINDOW_OPEN" -> requireNotNull(end) - observedAt
+            "WINDOW_EXPIRED" -> 0L
+            "TIMING_UNAVAILABLE", "CONTRACT_UNAVAILABLE" -> if (contractRequired) 0L else null
+            else -> null
+        }
+        return Admission(observation, remaining, timing, contractRequired)
+    }
+
+    fun admissionFailure(code: String, message: String, recovery: String): ProviderEvent.Failed = ProviderEvent.Failed(
+        message,
+        errorCode = code,
+        taskOutcome = "BLOCKED",
+        failureDetails = buildJsonObject {
+            put("failed_stage", "admission")
+            put("failure_origin", "APPLICATION")
+            put("recovery_action", recovery)
+            put("resume_allowed", false)
+            put("request_replay_allowed", false)
+            put("dispatched", false)
+            put("retryable", false)
+        }
+    )
 
     fun deadlineTiming(contract: JsonObject?, observedAt: Long): JsonObject = buildJsonObject {
         val start = (contract?.get("accepted_at_ms") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
@@ -23,7 +66,13 @@ internal object GitHubExecutionLimits {
         }
         put("task_deadline_observation", state)
         if (start != null && end != null && end >= start && start >= 0) {
+            put("task_deadline_clock", "WALL_CLOCK")
+            put("task_deadline_renewed", (contract?.get("grant_message_id") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.let { it > 0 } == true)
             ((end - start) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_window_seconds", it) }
+            if (observedAt >= start) {
+                ((observedAt - start) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_elapsed_seconds", it) }
+                ((end - observedAt).coerceAtLeast(0) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_remaining_seconds", it) }
+            }
             if (observedAt >= end) {
                 ((observedAt - end) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_overdue_seconds", it) }
             }
@@ -54,6 +103,7 @@ internal object GitHubExecutionLimits {
             put("failure_domain", "APPLICATION_VERIFICATION")
             put("stop_reason", "ACCEPTED_TASK_DEADLINE_REACHED")
             put("recovery_action", "AUTHORIZE_NEW_TIME_WINDOW")
+            put("time_window_counts_waits", true)
             put("resume_allowed", false)
             put("dispatched", false)
             put("retryable", false)

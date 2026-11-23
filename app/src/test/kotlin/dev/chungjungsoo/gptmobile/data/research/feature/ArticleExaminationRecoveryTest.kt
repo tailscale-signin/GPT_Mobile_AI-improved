@@ -42,6 +42,45 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ArticleExaminationRecoveryTest {
+    @Test fun privateConversationBlocksExplicitAndBackgroundExaminationBeforeExternalReadiness() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = kotlin.io.path.createTempDirectory("private-examination").toFile()
+        val context = object : ContextWrapper(app) {
+            override fun getFilesDir() = directory
+        }
+        val database = Room.inMemoryDatabaseBuilder(app, ResearchDatabase::class.java).allowMainThreadQueries().build()
+        val chats = Room.inMemoryDatabaseBuilder(app, ChatDatabaseV2::class.java).allowMainThreadQueries().build()
+        try {
+            val chatId = chats.chatRoomDao().addChatRoom(dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2(title = "Private", privacyModeLocked = true)).toInt()
+            val sessions = ResearchSessionStore(context, database, chats = chats)
+            val archive = ResearchArchiveRepository(database, sessions, chats)
+            val settings = mockk<SettingRepository>()
+            val academic = mockk<AcademicNativeClient>()
+            val models = mockk<ChatRepository>()
+            val coordinator = ArticleExaminationCoordinator(archive, settings, chats, academic, models, Provider { error("No external readiness is authorized") }, sessions)
+            val request = ExaminationRequest("retained-study", "examiner", chatId = chatId)
+
+            val explicit = runCatching { coordinator.userExamine(request) }.exceptionOrNull()
+            val background = runCatching { coordinator.automaticExamine(request) { dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig() } }.exceptionOrNull()
+
+            assertTrue(explicit is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+            assertTrue(background is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+            val shared = runCatching {
+                archive.capture(ResearchSource("private-source", "https://example.org/private", "Private source"), "Private source body", "private", true, chatId, "private-root", true, 0)
+            }.exceptionOrNull()
+            assertTrue(shared is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+            assertTrue(!sessions.sharedSourceIndexAllowed(chatId))
+            assertTrue(database.research().allJobs().isEmpty())
+            coVerify(exactly = 0) { settings.getFeatureSettings() }
+            coVerify(exactly = 0) { academic.getPaper(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { models.openResearchSession(any(), any(), any(), any(), any(), any(), any()) }
+        } finally {
+            database.close()
+            chats.close()
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun failedAppraiserRetainsEvidenceAndStopsUnchangedInvalidOutputRetries() = verifySavedRecovery(false)
 
     @Test fun reexaminationResumesItsExactJobAndRejectsChangedAuthority() = verifySavedRecovery(true)

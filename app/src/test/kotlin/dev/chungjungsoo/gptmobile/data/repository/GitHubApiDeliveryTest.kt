@@ -47,6 +47,29 @@ class GitHubApiDeliveryTest {
         assertEquals(1, states.count { it == ApiState.Done })
     }
 
+    @Test fun refusedRecoveryAfter103SettledCallsDoesNotClaimTheWholeTaskWasUnexecuted() = runTest {
+        val recovery = dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure(
+            "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+            original = buildJsonObject { put("code", "429") },
+            correlation = buildJsonObject {
+                put("settled_tool_count", 103)
+                put("checkpoint_validation_stage", "TOOL_JOURNAL")
+                put("checkpoint_mismatch_reason", "TOOL_RECEIPTS_CHANGED")
+            }
+        ).event()
+        val failure = ApiState.Error(recovery.message, errorCode = recovery.errorCode, taskOutcome = recovery.taskOutcome, failureDetails = recovery.failureDetails)
+        val states = flowOf<ApiState>(failure, ApiState.Done).withGitHubApiDelivery(true).toList()
+        val text = states.filterIsInstance<ApiState.Success>().single().textChunk
+        assertTrue(text.contains("recovery attempt was blocked before dispatch"))
+        assertTrue(text.contains("earlier tool results remain retained"))
+        assertFalse(text.contains("This request was blocked before execution"))
+        assertEquals(failure, states.filterIsInstance<ApiState.Error>().single())
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(103), failure.failureDetails?.get("settled_tool_count"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("RECOVERY_ATTEMPT"), failure.failureDetails?.get("dispatch_evidence_scope"))
+        assertEquals(buildJsonObject { put("code", "429") }, failure.failureDetails?.get("original_interruption"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("RECOVERY_ATTEMPT"), dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.retainedDetails(failure.failureDetails)?.get("dispatch_evidence_scope"))
+    }
+
     @Test fun existingRetainedAnswerDoesNotAcquireAnotherFailureParagraph() = runTest {
         val answer = ApiState.Success("Retained findings; further verification is blocked.")
         val failure = ApiState.Error("Endpoint unavailable")

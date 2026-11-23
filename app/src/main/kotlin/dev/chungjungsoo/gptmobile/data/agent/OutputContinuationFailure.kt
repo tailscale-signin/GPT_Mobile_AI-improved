@@ -52,6 +52,9 @@ internal object OutputContinuationFailure {
         causes.filterIsInstance<ProviderRecoveryFailure>().firstOrNull()?.let {
             return annotate(it.event(), savedCharacters, continuationCount, outputCap, trigger)
         }
+        causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()?.let {
+            return annotate(it.event(), savedCharacters, continuationCount, outputCap, trigger)
+        }
         val observed = causes.filterIsInstance<Exception>().firstNotNullOfOrNull { providerExceptionDetails(it, partialOutput = savedCharacters > 0) }
         val http = (observed?.failureDetails?.get("http_status") as? JsonPrimitive)?.intOrNull
         val cause = when {

@@ -28,7 +28,7 @@ internal object GitHubAcceptanceRecoveryEvidence {
     val statusObservationCodes = statusObservations.values.toSet()
     val fields = setOf(
         "acceptance_prerequisite_blockers", "acceptance_acquisition_allowed", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum",
-        "task_deadline_check", "task_deadline_observation", "task_deadline_window_seconds", "task_deadline_overdue_seconds",
+        "task_deadline_check", "task_deadline_observation", "task_deadline_clock", "task_deadline_renewed", "task_deadline_window_seconds", "task_deadline_overdue_seconds", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds",
         "acceptance_preparation_state", "acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_fixture_creation_admissible", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count",
         "status_missing_observations", "status_policy_protection_http_status", "status_policy_rules_http_status", "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint"
     )
@@ -38,7 +38,9 @@ internal object GitHubAcceptanceRecoveryEvidence {
         if (failure?.text("stop_reason") == "ACCEPTED_TASK_DEADLINE_REACHED") {
             failure.text("task_deadline_check").takeIf { check -> GitHubExecutionLimits.DeadlineCheck.entries.any { it.name == check } }?.let { put("task_deadline_check", it) }
             failure.text("task_deadline_observation").takeIf { it in deadlineObservations }?.let { put("task_deadline_observation", it) }
-            for (field in listOf("task_deadline_window_seconds", "task_deadline_overdue_seconds")) {
+            if (failure.text("task_deadline_clock") == "WALL_CLOCK") put("task_deadline_clock", "WALL_CLOCK")
+            (failure["task_deadline_renewed"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("task_deadline_renewed", it) }
+            for (field in listOf("task_deadline_window_seconds", "task_deadline_overdue_seconds", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds")) {
                 failure.number(field)?.takeIf { it in 0..16_000_000 }?.let { put(field, it) }
             }
         }

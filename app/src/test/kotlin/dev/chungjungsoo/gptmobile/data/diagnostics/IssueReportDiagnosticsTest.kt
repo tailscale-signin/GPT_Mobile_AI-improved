@@ -14,6 +14,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IssueReportDiagnosticsTest {
+
+    @Test fun singlePassRepairStopIsPreservedAndNegotiatedOnlyWhenObserved() {
+        fun capture(stop: String) = requireNotNull(
+            IssueReportDiagnostics.fromFields(
+                "CHAT_FAILURE",
+                mapOf("diagnostic_area" to "INCIDENT", "combined_repair_rounds" to 0, "combined_repair_stop" to stop),
+                1_800_000_000_000L
+            )
+        )
+        val singlePass = capture("SINGLE_PASS_LOCAL_CHECKS_ONLY")
+        assertEquals(JsonPrimitive("SINGLE_PASS_LOCAL_CHECKS_ONLY"), singlePass.values["combined_repair_stop"])
+        assertTrue(IssueReportDiagnostics.COMBINED_SINGLE_PASS_FEATURE in singlePass.requiredServiceFeatures())
+        assertFalse(IssueReportDiagnostics.COMBINED_SINGLE_PASS_FEATURE in capture("CORRECTION_CAPACITY_UNAVAILABLE").requiredServiceFeatures())
+    }
+
     @Test fun conversationRecoveryRequiresCapabilityForPresentOmittedAndUnavailableEvidence() {
         val capture = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "INCIDENT", "continuation_cause" to "OPEN_FAILED"), 1_800_000_000_000L))
         val feature = IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE
@@ -241,6 +256,58 @@ class IssueReportDiagnosticsTest {
         assertFalse("voice_response_to_first_audio_ms" in restored.values)
         assertTrue("voice_response_to_first_audio_ms" in restored.unavailableFields)
         assertEquals(payload, report(IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = time).withDiagnostics(restored)).approvedPayload())
+    }
+
+    @Test fun voiceExecutionAndFallbackKeepTheirEvidenceAfterTheEngineChangesToSystem() {
+        val snapshot = capture(
+            "VOICE",
+            mapOf(
+                "voice_engine" to "SYSTEM", "voice_phase" to "SPEAKING",
+                "voice_selected_backend" to "QNN_HTP", "voice_effective_provider" to "SYSTEM",
+                "voice_fallback_source" to "QNN_HTP", "voice_fallback_target" to "SYSTEM",
+                "voice_fallback_outcome" to "SUCCEEDED", "voice_fallback_failure" to "SYNTHESIS_FAILED",
+                "voice_fallback_count" to 1, "voice_playback_failure" to "SYNTHESIS_FAILED",
+                "speech_text" to "private speech", "voice_provider_request_id" to "private-request"
+            )
+        )
+        assertEquals(3, snapshot.schemaVersion)
+        assertEquals(2, snapshot.requiredReporterVersion())
+        assertTrue(VoiceExecutionDiagnostics.FEATURE in snapshot.requiredServiceFeatures())
+        assertTrue(VoiceExecutionDiagnostics.fields.all { it in snapshot.values })
+        val approved = report(IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = time).withDiagnostics(snapshot))
+        val payload = approved.approvedPayload()
+        val restored = requireNotNull(IssueReport.json.decodeFromString(IssueReport.serializer(), payload).context?.diagnostics).validated()
+        assertEquals(snapshot, restored)
+        assertEquals(JsonPrimitive("SYSTEM"), restored?.values?.get("voice_engine"))
+        assertEquals(JsonPrimitive("SYSTEM"), restored?.values?.get("voice_effective_provider"))
+        assertEquals(JsonPrimitive("SYNTHESIS_FAILED"), restored?.values?.get("voice_fallback_failure"))
+        assertEquals(JsonPrimitive("SYNTHESIS_FAILED"), restored?.values?.get("voice_playback_failure"))
+        assertFalse(payload.contains("private speech"))
+        assertFalse(payload.contains("private-request"))
+        assertEquals(payload, approved.approvedPayload())
+    }
+
+    @Test fun unobservedProviderAndMalformedFallbackEvidenceCannotBePromotedIntoTheReport() {
+        val selected = capture("VOICE", mapOf("voice_selected_backend" to "AUTO"))
+        assertFalse("voice_effective_provider" in selected.values)
+        for ((field, value) in listOf(
+            "voice_selected_backend" to JsonPrimitive("private configuration"),
+            "voice_effective_provider" to JsonPrimitive("AUTO"),
+            "voice_fallback_source" to JsonPrimitive("private-provider-id"),
+            "voice_fallback_target" to JsonPrimitive("QNN_HTP"),
+            "voice_fallback_outcome" to JsonPrimitive("private utterance"),
+            "voice_fallback_failure" to JsonPrimitive("raw exception"),
+            "voice_fallback_count" to JsonPrimitive("1"),
+            "voice_fallback_count" to JsonPrimitive(-1),
+            "voice_fallback_count" to JsonPrimitive(101)
+        )) {
+            assertNull(selected.copy(values = selected.values + (field to value)).validated())
+        }
+        val otherArea = capture("PROVIDER", emptyMap()).copy(values = mapOf("voice_effective_provider" to JsonPrimitive("QNN_GPU")))
+        assertNull(otherArea.validated())
+        val omitted = capture("VOICE", emptyMap()).copy(schemaVersion = 3, unavailableFields = selected.unavailableFields, omittedFields = listOf("voice_fallback_failure"))
+        assertNotNull(omitted.validated())
+        assertTrue(VoiceExecutionDiagnostics.FEATURE in omitted.requiredServiceFeatures())
     }
 
     @Test fun voiceInstallationEvidenceKeepsObservedQueueAndTransferValuesWithoutInventingTheCause() {

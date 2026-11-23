@@ -121,6 +121,10 @@ internal class ProvenanceGuardedTool(
 ) : AgentTool by child,
     dev.chungjungsoo.gptmobile.data.agent.PreparableAgentTool,
     dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool {
+    init {
+        dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.inherit(this, child)
+    }
+
     override val executionOwner = (child as? dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool)?.executionOwner ?: dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner.CLIENT
     override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = ProvenanceGuardedTool(child.withChildBudget(bind), profile, toolId, personal, external, grant)
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = prepareExecution(callId, arguments).invoke()

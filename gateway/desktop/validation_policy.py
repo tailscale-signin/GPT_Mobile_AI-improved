@@ -116,6 +116,8 @@ def _requirements(value):
 
 def validate_policy_fields(policy, *, allow_unprepared_image=False):
     from v14.engineering_validation import validate_policy_entry
+    from v14.workspace_tool_integrations import validate_configuration
+    validate_configuration(policy.get('workspace_integrations', {}))
     if 'desktop_setup' in policy and not isinstance(policy['desktop_setup'], dict):
         raise ValueError('Saved desktop setup metadata must be an object; review this repository before saving a repair')
     if not _path(policy.get('mirror', '')):

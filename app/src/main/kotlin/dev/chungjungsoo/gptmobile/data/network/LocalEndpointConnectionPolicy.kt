@@ -8,6 +8,7 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ThreadContextElement
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 
 /** A local server observed closing reused sockets gets fresh HTTP/1 connections for 10 minutes. */
@@ -26,7 +27,8 @@ internal object LocalEndpointConnectionPolicy {
 
     /** Only read-only metadata/template probes belong here. Mutations and inference never do. */
     suspend fun <T> probe(endpoint: String, onStaleConnection: suspend () -> Unit = {}, action: suspend () -> T): T {
-        val readId = java.util.UUID.randomUUID().toString().replace("-", "")
+        val readId = currentCoroutineContext()[LocalMetadataReadAttempt]?.readId
+            ?: java.util.UUID.randomUUID().toString().replace("-", "")
         try {
             return withContext(LocalMetadataReadAttempt(0, readId)) { action() }
         } catch (failure: Exception) {

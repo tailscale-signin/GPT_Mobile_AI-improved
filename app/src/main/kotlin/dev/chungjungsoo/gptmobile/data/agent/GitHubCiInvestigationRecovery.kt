@@ -85,11 +85,27 @@ internal class GitHubCiInvestigationRecovery(task: String?) {
 
     private fun next(tools: Collection<AgentToolDefinition>): ProviderEvent.ToolCall? {
         if (!enabled || automaticCalls.size >= MAX_AUTOMATIC_READS) return null
-        val seed = observations.values.firstOrNull { it.successful && it.call.name.substringBefore("__") == "github_ci" && it.call.arguments.text("action") == "workflows" } ?: return null
+        val seed = observations.values.firstOrNull { it.successful && it.call.name.substringBefore("__") == "github_ci" && it.call.arguments.text("action") == "workflows" }
+            ?: observations.values.firstOrNull { observation ->
+                observation.call.name.substringBefore("__") == "github_ci" &&
+                    observation.call.arguments.text("action") in setOf("runs", "jobs", "job", "logs", "status") &&
+                    observation.requestedRepository?.let { requested ->
+                        listOf("owner" to requested.first, "repo" to requested.second).all { (key, expected) ->
+                            expected == null || observation.scope.text(key).equals(expected, ignoreCase = true)
+                        }
+                    } == true
+            } ?: return null
         val ciName = seed.call.name
         if (tools.none { it.name == ciName && it.modelVisible }) return null
         val contextName = "github_context" + ciName.removePrefix("github_ci")
-        val selectedRef = seed.scope.reference()
+        // A failed ID lookup is enough to start bounded discovery, but never supplies
+        // a run/job identity. An explicitly requested commit remains the target.
+        val selectedRef = if (seed.call.arguments.text("action") == "workflows") {
+            seed.scope.reference()
+        } else {
+            listOf("commit_sha", "head_sha", "expected_head_sha").firstNotNullOfOrNull { key -> seed.call.arguments.text(key).takeIf(SHA::matches) }
+                ?: seed.scope.reference()
+        }
         val scoped = observations.values.filter { observation ->
             observation.call.name in setOf(ciName, contextName) &&
                 listOf("owner", "repo").all { key ->
@@ -97,7 +113,15 @@ internal class GitHubCiInvestigationRecovery(task: String?) {
                     val actual = observation.scope.text(key)
                     expected.isBlank() || actual.isBlank() || expected.equals(actual, ignoreCase = true)
                 } &&
-                (selectedRef.isBlank() || observation.scope.reference().let { it.isBlank() || it == selectedRef }) &&
+                (
+                    selectedRef.isBlank() ||
+                        observation.scope.reference().let { it.isBlank() || it == selectedRef } ||
+                        SHA.matches(selectedRef) &&
+                        (
+                            observation.data.text("commit_sha").equals(selectedRef, ignoreCase = true) ||
+                                listOf("commit_sha", "head_sha", "expected_head_sha").any { observation.call.arguments.text(it).equals(selectedRef, ignoreCase = true) }
+                            )
+                    ) &&
                 (observation.call.name != contextName || selectedRef.isBlank() || SHA.matches(selectedRef) || observation.data.text("branch").let { it.isBlank() || it == selectedRef })
         }
         fun call(name: String, values: JsonObject): ProviderEvent.ToolCall? {

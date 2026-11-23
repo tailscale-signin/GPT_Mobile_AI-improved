@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
+import dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import kotlinx.coroutines.CancellationException
@@ -9,6 +10,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 internal data class GatewayAvailabilityProbe(
@@ -59,22 +61,41 @@ internal suspend fun gatewayAvailabilityProbe(
     now: () -> Long = System::currentTimeMillis
 ): GatewayAvailabilityProbe = coroutineScope {
     data class Observation<T>(val value: T?, val failure: GatewayAvailabilityFailure?, val checkedAt: Long)
-    suspend fun <T> observe(read: suspend () -> T?): Observation<T> = try {
-        // Finish each read before the repository's outer eight-second deadline so
-        // a stalled transport or bounded retry cannot erase its completed sibling.
-        withTimeout(7_000) { Observation(read(), null, now()) }
-    } catch (_: TimeoutCancellationException) {
-        // Parent cancellation still owns the whole probe; only a read's own
-        // deadline becomes an independent metadata failure.
-        currentCoroutineContext().ensureActive()
-        Observation(null, GatewayAvailabilityFailure(GatewayAvailabilityStatus.CHECKING, "METADATA_DEADLINE_EXCEEDED"), now())
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (failure: Exception) {
-        Observation(null, gatewayAvailabilityFailure(failure), now())
+    suspend fun <T> observe(phase: String, read: suspend () -> T?): Observation<T> {
+        val operationId = java.util.UUID.randomUUID().toString().replace("-", "")
+        return try {
+            // The observer and its bounded HTTP retries share one logical read identity.
+            // Finish before the outer deadline so a stalled read cannot erase its sibling.
+            withContext(LocalMetadataReadAttempt(0, operationId)) {
+                withTimeout(7_000) { Observation(read(), null, now()) }
+            }
+        } catch (_: TimeoutCancellationException) {
+            // Parent cancellation still owns the whole probe; only a read's own
+            // deadline becomes an independent metadata failure.
+            currentCoroutineContext().ensureActive()
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
+                "Gateway",
+                "METADATA_DEADLINE_EXCEEDED",
+                mapOf(
+                    "operation_id" to operationId,
+                    "incident_id" to operationId,
+                    "deadline_owner" to "METADATA_READ",
+                    "failedStage" to phase,
+                    "errorCode" to "METADATA_DEADLINE_EXCEEDED",
+                    "deadline_ms" to 7_000,
+                    "inference_dispatched" to false
+                ),
+                "W"
+            )
+            Observation(null, GatewayAvailabilityFailure(GatewayAvailabilityStatus.CHECKING, "METADATA_DEADLINE_EXCEEDED"), now())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Observation(null, gatewayAvailabilityFailure(failure), now())
+        }
     }
-    val capabilities = async { observe(readCapabilities) }
-    val readiness = async { observe(readReadiness) }
+    val capabilities = async { observe("gateway_capabilities", readCapabilities) }
+    val readiness = async { observe("gateway_readiness", readReadiness) }
     val capabilityResult = capabilities.await()
     val readinessResult = readiness.await()
     GatewayAvailabilityProbe(capabilityResult.value, readinessResult.value, capabilityResult.failure, readinessResult.failure, capabilityResult.checkedAt, readinessResult.checkedAt, capabilityResult.checkedAt.takeIf { capabilityResult.value != null })

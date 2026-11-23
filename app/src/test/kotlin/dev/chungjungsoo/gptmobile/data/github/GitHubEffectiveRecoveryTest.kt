@@ -164,4 +164,85 @@ class GitHubEffectiveRecoveryTest {
             assertFalse(report.toString(), decision.continueWork)
         }
     }
+
+    @Test fun completedOutputKeepsTaskAcceptanceAndWakeOwnershipIndependent() {
+        val report = buildJsonObject {
+            put("phase", "IN_PROGRESS")
+            put("task_outcome", "PARTIAL")
+            put("completion_verified", false)
+            put("response_delivered", true)
+            put("resume_allowed", true)
+            put("remaining_requirements", kotlinx.serialization.json.JsonArray(listOf(buildJsonObject { put("id", "validation") })))
+            put(
+                "output_checkpoint",
+                buildJsonObject {
+                    put("state", "COMPLETED")
+                    put("resume_allowed", false)
+                }
+            )
+            put(
+                "execution_ledger",
+                buildJsonObject {
+                    put("recovery", "RESUME_UNFINISHED_WORK")
+                    put("remaining_criteria", 1)
+                }
+            )
+        }
+        val attached = GitHubEffectiveRecovery.attach(report)
+        val checkpoint = attached["task_recovery_checkpoint"] as JsonObject
+        assertTrue(GitHubEffectiveRecovery.resolve(attached).continueWork)
+        assertEquals(JsonPrimitive(false), checkpoint["task_complete"])
+        assertEquals(JsonPrimitive(true), checkpoint["response_delivered"])
+        assertEquals(JsonPrimitive("COMPLETED"), checkpoint["output_attempt_state"])
+        assertEquals(JsonPrimitive("UNCONFIRMED"), checkpoint["wake_owner"])
+        assertEquals(report["remaining_requirements"]?.let { kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("validation"))) }, checkpoint["pending_requirement_ids"])
+        assertEquals(JsonPrimitive(false), checkpoint["request_replay_allowed"])
+    }
+
+    @Test fun currentLocalRecoveryBlockerSupersedesHistoricalCooldown() {
+        val report = buildJsonObject {
+            put("task_outcome", "BLOCKED")
+            put("current_failure_code", "PROVIDER_WAIT_CHECKPOINT_CHANGED")
+            put(
+                "original_failure",
+                buildJsonObject {
+                    put("code", "PROVIDER_RATE_LIMITED")
+                    put("retry_not_before_ms", 5000)
+                }
+            )
+            put(
+                "latest_recovery_failure",
+                buildJsonObject {
+                    put("recovery_code", "PROVIDER_WAIT_CHECKPOINT_CHANGED")
+                    put("next_action", "REVIEW_SAVED_RECOVERY")
+                }
+            )
+        }
+        val decision = GitHubEffectiveRecovery.resolve(report)
+        assertEquals(GitHubEffectiveRecovery.Kind.INSPECT_FAILURE, decision.kind)
+        assertEquals("REVIEW_SAVED_RECOVERY", decision.action)
+        assertEquals(null, decision.retryAtMillis)
+        assertEquals(GitHubEffectiveRecovery.Kind.INSPECT_FAILURE, GitHubEffectiveRecovery.resolve(JsonObject(report + mapOf("completion_verified" to JsonPrimitive(true), "response_delivered" to JsonPrimitive(true), "task_outcome" to JsonPrimitive("COMPLETED")))).kind)
+        assertFalse(decision.continueWork)
+        assertEquals(report["original_failure"], GitHubEffectiveRecovery.attach(report)["original_failure"])
+    }
+
+    @Test fun providerWakeIsClaimedOnlyAfterDurableSchedulingEvidence() {
+        val waiting = buildJsonObject {
+            put("task_outcome", "WAITING_PROVIDER_LIMIT")
+            put("retry_not_before_ms", 5000)
+        }
+        fun owner(report: JsonObject) = (GitHubEffectiveRecovery.attach(report)["task_recovery_checkpoint"] as JsonObject)["wake_owner"]
+        assertEquals(JsonPrimitive("UNCONFIRMED"), owner(waiting))
+        assertEquals(JsonPrimitive("PROVIDER_WAIT_REATTACHMENT"), owner(JsonObject(waiting + ("provider_wait_persisted" to JsonPrimitive(true)))))
+        assertEquals(JsonPrimitive("PROVIDER_WAIT_SCHEDULER"), owner(JsonObject(waiting + mapOf("provider_wait_persisted" to JsonPrimitive(true), "provider_wait_scheduler_state" to JsonPrimitive("ENQUEUED")))))
+    }
+
+    @Test fun acceptanceContinuationUsesRemainingAuthorizedBudgetBeyondThreeRounds() {
+        repeat(8) { assertTrue(GitHubExecutionContinuation.hasAcquisitionBudget(48 - it, 60000)) }
+        assertFalse(GitHubExecutionContinuation.hasAcquisitionBudget(1, 60000))
+        assertFalse(GitHubExecutionContinuation.hasAcquisitionBudget(48, 0))
+        assertFalse(GitHubExecutionContinuation.hasAcquisitionBudget(48, -1))
+        assertFalse(GitHubExecutionContinuation.hasAcquisitionBudget(null, 60000))
+    }
 }

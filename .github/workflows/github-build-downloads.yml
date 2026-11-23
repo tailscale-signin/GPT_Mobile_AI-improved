@@ -68,6 +68,32 @@ jobs:
         timeout-minutes: 8
         run: bash scripts/install_android_native_dependencies.sh
 
+      # Release in-process generation heaps before production compilation and
+      # the selected contract tests, retaining the same bounded compiler policy.
+      - name: Generate APK catalog application sources
+        timeout-minutes: 15
+        run: >-
+          python3 scripts/gradle_retry.py --timeout-seconds 840 -- :app:kspDebugKotlin
+          --no-daemon --stacktrace --console=plain --max-workers=1
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+
+      - name: Generate APK catalog application annotations
+        timeout-minutes: 15
+        run: >-
+          python3 scripts/gradle_retry.py --timeout-seconds 840 -- :app:kaptDebugKotlin
+          --no-daemon --stacktrace --console=plain --max-workers=1
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+
+      - name: Compile APK catalog application sources in a fresh process
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/check_android_compile_memory.py | tee github-build-downloads-production-memory.log
+          python3 scripts/gradle_retry.py --timeout-seconds 1440 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac \
+            --no-daemon --stacktrace --console=plain --max-workers=1 \
+            "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/github-build-downloads-production-gc.log:time,level,tags:filecount=2,filesize=8M"
+
       - name: Run APK catalog and download tests
         timeout-minutes: 30
         run: >-
@@ -86,5 +112,7 @@ jobs:
             app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.github.GitHubBuildCatalogTest.xml
             app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.github.GitHubApkFilesTest.xml
             app/build/reports/tests/testDebugUnitTest/
+            github-build-downloads-production-memory.log
+            ${{ runner.temp }}/github-build-downloads-production-gc.log*
           if-no-files-found: warn
           retention-days: 14

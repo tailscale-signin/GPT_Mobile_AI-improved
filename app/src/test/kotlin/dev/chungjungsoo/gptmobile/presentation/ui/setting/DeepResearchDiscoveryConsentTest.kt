@@ -4,12 +4,16 @@ import android.app.Application
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -17,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings
+import dev.chungjungsoo.gptmobile.data.model.ResearchIntensity
 import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -31,6 +36,27 @@ import org.robolectric.annotation.Config
 @OptIn(ExperimentalTestApi::class)
 class DeepResearchDiscoveryConsentTest {
     @get:Rule val compose = createComposeRule(effectContext = StandardTestDispatcher())
+
+    @Test fun researchPresetsAndReportOptionsFollowTheEditorState() {
+        val editable = mutableStateOf(false)
+        val initial = DeepResearchSettings(enabled = true)
+        var changed: DeepResearchSettings? = null
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    DeepResearchSettingsCard(initial, editable.value) { changed = it }
+                }
+            }
+        }
+        val presets = listOf("Fast", "Brief overview", "Scientific")
+        presets.forEach { compose.onNodeWithText(it).assertIsNotEnabled() }
+        compose.runOnIdle { editable.value = true }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        presets.forEach { compose.onNodeWithText(it).assertIsEnabled() }
+        compose.onNodeWithText("Fast").performClick()
+        compose.runOnIdle { assertEquals(ResearchIntensity.QUICK, changed?.intensity) }
+    }
 
     @Test fun discoveryRemainsAvailableThroughExplicitConsentWithoutAPapersToggle() {
         var changed: DeepResearchSettings? = null

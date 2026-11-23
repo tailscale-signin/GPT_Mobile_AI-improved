@@ -378,7 +378,15 @@ internal class GitHubResultViews(
                 executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
             )
         }
-        return AgentToolResult(callId, ToolResultContent.Json(page), entry.originalError, errorCode = entry.originalErrorCode, sharedResult = true, dispatched = false, executionReceipt = sourceIdentity(entry))
+        return AgentToolResult(
+            callId,
+            ToolResultContent.Json(page),
+            entry.originalError,
+            errorCode = entry.originalErrorCode,
+            sharedResult = true,
+            dispatched = false,
+            executionReceipt = JsonObject(sourceIdentity(entry) + savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256))
+        )
     }
 
     /** A fragment links to its original observation; opening it cannot refresh that observation. */
@@ -496,7 +504,7 @@ internal class GitHubResultViews(
         val source = entry.compressedSource?.let { decodeSource(it, entry.sourceCharacters, requireNotNull(entry.sourceSha256)) }
         if (offset >= GitHubSourcePages.FIRST && source != null && entry.operation == "github_read") {
             val root = Json.parseToJsonElement(source) as JsonObject
-            return sourcePage(id, modelName, root, offset, pageBytes, entry.continuations) ?: buildJsonObject {
+            return sourcePage(id, modelName, root, offset, pageBytes, entry.continuations, entry.pageBytes) ?: buildJsonObject {
                 put("schema", SCHEMA)
                 put("operation", entry.operation)
                 put("page_capacity_exceeded", true)
@@ -724,8 +732,8 @@ internal class GitHubResultViews(
         }
     }
 
-    private fun sourcePage(id: String, modelName: String, root: JsonObject, offset: Int, bytes: Int, continuations: List<JsonObject>): JsonObject? =
-        GitHubSourcePages.page(root, offset, bytes, continuations) { position, allowance ->
+    private fun sourcePage(id: String, modelName: String, root: JsonObject, offset: Int, bytes: Int, continuations: List<JsonObject>, maximumBytes: Int = bytes): JsonObject? =
+        GitHubSourcePages.page(root, offset, bytes, continuations, maximumBytes) { position, allowance ->
             savedCall(modelName, "$id:$position:$allowance")
         }
 

@@ -243,7 +243,7 @@ class BenchmarkScoreTest(unittest.TestCase):
 
 class CodingFixtureCalibrationTest(unittest.TestCase):
     def test_counts_identify_seeded_trials_separately_from_distinct_problems(self):
-        for preset, trials, problems in [('quick', 12, 12), ('standard', 36, 12), ('deep', 100, 16)]:
+        for preset, trials, problems in [('quick', 12, 12), ('standard', 36, 36), ('deep', 100, 100)]:
             tasks = fixtures.suite(preset)
             self.assertEqual(trials, len(tasks))
             self.assertEqual(problems, len({task['problemId'] for task in tasks}))
@@ -340,106 +340,63 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
         self.assertEqual('FAILED', result['status'])
         self.assertTrue(result['executed'])
 
-    def test_driver_has_one_scored_call_per_input_including_replays(self):
-        # Execute only the trusted driver with a fixed test double, not candidate
-        # or generated source. Alternation must be visible in returned outputs.
-        calls = []
-        def alternating(value):
-            calls.append(value)
-            return 'correct' if len(calls) % 2 else 'wrong'
-        namespace = {}
+    def _driver_payload(self, inputs, source):
+        # Run the actual shipped driver and actual interpreter. Only file mounts
+        # are substituted; candidate code has no native Python frame authority.
         from io import StringIO
         from contextlib import redirect_stdout
+        from benchmarks import verified_python
         output = StringIO()
-        with patch.dict(sys.modules, service=SimpleNamespace(handle=alternating)), \
-                patch('builtins.open', return_value=StringIO('[1, 2, 2, 1]')), redirect_stdout(output):
-            before = list(sys.path)
-            try:
-                exec(compile(sandbox.DRIVER, '<trusted-driver-test>', 'exec'), namespace)
-            finally:
-                sys.path[:] = before
-        self.assertEqual(4, len(calls))
-        payload = json.loads(output.getvalue().splitlines()[1])
-        self.assertEqual(['correct', 'wrong', 'correct', 'wrong'], [row['output'] for row in payload['outputs']])
-
-    def _driver_outputs(self, inputs, handle):
-        # Fixed test doubles exercise the shipped driver without running any
-        # generated candidate source or requiring Docker on the test host.
-        from io import StringIO
-        from contextlib import redirect_stdout
-        output = StringIO()
-        with patch.dict(sys.modules, service=SimpleNamespace(handle=handle)), \
-                patch('builtins.open', return_value=StringIO(json.dumps(inputs))), \
-                patch.object(json, 'dumps', json.dumps), redirect_stdout(output):
+        def opened(path, *_args, **_kwargs):
+            value = {'service.py': source} if path.endswith('sources.json') else inputs
+            return StringIO(json.dumps(value))
+        with patch.dict(sys.modules, verified_python=verified_python), \
+                patch('builtins.open', side_effect=opened), redirect_stdout(output):
             before = list(sys.path)
             try:
                 exec(compile(sandbox.DRIVER, '<trusted-driver-test>', 'exec'), {})
             finally:
                 sys.path[:] = before
-        return json.loads(output.getvalue().splitlines()[-1])['outputs']
+        return json.loads(output.getvalue().splitlines()[-1])
+
+    def test_driver_has_one_scored_call_per_input_including_replays(self):
+        source = "state = {'count': 0}\ndef handle(value):\n    state['count'] += 1\n    return 'correct' if state['count'] % 2 else 'wrong'\n"
+        payload = self._driver_payload([1, 2, 2, 1], source)
+        self.assertEqual(4, payload['verification']['observedInputs'])
+        self.assertEqual(['correct', 'wrong', 'correct', 'wrong'], [row['output'] for row in payload['outputs']])
 
     def test_driver_observes_input_state_after_handler_exception(self):
         for mutate in (False, True):
             with self.subTest(mutate=mutate):
-                calls = []
-                def failing(value):
-                    calls.append(value)
-                    if mutate:
-                        value['nested']['items'].append(99)
-                    raise ValueError('fixed control')
-                rows = self._driver_outputs([{'nested': {'items': [1, 2]}}], failing)
-                self.assertEqual(1, len(calls))
-                self.assertEqual([{'error': 'ValueError', 'input_preserved': not mutate}], rows)
-                self.assertEqual([1, 2, 99] if mutate else [1, 2], calls[0]['nested']['items'])
+                source = "def handle(value):\n" + ("    value['nested']['items'].append(99)\n" if mutate else '') + "    raise ValueError('fixed control')\n"
+                payload = self._driver_payload([{'nested': {'items': [1, 2]}}], source)
+                self.assertEqual([{'error': 'ValueError', 'input_preserved': not mutate}], payload['outputs'])
 
     def test_unavailable_input_snapshot_preserves_output_or_original_exception(self):
         for raises in (False, True):
             with self.subTest(raises=raises):
-                def unavailable(value):
-                    value['nested']['items'].append(object())
-                    if raises:
-                        raise ValueError('fixed control')
-                    return {'correct': True}
-                rows = self._driver_outputs([{'nested': {'items': []}}], unavailable)
+                source = "def handle(value):\n    value['nested']['items'].append(set())\n" + ("    raise ValueError('fixed control')\n" if raises else "    return {'correct': True}\n")
+                payload = self._driver_payload([{'nested': {'items': []}}], source)
                 expected = {'error': 'ValueError'} if raises else {'output': {'correct': True}}
-                self.assertEqual([dict(expected, input_preserved=None)], rows)
+                # The trusted interpreter observes a non-JSON mutation as failed
+                # preservation; the original return/error remains independently visible.
+                self.assertEqual([dict(expected, input_preserved=False)], payload['outputs'])
 
     def test_same_process_serializer_forgery_never_verifies_input_mutation(self):
+        source = "import json\njson.dumps = lambda item: 'forged'\ndef handle(value):\n    value.clear()\n    return {'correct': True}\n"
+        payload = self._driver_payload([{'nested': {'items': [1, 2]}}], source)
+        self.assertEqual('GRADER_LANGUAGE_UNSUPPORTED', payload['error'])
+        self.assertNotIn('verification', payload)
         task = fixtures.suite()[0]
-        original_dumps = json.dumps
         for forged_preserved in (True, False):
-            with self.subTest(forged_preserved=forged_preserved):
-                calls = []
-                def candidate_process(value):
-                    encoded = original_dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False)
-                    if forged_preserved:
-                        value['nested']['items'].append(99)
-                    calls.append(value)
-                    def forged_dumps(item, *args, **kwargs):
-                        if item is value:
-                            return encoded if forged_preserved else original_dumps({'forged': 'change'}, *args, **kwargs)
-                        return original_dumps(item, *args, **kwargs)
-                    json.dumps = forged_dumps
-                    return {'correct': True}
-                rows = self._driver_outputs([{'nested': {'items': [1, 2]}}], candidate_process)
-                self.assertEqual([{'output': {'correct': True}, 'input_preserved': forged_preserved}], rows)
-                self.assertEqual([1, 2, 99] if forged_preserved else [1, 2], calls[0]['nested']['items'])
-                def execute(candidate, inputs, *_args, **_kwargs):
-                    self.assertEqual(task['referenceSources'], candidate)
-                    return {'executed': True, 'status': 'COMPLETED', 'outputs': [
-                        {'output': fixtures.expected(task, vector), 'input_preserved': rows[0]['input_preserved']}
-                        for vector in inputs]}
-                result = coding.grade(task, gold_proposal(task), {'sandbox_image': 'image@sha256:' + 'a' * 64}, threading.Event(), execute=execute)
-                self.assertEqual('NOT_VERIFIED', result['inputMutationVerification'])
-                self.assertFalse(result['resolved'])
-                self.assertTrue(result['outputCorrect'])
-                self.assertEqual('BLOCKED', result['status'])
-                self.assertFalse(result['qualified'])
-                self.assertEqual('PASSED', result['patchScopeVerification'])
-                self.assertIsNone(result['dimensions']['safety'])
-                self.assertIsNone(result['score'])
-                self.assertEqual(950, result['earned'])
-                self.assertEqual(50, result['unknownWeight'])
+            def execute(candidate, inputs, *_args, **_kwargs):
+                return {'executed': True, 'status': 'COMPLETED', 'outputs': [
+                    {'output': fixtures.expected(task, vector), 'input_preserved': forged_preserved} for vector in inputs]}
+            result = coding.grade(task, gold_proposal(task), {'sandbox_image': 'image@sha256:' + 'a' * 64}, threading.Event(), execute=execute)
+            self.assertEqual('NOT_VERIFIED', result['inputMutationVerification'])
+            self.assertFalse(result['resolved'])
+            self.assertEqual('BLOCKED', result['status'])
+            self.assertIsNone(result['score'])
 
     def test_typed_output_rejection_retries_same_case_and_exports_active_checkpoint(self):
         with tempfile.TemporaryDirectory() as directory:

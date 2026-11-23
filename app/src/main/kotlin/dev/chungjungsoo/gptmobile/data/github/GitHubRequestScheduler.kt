@@ -157,6 +157,11 @@ class GitHubRequestScheduler(
     fun recordRequest() {
         physical.incrementAndGet()
     }
+
+    /** Paired with this caller's recordRequest when a typed local guard proves no request was sent. */
+    internal fun recordLocalRequestRejection() {
+        physical.updateAndGet { (it - 1).coerceAtLeast(0) }
+    }
     fun recordBytes(count: Long) {
         if (count > 0) bytes.addAndGet(count)
     }

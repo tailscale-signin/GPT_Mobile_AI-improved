@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 internal typealias SpokenRangeObserver = (Int, String, IntRange) -> Unit
 
-internal data class VoicePcmCue(val frame: Long, val segment: Int, val text: String, val range: IntRange)
+internal data class VoicePcmCue(val frame: Long, val segment: Int, val text: String, val range: IntRange, val endFrame: Long = frame)
 
 /** The pinned pack produces 600 PCM samples per predicted duration unit, at the requested speed. */
 internal fun kokoroWordFrames(durations: LongArray, wordTokens: IntArray, wordCount: Int, samples: Int): IntArray {
@@ -24,9 +24,12 @@ internal fun kokoroWordFrames(durations: LongArray, wordTokens: IntArray, wordCo
 internal class VoicePcmCaptions {
     private val pending = ArrayDeque<VoicePcmCue>()
     private var produced = 0L
+    private var current: VoicePcmCue? = null
+    private var lastConsumed = 0L
 
     @Synchronized fun append(segment: Int, text: String, ranges: List<IntRange>, boundaries: IntArray, frames: Int) {
         require(boundaries.size == ranges.size * 2)
+        require(frames >= 0 && boundaries.all { it in 0..frames } && boundaries.asSequence().zipWithNext().all { (a, b) -> a <= b })
         var word = 0
         while (word < ranges.size) {
             val range = ranges[word]
@@ -37,17 +40,22 @@ internal class VoicePcmCaptions {
             } while (word < ranges.size && ranges[word] == range)
             val end = boundaries[word * 2 - 1]
             if (!range.isEmpty() && start < end) {
-                pending.addLast(VoicePcmCue(produced + start, segment, text, range))
+                pending.addLast(VoicePcmCue(produced + start, segment, text, range, produced + end))
                 pending.addLast(VoicePcmCue(produced + end, segment, text, IntRange.EMPTY))
             }
         }
         produced += frames
     }
 
-    @Synchronized fun consumed(frames: Long): VoicePcmCue? {
-        if (frames <= 0) return null
+    @Synchronized fun consumed(frames: Long, advancing: Boolean = true): VoicePcmCue? {
+        if (frames <= 0 || !advancing) return null
+        lastConsumed = maxOf(lastConsumed, frames)
         var cue: VoicePcmCue? = null
-        while (pending.isNotEmpty() && pending.first().frame <= frames) cue = pending.removeFirst()
+        while (pending.isNotEmpty() && pending.first().frame <= lastConsumed) cue = pending.removeFirst()
+        if (cue != null) current = cue
         return cue
     }
+
+    /** Retain the active cue during a pause/refill so the renderer can freeze the same word. */
+    @Synchronized fun active(): VoicePcmCue? = current
 }

@@ -1,16 +1,134 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
-/** Speech-only projection of the buffer's bounded input; captions retain links and code. */
+/** One bounded, append-stable speech projection for live playback, replay and their captions. */
 internal object VoiceSpeechText {
+    const val LIMIT_NOTICE = "The rest of this response is available in the chat."
+
     /** Incomplete words and markup stay pending, so later snapshots cannot expose a URL fragment. */
-    fun project(input: String, final: Boolean = true): String {
+    fun project(input: String, final: Boolean = true, includeDetails: Boolean = false): String {
         val end = minOf(input.length, 12000).let { if (it > 0 && input[it - 1].isHighSurrogate()) it - 1 else it }
-        return project(input.substring(0, end), final && input.length <= 12000, 0, Notices(), completed = final)
+        val spoken = project(input.substring(0, end), final && input.length <= 12000, 0, Notices(), completed = final, includeDetails)
+        return if (final && input.length > 12000) {
+            spoken + (if (spoken.isNotEmpty() && !spoken.last().isWhitespace()) " " else "") + LIMIT_NOTICE
+        } else {
+            spoken
+        }
     }
+
+    /** The original rich content stays on screen; this flag never exposes hidden reasoning. */
+    fun hasDetails(input: String): Boolean {
+        val visible = withoutReasoning(input)
+        return visible.length > 12000 ||
+            detailOpening.containsMatchIn(visible) ||
+            tableOpening.containsMatchIn(visible) ||
+            sourceHeading.containsMatchIn(visible) ||
+            fenceOpening.containsMatchIn(visible) ||
+            uriPrefix.containsMatchIn(visible) ||
+            '\uE200' in visible
+    }
+
+    /** Rich display/replay source. Explicit reasoning is hidden even for older saved replies. */
+    fun withoutReasoning(input: String, final: Boolean = true): String = visible(input, final, unwrapDetails = false)
+
+    /** Expand explicit detail containers into Markdown while preserving ordinary rich text. */
+    fun richDetails(input: String, final: Boolean = true): String = visible(input, final, unwrapDetails = true)
+
+    private fun visible(input: String, final: Boolean, unwrapDetails: Boolean): String {
+        val result = StringBuilder()
+        var index = 0
+        while (index < input.length) {
+            if (index == 0 || input[index - 1] == '\n') {
+                val end = input.indexOf('\n', index).let { if (it < 0) input.length else it }
+                val line = input.substring(index, end)
+                val content = line.trimStart(' ', '\t')
+                if ((line.length - content.length >= 4 || line.startsWith('\t')) && lineMarker.find(content) == null) {
+                    result.append(input, index, end)
+                    index = end
+                    if (index == input.length) break
+                }
+            }
+            if (input[index] == '\\' && index + 1 < input.length) {
+                result.append(input, index, index + 2)
+                index += 2
+                continue
+            }
+            if (input[index] == '`' || input.startsWith("~~~", index)) {
+                val markerEnd = input.indexOfFirstFrom(index) { it != input[index] }
+                val marker = input.substring(index, markerEnd)
+                val end = if (marker.length >= 3) {
+                    val lineEnd = input.indexOf('\n', markerEnd)
+                    if (lineEnd < 0) input.length else fenceEnd(input, lineEnd, marker, final = true).takeIf { it >= 0 } ?: input.length
+                } else {
+                    input.indexOf(marker, markerEnd).let { if (it < 0) input.length else it + marker.length }
+                }
+                result.append(input, index, end)
+                index = end
+                continue
+            }
+            if (isQuoteStart(input, index)) {
+                val end = quotedEnd(input, index, final).let { if (it < 0) input.length else it + 1 }
+                result.append(input, index, end)
+                index = end
+                continue
+            }
+            if (input[index] == '<') {
+                val close = tagEnd(input, index)
+                if (close < 0) {
+                    val tail = input.substring(index + 1).removePrefix("/").lowercase()
+                    if ((!final && tail.isEmpty()) || tail.isNotEmpty() && reasoningTags.any { it.startsWith(tail) || tail.startsWith("$it ") }) break
+                } else {
+                    val tag = input.substring(index + 1, close)
+                    val name = htmlTagName.find(tag)?.groupValues?.get(1)?.lowercase()
+                    if (name in reasoningTags) {
+                        if (tag.startsWith('/') || tag.trimEnd().endsWith('/')) {
+                            index = close + 1
+                        } else {
+                            val end = pairedTagEnd(input, close + 1, requireNotNull(name))
+                            if (end < 0) break
+                            if (result.isNotEmpty() && !result.last().isWhitespace() && input.getOrNull(end)?.isWhitespace() == false) result.append(' ')
+                            index = end
+                        }
+                        continue
+                    }
+                    if (unwrapDetails && name in displayContainers) {
+                        result.append('\n')
+                        index = close + 1
+                        continue
+                    }
+                }
+            }
+            result.append(input[index++])
+        }
+        return result.toString()
+    }
+
+    private fun quotedEnd(text: String, start: Int, final: Boolean): Int {
+        val close = when (text[start]) {
+            '“' -> '”'
+            '‘' -> '’'
+            else -> text[start]
+        }
+        var escaped = false
+        for (index in start + 1 until text.length) {
+            if (escaped) {
+                escaped = false
+            } else if (text[index] == '\\') {
+                escaped = true
+            } else if (text[index] == close &&
+                !(close in "'’" && text[index - 1].isLetterOrDigit() && (text.getOrNull(index + 1)?.isLetterOrDigit() == true || index == text.lastIndex && !final))
+            ) {
+                return index
+            }
+        }
+        return -1
+    }
+
+    private fun isQuoteStart(text: String, index: Int): Boolean =
+        text[index] in "\"“" || text[index] in "'‘" && text.getOrNull(index - 1)?.isLetterOrDigit() != true
 
     private class Notices(var codeAnnounced: Boolean = false)
 
-    private fun project(text: String, final: Boolean, depth: Int, notices: Notices, completed: Boolean = final): String {
+    private fun project(text: String, final: Boolean, depth: Int, notices: Notices, completed: Boolean = final, includeDetails: Boolean = false, literalTags: Boolean = false): String {
         if (depth > 4) return ""
         val stableEnd = if (final) text.length else text.indexOfLast(Char::isWhitespace) + 1
         val spoken = StringBuilder()
@@ -34,6 +152,24 @@ internal object VoiceSpeechText {
                 val content = (index until lineEnd).firstOrNull { text[it] != ' ' && text[it] != '\t' } ?: lineEnd
                 if (content == text.length && !final) break
                 val line = text.substring(content, lineEnd)
+                if (heading.matches(line) && lineEnd == text.length && !completed) break
+                if (!includeDetails && sourceHeading.matches(line)) {
+                    val level = line.takeWhile { it == '#' }.length
+                    index = sourceSectionEnd(text, lineEnd, level)
+                    continue
+                }
+                // A leading pipe is unambiguous before any header word can enter the queue.
+                // Bare headers are deliberately kept: recognizing a later pipe cannot retract
+                // words already spoken. Voice prompts place rich tables inside <details>.
+                if (line.startsWith('|')) {
+                    val table = table(text, content, final, includeDetails, depth, notices)
+                    if (table != null) {
+                        spoken.append(table.speech)
+                        if (table.pending) break
+                        index = table.end
+                        continue
+                    }
+                }
                 val fence = fenceStart.find(line)?.value
                 if (fence != null) {
                     // Defer an incomplete language tag so streamed and saved speech agree.
@@ -64,6 +200,14 @@ internal object VoiceSpeechText {
             }
             val character = text[index]
             when {
+                !literalTags && isQuoteStart(text, index) -> {
+                    val close = quotedEnd(text, index, final && completed)
+                    val end = close.takeIf { it >= 0 } ?: text.length
+                    spoken.append(character)
+                    spoken.append(project(text.substring(index + 1, end), close >= 0 || final && completed, depth + 1, notices, completed, includeDetails, literalTags = true))
+                    if (close >= 0) spoken.append(text[close])
+                    index = if (close >= 0) close + 1 else text.length
+                }
                 character == '\uE200' -> {
                     val close = text.indexOf('\uE201', index + 1)
                     if (close < 0) break
@@ -122,18 +266,37 @@ internal object VoiceSpeechText {
                     }
                     val next = text.getOrNull(index + 1)
                     if (next?.isWhitespace() == true || next?.isDigit() == true || next in listOf('=', '+', '-')) {
-                        comparison("less than")
-                        index++
+                        comparison(if (next == '=') "less than or equal to" else "less than")
+                        index += if (next == '=') 2 else 1
                         continue
                     }
                     val close = tagEnd(text, index)
                     if (close < 0) {
-                        if (!final || next != null && rawLinkAt(text, index + 1)) break
+                        if (!final || next != null && rawLinkAt(text, index + 1) || isPendingNonspokenTag(text.substring(index + 1))) break
                         comparison("less than")
                         index++
                         continue
                     }
                     val tag = text.substring(index + 1, close)
+                    val tagName = htmlTagName.find(tag)?.groupValues?.get(1)?.lowercase()
+                    if (literalTags && (tagName in reasoningTags || tagName in detailTags || tagName in answerTags || tagName in htmlTags)) {
+                        if (spoken.isNotEmpty() && !spoken.last().isWhitespace()) spoken.append(' ')
+                        spoken.append(if (tag.startsWith('/')) "closing " else "opening ").append(tagName).append(" tag")
+                        if (text.getOrNull(close + 1)?.isWhitespace() == false) spoken.append(' ')
+                        index = close + 1
+                        continue
+                    }
+                    if (tagName in reasoningTags || !includeDetails && tagName in detailTags) {
+                        if (tag.startsWith('/') || tag.trimEnd().endsWith('/')) {
+                            index = close + 1
+                        } else {
+                            val end = pairedTagEnd(text, close + 1, requireNotNull(tagName))
+                            if (end < 0) break
+                            if (spoken.isNotEmpty() && !spoken.last().isWhitespace() && text.getOrNull(end)?.isWhitespace() == false) spoken.append(' ')
+                            index = end
+                        }
+                        continue
+                    }
                     val hidden = hiddenTag.find(tag)?.groupValues?.get(1)
                     if (hidden != null) {
                         codeNotice()
@@ -141,9 +304,8 @@ internal object VoiceSpeechText {
                         if (end < 0) break
                         index = end + hidden.length + 3
                     } else if (tag.isNotEmpty() && rawLinkAt(tag, 0)) {
-                        spoken.append("link")
                         index = close + 1
-                    } else if (htmlTagName.find(tag)?.groupValues?.get(1)?.lowercase() in htmlTags || tag.startsWith('!') || tag.startsWith('?')) {
+                    } else if (tagName in htmlTags || tagName in detailTags || tagName in answerTags || tag.startsWith('!') || tag.startsWith('?')) {
                         if (lineBreakTag.containsMatchIn(tag)) spoken.append('\n')
                         index = close + 1
                     } else {
@@ -152,12 +314,13 @@ internal object VoiceSpeechText {
                     }
                 }
                 character == '>' -> {
-                    comparison("greater than")
-                    index++
+                    val equal = text.getOrNull(index + 1) == '='
+                    comparison(if (equal) "greater than or equal to" else "greater than")
+                    index += if (equal) 2 else 1
                 }
                 rawLinkAt(text, index) -> {
                     val end = text.indexOfFirstFrom(index, Char::isWhitespace)
-                    spoken.append("link")
+                    // Source addresses remain readable on screen, never repeated as "link".
                     text.getOrNull(end - 1)?.takeIf { it in ".,!?;:" }?.let(spoken::append)
                     index = end
                 }
@@ -181,6 +344,8 @@ internal object VoiceSpeechText {
                                 "amp" -> "&"
                                 "quot" -> "\""
                                 "apos", "#39" -> "'"
+                                "lt" -> " less than "
+                                "gt" -> " greater than "
                                 else -> " "
                             }
                         )
@@ -194,11 +359,42 @@ internal object VoiceSpeechText {
                     spoken.append("number ")
                     index++
                 }
-                character in "*_~\\]" -> index++
-                character == '|' -> {
-                    spoken.append(' ')
+                character in "≤≥≠=×÷" -> {
+                    comparison(
+                        when (character) {
+                            '≤' -> "less than or equal to"
+                            '≥' -> "greater than or equal to"
+                            '≠' -> "does not equal"
+                            '×' -> "times"
+                            '÷' -> "divided by"
+                            else -> "equals"
+                        }
+                    )
                     index++
                 }
+                character == '*' -> {
+                    val markerEnd = text.indexOfFirstFrom(index) { it != '*' }
+                    val marker = text.substring(index, markerEnd)
+                    val close = text.indexOf(marker, markerEnd)
+                    val before = text.getOrNull(index - 1)
+                    val mayOpenFormatting = marker.length <= 2 &&
+                        (before == null || before.isWhitespace() || before in "([{\"'") &&
+                        text.getOrNull(markerEnd)?.isWhitespace() == false
+                    val formatting = mayOpenFormatting && close > markerEnd && !text[close - 1].isWhitespace()
+                    if (formatting) {
+                        spoken.append(project(text.substring(markerEnd, close), true, depth + 1, notices, includeDetails = includeDetails, literalTags = literalTags))
+                        index = close + marker.length
+                    } else if (mayOpenFormatting) {
+                        if (!completed) break
+                        index = markerEnd
+                    } else {
+                        val left = text.substring(0, index).lastOrNull { !it.isWhitespace() }
+                        val right = text.substring(markerEnd).firstOrNull { !it.isWhitespace() }
+                        if (marker.length == 1 && (left?.isLetterOrDigit() == true || left == ')') && (right?.isLetterOrDigit() == true || right == '(')) comparison("times")
+                        index = markerEnd
+                    }
+                }
+                character in "_~\\]" -> index++
                 else -> {
                     spoken.append(character)
                     index++
@@ -207,6 +403,82 @@ internal object VoiceSpeechText {
         }
         return spoken.toString()
     }
+
+    private data class Table(val end: Int, val speech: String = "", val pending: Boolean = false)
+
+    private fun table(text: String, start: Int, final: Boolean, includeDetails: Boolean, depth: Int, notices: Notices): Table? {
+        val headerEnd = text.indexOf('\n', start)
+        if (headerEnd < 0) return if (final) null else Table(text.length, pending = true)
+        val dividerEnd = text.indexOf('\n', headerEnd + 1).let { if (it < 0) text.length else it }
+        val divider = text.substring(headerEnd + 1, dividerEnd).trim()
+        if (dividerEnd == text.length && !final && divider.all { it in "|:- \t" }) return Table(text.length, pending = true)
+        val columns = cells(text.substring(start, headerEnd))
+        val rules = cells(divider)
+        if (columns.isEmpty() || columns.size != rules.size || rules.any { !tableCellRule.matches(it) }) return null
+        val headers = columns.map { project(it, true, depth + 1, notices, includeDetails = true).trim() }
+        val spoken = StringBuilder()
+        var index = (dividerEnd + 1).coerceAtMost(text.length)
+        while (index < text.length) {
+            val end = text.indexOf('\n', index).let { if (it < 0) text.length else it }
+            val row = text.substring(index, end).trim()
+            if (row.isBlank() || !row.startsWith('|')) break
+            if (end == text.length && !final) return Table(end, spoken.toString(), pending = true)
+            if (includeDetails) {
+                cells(row).forEachIndexed { column, raw ->
+                    val value = project(raw, true, depth + 1, notices, includeDetails = true).trim()
+                    if (value.isNotEmpty()) {
+                        headers.getOrNull(column)?.takeIf(String::isNotEmpty)?.let { spoken.append(it).append(": ") }
+                        spoken.append(value)
+                        if (value.last() !in ".!?;") spoken.append('.')
+                        spoken.append(' ')
+                    }
+                }
+                spoken.append('\n')
+            }
+            index = (end + 1).coerceAtMost(text.length)
+        }
+        return Table(index, spoken.toString())
+    }
+
+    private fun cells(line: String): List<String> {
+        val text = line.trim().removePrefix("|").removeSuffix("|")
+        val result = mutableListOf<String>()
+        var start = 0
+        var escaped = false
+        var code = false
+        text.forEachIndexed { index, character ->
+            when {
+                escaped -> escaped = false
+                character == '\\' -> escaped = true
+                character == '`' -> code = !code
+                character == '|' && !code -> {
+                    result += text.substring(start, index).trim()
+                    start = index + 1
+                }
+            }
+        }
+        result += text.substring(start).trim()
+        return result
+    }
+
+    private fun isPendingNonspokenTag(text: String): Boolean {
+        val name = text.removePrefix("/").lowercase()
+        return name.isNotEmpty() && (reasoningTags + detailTags).any { it.startsWith(name) || name.startsWith("$it ") }
+    }
+
+    private fun sourceSectionEnd(text: String, start: Int, level: Int): Int {
+        var index = (start + 1).coerceAtMost(text.length)
+        while (index < text.length) {
+            val end = text.indexOf('\n', index).let { if (it < 0) text.length else it }
+            val line = text.substring(index, end).trimStart()
+            if (heading.matches(line) && line.takeWhile { it == '#' }.length <= level) return index
+            index = (end + 1).coerceAtMost(text.length)
+        }
+        return text.length
+    }
+
+    private fun pairedTagEnd(text: String, start: Int, name: String): Int =
+        ReasoningTagScanner(name).scan(text, start, final = true).let { if (it.closingStart == null) -1 else it.consumed }
 
     private fun closing(text: String, start: Int, open: Char, close: Char): Int {
         var nesting = 0
@@ -279,12 +551,22 @@ internal object VoiceSpeechText {
     private val lineMarker = Regex("^(?:#{1,6}|>|[-+*]|[0-9]+[.)])[ \\t]+")
     private val referenceDefinition = Regex("^\\[[^]\\n]+]:")
     private val tableRule = Regex("[|:= \\t-]*[-|=][|:= \\t-]{2,}")
+    private val tableCellRule = Regex(":?-{3,}:?")
     private val citation = Regex("(?:[0-9, –-]+|\\^[^ ]+)")
     private val escapedLabelBracket = Regex("""\\[\[\]]""")
     private val labelWhitespace = Regex("\\s+")
     private val hiddenTag = Regex("^(pre|code|script|style)(?:\\s|$)", RegexOption.IGNORE_CASE)
-    private val htmlTagName = Regex("^/?([A-Za-z][A-Za-z0-9]*)(?=\\s|/|$)")
+    private val reasoningTags = setOf("think", "thinking", "analysis", "reasoning")
+    private val detailTags = setOf("details", "voice_details", "sources", "references", "table")
+    private val answerTags = setOf("answer", "final", "voice_answer", "speech", "summary")
+    private val displayContainers = detailTags - "table" + answerTags
+    private val detailOpening = Regex("<(?:details|voice_details|sources|references|table)(?:\\s|>)", RegexOption.IGNORE_CASE)
+    private val tableOpening = Regex("(?m)^\\s*\\|[^\\n]+\\n[ \\t]*\\|?[ \\t]*:?-{3,}")
+    private val sourceHeading = Regex("(?im)^#{1,6}[ \\t]+(?:sources|references|citations)[ \\t]*:?[ \\t]*$")
+    private val heading = Regex("^#{1,6}[ \\t]+.*")
+    private val fenceOpening = Regex("(?m)^[ \\t]*(`{3,}|~{3,})")
+    private val htmlTagName = Regex("^/?([A-Za-z][A-Za-z0-9_-]*)(?=\\s|/|$)")
     private val htmlTags = setOf("a", "b", "br", "blockquote", "code", "del", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "li", "ol", "p", "pre", "span", "strong", "sub", "sup", "table", "tbody", "td", "th", "thead", "tr", "u", "ul")
-    private val lineBreakTag = Regex("^/?(?:br|hr|p|div|li|h[1-6])(?:\\s|/|$)", RegexOption.IGNORE_CASE)
+    private val lineBreakTag = Regex("^/?(?:br|hr|p|div|li|h[1-6]|details|voice_details|sources|references|summary|table|thead|tbody|tr|td|th)(?:\\s|/|$)", RegexOption.IGNORE_CASE)
     private val entity = Regex("&([A-Za-z][A-Za-z0-9]*|#[0-9]+|#x[0-9a-fA-F]+);")
 }

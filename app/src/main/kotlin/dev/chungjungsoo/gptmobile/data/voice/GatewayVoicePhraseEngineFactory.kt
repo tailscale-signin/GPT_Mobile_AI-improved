@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
 import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import dev.melo.kokoro.KokoroFrontend
 import io.ktor.client.HttpClient
@@ -29,6 +30,7 @@ internal class GatewayVoicePhraseEngineFactory(
     private val credential: String?,
     private val report: (String) -> Unit
 ) : VoicePhraseEngineFactory {
+    override val selectedBackend = VoiceSpeechBackend.GATEWAY_CUDA
     private val pending = AtomicReference<GatewayVoicePhraseEngine?>(null)
     private val generation = AtomicLong()
     override fun cancelPending() {
@@ -36,7 +38,7 @@ internal class GatewayVoicePhraseEngineFactory(
         pending.get()?.cancel()
     }
 
-    override val identity = "gateway-cuda-v1-${UUID.randomUUID()}-" + MessageDigest.getInstance("SHA-256")
+    override val identity = "gateway-cuda-v2-${KokoroModelPack.MODEL_SHA256}-" + MessageDigest.getInstance("SHA-256")
         .digest("$base\n${credential.orEmpty()}".toByteArray()).joinToString("") { "%02x".format(it) }
 
     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
@@ -52,7 +54,7 @@ internal class GatewayVoicePhraseEngineFactory(
             runCatching { engine.close() }
             if (error is CancellationException || error is Error) throw error
             report("Gateway CUDA speech is unavailable. Check CUDA speech setup and the selected PC connection.")
-            throw IllegalStateException("Gateway CUDA speech is unavailable. Select CPU speech or check the selected PC.")
+            throw IllegalStateException("Gateway CUDA speech is unavailable. Select CPU speech or check the selected PC.", error)
         } finally {
             pending.compareAndSet(engine, null)
         }
@@ -75,6 +77,7 @@ private class GatewayVoicePhraseEngine(
     private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var model = ""
     private val http = HttpClient(OkHttp) {
+        install(dev.chungjungsoo.gptmobile.data.network.OkHttpConversationPrivacy)
         expectSuccess = false
         followRedirects = false
         install(HttpTimeout) {
@@ -84,6 +87,15 @@ private class GatewayVoicePhraseEngine(
         }
         engine {
             config {
+                addInterceptor(dev.chungjungsoo.gptmobile.data.network.ConversationPrivacyHttp.bridge)
+                addNetworkInterceptor { chain ->
+                    val privacy = dev.chungjungsoo.gptmobile.data.network.ConversationPrivacyHttp.policy(chain.request())
+                    privacy.recheckAuthorization()
+                    if (privacy.conversation?.enabled == true && chain.request().url.encodedPath.endsWith("/gateway/voice/synthesize")) {
+                        throw java.io.IOException("PRIVACY_SERVICE_UNVERIFIED: Private speech stays on this phone.")
+                    }
+                    chain.proceed(chain.request())
+                }
                 followRedirects(false)
                 followSslRedirects(false)
                 retryOnConnectionFailure(false)
@@ -94,7 +106,7 @@ private class GatewayVoicePhraseEngine(
 
     private val transport = GatewayVoiceTransport(http, endpoint, credential)
 
-    fun qualify() = runBlocking {
+    fun qualify() = runBlocking(ConversationPrivacyContext.capture() ?: ConversationPrivacyContext(null, false)) {
         val job = currentCoroutineContext()[Job]!!
         running.set(job)
         try {
@@ -115,7 +127,7 @@ private class GatewayVoicePhraseEngine(
         val id = UUID.randomUUID().toString()
         request.set(id)
         try {
-            return runBlocking {
+            return runBlocking(ConversationPrivacyContext.capture() ?: ConversationPrivacyContext(null, false)) {
                 val job = currentCoroutineContext()[Job]!!
                 running.set(job)
                 if (cancelled.get() || closed.get()) throw CancellationException("Speech cancelled")

@@ -23,6 +23,75 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+
+    @Test fun adaptiveReadFeedbackSurvivesRoundsAndResetsForNextCollection() = runBlocking {
+        val reader = tool("github_read") { id, _ ->
+            AgentToolResult(id, ToolResultContent.Text("source receipt"), isError = id == "read-1", errorCode = if (id == "read-1") "REMOTE_UNAVAILABLE" else null)
+        }
+        fun provider(): AgentProviderSession {
+            var round = 0
+            return session { _, _ ->
+                flow {
+                    round++
+                    if (round <= 2) {
+                        emit(toolCall("read-$round", "github_read", buildJsonObject { put("path", "source-$round.kt") }))
+                    } else {
+                        emit(ProviderEvent.TextDelta("Finished checking the independent source."))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+        }
+        val runner = AgentRunner(AgentRunLimits(maxRounds = 3, maxToolCalls = 4, maxConcurrentTools = 5))
+        repeat(2) {
+            val starts = runner.run(provider(), listOf(reader)).toList().filterIsInstance<AgentRunEvent.BatchProgress>()
+                .map { it.progress }.filter { it.completed == 0 && it.active == 0 }
+            assertEquals(listOf(5, 2), starts.map { it.concurrency })
+        }
+    }
+
+    @Test fun sourceCallCorrectedByTheSessionKeepsItsProviderEnvelopeAtTheRunnerBoundary() = runBlocking {
+        val original = ProviderEvent.ToolCall(
+            "source-read",
+            "github_read",
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"evidence_id":"ev_aaaaaaaaaaaaaaaaaaaaaaaa","ranges":[{"path":"src/Main.kt","start_line":1,"max_lines":20}]}""") as JsonObject
+        )
+        val correctedArguments = JsonObject(
+            original.arguments - "evidence_id" + buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("commit_sha", "b".repeat(40))
+            }
+        )
+        // GitHubVerifiedSession resolves the protected search receipt before the
+        // runner sees this call, retaining the provider's uncorrected envelope.
+        val corrected = original.captureProviderInvocation().copy(arguments = correctedArguments)
+        var executions = 0
+        var replayed: ProviderEvent.ToolCall? = null
+        val reader = tool(original.name) { id, arguments ->
+            assertEquals(correctedArguments, arguments)
+            executions++
+            AgentToolResult(id, ToolResultContent.Text("Pinned source was read."), false)
+        }
+        val provider = session { _, exchanges ->
+            flow {
+                if (exchanges.isEmpty()) {
+                    emit(corrected)
+                } else {
+                    replayed = exchanges.single().calls.single()
+                    emit(ProviderEvent.TextDelta("Finished from the pinned source."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxRounds = 2, maxToolCalls = 2)).run(provider, listOf(reader)).toList()
+        assertEquals(1, executions)
+        assertEquals(original.providerInvocation(), requireNotNull(replayed).providerInvocation())
+        assertEquals(ToolHandoffReceipt.fingerprint(original), ToolHandoffReceipt.fingerprint(requireNotNull(replayed)))
+        assertEquals(correctedArguments, requireNotNull(replayed).arguments)
+        assertFalse(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.Failed })
+    }
+
     @Test fun repeatedContextCompactionKeepsAuthorizedToolsUntilTaskCompletion() = runBlocking {
         var requests = 0
         var executions = 0
@@ -170,6 +239,8 @@ class AgentRunnerTest {
         assertEquals(1, executions)
         assertEquals(listOf("DISPATCH_OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"), results.map { it.errorCode })
         assertFalse(results.last().dispatched)
+        assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("call", "first")), results.last().executionReceipt?.get("reconciliation_original_call_hash"))
+        assertEquals(JsonPrimitive(false), results.last().executionReceipt?.get("request_replay_allowed"))
     }
 
     @Test fun failedRoundReportsOneTrackedWriteWithoutRepeatingIt() = runBlocking {
@@ -198,6 +269,9 @@ class AgentRunnerTest {
         assertEquals(JsonPrimitive("RECONCILIATION_REQUIRED"), failure.failureDetails?.get("recovery_observation"))
         assertEquals(JsonPrimitive("OUTCOMES_UNRESOLVED"), failure.failureDetails?.get("pending_tool_receipt_state"))
         assertEquals(JsonPrimitive(1), failure.failureDetails?.get("reconciliation_tracked_signature_count"))
+        assertEquals(JsonPrimitive("IDENTIFIED"), failure.failureDetails?.get("reconciliation_identity_state"))
+        assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("call", "first")), failure.failureDetails?.get("reconciliation_original_call_hash"))
+        assertEquals(JsonPrimitive("DISPATCH_OUTCOME_UNKNOWN"), failure.failureDetails?.get("reconciliation_original_code"))
     }
 
     @Test fun replayAdmissionFailureRecordsPlanningWithoutProviderDispatch() = runBlocking {
@@ -1036,13 +1110,13 @@ class AgentRunnerTest {
     }
 
     @Test fun unknownToolRecoveryUsesOnlyTheCatalogFromThisRound() = runBlocking {
-        for (discover in listOf(true, false)) {
+        for ((discover, field) in listOf(true to "url", true to "evidence_id", false to "url")) {
             val offered = if (discover) ProgressiveToolCatalog.NAME else "lookup"
             var observed = false
             val provider = session { _, exchanges ->
                 flow {
                     if (exchanges.isEmpty()) {
-                        emit(toolCall("unknown", "unregistered_fixture"))
+                        emit(toolCall("unknown", "unregistered_fixture", buildJsonObject { put(field, "private-value") }))
                     } else {
                         val result = exchanges.last().results.single()
                         assertFalse(result.dispatched)
@@ -1051,6 +1125,9 @@ class AgentRunnerTest {
                         observed = true
                         assertTrue(text.contains(offered))
                         assertFalse(text.contains("filtered_fixture"))
+                        assertFalse(text.contains("private-value"))
+                        val query = if (field == "url") "url" else "evidence"
+                        assertEquals(discover, text.contains(buildJsonObject { put("query", query) }.toString()))
                         assertTrue(if (discover) text.contains("look up this capability") else text.contains("explain what is missing"))
                         assertEquals(if (discover) JsonPrimitive(offered) else null, result.executionReceipt?.get("suggested_tool"))
                         emit(ProviderEvent.TextDelta("done"))

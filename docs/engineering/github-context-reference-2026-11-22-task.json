@@ -1,0 +1,303 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "github-context-reference-2026-11-22",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "starting_head": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "parent_pr": 2254,
+  "intent": "Implement all reviewed repository-reference, durable code index, task context, efficiency, visibility and benchmark changes; preserve concurrent work; complete final-head/main CI and signed publication",
+  "state": "INTEGRATED_VALIDATING",
+  "requirements": [
+    {
+      "id": "C01",
+      "title": "Maintained repository guide and generated build facts",
+      "owner": "root",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C02",
+      "title": "Revision-bound feature/source/test reference manifest",
+      "owner": "root",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C03",
+      "title": "Automatic repository document sections in GitHub context",
+      "owner": "phone_context/gateway_context",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C04",
+      "title": "Separate durable compact phone index and source cache",
+      "owner": "phone_context",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C05",
+      "title": "Task-ranked exact ranges, dependencies and tests",
+      "owner": "phone_context/gateway_context",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C06",
+      "title": "Blob-bound incremental refresh and invalidation",
+      "owner": "phone_context/gateway_context",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C07",
+      "title": "Section-aware reference retrieval",
+      "owner": "phone_context/gateway_context",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C08",
+      "title": "Range-aware source packs and actual-model token budgets",
+      "owner": "gateway_context",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C09",
+      "title": "Nonblocking semantic retrieval and durable architectural decisions",
+      "owner": "phone_context/gateway_context",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C10",
+      "title": "Android wiring candidates and semantic confidence",
+      "owner": "phone_context/gateway_context",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C11",
+      "title": "Bounded warm language-server lifecycle",
+      "owner": "gateway_context",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C12",
+      "title": "Feature/symbol tool selection hints",
+      "owner": "root",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C13",
+      "title": "Context status on Android and Gateway",
+      "owner": "root",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C14",
+      "title": "Controlled frozen context benchmark variants and metrics",
+      "owner": "github_efficiency",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C15",
+      "title": "Read scheduling/cache/resource behavior regressions",
+      "owner": "root",
+      "state": "IMPLEMENTED_PENDING_FINAL_CI"
+    },
+    {
+      "id": "C16",
+      "title": "Concurrent integration, full CI, merge and verified publication",
+      "owner": "root",
+      "state": "IN_PROGRESS"
+    }
+  ],
+  "validation": [
+    {
+      "scope": "repository reference generator",
+      "source": "8e609cd139",
+      "result": "PASS",
+      "cases": 8,
+      "qualification": "Real temporary Git repositories cover canonical Windows text and custom-filter rejection; no external filter executes."
+    },
+    {
+      "scope": "phone task context, durable cache, source identity and memory policy",
+      "source": "eb52c331e0",
+      "result": "PASS",
+      "cases": 41,
+      "qualification": "Actual Kotlin source with explicit platform, transport and native boundaries; not full Android or device performance."
+    },
+    {
+      "scope": "benchmark context first-freeze and immutable membership",
+      "source": "486b378e55",
+      "result": "PASS",
+      "cases": 4,
+      "qualification": "Actual Store, Room database/DAO implementations and scope helper under Robolectric; unrelated native/scoring boundaries isolated. Full BatchRunner regression awaits canonical Android execution."
+    },
+    {
+      "scope": "Gateway retrieval, authority, tokenization, caching and transport review",
+      "source": "910ce3551e",
+      "result": "PASS",
+      "cases": 79,
+      "qualification": "Focused deterministic Gateway cases; complete integrated suite and final transport review in progress."
+    },
+    {
+      "scope": "context benchmark domain and admission",
+      "source": "3d3291813c",
+      "result": "PASS",
+      "cases": 97,
+      "qualification": "Actual Kotlin domain/preparation/selector source; Android, HTTP and native embedding boundaries excluded."
+    },
+    {
+      "scope": "Gateway context benchmark integration",
+      "source": "b2dd013531",
+      "result": "PASS",
+      "cases": 86,
+      "qualification": "Production selector, service/store/runner and deterministic generation/embedding boundaries, including existing benchmark/phone/desktop regressions."
+    },
+    {
+      "scope": "prepared receipt metadata and range controls",
+      "source": "8e609cd139",
+      "result": "PASS",
+      "cases": 8,
+      "qualification": "Actual Kotlin parser and receipt sources; no UI or provider delivery claim."
+    },
+    {
+      "scope": "desktop conversation context freeze",
+      "source": "4b1ea9ef9e",
+      "result": "PASS",
+      "cases": 45,
+      "qualification": "Python desktop conversation client tests."
+    },
+    {
+      "scope": "Android KSP and committed Room schema",
+      "source": "79511d8b36",
+      "result": "PASS",
+      "qualification": "Actual Android SDK37/JDK21/Gradle9.8 code generation; final integrated production/unit compilation remains pending."
+    },
+    {
+      "scope": "combined canonical host checks",
+      "source": "ac1de75f97 with regenerated reference/inventory inputs",
+      "result": "PASS",
+      "cases": 633,
+      "qualification": "All 2034 literal Android patterns, resources/icons, dependency provenance and generated checks passed; 100 dynamic patterns are outside literal checking."
+    },
+    {
+      "scope": "full Gateway check",
+      "source": "30e7f413cf626567840c46fb1f56eab9d19fb606",
+      "result": "PASS",
+      "python_suites": 146,
+      "reported_cases": 1955,
+      "explicit_skips": 35,
+      "executed_cases": 1920,
+      "browser_cases": 7,
+      "qualification": "Complete check_gateway.py gate; platform/environment skips retained. The 50000-event durable stress passed. Later cancellation and legacy-recovery changes have separate targeted integration coverage.",
+      "log_sha256": "0a2dcd9475b71ed1d733702f42c9dc5bef5c2f4cf881e55f8b5f62baec962d4c"
+    },
+    {
+      "scope": "real socket semantic cancellation and source/config admission",
+      "source": "23b74b7c7c",
+      "result": "PASS",
+      "cases": 64,
+      "qualification": "Includes real loopback first-byte cancellation, trickle deadline, silent-read timeout and cancellation during timeout; deterministic embedding/generation fixtures elsewhere."
+    },
+    {
+      "scope": "benchmark paired comparison identity",
+      "source": "cd3f5a6ead",
+      "result": "PASS",
+      "cases": 22,
+      "qualification": "Two new regressions failed before the fix. Altered or duplicate trials retain individual observations but yield no paired counts, delta or confidence interval."
+    },
+    {
+      "scope": "authentication diagnostic contracts",
+      "source": "f22d5db927",
+      "result": "PASS",
+      "cases": 209,
+      "qualification": "Closed vocabulary includes only the new known context field; selection values and unknown lookalikes remain excluded."
+    },
+    {
+      "scope": "native diagnostic projection",
+      "source": "f22d5db927",
+      "result": "PASS",
+      "cases": 4,
+      "qualification": "Actual capsule/validator with source-checked context/report/privacy dependencies; full Android remains pending."
+    },
+    {
+      "scope": "combined Windows WPF compilation",
+      "source": "5796150abf",
+      "result": "PASS",
+      "warnings": 0,
+      "errors": 0,
+      "qualification": ".NET10 cross-build from the actual combined source; not interactive Windows execution."
+    },
+    {
+      "scope": "combined Android KSP and Room schema",
+      "source": "ac1de75f97 with regenerated audit inputs",
+      "result": "PASS",
+      "qualification": "Actual Android SDK37/JDK21/Gradle9.8 code generation passed in two minutes. Production and full unit compilation remain separate gates."
+    },
+    {
+      "scope": "latest Gateway cancellation and legacy-recovery integration",
+      "source": "5796150abfa1e37155fed4683fe1c3095ff9b968",
+      "result": "PASS",
+      "python_suites": 11,
+      "cases": 216,
+      "skips": 0,
+      "qualification": "Actual integrated memory, semantic/context, cleanup/API, workspace, selected-execution and source-authority suites; all 513 package hashes revalidated.",
+      "log_sha256": "9c75e36c3b8b56702afec4625339639594c436216a6e307eeff64aa13e8f0927"
+    }
+  ],
+  "qualification": {
+    "physical_performance": "NOT_MEASURED",
+    "current_pr_ci": "PENDING_FINAL_SOURCE",
+    "current_main_ci": "PENDING_MERGE",
+    "publication": "PENDING_VERIFICATION"
+  },
+  "integrated_shared_head": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+  "limitations": [
+    "Component counts are separate, overlapping suites; they are not a deduplicated aggregate.",
+    "Prepared context does not establish final provider admission or verified edit/read evidence.",
+    "Configured encoder revisions are operator declarations; no physical device speed, energy or model-quality superiority is claimed.",
+    "Fixture context experiments measure public-source prompt supplements; full repository tool-loop read reduction and ground-truth recall remain unmeasured."
+  ],
+  "acceptance_integration": {
+    "owner_source": "fa40ab8104e7119308c81d85834b63000a054291",
+    "shared_source": "12b34b08ce5a8bb8ff3535b25d2d2b0d730ccd9e",
+    "integrated_source": "6e75de39a89ea60f7de937c0cd773ba3cd0fc6fa",
+    "state": "C01_C15_AND_ADDITIONAL_REVIEW_REPAIRS_LOCALLY_COMPLETE_PENDING_FINAL_HOSTED_GATES",
+    "followups": {
+      "state": "INTEGRATED_INDEPENDENTLY_VERIFIED_PENDING_COMBINED_VALIDATION",
+      "phone_candidate": "a37c13b9e9e0cf5173192ca45b70b929940d2b90",
+      "phone_behavior": "Bind packets to exact selected branch/repository/commit/tree/query/variant/budgets and report reuse only from the successful retained read; unreadable cached data physically refetched is reported fetched.",
+      "phone_validation": "Root immutable archive independently recompiles45 focused tests and3 unchanged probes; all29 compiled inputs,21 dependencies and complete consulted source blobs verified.",
+      "catalog_candidate": "3d974c92aa75b90f0628c2cab6c7b1c1c63bc007",
+      "catalog_behavior": "Validate proposed repository task-context arguments against the current presented schema of an already admitted alias without changing discovery or acquisition.",
+      "catalog_validation": "Independent immutable8-method focused/frozen suite and3 additional contract-replacement/multiple-alias/required-selector probes pass;13 full source/test blobs,20 compiler inputs and20 dependencies verified.",
+      "qualification": "Actual scoped Kotlin components with explicit platform/service boundaries; final integrated full Android/provider/Room execution remains required.",
+      "owner_source": "fa40ab8104e7119308c81d85834b63000a054291",
+      "package_merge": "183eb4dd5f6a4f0165d7d171fc0dd1e6ee6f7834",
+      "phone_integrated": "486b80ef1c",
+      "catalog_integrated": "3ba9b785c2",
+      "summary": {
+        "candidate": "6f65e1197b33cbc24a83eac2e204bb93c62d80f9",
+        "integrated": "a2a90893b5",
+        "repair": "Derive independent families and task membership from the retained frozen task manifest. Require complete matching source identities and internally consistent known grader outcomes; preserve actual rejected submissions and measured candidate failures.",
+        "root_independent": "27 context methods and8 unchanged frozen probes pass;514 archived Gateway inputs verified. Six probe methods failed at fa40 with two actual-grader positives preserved.",
+        "android_scope": "99 actual domain methods and4 actual Room Store methods pass on fa40; no full Android or isolated scoring qualification."
+      },
+      "lsp": {
+        "candidate": "e20e998b19f38775839a727d322a8da61d59a2e1",
+        "integrated": "9b2e87319a",
+        "repair": "Own startup failures, preserve terminal observer state, serialize reply admission with close/deadline/invalidation and use cancellable bounded framed IO independent of inherited-pipe EOF.",
+        "independent": "20 tracked methods,41 existing workspace integration methods,5 unchanged frozen fault probes and1 exact embedded-source execution control pass:67 methods, zero skips;514 Gateway inputs verified.",
+        "baseline": "Same20 tracked methods on fa40 produce10 expected failures; all8 prior method bodies retained.",
+        "platform": "17 warm-server cases target POSIX inside the Linux workspace;3 portable diagnostics cases remain applicable on Windows. Pool owns its process group; container bounds outside-group descendants."
+      },
+      "context_review": "145 focused context/cache/authority methods pass at fa40 with zero skips;519 archived Gateway/context inputs verified. No remaining concrete source or authority fault outside the repaired LSP scope.",
+      "reference_review": "Eight actual generator tests pass, including canonical Windows text and custom clean-filter refusal; references are navigation data, never execution authority."
+    },
+    "coordination": "Consolidation announced in the acceptance-owned PR section. Original owner checkout and source history preserved; recheck both shared and owner heads before guarded publication.",
+    "shared_limits": "Backup ordinary-load and voice/full-Android/speech followups still active; no merge or publication qualification from component totals.",
+    "latest_shared_source": "753d07cde88fd58f8c90ca266c5450c66838a6c6",
+    "combined_source": "f3809bf28ee9f605d3b0fed8ba08d25fe600870a",
+    "additional_summary_source": "a7828c1dd4316620a9970af9b5510d7c29d1eb94",
+    "additional_ui_source": "b47257f271810eda3fbe2a4f24604166378760e1",
+    "additional_proofs": "C14 independent35+7 and root combined35+7, no skips; UI independent15methods,67source paths/84dependencies/19boundaries;4Compose tests require actual Android. Final Gateway broad2003reported/35optional-skips+7browser, authentication209, canonical635 beforefinalmetadata/UI reference refresh.",
+    "owner_checkout": "Originalfa40 checkout remains untouched; recheck for later changes before guarded publication."
+  }
+}

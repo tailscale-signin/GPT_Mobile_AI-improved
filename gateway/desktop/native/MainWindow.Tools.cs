@@ -24,6 +24,7 @@ public partial class MainWindow
         switch(Section)
         {
             case "GitHub":BuildGitHub();return;
+            case "Coding agents":BuildCodingAgents();return;
             case "Repositories":case "Tests and release checks":BuildRepositories(Section!="Repositories");return;
             case "Environments":BuildEnvironment();return;
             case "Add-ons / MCP":BuildAddons();return;
@@ -111,11 +112,13 @@ public partial class MainWindow
         })));panel.Children.Add(apps);panel.Children.Add(Ui.Button("Windows setup guide",()=>OpenWeb("https://learn.microsoft.com/windows/wsl/install")));
         page.Children.Add(Card("Validation environment",panel));
         var sandbox=new StackPanel();var image=Ui.Field(sandbox,"Approved sandbox image digest");var repairs=Ui.Select(sandbox,"Repair attempts",new[]{"0","1","2"});
+        var nativeImage=Ui.Field(sandbox,"Repository native image @sha256 digest (optional)");
+        sandbox.Children.Add(Ui.Text("Prepare this image separately with Kotlin/JVM and Python with SQLite and PyYAML. Native runs require the exact image already installed; no compiler image is downloaded automatically. Live native verification uses a prepared self-hosted runner.",13,"MutedBrush"));
         JsonObject original=[];
-        async Task Read(){original=await Call("workspace-sandbox-read");image.Text=original.Text("sandbox_image","");repairs.SelectedItem=original.Text("repair_attempts","1");}
+        async Task Read(){original=await Call("workspace-sandbox-read");image.Text=original.Text("sandbox_image","");nativeImage.Text=original.Text("repository_image","");repairs.SelectedItem=original.Text("repair_attempts","1");}
         sandbox.Children.Add(Ui.Actions(Ui.Button("Prepare sandbox",()=>Run(async()=>{await Call("workspace-sandbox-prepare",new JsonObject{["original"]=original.DeepClone()});await Read();})),
             Ui.Button("Verify offline",()=>Run(async()=>{ShowDetails("Sandbox verification",await Call("workspace-sandbox-test",new JsonObject{["image"]=image.Text}));})),
-            Ui.Button("Save sandbox",()=>Run(async()=>{var config=(JsonObject)original.DeepClone();config["sandbox_image"]=image.Text;config["repair_attempts"]=repairs.SelectedIndex;
+            Ui.Button("Save sandbox",()=>Run(async()=>{var config=(JsonObject)original.DeepClone();config["sandbox_image"]=image.Text;config["repository_image"]=nativeImage.Text;config["repair_attempts"]=repairs.SelectedIndex;
                 original=await Call("workspace-sandbox-save",new JsonObject{["original"]=original.DeepClone(),["settings"]=config});status.Text="Sandbox settings saved.";}))));
         page.Children.Add(Card("Benchmark sandbox",sandbox));Run(Read);
     }
@@ -131,7 +134,7 @@ public partial class MainWindow
         void Render(){
             fields.Children.Clear();inputs.Clear();
             foreach(var key in tests?new[]{"post_merge","allowed_checks","commands","acceptance_map","acceptance_templates"}:
-                new[]{"mirror","profile","image_source","image","timeout_seconds","workspace_terminal","commands","parallel_command_groups","allowed_checks","acceptance_map","acceptance_templates","post_merge"}){
+                new[]{"mirror","profile","image_source","image","timeout_seconds","workspace_terminal","workspace_environment","workspace_integrations","commands","parallel_command_groups","allowed_checks","acceptance_map","acceptance_templates","post_merge"}){
                 if(key=="profile" && profiles.Length>0){
                     var selector=Ui.Select(fields,"Validation profile",profiles);selector.SelectedItem=options.Text(key);
                     inputs[key]=()=>JsonValue.Create(selector.SelectedItem?.ToString()??options.Text(key));

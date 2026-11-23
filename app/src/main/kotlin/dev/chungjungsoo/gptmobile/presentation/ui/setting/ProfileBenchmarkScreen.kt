@@ -294,7 +294,7 @@ fun ProfileBenchmarkScreen(
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} model runs · ${auditBatches.size} app audits · ${profiles.size} profiles") }
             item { BenchmarkNavigation(tab, debugMode) { tab = it } }
-            if (tab != 2 && tab != 5 && tab != 6 && tab != APP_AUDIT_TAB && !(tab == 4 && delegationBoard)) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
+            if (tab != 2 && tab != 5 && tab != 6 && tab != APP_AUDIT_TAB && tab != ENGINEERING_BENCHMARK_TAB && !(tab == 4 && delegationBoard)) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (storageWarning != null && storageWarning != error) {
                 item { Text(storageWarning.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
@@ -401,7 +401,11 @@ fun ProfileBenchmarkScreen(
                     }
                 }
             }
-            if (tab == APP_AUDIT_TAB) {
+            if (tab == ENGINEERING_BENCHMARK_TAB) {
+                item(key = "engineering_comparison_workspace") {
+                    BenchmarkEngineeringWorkspace(viewModel, profiles, history, session != null || progress != null, ready) { requestExport(false, null) }
+                }
+            } else if (tab == APP_AUDIT_TAB) {
                 auditLabelWarning?.let { warning -> item { Text(warning, style = MaterialTheme.typography.bodySmall) } }
                 item(key = "app_audit_controls") {
                     AppAuditControls(

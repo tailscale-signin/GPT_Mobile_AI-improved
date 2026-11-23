@@ -19,6 +19,8 @@ internal object GitHubExecutionContinuation {
         val ledger = buildJsonObject {
             put("retained_receipt_count", receipts.size)
             put("included_receipt_count", minOf(receipts.size, 64))
+            put("implementation_progress", implementationProgress(receipts))
+            put("search_frontiers", searchFrontiers(receipts))
             put(
                 "receipts",
                 JsonArray(
@@ -96,11 +98,110 @@ internal object GitHubExecutionContinuation {
             (if (corrective) "The previous answer stopped before all required work was verified. " else "Resume this accepted task from its retained evidence; superseded plans are omitted. ") +
             (if (readOnlyRefresh) "Perform only the minimal authorized read needed to refresh a listed stale PR/CI observation. " else "Perform the next unfinished authorized operation using the available tools. ") +
             "Use exact returned cursors and identifiers. Reconcile uncertain outcomes before any write; do not repeat completed actions. " +
+            (if (readOnlyRefresh || !implementationRequested(continuationRequest(task, current))) "" else "For this requested implementation, retained target source should lead to the next authorized branch or patch operation once its prerequisites are met. Name a specific missing prerequisite before restarting discovery. Source capture, staged patches, committed mutations and verified acceptance are separate milestones. ") +
             "When stale_observation_receipt_ids are present, refresh only those observations at their bound repository and head; preserve every verified claim and completed read. " +
             "Resume only unverified criteria; a passed criterion keeps its existing proof. Fixture teardown is an exact owned-resource absence check, never a request to recreate or delete it again. " +
             "This bounded ledger is a projection, not the full receipt store. Read retained evidence when a required selector or older result is absent; never invent it. " +
             "Do not ask again for already accepted work or claim unobserved success. If execution cannot advance, identify the concrete blocker and remaining requirements. " +
             if (corrective) "This is one bounded corrective attempt for the current progress checkpoint; do not produce another proposed sequence of calls." else "The newest instruction governs the remaining work within the accepted scope and budget."
+    }
+
+    fun requiresExhaustiveSearch(task: String): Boolean {
+        val request = GitHubTaskContinuity.request(task)
+        if (Regex("(?i)\\b(?:sample|spot.check|not exhaustive|non.exhaustive|quick look)\\b").containsMatchIn(request)) return false
+        return Regex("(?i)\\b(?:all|every|entire|whole|complete|exhaustive|comprehensive)\\b").containsMatchIn(request) &&
+            Regex("(?i)\\b(?:search|find|review|examine|audit|check|issues|bugs|files|repository|codebase)\\b").containsMatchIn(request)
+    }
+
+    fun replanInstruction(task: String, current: String): String {
+        val request = continuationRequest(task, current)
+        val next = when {
+            implementationRequested(request) -> "Use the retained source and findings for the next authorized concrete change, or identify its specific missing prerequisite."
+            Regex("(?i)\\b(?:review|audit|examine|issues|bugs|solutions)\\b").containsMatchIn(request) -> "Use the retained source to report supported findings, their impact, and specific proposed solutions."
+            else -> "Use the retained source to answer the requested explanation and identify the specific evidence still missing."
+        }
+        return "Recent source reads and searches have stopped adding actionable evidence. $next Preserve established findings and distinguish searched coverage from the unsearched remainder. Resume an incomplete search only through its exact issued continuation when the accepted scope requires more coverage and the remaining budget allows it."
+    }
+
+    private fun continuationRequest(task: String, current: String) = GitHubTaskContinuity.request(if (GitHubTaskContinuity.control(current)) task else current)
+
+    private fun implementationRequested(request: String): Boolean =
+        !Regex("(?i)\\b(?:read.only|review.only|report.only|do not (?:change|modify|edit|implement))\\b").containsMatchIn(request) &&
+            Regex("(?i)(?:^|\\b(?:and|then)\\s+)(?:(?:please|can you|could you|i want you to|help me)\\s+)?(?:implement|apply|fix|repair|patch|commit|publish|merge|modify|edit|create)\\b").containsMatchIn(request)
+
+    internal fun searchFrontiers(receipts: Map<String, JsonObject>): JsonObject {
+        val frontiers = linkedMapOf<String, JsonObject>()
+        for ((id, receipt) in receipts) {
+            if (receipt["trusted"] != JsonPrimitive(true) || receipt["success"] != JsonPrimitive(true)) continue
+            val tool = (receipt["tool"] as? JsonPrimitive)?.content ?: continue
+            if (tool.githubOperationFamily() != "github_search") continue
+            val execution = receipt["execution"] as? JsonObject
+            val arguments = receipt["arguments"] as? JsonObject ?: continue
+            val source = receipt["result"] as? JsonObject ?: continue
+            val data = GitHubSemanticSummary.data(source)
+            val frontier = execution?.get("search_frontier") as? JsonObject ?: GitHubSearchFrontier.capture(
+                tool,
+                arguments,
+                data,
+                GitHubSearchFrontier.recipes(receipt["view"] as? JsonObject ?: source, execution)
+            ) ?: continue
+            if (frontier["schema"] != JsonPrimitive("github.search-frontier.v1")) continue
+            val key = "$tool|${frontier["search_id"]}|${frontier["commit_sha"]}"
+            val previous = frontiers[key]?.get("frontier") as? JsonObject
+            fun end(value: JsonObject?) = (value?.get("interval_end") as? JsonPrimitive)?.content?.toIntOrNull() ?: -1
+            if (end(previous) > end(frontier)) continue
+            frontiers[key] = buildJsonObject {
+                put("receipt_id", id)
+                put("tool", tool)
+                put("frontier", frontier)
+            }
+        }
+        var bytes = 0
+        val included = frontiers.values.toList().asReversed().take(16).filter { frontier ->
+            val size = frontier.toString().length
+            (bytes + size <= 24_000).also { if (it) bytes += size }
+        }
+        return buildJsonObject {
+            put("observed_search_count", frontiers.size)
+            put("included_search_count", included.size)
+            put("omitted_search_count", frontiers.size - included.size)
+            put("searches", JsonArray(included))
+        }
+    }
+
+    /** These are observed operations, never a substitute for authorization or feature acceptance. */
+    internal fun implementationProgress(receipts: Map<String, JsonObject>): JsonObject {
+        val eligible = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["success"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
+        fun family(receipt: JsonObject) = (receipt["tool"] as? JsonPrimitive)?.content.orEmpty().githubOperationFamily()
+        fun data(receipt: JsonObject) = GitHubSemanticSummary.data(receipt["result"] as? JsonObject ?: JsonObject(emptyMap()))
+        val sourceFiles = eligible.filter { family(it) == "github_read" }.flatMap { receipt ->
+            val result = data(receipt)
+            val revision = (result["commit_sha"] as? JsonPrimitive)?.content?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return@flatMap emptyList()
+            (result["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["range_complete"] == JsonPrimitive(true) }
+                .mapNotNull { row -> (row["path"] as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)?.let { "$revision|$it|${row["sha"]}" } }
+        }.distinct()
+        val stages = eligible.filter { family(it) in setOf("github_stage_patch", "github_write") }.mapNotNull { (data(it)["stage_id"] as? JsonPrimitive)?.content }.distinct()
+        val mutations = eligible.filter { GitHubExecutionLedger.observationKind(it) in setOf(GitHubExecutionLedger.ObservationKind.MUTATION_COMPLETED, GitHubExecutionLedger.ObservationKind.MUTATION_VERIFIED) }
+            .distinctBy { listOf(it["tool"], it["arguments"], it["source_head_sha"], it["remote_mutation"]) }
+        val committedChanges = eligible.filter { receipt ->
+            val arguments = receipt["arguments"] as? JsonObject ?: return@filter false
+            val tool = (receipt["tool"] as? JsonPrimitive)?.content.orEmpty()
+            val native = if (tool.substringBefore("__") == "github") arguments else dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments)
+            val action = (native?.get("action") as? JsonPrimitive)?.content
+            val commit = action in setOf("commit_files", "commit_staged_patch") || action == "stage_patch" && arguments["commit_immediately"] == JsonPrimitive(true)
+            commit &&
+                GitHubExecutionLedger.receiptState(receipt) == GitHubExecutionLedger.ReceiptState.COMPLETED &&
+                GitHubExecutionLedger.observationKind(receipt) in setOf(GitHubExecutionLedger.ObservationKind.MUTATION_ACCEPTED, GitHubExecutionLedger.ObservationKind.MUTATION_COMPLETED, GitHubExecutionLedger.ObservationKind.MUTATION_VERIFIED) &&
+                (data(receipt)["sha"] as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}")) == true
+        }.distinctBy { listOf(it["binding"], it["repository"], it["branch"], data(it)["sha"]) }.size
+        return buildJsonObject {
+            put("source_files_with_captured_ranges", sourceFiles.size)
+            put("staged_patches_observed", stages.size)
+            put("completed_mutations_observed", mutations.size)
+            put("committed_changes_observed", committedChanges)
+            put("first_patch_pending", sourceFiles.isNotEmpty() && stages.isEmpty() && committedChanges == 0)
+            put("feature_completion_verified", false)
+        }
     }
 
     /** Only new successful operations reopen correction; receipt IDs and repeated cached reads do not. */
@@ -151,6 +252,10 @@ internal object GitHubExecutionContinuation {
         return null
     }
 
+    /** Continue useful work within its original finite allowance, without an arbitrary round cap. */
+    fun hasAcquisitionBudget(remainingCalls: Int?, remainingMillis: Long?): Boolean =
+        remainingCalls != null && remainingCalls > 1 && (remainingMillis == null || remainingMillis > 0)
+
     fun canResume(
         report: JsonObject,
         receipts: Map<String, JsonObject>,
@@ -164,7 +269,7 @@ internal object GitHubExecutionContinuation {
         // turn an explicit verifier-only decision into automatic execution.
         if (!effective.continueWork) return false
         // Keep one tool call unspent for exact-revision final verification.
-        if (report["completion_verified"] == JsonPrimitive(true) || remainingCalls?.let { it <= 1 } == true || remainingMillis == 0L) return false
+        if (report["completion_verified"] == JsonPrimitive(true) || !hasAcquisitionBudget(remainingCalls, remainingMillis)) return false
         val resumable = ledger["recovery"] == JsonPrimitive("RESUME_UNFINISHED_WORK") ||
             allowVerificationResume &&
             ledger["recovery"] == JsonPrimitive("RESUME_VERIFICATION")
@@ -193,23 +298,31 @@ internal object GitHubExecutionContinuation {
         }
     }
 
-    private val selectorKeys = setOf("action", "owner", "repo", "branch", "ref", "path", "issue_number", "pull_number", "run_id", "job_id", "workflow_id", "expected_head_sha", "commit_sha", "stage_id", "inventory_cursor", "inventory_version")
+    private val selectorKeys = setOf("action", "owner", "repo", "branch", "ref", "path", "issue_number", "pull_number", "run_id", "job_id", "workflow_id", "expected_head_sha", "commit_sha", "stage_id", "inventory_cursor", "inventory_version", "query", "mode", "search_id", "index_cursor", "path_prefix", "file_extension", "path_suffix", "case_sensitive", "fuzzy_match", "fuzzy_threshold", "min_lines", "max_lines", "context_lines", "batch_size", "max_new_blobs")
 }
 
-/** Count completed source decisions only. A changed query or overlapping interval alone is not new evidence. */
+/** Request one bounded replan when completed reads stop producing actionable source evidence. */
 internal class GitHubReadRoundProgress {
     private val sources = mutableSetOf<String>()
     private val lastRanges = mutableMapOf<String, MutableList<IntRange>>()
-    private val searchFrontiers = mutableMapOf<String, Int>()
     private var lastCall: String? = null
     private var unchanged = 0
     private var workMillis = 0L
+    private var requested = false
 
     fun replan(exchange: dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange, elapsedMillis: Long): Boolean {
+        if (requested) return false
         val call = exchange.calls.lastOrNull() ?: return false
         if (lastCall == call.callId) return false
         lastCall = call.callId
-        val readsOnly = exchange.calls.all { it.name.githubOperationFamily() in setOf("github_read", "github_search") && "view_cursor" !in it.arguments }
+        val readsOnly = exchange.calls.all {
+            "view_cursor" !in it.arguments &&
+                (
+                    it.name.githubOperationFamily() in setOf("github_read", "github_search") ||
+                        it.name.githubOperationFamily() == "github_context" &&
+                        (it.arguments["action"] as? JsonPrimitive)?.content in setOf("branches", "status", "resolve", "branch")
+                    )
+        }
         var advanced = false
         if (!readsOnly || exchange.results.size != exchange.calls.size || exchange.results.any { it.isError }) {
             unchanged = 0
@@ -219,18 +332,21 @@ internal class GitHubReadRoundProgress {
         for (result in exchange.results) {
             val source = ((result.retainedContent ?: result.content) as? dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json)?.value as? JsonObject ?: continue
             val data = GitHubSemanticSummary.data(source)
-            val revision = data["commit_sha"] ?: continue
-            val search = (data["search_id"] as? JsonPrimitive)?.content
-            val startIndex = (data["interval_start"] as? JsonPrimitive)?.content?.toIntOrNull()
-            val endIndex = (data["interval_end"] as? JsonPrimitive)?.content?.toIntOrNull()
-            if (search != null && startIndex != null && endIndex != null && startIndex >= 0 && endIndex > startIndex) {
-                // Progress through the same pinned search includes pages with zero hits. A changed
-                // query alone does not establish another discovery.
-                val key = "$revision|$search"
-                val previous = searchFrontiers[key]
-                if (previous != null && startIndex == previous && endIndex > previous) advanced = true
-                searchFrontiers[key] = maxOf(previous ?: 0, endIndex)
+            val issuer = exchange.calls.firstOrNull { it.callId == result.callId } ?: continue
+            if (issuer.name.githubOperationFamily() == "github_context" && issuer.arguments["action"] == JsonPrimitive("branches")) {
+                val rows = ((data["branches"] ?: data["items"]) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+                for (row in rows) {
+                    val branch = row["name"] as? JsonPrimitive ?: continue
+                    val commit = (row["commit"] as? JsonObject)?.get("sha") ?: row["sha"] ?: continue
+                    if (sources.add("${issuer.name}|${issuer.arguments["owner"]}|${issuer.arguments["repo"]}|branch|$branch|$commit")) advanced = true
+                }
+                continue
             }
+            val revision = data["commit_sha"] ?: continue
+            if (issuer.name.githubOperationFamily() == "github_context" && sources.add("${issuer.name}|${issuer.arguments}|$revision")) advanced = true
+            // Cursor movement certifies traversal, not useful source acquisition. The
+            // continuation prompt retains the exact search frontier separately, so a
+            // replan can continue required pagination without restarting the scan.
             for (row in (data["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()) {
                 val path = row["path"] ?: continue
                 val key = "$revision|$path|${row["sha"]}"
@@ -260,7 +376,7 @@ internal class GitHubReadRoundProgress {
             }
         }
         unchanged = if (advanced) 0 else unchanged + 1
-        workMillis = if (advanced) 0 else workMillis + elapsedMillis.coerceAtLeast(0)
-        return unchanged >= 3 || workMillis >= 60_000
+        workMillis = if (advanced) 0 else workMillis + elapsedMillis.coerceIn(0, 60_000)
+        return (unchanged >= 3 || workMillis >= 60_000).also { if (it) requested = true }
     }
 }

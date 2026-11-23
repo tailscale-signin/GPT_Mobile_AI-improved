@@ -150,7 +150,10 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
         }
     )
 
-    fun refresh() {
+    fun refresh(config: ProviderRequestConfig? = null) {
+        // An explicit reconnect may reopen only the selected service. Cache-only
+        // invalidation must not let passive observers bypass a transport cooldown.
+        config?.let { LocalServiceHealth.checkAgain(it.apiUrl) }
         cache.invalidate()
         readinessCache.invalidate()
     }

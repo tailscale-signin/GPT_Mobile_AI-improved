@@ -20,6 +20,56 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun privacyEvidenceSurvivesBufferedChunksWithoutClaimingUnprotectedDuplicates() = runBlocking {
+        var content = ""
+        var timeline = emptyList<AssistantTimelineItem>()
+        val alice = "Alice"
+        val proof = dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(
+            alice,
+            listOf(dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectedRange(0, alice.length))
+        )
+        flowOf(ApiState.Success(alice, privacyProtection = proof), ApiState.Success(" / Alice"), ApiState.Done)
+            .collectApiStateUpdates(onUpdate = { text, _, items ->
+                content = text
+                timeline = items
+            })
+        val receipt = requireNotNull(timeline.single { it.privacyProtection != null }.privacyProtection)
+        assertTrue(receipt.validFor(content))
+        assertEquals(listOf(dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectedRange(0, 5)), receipt.ranges)
+        assertTrue(receipt.protectedValues(content).isEmpty())
+    }
+
+    @Test fun privacyEvidenceUsesFinalUtf16OffsetsAndIgnoresStaleReceipts() = runBlocking {
+        var content = ""
+        var timeline = emptyList<AssistantTimelineItem>()
+        val alice = "Alice"
+        val proof = dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(
+            alice,
+            listOf(dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectedRange(0, alice.length))
+        )
+        flowOf(ApiState.Success("👋 "), ApiState.Success(alice, privacyProtection = proof), ApiState.Success(" wrong", privacyProtection = proof), ApiState.Done)
+            .collectApiStateUpdates(onUpdate = { text, _, items ->
+                content = text
+                timeline = items
+            })
+        val receipt = requireNotNull(timeline.single { it.privacyProtection != null }.privacyProtection)
+        assertTrue(receipt.validFor(content))
+        assertEquals(listOf(dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectedRange(3, 8)), receipt.ranges)
+        assertEquals(listOf(alice), receipt.protectedValues(content))
+    }
+
+    @Test fun replacingAnAnswerClearsItsPrivacyProofEvenWhenTextIsIdentical() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        val alice = "Alice"
+        val proof = dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(
+            alice,
+            listOf(dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectedRange(0, alice.length))
+        )
+        flowOf(ApiState.Success(alice, privacyProtection = proof), ApiState.GitHubRoundStarted, ApiState.Success(alice), ApiState.Done)
+            .collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        assertFalse(timeline.any { it.privacyProtection != null })
+    }
+
     @Test fun partialTerminalRetiresComposingNoticeButKeepsFactsAndTheReport() = runBlocking {
         var answer = ""
         var timeline = emptyList<AssistantTimelineItem>()

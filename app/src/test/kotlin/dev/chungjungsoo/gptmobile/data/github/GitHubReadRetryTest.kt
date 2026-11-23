@@ -20,6 +20,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReadRetryTest {
+    @Test fun typedLocalPolicyDenialIsNotRetriedAsAnIOException() = runTest {
+        var attempts = 0
+        val denied = IOException("wrapper", dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied())
+        val failure = runCatching {
+            GitHubReadRetry.run {
+                attempts++
+                throw denied
+            }
+        }.exceptionOrNull()
+        assertEquals(denied, failure)
+        assertEquals(1, attempts)
+        assertEquals(0L, testScheduler.currentTime)
+    }
+
     @Test fun cooldownStopDistinguishesDeadlineFromExhaustedWaitAllowance() {
         assertEquals("TASK_DEADLINE", GitHubTransportRecovery.waitBlocker(20_000, false, 20_000))
         assertEquals("WAIT_ALREADY_USED", GitHubTransportRecovery.waitBlocker(20_000, true, null))

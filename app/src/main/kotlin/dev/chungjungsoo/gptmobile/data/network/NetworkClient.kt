@@ -48,11 +48,12 @@ class NetworkClient @Inject constructor(
     internal fun maskedInferenceClient(): HttpClient = maskedInference
 
     private fun createClient(pool: ConnectionPool, maskedProvider: Boolean = false): HttpClient = HttpClient(httpEngine) {
-        if (!maskedProvider) install(PrivateMetadataGate)
+        install(PrivateMetadataGate) { allowMaskedProvider = maskedProvider }
         install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
         if (httpEngine == OkHttp) {
             install(ReadinessHttpPlugin)
             install(OkHttpReadinessGrant)
+            install(OkHttpConversationPrivacy)
         }
         expectSuccess = false
         followRedirects = false
@@ -76,8 +77,11 @@ class NetworkClient @Inject constructor(
                 (this as? OkHttpConfig)?.config {
                     addInterceptor(ReadinessHttpTrace.stripHeader)
                     addInterceptor(PrivateGatewayMetadata.stripHeader)
+                    addInterceptor(ConversationPrivacyHttp.bridge)
                     addNetworkInterceptor { chain ->
                         val request = chain.request()
+                        val privacy = ConversationPrivacyHttp.policy(request)
+                        privacy.recheckAuthorization()
                         if (!request.url.isHttps) {
                             val route = chain.connection()?.route()
                             if (route == null ||
@@ -87,7 +91,7 @@ class NetworkClient @Inject constructor(
                                 throw java.net.ProtocolException("Public provider connections require HTTPS.")
                             }
                         }
-                        if (!maskedProvider && dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) {
+                        if (privacy.conversation?.enabled == true && !(maskedProvider && privacy.maskedProvider)) {
                             if (!PrivateGatewayMetadata.allows(request)) throw PrivateMetadataDenied()
                         }
                         chain.proceed(request)

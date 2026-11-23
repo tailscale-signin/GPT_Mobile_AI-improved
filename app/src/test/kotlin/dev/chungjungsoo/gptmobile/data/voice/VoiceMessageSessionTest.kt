@@ -1,17 +1,27 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceCaption
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceMessageSessionTest {
-    private class Audio : VoiceAudio {
+    private class Audio(override val reportsPlaybackStart: Boolean = false) : VoiceAudio {
         val spoken = mutableListOf<String>()
         val completed = mutableListOf<() -> Unit>()
         var captures = 0
         var stops = 0
         var listener: VoiceAudio.Listener? = null
+        var spokenRange: ((Int, String, IntRange) -> Unit)? = null
+        var playbackStarted: (() -> Unit)? = null
+        override fun bindPlaybackStarted(started: (() -> Unit)?) {
+            playbackStarted = started
+        }
+        override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
+            spokenRange = spoken
+        }
         override fun listen(listener: VoiceAudio.Listener) {
             captures++
             this.listener = listener
@@ -25,6 +35,172 @@ class VoiceMessageSessionTest {
             stops++
         }
         override fun close() = Unit
+    }
+
+    @Test fun pendingBenchmarkTeardownKeepsCaptureAndReplayHeldAndPreservesTheDraft() {
+        val audio = Audio()
+        val prompts = mutableListOf<String>()
+        val session = VoiceSession(
+            audio,
+            {
+                prompts += it
+                true
+            },
+            {}
+        )
+        session.autoContinue = true
+        session.access(true, true, true)
+        session.resume()
+        val oldCapture = requireNotNull(audio.listener)
+        oldCapture.partial("Keep this captured draft")
+
+        session.holdAudio(true)
+        val stops = audio.stops
+        session.holdAudio(true)
+        assertEquals(stops, audio.stops)
+        // Closing settings or returning to the foreground does not mean that
+        // the worker's cancellation/engine teardown has actually completed.
+        session.access(true, true, true)
+        session.resume()
+        assertFalse(session.beginMessage("automatic"))
+        assertFalse(session.beginMessage("manual", manual = true, includeDetails = true))
+        oldCapture.final("A late result must not submit another turn")
+        assertEquals(1, audio.captures)
+        assertTrue(audio.spoken.isEmpty())
+        assertTrue(prompts.isEmpty())
+        assertEquals(VoicePhase.PAUSED, session.state.phase)
+        assertEquals("Keep this captured draft", session.state.transcript)
+        assertTrue(session.state.hasDraft)
+
+        session.holdAudio(false)
+        session.holdAudio(false)
+        assertEquals(VoicePhase.PAUSED, session.state.phase)
+        assertEquals(1, audio.captures)
+        assertTrue(prompts.isEmpty())
+        session.resume()
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
+        assertEquals(1, audio.captures)
+        session.sendDraft()
+        assertEquals(listOf("Keep this captured draft"), prompts)
+    }
+
+    @Test fun benchmarkHoldFencesPlayingCallbacksAndReleaseNeverReplaysOrUnmutes() {
+        val audio = Audio()
+        val session = VoiceSession(audio, { error("Playback must not submit a prompt") }, {})
+        session.autoContinue = true
+        session.access(true, true, true)
+        assertTrue(session.beginMessage("reply", manual = true))
+        session.reply("reply", "Saved answer.")
+        val oldCompletion = audio.completed.single()
+
+        session.holdAudio(true)
+        session.mute()
+        oldCompletion()
+        session.resume()
+        session.replay()
+        assertFalse(session.beginMessage("another", manual = true))
+        assertEquals(listOf("Saved answer."), audio.spoken)
+        assertEquals(0, audio.captures)
+        assertTrue(session.state.muted)
+        assertEquals(VoicePhase.PAUSED, session.state.phase)
+
+        session.holdAudio(false)
+        session.holdAudio(false)
+        session.resume()
+        assertEquals(listOf("Saved answer."), audio.spoken)
+        assertEquals(0, audio.captures)
+        assertTrue(session.state.muted)
+        session.replay()
+        assertEquals(listOf("Saved answer.", "Saved answer."), audio.spoken)
+        assertEquals(0, audio.captures)
+        assertTrue(session.state.muted)
+    }
+
+    @Test fun captionPresentationSurvivesPreviewFirstAudioChunksAndPauseButNotAnExplicitReplay() {
+        val audio = Audio(reportsPlaybackStart = true)
+        val session = VoiceSession(audio, { error("Typed playback must not send a prompt") }, {})
+        session.access(true, false, true)
+        session.beginMessage("reply")
+        val owner = session.presentationStates.value.captionPresentationId
+        assertTrue(owner > 0)
+        val opening = "The first complete sentence. "
+        session.streamReply("reply", opening)
+        assertEquals(VoicePhase.PREPARING, session.state.phase)
+        assertEquals(owner, session.presentationStates.value.captionPresentationId)
+        requireNotNull(audio.playbackStarted).invoke()
+        requireNotNull(audio.spokenRange).invoke(0, opening, 10..17)
+        assertEquals(owner, session.presentationStates.value.captionPresentationId)
+        session.reply("reply", opening + "The ending.")
+        audio.completed.first().invoke()
+        requireNotNull(audio.playbackStarted).invoke()
+        assertEquals(owner, session.presentationStates.value.captionPresentationId)
+        session.pause()
+        assertEquals(owner, session.presentationStates.value.captionPresentationId)
+
+        // Observe only the final snapshot, as a StateFlow/Compose collector may do.
+        session.beginMessage("reply", manual = true)
+        session.reply("reply", opening + "The ending.")
+        val replay = session.presentationStates.value
+        assertEquals(VoicePhase.PREPARING, replay.phase)
+        assertTrue("An identical replay still needs a new reader owner", replay.captionPresentationId != owner)
+        val replayOwner = replay.captionPresentationId
+        session.beginMessage("next")
+        session.streamReply("next", opening)
+        assertTrue("Batched replacement cannot retain the previous reader", session.presentationStates.value.captionPresentationId != replayOwner)
+    }
+
+    @Test fun completedOneWordReplyRemainsVisibleWhileItsAudioIsStillDraining() {
+        val audio = Audio()
+        val session = VoiceSession(audio, { error("Manual replay must not send a prompt") }, {})
+        session.access(true, false, true)
+        assertTrue(session.beginMessage("reply", manual = true))
+        session.reply("reply", "Yes.")
+
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        assertTrue(session.state.awaitingReply)
+        assertTrue(session.state.replyComplete)
+        val caption = requireNotNull(VoiceCaption.from(session.state))
+        assertEquals("Yes.", caption.text)
+        assertTrue(caption.live)
+        assertNull(caption.highlightRange(session.state.spokenRange))
+
+        requireNotNull(audio.spokenRange).invoke(0, "Yes.", 0..2)
+        assertEquals(0..2, VoiceCaption.from(session.state)?.highlightRange(session.state.spokenRange))
+        audio.completed.single().invoke()
+        assertFalse(session.state.awaitingReply)
+        assertEquals("Yes.", VoiceCaption.from(session.state)?.text)
+
+        assertTrue(session.beginMessage("next", manual = true))
+        assertFalse(session.state.replyComplete)
+        assertNull(VoiceCaption.from(session.state))
+    }
+
+    @Test fun finalWordCallbackMapsIntoTheCompleteCaptionBeforePlaybackFinishes() {
+        val audio = Audio()
+        val session = VoiceSession(audio, { error("Manual playback must not send a prompt") }, {})
+        session.access(true, false, true)
+        session.beginMessage("reply", manual = true)
+        val opening = "First complete sentence. "
+        session.streamReply("reply", opening)
+        assertEquals(listOf(opening), audio.spoken)
+        assertFalse(session.state.replyComplete)
+        requireNotNull(audio.spokenRange).invoke(0, opening, 0..4)
+
+        val ending = "Final word."
+        session.reply("reply", opening + ending)
+        assertTrue(session.state.replyComplete)
+        assertTrue(session.state.awaitingReply)
+        assertEquals(opening + ending, VoiceCaption.from(session.state)?.text)
+        audio.completed.first().invoke()
+        assertEquals(listOf(opening, ending), audio.spoken)
+
+        requireNotNull(audio.spokenRange).invoke(0, ending, 6..9)
+        val expected = opening.length + 6..opening.length + 9
+        val caption = requireNotNull(VoiceCaption.from(session.state))
+        assertTrue(session.state.awaitingReply)
+        assertEquals(expected, session.state.spokenRange)
+        assertEquals(expected, caption.highlightRange(session.state.spokenRange))
+        assertEquals("word", caption.text.substring(requireNotNull(caption.highlightRange(session.state.spokenRange))))
     }
 
     @Test fun manualAndAutomaticOutputDoNotRequireRecordingPermission() {
@@ -104,11 +280,12 @@ class VoiceMessageSessionTest {
         val session = VoiceSession(audio, { true }, {})
         session.access(true, false, true)
         session.beginMessage("reply")
-        session.streamReply("reply", "Here are four words ")
+        val opening = "Here are eight complete words before the answer "
+        session.streamReply("reply", opening)
         session.stopSpeaking()
         session.beginMessage("reply", manual = true)
         session.reply("reply", "Here is the complete response.")
-        assertEquals(listOf("Here are four words ", "Here is the complete response."), audio.spoken)
+        assertEquals(listOf(opening, "Here is the complete response."), audio.spoken)
     }
 
     @Test fun microphoneRevocationLeavesOutputPlayingButBackgroundingStopsIt() {

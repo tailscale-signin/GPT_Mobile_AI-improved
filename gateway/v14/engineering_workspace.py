@@ -7,6 +7,10 @@ MAX_FILE_BYTES = 4 * 1024 * 1024
 MAX_RETAINED_BYTES = 16 * 1024 * 1024
 
 
+class SourceInspectionUnavailable(ValueError):
+    """A pinned source cannot fit the optional text inspection allowance."""
+
+
 def load_file(backend, job, path):
     from v14.engineering_backend import blob_sha, safe_path
     path = safe_path(path)
@@ -18,13 +22,19 @@ def load_file(backend, job, path):
     if path not in files:
         blob = backend.api(backend.root(job) + '/git/blobs/' + entry['sha'], job=job)
         if blob.get('encoding') != 'base64' or not 0 <= blob.get('size', MAX_FILE_BYTES + 1) <= MAX_FILE_BYTES:
-            raise ValueError('Source exceeds the bounded workspace file allowance')
+            raise SourceInspectionUnavailable('Source exceeds the bounded workspace file allowance')
         raw = base64.b64decode(blob['content'])
-        if len(raw) > MAX_FILE_BYTES or blob_sha(raw) != entry['sha'] or b'\0' in raw:
-            raise ValueError('Workspace blob identity or text encoding is invalid')
+        if blob_sha(raw) != entry['sha']:
+            raise ValueError('Workspace blob identity is invalid')
+        if len(raw) > MAX_FILE_BYTES or b'\0' in raw:
+            raise SourceInspectionUnavailable('Source exceeds the bounded workspace text allowance')
         if sum(len(value['content'].encode()) for value in files.values()) + len(raw) > MAX_RETAINED_BYTES:
-            raise ValueError('Workspace source retention allowance reached')
-        files[path] = {'sha': entry['sha'], 'content': raw.decode('utf-8'), 'preview_characters': 0}
+            raise SourceInspectionUnavailable('Workspace source retention allowance reached')
+        try:
+            text = raw.decode('utf-8')
+        except UnicodeError as error:
+            raise SourceInspectionUnavailable('Workspace source is not UTF-8 text') from error
+        files[path] = {'sha': entry['sha'], 'content': text, 'preview_characters': 0}
     if files[path]['sha'] != entry['sha'] or blob_sha(files[path]['content']) != entry['sha']:
         raise ValueError('Workspace source no longer matches its pinned tree')
     return files[path]
@@ -35,7 +45,19 @@ def act(backend, job, action):
         raise ValueError('Workspace action must name the current pinned head_sha')
     kind = action.get('action')
     receipt = {'action': kind, 'head_sha': job['data']['head_sha']}
-    if kind == 'revert_preview':
+    from v14.workspace_intelligence import ACTIONS, act as intelligence
+    from v14.workspace_board import AGENT_ACTIONS
+    if kind in ACTIONS:
+        receipt.update(intelligence(backend, job, action))
+    elif kind in AGENT_ACTIONS:
+        receipt.update(backend.agent_runs.act(job, action))
+    elif kind == 'environment_qualify':
+        from v14.workspace_board import qualify_environment
+        receipt.update(qualify_environment(backend, job, action))
+    elif kind == 'candidate_rank':
+        from v14.workspace_board import rank_candidates
+        receipt.update(rank_candidates(backend, job, action))
+    elif kind == 'revert_preview':
         from v14.workspace_timeline import preview
         receipt.update(preview(backend, job, action))
     elif kind == 'worker':
@@ -134,14 +156,24 @@ def view(data):
     # a small current window plus its durable task/revision and prior receipts.
     windows = list(reversed(data.get('workspace_receipts', [])[-3:]))
     files = {}
+    prepared = data.get('task_context_receipt')
+    current = (str(data.get('context_variant', 'TASK')).upper() in {'CURRENT', 'REFERENCE'} or
+               not isinstance(prepared, dict) or prepared.get('source_sha') != data.get('head_sha'))
     for path, value in list(data['files'].items())[:20]:
         limit = value.get('preview_characters', value.get('visible_characters', 0))
-        content = value['content'][:min(max(limit, 0), 2400)]
+        # Keep the bootstrap view until a current task selection is prepared.
+        # Recurring TASK/SEMANTIC calls use its exact ranges instead of repeating
+        # every file prefix. Explicit CURRENT/REFERENCE retain the baseline.
+        content = value['content'][:min(max(limit, 0), 2400)] if current else ''
         files[path] = {'sha': value['sha'], 'content': content,
                        'partial': len(content) < len(value['content']), 'total_lines': len(value['content'].splitlines())}
     return {'head_sha': data['head_sha'], 'progress_notes': data.get('progress_notes'), 'workflow': data.get('workflow'),
             'active_instructions': data.get('active_instructions', []), 'workspace_receipts': windows, 'plan': data['plan'],
             'repair_feedback': repair_feedback(data), 'files': files, 'iteration': data.get('workspace_iterations', 0),
+            'task_plan': data.get('workspace_task_plan'), 'tool_profile': data.get('workspace_tool_profile'),
+            'working_summaries': data.get('workspace_summaries', [])[-2:],
+            'worker_summaries': [{key: value.get(key) for key in ('role', 'state', 'calls', 'budget', 'candidate_check_id', 'depends_on')}
+                                 for value in data.get('workspace_workers', {}).values()],
             'ci': data.get('ci'), 'review': data.get('review')}
 
 
@@ -192,11 +224,14 @@ def record_model_exposure(data, request):
     """
     from v14.engineering_backend import blob_sha
     try:
-        evidence = json.loads(request['messages'][-1]['content']).get('evidence')
+        envelope = json.loads(request['messages'][-1]['content'])
     except (KeyError, IndexError, TypeError, ValueError):
         return
-    if not isinstance(evidence, dict) or evidence.get('head_sha') != data.get('head_sha'):
+    if not isinstance(envelope, dict):
         return
+    evidence = envelope.get('evidence')
+    if not isinstance(evidence, dict) or evidence.get('head_sha') != data.get('head_sha'):
+        evidence = {}
 
     def text(value):
         if isinstance(value, str):
@@ -245,4 +280,26 @@ def record_model_exposure(data, request):
             continue
         offset = sum(map(len, lines[:start - 1]))
         if original['content'][offset:].startswith(shown):
+            retain(original, offset, offset + len(shown))
+    # Preparation, graph anchors and content-free diagnostics grant no source
+    # authority. Only complete exact ranges remaining in this successful bound
+    # request can authorize their own original bytes.
+    bundle = envelope.get('task_context')
+    if (not isinstance(bundle, dict) or bundle.get('schema') != 'repository.task_context.v1' or
+            bundle.get('source_identity_kind') != 'GIT_COMMIT' or bundle.get('source_sha') != data.get('head_sha')):
+        return
+    for field in ('selected_ranges', 'documents'):
+        rows = bundle.get(field)
+        for row in rows[:24] if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            original = original_for(row.get('path'), row.get('blob_sha'))
+            shown, start, end = row.get('content'), row.get('start_line'), row.get('end_line')
+            if (original is None or not isinstance(shown, str) or type(start) is not int or type(end) is not int or
+                    not 1 <= start <= end or row.get('content_sha256') != hashlib.sha256(shown.encode()).hexdigest()):
+                continue
+            lines = original['content'].splitlines(True)
+            if end > len(lines) or ''.join(lines[start - 1:end]) != shown:
+                continue
+            offset = sum(map(len, lines[:start - 1]))
             retain(original, offset, offset + len(shown))

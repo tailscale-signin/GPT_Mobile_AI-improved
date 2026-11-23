@@ -16,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.pricing.ProviderPricingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.util.UUID
@@ -61,7 +62,9 @@ class BenchmarkBatchRunner @Inject constructor(
     private val runtime: LocalRuntime,
     @param:ApplicationContext private val context: Context,
     private val appAuditRunner: AppAuditRunner? = null,
-    private val auditModels: AppAuditSelectedModelServices? = null
+    private val auditModels: AppAuditSelectedModelServices? = null,
+    private val pricing: ProviderPricingRepository? = null,
+    private val engineeringExecutor: BenchmarkEngineeringExternalExecutor? = null
 ) {
     @Volatile private var child: Deferred<BenchmarkRun>? = null
 
@@ -115,6 +118,11 @@ class BenchmarkBatchRunner @Inject constructor(
                 }
                 return
             }
+            if (batch.engineeringPlan != null) {
+                batch = reconcileEngineeringBatch(batch, progress) ?: return
+                val prepared = prepareEngineeringBatch(batch, progress) ?: return
+                batch = prepared
+            }
             while (true) {
                 currentCoroutineContext().ensureActive()
                 batch = checkNotNull(store.batch(id))
@@ -133,6 +141,10 @@ class BenchmarkBatchRunner @Inject constructor(
                     onChild = { child = it }
                 )
                 val latest = checkNotNull(store.batch(id))
+                if (result.samples.any { it.engineeringCleanupPending() }) {
+                    checkpoint(benchmarkEngineeringPausedBatch(latest, result), result.awaitingEngineeringReconciliation(), event = "ENGINEERING_RECONCILIATION_REQUIRED")
+                    return
+                }
                 val skipped = requestedStop == BenchmarkStopOrigin.USER_SKIP
                 val failure = result.samples.firstOrNull { it.outcome in setOf(BenchmarkOutcome.FAILED, BenchmarkOutcome.PARTIAL) || it.outcome == BenchmarkOutcome.UNSUPPORTED && it.failure != null || it.executionFailure() || it.cleanupReceipt == "cleanup_unconfirmed_local_blocked" }?.let { it.failure ?: BenchmarkFailure(it.failureCategory ?: "MODEL_QUALITY", it.runtimeStage ?: "validation", it.error ?: "A case did not meet its fixture requirements.", scope = "request", failureScope = BenchmarkFailureScope.REQUEST) }
                     ?: result.readiness?.takeIf { !it.ready }?.let { readiness -> readiness.probes.firstNotNullOfOrNull { it.sample?.failure } ?: BenchmarkFailure("READINESS_NOT_VERIFIED", "readiness", result.stoppedReason ?: "Readiness did not complete.") }
@@ -178,6 +190,120 @@ class BenchmarkBatchRunner @Inject constructor(
         }
     }
 
+    private suspend fun reconcileEngineeringBatch(batch: BenchmarkBatch, progress: (BenchmarkProgress) -> Unit): BenchmarkBatch? {
+        var selectedBatch = batch
+        val unresolved = store.history.value.filter { run -> run.engineeringPlan != null && run.samples.any { it.engineeringCleanupPending() } }
+        for (saved in unresolved) {
+            val owner = store.batch(saved.batchId ?: "")
+            val item = owner?.items?.singleOrNull { it.runId == saved.id }
+            val plan = saved.engineeringPlan
+            if (owner == null || item == null || plan == null) {
+                checkpoint(benchmarkEngineeringPausedBatch(selectedBatch, null, "An earlier request has no recoverable frozen owner. Its remote outcome must be resolved before another engineering task."), event = "ENGINEERING_RECONCILIATION_REQUIRED")
+                return null
+            }
+            var retained = saved
+            for (original in saved.samples.filter { it.engineeringCleanupPending() }) {
+                val test = saved.caseManifest?.singleOrNull { it.id == original.testId }
+                progress(BenchmarkProgress(saved.profileName, "Reconciling the original remote request", 0, 1))
+                val updated = if (test == null || engineeringExecutor == null) {
+                    original
+                } else {
+                    try {
+                        withTimeoutOrNull(20_000) { engineeringExecutor.reconcileCleanup(item.profile, test, plan, original) } ?: original
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (failure: BenchmarkStorageFailure) {
+                        throw failure
+                    } catch (_: Exception) {
+                        original
+                    }
+                }
+                retained = retained.withEngineeringSample(updated.takeIf { benchmarkEngineeringReconciliationBound(original, it) } ?: original)
+            }
+            if (retained.samples.any { it.engineeringCleanupPending() }) {
+                val paused = benchmarkEngineeringPausedBatch(owner, retained)
+                checkpoint(paused, retained.awaitingEngineeringReconciliation(), event = "ENGINEERING_RECONCILIATION_REQUIRED")
+                if (owner.id != selectedBatch.id) checkpoint(benchmarkEngineeringPausedBatch(selectedBatch, null, "An earlier experiment still has an unconfirmed remote request. No new task has been dispatched."), event = "ENGINEERING_RECONCILIATION_REQUIRED")
+                return null
+            }
+            val skipped = retained.cancellationOrigin == BenchmarkStopOrigin.USER_SKIP
+            val reconciled = owner.copy(
+                engineeringPauseReason = null,
+                activeOrdinal = null,
+                endedAt = null,
+                items = owner.items.map { if (it.runId == retained.id) it.copy(state = if (skipped) BenchmarkQueueState.SKIPPED else BenchmarkQueueState.QUEUED, activeCaseId = null, failure = null, endedAt = null) else it }
+            )
+            retained = retained.copy(finished = skipped, state = if (skipped) "SKIPPED" else "READY_TO_RESUME", stoppedReason = if (skipped) "Skipped by user after remote reconciliation." else null)
+            checkpoint(reconciled, retained, event = "ENGINEERING_REMOTE_RECONCILED")
+            if (owner.id == selectedBatch.id) selectedBatch = reconciled
+        }
+        return selectedBatch.copy(engineeringPauseReason = null)
+    }
+
+    private suspend fun prepareEngineeringBatch(batch: BenchmarkBatch, progress: (BenchmarkProgress) -> Unit): BenchmarkBatch? {
+        val plan = requireNotNull(batch.engineeringPlan)
+        var observedBatch = batch
+        try {
+            val cases = requireNotNull(batch.caseManifest) { "Frozen engineering task manifest is missing." }
+            check(plan.sourceCommit == dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT && plan.matches(cases)) { "ENGINEERING_PLAN_INVALID: Frozen task identity does not match its accepted plan." }
+            check(benchmarkEngineeringQueueMatches(batch, plan)) { "ENGINEERING_PLAN_INVALID: Queue profile or repeat differs from the accepted plan." }
+            val external = plan.lane in setOf(BenchmarkEngineeringLane.EXECUTABLE_CODING, BenchmarkEngineeringLane.LIVE_GITHUB)
+            val prepared = if (external) {
+                val setupDeadlineMs = benchmarkEngineeringPreparationDeadlineMs(plan, cases.size)
+                progress(BenchmarkProgress(plan.lane.label, "Verifying frozen fixtures (up to ${(setupDeadlineMs + 59_999) / 60_000} min)", 0, cases.size * batch.items.size))
+                withTimeoutOrNull(setupDeadlineMs) {
+                    requireNotNull(engineeringExecutor) { "ENGINEERING_EXECUTOR_UNAVAILABLE: The executable benchmark service is unavailable." }.preparePlan(plan, cases) { observed ->
+                        benchmarkCheckpointWithinDeadline {
+                            observedBatch = checkNotNull(store.batch(batch.id)).withEngineeringSetupObservation(observed)
+                            store.checkpoint(observedBatch, event = "ENGINEERING_SETUP_ACCOUNTED")
+                        }
+                    }
+                }
+                    ?: error("ENGINEERING_PREPARATION_TIMEOUT: The execution host did not verify the frozen fixtures within the ${setupDeadlineMs / 1000}-second shared preparation limit.")
+            } else {
+                plan
+            }
+            check(prepared.matches(cases, requireExternalReceipts = true) && benchmarkPreparedPlanPreservesAcceptedScope(plan, prepared)) {
+                "ENGINEERING_PLAN_CHANGED: Fixture preparation changed accepted profiles, budgets, permissions or source identity."
+            }
+            check(batch.items.none { it.state != BenchmarkQueueState.QUEUED } || prepared.identityDigest() == plan.identityDigest()) {
+                "ENGINEERING_PLAN_CHANGED: A resumed comparison cannot change its frozen grader or fixtures."
+            }
+            return observedBatch.copy(engineeringPlan = prepared).also { checkpoint(it, event = "ENGINEERING_MANIFEST_VERIFIED") }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: BenchmarkStorageFailure) {
+            throw failure
+        } catch (failure: Exception) {
+            val message = dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.message ?: "Engineering benchmark prerequisites are unavailable.").take(500)
+            val reason = BenchmarkFailure("ENGINEERING_PREREQUISITE_UNAVAILABLE", "preflight", message, owner = "configuration", scope = "batch", failureScope = BenchmarkFailureScope.BATCH)
+            var retained = observedBatch
+            val cases = batch.caseManifest.orEmpty()
+            for (item in observedBatch.pending) {
+                val now = System.currentTimeMillis()
+                val run = newRun(retained, item, item.profile, cases.size).copy(
+                    caseManifest = cases,
+                    fixtureManifestHash = plan.fixtureManifestHash,
+                    finished = true,
+                    endedAt = now,
+                    state = "BLOCKED",
+                    stoppedReason = message,
+                    samples = cases.map { test ->
+                        BenchmarkSample(
+                            test.id, test.label, test.category, BenchmarkOutcome.POLICY_BLOCKED,
+                            error = message, workload = test.workload, requestDispatched = false, requestAdmitted = false,
+                            failure = reason, failureCategory = reason.code, runtimeStage = reason.stage, evidenceScope = plan.lane.evidenceClass
+                        )
+                    }
+                )
+                retained = retained.copy(items = retained.items.map { if (it.ordinal == item.ordinal) it.copy(state = BenchmarkQueueState.BLOCKED, endedAt = now, failure = reason) else it })
+                checkpoint(retained, run, event = "ENGINEERING_PREREQUISITE_BLOCKED")
+            }
+            checkpoint(retained.copy(state = BenchmarkBatchState.COMPLETED_WITH_BLOCKERS, endedAt = System.currentTimeMillis(), activeOrdinal = null), event = "ENGINEERING_BLOCKED")
+            return null
+        }
+    }
+
     private suspend fun executeProfile(batch: BenchmarkBatch, item: BenchmarkQueueItem, progress: (BenchmarkProgress) -> Unit): BenchmarkRun {
         verifyAuditModelBinding(item)
         check(item.auditModelBinding == null || batch.mode !in setOf(BenchmarkMode.DELEGATION, BenchmarkMode.APP_AUDIT)) { "An audit model benchmark requires an independent selected-profile suite." }
@@ -197,6 +323,8 @@ class BenchmarkBatchRunner @Inject constructor(
         val reviewer = batch.delegationReviewer?.let(::authenticate)
         val usesLocal = listOfNotNull(primary, target, reviewer).any { it.compatibleType == ClientType.LITERT_LM }
         val policy = batch.executionPolicy ?: BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1
+        val engineering = batch.engineeringPlan
+        val externalEngineering = engineering?.lane in setOf(BenchmarkEngineeringLane.EXECUTABLE_CODING, BenchmarkEngineeringLane.LIVE_GITHUB)
         val plan = batch.caseManifest ?: when (batch.mode) {
             BenchmarkMode.CPU_EXPERIMENT -> BenchmarkCpuExperiment.cases(item.runId)
             BenchmarkMode.DELEGATION -> delegationBenchmarkSuite(batch.delegationPlan ?: BenchmarkMode.QUICK, batch.paired)
@@ -206,9 +334,19 @@ class BenchmarkBatchRunner @Inject constructor(
         val preflightContext = BenchmarkRequestContext(policy, plannedRequestCategories = plan.map { it.requestCategory }.toSet())
         // Persist the exact accepted suite before admission. A canceled 14-case smoke
         // audit must never be reconstructed as the default 114-action full audit.
-        var run = newRun(batch, item, primary, plan.size).copy(
+        val previous = if (engineering != null) store.history.value.firstOrNull { it.id == item.runId } else null
+        if (previous != null) {
+            check(previous.engineeringPlan?.identityDigest() == engineering?.identityDigest() && previous.caseManifest == plan && previous.configKey == item.configKey && previous.engineeringContextVariant == item.engineeringContextVariant) { "ENGINEERING_RESUME_IDENTITY_CHANGED" }
+        }
+        var run = (previous ?: newRun(batch, item, primary, plan.size)).copy(
             caseManifest = plan,
-            fixtureManifestHash = benchmarkHash(plan.joinToString("\n") { it.id + it.prompt + it.expected })
+            finished = false,
+            endedAt = null,
+            stoppedReason = null,
+            state = "RUNNING",
+            canceled = false,
+            engineeringPlan = engineering,
+            fixtureManifestHash = engineering?.fixtureManifestHash ?: benchmarkHash(plan.joinToString("\n") { it.id + it.prompt + it.expected })
         )
         checkpoint(batch, run, event = "PREFLIGHT")
         var stage = "preflight"
@@ -232,18 +370,35 @@ class BenchmarkBatchRunner @Inject constructor(
                     }
                 } finally {
                     val cleanup = cleanupLocal(usesLocal, "benchmark:${run.id}:preflight")
-                    run = run.copy(cleanupReceipt = benchmarkCleanupLabel(cleanup), runtimeCleanup = cleanup, preflightDurationMs = (android.os.SystemClock.elapsedRealtime() - preflightStarted).coerceAtLeast(0), runtimeSnapshot = if (usesLocal) runtime.state.value else null)
+                    run = run.copy(cleanupReceipt = benchmarkCleanupLabel(cleanup), runtimeCleanup = cleanup, preflightDurationMs = (previous?.preflightDurationMs ?: 0L) + (android.os.SystemClock.elapsedRealtime() - preflightStarted).coerceAtLeast(0), runtimeSnapshot = if (usesLocal) runtime.state.value else null)
                     checkpointAfterCleanup(batch.id, run, event = "PREFLIGHT_CLEANUP")
                 }
             }
-            val suite = when (batch.mode) {
-                BenchmarkMode.DELEGATION -> plan
-                BenchmarkMode.PERFORMANCE -> BenchmarkPerformanceSuite.adapt(plan, contextTokens)
-                else -> BenchmarkWorkloadPlanner.adapt(plan, contextTokens, if (batch.suiteVersion >= 8) 1280 else 1024)
+            val suite = if (engineering != null) {
+                plan
+            } else {
+                when (batch.mode) {
+                    BenchmarkMode.DELEGATION -> plan
+                    BenchmarkMode.PERFORMANCE -> BenchmarkPerformanceSuite.adapt(plan, contextTokens)
+                    else -> BenchmarkWorkloadPlanner.adapt(plan, contextTokens, if (batch.suiteVersion >= 8) 1280 else 1024)
+                }
             }
             val supportsTools = chats.supportsBenchmarkTools(primary)
-            run = run.copy(fixtureContextTokens = contextTokens, caseManifest = suite, capabilityManifest = setOf("text", "structured", "reasoning") + if (supportsTools) setOf("tools") else emptySet(), fixtureManifestHash = benchmarkHash(suite.joinToString("\n") { it.id + it.prompt + it.expected }))
-            if (batch.suiteVersion >= 10 && batch.mode !in setOf(BenchmarkMode.QUICK, BenchmarkMode.DELEGATION)) {
+            run = run.copy(fixtureContextTokens = contextTokens, caseManifest = suite, capabilityManifest = setOf("text", "structured", "reasoning") + if (supportsTools) setOf("tools") else emptySet(), fixtureManifestHash = engineering?.fixtureManifestHash ?: benchmarkHash(suite.joinToString("\n") { it.id + it.prompt + it.expected }))
+            if (externalEngineering) {
+                val now = System.currentTimeMillis()
+                run = run.copy(
+                    readiness = BenchmarkReadinessReceipt(
+                        now,
+                        now,
+                        listOf(BenchmarkReadinessCheck("frozen_fixture", BenchmarkReadinessStatus.PASSED, "Fixture and grader identities verified; model execution is measured by each task.")),
+                        setOf("frozen_fixture"),
+                        executionPolicy = policy
+                    )
+                )
+                checkpointAfterCleanup(batch.id, run, event = "ENGINEERING_READINESS_FINISHED")
+            }
+            if (!externalEngineering && batch.suiteVersion >= 10 && batch.mode !in setOf(BenchmarkMode.QUICK, BenchmarkMode.DELEGATION)) {
                 stage = "readiness"
                 val readiness = BenchmarkReadinessRunner(
                     metadata = { tools, schema -> withContext(BenchmarkRequestContext(policy, schema, readinessProbe = true)) { chats.benchmarkReadiness(primary, tools, schema) } },
@@ -266,6 +421,7 @@ class BenchmarkBatchRunner @Inject constructor(
             val unsupportedBands = mutableSetOf<String>()
             for ((index, test) in suite.withIndex()) {
                 currentCoroutineContext().ensureActive()
+                if (engineering != null && run.samples.any { it.testId == test.id }) continue
                 stage = "request"
                 val attemptId = "${run.id}:${test.id}:0"
                 val requestId = "benchmark-${run.id}-${test.id}"
@@ -325,6 +481,40 @@ class BenchmarkBatchRunner @Inject constructor(
                                     BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.SKIPPED, error = "Required predecessor ${dependency.testId} did not complete.", workload = test.workload, warmup = test.warmup, requestDispatched = false, failureCategory = "SKIPPED_DEPENDENCY")
                                 } else if (test.workload in unsupportedBands) {
                                     BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.UNSUPPORTED, error = "Unsupported input band established by an earlier case; no request sent.", workload = test.workload, warmup = test.warmup, requestDispatched = false, failureCategory = "UNSUPPORTED_INPUT_BAND")
+                                } else if (externalEngineering) {
+                                    withTimeout(benchmarkCaseDeadlineMs(batch.mode, test, batch.suiteVersion)) {
+                                        requireNotNull(engineeringExecutor).execute(
+                                            primary,
+                                            test,
+                                            requireNotNull(engineering),
+                                            requestId,
+                                            contextVariant = item.engineeringContextVariant,
+                                            onInterrupted = { interruptedSample = it },
+                                            onCheckpoint = { observed ->
+                                                val durable = observed.copy(
+                                                    attemptId = attemptId,
+                                                    logicalRequestId = requestId,
+                                                    endToEndDurationMs = (android.os.SystemClock.elapsedRealtime() - admissionStarted).coerceAtLeast(0)
+                                                )
+                                                run = run.withEngineeringSample(durable)
+                                                checkpointAfterCleanup(
+                                                    batch.id,
+                                                    run,
+                                                    listOf(
+                                                        attempt.copy(
+                                                            state = "STARTED",
+                                                            sample = durable,
+                                                            requestDispatched = durable.requestDispatched,
+                                                            dispatchUncertain = durable.engineeringCleanupPending(),
+                                                            physicalRequestIds = durable.physicalRequestIds,
+                                                            invocationIds = durable.invocationIds
+                                                        )
+                                                    ),
+                                                    "ENGINEERING_CANDIDATE_CHECKPOINT"
+                                                )
+                                            }
+                                        )
+                                    }
                                 } else if (batch.mode == BenchmarkMode.DELEGATION) {
                                     chats.runDelegationBenchmark(primary, test, requestId, checkNotNull(batch.delegationSettings).copy(targetProfileUid = target.uid, fallbackToAnotherProfile = false), frozenProfiles = listOfNotNull(primary, target, reviewer).associateBy { it.uid })
                                 } else {
@@ -369,10 +559,12 @@ class BenchmarkBatchRunner @Inject constructor(
                             if (sample.failureCategory == "UNSUPPORTED_INPUT_BAND") unsupportedBands += test.workload
                             val actual = after?.state
                             val runtimeVersion = actual?.backend?.let(::actualRuntimeVersion)
+                            sample.physicalRequestIds.forEach { physicalRequests.addIfAbsent(it) }
+                            sample.invocationIds.forEach { invocations.addIfAbsent(it) }
                             val executions = benchmarkExecutionReceipts(sample, executionReceipt, physicalRequests.toSet())
                             val resident = if (before != null && after != null) benchmarkResidentMatch(requireNotNull(before), after!!, executions.lastOrNull()) else null
                             var retained = sample.copy(
-                                attemptId = attemptId, runtimeSnapshot = actual, actualRuntimeVersion = runtimeVersion, workerPssBytes = resources.snapshots().lastOrNull { it.scope == "before_cleanup" }?.workerPssBytes, workerPssScope = "before_cleanup", cleanupReceipt = cleanup, runtimeCleanup = cleanupDetails, cleanupDurationMs = cleanupDurationMs, admissionWaitMs = admissionWaitMs, nativeIdentity = nativeIdentity, failure = if (cleanup == "cleanup_unconfirmed_local_blocked") BenchmarkFailure("NATIVE_CLEANUP_UNCONFIRMED", "cleanup", "Native cleanup was not acknowledged; later local work is blocked.", owner = "runtime", scope = "local_runtime") else sample.failure, physicalRequestIds = physicalRequests.toList(), logicalRequestId = requestId, invocationIds = invocations.toList(),
+                                attemptId = attemptId, runtimeSnapshot = actual, actualRuntimeVersion = runtimeVersion, workerPssBytes = resources.snapshots().lastOrNull { it.scope == "before_cleanup" }?.workerPssBytes, workerPssScope = "before_cleanup", cleanupReceipt = benchmarkEngineeringCleanupReceipt(externalEngineering, sample, cleanup), runtimeCleanup = cleanupDetails, cleanupDurationMs = cleanupDurationMs, admissionWaitMs = admissionWaitMs, nativeIdentity = nativeIdentity, failure = if (cleanup == "cleanup_unconfirmed_local_blocked") BenchmarkFailure("NATIVE_CLEANUP_UNCONFIRMED", "cleanup", "Native cleanup was not acknowledged; later local work is blocked.", owner = "runtime", scope = "local_runtime") else sample.failure, physicalRequestIds = physicalRequests.toList(), logicalRequestId = requestId, invocationIds = invocations.toList(),
                                 runtimeExecutions = executions,
                                 auditModelConfiguration = auditSession?.receipt,
                                 requestDispatched = if (executions.any { it.knownDispatched }) true else sample.requestDispatched,
@@ -385,7 +577,7 @@ class BenchmarkBatchRunner @Inject constructor(
                             retained = retained.withPreparationEvidence(beforeInspectionId, latestInspection, attemptStartedElapsed, android.os.SystemClock.elapsedRealtime(), before)
                             retained = retained.copy(deadlineReceipt = benchmarkDeadlineReceipt(batch.mode, test, batch.suiteVersion), settingsReceipt = benchmarkSettingsReceipt(primary, test, policy, retained, requestContext(run, test, policy)), cacheRegime = benchmarkObservedCache(retained)).withFailureScope(batch.recoveryPolicy == "INDEPENDENT_CASES_AFTER_CONFIRMED_CLEANUP_V1")
                             if (test.cpuExperiment?.cacheRegime == "cache_hot" && retained.cacheRegime != "observed_cached_prefix") retained = retained.copy(timingEligible = false, throughputExclusion = "REQUESTED_CACHE_HOT_REUSE_NOT_OBSERVED")
-                            val allSamples = run.samples + retained
+                            val allSamples = run.samples.filterNot { it.testId == retained.testId } + retained
                             val observedTimingCache = allSamples.filter { it.category == "speed" && !it.warmup && it.knownExecuted() }.map { it.cacheRegime }.distinct()
                             run = run.copy(
                                 samples = allSamples, runtimeSnapshot = actual, runtimeVersion = if (retained.knownExecuted()) runtimeVersion ?: run.runtimeVersion else run.runtimeVersion, backend = if (retained.knownExecuted()) actual?.backend?.displayName ?: run.backend else run.backend, accelerator = if (retained.knownExecuted()) actual?.engineSpec?.accelerator ?: run.accelerator else run.accelerator, peakClientPssKb = listOfNotNull(run.peakClientPssKb, resources.peakClientPssKb).maxOrNull(), cleanupReceipt = cleanup, runtimeCleanup = cleanupDetails, resources = run.resources + resources.snapshots(),
@@ -403,6 +595,8 @@ class BenchmarkBatchRunner @Inject constructor(
                                 else -> benchmarkFailure(failure, "request")
                             }
                             val childAborted = failure is CancellationException && currentCoroutineContext().isActive && requestedStop == null
+                            interruptedSample?.physicalRequestIds?.forEach { physicalRequests.addIfAbsent(it) }
+                            interruptedSample?.invocationIds?.forEach { invocations.addIfAbsent(it) }
                             val executions = benchmarkExecutionReceipts(interruptedSample, executionReceipt, physicalRequests.toSet())
                             var retained = (interruptedSample ?: BenchmarkSample(test.id, test.label, test.category, reason.outcome(), workload = test.workload, warmup = test.warmup)).copy(
                                 outcome = if (reason.code == "USER_SKIP") {
@@ -415,7 +609,7 @@ class BenchmarkBatchRunner @Inject constructor(
                                     reason.outcome()
                                 },
                                 failure = reason, failureCategory = reason.code, runtimeStage = reason.stage, error = reason.message,
-                                attemptId = attemptId, cleanupReceipt = cleanup, runtimeCleanup = cleanupDetails, cleanupDurationMs = cleanupDurationMs, admissionWaitMs = admissionWaitMs, nativeIdentity = nativeIdentity, physicalRequestIds = physicalRequests.toList(), logicalRequestId = requestId, invocationIds = invocations.toList(),
+                                attemptId = attemptId, cleanupReceipt = benchmarkEngineeringCleanupReceipt(externalEngineering, interruptedSample, cleanup), runtimeCleanup = cleanupDetails, cleanupDurationMs = cleanupDurationMs, admissionWaitMs = admissionWaitMs, nativeIdentity = nativeIdentity, physicalRequestIds = physicalRequests.toList(), logicalRequestId = requestId, invocationIds = invocations.toList(),
                                 runtimeExecutions = executions,
                                 auditModelConfiguration = auditSession?.receipt,
                                 requestDispatched = if (executions.any { it.knownDispatched }) true else interruptedSample?.requestDispatched,
@@ -428,7 +622,7 @@ class BenchmarkBatchRunner @Inject constructor(
                             )
                             retained = retained.withPreparationEvidence(beforeInspectionId, latestInspection, attemptStartedElapsed, android.os.SystemClock.elapsedRealtime(), before)
                             retained = retained.copy(deadlineReceipt = benchmarkDeadlineReceipt(batch.mode, test, batch.suiteVersion), settingsReceipt = benchmarkSettingsReceipt(primary, test, policy, retained, requestContext(run, test, policy)))
-                            run = run.copy(samples = run.samples + retained, resources = run.resources + resources.snapshots(), peakClientPssKb = listOfNotNull(run.peakClientPssKb, resources.peakClientPssKb).maxOrNull(), peakExecutionWorkerPssBytes = listOfNotNull(run.peakExecutionWorkerPssBytes, resources.peakExecutionWorkerPssBytes).maxOrNull(), peakExecutionClientPssKb = listOfNotNull(run.peakExecutionClientPssKb, resources.peakExecutionClientPssKb).maxOrNull(), runtimeCleanup = cleanupDetails, cleanupReceipt = cleanup)
+                            run = run.copy(samples = run.samples.filterNot { it.testId == retained.testId } + retained, resources = run.resources + resources.snapshots(), peakClientPssKb = listOfNotNull(run.peakClientPssKb, resources.peakClientPssKb).maxOrNull(), peakExecutionWorkerPssBytes = listOfNotNull(run.peakExecutionWorkerPssBytes, resources.peakExecutionWorkerPssBytes).maxOrNull(), peakExecutionClientPssKb = listOfNotNull(run.peakExecutionClientPssKb, resources.peakExecutionClientPssKb).maxOrNull(), runtimeCleanup = cleanupDetails, cleanupReceipt = cleanup)
                             // The receipt is committed before releasing measurement/native ownership.
                             checkpointAfterCleanup(batch.id, run, listOf(attempt.copy(state = if (failure is CancellationException && !childAborted) "INTERRUPTED" else "TERMINAL", dispatchUncertain = retained.requestDispatched == null, requestDispatched = retained.requestDispatched, physicalRequestIds = retained.physicalRequestIds, logicalRequestId = requestId, invocationIds = retained.invocationIds, sample = retained)), "CASE_INTERRUPTED")
                             if (!childAborted || retained.recoveryAction(batch.recoveryPolicy == "INDEPENDENT_CASES_AFTER_CONFIRMED_CLEANUP_V1") != BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES) throw failure
@@ -446,6 +640,7 @@ class BenchmarkBatchRunner @Inject constructor(
                     throw failure
                 }
                 val last = run.samples.last()
+                if (last.engineeringCleanupPending()) return run.awaitingEngineeringReconciliation()
                 if (last.recoveryAction(batch.recoveryPolicy == "INDEPENDENT_CASES_AFTER_CONFIRMED_CLEANUP_V1") !in setOf(BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES, BenchmarkRecoveryAction.SKIP_DEPENDENTS)) {
                     val failure = last.failure ?: BenchmarkFailure(last.failureCategory ?: "EXECUTION_FAILED", "request", last.error ?: "The profile did not finish this request.")
                     return appendDependentSkips(run.copy(stoppedReason = failure.message), suite, failure)
@@ -454,6 +649,10 @@ class BenchmarkBatchRunner @Inject constructor(
             return run
         } catch (error: Exception) {
             if (error is BenchmarkStorageFailure) throw error
+            if (run.samples.any { it.engineeringCleanupPending() }) {
+                if (error is CancellationException) throw error
+                return run.awaitingEngineeringReconciliation()
+            }
             val failure = benchmarkFailure(error, if (stage == "preflight") "preflight_admission" else stage)
             if (stage == "preflight" && failure.stage == "admission" && primary.compatibleType == ClientType.LLAMA) {
                 val checkId = if (failure.code.startsWith("SELECTED_MODEL_")) "initialization" else "reasoning_control"
@@ -626,6 +825,7 @@ class BenchmarkBatchRunner @Inject constructor(
             caseManifest = acceptedPlan,
             fixtureManifestHash = benchmarkHash(acceptedPlan.joinToString("\n") { it.id + it.prompt + it.expected })
         )
+        if (run.samples.any { it.engineeringCleanupPending() }) return run.awaitingEngineeringReconciliation().copy(cancellationOrigin = if (skip) BenchmarkStopOrigin.USER_SKIP else run.cancellationOrigin)
         val failure = if (skip) BenchmarkFailure("USER_SKIP", "request", "Skipped by user.", owner = "user") else benchmarkFailure(error, if (run.samples.isEmpty()) "preflight" else "request")
         val childAborted = !skip && error is CancellationException && error !is kotlinx.coroutines.TimeoutCancellationException
         val retained = run.copy(
@@ -676,30 +876,44 @@ class BenchmarkBatchRunner @Inject constructor(
 
     private fun appendDependentSkips(run: BenchmarkRun, suite: List<BenchmarkCase>, failure: BenchmarkFailure): BenchmarkRun = run.copy(samples = run.samples + suite.filter { test -> run.samples.none { it.testId == test.id } }.map { test -> BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.SKIPPED, error = failure.message, failureCategory = "SKIPPED_DEPENDENCY", failure = failure, requestDispatched = false, workload = test.workload, warmup = test.warmup, tokenBasis = ReferenceTextTokenizer.VERSION) })
 
-    private fun newRun(batch: BenchmarkBatch, item: BenchmarkQueueItem, profile: PlatformV2, planned: Int) = BenchmarkRun(
-        item.runId, profile.uid, profile.name, profile.compatibleType.name, profile.model, item.configKey,
-        profile.compatibleType == ClientType.LITERT_LM, batch.mode, System.currentTimeMillis(), finished = false,
-        suiteVersion = batch.suiteVersion, measurementVersion = batch.measurementVersion, scoringVersion = batch.scoringVersion,
-        plannedTrials = planned, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT,
-        runtimeVersion = "unreported", device = "${Build.MANUFACTURER} ${Build.MODEL}",
-        thermalBefore = thermal(), batteryBefore = battery(), engineWasLoaded = false,
-        batchId = batch.id, queueOrdinal = item.ordinal, state = "RUNNING", requestedAccelerator = if (batch.mode == BenchmarkMode.CPU_EXPERIMENT) "cpu" else profile.accelerator,
-        loadRegime = if (profile.compatibleType != ClientType.LITERT_LM) {
-            "remote_unknown"
-        } else {
-            "unverified_residency"
-        },
-        cacheRegime = if (profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec()?.cacheEnabled == true) "enabled_unknown_reuse" else "unknown",
-        delegationSettings = batch.delegationSettings?.copy(targetProfileUid = item.profile.uid), delegationPlan = batch.delegationPlan,
-        delegationSuiteVersion = if (batch.mode == BenchmarkMode.DELEGATION) if (batch.paired) 2 else 1 else 0,
-        reviewerProvider = batch.delegationReviewer?.compatibleType?.name, reviewerModel = batch.delegationReviewer?.model,
-        diagnosticMode = batch.diagnosticMode || batch.mode in setOf(BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE),
-        deadlinePolicy = if (batch.suiteVersion >= 10) "benchmark-workload-deadlines-v2" else "benchmark-request-deadline-v1",
-        executionPolicy = batch.executionPolicy, fixtureRotationSeed = batch.fixtureRotationSeed,
-        fixtureSetVersion = if (batch.suiteVersion >= 10) BenchmarkIntelligenceFixtures.VERSION else null,
-        deviceBuild = Build.FINGERPRINT.takeIf { it.isNotBlank() },
-        measurementPolicy = "benchmark-measurement-v${batch.measurementVersion}", aggregatePolicy = if (batch.suiteVersion >= 10) "benchmark-score-v6" else "benchmark-score-v5"
-    )
+    private suspend fun newRun(batch: BenchmarkBatch, item: BenchmarkQueueItem, profile: PlatformV2, planned: Int): BenchmarkRun {
+        val startedAt = System.currentTimeMillis()
+        val priceSnapshot = try {
+            val features = settings.getFeatureSettings()
+            pricing?.hydrate()
+            benchmarkPricingSnapshot(profile, features.manualPrices, pricing?.state?.value?.entries.orEmpty(), startedAt, item.configKey, batch.executionPolicy ?: BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1)
+        } catch (canceled: CancellationException) {
+            throw canceled
+        } catch (_: Exception) {
+            null
+        }
+        return BenchmarkRun(
+            item.runId, profile.uid, profile.name, profile.compatibleType.name, profile.model, item.configKey,
+            profile.compatibleType == ClientType.LITERT_LM, batch.mode, startedAt, finished = false,
+            suiteVersion = batch.suiteVersion, measurementVersion = batch.measurementVersion, scoringVersion = batch.scoringVersion,
+            plannedTrials = planned, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT,
+            runtimeVersion = "unreported", device = "${Build.MANUFACTURER} ${Build.MODEL}",
+            thermalBefore = thermal(), batteryBefore = battery(), engineWasLoaded = false,
+            batchId = batch.id, queueOrdinal = item.ordinal, state = "RUNNING", requestedAccelerator = if (batch.mode == BenchmarkMode.CPU_EXPERIMENT) "cpu" else profile.accelerator,
+            loadRegime = if (profile.compatibleType != ClientType.LITERT_LM) {
+                "remote_unknown"
+            } else {
+                "unverified_residency"
+            },
+            cacheRegime = if (profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec()?.cacheEnabled == true) "enabled_unknown_reuse" else "unknown",
+            delegationSettings = batch.delegationSettings?.copy(targetProfileUid = item.profile.uid), delegationPlan = batch.delegationPlan,
+            delegationSuiteVersion = if (batch.mode == BenchmarkMode.DELEGATION) if (batch.paired) 2 else 1 else 0,
+            reviewerProvider = batch.delegationReviewer?.compatibleType?.name, reviewerModel = batch.delegationReviewer?.model,
+            diagnosticMode = batch.diagnosticMode || batch.mode in setOf(BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE),
+            deadlinePolicy = if (batch.suiteVersion >= 10) "benchmark-workload-deadlines-v2" else "benchmark-request-deadline-v1",
+            executionPolicy = batch.executionPolicy, fixtureRotationSeed = batch.fixtureRotationSeed,
+            fixtureSetVersion = if (batch.suiteVersion >= 10) BenchmarkIntelligenceFixtures.VERSION else null,
+            deviceBuild = Build.FINGERPRINT.takeIf { it.isNotBlank() },
+            measurementPolicy = "benchmark-measurement-v${batch.measurementVersion}", aggregatePolicy = if (batch.suiteVersion >= 10) "benchmark-score-v6" else "benchmark-score-v5",
+            pricingSnapshot = priceSnapshot,
+            engineeringPlan = batch.engineeringPlan, engineeringRepeatIndex = item.engineeringRepeatIndex, engineeringContextVariant = item.engineeringContextVariant
+        )
+    }
 
     private suspend fun interrupt(id: String, origin: BenchmarkStopOrigin) {
         val batch = store.batch(id) ?: return
@@ -711,6 +925,10 @@ class BenchmarkBatchRunner @Inject constructor(
         val ordinal = activeOrdinal
         val active = batch.items.firstOrNull { it.ordinal == ordinal }
         val run = active?.let { item -> store.history.value.firstOrNull { it.id == item.runId } }?.copy(finished = true, canceled = origin == BenchmarkStopOrigin.USER_STOP, state = "INTERRUPTED", cancellationOrigin = origin, endedAt = System.currentTimeMillis(), stoppedReason = if (origin == BenchmarkStopOrigin.USER_STOP) "Stopped by user." else "Benchmark interrupted; committed measurements are retained.")
+        if (run?.samples?.any { it.engineeringCleanupPending() } == true) {
+            store.checkpoint(benchmarkEngineeringPausedBatch(batch, run).copy(stopOrigin = origin), run.awaitingEngineeringReconciliation(), event = "ENGINEERING_RECONCILIATION_REQUIRED")
+            return
+        }
         store.checkpoint(batch.copy(state = if (origin == BenchmarkStopOrigin.USER_STOP) BenchmarkBatchState.STOPPED else BenchmarkBatchState.INTERRUPTED, stopOrigin = origin, activeOrdinal = null, endedAt = System.currentTimeMillis(), items = batch.items.map { if (it.ordinal == ordinal && it.state == BenchmarkQueueState.RUNNING) it.copy(state = BenchmarkQueueState.INTERRUPTED, endedAt = System.currentTimeMillis()) else it }), run, event = origin.name)
     }
 

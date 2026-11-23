@@ -244,7 +244,6 @@ internal object GitHubAcceptanceDiagnostics {
         state == "FAIL" -> "VERIFICATION_FAILED"
         state == "BLOCKED" -> "REQUIRED_OPERATION_BLOCKED"
         category == "DEVICE_EXECUTION" -> "DEVICE_EXECUTION_NOT_OBSERVED"
-        category == "AUTHORIZED_CATALOG" -> "CATALOG_NOT_EXHAUSTED"
         category == "FIXTURE_LIFECYCLE" -> "FIXTURE_PROOF_INCOMPLETE"
         category == "REPOSITORY_GRAPH" -> "GRAPH_QUALIFICATION_INCOMPLETE"
         category == "REPOSITORY_LIFECYCLE" -> "REPOSITORY_OPERATION_UNVERIFIED"
@@ -253,7 +252,6 @@ internal object GitHubAcceptanceDiagnostics {
 
     private fun nextAction(category: String, state: String): String = when {
         state == "PASS" -> "RETAIN_VERIFIED_EVIDENCE"
-        category == "AUTHORIZED_CATALOG" -> "FOLLOW_VERSION_BOUND_CATALOG_CURSOR"
         category == "FIXTURE_LIFECYCLE" -> "RECONCILE_OWNED_FIXTURE_THEN_VERIFY_ABSENCE"
         category == "BUILD_REVISION_BINDING" -> "OBSERVE_EXACT_BUILD_AND_REPOSITORY_REVISION"
         category == "DEVICE_EXECUTION" -> "RUN_CURRENT_BUILD_ON_RECORDED_DEVICE"

@@ -62,6 +62,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.features = fixture.features.copy(backgroundGeneration = false)
             fixture.initialize()
             val checkpoint = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true,"draft":""}""") as JsonObject
@@ -105,6 +106,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.features = fixture.features.copy(backgroundGeneration = false)
             fixture.initialize()
             val checkpoint = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true,"draft":""}""") as JsonObject
@@ -163,6 +165,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.features = fixture.features.copy(backgroundGeneration = false)
             fixture.initialize()
             val checkpoint = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true,"draft":""}""") as JsonObject
@@ -227,9 +230,88 @@ class ProviderWaitRecoveryTest {
             assertEquals(2500L, timed.accumulatedProviderWaitMillis)
             assertNull(timed.waitStartedAtMillis)
             assertEquals(timed, timed.closeWait(9000))
+            assertEquals(listOf(ProviderWaitInterval(1000, 3000)), timed.closedWaitIntervals)
+            assertFalse(timed.closedWaitIntervalsComplete)
+            assertEquals(timed, fixture.codec.decodeFromString<ProviderWaitCheckpoint>(fixture.codec.encodeToString(timed)))
+            var bounded = saved.copy(accumulatedProviderWaitMillis = 0, closedWaitIntervalsComplete = true)
+            repeat(129) { index -> bounded = bounded.copy(waitStartedAtMillis = index * 10L).closeWait(index * 10L + 5) }
+            assertEquals(645L, bounded.accumulatedProviderWaitMillis)
+            assertEquals(128, bounded.closedWaitIntervals.size)
+            assertEquals(ProviderWaitInterval(10, 15), bounded.closedWaitIntervals.first())
+            assertFalse(bounded.closedWaitIntervalsComplete)
             assertNull(saved.copy(waitStartedAtMillis = 3000, accumulatedProviderWaitMillis = 500).closeWait(1000).accumulatedProviderWaitMillis)
-            assertNull(saved.copy(waitStartedAtMillis = 1, accumulatedProviderWaitMillis = Long.MAX_VALUE).closeWait(3).accumulatedProviderWaitMillis)
+            val overflow = saved.copy(waitStartedAtMillis = 1, accumulatedProviderWaitMillis = Long.MAX_VALUE, closedWaitIntervalsComplete = true).closeWait(3)
+            assertNull(overflow.accumulatedProviderWaitMillis)
+            assertFalse(overflow.closedWaitIntervalsComplete)
         } finally {
+            fixture.database.close()
+        }
+    }
+
+    @Test fun refusedProviderWaitsRetainSpecificReasonsWithoutChangingTheOwner() = runBlocking {
+        for (reason in listOf(
+            ProviderWaitSchedulingResult.NoWaitReason.REJECTION_NOT_REPLAY_SAFE,
+            ProviderWaitSchedulingResult.NoWaitReason.RETRY_LIMIT_REACHED,
+            ProviderWaitSchedulingResult.NoWaitReason.ROUTE_MISMATCH,
+            ProviderWaitSchedulingResult.NoWaitReason.OWNER_CHANGED,
+            ProviderWaitSchedulingResult.NoWaitReason.CHECKPOINT_UNAVAILABLE,
+            ProviderWaitSchedulingResult.NoWaitReason.CHECKPOINT_CHANGED,
+            ProviderWaitSchedulingResult.NoWaitReason.INITIAL_OUTPUT_PRESENT,
+            ProviderWaitSchedulingResult.NoWaitReason.AUTHORITY_UNAVAILABLE,
+            ProviderWaitSchedulingResult.NoWaitReason.AUTHORITY_CHANGED
+        )) {
+            val fixture = Fixture(if (reason == ProviderWaitSchedulingResult.NoWaitReason.INITIAL_OUTPUT_PRESENT) "Retained source findings" else "")
+            try {
+                fixture.initialize()
+                var decision = fixture.decision()
+                var request = fixture.request
+                when (reason) {
+                    ProviderWaitSchedulingResult.NoWaitReason.REJECTION_NOT_REPLAY_SAFE -> decision = decision.copy(knownNotAccepted = false)
+                    ProviderWaitSchedulingResult.NoWaitReason.RETRY_LIMIT_REACHED -> decision = decision.copy(retrySource = "APP_BACKOFF", consecutiveRejections = 9)
+                    ProviderWaitSchedulingResult.NoWaitReason.ROUTE_MISMATCH -> decision = decision.copy(model = "other-model")
+                    ProviderWaitSchedulingResult.NoWaitReason.OWNER_CHANGED -> request = request.copy(assistantMessage = request.assistantMessage.copy(ownershipFence = 4))
+                    ProviderWaitSchedulingResult.NoWaitReason.CHECKPOINT_UNAVAILABLE, ProviderWaitSchedulingResult.NoWaitReason.CHECKPOINT_CHANGED -> {
+                        decision = decision.copy(gitHubCheckpoint = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint("b".repeat(64), "a".repeat(64)))
+                        if (reason == ProviderWaitSchedulingResult.NoWaitReason.CHECKPOINT_CHANGED) fixture.gitHubCheckpoint = buildJsonObject { put("state", "READY") }
+                    }
+                    ProviderWaitSchedulingResult.NoWaitReason.AUTHORITY_UNAVAILABLE -> decision = decision.copy(authority = null)
+                    ProviderWaitSchedulingResult.NoWaitReason.AUTHORITY_CHANGED -> fixture.permission = "revoked"
+                    else -> Unit
+                }
+                val result = fixture.store.deferRunningResult(request, decision)
+                assertEquals(reason, result.noWaitReason)
+                assertEquals(false, result.persisted)
+                assertFalse(result.waiting)
+                assertEquals("RUNNING", fixture.dao.recoveryRun("run")?.status)
+                assertNull(fixture.dao.rawProviderWait("run"))
+            } finally {
+                fixture.database.close()
+            }
+        }
+    }
+
+    @Test fun enqueueFailureKeepsTheRealDurableWaitAndItsFenceForStartupRecovery() = runBlocking {
+        val fixture = Fixture()
+        mockkObject(ProviderLimitResumeWorker.Companion)
+        try {
+            every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } throws java.io.IOException("scheduler unavailable")
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } throws java.io.IOException("scheduler unavailable")
+            fixture.initialize()
+            val decision = fixture.decision()
+            val result = fixture.store.deferRunningResult(fixture.request, decision)
+            assertTrue(result.valueOrThrow())
+            assertEquals("PENDING_RECONCILIATION", result.schedulerState)
+            assertEquals("WAITING_PROVIDER_LIMIT", fixture.dao.recoveryRun("run")?.status)
+            val row = requireNotNull(fixture.dao.rawProviderWait("run"))
+            assertEquals(fixture.answer.ownershipFence, row.fence)
+            val saved = fixture.codec.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint)
+            assertEquals(decision, saved.decision)
+            assertTrue(saved.closedWaitIntervalsComplete)
+            assertEquals(ProviderWaitSchedulingResult.NoWaitReason.OWNER_CHANGED, fixture.store.deferRunningResult(fixture.request, decision).noWaitReason)
+            assertEquals(row, fixture.dao.rawProviderWait("run"))
+            coVerify(exactly = 1) { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) }
+        } finally {
+            unmockkObject(ProviderLimitResumeWorker.Companion)
             fixture.database.close()
         }
     }
@@ -239,6 +321,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.initialize()
             fixture.dao.updateRunStatus("run", "QUEUED", null, null, null)
             dev.chungjungsoo.gptmobile.data.network.ProviderCooldown.defer(dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(fixture.original.apiUrl, fixture.original.token), "60")
@@ -276,6 +359,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.initialize()
             val value = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true,"draft":"Retained draft","completed_results":[{"call_id":"write-1","status":"SUCCEEDED"}],"failure_code":"429"}""") as kotlinx.serialization.json.JsonObject
             val checkpoint = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint("b".repeat(64), researchHash(value.toString()))
@@ -346,12 +430,50 @@ class ProviderWaitRecoveryTest {
         }
     }
 
+    @Test fun originalInterruptionDoesNotHideTheObservedMismatchOrItsToolJournalCorrelation() = runBlocking {
+        val fixture = Fixture()
+        try {
+            fixture.initialize()
+            val checkpoint = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true,"failure_code":"429"}""") as JsonObject
+            val expected = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint("b".repeat(64), researchHash(checkpoint.toString()))
+            val row = fixture.row(fixture.decision().copy(gitHubCheckpoint = expected), ProviderWaitMode.GITHUB_STEP)
+            val saved = fixture.codec.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint).copy(resumeClaimId = "current-claim")
+            assertTrue(fixture.dao.deferRunningProvider(row.copy(checkpoint = fixture.codec.encodeToString(saved))))
+            val observed = JsonObject(checkpoint + ("draft" to JsonPrimitive("New private draft")))
+            fixture.gitHubCheckpoint = observed
+            val refusal = ProviderRecoveryFailure(
+                "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+                ProviderRecoveryFailure.interruption(checkpoint),
+                buildJsonObject {
+                    put("checkpoint_mismatch_reason", "TOOL_JOURNAL_CHANGED")
+                    put("expected_tool_journal_digest", "c".repeat(64))
+                    put("observed_tool_journal_digest", "d".repeat(64))
+                    put("settled_tool_count", 2)
+                    put("private_argument", "Do not retain")
+                }
+            )
+            fixture.store.recordRecoveryFailure(fixture.request.copy(providerWaitClaimId = "current-claim"), refusal.code, refusal.event().failureDetails)
+            val stored = requireNotNull(fixture.codec.decodeFromString<ProviderWaitCheckpoint>(requireNotNull(fixture.dao.rawProviderWait("run")).checkpoint).recoveryFailure)
+            assertEquals(JsonPrimitive(expected.digest), stored["checkpoint_digest"])
+            assertEquals(JsonPrimitive(researchHash(observed.toString())), stored["observed_checkpoint_digest"])
+            assertEquals(JsonPrimitive("TOOL_JOURNAL_CHANGED"), stored["checkpoint_mismatch_reason"])
+            assertEquals(JsonPrimitive("c".repeat(64)), stored["expected_tool_journal_digest"])
+            assertEquals(JsonPrimitive("d".repeat(64)), stored["observed_tool_journal_digest"])
+            assertEquals(JsonPrimitive("current-claim"), stored["resume_claim_id"])
+            assertFalse(stored.toString().contains("New private draft"))
+            assertFalse(stored.toString().contains("Do not retain"))
+        } finally {
+            fixture.database.close()
+        }
+    }
+
     @Test fun anUnreadableTerminalCheckpointDoesNotPreventSchedulingAnotherActiveWait() = runBlocking {
         val fixture = Fixture()
         val scheduled = mutableListOf<String>()
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } answers { scheduled += arg<String>(1) }
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } coAnswers { scheduled += arg<String>(1) }
             fixture.initialize()
             val value = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true}""") as kotlinx.serialization.json.JsonObject
             fixture.gitHubCheckpoint = value
@@ -436,6 +558,7 @@ class ProviderWaitRecoveryTest {
 
     private fun repository(fixture: Fixture): dev.chungjungsoo.gptmobile.data.repository.ChatRepository = mockk<dev.chungjungsoo.gptmobile.data.repository.ChatRepository>(relaxed = true).also { repository ->
         every { repository.observeAgentRuns(1) } returns flow { emit(fixture.database.agentRunDao().getByChatId(1)) }
+        coEvery { repository.conversationPrivacyLocked(any()) } coAnswers { fixture.database.chatRoomDao().getChatRoom(firstArg())?.privacyModeLocked }
         coEvery { repository.isCombinedTurnCancelled(any()) } returns false
         coEvery { repository.finishActiveAgentRun(any(), any(), any(), any()) } coAnswers {
             fixture.database.agentRunDao().finishActive(firstArg(), secondArg(), thirdArg(), arg(3)) == 1
@@ -463,6 +586,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.initialize()
             val value = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true,"draft":"","completed_results":[{},{}]}""") as kotlinx.serialization.json.JsonObject
             fixture.gitHubCheckpoint = value
@@ -497,6 +621,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.initialize()
             val decision = fixture.decision().copy(retryAt = System.currentTimeMillis() + 120_000)
             val row = fixture.row(decision, ProviderWaitMode.RESEARCH_STAGE)
@@ -523,6 +648,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } answers { scheduled += arg<Long>(2) }
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } coAnswers { scheduled += arg<Long>(2) }
             fixture.initialize()
             val decision = fixture.decision().copy(retryAt = System.currentTimeMillis() + 120_000)
             val row = fixture.row(decision, ProviderWaitMode.RESEARCH_STAGE)
@@ -549,6 +675,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.initialize()
             val binding = "b".repeat(64)
             var request = fixture.request
@@ -650,6 +777,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } answers { scheduled += arg<Long>(2) }
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } coAnswers { scheduled += arg<Long>(2) }
             fixture.initialize()
             val config = dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(fixture.original.apiUrl, fixture.original.token)
             val originalDeadline = System.currentTimeMillis() + 30_000
@@ -966,6 +1094,7 @@ class ProviderWaitRecoveryTest {
             val limiter = FreeAiRequestLimiter(elapsedMillis = { elapsed }, nowMillis = { wall })
             every { FreeAiRequestLimiter.shared } returns limiter
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.initialize()
             val provider = FreeAiProvider.KILO
             val profile = fixture.original.copy(compatibleType = ClientType.FREE, apiUrl = provider.apiUrl, model = provider.model)
@@ -998,6 +1127,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             for (researchStage in listOf(false, true)) {
                 val fixture = Fixture(if (researchStage) "Retained new paragraph." else "")
                 try {
@@ -1037,6 +1167,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.initialize()
             val sibling = MessageV2(id = 3, chatId = 1, content = "Still writing", platformType = "other", linkedMessageId = 1, currentRunId = "other-run")
             fixture.database.messageDao().addMessages(sibling)
@@ -1061,6 +1192,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.initialize()
             val priorUser = MessageV2(id = 3, chatId = 1, content = "Earlier question", platformType = null)
             val priorAnswer = MessageV2(id = 4, chatId = 1, content = "Earlier answer", platformType = "p", linkedMessageId = 3)
@@ -1082,6 +1214,7 @@ class ProviderWaitRecoveryTest {
         mockkObject(ProviderLimitResumeWorker.Companion)
         try {
             every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            coEvery { ProviderLimitResumeWorker.enqueueConfirmed(any(), any(), any(), any()) } just Runs
             fixture.initialize()
             val decision = fixture.decision().copy(continuationPrefixDigest = researchHash(fixture.partial))
             assertTrue(fixture.store.deferRunning(fixture.request, decision))

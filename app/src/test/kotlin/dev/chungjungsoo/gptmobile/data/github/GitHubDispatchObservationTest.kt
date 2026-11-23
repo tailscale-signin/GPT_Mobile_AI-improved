@@ -28,7 +28,7 @@ class GitHubDispatchObservationTest {
         assertEquals(JsonPrimitive(0), receipt["unknown_mutations"])
         assertEquals(JsonPrimitive(1), receipt["read_response_observations"])
         assertEquals(JsonPrimitive(1), receipt["observation_mismatches"])
-        assertEquals(2, events.count { "state=DISPATCHED" in it })
+        assertEquals(2, events.count { "state=ATTEMPT_STARTED" in it })
         assertEquals(2, events.count { "state=HTTP_RESPONSE_OBSERVED" in it })
         assertTrue(events.any { "serverRequestId=ABC:12" in it })
         assertTrue(events.any { "serverRequestId=DEF:34" in it })

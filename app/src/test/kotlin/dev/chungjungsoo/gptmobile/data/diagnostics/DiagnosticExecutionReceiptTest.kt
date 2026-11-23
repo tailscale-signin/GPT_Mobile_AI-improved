@@ -44,4 +44,23 @@ class DiagnosticExecutionReceiptTest {
         assertEquals("true", record.getValue("retryable").jsonPrimitive.content)
         org.junit.Assert.assertFalse(record.toString().contains("private-canary"))
     }
+
+    @Test fun successfulIssueReadDoesNotAdoptAnErrorCodeFromReturnedIssueTitles() {
+        val record = Json.parseToJsonElement(
+            structuredDiagnosticLine("""2026-11-22T13:47:26Z I/Tool: Finished · tool=github_issue · error=false · dispatched=true · errorCode=none · executionState=COMPLETED · executionReceipt={"http_status":200,"semantic_summary":{"resource_observations":[{"title":"[Debug] chat · GITHUB_TASK_INCOMPLETE · task_budget"}]}}""")
+        ).jsonObject
+        assertEquals(JsonNull, record.getValue("errorCode"))
+        assertEquals("COMPLETED", record.getValue("dispatchState").jsonPrimitive.content)
+        assertEquals("false", record.getValue("observedFailure").jsonPrimitive.content)
+    }
+
+    @Test fun legacyFailureOnlyUsesASeparateTopLevelCodeAndPreservesExplicitUnknown() {
+        fun code(message: String) = Json.parseToJsonElement(structuredDiagnosticLine("2026-11-22T13:47:26Z E/GitHubTool: $message"))
+            .jsonObject.getValue("errorCode")
+        val nested = """executionReceipt={"title":"earlier · GITHUB_TASK_INCOMPLETE · report","items":[{"message":"GITHUB_NOT_FOUND"}]}"""
+        assertEquals(JsonNull, code("Request failed · $nested"))
+        assertEquals("GITHUB_INVALID_ARGUMENT", code("Request failed · $nested · truncatedAtSource=false · GITHUB_INVALID_ARGUMENT · action=pr_context").jsonPrimitive.content)
+        assertEquals(JsonNull, code("Request failed · errorCode=unknown · truncatedAtSource=false · GITHUB_NOT_FOUND · $nested"))
+        assertEquals(JsonNull, code("Finished · error=true · message=Returned GITHUB_NOT_FOUND in an issue title"))
+    }
 }

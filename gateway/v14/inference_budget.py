@@ -119,6 +119,8 @@ def fit_engineering_payload(payload, capability, counter):
             raise
     envelope = json.loads(original['messages'][-1]['content'])
     retained = {name: envelope.get(name) for name in ('evidence', 'historical_memory', 'code_graph')}
+    if 'task_context' in envelope:
+        retained['task_context'] = envelope['task_context']
     if 'repository_instructions' in envelope:
         retained['repository_instructions'] = envelope['repository_instructions']
     # Bounded, strictly decreasing views. There is no identical oversized replay.
@@ -131,7 +133,7 @@ def fit_engineering_payload(payload, capability, counter):
         # container must not consume the entire traversal before graph context.
         graph_budget = min(4096, max(1024, limit))
         graph_view = project_graph(retained['code_graph'], graph_budget)
-        sources = {name: value for name, value in retained.items() if name not in {'code_graph', 'repository_instructions'}}
+        sources = {name: value for name, value in retained.items() if name not in {'code_graph', 'repository_instructions', 'task_context'}}
         evidence = sources.get('evidence')
         windows = evidence.get('workspace_receipts') if isinstance(evidence, dict) else None
         if windows:
@@ -149,6 +151,9 @@ def fit_engineering_payload(payload, capability, counter):
         else:
             projected, omissions = compact_evidence(sources, limit, nodes=nodes)
         projected['code_graph'] = graph_view
+        if 'task_context' in retained:
+            from v14.task_context import project_bundle
+            projected['task_context'] = project_bundle(retained['task_context'], min(4096, max(1024, limit)))
         if 'repository_instructions' in retained:
             # Instruction identities are never abbreviated into unusable paths
             # or blob IDs. Only their text is excerpted; the original remains

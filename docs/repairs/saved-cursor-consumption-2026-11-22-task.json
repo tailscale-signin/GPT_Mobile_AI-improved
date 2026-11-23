@@ -1,0 +1,87 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "6f887cc3f4e81deb497879c9f83cf773fc002189",
+  "working_branch": "saved-cursor-fix-20261123",
+  "parent_pr": 2254,
+  "intent": "Retain successful native saved-page reads with compatible carried-over context in live and restored consumption history while keeping rejected mixed arguments recoverable.",
+  "status": "READY_FOR_DRAFT_UPLOAD_AWAITING_HOSTED_VERIFICATION",
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedCursorContinuationTest.kt"
+  ],
+  "constraints": [
+    "Keep native saved-view authorization and retained-context comparison unchanged.",
+    "Do not treat absent, mismatched, rejected or remotely dispatched results as proof that a mixed-context saved read completed.",
+    "Preserve cursor-only automatic recipes, the automatic-attempt allowance, view/offset identity and digest-bound delivery tracking.",
+    "Preserve all incoming commits and avoid remote or foreign-worktree changes."
+  ],
+  "validation": [
+    {
+      "check": "Baseline actual-source recovery/native saved-view regression",
+      "result": "68 tests executed, exactly one failure: a successful read with retained action=runs was automatically selected again. Existing 67 cases passed.",
+      "source": "6f887cc3f4e81deb497879c9f83cf773fc002189 plus the new regression"
+    },
+    {
+      "check": "Final actual-source focused suite",
+      "result": "70 tests passed after formatting and both independent-review corrections.",
+      "coverage": "Real GitHubResultViews admission for matching action and owner/repo including case-insensitive names; conflicting and private scope refusals; pure history, State.record, restored compacted outcomes; missing/mismatched/dispatched/unknown outcomes and unsupported selectors. Existing schema, continuation, delivery and recovery controls remain passing.",
+      "compiler_heap_mb": 512,
+      "test_heap_mb": 512
+    },
+    {
+      "check": "Pinned ktlint 1.3.1",
+      "result": "All three changed Kotlin files passed."
+    },
+    {
+      "check": "Independent read-only review",
+      "result": "Clear; live/restore wiring, unknown-outcome exclusions, view/offset identity and separation from delivered-progress proof checked.",
+      "reviewed_source_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt": "182b861582bc41c7d0896e36499752dfdbb46df3b0881a9028f5ecfeeb722594",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "1253073db08ecabc945869450ba8ccab641259bc5291a708e483d1789f80038d",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedCursorContinuationTest.kt": "00800b157e63195f05bd98377c08f24800c4fcbf2ac62cd1f05067d756e48b39"
+      }
+    },
+    {
+      "check": "Whitespace",
+      "result": "git diff --check passed."
+    }
+  ],
+  "implementation": [
+    "Preserve existing cursor-only pending reservations; compatible mixed-context calls require a matching successful local native result before their view/offset is consumed.",
+    "Use the same rule per exchange in visible history and in State.record; exclude unsupported selectors, unknown tools, mismatched or missing results, dispatched work, errors and both reconciliation flag spellings.",
+    "Retain completed results before replay compaction and restore them from completed exchanges and pending completed exchanges without treating pending calls alone as completed.",
+    "Keep native retained-context admission, source authorization, exact issued cursors, automatic-attempt limits and digest-bound delivery tracking unchanged."
+  ],
+  "qualification_limits": [
+    "The focused harness compiles actual recovery, native saved-view/context/cursor checks and related production helpers. Android IO, unrelated provider journal services and full wrapper/application integration use the existing explicit host boundaries.",
+    "AgentRunner live and restore wiring is independently reviewed. Full Android/AgentRunner and exact-current-head aggregate validation remain the parent integration gate.",
+    "Generated inventories, Gateway metadata, branch integration, remote publication and required checks remain parent-owned; no remote mutation was performed."
+  ],
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt": "182b861582bc41c7d0896e36499752dfdbb46df3b0881a9028f5ecfeeb722594",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "1253073db08ecabc945869450ba8ccab641259bc5291a708e483d1789f80038d",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedCursorContinuationTest.kt": "00800b157e63195f05bd98377c08f24800c4fcbf2ac62cd1f05067d756e48b39"
+  },
+  "evidence_directory": "/workspace/scratch/6b5c8b09c56b/saved-cursor-proof",
+  "observed_shared_head_before_commit": "e0915300b1f5413d105203da7abf28fc6c6b196e",
+  "root_integration": {
+    "remote_base": "ac5030cbf0d82fcc9cc32bc845867befe03dda60",
+    "reviewed_local_commit": "46306367e11365b99d9787eaa7a3748f90b5ba7e",
+    "preserved_incoming_scope": "All shared source through ac5030cb, including complete benchmark integration, versioned journal proof, operation-bound redaction, cancellation receipts, reconciled OpenRouter assertions, exact workspace MCP discovery and concurrent routing, and acknowledged Gateway package provenance.",
+    "gateway_manifest": "Preserved incoming acknowledged source b3ef2afea46521d10afcbaaf5925f27ad9a21072 and all 505 package entries; actual validator passes on the combined source.",
+    "canonical": "PASS: 623 canonical host checks on the complete ac5030cb integration, exact release scope, regenerated inventories, generated Kotlin inventory formatting and actual validation of the current Gateway package manifest. The three unchanged reviewed Kotlin files retain their passing ktlint receipt. Android recovery and consulted dependency sources are identical to the 19-case passing compatibility snapshot.",
+    "remaining": "The acceptance workstream owns the additional rejected size-stripped/unissued cursor accounting repair. The separate voice-integration workstream owns atomic child-process start/stop. Preserve both source holds and require final-head CI, exact-main checks and signed publication.",
+    "prior_canonical": "PASS: 623 canonical host checks on the combined e315be06 plus exact reviewed saved-cursor source, scoped-release validation, regenerated inventories, generated Kotlin inventory formatting and actual validation of all 504 Gateway manifest entries. The unchanged three reviewed Kotlin source files retain their passing ktlint 1.3.1 receipt; all three source hashes match.",
+    "compatibility": {
+      "combined_commit": "6b2e7ca90af439e38a9e418a73679c5b3c82443a",
+      "tests": 19,
+      "result": "PASS",
+      "scope": "Eight saved-cursor, six durable-delivery and five delivery/compactor cases against actual updated ToolBatchCheckpoint, complete GitHubToolHandoff and GitHubProviderReplayEvidence. Other consulted inputs are unchanged; no production edits were needed.",
+      "evidence_directory": "/workspace/scratch/6b5c8b09c56b/saved-cursor-a769-proof",
+      "independent_reviews": "Journal v2 reader/writer boundaries, operation-bound redaction, durable SQL cancellation receipts and final OpenRouter fixture independently reviewed without a concrete remaining blocker in those scopes."
+    },
+    "previous_a769_canonical": "PASS: 623 canonical host checks, scoped release, generated inventory formatting and package validation, plus 19 affected compatibility tests with actual new journal dependencies."
+  }
+}

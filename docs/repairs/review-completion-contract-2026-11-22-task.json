@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "97285abb512132ab93660325d67860196714857d",
+  "parent_pr": 2254,
+  "working_branch": "work/completion-contract-2026-11-22",
+  "intent": "Preserve only the newly emitted bounded visible-output recovery stop reasons and inspect-saved-attempt recovery action through Kotlin stored/public diagnostics and the reporting-service contract, with behavior round-trip regressions and truthful additive service negotiation. Retain all concurrent privacy, source-recovery and completion changes.",
+  "status": "IMPLEMENTED_PENDING_COMBINED_HEAD_CI",
+  "evidence": {
+    "reviewed_completion_commit": "56a0316be0ed2029ae3b36c9392b9fe2c4aef2e7",
+    "reproduction": "The service accepts BOUNDED_EMPTY_OUTPUT_REPAIR but rejects both BOUNDED_VISIBLE_OUTPUT_REPAIR and VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED; the new INSPECT_SAVED_PROVIDER_ATTEMPT action is absent from the approved Kotlin/public context and service recovery enums. Both new Python contract subcases failed before the mirrored enum repair.",
+    "compatibility": "Numeric reporter protocol 2 and EXECUTION_COMPLETION_EVIDENCE_V1 do not distinguish an older validator rejecting the new closed values. No contract digest or enum-minor-version mechanism was found."
+  },
+  "changes": [
+    "Preserve INSPECT_SAVED_PROVIDER_ATTEMPT through stored ProfileFailureRecord, diagnostic failure export, approved context and the mirrored service recovery enum.",
+    "Accept exactly the two newly emitted bounded visible-output stop reasons in the service. No private repair role or claim-checkpoint fields are added to the public contract.",
+    "Negotiate VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1 only for the new stop-reason values or the new recovery action, including action-only reports. Older reports and omission-only stop-reason declarations retain prior compatibility requirements.",
+    "Advertise the capability only from the updated extended readiness endpoint. Block older hosted validators before the dispatch marker and POST, retaining exact approved bytes without automatic retry.",
+    "Require both completion capabilities in the signed-release hosted-origin readiness preflight. Preserve native-only reporting without a configured hosted origin. Document the separate existing-origin deployment/readback requirement."
+  ],
+  "validation": {
+    "focused": "PASS: two Kotlin/JUnit behavior tests, covering both actual GitHubNoOutputProgress states through serialization/export/public projection and three hosted negotiation variants including action-only reports. Actual IssueReport approval and IssueReportSubmission sources compiled with Kotlin 2.4.20 and OkHttp 5.5.0; unrelated Android/application boundaries isolated. Compiled production hashes match the final working sources.",
+    "cross_language": "PASS: two exact JSON payloads emitted by the actual Kotlin approval path were delivered to the actual Python HTTP service with bound receipts and idempotent repeats. Both stop reasons and recovery actions survived. Plain readiness remains 1022 bytes; extended readiness is 2400 bytes within the 4096-byte bound.",
+    "reporting_service": "PASS: python -m unittest authentication.test_incident_report_contract authentication.test_app scripts.tests.test_issue_reporting_configuration -q; 186 tests, including rejected private values and native-only release preflight.",
+    "formatting": "PASS: ktlint 1.3.1 for all seven changed Kotlin files and git diff --check.",
+    "canonical": "BLOCKED: bash scripts/validate-local.sh fast passed CI policy and stopped at stale app-audit inventory. Integrator owns the combined inventory refresh; this gate was not bypassed.",
+    "android": "NOT_RUN: combined-head CI owned by integrator",
+    "device": "NOT_RUN"
+  },
+  "reporting_deployment": {
+    "last_verified_mode": "The last successful signed release's validation job reported nativeGitHub=true and reportingService=false at 2026-11-22T04:29:54Z. This is historical release evidence; the next signed run must recheck current variables.",
+    "evidence_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/44985265952/job/137094394928",
+    "required_if_hosted": "Deploy this reporter revision through the existing hosting process at the already configured ISSUE_REPORT_ORIGIN, preserving its private state/credentials, then pass scripts/check_issue_reporting_configuration.py --probe-service with the release configuration. No hosted service deployment workflow exists in this repository; no deployment or guessed endpoint probe was performed.",
+    "native_path": "IssueReportGitHubSubmission validates the approved context and renders its exact approved JSON without a separate stop-reason/action allowlist or hosted readiness request. Native-only release configuration remains accepted."
+  }
+}

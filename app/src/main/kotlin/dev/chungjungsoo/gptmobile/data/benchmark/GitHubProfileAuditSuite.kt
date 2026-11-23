@@ -330,16 +330,17 @@ internal object GitHubEngineeringBenchmarkSuite {
         )
     )
 
-    fun cases(): List<BenchmarkCase> = challenges.map { (id, label, prompt) ->
+    fun cases(legacy: Boolean = false): List<BenchmarkCase> = challenges.map { (id, label, prompt) ->
         BenchmarkCase(
             id = "github-engineering-v1:" + id,
             label = label,
             category = "tools",
             workload = WORKLOAD,
-            validatorVersion = "benchmark-validator-v6",
+            validatorVersion = if (legacy) "benchmark-validator-v6" else "benchmark-validator-v7",
             prompt = "This is an isolated, in-memory GitHub engineering simulator, never a real repository. " +
                 "Use only the fixture tool and its returned evidence, without guessing SHA/cursors/session IDs. " +
-                prompt + " Finish by returning only the FIXTURE_CODE from the final verified receipt."
+                prompt + (if (!legacy && id in setOf("release-gate", "security-review")) " Submit the complete function using the shown signature and a Boolean expression (parentheses, !, &&, ||, == and != are supported). The simulator evaluates its behavior; it does not compile Kotlin." else "") +
+                " Finish by returning only the FIXTURE_CODE from the final verified receipt."
         )
     }
 }
@@ -442,12 +443,8 @@ internal class GitHubEngineeringScenario(private val test: BenchmarkCase, privat
         }
         return when (action) {
             "patch" -> {
-                val patch = string(args, "patch").orEmpty().filterNot(Char::isWhitespace)
-                val fixed = if (kind == "release-gate") {
-                    patch.contains("ciGreen&&approved") && !patch.contains("||")
-                } else {
-                    patch.contains("role==\"admin\"&&tokenValid") && !patch.contains("||")
-                }
+                val candidate = string(args, "patch").orEmpty()
+                val fixed = BenchmarkGuardVerifier.passes(kind, candidate, allowLegacyExpression = test.validatorVersion == "benchmark-validator-v6")
                 fixed &&
                     string(args, "expected_head_sha") == shaBefore &&
                     string(args, "path") == "src/main/kotlin/AccessGate.kt"
@@ -488,7 +485,7 @@ internal class GitHubEngineeringScenario(private val test: BenchmarkCase, privat
                     "; source: fun elevated(role: String, tokenValid: Boolean) = role == \"admin\" || tokenValid"
             }
             "patch" -> "STAGED on disposable fixture; new_sha=" + shaAfter + "; TESTS_NOT_RUN"
-            "test" -> "SIMULATED_UNIT_TESTS_PASS (truth table and authorization); tested_sha=" + shaAfter
+            "test" -> "SIMULATED_WORKFLOW_GUARD_CHECKS_PASS (bounded expression truth table; Kotlin compilation not executed); tested_sha=" + shaAfter
             else -> "SIMULATED_VERIFIED; tested_sha=" + shaAfter + "; FIXTURE_CODE=" + code
         }
         "pagination" -> when (completedStep) {

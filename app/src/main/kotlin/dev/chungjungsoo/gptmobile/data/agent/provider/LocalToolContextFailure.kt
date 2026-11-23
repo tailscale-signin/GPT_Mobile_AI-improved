@@ -13,11 +13,7 @@ internal fun localToolContextFailure(error: IllegalArgumentException, generation
     }
     val failure = error.providerFailure()
     return failure.copy(
-        message = if (generationDispatched) {
-            "GITHUB_TOOL_CONTEXT_BUDGET: The full authorized GitHub catalog needs approximately ${error.requiredSchemaTokens} schema tokens, but ${error.availableSchemaTokens} remain. This session already attempted generation; preserve prior output and check tool outcomes before continuing with a larger context."
-        } else {
-            failure.message
-        },
+        message = error.admissionMessage(generationDispatched),
         failureDetails = JsonObject(
             failure.failureDetails.orEmpty() - "dispatched" + buildJsonObject {
                 put("generation_dispatched", generationDispatched)

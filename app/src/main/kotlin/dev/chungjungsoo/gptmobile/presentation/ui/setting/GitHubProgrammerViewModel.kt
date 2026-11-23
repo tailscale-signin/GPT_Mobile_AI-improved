@@ -49,6 +49,7 @@ data class GitHubProgrammerState(
     val canLoadEarlier: Boolean = false,
     val context: GitHubConversationContext? = null,
     val chatId: Int? = null,
+    val privacyModeLocked: Boolean? = null,
     val messages: List<MessageV2> = emptyList(),
     val runs: List<AgentRun> = emptyList(),
     val events: List<ToolEvent> = emptyList(),
@@ -102,7 +103,7 @@ class GitHubProgrammerViewModel @Inject constructor(
     private val mutable = MutableStateFlow(GitHubProgrammerState())
     val state = mutable.asStateFlow()
     private val destination = MutableStateFlow<GitHubWorkspaceState?>(null)
-    private data class SessionSelection(val profileUid: String? = null, val chatId: Int? = null)
+    private data class SessionSelection(val profileUid: String? = null, val chatId: Int? = null, val privacyModeLocked: Boolean = false, val configured: Boolean = false)
     private val selection = MutableStateFlow(SessionSelection())
     private var sessionConfigured = false
     private var pinnedConnectionUid: String? = savedStateHandle["github_pinned_connection"]
@@ -116,15 +117,15 @@ class GitHubProgrammerViewModel @Inject constructor(
     private val conversationCreation = kotlinx.coroutines.sync.Mutex()
     private var preparedChat: Pair<String, Int>? = null
 
-    fun configureSession(profileUid: String?, chatId: Int? = null, newConversation: Boolean = false) {
+    fun configureSession(profileUid: String?, chatId: Int? = null, newConversation: Boolean = false, privacyModeLocked: Boolean = false) {
         if (sessionConfigured) return
         sessionConfigured = true
         val restored = savedStateHandle.get<Boolean>("github_session_initialized") == true
         if (!restored) clearProfilePin()
         val session = if (restored) {
-            SessionSelection(savedStateHandle["github_session_profile"], savedStateHandle["github_session_chat"])
+            SessionSelection(savedStateHandle["github_session_profile"], savedStateHandle["github_session_chat"], savedStateHandle["github_session_privacy_locked"] ?: false, configured = true)
         } else {
-            SessionSelection(profileUid, if (newConversation) 0 else chatId)
+            SessionSelection(profileUid, if (newConversation) 0 else chatId, privacyModeLocked, configured = true)
         }
         saveSession(session)
     }
@@ -133,6 +134,20 @@ class GitHubProgrammerViewModel @Inject constructor(
         savedStateHandle["github_session_initialized"] = true
         savedStateHandle["github_session_profile"] = session.profileUid
         savedStateHandle["github_session_chat"] = session.chatId
+        savedStateHandle["github_session_privacy_locked"] = session.privacyModeLocked
+        mutable.update {
+            it.copy(
+                privacyModeLocked = if (!session.configured) {
+                    null
+                } else if (it.privacyModeLocked == true || session.privacyModeLocked) {
+                    true
+                } else if (session.chatId == 0) {
+                    false
+                } else {
+                    null
+                }
+            )
+        }
         selection.value = session
     }
 
@@ -149,7 +164,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 if (existingId != null) {
                     val existing = database.agentPersistenceDao().getChatRoom(existingId)
                     val bound = settings.getFeatureSettings().conversationGitHub[existingId]
-                    if (existing != null && !existing.isTemporary && bound?.sameWorkspace(context) == true) {
+                    if (existing != null && !existing.isTemporary && (!session.privacyModeLocked || existing.privacyModeLocked) && bound?.sameWorkspace(context) == true) {
                         val normalized = dev.chungjungsoo.gptmobile.data.github.GitHubChatMembership.normalize(existing, context)
                         if (normalized != existing) chats.updateChatPlatforms(normalized, listOf(context.mainProfileUid))
                         observeConversation(existingId)
@@ -159,7 +174,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                     observeConversation(null)
                 }
                 val profile = mutable.value.profiles.singleOrNull { it.uid == context.mainProfileUid } ?: return@withLock
-                val room = chats.createDraftChat(listOf(profile.uid), "STANDARD", context.repo, profile.uid)
+                val room = chats.createDraftChat(listOf(profile.uid), "STANDARD", context.repo, profile.uid, privacyModeLocked = session.privacyModeLocked)
                 try {
                     chats.saveChatPlatformModels(room.id, mapOf(profile.uid to profile.model))
                     settings.mutateFeatureSettings { it.copy(conversationGitHub = it.conversationGitHub + (room.id to context)) }
@@ -250,14 +265,31 @@ class GitHubProgrammerViewModel @Inject constructor(
                 }
                 val preferredChat = workspace?.recentChatId?.takeIf { it in candidates }
                 val room = (listOfNotNull(preferredChat) + candidates.sortedDescending()).distinct().firstNotNullOfOrNull { id ->
-                    database.agentPersistenceDao().getChatRoom(id)?.takeIf { (session.chatId == it.id || !it.isArchived) && !it.isTemporary }
+                    database.agentPersistenceDao().getChatRoom(id)?.takeIf { (session.chatId == it.id || !it.isArchived) && !it.isTemporary && (!session.privacyModeLocked || it.privacyModeLocked) }
                 }
                 if (session != selection.value || workspace != destination.value) return@collect
+                if (session.configured && room?.privacyModeLocked == true && !session.privacyModeLocked) {
+                    withContextMain { if (session == selection.value) saveSession(session.copy(privacyModeLocked = true)) }
+                    return@collect
+                }
                 if (room != null && context != null) migrateComposerDraft(room, context)
                 if (context != null) bootstrapper?.rememberConversation(context, room?.id, mutable.value.draft.isNotBlank() || !room?.draftText.isNullOrBlank())
                 observeConversation(room?.id)
                 mutable.update {
                     it.copy(
+                        privacyModeLocked = if (!session.configured) {
+                            null
+                        } else if (it.privacyModeLocked == true || session.privacyModeLocked) {
+                            true
+                        } else if (context == null || session.chatId?.let { id -> id > 0 } == true && room == null) {
+                            if (session.chatId == 0) {
+                                false
+                            } else {
+                                null
+                            }
+                        } else {
+                            room?.privacyModeLocked ?: session.privacyModeLocked
+                        },
                         decisionMode = if (room != null && context != null) features.githubDecisionMode(room.id, context) else GitHubDecisionMode.ASK,
                         copilotPluginEnabled = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true,
                         copilotEnabled = GitHubCopilotAgentMergePolicy.enabled(features, room?.id, context)
@@ -336,7 +368,8 @@ class GitHubProgrammerViewModel @Inject constructor(
         val connectionUid = destination.value?.connection?.connectionUid ?: return
         if (uid != null && mutable.value.profiles.none { it.uid == uid }) return
         clearProfilePin()
-        saveSession(SessionSelection(uid, null))
+        val session = selection.value
+        saveSession(session.copy(profileUid = uid, chatId = if (session.privacyModeLocked || session.chatId == 0) 0 else null))
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 settings.mutateFeatureSettings { it.copy(githubMainProfiles = if (uid == null) it.githubMainProfiles - connectionUid else it.githubMainProfiles + (connectionUid to uid)) }
@@ -466,6 +499,7 @@ class GitHubProgrammerViewModel @Inject constructor(
 
     private fun sendCommand(text: String, deduplicationKey: String?, accepted: (Int) -> Unit, publication: dev.chungjungsoo.gptmobile.data.github.GitHubApprovalBinding.Continuation? = null, repair: GitHubDraftRepair? = null) {
         val workspace = mutable.value.context ?: return
+        val session = selection.value
         val context = repair?.bind(workspace) ?: workspace
         if (text.isBlank() || mutable.value.submitting) return
         mutable.update { it.copy(submitting = true, error = null) }
@@ -489,15 +523,15 @@ class GitHubProgrammerViewModel @Inject constructor(
                             null
                         } else {
                             database.agentPersistenceDao().getChatRoom(id)
-                                ?.takeIf { !it.isArchived && it.activePlatform == listOf(profile.uid) && it.title == repair.title }
+                                ?.takeIf { !it.isArchived && it.activePlatform == listOf(profile.uid) && it.title == repair.title && (!session.privacyModeLocked || it.privacyModeLocked) }
                         }
                     }
                 } else {
-                    mutable.value.chatId?.let { database.agentPersistenceDao().getChatRoom(it) }?.takeIf { !it.isArchived && it.activePlatform == listOf(profile.uid) && features.conversationGitHub[it.id]?.sameWorkspace(context) == true }
+                    mutable.value.chatId?.let { database.agentPersistenceDao().getChatRoom(it) }?.takeIf { !it.isArchived && it.activePlatform == listOf(profile.uid) && (!session.privacyModeLocked || it.privacyModeLocked) && features.conversationGitHub[it.id]?.sameWorkspace(context) == true }
                 }
                 if (publication != null) require(room?.id == publication.chatId) { "The original approval conversation or repository binding is unavailable. Restore that saved conversation before continuing." }
                 if (room == null) {
-                    room = chats.createDraftChat(listOf(profile.uid), "STANDARD", repair?.title ?: context.repo, profile.uid)
+                    room = chats.createDraftChat(listOf(profile.uid), "STANDARD", repair?.title ?: context.repo, profile.uid, privacyModeLocked = session.privacyModeLocked)
                     if (repair != null) chats.updateChatTitle(room, repair.title, isCustomized = true)
                 }
                 val chatId = room.id

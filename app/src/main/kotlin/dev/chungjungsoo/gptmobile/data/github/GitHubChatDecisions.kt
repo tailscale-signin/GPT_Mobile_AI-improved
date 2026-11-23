@@ -49,7 +49,9 @@ data class GitHubChatDecision(
     val cancelled: Boolean = false,
     val automatic: Boolean = false,
     val offeredAtMillis: Long? = null,
-    val answeredAtMillis: Long? = null
+    val answeredAtMillis: Long? = null,
+    val conversationIdentity: String = "",
+    val runId: String? = null
 ) {
     init {
         require(chatId > 0 && sourceMessageId > 0 && profileUid.isNotBlank() && workspace.isNotBlank())
@@ -80,14 +82,32 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
 
     private suspend fun loadLocked() {
         if (loaded) return
-        val saved = store.read(SCOPE, KEY)
-        mutable.value = saved?.let { json.decodeFromJsonElement(Snapshot.serializer(), it).decisions }.orEmpty()
+        val current = store.read(SCOPE, KEY)
+        val saved = current ?: store.read(SCOPE, LEGACY_KEY)
+        val restored = saved?.let { json.decodeFromJsonElement(Snapshot.serializer(), it).decisions }.orEmpty()
+        // Reloading after a failed disk acknowledgment must not erase live
+        // temporary-chat inputs; those intentionally have no on-disk copy.
+        mutable.value = restored + mutable.value.filter { !it.persistent && restored.none { savedDecision -> savedDecision.id == it.id } }
+        if (current == null && saved != null) {
+            // Install in the non-evictable input tier before removing the legacy cache entry.
+            store.write(SCOPE, KEY, saved)
+            store.remove(SCOPE, LEGACY_KEY)
+        }
         loaded = true
     }
 
     private suspend fun save(items: List<GitHubChatDecision>) {
-        store.write(SCOPE, KEY, json.encodeToJsonElement(Snapshot(items.filter { it.persistent })).jsonObject)
-        mutable.value = items
+        withContext(NonCancellable) {
+            try {
+                store.write(SCOPE, KEY, json.encodeToJsonElement(Snapshot(items.filter { it.persistent })).jsonObject)
+                mutable.value = items
+            } catch (failure: Exception) {
+                // An interrupted filesystem acknowledgment may follow a successful
+                // rename. Reload authoritative input before accepting another answer.
+                loaded = false
+                throw failure
+            }
+        }
     }
 
     suspend fun request(proposal: GitHubChatDecision, useSuggestion: Boolean = false, offered: suspend (GitHubChatDecision) -> Unit = {}): GitHubChatDecision {
@@ -95,8 +115,15 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
         val current = mutex.withLock {
             loadLocked()
             val existing = mutable.value.firstOrNull { it.id == proposal.id }
-            require(existing == null || existing.copy(answer = null, delivered = false, cancelled = false, automatic = false, persistent = proposal.persistent, offeredAtMillis = proposal.offeredAtMillis, answeredAtMillis = proposal.answeredAtMillis) == proposal) { "Decision identity changed." }
-            val decision = existing ?: proposal.let {
+            require(existing == null || existing.copy(answer = null, delivered = false, cancelled = false, automatic = false, persistent = proposal.persistent, offeredAtMillis = proposal.offeredAtMillis, answeredAtMillis = proposal.answeredAtMillis, runId = proposal.runId) == proposal) { "Decision identity changed." }
+            // A resumed task may own the same question under a new run. Rebind
+            // unanswered choices before issuing replacement notification actions.
+            val rebound = existing?.takeIf { it.answer == null && it.runId != proposal.runId }?.copy(runId = proposal.runId)
+            if (rebound != null) {
+                save(mutable.value.map { if (it.id == rebound.id) rebound else it })
+                created = true
+            }
+            val decision = rebound ?: existing ?: proposal.let {
                 val label = if (useSuggestion) it.recommended?.let(it.options::get)?.takeUnless(GitHubDecisionOption::enterValue)?.label else null
                 val at = System.currentTimeMillis()
                 if (label == null) it.copy(offeredAtMillis = at) else it.copy(answer = label, automatic = true, offeredAtMillis = at, answeredAtMillis = at)
@@ -129,8 +156,28 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
 
     suspend fun respond(id: String, chatId: Int, workspace: String, option: Int? = null, customAnswer: String? = null): GitHubDecisionResponse = mutex.withLock {
         loadLocked()
-        val request = mutable.value.firstOrNull { it.id == id && it.chatId == chatId && it.workspace == workspace && !it.delivered } ?: return@withLock GitHubDecisionResponse(false, false)
-        if (request.answer != null) return@withLock GitHubDecisionResponse(false, id in waiters)
+        val request = mutable.value.firstOrNull { it.id == id && it.chatId == chatId && it.workspace == workspace && !it.delivered && !it.cancelled } ?: return@withLock GitHubDecisionResponse(false, false)
+        respondLocked(request, option, customAnswer)
+    }
+
+    /** A notification only supplies an answer to its exact retained question. */
+    internal suspend fun respondNotification(
+        id: String,
+        binding: String,
+        option: Int,
+        ownsQuestion: suspend (GitHubChatDecision) -> Boolean
+    ): GitHubDecisionResponse = mutex.withLock {
+        loadLocked()
+        val request = mutable.value.firstOrNull { it.id == id && !it.delivered && !it.cancelled }
+            ?: return@withLock GitHubDecisionResponse(false, false)
+        if (request.notificationBinding() != binding || !ownsQuestion(request)) return@withLock GitHubDecisionResponse(false, false)
+        if (request.options.getOrNull(option)?.enterValue != false) return@withLock GitHubDecisionResponse(false, false)
+        respondLocked(request, option, null)
+    }
+
+    private suspend fun respondLocked(request: GitHubChatDecision, option: Int?, customAnswer: String?): GitHubDecisionResponse {
+        val id = request.id
+        if (request.answer != null) return GitHubDecisionResponse(false, id in waiters)
         require((option != null) != (customAnswer != null)) { "Choose one option or provide a custom answer." }
         val selected = option?.let { requireNotNull(request.options.getOrNull(it)) { "Unknown decision option." } }
         require(selected?.enterValue != true) { "Enter a commit, tag or branch." }
@@ -140,7 +187,7 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
         }
         require(answer.isNotBlank() && answer.length <= 2000)
         save(mutable.value.map { if (it.id == id) it.copy(answer = answer, answeredAtMillis = System.currentTimeMillis()) else it })
-        GitHubDecisionResponse(true, id in waiters)
+        return GitHubDecisionResponse(true, id in waiters)
     }
 
     suspend fun delivered(id: String) = mutex.withLock {
@@ -171,6 +218,7 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
         loadLocked()
         val removed = mutable.value.map { it.id }
         store.remove(SCOPE, KEY)
+        store.remove(SCOPE, LEGACY_KEY)
         mutable.value = emptyList()
         loaded = true
         removed
@@ -178,7 +226,8 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
 
     companion object {
         private const val SCOPE = "github-chat-decisions"
-        private const val KEY = "decisions-v1"
+        private const val KEY = "user-input:decisions-v2"
+        private const val LEGACY_KEY = "decisions-v1"
         const val MAX_PENDING = 16
         const val MAX_HISTORY = 48
         fun workspaceKey(context: GitHubConversationContext): String = GitHubRepositoryStateStore.digest(listOf(context.connectionUid, context.owner.lowercase(java.util.Locale.ROOT), context.repo.lowercase(java.util.Locale.ROOT), context.ref, context.mainProfileUid).joinToString("\u0000"))

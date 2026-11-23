@@ -279,6 +279,95 @@ class VoicePluginAudioTest {
         plugin.close()
     }
 
+    @Test fun streamingFallbackStartsOnceAndRetiredProducerCannotFinishOrReplaceItsFailure() {
+        for (failureBeforeFinish in listOf(true, false)) {
+            val output = StreamingOutput()
+            val fallbackText = mutableListOf<String>()
+            var offlineComplete: (() -> Unit)? = null
+            var offlineError: ((String) -> Unit)? = null
+            var completed = 0
+            val failures = mutableListOf<VoicePlaybackFailure>()
+            val originalCause = IllegalStateException("Original native failure")
+            val original = VoicePlaybackFailure("Original failure", originalCause, "SYNTHESIS_FAILED", "qnn-gpu")
+            val plugin = VoicePluginAudio(system, local, output, { text, complete, error ->
+                fallbackText += text
+                offlineComplete = complete
+                offlineError = error
+            }) {}.apply { kokoroVoice = KokoroVoice.HEART }
+            val reply = requireNotNull(plugin.openReplyWithFailure({ completed++ }, failures::add))
+            reply.enqueue("First ")
+            if (failureBeforeFinish) requireNotNull(output.onError)(original, true)
+            reply.enqueue("second.")
+            reply.finish()
+            if (!failureBeforeFinish) requireNotNull(output.onError)(original, true)
+            requireNotNull(output.onError)(VoicePlaybackFailure("Duplicate failure"), true)
+            requireNotNull(output.onError)(VoicePlaybackFailure("Late permanent failure"), false)
+            requireNotNull(output.onComplete)()
+            reply.finish()
+            assertEquals(listOf("First second."), fallbackText)
+            assertEquals(0, completed)
+            assertTrue(failures.isEmpty())
+
+            requireNotNull(offlineError)("Android voice failed")
+            requireNotNull(offlineComplete)()
+            requireNotNull(output.onComplete)()
+            requireNotNull(output.onError)(original, true)
+            assertEquals(0, completed)
+            assertEquals(1, failures.size)
+            assertEquals("Android voice failed", failures.single().message)
+            assertEquals(originalCause, failures.single().cause)
+            assertEquals("SYNTHESIS_FAILED", failures.single().code)
+            assertEquals("qnn-gpu", failures.single().sourceProvider)
+            assertEquals(listOf("First second."), fallbackText)
+            plugin.close()
+        }
+    }
+
+    @Test fun stoppedStreamingFallbackRejectsBothProducersAndTheDeferredFinish() {
+        val output = StreamingOutput()
+        var fallbackCalls = 0
+        var offlineComplete: (() -> Unit)? = null
+        var offlineError: ((String) -> Unit)? = null
+        var completed = 0
+        val failures = mutableListOf<VoicePlaybackFailure>()
+        val plugin = VoicePluginAudio(system, local, output, { _, complete, error ->
+            fallbackCalls++
+            offlineComplete = complete
+            offlineError = error
+        }) {}.apply { kokoroVoice = KokoroVoice.HEART }
+        val reply = requireNotNull(plugin.openReplyWithFailure({ completed++ }, failures::add))
+        reply.enqueue("Retained answer.")
+        requireNotNull(output.onError)(VoicePlaybackFailure("Kokoro failed"), true)
+        reply.finish()
+        assertEquals(1, fallbackCalls)
+        plugin.stop()
+        requireNotNull(offlineComplete)()
+        requireNotNull(offlineError)("Stale Android callback")
+        requireNotNull(output.onComplete)()
+        requireNotNull(output.onError)(VoicePlaybackFailure("Stale Kokoro callback"), true)
+        reply.finish()
+        assertEquals(1, fallbackCalls)
+        assertEquals(0, completed)
+        assertTrue(failures.isEmpty())
+        plugin.close()
+    }
+
+    private class StreamingOutput : KokoroOutput {
+        var onComplete: (() -> Unit)? = null
+        var onError: ((VoicePlaybackFailure, Boolean) -> Unit)? = null
+        override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) = Unit
+        override fun openReplyWithFailure(voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit): VoiceReplyPlayback {
+            onComplete = complete
+            onError = error
+            return object : VoiceReplyPlayback {
+                override fun enqueue(text: String) = Unit
+                override fun finish() = Unit
+            }
+        }
+        override fun stop() = Unit
+        override fun close() = Unit
+    }
+
     @Test fun strictKokoroOnlySettingStillRejectsOfflineFallback() {
         var kokoroFailure: ((VoicePlaybackFailure, Boolean) -> Unit)? = null
         var fallbackCalls = 0

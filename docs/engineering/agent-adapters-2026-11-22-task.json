@@ -1,0 +1,32 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "agent-adapters-2026-11-22",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_pr": 2254,
+  "starting_head": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+  "working_branch": "work/agent-adapters-2026-11-22",
+  "intent": "Add optional, capability-aware coding agent transports under the existing engineering owner, with isolated candidates and durable uncertain-operation fences.",
+  "status": "IMPLEMENTED_IN_REVIEW",
+  "validation": [
+    {
+      "command": "PYTHONPATH=gateway /workspace/scratch/7b1f317511c9/gateway-env/bin/python -m unittest discover -s gateway/tests -p test_gateway_agent_adapters.py -v",
+      "result": "PASSED",
+      "tests": 50
+    },
+    {
+      "command": "python -m py_compile gateway/v14/agent_*.py",
+      "result": "PASSED"
+    },
+    {
+      "command": "node --check gateway/v14/agent_cline_driver.mjs",
+      "result": "PASSED"
+    },
+    {
+      "command": "git diff --check",
+      "result": "PASSED"
+    }
+  ],
+  "qualification": "Live provider accounts and installed agent images must be independently qualified; protocol tests are not live-provider qualification."
+}

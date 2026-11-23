@@ -1,0 +1,143 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2254,
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+  "working_branch": "github-progress-budget-fixtures-20261123",
+  "intent": "Correct only the missing persisted-verdict callback and the obsolete extraction-budget assumption in two hosted GitHub fixtures, without changing production behavior or finite execution allowances.",
+  "status": "FIXTURE_CORRECTIONS_FOCUSED_VALIDATION_PASSED",
+  "production_changed": false,
+  "owned_test_methods": [
+    "GitHubProgressContinuationTest.progressingExecutionPassesThreeCorrectionsAndStopsAtItsOriginalFiniteAllowance",
+    "GitHubVerifiedSessionTest.oversizedTaskStaysIncompleteAndOversizedDraftUsesABoundedExcerpt"
+  ],
+  "hosted_failure": {
+    "head": "ac5030cbf0d82fcc9cc32bc845867befe03dda60",
+    "run_id": 45088632015,
+    "job_id": 137413911777,
+    "observation": "Finite dispatch/correction assertions passed before diagnostic completion_verified was null. The 512-token extraction fixture refused admission before opening the verifier because the complete per-criterion base plan exceeded its input limit."
+  },
+  "validation_scope": "Focused compilation of exact current diagnostic and verification-planning source excerpts with actual requirement parsing, criterion contracts and token estimation. This is not a full Android/AgentRunner execution result.",
+  "limits": [
+    "Root separately owns explicitContinueCanCollectMissingImplementationEvidenceAfterCompletedExtraction in GitHubVerifiedSessionTest; that method must remain byte-identical in this branch.",
+    "No remote writes or full Gradle execution. Root owns integration and exact-head hosted verification."
+  ],
+  "diagnosis": {
+    "progress": "The fixture saves the current verdict but omits the separate latestVerdict callback used by diagnostic(). Exact current diagnostic source returns null for the default callback even when load can retrieve a verdict. Hosted finite dispatch/correction assertions already passed before this final diagnostic failure.",
+    "budget": "The short-task request now includes its per-criterion contract and conservatively estimates 518 tokens. Its previous 512-token allowance correctly rejects admission before opening the verifier. The production budget guard and excerpt bounds are unchanged."
+  },
+  "correction": {
+    "progress": "Bind latestVerdict to the exact task-current persisted slot and assert the diagnostic equals that stored verdict. Preserve every original execution, correction, finite allowance and incomplete outcome assertion.",
+    "budget": "Exercise short task at 512 tokens (refused), short task at 2048 tokens (admitted bounded excerpt), and 4000-character task at 2048 tokens (refused). Preserve terminal failure, no Completed event and no private draft publication assertions; additionally require unchanged task text and a prefix of the original draft."
+  },
+  "validation": [
+    {
+      "phase": "baseline_actual_source_projection",
+      "tests": 4,
+      "failures": 2,
+      "result": "Reproduced the exact false-versus-null diagnostic and empty-prompt single() failure. Other controls passed."
+    },
+    {
+      "phase": "corrected_final_actual_source_projection",
+      "tests": 4,
+      "failures": 0,
+      "result": "PASS",
+      "controls": "Actual diagnostic rejects foreign bindings and wrong current slots; default callback stays null despite load/save. Actual planner rejects 512-token short task and 2048-token oversized task, admits the 518-token short-task plan with its one criterion contract and 900-character excerpt, and accepts the existing not_measured response through current GitHubClaimBatches.validate."
+    },
+    {
+      "phase": "source_preservation",
+      "result": "PASS",
+      "detail": "All bytes outside the two owned methods match b715, including root-owned explicitContinue. No production file changed."
+    },
+    {
+      "phase": "format_and_whitespace",
+      "ktlint_version": "1.3.1",
+      "changed_kotlin_files": 2,
+      "result": "PASS"
+    },
+    {
+      "phase": "canonical_fast",
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 625,
+      "seconds": 24.421,
+      "result": "PASS",
+      "qualification": "Portable repository validation only; no full Android or physical-device execution is inferred."
+    }
+  ],
+  "observed_planner_cases": [
+    {
+      "task_chars": 4,
+      "draft_chars": 7000,
+      "input_limit_tokens": 512,
+      "required_tokens": 518,
+      "admitted": false
+    },
+    {
+      "task_chars": 4,
+      "draft_chars": 7000,
+      "input_limit_tokens": 2048,
+      "request_tokens": 518,
+      "candidate_chars": 900,
+      "criterion_count": 1,
+      "admitted": true
+    },
+    {
+      "task_chars": 4000,
+      "draft_chars": 7,
+      "input_limit_tokens": 2048,
+      "required_tokens": 4217,
+      "admitted": false
+    }
+  ],
+  "focused_evidence": {
+    "directory": "/workspace/scratch/6b5c8b09c56b/github-progress-budget-proof",
+    "harness": "run.py",
+    "baseline_manifest": "baseline/manifest.json",
+    "final_manifest": "corrected-final/manifest.json",
+    "source_preservation": "source-preservation.json",
+    "runtime": "JDK21, Kotlin2.4.20, JVM assertions enabled; compiler and tests capped at 512MB and 2 processors.",
+    "boundaries": "Exact diagnostic constructor/callback fields and body; exact planner, excerpt and nonissue-window bodies with extraction symbol/visibility adaptations; current actual criterion contracts, claim batching, publication evidence, catalog selection and UTF-8 estimate. Actual unchanged requirement parser and checked helper excerpts reused from a retained component jar. Empty receipts and null issue context; positive unrelated receipt/issue branches fail closed. The stored verdict is explicit fixture data; the whole EvidenceBook writer, AgentRunner and terminal publication flow are not executed by this slice."
+  },
+  "source_sha256": {
+    "GitHubProgressContinuationTest.kt": {
+      "before_sha256": "fbc4015a6b6aaf96bbdf8d9b15abb748c59b08dca9557b4f2d880520c1b41d01",
+      "after_sha256": "5a353b5a08cb18f99e4562943a228b5265a2585763a090b1f143f3b7699ca219",
+      "outside_owned_method_unchanged": true
+    },
+    "GitHubVerifiedSessionTest.kt": {
+      "before_sha256": "73fdea0ae0a3677a3ad7b1920f3238089cac34c843fff60deb4e4d0384c557df",
+      "after_sha256": "7f06087f893d71de3d207c22794b27f6d26e388c0ac8c00a1e457163a8809427",
+      "outside_owned_method_unchanged": true
+    },
+    "GitHubEvidenceBook.kt": {
+      "sha256": "3f86dfa9c4a70a99b96036e0c9af7a02ebc0a10c978463e575a5ec084719211f",
+      "production_unchanged": true
+    },
+    "GitHubVerifiedSession.kt": {
+      "sha256": "280955e547e5ed7f91a8632a4395dbb12eb39c67056586be3c4aa3ceac74d532",
+      "production_unchanged": true
+    },
+    "GitHubAcceptanceContract.kt": {
+      "sha256": "cd5bb0f3d19942c584003899a74cb4381016bdf0726b0ee9954c0dfa536320ad",
+      "production_unchanged": true
+    },
+    "GitHubRequestCompletion.kt": {
+      "sha256": "a956a1818b06ff9af482ee8e8401edc13427de2e20ab106f49bd0e4e1f5619eb",
+      "production_unchanged": true
+    },
+    "TextTokenEstimate.kt": {
+      "sha256": "2885736816fd1d88f7f0044961c4d7220b28defb17b6325bc5abd1e7628e0d69",
+      "production_unchanged": true
+    }
+  },
+  "peer_review": {
+    "reviewer": "voice_repo_review",
+    "result": "CLEAR",
+    "scope": "Read-only source review of both method diffs; confirmed exact task-current key, all finite allowance assertions, low-limit refusal, bounded prefix and unchanged task text, oversized-task refusal, no private draft publication and untouched root-owned method. No independent full-session execution claimed."
+  },
+  "adaptive_budget_follow_up": {
+    "source_commit": "87f74ea23cca937f485a2676b89955e4757f831d",
+    "checkpoint": "docs/repairs/adaptive-verification-excerpt-2026-11-23-task.json",
+    "disposition": "The earlier 512-token refusal observation is revision-qualified. The additive production fix fits the optional excerpt within the original 512-token cap, restoring that positive case; 128-token and oversized-task refusals remain. The progress diagnostic fixture remains byte-identical."
+  }
+}

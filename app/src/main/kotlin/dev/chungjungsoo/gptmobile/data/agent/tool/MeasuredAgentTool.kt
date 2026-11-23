@@ -21,6 +21,10 @@ class MeasuredAgentTool(
 ) : AgentTool,
     OwnedAgentTool,
     ApprovedReadOnlyAgentTool {
+    init {
+        dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.inherit(this, delegate)
+    }
+
     override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = MeasuredAgentTool(delegate.withChildBudget(bind), nanoTime, onMeasured, approvedReadOnly)
     override val definition = delegate.definition
     override val searchValidationOwner get() = delegate.searchValidationOwner

@@ -11,12 +11,125 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubRecoveryCallsTest {
+    @Test fun exactPinnedSourceRecipeSurvivesCompactionAndRoutesThroughReadAdmission() {
+        val readName = "github_read__selected"
+        val searchName = "github_search__selected"
+        val arguments = Json.parseToJsonElement("""{"owner":"owner","repo":"repo","commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ranges":[{"path":"AGENTS.md","start_line":1,"max_lines":200}]}""").jsonObject
+        val recipe = buildJsonObject {
+            put("tool", readName)
+            put("arguments", arguments)
+        }
+        val body = buildJsonObject {
+            put("schema", "github.operation.v1")
+            put("operation", "github_search")
+            put("local_page_complete", true)
+            put("source_read_call", recipe)
+            put("data", buildJsonObject { put("content", "search result ".repeat(1000)) })
+        }
+        val compacted = requireNotNull(GitHubReplayRecovery.compact(ToolResultContent.Json(body), 2048, consumed = true))
+        assertEquals(recipe, requireNotNull(GitHubReplayRecovery.envelope(compacted))["source_read_call"])
+        for (content in listOf(
+            compacted,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("schema", "github.operation.v1")
+                    put("data", buildJsonObject { put("source_read_call", recipe) })
+                }
+            )
+        )) {
+            val previous = ProviderEvent.ToolCall("paths", searchName, buildJsonObject { put("query", "*.md") })
+            val exchanges = listOf(AgentToolExchange(listOf(previous), listOf(AgentToolResult(previous.callId, content, false))))
+            val request = ProviderEvent.ToolCall("source", searchName, buildJsonObject { put("source_read_call", recipe) }).captureProviderInvocation()
+            val repaired = GitHubRecoveryCalls.resolve(request, exchanges, mapOf(readName to tool(readName)))
+            assertEquals(readName, repaired.name)
+            assertEquals(arguments, repaired.arguments)
+            assertEquals(request.providerInvocation(), repaired.providerInvocation())
+            assertEquals(request, GitHubRecoveryCalls.resolve(request, exchanges, emptyMap()))
+            val changedRevision = JsonObject(arguments + ("commit_sha" to JsonPrimitive("b".repeat(40))))
+            val invented = request.copy(
+                arguments = buildJsonObject {
+                    put("source_read_call", JsonObject(recipe + ("arguments" to changedRevision)))
+                }
+            )
+            assertEquals(invented, GitHubRecoveryCalls.resolve(invented, exchanges, mapOf(readName to tool(readName))))
+        }
+    }
+
+    @Test fun fourOversizedReadsBecomeEightExactWindowsWithoutLosingSourceOrIdentity() {
+        val name = "github_read__selected"
+        val ranges = (1..4).map { index ->
+            buildJsonObject {
+                put("path", "src/File$index.kt")
+                put("start_line", 51)
+                put("max_lines", 2500)
+            }
+        }
+        val original = ProviderEvent.ToolCall(
+            "read-all",
+            name,
+            buildJsonObject {
+                put("action", "ranges")
+                put("commit_sha", "a".repeat(40))
+                put("ranges", kotlinx.serialization.json.JsonArray(ranges))
+            }
+        ).captureProviderInvocation()
+        val corrected = GitHubRecoveryCalls.repairSourceRead(original, tool(name))
+        val expected = ranges.flatMap { range ->
+            listOf(51 to 2050, 2051 to 2550).map { (first, last) ->
+                buildJsonObject {
+                    put("path", range.getValue("path"))
+                    put("start_line", first)
+                    put("end_line", last)
+                }
+            }
+        }
+        assertEquals(kotlinx.serialization.json.JsonArray(expected), corrected.arguments["ranges"])
+        assertEquals(original.arguments["commit_sha"], corrected.arguments["commit_sha"])
+        assertEquals(original.providerInvocation(), corrected.providerInvocation())
+        assertEquals(original.callId, corrected.callId)
+        assertEquals(emptyList<String>(), ToolArgumentValidator.errors(corrected.arguments, tool(name).definition.inputSchema))
+        assertEquals(corrected, GitHubRecoveryCalls.repairSourceRead(corrected, tool(name)))
+    }
+
+    @Test fun oversizedReadRepairNeverTruncatesOverflowsOrChangesAmbiguousWindows() {
+        for (raw in listOf(
+            """{"ranges":[{"path":"a.kt","max_lines":16001}]}""",
+            """{"ranges":[{"path":"a.kt","start_line":2147483640,"max_lines":2500}]}""",
+            """{"ranges":[{"path":"a.kt","end_line":5000,"max_lines":2500}]}""",
+            """{"ranges":[{"path":"a.kt","start_offset":2,"max_lines":2500}]}""",
+            """{"ranges":[{"path":"a.kt","max_lines":"2500"}]}"""
+        )) {
+            val call = ProviderEvent.ToolCall("reject", "github_read", Json.parseToJsonElement(raw).jsonObject)
+            assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool(call.name)))
+        }
+        val tooMany = buildJsonObject {
+            put(
+                "ranges",
+                kotlinx.serialization.json.JsonArray(
+                    (1..5).map { index ->
+                        buildJsonObject {
+                            put("path", "$index.kt")
+                            put("max_lines", 2500)
+                        }
+                    }
+                )
+            )
+        }
+        val call = ProviderEvent.ToolCall("reject", "github_read", tooMany)
+        assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool(call.name)))
+    }
+
     @Test fun inventorySavedPagesRemoveOnlyMatchingContextFromAnExactlyIssuedCursor() {
         val cursor = "inventory:20:1536"
         for ((name, sourceArguments) in listOf(
             "github_context__selected" to """{"action":"branches"}""",
             "github_issue__selected" to """{"action":"list","state":"open","per_page":100,"page":1}""",
-            "github_pr__selected" to """{"action":"list","head":"owner:work","state":"open","page":1}"""
+            "github_pr__selected" to """{"action":"list","head":"owner:work","state":"open","page":1}""",
+            "github_context__selected" to """{"action":"resolve","owner":"owner","repo":"repo","ref":"main"}""",
+            "github_context_inspect__selected" to """{"action":"repository","owner":"owner","repo":"repo"}""",
+            "github_search__selected" to """{"query":"*.md","mode":"paths","owner":"owner","repo":"repo","commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}""",
+            "github_read__selected" to """{"ranges":[{"path":"AGENTS.md","start_line":1,"max_lines":200}],"owner":"owner","repo":"repo","commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}""",
+            "github_ci__selected" to """{"action":"jobs","run_id":42,"run_attempt":2,"expected_head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","page":1,"per_page":100}"""
         )) {
             val original = Json.parseToJsonElement(sourceArguments).jsonObject
             val source = ProviderEvent.ToolCall("source", name, original)
@@ -35,6 +148,8 @@ class GitHubRecoveryCallsTest {
                 "page" to JsonPrimitive(2),
                 "state" to JsonPrimitive("closed"),
                 "owner" to JsonPrimitive("another-owner"),
+                "commit_sha" to JsonPrimitive("b".repeat(40)),
+                "query" to JsonPrimitive("another-query"),
                 "action" to JsonPrimitive("update")
             )) {
                 val changed = request.copy(arguments = JsonObject(request.arguments + (field to value)))

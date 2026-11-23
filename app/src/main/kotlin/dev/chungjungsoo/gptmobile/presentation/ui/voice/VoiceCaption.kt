@@ -1,12 +1,20 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import java.text.BreakIterator
 import java.util.Locale
 
 /** Retains the complete phrase; a highlight requires an observed range in this exact text. */
-internal data class VoiceCaption(val text: String, val speaker: String, val live: Boolean) {
+internal data class VoiceCaption(val text: String, val speaker: String, val live: Boolean, val preview: Boolean = false) {
+    /** Preview begins where speech will start; pauses keep the last observed word. */
+    fun focusOffset(active: IntRange?, lastSpoken: Int, speaking: Boolean): Int = active?.first ?: when {
+        speaker == "AI reply" && lastSpoken >= 0 -> lastSpoken
+        speaking || preview -> 0
+        else -> text.length
+    }
+
     /** Speech engines may report a phrase. Never illuminate more than one spoken word. */
     fun highlightRange(observed: IntRange?, words: List<IntRange> = wordRanges()): IntRange? {
         val range = observed?.takeIf {
@@ -48,24 +56,27 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
 
     companion object {
         fun from(state: VoiceState): VoiceCaption? {
-            if (state.phase == VoicePhase.THINKING || state.phase == VoicePhase.PREPARING) return null
             val capturing = state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING) || state.hasDraft
             val response = !capturing && state.reply.isNotBlank()
-            val text = if (response) state.playbackCaption ?: state.reply else state.transcript
+            val text = if (response) {
+                state.playbackCaption ?: VoiceSpeechText.project(state.reply, final = state.replyComplete || !state.awaitingReply, includeDetails = state.readingDetails)
+            } else {
+                state.transcript
+            }
             if (text.isBlank()) return null
             val live = if (response) {
                 state.phase == VoicePhase.SPEAKING
             } else {
                 state.phase in setOf(VoicePhase.LISTENING, VoicePhase.FINALIZING)
             }
-            return VoiceCaption(text, if (response) "AI reply" else "You", live)
+            return VoiceCaption(text, if (response) "AI reply" else "You", live, response && state.phase in setOf(VoicePhase.THINKING, VoicePhase.PREPARING))
         }
     }
 }
 
-internal fun captionLineScale(offset: Int): Float = 2f - kotlin.math.abs(offset) * .5f
+internal fun captionLineScale(offset: Int): Float = captionLineScale(offset.toFloat())
 
-internal fun captionLineAlpha(offset: Int): Float = 1f - kotlin.math.abs(offset) * .25f
+internal fun captionLineAlpha(offset: Int): Float = captionLineAlpha(offset.toFloat())
 
 /** Holds a fractional line while browsing. Scrolling to the end resumes the playback cursor. */
 internal data class VoiceCaptionReader(private val manualLine: Float? = null) {
@@ -74,4 +85,6 @@ internal data class VoiceCaptionReader(private val manualLine: Float? = null) {
     fun position(live: Int, last: Int): Float = (manualLine ?: live.toFloat()).coerceIn(0f, last.toFloat())
 
     fun scroll(line: Float, last: Int) = VoiceCaptionReader(line.takeIf { it < last }?.coerceAtLeast(0f))
+
+    fun reanchor(line: Float) = if (following) this else VoiceCaptionReader(line.coerceAtLeast(0f))
 }

@@ -126,7 +126,7 @@ class RunPolicySnapshotPersistenceTest {
             val original = seed(db).single().copy(inputTokens = 7, outputTokens = 12)
             db.agentRunDao().upsert(original)
             withContext(Dispatchers.IO) { db.openHelper.writableDatabase.execSQL("DELETE FROM run_policy_snapshots WHERE kind = 'REQUESTED_POLICY'") }
-            val repository = mockk<dev.chungjungsoo.gptmobile.data.repository.ChatRepository>(relaxed = true)
+            val repository = mockk<dev.chungjungsoo.gptmobile.data.repository.ChatRepository>(relaxed = true).also { chats -> coEvery { chats.conversationPrivacyLocked(any()) } coAnswers { db.chatRoomDao().getChatRoom(firstArg())?.privacyModeLocked } }
             coEvery { repository.markAgentRunRunning(any(), any()) } coAnswers {
                 db.agentRunDao().markRunning(firstArg(), secondArg())
                 // The strict execution read detects missing accepted policy after the raw row

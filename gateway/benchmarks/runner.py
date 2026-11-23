@@ -11,7 +11,7 @@ import requests
 
 from benchmark_selected_model import BenchmarkInterrupted, BenchmarkInvocationError, OUTPUT_LIMIT, measure
 from benchmarks import coding, fixtures, sandbox
-from benchmarks.contracts import coding_score, coverage, digest, paired_summary
+from benchmarks.contracts import coding_score, content_digest, coverage, digest, paired_summary, repository_score
 from desktop.benchmark import CASES, client_session, get_json, matches, models
 from v14 import VERSION
 
@@ -22,7 +22,8 @@ def benchmark_error_receipt(error, stage):
     Unknown model/transport outcomes must not be relabelled as invalid model
     patches or treated as permission to replay an uncertain HTTP request.
     """
-    known = {'SELECTED_EXECUTION_CHANGED', 'GATEWAY_NOT_READY',
+    known = {'SELECTED_EXECUTION_CHANGED', 'GATEWAY_NOT_READY', 'BENCHMARK_ENVIRONMENT_CHANGED',
+             'TASK_REVISION_CHANGED', 'GRADER_REVISION_CHANGED', 'PROPOSAL_IDENTITY_CHANGED',
              'SELECTED_MODEL_NOT_ADVERTISED', 'GATEWAY_INSTANCE_CHANGED'}
     if isinstance(error, BenchmarkInvocationError):
         code = error.code
@@ -92,6 +93,11 @@ def best_verified_attempt_index(attempts):
         checks = case.get('checks')
         if not isinstance(checks, dict):
             return None
+        native = checks.get('hiddenBehavior')
+        if case.get('qualified') is True and isinstance(native, dict):
+            passed, total = native.get('passed'), native.get('total')
+            if type(passed) is int and type(total) is int and 0 <= passed <= total and total > 0:
+                return (passed / total, 0, 0, 0)
         hidden, total = checks.get('hiddenPassed'), checks.get('hiddenTotal')
         replay, replay_total = checks.get('replayPassed'), checks.get('replayTotal')
         if (type(hidden) is not int or type(total) is not int or not 0 <= hidden <= total
@@ -112,11 +118,13 @@ def best_verified_attempt_index(attempts):
 
 
 class BenchmarkRunner:
-    def __init__(self, store, origin, cancelled, identity, settings):
+    def __init__(self, store, origin, cancelled, identity, settings, *, external_qualifier=None, context_ranker=None):
         self.store, self.origin, self.cancelled = store, origin, cancelled
         self.identity, self.settings = identity, settings
         self.receipt_lock = threading.Lock()
         self.cancellation_receipts = []
+        self.external_qualifier = external_qualifier
+        self.context_ranker = context_ranker
 
     def cancel_request(self, job_id):
         receipt = {'jobId': job_id, 'outcome': 'unknown'}
@@ -152,12 +160,26 @@ class BenchmarkRunner:
             raise InterruptedError('Benchmark stopped')
         if self.identity() != run['provenance']['executionIdentity']:
             raise ValueError('SELECTED_EXECUTION_CHANGED')
+        frozen = run['provenance'].get('benchmarkSettingsDigest')
+        if frozen is not None and digest(self.settings()) != frozen:
+            raise sandbox.SandboxUnavailable('The frozen benchmark runtime settings changed.', 'BENCHMARK_ENVIRONMENT_CHANGED')
 
     def measure_case(self, run, name, turns, expected, *, validate=None, output_tokens=512, output_format=None, on_admitted=None):
         self.guard(run)
         try:
             with client_session() as client:
-                measured = measure(client.post, self.origin, run['request']['model'], turns,
+                def selected_post(url, **kwargs):
+                    binding = run.get('provenance', {}).get('selectedBinding')
+                    if binding:
+                        payload = dict(kwargs['json'])
+                        selected = binding.get('generation_parameters', {})
+                        payload.update({key: value for key, value in selected.items() if key not in {'context_tokens', 'max_tokens', 'reasoning'}})
+                        if 'reasoning' in selected:
+                            payload['chat_template_kwargs'] = {'enable_thinking': selected['reasoning']}
+                        payload['max_tokens'] = min(output_tokens, selected.get('max_tokens', output_tokens))
+                        kwargs['json'] = payload
+                    return client.post(url, **kwargs)
+                measured = measure(selected_post, self.origin, run['request']['model'], turns,
                                    output_tokens=output_tokens, validate_output=validate or (lambda text: matches(text, expected)),
                                    gateway_options={'store_conversation': False, 'budget': {'totalDeadlineMs': 120000}},
                                    cancel_event=self.cancelled, cancel_request=self.cancel_request, output_format=output_format, on_admitted=on_admitted)
@@ -184,6 +206,8 @@ class BenchmarkRunner:
 
     def execute(self, run):
         self.guard(run)
+        if run['request']['suite'] == 'coding_submission':
+            return self.external_code(run)
         with client_session() as client:
             live = get_json(client, self.origin + '/gateway/live')
             if live.get('live') is not True or live.get('draining') or live.get('version') != VERSION:
@@ -204,8 +228,15 @@ class BenchmarkRunner:
         snapshot = self.store.get(run['id'])
         cases, planned = snapshot['cases'], snapshot['planned']
         suite = run['request']['suite']
-        if suite == 'coding':
-            partial = coding_score(cases, planned, run['request']['preset'])
+        if suite == 'coding' and run['request'].get('context_variants'):
+            from benchmarks.context_experiment import summary
+            partial = summary(cases, planned, run['request'], (snapshot.get('summary') or {}).get('contextExperimentIdentity'))
+        elif suite == 'coding':
+            score = repository_score if run['request'].get('task_pack') == 'repository' else coding_score
+            partial = score(cases, planned, run['request']['preset'])
+        elif suite == 'coding_submission':
+            from benchmarks.external import task_summary
+            partial = task_summary(cases[0]) if cases else {'score': None, 'qualified': False}
         elif suite == 'batch_comparison':
             partial = paired_summary(cases, planned // 2)
         else:
@@ -324,6 +355,7 @@ class BenchmarkRunner:
             self.cancellation_receipts.append(dict(receipt))
         observed = error.observation or {}
         case = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
+        case.update({key: task[key] for key in ('taskId', 'contextVariant', 'contextRepeat', 'contextReceipt') if key in task})
         previous = self.store.get(run['id'])
         checkpoint = next((item for item in previous.get('activeCases', []) if item.get('id') == task['id']), {})
         case.update(startedAt=checkpoint.get('startedAt'), endedAt=time.time(), phase=stage,
@@ -339,30 +371,69 @@ class BenchmarkRunner:
         self.store.case(run['id'], ordinal, case)
 
     def code(self, run):
-        tasks = fixtures.suite(run['request']['preset'], run['request']['seed'])
-        self.store.update(run['id'], planned=len(tasks), casePlan=[task['id'] for task in tasks],
+        from benchmarks.calibration import self_check, task_check
+        from benchmarks import context_experiment
+        native = run['request'].get('task_pack') == 'repository'
+        calibration = {'status': 'PER_TASK_NATIVE_RUNTIME'} if native else self_check()
+        if not native and calibration['status'] != 'PASSED':
+            raise sandbox.SandboxUnavailable('The independent grader calibration failed.', 'GRADER_CALIBRATION_FAILED')
+        if native:
+            from benchmarks import repository_tasks, repository_sandbox
+            tasks = repository_tasks.task_manifest(run['request']['preset'], run['request']['seed'])
+        else:
+            tasks = fixtures.suite(run['request']['preset'], run['request']['seed'])
+        trial_plan = context_experiment.trials(tasks, run['request'])
+        if len(trial_plan) > 1000:
+            raise ValueError('BENCHMARK_CONTEXT_TRIAL_LIMIT')
+        def trial_id(task, arm, repeat):
+            return task['id'] if arm is None else f'{task["id"]}:{arm}:{repeat}'
+        self.store.update(run['id'], planned=len(trial_plan), casePlan=[trial_id(*trial) for trial in trial_plan],
                           progress='Checking isolated evaluator')
         settings = self.settings()
-        docker = sandbox.preflight(settings)
+        context_identity = context_experiment.freeze(tasks, run, settings,
+            semantic_identity=self.context_ranker.identity if self.context_ranker else None) if run['request'].get('context_variants') else None
+        if context_identity is not None:
+            self.store.update(run['id'], summary=context_experiment.summary([], len(trial_plan), run['request'], context_identity))
+        docker = sandbox.preflight(dict(settings, sandbox_image=settings.get('repository_image', '')) if native else settings)
         cases = []
-        for ordinal, task in enumerate(tasks):
+        for ordinal, (task, context_variant, context_repeat) in enumerate(trial_plan):
             self.guard(run)
-            self.store.update(run['id'], progress=f'{ordinal + 1}/{len(tasks)} · {task["title"]}')
+            calibrated = {} if native else task_check(task)
+            if not native and calibrated['status'] != 'PASSED':
+                raise sandbox.SandboxUnavailable('A hidden grader control failed.', 'GRADER_NEGATIVE_CONTROL_FAILED')
+            self.store.update(run['id'], progress=f'{ordinal + 1}/{len(trial_plan)} · {context_variant or "Coding"} · {task["title"]}')
             started_at = time.time()
+            monotonic_started = time.monotonic()
+            first_verified_ms = None
             active = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
-            active.update(status='RUNNING', startedAt=started_at, phase='REFERENCE', executed=False, graded=False)
+            journal_task = dict(task, id=trial_id(task, context_variant, context_repeat))
+            active.update(status='RUNNING', startedAt=started_at, phase='REFERENCE', executed=False, graded=False, id=journal_task['id'])
+            if context_variant is not None:
+                active.update(taskId=task['id'], contextVariant=context_variant, contextRepeat=context_repeat)
+                journal_task.update(taskId=task['id'], contextVariant=context_variant, contextRepeat=context_repeat)
             self.store.case(run['id'], ordinal, active)
             # Pin a fresh, trusted reference evaluation before trusting this
             # task's environment; its expected answers remain outside Docker.
-            try:
-                baseline = self.execute_sandbox(run, task['referenceSources'], task['vectors'], settings, self.cancelled, docker=docker)
-            except sandbox.SandboxInterrupted as error:
-                self.sandbox_interrupted(run, ordinal, task, error, 'REFERENCE')
-                raise
-            if baseline.get('status') != 'COMPLETED' or len(baseline.get('outputs', [])) != len(task['vectors']) or any('output' not in row or not coding.same(row['output'], fixtures.expected(task, vector))
-                    for row, vector in zip(baseline.get('outputs', []), task['vectors'])):
-                raise sandbox.SandboxUnavailable('The trusted reference failed in this sandbox; no model score was recorded.')
-            turns = [{'role': 'user', 'content': fixtures.prompt(task)}]
+            if not native:
+                try:
+                    baseline = self.execute_sandbox(run, task['referenceSources'], task['vectors'], settings, self.cancelled, docker=docker)
+                except sandbox.SandboxInterrupted as error:
+                    self.sandbox_interrupted(run, ordinal, journal_task, error, 'REFERENCE')
+                    raise
+                if baseline.get('status') != 'COMPLETED' or len(baseline.get('outputs', [])) != len(task['vectors']) or any('output' not in row or not coding.same(row['output'], fixtures.expected(task, vector))
+                        for row, vector in zip(baseline.get('outputs', []), task['vectors'])):
+                    raise sandbox.SandboxUnavailable('The trusted reference failed in this sandbox; no model score was recorded.')
+            task_prompt = task['prompt'] if native else fixtures.prompt(task)
+            context_receipt = None
+            if context_variant is not None:
+                supplement, context_receipt = context_experiment.prepare(task, context_variant, run['request']['context_budget_bytes'],
+                                                                         cancelled=self.cancelled.is_set, frozen=context_identity,
+                                                                         semantic_ranker=self.context_ranker)
+                task_prompt += supplement
+                context_receipt['promptDigest'] = content_digest(task_prompt)
+                active['contextReceipt'] = context_receipt
+                journal_task['contextReceipt'] = context_receipt
+            turns = [{'role': 'user', 'content': task_prompt}]
             attempts = []
             evaluated_attempts = []
             verified_candidates = {}
@@ -380,6 +451,10 @@ class BenchmarkRunner:
                 def record_invocation(**fields):
                     self.store.case(run['id'], ordinal, dict(active, phase='MODEL_INVOCATION', attempt=attempt + 1,
                                                             attempts=attempts, admissionRejections=admission_rejections, **fields))
+                def admitted(job_id):
+                    if context_receipt is not None:
+                        context_receipt['dispatched'] = True
+                    record_invocation(gatewayJobId=job_id)
                 try:
                     record_invocation()
                     # Reduce the requested cap only after typed context rejection.
@@ -388,7 +463,9 @@ class BenchmarkRunner:
                         try:
                             timing = self.measure_case(run, task['id'], turns, None, validate=capture,
                                                        output_tokens=allowance, output_format=output_format,
-                                                       on_admitted=lambda job_id: record_invocation(gatewayJobId=job_id))
+                                                       on_admitted=admitted)
+                            if context_receipt is not None:
+                                context_receipt['dispatched'] = True
                             break
                         except BenchmarkInvocationError as error:
                             rejected_before_admission = error.job_id is None and error.status in {400, 409, 413, 422}
@@ -430,8 +507,15 @@ class BenchmarkRunner:
                         phase = 'CANDIDATE_EVALUATION'
                         self.store.case(run['id'], ordinal, dict(active, phase=phase, attempt=attempt + 1,
                                                                 attempts=attempts, gatewayJobId=timing.get('gatewayJobId')))
-                        final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker, prior=verified_candidates,
-                                             execute=lambda *args, **kwargs: self.execute_sandbox(run, *args, **kwargs))
+                        if native:
+                            final = repository_sandbox.grade(task, answer[0], settings, self.cancelled,
+                                retain=lambda name: self.store.claim_sandbox(run['id'], name),
+                                release=lambda name: self.store.release_sandbox(run['id'], name))
+                            final.pop('_candidate_sources', None)
+                            calibrated = final.get('calibration', {})
+                        else:
+                            final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker, prior=verified_candidates,
+                                                 execute=lambda *args, **kwargs: self.execute_sandbox(run, *args, **kwargs))
                     final = dict(final, outputAllowance=allowance, admissionRejections=admission_rejections,
                                  outputFormat='JSON_OBJECT' if output_format else 'PROMPT_JSON')
                     final['timing'] = {key: timing.get(key) for key in ('firstMs', 'totalMs', 'inputTokens', 'outputTokens', 'finishReason')}
@@ -443,8 +527,9 @@ class BenchmarkRunner:
                     # outputs; a model submission has a separate digest.
                     final['submissionDigest'] = timing.get('outputDigest')
                     final['submissionBytes'] = timing.get('outputBytes')
+                    final['executionScope'] = task.get('executionScope', 'ISOLATED_PYTHON_CONTRACT')
                 except sandbox.SandboxInterrupted as error:
-                    self.sandbox_interrupted(run, ordinal, task, error, 'CANDIDATE', attempts, timing)
+                    self.sandbox_interrupted(run, ordinal, journal_task, error, 'CANDIDATE', attempts, timing)
                     raise
                 except (requests.RequestException, TimeoutError, ValueError, TypeError) as error:
                     if isinstance(error, sandbox.SandboxUnavailable):
@@ -454,6 +539,11 @@ class BenchmarkRunner:
                              'integrity': 'VERIFIED', **benchmark_error_receipt(error, phase),
                              'admissionRejections': admission_rejections,
                              'dimensions': {key: None for key in coding.CODING_WEIGHTS}}
+                if context_variant is not None:
+                    if final.get('resolved') is True and final.get('graded') is True and first_verified_ms is None:
+                        first_verified_ms = max(0, (time.monotonic() - monotonic_started) * 1000)
+                    final.update(id=journal_task['id'], taskId=task['id'], contextVariant=context_variant, contextRepeat=context_repeat,
+                                 contextReceipt=dict(context_receipt), firstVerifiedPatchMs=first_verified_ms)
                 evaluated_attempts.append(final)
                 attempts.append({key: value for key, value in final.items() if key not in {'dimensionDefinitions'}})
                 self.store.case(run['id'], ordinal, dict(final, status='RUNNING', startedAt=started_at, phase='ATTEMPT_RECORDED', graded=False,
@@ -468,7 +558,7 @@ class BenchmarkRunner:
                 feedback = {key: final[key] for key in ('error', 'failureStage', 'repairHint', 'parserLocation', 'checks', 'uncoveredDefectModules') if final.get(key) is not None}
                 if final.get('evaluationReused'):
                     feedback['next'] = 'The previous proposal was already evaluated. Change the repair or supply a different regression vector.'
-                turns = [{'role': 'user', 'content': fixtures.prompt(task) +
+                turns = [{'role': 'user', 'content': task_prompt +
                           '\nPrevious submission failed independent validation: ' +
                           json.dumps(feedback, sort_keys=True, ensure_ascii=True) +
                           '\nReturn ONE concise complete JSON proposal for the ORIGINAL displayed files. '
@@ -476,6 +566,11 @@ class BenchmarkRunner:
             selected_index = best_verified_attempt_index(attempts)
             final = dict(evaluated_attempts[selected_index])
             final['selectedAttempt'] = selected_index + 1
+            final['taskCalibration'] = calibrated
+            final['deliveredAttempt'] = len(attempts)
+            final['initialResolved'] = attempts[0].get('resolved') is True
+            final['finalResolved'] = attempts[-1].get('resolved') is True
+            final['bestResolved'] = any(attempt.get('resolved') is True for attempt in attempts)
             final['attemptSelection'] = 'BEST_VERIFIED_MEASURED' if selected_index != len(attempts) - 1 else 'LATEST'
             final['attempts'] = attempts
             final['startedAt'] = started_at
@@ -483,15 +578,115 @@ class BenchmarkRunner:
             final['firstSubmissionScore'] = attempts[0].get('score')
             final['firstSubmissionResolved'] = attempts[0].get('resolved', False)
             final['repairBudget'] = settings['repair_attempts']
+            if context_variant is not None:
+                final.update(id=journal_task['id'], taskId=task['id'], contextVariant=context_variant, contextRepeat=context_repeat,
+                             contextReceipt=dict(context_receipt), firstVerifiedPatchMs=first_verified_ms)
             cases.append(final)
             self.checkpoint(run, ordinal, final)
-        summary = coding_score(cases, len(tasks), run['request']['preset'])
-        summary.update(fixtureVersion=fixtures.VERSION, fixtureManifest=digest([task['manifestDigest'] for task in tasks]),
+        if run['request'].get('context_variants'):
+            return context_experiment.summary(cases, len(trial_plan), run['request'], context_identity)
+        summary = (repository_score if native else coding_score)(cases, len(tasks), run['request']['preset'])
+        if native:
+            calibration = {'status': 'PASSED' if all(case.get('taskCalibration', {}).get('status') == 'PASSED' for case in cases) else 'INCOMPLETE',
+                           'scope': 'PER_TASK_NATIVE_RUNTIME', 'tasks': len(cases)}
+        summary.update(fixtureVersion=repository_tasks.VERSION if native else fixtures.VERSION, fixtureManifest=digest([task['manifestDigest'] for task in tasks]),
                        uniqueProblemCount=len({task['problemId'] for task in tasks}), trialCount=len(tasks),
                        firstSubmissionResolved=sum(case['firstSubmissionResolved'] for case in cases),
                        repairBudget=settings['repair_attempts'],
-                       limitations=['Original isolated Python repository tasks, not a general intelligence or public benchmark score.',
+                       graderDigest=tasks[0]['graderDigest'], calibration=calibration,
+                       executionScope='ISOLATED_NATIVE_REPOSITORY_CONTRACT' if native else 'ISOLATED_PYTHON_CONTRACT',
+                       limitations=['Native Kotlin/JVM state, SQLite migrations and Actions YAML/shell contract fixtures; no full Android, Room processor or hosted Actions certification.',
+                                    'Only measured task outcomes qualify; unmeasured secondary rubric dimensions remain unavailable.'] if native else
+                                   ['Original isolated Python repository tasks, not a general intelligence or public benchmark score.',
                                     'Workflow, safety and recovery dimensions cover the declared fixture contract; no live GitHub operations or device execution are claimed.',
-                                    'Caller-input preservation is not independently verified; full task resolution and overall coding scores remain unavailable.',
+                                    'Input preservation is verified for the declared bounded Python subset; out-of-contract syntax and measured candidate exhaustion count as model failures.',
                                     'Seeded variants reuse twelve task families; repeats are not independent new capabilities.'])
+        return summary
+
+    def external_code(self, run):
+        """Grade one task produced by the caller's model; never invoke another model."""
+        from benchmarks.calibration import self_check, task_check
+        from benchmarks.external import environment_receipt, task_summary, select_task
+        request = run['request']
+        repository_pack = request.get('task_pack') == 'repository'
+        task = select_task(request['task_id'], request['seed'], request.get('task_pack', 'python'))
+        if task['manifestDigest'] != request['fixture_digest']:
+            raise sandbox.SandboxUnavailable('The frozen task or grader changed before execution.', 'TASK_REVISION_CHANGED')
+        proposal = self.store.private_submission(run['id'])
+        if content_digest(proposal) != request['proposal_digest']:
+            raise ValueError('PROPOSAL_IDENTITY_CHANGED')
+        calibration, calibrated = {}, {}
+        if not repository_pack:
+            calibration = self_check()
+            if calibration['status'] != 'PASSED':
+                raise sandbox.SandboxUnavailable('The independent grader calibration failed.', 'GRADER_CALIBRATION_FAILED')
+            calibrated = task_check(task)
+            if calibrated['status'] != 'PASSED':
+                raise sandbox.SandboxUnavailable('A hidden grader control failed.', 'GRADER_NEGATIVE_CONTROL_FAILED')
+        self.store.update(run['id'], planned=1, casePlan=[task['id']], progress='Verifying one immutable coding task')
+        active = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
+        self.store.case(run['id'], 0, dict(active, status='RUNNING', phase='REFERENCE', graded=False, executed=False))
+        settings = self.settings()
+        environment = environment_receipt(settings, request.get('task_pack', 'python'), task['graderDigest'])
+        if request.get('environment_digest', environment['environmentDigest']) != environment['environmentDigest']:
+            raise sandbox.SandboxUnavailable('The frozen benchmark runtime settings changed.', 'BENCHMARK_ENVIRONMENT_CHANGED')
+        candidate = None
+        try:
+            if repository_pack:
+                from benchmarks.repository_sandbox import grade
+                result = grade(task, proposal, settings, self.cancelled,
+                               retain=lambda name: self.store.claim_sandbox(run['id'], name),
+                               release=lambda name: self.store.release_sandbox(run['id'], name))
+                candidate = result.pop('_candidate_sources', None)
+                calibration = result.get('calibration', {})
+                calibrated = result.get('taskCalibration', calibration)
+            else:
+                try:
+                    coding.proposal(proposal, task)
+                except (ValueError, KeyError, TypeError, RecursionError, OverflowError):
+                    # A completed malformed model answer is observable without a
+                    # compiler/container. Missing setup must not erase this failure.
+                    result = coding.grade(task, proposal, settings, self.cancelled)
+                else:
+                    docker = sandbox.preflight(settings)
+                    baseline = self.execute_sandbox(run, task['referenceSources'], task['vectors'], settings, self.cancelled, docker=docker)
+                    if (baseline.get('status') != 'COMPLETED' or len(baseline.get('outputs', [])) != len(task['vectors'])
+                            or any('output' not in row or not coding.same(row['output'], fixtures.expected(task, vector))
+                                   for row, vector in zip(baseline.get('outputs', []), task['vectors']))):
+                        raise sandbox.SandboxUnavailable('The trusted reference did not pass this evaluator.', 'GRADER_REFERENCE_FAILED')
+                    self.guard(run)
+                    self.store.case(run['id'], 0, dict(active, status='RUNNING', phase='CANDIDATE_EVALUATION', graded=False, executed=False))
+                    result = coding.grade(task, proposal, settings, self.cancelled, docker=docker,
+                                          execute=lambda *args, **kwargs: self.execute_sandbox(run, *args, **kwargs))
+        except sandbox.SandboxInterrupted as error:
+            self.sandbox_interrupted(run, 0, task, error, 'CANDIDATE')
+            raise
+        receipt = request['generation_receipt']
+        result.update(problemId=task['problemId'], taskDigest=task['taskDigest'], graderDigest=task['graderDigest'],
+                      **environment,
+                      proposalDigest=request['proposal_digest'], receiptId=run['id'],
+                      selectedAttempt=1, deliveredAttempt=1, repairBudget=0,
+                      generationReceipt=receipt, modelIdentityScope='AUTHENTICATED_CLIENT_OBSERVATION',
+                      independentProviderIdentityVerified=False, requestedModel=receipt['model'],
+                      observedModel=receipt.get('observed_model'),
+                      timing={'firstMs': None, 'totalMs': receipt.get('duration_ms'),
+                              'inputTokens': receipt.get('input_tokens'), 'outputTokens': receipt.get('output_tokens')},
+                      calibration=calibration, taskCalibration=calibrated)
+        if request.get('evidence_lane') == 'LIVE_GITHUB':
+            if result.get('qualified') is True and result.get('resolved') is True and self.external_qualifier is not None:
+                if candidate is None and not repository_pack:
+                    _, candidate, _ = coding.proposal(proposal, task)
+                if candidate is None:
+                    raise ValueError('CANDIDATE_RECEIPT_UNAVAILABLE')
+                result = self.external_qualifier(run, task, candidate, result, self.cancelled)
+            elif result.get('status') == 'FAILED' and result.get('outcomeKnown') is True:
+                result.update(liveGitHub='NOT_EXECUTED', liveQualification='LOCAL_MODEL_FAILURE')
+            else:
+                result.update(qualified=False, resolved=False, score=None, status='BLOCKED',
+                              liveGitHub='NOT_EXECUTED', qualificationBlockers=['LIVE_GITHUB_REQUIRES_VERIFIED_LOCAL_TASK'])
+        self.guard(run)
+        result['attempts'] = [{key: value for key, value in result.items() if key not in {'attempts', 'dimensionDefinitions'}}]
+        self.checkpoint(run, 0, result)
+        summary = task_summary(result)
+        summary.update(calibration=calibration, fixtureManifest=task['taskDigest'])
         return summary

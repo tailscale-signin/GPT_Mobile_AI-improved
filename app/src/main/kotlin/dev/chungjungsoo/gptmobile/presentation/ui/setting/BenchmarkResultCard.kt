@@ -18,13 +18,16 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMetricResult
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkTaskEfficiency
 import dev.chungjungsoo.gptmobile.data.benchmark.DynamicScoreEngine
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCoverage
+import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkTaskEfficiency
 
 /** The current attempt and any retained qualified population keep separate identities. */
 @Composable
 internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
     val run = result.latestRun
+    val efficiency = remember(run) { run?.let(::benchmarkTaskEfficiency) }
     var expanded by remember(result.identity, run?.id, result.latestQueueItem?.runId) { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -58,6 +61,7 @@ internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
                 if (delivery != null && delivery.denominator > 0) {
                     Text("Delivery: ${delivery.numerator}/${delivery.denominator} requests · $planned planned cases", style = MaterialTheme.typography.bodySmall)
                 }
+                efficiency?.let { BenchmarkTaskEfficiencyDetails(it) }
             } else {
                 Text("Attempt coverage: not recorded", style = MaterialTheme.typography.bodySmall)
             }
@@ -71,7 +75,7 @@ internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
                 Text("Last verified result: ${benchmarkResultDate(result.verifiedAt)} · ${verified.resultId}", style = MaterialTheme.typography.labelSmall)
             }
             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide details" else "Advanced evidence") }
-            if (expanded) BenchmarkResultDetails(result)
+            if (expanded) BenchmarkResultDetails(result, efficiency)
         }
     }
 }
@@ -79,11 +83,11 @@ internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
 @Composable
 private fun BenchmarkRuntimeSummary(run: BenchmarkRun?, expanded: Boolean = false) {
     if (run == null) {
-        Text("Actual runtime: not recorded", style = MaterialTheme.typography.labelMedium)
+        if (!expanded) Text("Actual runtime: not recorded", style = MaterialTheme.typography.labelMedium)
         return
     }
     if (!run.local) {
-        Text("Remote provider: ${run.provider}", style = MaterialTheme.typography.labelMedium)
+        if (!expanded) Text("Remote provider: ${run.provider}", style = MaterialTheme.typography.labelMedium)
         return
     }
     val receipts = run.samples.flatMap { it.runtimeExecutions }
@@ -91,7 +95,7 @@ private fun BenchmarkRuntimeSummary(run: BenchmarkRun?, expanded: Boolean = fals
     val requested = loads.map { it.requestedBackend }.distinct().joinToString().ifBlank { run.runtimeSnapshot?.preferredBackend?.name ?: "Not recorded" }
     if (expanded) Text("Requested engine/backend: $requested · profile accelerator ${run.requestedAccelerator ?: "Not recorded"}", style = MaterialTheme.typography.labelMedium)
     val actual = receipts.filter { it.knownDispatched }.mapNotNull { it.engineLoad?.actualBackend }.distinct()
-    Text("Actual executed backend: ${actual.joinToString().ifBlank { "Not confirmed by a native receipt" }}", style = MaterialTheme.typography.labelMedium)
+    if (!expanded) Text("Actual executed backend: ${actual.joinToString().ifBlank { "Not confirmed by a native receipt" }}", style = MaterialTheme.typography.labelMedium)
     if (expanded && actual.isNotEmpty()) Text("Engine snapshot: ${run.runtimeSnapshot?.backend?.name ?: "Not recorded"}", style = MaterialTheme.typography.labelSmall)
     if (expanded && actual.isEmpty() && (run.backend != null || run.accelerator != null)) Text("Historical runtime report: ${listOfNotNull(run.backend, run.accelerator).joinToString(" / ")}", style = MaterialTheme.typography.bodySmall)
     val versions = loads.map { it.runtimeRevision }.filter { it.isNotBlank() }.distinct()
@@ -99,9 +103,10 @@ private fun BenchmarkRuntimeSummary(run: BenchmarkRun?, expanded: Boolean = fals
 }
 
 @Composable
-private fun BenchmarkResultDetails(result: BenchmarkResultPresentation) {
+private fun BenchmarkResultDetails(result: BenchmarkResultPresentation, efficiency: BenchmarkTaskEfficiency?) {
     val run = result.latestRun
     BenchmarkRuntimeSummary(run, expanded = true)
+    efficiency?.let { BenchmarkTaskEfficiencyDetails(it, expanded = true) }
     run?.let { recorded ->
         val coverage = benchmarkCoverage(recorded)
         Text("Admitted ${coverage.admitted} · terminal observed ${coverage.terminalized} · passed ${coverage.passed} · failed ${coverage.failed} · partial ${coverage.partial} · blocked ${coverage.blocked} · skipped ${coverage.skipped} · pending ${if (coverage.plannedKnown) coverage.pending else "unknown"}", style = MaterialTheme.typography.bodySmall)

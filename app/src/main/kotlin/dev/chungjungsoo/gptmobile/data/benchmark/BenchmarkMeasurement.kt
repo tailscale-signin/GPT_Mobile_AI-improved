@@ -12,6 +12,7 @@ internal const val STANDARD_BENCHMARK_DEADLINE_MS = 90_000L
 
 /** The recorded total is the same bound used by the runner and the provider request. */
 internal fun benchmarkCaseDeadlineMs(mode: BenchmarkMode, test: BenchmarkCase, suiteVersion: Int = 9): Long = when {
+    test.engineeringBudget != null -> test.engineeringBudget.taskDeadlineMs
     test.performanceTrial != null -> test.performanceTrial.deadlineMs.coerceIn(1, 600_000)
     mode == BenchmarkMode.DELEGATION && test.workload == "delegation-paired" -> 360_000L
     mode == BenchmarkMode.DELEGATION -> 180_000L

@@ -153,7 +153,7 @@ class VoiceGenerationSupersessionTest {
         val playback = VoiceMessagePlayback()
         session.access(true, true, true)
         playback.observe(emptyList(), autoplay = true)
-        val original = VoiceMessageReply(VoiceMessageIdentity(1, "old"), "These are four words ", complete = completed)
+        val original = VoiceMessageReply(VoiceMessageIdentity(1, "old"), "These are four words. ", complete = completed)
         playback.observe(listOf(original), autoplay = true)
         requireNotNull(playback.next()).let { session.beginMessage(it.identity.key, diagnosticRunId = it.identity.runId) }
         requireNotNull(playback.update()).let {

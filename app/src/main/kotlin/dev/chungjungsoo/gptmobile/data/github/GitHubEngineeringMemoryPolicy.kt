@@ -55,7 +55,7 @@ internal object GitHubEngineeringMemoryPolicy {
             val summary = receipt["semantic_summary"] as JsonObject
             when {
                 "resource_observations" in summary -> 0
-                "source_excerpts" in summary || "search_observations" in summary -> 1
+                "source_excerpts" in summary || "search_observations" in summary || "path_observations" in summary || "branch_observations" in summary -> 1
                 "check_counts" in summary -> 2
                 else -> 3
             }

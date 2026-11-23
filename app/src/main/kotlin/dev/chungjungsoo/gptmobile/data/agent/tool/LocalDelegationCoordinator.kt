@@ -1440,6 +1440,17 @@ internal class LocalDelegationCoordinator(
     suspend fun prepare(task: String, tools: List<ResolvedAgentTool>, callId: String, automatic: Boolean = false, targetOverride: PlatformV2? = null, researchGoalOverride: Int? = null): LocalResearchResult {
         require(researchGoalOverride == null || researchGoalOverride > 0)
         val defaults = settings().normalized()
+        val skipped = dev.chungjungsoo.gptmobile.data.delegation.AutomaticPreparationPolicy.skipReason(
+            task,
+            defaults,
+            automatic,
+            explicitTarget = targetOverride != null,
+            explicitResearchGoal = researchGoalOverride != null
+        )
+        if (skipped != null) {
+            AppLogRecorder.record("Delegation", "PREPARATION_ROUTING · call=$callId · reason=$skipped · dispatched=false · modelCalls=0 · toolCalls=0")
+            return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_RESEARCH_NEEDED)
+        }
         if (defaults.taskPlan.steps.isNotEmpty()) return executePlan(task, tools, callId, automatic, defaults)
         val config = if (researchGoalOverride == null) defaults else defaults.copy(deepResearch = defaults.deepResearch.copy(customSourceTarget = researchGoalOverride).forEffort(maxOf(1, defaults.deepResearch.effort)))
         if (config.deepResearch.enabled && config.deepResearch.effort > 0) return prepareWithinBudget(task, tools, callId, automatic, targetOverride, config) {}

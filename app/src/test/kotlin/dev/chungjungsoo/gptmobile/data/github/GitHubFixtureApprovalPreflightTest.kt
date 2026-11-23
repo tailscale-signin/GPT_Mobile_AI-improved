@@ -26,7 +26,10 @@ class GitHubFixtureApprovalPreflightTest {
         authorizationRevision = revision,
         runtimeIdentity = { buildJsonObject { put("application_id", "test-app") } },
         load = { saved[it] },
-        save = { key, value -> saved[key] = value }
+        save = { key, value ->
+            if (!GitHubEvidenceBook.currentSnapshot(key) && key in saved) assertEquals("Immutable approval changed", saved[key], value)
+            saved[key] = value
+        }
     )
 
     private fun stored(value: JsonObject) = mutableMapOf(
@@ -35,12 +38,15 @@ class GitHubFixtureApprovalPreflightTest {
 
     @Test fun unknownSavedModeCanRecheckWithKnownTaskBoundApprovalRevision() = runTest {
         val saved = stored(GitHubTestChecklist.fixtureApprovalPreflight(null, binding, repository, branch, buildJsonObject { }))
+        val original = saved.toMap()
         val current = book(saved, GitHubDecisionMode.AUTO_APPROVE, "current-task-authorization")
         val result = current.fixtureApprovalPreflight()
         assertEquals(JsonPrimitive("READY"), result["state"])
         assertEquals(JsonPrimitive("AUTO_APPROVE"), result["decision_mode"])
         assertEquals(JsonPrimitive("TASK_BOUND_AUTHORIZATION_REVISION"), result["recheck_source"])
         assertEquals(result, current.fixtureApprovalPreflight())
+        assertEquals(original.values.single(), saved[original.keys.single()])
+        assertEquals(result, book(saved, GitHubDecisionMode.ASK, "another-revision").fixtureApprovalPreflight())
     }
 
     @Test fun missingAuthorityNeverPromotesUnknownModeToAnAutomaticWrite() = runTest {

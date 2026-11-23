@@ -25,6 +25,69 @@ GRAPH_ROLES = frozenset({'planner', 'repair planner', 'coding agent', 'selected-
                          'architecture options', 'decision options', 'final summary', 'final report'})
 
 
+def rank_graph(graph, query='', paths=None):
+    """Rank a bounded retrieved subgraph using task seeds and dependency links.
+
+    This is retrieval prioritization, never a confidence upgrade. The fixed
+    iterations and candidate ceiling bound CPU independently of repository size.
+    Content remains unchanged; final prompt admission still counts actual tokens.
+    """
+    if not isinstance(graph, dict) or not isinstance(graph.get('nodes'), list):
+        return graph
+    nodes = [node for node in graph['nodes'][:256] if isinstance(node, dict)
+             and isinstance(node.get('id'), str) and isinstance(node.get('path'), str)]
+    if len({node['id'] for node in nodes}) != len(nodes):
+        return graph
+    if not nodes:
+        return graph
+    terms = set(re.findall(r'[a-z0-9]{3,}', re.sub(r'([a-z])([A-Z])', r'\1 \2', str(query)[:2000]).lower()))
+    focus = set(paths or [])
+    seed = {}
+    for position, node in enumerate(nodes):
+        name = re.sub(r'([a-z])([A-Z])', r'\1 \2', str(node.get('name', ''))).lower()
+        matched = terms & set(re.findall(r'[a-z0-9]{3,}', name + ' ' + node['path'].lower()))
+        seed[node['id']] = 1 / (position + 4) + len(matched) * 2 + (8 if node['path'] in focus else 0)
+    total = sum(seed.values())
+    seed = {key: value / total for key, value in seed.items()}
+    links = {key: {} for key in seed}
+    for edge in graph.get('edges', [])[:2048]:
+        if not isinstance(edge, dict):
+            continue
+        source, target = edge.get('source'), edge.get('target')
+        if source not in links or target not in links or source == target:
+            continue
+        # Container membership is weak evidence; callers/imports carry more.
+        weight = .15 if edge.get('relation') == 'contains' else 1
+        if edge.get('confidence') in {'INFERRED', 'CANDIDATE'}:
+            weight *= .5
+        links[source][target] = max(weight, links[source].get(target, 0))
+        links[target][source] = max(weight * .5, links[target].get(source, 0))
+    ranks = dict(seed)
+    for _ in range(12):
+        next_ranks = {key: .35 * value for key, value in seed.items()}
+        dangling = 0
+        for key, neighbors in links.items():
+            mass = .65 * ranks[key]
+            weight = sum(neighbors.values())
+            if not weight:
+                dangling += mass
+                continue
+            for target, value in neighbors.items():
+                next_ranks[target] += mass * value / weight
+        ranks = {key: value + dangling * seed[key] for key, value in next_ranks.items()}
+    ordered = sorted(nodes, key=lambda node: (-ranks[node['id']], node['path'], node.get('line', 0), node['id']))
+    # Give distinct files an initial slot before admitting many same-file symbols.
+    counts, first, later = {}, [], []
+    for node in ordered:
+        count = counts.get(node['path'], 0)
+        (first if count < 2 else later).append(node)
+        counts[node['path']] = count + 1
+    selected = first + later
+    return dict(graph, nodes=selected, ranking={'algorithm': 'task_dependency_v1',
+                'candidate_count': len(nodes), 'iterations': 12, 'source_level_only': True,
+                'candidate_view_complete': len(nodes) == len(graph['nodes'])})
+
+
 def stage_selection(job, role, evidence):
     """Prefer inspected/changed paths; never mistake the whole tree for a focus."""
     evidence = evidence if isinstance(evidence, dict) else {}
@@ -136,10 +199,20 @@ def project_graph(graph, maximum):
     Ranked anchors retain exact source identity; dangling relationships are
     excluded. Index completeness and visible-context completeness are separate.
     """
+    if type(maximum) is not int or maximum < 128:
+        raise ValueError('Graph projection requires at least 128 bytes')
     if graph is None:
         return None
     if not isinstance(graph, dict):
         return {'status': 'UNAVAILABLE', 'view_complete': False}
+    source_nodes = graph.get('nodes') if isinstance(graph.get('nodes'), list) else []
+    source_edges = graph.get('edges') if isinstance(graph.get('edges'), list) else []
+    known_ids = {node['id'] for node in source_nodes if isinstance(node, dict) and isinstance(node.get('id'), str)}
+    valid_edges = [edge for edge in source_edges if isinstance(edge, dict) and
+                   isinstance(edge.get('source'), str) and isinstance(edge.get('target'), str) and
+                   edge['source'] in known_ids and edge['target'] in known_ids]
+    if len(valid_edges) != len(source_edges):
+        graph = dict(graph, edges=valid_edges, view_complete=False, omitted_edges=len(source_edges) - len(valid_edges))
     if len(canonical(graph).encode()) <= maximum:
         return graph
     metadata = graph.get('graph') if isinstance(graph.get('graph'), dict) else {}
@@ -151,7 +224,7 @@ def project_graph(graph, maximum):
         'complete', 'coverage_complete', 'processing_complete', 'expected_files', 'processed_files', 'pending_files',
         'unresolved_references', 'source_level_only', 'runtime_verified')
         if key in metadata and type(metadata[key]) in {str, int, bool} and len(str(metadata[key])) <= 400}
-    view.update(nodes=[], edges=[], view_complete=False, omitted_nodes=len(nodes), omitted_edges=len(edges),
+    view.update(nodes=[], edges=[], view_complete=False, omitted_nodes=len(nodes), omitted_edges=len(source_edges),
                 omission_reason='CONTEXT_BUDGET')
     # Reserve space for final counts and JSON framing before admitting anchors.
     allowance = maximum - 64
@@ -171,8 +244,7 @@ def project_graph(graph, maximum):
             trial = dict(view, nodes=view['nodes'] + [node])
         if len(canonical(trial).encode()) <= allowance:
             view['nodes'].append(node)
-        elif view['nodes']:
-            break
+        # An oversized anchor must not hide smaller useful later anchors.
     ids = {node['id'] for node in view['nodes']}
     for original in edges[:256]:
         if not isinstance(original, dict) or not isinstance(original.get('source'), str) or not isinstance(original.get('target'), str) or original['source'] not in ids or original['target'] not in ids:
@@ -182,10 +254,13 @@ def project_graph(graph, maximum):
         if len(canonical(dict(view, edges=view['edges'] + [edge])).encode()) > allowance:
             break
         view['edges'].append(edge)
-    view.update(omitted_nodes=max(0, len(nodes) - len(view['nodes'])), omitted_edges=max(0, len(edges) - len(view['edges'])))
+    view.update(omitted_nodes=max(0, len(nodes) - len(view['nodes'])), omitted_edges=max(0, len(source_edges) - len(view['edges'])))
     for key in ('expected_files', 'processed_files', 'pending_files', 'unresolved_references', 'branch', 'repository'):
         if len(canonical(view).encode()) <= maximum:
             break
         view['graph'].pop(key, None)
         view['metadata_view_complete'] = False
+    if len(canonical(view).encode()) > maximum:
+        return {'status': 'RESULT_EXCEEDS_BUDGET', 'view_complete': False,
+                'omitted_nodes': len(nodes), 'omitted_edges': len(source_edges)}
     return view

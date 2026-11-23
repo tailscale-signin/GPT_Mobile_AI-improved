@@ -9,7 +9,7 @@ import kotlinx.serialization.json.intOrNull
 
 /** Route only exact, retained read recipes through the ordinary authorization/budget path. */
 internal object GitHubRecoveryCalls {
-    private val keys = setOf("continuation_call", "correction_call", "recovery_call", "source_recovery_call")
+    private val keys = setOf("continuation_call", "correction_call", "recovery_call", "source_recovery_call", "source_read_call")
 
     fun repairSourceRead(call: ProviderEvent.ToolCall, tool: AgentTool?): ProviderEvent.ToolCall {
         val operation = call.name.githubOperationFamily()
@@ -85,7 +85,7 @@ internal object GitHubRecoveryCalls {
                     it["action"] == JsonPrimitive("logs") &&
                     (it["view_cursor"] as? JsonPrimitive)?.isString == true
             }?.let { JsonObject(it - "view_cursor") }
-            ?: inventoryReadWithoutCursor(call)
+            ?: savedReadWithoutCursor(call)
         if (sourceSelector != null) {
             val tool = tools[call.name] ?: return call
             val schema = tool.definition.inputSchema
@@ -120,7 +120,10 @@ internal object GitHubRecoveryCalls {
             ?.takeIf { it.key in keys }?.value as? JsonObject
         val recipes = exchanges.asReversed().asSequence().flatMap { exchange ->
             exchange.results.asReversed().asSequence().mapNotNull { GitHubReplayRecovery.envelope(it.content) }
-        }.flatMap { result -> keys.asSequence().mapNotNull { result[it] as? JsonObject } }
+        }.flatMap { result ->
+            sequenceOf(result, result["data"] as? JsonObject).filterNotNull()
+                .flatMap { source -> keys.asSequence().mapNotNull { source[it] as? JsonObject } }
+        }
         val candidate = if (envelope != null) {
             recipes.firstOrNull { it == envelope }
         } else if (call.arguments.keys == setOf("view_cursor")) {
@@ -136,16 +139,12 @@ internal object GitHubRecoveryCalls {
         return call.copy(name = name, arguments = arguments)
     }
 
-    private fun inventoryReadWithoutCursor(call: ProviderEvent.ToolCall): JsonObject? {
+    private fun savedReadWithoutCursor(call: ProviderEvent.ToolCall): JsonObject? {
         if ((call.arguments["view_cursor"] as? JsonPrimitive)?.isString != true || call.arguments.size < 2) return null
         val selector = JsonObject(call.arguments - "view_cursor")
-        val action = (selector["action"] as? JsonPrimitive)?.content
-        val eligible = when (call.name.githubOperationFamily()) {
-            "github_context" -> action == "branches"
-            "github_issue", "github_pr" -> action == "list"
-            else -> false
-        }
-        return selector.takeIf { eligible && GitHubAuthorizationBoundary.isReplayableRead(call.name, it) }
+        // This only selects a candidate. resolve still requires the same tool/connection,
+        // matching source arguments and an exact cursor issued by that source's view.
+        return selector.takeIf { GitHubAuthorizationBoundary.isReplayableRead(call.name, it) }
     }
 
     /** Fill only the omitted opaque cursor of one exact issued recipe; never invent a page. */

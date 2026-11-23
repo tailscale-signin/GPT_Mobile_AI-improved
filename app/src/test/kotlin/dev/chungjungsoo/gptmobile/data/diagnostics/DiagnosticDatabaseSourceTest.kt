@@ -219,6 +219,37 @@ class DiagnosticDatabaseSourceTest {
         assertEquals("DIAGNOSTIC_DATABASE_CURSOR_SCOPE_CHANGED", wrongChat?.message)
     }
 
+    @Test fun indexedWorkspacePagesPreserveTiesAndExcludeNewRowsAfterResume() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Indexed ties")).toInt()
+        repeat(40) { index ->
+            workspace.saveSynthesisCheckpoint("tie-$index", chat, "run", buildJsonObject { put("value", index) })
+            database.openHelper.writableDatabase.execSQL("UPDATE workspace_records SET updatedAt = ? WHERE id = ?", arrayOf<Any>(index / 5, "tie-$index"))
+        }
+        val sql = database.openHelper.readableDatabase
+        val plan = sql.query("EXPLAIN QUERY PLAN SELECT rowid, updatedAt FROM workspace_records WHERE chatId=$chat AND (updatedAt,rowid)<(8,1000) AND rowid<=1000 ORDER BY updatedAt DESC, rowid DESC LIMIT 16").use { cursor ->
+            buildList { while (cursor.moveToNext()) add(cursor.getString(3)) }
+        }
+        assertTrue(plan.toString(), plan.any { "index_workspace_records_chatId_updatedAt" in it })
+        assertFalse(plan.toString(), plan.any { "TEMP B-TREE" in it })
+        val rows = mutableListOf<String>()
+        var cursor: JsonObject? = null
+        val timings = DiagnosticCaptureTimings()
+        runCatching {
+            source.capture(chat, "workspace", 4096, {}, { row ->
+                if (rows.size == 8) throw CancellationException("saved boundary")
+                rows += row.getValue("fields").jsonObject.getValue("id").jsonPrimitive.content
+            }, {}, checkpoint = { cursor = it }, timings = timings)
+        }
+        workspace.saveSynthesisCheckpoint("after-watermark", chat, "run", buildJsonObject { put("value", "new") })
+        source.capture(chat, "workspace", 4096, {}, { row ->
+            rows += row.getValue("fields").jsonObject.getValue("id").jsonPrimitive.content
+        }, {}, resumeCursor = requireNotNull(cursor), timings = timings)
+        assertEquals((39 downTo 0).map { "tie-$it" }, rows)
+        val phases = timings.json().getValue("phases").jsonObject
+        assertTrue(phases.getValue("QUERY_MATERIALIZATION").jsonObject.getValue("calls").jsonPrimitive.long > 40)
+        assertTrue(phases.getValue("PROTECTED_HYDRATION").jsonObject.getValue("calls").jsonPrimitive.long >= 40)
+    }
+
     @Test fun newestWorkspaceRowsAreFirstAndResumePreservesTheOrderingBoundary() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Newest first")).toInt()
         repeat(30) { index ->

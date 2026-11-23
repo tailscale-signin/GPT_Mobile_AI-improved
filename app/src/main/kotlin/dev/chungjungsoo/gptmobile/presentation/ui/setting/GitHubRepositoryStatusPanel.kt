@@ -133,7 +133,7 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
             ) {
                 Column(Modifier.padding(18.dp)) {
                     Text("Repository map", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    Text("Choose a repository, revision and AI profile to open its source map. Select the map’s gateway connection in GitHub settings.", style = MaterialTheme.typography.bodySmall)
+                    Text("Choose a repository, revision and AI profile to open its source map on this phone. Gateway analysis is optional.", style = MaterialTheme.typography.bodySmall)
                     onConfigureGateway?.let { configure ->
                         TextButton(onClick = configure) { Text("GitHub settings") }
                     }

@@ -8,6 +8,17 @@ from scripts.check_issue_reporting_configuration import MAX_READINESS_BYTES, REQ
 
 
 class IssueReportingConfigurationTest(unittest.TestCase):
+    def test_framework_frames_require_the_extended_reporter_contract(self):
+        feature = "FRAMEWORK_EXCEPTION_FRAMES_V1"
+        self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {feature})}
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+        readiness["reportDiagnosticFeatures"].append(feature)
+        check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+
     def test_native_route_supports_builds_without_an_invented_service(self):
         self.assertEqual({"nativeGitHub": True, "reportingService": False}, validate("", "true"))
 
@@ -30,6 +41,16 @@ class IssueReportingConfigurationTest(unittest.TestCase):
         readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
                      "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
                      "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES | {"CONVERSATION_RECOVERY_DIAGNOSTICS_V1", "FUTURE_OPTIONAL_DIAGNOSTICS_V1"})}
+        check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+
+    def test_hosted_visible_output_recovery_requires_additive_contract_capability(self):
+        self.assertTrue({"EXECUTION_COMPLETION_EVIDENCE_V1", "VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1"} <= REQUIRED_DIAGNOSTIC_FEATURES)
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {"VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1"})}
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+        readiness["reportDiagnosticFeatures"].append("VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1")
         check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
 
     def test_disabling_both_routes_fails(self):
@@ -86,7 +107,7 @@ class IssueReportingConfigurationTest(unittest.TestCase):
 
     def test_current_deployment_requires_strict_protocol_two_and_every_required_feature(self):
         self.assertTrue({"TOOL_REPEAT_ADMISSION_EVIDENCE_V1", "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1",
-                         "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "GATEWAY_CAPABILITY_EVIDENCE_V1"} <= REQUIRED_DIAGNOSTIC_FEATURES)
+                         "ACCEPTANCE_OBSERVATION_CAUSES_V1", "ACCEPTANCE_EMPTY_EXPLANATION_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "GITHUB_SEARCH_ARGUMENT_EVIDENCE_V1", "GATEWAY_CAPABILITY_EVIDENCE_V1"} <= REQUIRED_DIAGNOSTIC_FEATURES)
         ready = {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
                  "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES)}
         for version in (None, True, False, "2", 2.0, [], {}, -1, 0, 1):

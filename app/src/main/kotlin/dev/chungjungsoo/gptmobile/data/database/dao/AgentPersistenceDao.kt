@@ -11,6 +11,8 @@ import dev.chungjungsoo.gptmobile.data.agent.liveRevisionId
 import dev.chungjungsoo.gptmobile.data.chat.decodedArchiveText
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -21,6 +23,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -223,9 +227,9 @@ interface AgentPersistenceDao :
     suspend fun blockProviderWait(runId: String, reason: String, completedAt: Long = System.currentTimeMillis() / 1000): Int
 
     @Transaction
-    suspend fun blockCurrentProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, reason: String, original: kotlinx.serialization.json.JsonObject? = null): Boolean {
+    suspend fun blockCurrentProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, reason: String, original: kotlinx.serialization.json.JsonObject? = null, correlation: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())): Boolean {
         if (rawProviderWait(row.runId) != row || blockProviderWait(row.runId, reason) != 1) return false
-        recordCurrentProviderRecovery(row, dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure(reason, original).event().failureDetails!!)
+        recordCurrentProviderRecovery(row, dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure(reason, original, correlation).event().failureDetails!!)
         return true
     }
 
@@ -246,10 +250,50 @@ interface AgentPersistenceDao :
     }
 
     @Update
-    suspend fun updateChatRoom(chatRoom: ChatRoomV2)
+    suspend fun rawUpdateChatRoom(chatRoom: ChatRoomV2)
+
+    @Transaction
+    suspend fun updateChatRoom(chatRoom: ChatRoomV2) {
+        val current = getChatRoom(chatRoom.id)
+        rawUpdateChatRoom(
+            chatRoom.copy(
+                privacyModeEnabled = chatRoom.privacyModeEnabled || current?.privacyModeEnabled == true,
+                privacyModeLocked = chatRoom.privacyModeLocked || current?.privacyModeLocked == true
+            )
+        )
+    }
 
     @Insert
     suspend fun insertMessage(message: MessageV2): Long
+
+    @Query("UPDATE chats_v2 SET privacy_mode_enabled = 1 WHERE chat_id = :chatId AND privacy_mode_enabled = 0")
+    suspend fun markPrivacyModeUsed(chatId: Int)
+
+    /** Update evidence against the saved body, never an edited or guessed historical message. */
+    @Transaction
+    suspend fun recordPrivacyProtection(message: MessageV2, receipt: dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt) {
+        val raw = rawRecoveryMessage(message.id) ?: return
+        val saved = raw.decodedArchiveText()
+        if (saved.chatId != message.chatId || !receipt.validFor(message.content)) return
+        fun retainedTimeline(text: String, items: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>): List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem> {
+            val prior = items.lastOrNull { it.privacyProtection != null }?.privacyProtection ?: return items
+            if (!prior.validFor(text)) return items.filterNot { it.privacyProtection != null }
+            // A prepared/truncated body cannot establish new evidence for the stored original.
+            // Clearing on a mismatch is conservative when that earlier body was sent again.
+            val retained = if (text == message.content) prior.intersect(text, receipt) else dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(text, emptyList())
+            if (retained == prior) return items
+            return items.filterNot { it.privacyProtection != null } +
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    privacyProtection = retained
+                )
+        }
+        val next = saved.copy(
+            timeline = retainedTimeline(saved.content, saved.timeline),
+            revisions = saved.revisions.map { revision -> revision.copy(timeline = retainedTimeline(revision.content, revision.timeline)) }
+        )
+        if (next != saved) rawUpdateMessage(raw.copy(timeline = next.timeline, revisions = next.revisions))
+    }
 
     @Transaction
     suspend fun insertRun(run: AgentRun) = writePolicyRun(run, upsert = false)
@@ -991,7 +1035,8 @@ interface AgentPersistenceDao :
             activePlatform = listOf(profileUid),
             createdAt = now,
             updatedAt = now,
-            isTemporary = source.isTemporary
+            isTemporary = source.isTemporary,
+            privacyModeLocked = source.privacyModeLocked
         )
         val room = draft.copy(id = insertChatRoom(draft).toInt())
         val user = insertMessage(MessageV2(chatId = room.id, content = question, platformType = null, createdAt = now)).toInt()
@@ -1039,7 +1084,8 @@ interface AgentPersistenceDao :
                 queuedRecovery = descriptor
             }
         }
-        val pinnedRequestRoom = request.chatRoom.let { room ->
+        val pinnedRequestRoom = request.chatRoom.let { original ->
+            val room = original.copy(privacyModeEnabled = original.privacyModeEnabled || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
             if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED && room.combinedPrimaryUid == null) room.copy(combinedPrimaryUid = room.activePlatform.firstOrNull()) else room
         }
         val chatRoom = if (request.chatRoom.id == 0) {
@@ -1053,16 +1099,44 @@ interface AgentPersistenceDao :
             val roomSnapshot = (if (request.queuedPromptId == null) pinnedRequestRoom else current).let { room ->
                 if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED) room.copy(combinedPrimaryUid = current.combinedPrimaryUid ?: room.combinedPrimaryUid ?: room.activePlatform.firstOrNull()) else room
             }
-            val merged = roomSnapshot.copy(draftText = if (submittedDraft) null else current.draftText, draftAttachments = if (submittedDraft) "[]" else current.draftAttachments, draftUpdatedAt = if (submittedDraft) null else current.draftUpdatedAt, lastShareToken = current.lastShareToken)
+            val merged = roomSnapshot.copy(draftText = if (submittedDraft) null else current.draftText, draftAttachments = if (submittedDraft) "[]" else current.draftAttachments, draftUpdatedAt = if (submittedDraft) null else current.draftUpdatedAt, lastShareToken = current.lastShareToken, privacyModeEnabled = roomSnapshot.privacyModeEnabled || current.privacyModeEnabled || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active(), privacyModeLocked = roomSnapshot.privacyModeLocked || current.privacyModeLocked)
             updateChatRoom(merged)
             merged
         }
         val userMessage = request.userMessage.copy(chatId = chatRoom.id).let { message ->
             if (message.id == 0) {
-                message.copy(id = insertMessage(message).toInt())
+                val recorded = message.copy(
+                    timeline = message.timeline.filterNot { it.privacyProtection != null } +
+                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                            type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                            privacyProtection = dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(
+                                message.content,
+                                emptyList(),
+                                confirmed = !chatRoom.privacyModeLocked && !dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
+                            )
+                        )
+                )
+                recorded.copy(id = insertMessage(recorded).toInt())
             } else {
-                updateMessage(message)
-                message
+                val saved = requireNotNull(rawRecoveryMessage(message.id)?.decodedArchiveText())
+                require(saved.chatId == chatRoom.id && saved.platformType == null) { "The saved user message changed." }
+                val evidence = if (saved.content == message.content) {
+                    saved.timeline.filter { it.privacyProtection != null }
+                } else {
+                    listOf(
+                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                            type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                            privacyProtection = dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(
+                                message.content,
+                                emptyList(),
+                                confirmed = !chatRoom.privacyModeLocked && !dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
+                            )
+                        )
+                    )
+                }
+                val retained = message.copy(timeline = message.timeline.filterNot { it.privacyProtection != null } + evidence)
+                updateMessage(retained)
+                retained
             }
         }
         val assistantMessages = request.runs.map { draft ->
@@ -1130,14 +1204,17 @@ interface AgentPersistenceDao :
     ) {
         require(chatRoom.id > 0)
         val current = requireNotNull(getChatRoom(chatRoom.id))
-        updateChatRoom(chatRoom.copy(draftText = current.draftText, draftAttachments = current.draftAttachments, draftUpdatedAt = current.draftUpdatedAt, lastShareToken = current.lastShareToken))
+        val privacyLocked = chatRoom.privacyModeLocked || current.privacyModeLocked
+        updateChatRoom(chatRoom.copy(draftText = current.draftText, draftAttachments = current.draftAttachments, draftUpdatedAt = current.draftUpdatedAt, lastShareToken = current.lastShareToken, privacyModeEnabled = chatRoom.privacyModeEnabled || current.privacyModeEnabled, privacyModeLocked = privacyLocked))
 
         val incomingIds = messages.asSequence().map(MessageV2::id).filter { it > 0 }.toSet()
         val removedMessages = getMessages(chatRoom.id).filter { it.id !in incomingIds }
         if (removedMessages.isNotEmpty()) deleteMessages(removedMessages)
 
         messages.forEach { message ->
-            val persisted = message.copy(chatId = chatRoom.id)
+            val saved = if (message.id > 0) requireNotNull(rawRecoveryMessage(message.id)?.decodedArchiveText()) { "The saved message was deleted." } else null
+            require(saved == null || saved.chatId == chatRoom.id && saved.platformType == message.platformType) { "The saved message belongs to another conversation or role." }
+            val persisted = retainSnapshotPrivacy(message.copy(chatId = chatRoom.id), saved, privacyLocked)
             if (persisted.id == 0) {
                 insertMessage(persisted)
             } else {
@@ -1147,6 +1224,43 @@ interface AgentPersistenceDao :
         upsertModels(
             chatPlatformModels.map { (profileUid, model) ->
                 ChatPlatformModelV2(chatId = chatRoom.id, platformUid = profileUid, model = model)
+            }
+        )
+    }
+
+    /** A UI snapshot cannot restore or widen evidence changed by a later provider dispatch. */
+    private fun retainSnapshotPrivacy(message: MessageV2, saved: MessageV2?, privacyLocked: Boolean): MessageV2 {
+        fun timeline(
+            text: String,
+            incoming: List<AssistantTimelineItem>,
+            priorText: String?,
+            prior: List<AssistantTimelineItem>,
+            pendingInput: Boolean = false
+        ): List<AssistantTimelineItem> {
+            val receipt = if (text == priorText) {
+                prior.lastOrNull { it.type == AssistantTimelineItemType.NOTICE && it.privacyProtection != null }
+                    ?.privacyProtection?.takeIf { it.validFor(text) }
+            } else {
+                PrivacyProtectionReceipt.create(text, emptyList(), confirmed = !pendingInput)
+            }
+            return incoming.filterNot { it.privacyProtection != null } + listOfNotNull(
+                receipt?.let { AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, privacyProtection = it) }
+            )
+        }
+        val sameOwner = saved?.currentRunId == message.currentRunId && saved?.ownershipFence == message.ownershipFence
+        return message.copy(
+            timeline = timeline(message.content, message.timeline, saved?.content?.takeIf { sameOwner }, saved?.timeline.orEmpty(), message.platformType == null && (privacyLocked || PrivacyModeStore.active())),
+            revisions = message.revisions.map { revision ->
+                val previous = saved?.revisions?.singleOrNull { it.runId == revision.runId && it.createdAt == revision.createdAt }
+                val fromLatest = previous == null && revision.runId != null && revision.runId == saved?.currentRunId && revision.content == saved.content
+                revision.copy(
+                    timeline = timeline(
+                        revision.content,
+                        revision.timeline,
+                        if (fromLatest) saved.content else previous?.content,
+                        if (fromLatest) saved.timeline else previous?.timeline.orEmpty()
+                    )
+                )
             }
         )
     }

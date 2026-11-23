@@ -207,7 +207,7 @@ class ProgressiveToolCatalog(
     }
     override val definition = AgentToolDefinition(
         NAME,
-        "List authorized tools with {}. Use query or names (string array). One GitHub name plus action selects its schema; omit action for all. Copy continuation_call exactly. Schemas appear next round.",
+        "Discover tools with {} or query/names. For GitHub use names:[tool]+action. Copy continuation_call." + if (githubMode) " repository_hint selects repository reads." else "",
         buildJsonObject {
             put("type", "object")
             put(
@@ -220,6 +220,7 @@ class ProgressiveToolCatalog(
                             put("maxLength", 4096)
                         }
                     )
+                    if (githubMode) put("repository_hint", RepositoryToolHint.schema)
                     put(
                         "names",
                         buildJsonObject {
@@ -232,14 +233,13 @@ class ProgressiveToolCatalog(
                         "action",
                         buildJsonObject {
                             put("type", "string")
-                            put("description", "Action for one GitHub name.")
                         }
                     )
                     put(
                         "catalog_only",
                         buildJsonObject {
                             put("type", "boolean")
-                            put("description", "Use only the visible catalog; never acquire from other connections.")
+                            put("description", "No new connections.")
                         }
                     )
                     put(
@@ -254,7 +254,7 @@ class ProgressiveToolCatalog(
                         "inventory_version",
                         buildJsonObject {
                             put("type", "string")
-                            put("description", "Copy from continuation_call; omit on the first page.")
+                            put("description", "From continuation_call.")
                         }
                     )
                 }
@@ -265,8 +265,9 @@ class ProgressiveToolCatalog(
                 JsonArray(
                     listOf(
                         buildJsonObject {
-                            put("properties", JsonObject(listOf("query", "names", "catalog_only", "inventory_cursor", "inventory_version").associateWith { JsonObject(emptyMap()) }))
-                            put("additionalProperties", false)
+                            // The global action:string constraint makes this
+                            // branch valid only when action is absent.
+                            put("properties", buildJsonObject { put("action", buildJsonObject { put("type", "null") }) })
                         },
                         buildJsonObject {
                             put("required", JsonArray(listOf(JsonPrimitive("action"), JsonPrimitive("names"))))
@@ -426,7 +427,7 @@ class ProgressiveToolCatalog(
     /** Normalize only unused null selectors and exact names from the current advertised contract. */
     @Synchronized
     internal fun canonicalArguments(arguments: JsonObject): JsonObject {
-        if (arguments.keys.any { it !in setOf("query", "names", "action", "catalog_only") }) return arguments
+        if (arguments.keys.any { it !in setOf("query", "names", "action", "repository_hint", "catalog_only") }) return arguments
         val normalized = arguments.filterNot { (key, value) -> key in setOf("query", "names") && value == JsonNull }.toMutableMap()
         val name = (normalized["names"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         if (name != null) {
@@ -443,14 +444,18 @@ class ProgressiveToolCatalog(
         val invalid = ToolArgumentValidator.errors(arguments, definition.inputSchema)
         if (invalid.isNotEmpty()) return ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, invalid)
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
+        val repositoryHint = RepositoryToolHint.parse(arguments)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
-        if (("inventory_cursor" in arguments || "inventory_version" in arguments) && (query.isNotBlank() || names.isNotEmpty() || "action" in arguments)) {
+        if ("repository_hint" in arguments && (!githubMode || repositoryHint == null)) {
+            return AgentToolResult(callId, ToolResultContent.Text("Repository hints require a selected GitHub chat and at least one identifier. Use feature_ids, symbols or paths, each with at most 12 unique nonblank strings of at most 256 characters."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        }
+        if (("inventory_cursor" in arguments || "inventory_version" in arguments) && (query.isNotBlank() || names.isNotEmpty() || "action" in arguments || repositoryHint != null)) {
             return AgentToolResult(callId, ToolResultContent.Text("Use inventory_cursor alone to continue the tool inventory; query/names start a separate discovery."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
         if ("action" in arguments && names.size != 1) {
             return AgentToolResult(callId, ToolResultContent.Text("Search with query alone. To select an action, pass exactly one returned tool in names together with action."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
-        if (acquireCold != null && "inventory_cursor" !in arguments && arguments["catalog_only"] != JsonPrimitive(true)) {
+        if (acquireCold != null && repositoryHint == null && "inventory_cursor" !in arguments && arguments["catalog_only"] != JsonPrimitive(true)) {
             // Cache exact unknown names per catalog version. Broad/empty discovery remains retryable.
             // Never suspend while holding the selection monitor.
             val key = query.trim().lowercase(java.util.Locale.ROOT) + "|" + names.sorted().joinToString("|")
@@ -525,6 +530,7 @@ class ProgressiveToolCatalog(
 
     private fun selectResult(callId: String, arguments: JsonObject): AgentToolResult = synchronized(this) {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
+        val repositoryHint = RepositoryToolHint.parse(arguments)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
         // An action switch can change the advertised contract without adding a tool name.
         // Capture the old wire schemas before changing or restoring that selection.
@@ -541,7 +547,7 @@ class ProgressiveToolCatalog(
             names.forEach(actionSelections::remove)
         }
         names.forEach(requirementActions::remove)
-        if (query.isBlank() && names.isEmpty()) {
+        if (query.isBlank() && names.isEmpty() && repositoryHint == null) {
             // Cold inventory must seed an executable window, otherwise an empty call can
             // discover tools forever while every subsequent request advertises only us.
             if (active.isEmpty() && !conversational) {
@@ -731,7 +737,7 @@ class ProgressiveToolCatalog(
         // Discovery may reveal repository intent after an ordinary first message.
         // This raises only the schema window; runtime context and grants still apply.
         if (advancedTask(query) || names.any { it in candidates && it.contains("github", true) } || exact?.name?.contains("github", true) == true) advanced = true
-        val undiscovered = if (query.isNotBlank()) ranked(query) else emptyList()
+        val undiscovered = if (query.isNotBlank() || repositoryHint != null) ranked(query, repositoryHint) else emptyList()
         val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)
         val pinned = requiredCapabilities.mapNotNull { capability ->
             (active.mapNotNull(candidates::get) + ranked(taskText)).firstOrNull { capability in it.capabilities }
@@ -748,6 +754,26 @@ class ProgressiveToolCatalog(
         discovered.addAll(admitted.map { it.name })
         val unchanged = previousActive == active && previousSchemas == presentedSchemas()
         val result = buildJsonObject {
+            if (repositoryHint != null) {
+                val contextArguments = buildJsonObject {
+                    put("action", "task_context_bundle")
+                    put("query", repositoryHint.terms.take(2000))
+                }
+                // A matching name is only a discovery hint. The current admitted
+                // schema must support the exact call before it can be proposed.
+                admitted.firstOrNull {
+                    (it.name == "repository_graph" || it.name.startsWith("repository_graph__")) &&
+                        ToolArgumentValidator.errors(contextArguments, presented(it).inputSchema).isEmpty()
+                }?.let { graph ->
+                    put(
+                        "repository_context_call",
+                        buildJsonObject {
+                            put("name", graph.name)
+                            put("arguments", contextArguments)
+                        }
+                    )
+                }
+            }
             put(
                 "available_next_round",
                 JsonArray(
@@ -839,16 +865,17 @@ class ProgressiveToolCatalog(
         return selected
     }
 
-    private fun ranked(query: String): List<AgentToolDefinition> {
+    private fun ranked(query: String, repositoryHint: RepositoryToolHint? = null): List<AgentToolDefinition> {
         val needle = query.lowercase(java.util.Locale.ROOT).trim()
         val words = Regex("[\\p{L}\\p{N}]+").findAll(needle).map { it.value }.filter { it.length > 2 && it !in STOP_WORDS }.toSet()
-        val github = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(query)
+        val github = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(query) + if (githubMode && repositoryHint != null) RepositoryToolHint.readOperations else emptySet()
         return candidates.values.map { tool ->
             val name = tool.name.lowercase(java.util.Locale.ROOT)
             val description = tool.description.take(1024).lowercase(java.util.Locale.ROOT)
             val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
             val score = when {
                 name == needle -> 10000
+                githubMode && repositoryHint != null && (name == "repository_graph" || name.startsWith("repository_graph__")) -> 1100
                 operation != null -> if (operation in github) 1000 - github.indexOf(operation) else 0
                 github.isNotEmpty() && "github" in name -> 900
                 // A GitHub discovery can be more specific than the original turn. Generic

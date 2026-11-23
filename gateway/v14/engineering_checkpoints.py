@@ -74,7 +74,9 @@ def candidate_details(service, principal, job_id, check_id, offset=0, left_check
     parts, position = [], 0
     end = offset + 16000
     for change in changes:
-        before = job['data'].get('files', {}).get(change['path'], {}).get('content', '')
+        from v14.engineering_workspace import load_file
+        before = (load_file(service.backend, job, change['path'])['content']
+                  if change['path'] in job['data'].get('tree', {}) else '')
         for line in difflib.unified_diff(before.splitlines(True), (change['content'] or '').splitlines(True),
                                          fromfile=change['path'], tofile=change['path']):
             after = position + len(line)
@@ -89,7 +91,9 @@ def candidate_details(service, principal, job_id, check_id, offset=0, left_check
         raise ValueError('Diff offset exceeds the candidate')
     truncated = position > end
     saved = job['data']['workspace_checks'][check_id]
-    service.evidence_access(principal, job_id)
+    current = service.evidence_access(principal, job_id)
+    if current['data'].get('head_sha') != job['data']['head_sha']:
+        raise ValueError('The candidate source changed during the read')
     return {'job_id': job_id, 'check_id': check_id, 'head_sha': job['data']['head_sha'],
             'diff': ''.join(parts), 'truncated': truncated, 'offset': offset, 'next_offset': end if truncated else None, 'status': saved['status'],
             'output': saved.get('output_tail', '')[-16000:] if offset == 0 else '', 'scope': 'retained_candidate'}

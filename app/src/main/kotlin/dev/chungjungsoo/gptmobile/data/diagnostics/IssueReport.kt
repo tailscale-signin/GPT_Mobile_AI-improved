@@ -80,13 +80,20 @@ internal data class IssueReport(
         const val TITLE_LIMIT = 120
         const val DESCRIPTION_LIMIT = 1200
         const val EVENT_LIMIT = 16
+        internal const val FRAMEWORK_EXCEPTION_FRAMES_FEATURE = "FRAMEWORK_EXCEPTION_FRAMES_V1"
         private val versionCharacters = Regex("[^A-Za-z0-9._+\\-]")
         private val deviceCharacters = Regex("[^A-Za-z0-9 ._()+\\-]")
         private val commitPattern = Regex("[a-f0-9]{7,40}")
-        private val framePattern = Regex("(?:dev\\.(?:chungjungsoo|melo)\\.gptmobile|android|com\\.android|java|kotlin)\\.[A-Za-z0-9_.$<>]{1,145}:[0-9]{1,6}")
+
+        // Kotlin value-class methods have mangled hyphen suffixes. Keep the total symbol bound,
+        // and permit those suffixes only in the final method segment, never in a class/package.
+        private val framePattern = Regex("(?:dev\\.(?:chungjungsoo|melo)\\.gptmobile|android|androidx|com\\.android|java|kotlin|kotlinx\\.coroutines)\\.(?=[A-Za-z0-9_.$<>-]{1,145}:[0-9]{1,6}$)[A-Za-z0-9_.$<>]+(?:-[A-Za-z0-9_$-]+)?:[0-9]{1,6}")
         private val typePattern = Regex("[A-Za-z][A-Za-z0-9_$]{0,63}")
         private val eventPattern = Regex("-[0-9]{1,5}ms [DIWEF] (?:app|chat|voice|gateway|local|tools)(?: [A-Z][A-Z0-9_]{0,63})?")
         internal val json = Json { ignoreUnknownKeys = true }
+
+        internal fun requiresExtendedFrameSupport(frame: String): Boolean = framePattern.matches(frame) &&
+            (frame.startsWith("androidx.") || frame.startsWith("kotlinx.coroutines.") || '-' in frame)
 
         fun manual(title: String, description: String, events: List<String>): IssueReport = base("manual", events).copy(
             title = diagnosticMessageForStorage(title.trim()).issueReportPrefix(TITLE_LIMIT),
@@ -108,12 +115,18 @@ internal data class IssueReport(
         /** Shared bounded metadata; never reads exception messages, file names or arbitrary stack text. */
         internal fun exceptionMetadata(error: Throwable?): Pair<String?, List<String>> {
             val type = error?.javaClass?.simpleName?.takeIf(typePattern::matches)
-            val frames = generateSequence(error) { it.cause }.take(4).flatMap { it.stackTrace.asSequence().take(48) }
-                .map { "${it.className}.${it.methodName}:${it.lineNumber.coerceAtLeast(0)}" }
-                .filter(framePattern::matches).distinct().toList()
+            val causeFrames = generateSequence(error) { it.cause }.take(4).map { cause ->
+                cause.stackTrace.asSequence().take(48)
+                    .map { "${it.className}.${it.methodName}:${it.lineNumber.coerceAtLeast(0)}" }
+                    .filter(framePattern::matches).distinct().toList()
+            }.toList()
+            val frames = causeFrames.flatten().distinct()
+            fun isApplication(frame: String) = frame.startsWith("dev.chungjungsoo.gptmobile.") || frame.startsWith("dev.melo.gptmobile.")
+            val causalApplication = causeFrames.mapNotNull { it.firstOrNull(::isApplication) }
             val application = frames.filter { it.startsWith("dev.chungjungsoo.gptmobile.") || it.startsWith("dev.melo.gptmobile.") }
-            // Reserve room for app frames when Android's draw stack is deep.
-            val selected = (frames.take(4) + application).distinct().take(8)
+            // Keep leading framework evidence and one app frame per inspected cause. Recovery
+            // wrappers must not consume every reserved slot before the original failure.
+            val selected = (frames.take(4) + causalApplication + application).distinct().take(8)
             return type to (selected + frames).distinct().take(8)
         }
 

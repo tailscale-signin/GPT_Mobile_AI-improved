@@ -334,7 +334,7 @@ class RepositoryValidationPanel:
             self.commands.configure(state='disabled' if options['profile'] in validation.PROFILES else 'normal')
             self.contract.configure(state='normal')
             self.contract.delete('1.0', 'end')
-            self.contract.insert('1.0', json.dumps(dict({key: options.get(key, []) for key in CONTRACT_FIELDS}, workspace_hooks=options.get('workspace_hooks', {}), workspace_environment=options.get('workspace_environment', {})), indent=2))
+            self.contract.insert('1.0', json.dumps(dict({key: options.get(key, []) for key in CONTRACT_FIELDS}, workspace_hooks=options.get('workspace_hooks', {}), workspace_environment=options.get('workspace_environment', {}), workspace_integrations=options.get('workspace_integrations', {})), indent=2))
             self.contract.edit_modified(False)
             self.digest.set('Pinned image: ' + options['image'] if options['image'] else 'Image not prepared yet — Prepare & save resolves the real registry digest.')
             self.editor_dirty = False
@@ -487,7 +487,7 @@ class RepositoryValidationPanel:
             options['timeout_seconds'] = int(options['timeout_seconds'])
             options['commands'] = self.read_json(self.commands)
             contract = self.read_json(self.contract)
-            if not isinstance(contract, dict) or not set(CONTRACT_FIELDS) <= set(contract) <= set(CONTRACT_FIELDS) | {'workspace_hooks', 'workspace_environment'}:
+            if not isinstance(contract, dict) or not set(CONTRACT_FIELDS) <= set(contract) <= set(CONTRACT_FIELDS) | {'workspace_hooks', 'workspace_environment', 'workspace_integrations'}:
                 raise ValueError('Acceptance and CI fields must retain the displayed contract fields.')
             options.update(contract)
         except (ValueError, TypeError, RecursionError):

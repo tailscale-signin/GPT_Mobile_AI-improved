@@ -174,6 +174,40 @@ class GitHubCiObservationReportTest {
         assertNull(GitHubCiObservationReport.render(task, evidence(listOf(run(1))), now, 3))
     }
 
+    @Test fun anExactCompleteEmptyFailureQueryFinishesTheBoundedDiagnosisWithoutInventingPassingTests() {
+        val receipts = evidence(emptyList())
+        receipts["runs"] = JsonObject(
+            receipt(
+                "runs",
+                "runs",
+                buildJsonObject {
+                    put("workflow_runs", JsonArray(emptyList()))
+                    put("returned", 0)
+                    put("total_count", 0)
+                    put("page", 1)
+                    put("has_more", false)
+                    put("traversal_complete", true)
+                },
+                head
+            ) + (
+                "arguments" to buildJsonObject {
+                    put("action", "runs")
+                    put("head_sha", head)
+                    put("status", "failure")
+                }
+                )
+        )
+        val (text, report) = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2))
+        assertTrue(text, text.contains("complete failure query returned no failed workflow runs"))
+        assertEquals(JsonPrimitive(true), report["completion_verified"])
+        assertEquals(JsonPrimitive(true), report["failure_query_complete"])
+        assertEquals(JsonPrimitive(false), report["build_health_verified"])
+        assertEquals(JsonPrimitive(false), report["new_test_execution_verified"])
+        assertFalse(report.containsKey("successful_run_count"))
+        assertFalse(report.containsKey("skipped_run_count"))
+        assertNull(GitHubCiObservationReport.render(task, receipts, now, 3))
+    }
+
     @Test fun aReturnedPageCanBeReportedWithoutClaimingUnreturnedHistory() {
         val (text, report) = requireNotNull(GitHubCiObservationReport.render(task, evidence(listOf(run(1)), more = true), now, 2))
         assertEquals(JsonPrimitive(false), report["full_history_verified"])

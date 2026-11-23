@@ -527,6 +527,7 @@ class ChatViewModel @Inject constructor(
 
     private fun voiceTrace(request: VoiceTurnAdmission, text: String) = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace(
         requestId = request.requestId,
+        voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.CONVERSATIONAL,
         onOutcome = { reason ->
             if (_voiceAdmission.value?.requestId == request.requestId) {
                 updateVoiceAdmission(
@@ -845,11 +846,16 @@ class ChatViewModel @Inject constructor(
         _indexStates.update { it + listOf(0) }
     }
 
-    fun askQuestion() {
+    fun askQuestion() = submitComposer(null)
+
+    /** Typed input in a voice conversation uses the same durable admission as the normal composer. */
+    fun askVoiceQuestion() = submitComposer(dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.CONVERSATIONAL)
+
+    private fun submitComposer(voiceResponsePolicy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy?) {
         // The first tap owns its frozen draft and resumes after admission.
         // Keyboard/accessibility taps can arrive before Compose disables Send.
         if (_sendPreparation.value.isNotEmpty()) return
-        val attempt = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()
+        val attempt = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace(voiceResponsePolicy = voiceResponsePolicy)
         val questionText = question.text.toString()
         val hasReadyAttachments = _selectedAttachments.value.any { it.status == ChatAttachmentDraft.Status.Ready }
         val hasPreparingAttachments = _selectedAttachments.value.any { it.status == ChatAttachmentDraft.Status.Preparing }
@@ -950,7 +956,7 @@ class ChatViewModel @Inject constructor(
             return
         }
         val acceptedTools = try {
-            captureCombinedTools(questionText)
+            captureCombinedTools(questionText).copy(voiceResponsePolicy = attempt.voiceResponsePolicy)
         } catch (error: IllegalArgumentException) {
             _attachmentNotice.value = error.message ?: "Could not accept the Combined setup. Your draft is kept."
             attempt.finish("VALIDATION_REJECTED")
@@ -2056,7 +2062,7 @@ class ChatViewModel @Inject constructor(
                 check(validated.participantUids.all { profiles[it]?.enabled == true }) { "A selected AI profile is unavailable." }
                 var room = _chatRoom.value
                 if (room.id <= 0) {
-                    room = chatRepository.createDraftChat(room.activePlatform, ConversationMode.COMBINED, room.title, room.combinedPrimaryUid)
+                    room = chatRepository.createDraftChat(room.activePlatform, ConversationMode.COMBINED, room.title, room.combinedPrimaryUid, privacyModeLocked = room.privacyModeLocked)
                     _chatRoom.value = room
                     settingRepository.ensureConversationIdentity(room.id, _combinedConversationIdentity.value)
                 }
@@ -2685,7 +2691,9 @@ class ChatViewModel @Inject constructor(
         }
         if (_chatRoom.value.conversationMode != ConversationMode.COMBINED && rejectUnavailableFreeProfile(platformWithChatModel)) return
         var reconciledAnswer: String? = null
-        val retryTools = accepted?.tools?.copy(combined = accepted.context.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR, platform.uid)) ?: _chatToolConfig.value
+        val retryTools = (accepted?.tools?.copy(combined = accepted.context.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR, platform.uid)) ?: _chatToolConfig.value).let { tools ->
+            tools.copy(voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(_groupedMessages.value.userMessages.take(turnIndex + 1), tools.voiceResponsePolicy))
+        }
         if (currentAssistantMessage.currentRunId?.startsWith(COMBINED_RUN_PREFIX) == true) {
             retryFrozenCombined(turnIndex, platformIndex, currentAssistantMessage, platformWithChatModel)
             return
@@ -2793,7 +2801,9 @@ class ChatViewModel @Inject constructor(
             return
         }
         val captured = try {
-            captureCombinedTools(user.content)
+            captureCombinedTools(user.content).copy(
+                voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(_groupedMessages.value.userMessages.take(turnIndex + 1))
+            )
         } catch (failure: IllegalArgumentException) {
             _attachmentNotice.value = failure.message ?: "The current Combined setup could not be accepted."
             return
@@ -2871,7 +2881,7 @@ class ChatViewModel @Inject constructor(
                 val acceptedPlatform = platform.copy(
                     model = snapshot.model,
                     temperature = if (snapshot.version >= 5 && snapshot.combined != null) snapshot.temperature else platform.temperature,
-                    systemPrompt = dev.chungjungsoo.gptmobile.data.agent.combinedWriterSystemPrompt(snapshot.systemPrompt, snapshot.deliveryProtocol, snapshot.userMessage.content, (snapshot.writerRequestPlan?.version ?: 1) >= 2 && snapshot.combined?.requested?.appendContinuations == true),
+                    systemPrompt = dev.chungjungsoo.gptmobile.data.agent.combinedWriterSystemPrompt(snapshot.systemPrompt, snapshot.deliveryProtocol, snapshot.userMessage.content, (snapshot.writerRequestPlan?.version ?: 1) >= 2 && snapshot.combined?.requested?.appendContinuations == true, snapshot.acceptedTools?.voiceResponsePolicy),
                     disableAllTools = true,
                     disableLocalTools = true
                 )
@@ -3747,7 +3757,7 @@ class ChatViewModel @Inject constructor(
             attachments = attachments.mapNotNull { it.attachment },
             platformType = null,
             createdAt = currentTimeStamp
-        ).let { addMessage(it) }
+        ).let { addMessage(dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.attach(it, acceptedTools.voiceResponsePolicy)) }
         profileUid?.let { uid ->
             val index = enabledPlatformsInChat.indexOf(uid)
             if (index >= 0) _indexStates.update { states -> states.dropLast(1) + index }
@@ -4517,7 +4527,7 @@ class ChatViewModel @Inject constructor(
                     val platform = _platformsInApp.value.firstOrNull { it.uid in activeUids && it.enabled }
                         ?: _platformsInApp.value.firstOrNull()
                         ?: return@launch
-                    chatRepository.generateAiTitle(userContext, assistantContext, platform)
+                    chatRepository.generateAiTitle(userContext, assistantContext, platform, chatId = room.id)
                 }
                 val cleaned = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.clean(aiTitle.orEmpty())
                     ?: dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.clean(userContext)

@@ -122,7 +122,8 @@ class AgentRunner(
     private val replayDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val diagnosticRunId: String? = null,
     private val prepareToolSelection: (suspend () -> Unit)? = null,
-    private val verificationOnlyRequested: Boolean = false
+    private val verificationOnlyRequested: Boolean = false,
+    private val taskAdmissionFailure: (suspend () -> ProviderEvent.Failed?)? = null
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
     private val replayCompactionLogGate = ReplayCompactionLogGate()
@@ -138,7 +139,8 @@ class AgentRunner(
         exchanges: List<AgentToolExchange>,
         maxReplayTokens: Int,
         maxResultTokens: Int,
-        consumedCallIds: Set<String> = emptySet()
+        consumedCallIds: Set<String> = emptySet(),
+        deliveredResultDigests: Map<String, String> = emptyMap()
     ): ReplayProjection = withContext(replayDispatcher) {
         val rawTokens = ToolExchangeCompactor.estimateTokens(exchanges, replayRenderCache)
         val started = System.nanoTime()
@@ -146,7 +148,7 @@ class AgentRunner(
             exchanges,
             maxReplayTokens,
             if (rawTokens <= maxReplayTokens) maxReplayTokens else maxResultTokens,
-            consumedCallIds,
+            ToolResultDeliveryProof.qualifiedConsumed(exchanges, consumedCallIds, deliveredResultDigests, replayRenderCache),
             replayRenderCache
         )
         ReplayProjection(
@@ -158,7 +160,7 @@ class AgentRunner(
     }
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
-        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope() + dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope()))
+        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope() + dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope() + AdaptiveBatchScope(limits.maxConcurrentTools)))
     }
 
     private fun runWithRepairScope(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): Flow<AgentRunEvent> = flow {
@@ -173,6 +175,11 @@ class AgentRunner(
                     )
                 )
             )
+            return@flow
+        }
+        taskAdmissionFailure?.invoke()?.let { failure ->
+            // Admission may publish retained evidence, but cannot restore queued calls or finish their checkpoint.
+            session.retainedFailureResponse(failure).collect { emit(AgentRunEvent.Provider(it)) }
             return@flow
         }
         val acceptedAtEntry = remainingTaskMillis?.invoke()
@@ -293,8 +300,9 @@ class AgentRunner(
         }
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
         if (!restoreCompletedExchanges(recovery, toolByName, exchanges, state)) return
+        state.savedResultRecovery.observeDelivered(exchanges, state.deliveredResultDigests, replayRenderCache)
         exchanges.forEach(ciInvestigation::observe)
-        state.replayTokens = prepareReplay(exchanges, effectiveReplayTokens, limits.maxReplayResultTokens).compactedTokens.toLong()
+        state.replayTokens = prepareReplay(exchanges, effectiveReplayTokens, limits.maxReplayResultTokens, state.consumedCallIds, state.deliveredResultDigests).compactedTokens.toLong()
 
         var admittedReplayLimit = effectiveReplayTokens
         var capacityReplans = 0
@@ -316,6 +324,7 @@ class AgentRunner(
                 reconcileDiscoveryExchange(exchanges, roundDefinitions)
                 val restoringBatch = restoredCalls.isNotEmpty()
                 val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
+                val exhaustiveSearch = limits.githubTask && dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.requiresExhaustiveSearch(limits.githubTaskRequest.orEmpty())
                 val remoteRead = if (!session.handlesToolResultRecovery &&
                     !session.handlesToolsInternally &&
                     !retainedUnknownOutcome &&
@@ -324,9 +333,9 @@ class AgentRunner(
                     !finalResponseRequested &&
                     !restoringBatch &&
                     observedToolCalls < observedLimit &&
-                    roundDefinitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" }
+                    roundDefinitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" || exhaustiveSearch && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_search" }
                 ) {
-                    GitHubReplayRecovery.nextRemoteRead(exchanges, roundDefinitions, savedResultRecovery)
+                    GitHubReplayRecovery.nextRemoteRead(exchanges, roundDefinitions, savedResultRecovery, allowSearchContinuation = exhaustiveSearch)
                 } else {
                     null
                 }
@@ -357,7 +366,7 @@ class AgentRunner(
                     emit(AgentRunEvent.Notice("Continuing CI diagnosis with the next revision-bound run, job or log observation.", persistent = false))
                     RoundResult(calls = listOf(ciRead), completed = true, observedCalls = 1)
                 } else {
-                    collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, retainedUnknownOutcome || unknownOutcomes.isNotEmpty(), admittedReplayLimit)
+                    collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, deliveredResultDigests, retainedUnknownOutcome || unknownOutcomes.isNotEmpty(), admittedReplayLimit)
                 }
                 observedToolCalls += round.observedCalls
                 if (round.batchRejected) {
@@ -407,7 +416,7 @@ class AgentRunner(
                     ) {
                         val target = dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.replayTarget(admission, replayTokens, admittedReplayLimit)
                         if (target != null) {
-                            val fit = prepareReplay(exchanges, target, limits.maxReplayResultTokens, consumedCallIds)
+                            val fit = prepareReplay(exchanges, target, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests)
                             if (fit.compactedTokens <= target && fit.compactedTokens.toLong() < replayTokens) {
                                 admittedReplayLimit = target
                                 replayTokens = fit.compactedTokens.toLong()
@@ -438,7 +447,7 @@ class AgentRunner(
                         if (prompt != null && safety != null && ceiling != null) {
                             val overage = (prompt + safety + output - ceiling).coerceAtLeast(1)
                             val requested = (minOf(replayTokens, admittedReplayLimit.toLong()) - overage - 64).coerceAtLeast(0).toInt()
-                            val fit = prepareReplay(exchanges, requested, limits.maxReplayResultTokens, consumedCallIds)
+                            val fit = prepareReplay(exchanges, requested, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests)
                             if (requested > 0 && fit.compactedTokens <= requested && fit.compactedTokens.toLong() < replayTokens) {
                                 admittedReplayLimit = requested
                                 replayTokens = fit.compactedTokens.toLong()
@@ -448,7 +457,7 @@ class AgentRunner(
                             }
                         }
                     }
-                    val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), retainedUnknownOutcome, unknownOutcomes.size, recoveryState) ?: return
+                    val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), retainedUnknownOutcome, unknownOutcomes.values.toList(), recoveryState) ?: return
                     exposedDefinitions = recovery.definitions
                     if (recovery.restoreRound) rounds--
                     if (recovery.finalize) {
@@ -467,6 +476,7 @@ class AgentRunner(
                     }
                     finalizationToolRepairAttempted = true
                 }
+                savedResultRecovery.observeDelivered(exchanges, deliveredResultDigests, replayRenderCache)
                 val resolvedCalls = round.calls.map { call ->
                     // Stamp live calls at the trusted routing boundary; restored journals retain their identity.
                     val identified = if (restoringBatch) call else call.captureProviderInvocation()
@@ -498,7 +508,7 @@ class AgentRunner(
                     initialSchemaTokens, replayTokens, toolCallsByName, repeatAdmissionHistory, consecutiveToolFailures, blockedReadScopes,
                     remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
                     retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation,
-                    admittedReplayLimit, consumedCallIds
+                    admittedReplayLimit, consumedCallIds, deliveredResultDigests
                 ) ?: return
                 executableToolByName = completed.tools
                 exposedDefinitions = completed.definitions
@@ -565,6 +575,7 @@ class AgentRunner(
             false,
             emptySet(),
             state.consumedCallIds,
+            state.deliveredResultDigests,
             retainedUnknownOutcome || state.unknownOutcomes.isNotEmpty()
         )
         if (round.failure != null) {
@@ -672,9 +683,13 @@ class AgentRunner(
         val repeatAdmissionHistory = ToolRepeatAdmissionHistory.forLoop(diagnosticRunId, recovery, initialToolCallCount)
         val consecutiveToolFailures = mutableMapOf<String, Int>()
         val blockedReadScopes = mutableSetOf<String>()
-        val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val unknownOutcomes = java.util.concurrent.ConcurrentHashMap<String, JsonObject>()
         val consumedCallIds = recovery?.consumedCallIds.orEmpty().toMutableSet()
-        val savedResultRecovery = GitHubReplayRecovery.State(recovery?.completedExchanges.orEmpty().flatMap { it.calls } + recovery?.pending.orEmpty())
+        val deliveredResultDigests = recovery?.deliveredResultDigests.orEmpty().toMutableMap()
+        val savedResultRecovery = GitHubReplayRecovery.State(
+            recovery?.completedExchanges.orEmpty().flatMap { it.calls } + recovery?.pending.orEmpty(),
+            recovery?.completedExchanges.orEmpty().flatMap { it.results } + recovery?.pendingCompletedExchange?.results.orEmpty()
+        )
     }
 
     /** Deliver retained receipts before provider work without expanding the loop coroutine. */
@@ -727,7 +742,7 @@ class AgentRunner(
                     val results = exchange.results.associateBy { it.callId }
                     for (call in exchange.calls) {
                         if (results.getValue(call.callId).errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
-                            unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                            unknownOutcomes.putIfAbsent(call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments), ToolReconciliationEvidence.observation(call, results.getValue(call.callId)))
                         }
                     }
                 }
@@ -753,7 +768,7 @@ class AgentRunner(
                     // Replayed receipts remain visible as shared results, without a fresh dispatch.
                     emit(AgentRunEvent.ToolFinished(call, restored))
                     if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
-                        unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                        unknownOutcomes.putIfAbsent(call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments), ToolReconciliationEvidence.observation(call, results.getValue(call.callId)))
                     }
                     if (restored !== result) {
                         emit(AgentRunEvent.Provider(ToolFailureMetadata.authorityFailure(restored, retainedUnknownOutcome || unknownOutcomes.isNotEmpty())))
@@ -933,12 +948,14 @@ class AgentRunner(
         finalResponseRequested: Boolean,
         hasToolWork: Boolean,
         retainedUnknownOutcome: Boolean,
-        unknownSignatureCount: Int,
+        unknownOperations: List<JsonObject>,
         state: RoundRecoveryState
     ): RoundRecovery? {
         val roundFailure = requireNotNull(round.failure)
+        val unknownSignatureCount = unknownOperations.size
         val hasUnknownOutcome = retainedUnknownOutcome || unknownSignatureCount > 0
         fun unresolvedToolEvidence() = buildJsonObject {
+            ToolReconciliationEvidence.summary(unknownOperations).forEach { (key, value) -> put(key, value) }
             put("recovery_observation", "RECONCILIATION_REQUIRED")
             put("pending_tool_receipt_state", "OUTCOMES_UNRESOLVED")
             put(
@@ -1161,12 +1178,13 @@ class AgentRunner(
         executionToolCallLimit: Int,
         previousSuppressedReadRounds: Int,
         unproductiveDiscoveryRounds: Int,
-        unknownOutcomes: MutableSet<String>,
+        unknownOutcomes: MutableMap<String, JsonObject>,
         retainedUnknownOutcome: Boolean,
         savedResultRecovery: GitHubReplayRecovery.State?,
         ciInvestigation: GitHubCiInvestigationRecovery,
         replayLimit: Int,
-        consumedCallIds: Set<String>
+        consumedCallIds: Set<String>,
+        deliveredResultDigests: Map<String, String>
     ): ToolRoundCompletion? {
         var executableToolByName = initialTools
         var exposedDefinitions = initialDefinitions
@@ -1303,6 +1321,8 @@ class AgentRunner(
             }
         }
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
+        // Retain successful saved-page admission before replay compaction can evict it.
+        savedResultRecovery?.record(calls, executedResults + deferredResults)
         val savedReadAvailable = savedResultRecovery != null &&
             GitHubReplayRecovery.nextSavedRead(
                 exchanges + AgentToolExchange(calls, executedResults + deferredResults),
@@ -1324,7 +1344,7 @@ class AgentRunner(
             roundLimitReached, toolCallCount, executionToolCallLimit,
             unproductiveDiscoveryRounds, finalResponseRequested, executableCalls.mapTo(hashSetOf()) { it.callId },
             executableToolByName.values.any { it.definition.modelVisible && ProgressiveToolCatalog.isGitHubTool(it.definition) },
-            replayLimit, consumedCallIds
+            replayLimit, consumedCallIds, deliveredResultDigests
         )
         finalResponseRequested = completedBatch.finalResponseRequested
         if (finalResponseRequested) {
@@ -1399,7 +1419,15 @@ class AgentRunner(
                 if (fields.isEmpty()) name else "$name (requires ${fields.joinToString(", ")})"
             }.ifEmpty { "none" }
             val recovery = when (suggested) {
-                ProgressiveToolCatalog.NAME -> " Use $suggested to look up this capability, then use the name and schema it returns."
+                ProgressiveToolCatalog.NAME -> {
+                    val query = when (call.arguments.keys) {
+                        setOf("url") -> "url"
+                        setOf("evidence_id") -> "evidence"
+                        else -> null
+                    }
+                    val example = query?.let { " Start with " + buildJsonObject { put("query", it) } + "." }.orEmpty()
+                    " Use $suggested to look up this capability.$example Use the exact name and schema it returns."
+                }
                 null -> " If none of these tools provides the capability, use the evidence already collected and explain what is missing."
                 else -> " Use the advertised $suggested schema for this request."
             }
@@ -1582,7 +1610,8 @@ class AgentRunner(
         publishedCallIds: Set<String>,
         hasActionableGitHubTools: Boolean,
         replayLimit: Int,
-        consumedCallIds: Set<String>
+        consumedCallIds: Set<String>,
+        deliveredResultDigests: Map<String, String>
     ): BatchCompletion {
         var finalResponseRequested = wasFinalResponseRequested
         val resultByCallId = producedResults.associateBy { it.callId }
@@ -1619,7 +1648,8 @@ class AgentRunner(
             exchanges = projectedExchanges,
             maxReplayTokens = replayLimit,
             maxResultTokens = limits.maxReplayResultTokens,
-            consumedCallIds = consumedCallIds
+            consumedCallIds = consumedCallIds,
+            deliveredResultDigests = deliveredResultDigests
         ).compactedTokens.toLong()
         val estimatedPrompt = limits.initialContextTokens.toLong().coerceAtLeast(0) + replayTokens
         val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
@@ -1808,6 +1838,7 @@ class AgentRunner(
         successfulSearch: Boolean,
         searchToolNames: Set<String>,
         consumedCallIds: MutableSet<String>,
+        deliveredResultDigests: MutableMap<String, String>,
         hasUnknownOutcome: Boolean,
         replayLimit: Int = effectiveReplayTokens
     ): RoundResult {
@@ -1841,6 +1872,7 @@ class AgentRunner(
         val usageInvocationIds = linkedSetOf<String>()
         var unboundUsageObserved = false
         var deliveredCallIds: Set<String> = emptySet()
+        var deliveredBodies: Map<String, String> = emptyMap()
         var invocationStage = "planning"
         var invocationStarted = false
 
@@ -1891,12 +1923,17 @@ class AgentRunner(
                 exchanges = exchanges,
                 maxReplayTokens = replayLimit,
                 maxResultTokens = limits.maxReplayResultTokens,
-                consumedCallIds = consumedCallIds
+                consumedCallIds = consumedCallIds,
+                deliveredResultDigests = deliveredResultDigests
             )
             val rawReplayTokens = replay.rawTokens
             val replayExchanges = replay.exchanges
             val originalResults = exchanges.flatMap { it.results }.associateBy { it.callId }
-            deliveredCallIds = replayExchanges.flatMap { it.results }.filter { originalResults[it.callId]?.content == it.content }.mapTo(mutableSetOf()) { it.callId }
+            val deliveredResults = replayExchanges.flatMap { it.results }.filter { originalResults[it.callId]?.content == it.content }
+            deliveredCallIds = deliveredResults.mapTo(mutableSetOf()) { it.callId }
+            // Hash the actual provider projection, never the fuller checkpoint result
+            // with the same call ID. The proof is committed only after success below.
+            deliveredBodies = ToolResultDeliveryProof.capture(deliveredResults, replayRenderCache)
             val compactedReplayTokens = replay.compactedTokens
             val compactionMicros = replay.compactionMicros
             if (rawReplayTokens > compactedReplayTokens && replayCompactionLogGate.shouldLog(rawReplayTokens, exchanges.size, compactionMicros)) {
@@ -1971,7 +2008,9 @@ class AgentRunner(
                 val gatewayOutcomeUnknown = GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)
                 val localCircuitRejection = (error as? dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException)
                     ?.takeUnless { gatewayOutcomeUnknown }
-                val typedRejection = AgentFailureEvidence.exception(error, providerPayloadObserved)
+                val persistenceFailure = generateSequence(error) { it.cause }.take(12)
+                    .filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()
+                val typedRejection = persistenceFailure?.event() ?: AgentFailureEvidence.exception(error, providerPayloadObserved)
                 val classifiedCode = ToolFailureMetadata.classify(error)
                 // This boundary invokes the model, not an AgentTool. An unknown
                 // exception cannot establish a tool failure or authorize replay.
@@ -2122,9 +2161,15 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
-        if (!verificationOnlyRequested && completed && failure == null && deliveredCallIds.any { it !in consumedCallIds }) {
-            checkpoint?.markConsumed(deliveredCallIds)
+        if (!verificationOnlyRequested &&
+            completed &&
+            failure == null &&
+            (deliveredCallIds.any { it !in consumedCallIds } || deliveredBodies.any { (id, digest) -> deliveredResultDigests[id] != digest })
+        ) {
+            checkpoint?.markConsumed(deliveredCallIds, deliveredBodies)
             consumedCallIds += deliveredCallIds
+            deliveredResultDigests.putAll(deliveredBodies)
+            while (deliveredResultDigests.size > ToolResultDeliveryProof.MAX_RESULTS) deliveredResultDigests.remove(deliveredResultDigests.keys.first())
         }
         return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId, applicationReportEmitted)
     }
@@ -2189,7 +2234,7 @@ class AgentRunner(
     private suspend fun executeToolBatch(
         calls: List<ProviderEvent.ToolCall>,
         tools: Map<String, AgentTool>,
-        unknownOutcomes: MutableSet<String>,
+        unknownOutcomes: MutableMap<String, JsonObject>,
         invalidatedAuthority: AtomicReference<AgentToolResult?>,
         completed: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit,
         progress: suspend (ToolBatchProgress) -> Unit,
@@ -2223,7 +2268,7 @@ class AgentRunner(
         val nodes = fullPlan.map {
             it.copy(dependencies = it.dependencies.intersect(admittedIds), failureDependencies = it.failureDependencies.intersect(admittedIds))
         }
-        return IntelligentToolBatch(AdaptiveBatchWindow(limits.maxConcurrentTools)).execute(
+        return IntelligentToolBatch(kotlinx.coroutines.currentCoroutineContext()[AdaptiveBatchScope]?.window ?: AdaptiveBatchWindow(limits.maxConcurrentTools)).execute(
             nodes,
             dispatch = { call ->
                 if (call.callId in blocked) {
@@ -2231,8 +2276,8 @@ class AgentRunner(
                     return@execute ToolDependencyDiagnostics.rejection(call.callId, ToolDependencyDiagnostics.State.DEFERRED, dependencies, dependencies - admittedIds, "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
                 }
                 val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
-                suspend fun dispatch(): AgentToolResult = if (!replayableRead(call, tools[call.name]) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
-                    ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
+                suspend fun dispatch(): AgentToolResult = if (!replayableRead(call, tools[call.name]) && unknownOutcomes.containsKey(signature)) {
+                    ToolReconciliationEvidence.blocked(call.callId, requireNotNull(unknownOutcomes[signature]))
                 } else {
                     invalidatedAuthority.get()?.let { ToolFailureMetadata.authorityBlocked(call.callId, call.name, it) }
                         ?: executeBounded(call, tools[call.name]).also { if (ToolFailureMetadata.authorityCode(it) != null) invalidatedAuthority.compareAndSet(null, it) }
@@ -2240,7 +2285,7 @@ class AgentRunner(
                 val interaction = AgentToolCapability.USER_DECISION in tools[call.name]?.definition?.capabilities.orEmpty()
                 val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call, replayableRead = replayableRead(call, tools[call.name])) { dispatch() } ?: dispatch()
                 if (ToolFailureMetadata.authorityCode(result) != null) invalidatedAuthority.compareAndSet(null, result)
-                if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, tools[call.name])) synchronized(unknownOutcomes) { unknownOutcomes += signature }
+                if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, tools[call.name])) synchronized(unknownOutcomes) { unknownOutcomes.putIfAbsent(signature, ToolReconciliationEvidence.observation(call, result)) }
                 result
             },
             completed = completed,
@@ -2252,7 +2297,7 @@ class AgentRunner(
     private suspend fun executeLegacyToolBatch(
         calls: List<ProviderEvent.ToolCall>,
         tools: Map<String, AgentTool>,
-        unknownOutcomes: MutableSet<String>,
+        unknownOutcomes: MutableMap<String, JsonObject>,
         invalidatedAuthority: AtomicReference<AgentToolResult?>,
         restoredCompleted: Map<String, AgentToolResult>,
         completed: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit
@@ -2277,8 +2322,8 @@ class AgentRunner(
                                     semaphore.withPermit {
                                         val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
                                         suspend fun dispatch(): AgentToolResult {
-                                            val result = if (!replayableRead(call, tools[call.name]) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
-                                                ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
+                                            val result = if (!replayableRead(call, tools[call.name]) && unknownOutcomes.containsKey(signature)) {
+                                                ToolReconciliationEvidence.blocked(call.callId, requireNotNull(unknownOutcomes[signature]))
                                             } else {
                                                 invalidatedAuthority.get()?.let { ToolFailureMetadata.authorityBlocked(call.callId, call.name, it) }
                                                     ?: executeBounded(call, tools[call.name])
@@ -2296,7 +2341,7 @@ class AgentRunner(
                                         val interaction = AgentToolCapability.USER_DECISION in tools[call.name]?.definition?.capabilities.orEmpty()
                                         val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call, replayableRead = replayableRead(call, tools[call.name])) { dispatch() } ?: dispatch()
                                         if (ToolFailureMetadata.authorityCode(result) != null) invalidatedAuthority.compareAndSet(null, result)
-                                        if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, tools[call.name])) synchronized(unknownOutcomes) { unknownOutcomes += signature }
+                                        if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, tools[call.name])) synchronized(unknownOutcomes) { unknownOutcomes.putIfAbsent(signature, ToolReconciliationEvidence.observation(call, result)) }
                                         result
                                     }
                                 }
@@ -2382,9 +2427,11 @@ class AgentRunner(
             )
         }
         try {
-            dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
-        } catch (blocked: dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport) {
-            return requireNotNull(ToolFailureMetadata.authorityPrecheck(call.callId, call.name, blocked))
+            dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.requireExecution(tool)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (blocked: Exception) {
+            return ToolFailureMetadata.authorityPrecheck(call.callId, call.name, blocked) ?: throw blocked
         }
         AgentContractValidation.admission(tool.definition, call.callId)?.let { return it }
         if (!tool.managesExecutionBudget) {
@@ -2392,12 +2439,13 @@ class AgentRunner(
             if (errors.isNotEmpty()) return requireNotNull(kotlinx.coroutines.currentCoroutineContext()[ToolArgumentRepairScope]).budget.rejection(call.callId, tool.definition, call.arguments, errors, searchValidationOwner = tool.searchValidationOwner)
         }
         val replayableRead = replayableRead(call, tool)
+        val phoneInterruption = PhoneIndexInterruption(call)
         var observedReceipt: AgentToolResult? = null
         return try {
             // A delegated child can have different data permissions. Capture only
             // this call's authorized receipt, never its private intermediate calls.
             val result = kotlinx.coroutines.withContext(
-                ToolReceiptObserver { observedCall, receipt ->
+                phoneInterruption + ToolReceiptObserver { observedCall, receipt ->
                     if (observedCall.callId == call.callId && observedCall.name == call.name && observedCall.arguments == call.arguments) {
                         observedReceipt = ToolFailureMetadata.receipt(AgentContractValidation.receipt(call.callId, receipt), call.name, replaySafe = replayableRead)
                         onToolResult?.invoke(call, receipt)
@@ -2407,7 +2455,7 @@ class AgentRunner(
                 if (!tool.managesExecutionBudget && limits.toolTimeoutMillis < Long.MAX_VALUE) {
                     withTimeoutOrNull(limits.toolTimeoutMillis) {
                         tool.execute(call.callId, call.arguments)
-                    } ?: AgentToolResult(
+                    } ?: phoneInterruption.close() ?: AgentToolResult(
                         callId = call.callId,
                         content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
                         isError = true,
@@ -2439,6 +2487,8 @@ class AgentRunner(
             ).let { ToolFailureMetadata.withAuthorityFailure(it, error, "tool_execution") ?: it }
                 .let { ToolFailureMetadata.receipt(it, call.name, diagnosticCode = ToolFailureMetadata.classify(error), replaySafe = replayableRead) }
             ToolObservationRetention.bound(if (tool.managesExecutionBudget) result else result.copy(content = boundContent(result.content)))
+        } finally {
+            phoneInterruption.close()
         }
     }
 

@@ -19,6 +19,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPaginationBoundaryTest {
+    @Test fun emptyCopilotTaskListCompletesWithoutCreatingOrInventingATask() {
+        val args = json("""{"action":"copilot_tasks","page":1,"per_page":30}""")
+        val result = GitHubPaginationBoundary().assessPage("github_pr", args, json("""{"tasks":[],"has_more":false}"""))
+        assertEquals(null, result.errorCode)
+        assertEquals(JsonArray(emptyList()), result.data["tasks"])
+        assertEquals(JsonPrimitive(true), result.data["complete"])
+        assertEquals(JsonPrimitive(0), result.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+    }
+
+    @Test fun copilotTaskCoverageRejectsMissingMalformedAndUnrelatedCollections() {
+        val args = json("""{"action":"copilot_tasks","page":1,"per_page":30}""")
+        for (value in listOf(
+            """{"has_more":false}""",
+            """{"tasks":{},"has_more":false,"total_count":0}""",
+            """{"items":[],"has_more":false,"total_count":0}""",
+            """{"tasks":[null],"has_more":false}""",
+            """{"tasks":[{}],"has_more":false}""",
+            """{"tasks":[{"id":12}],"has_more":false}"""
+        )) {
+            val result = GitHubPaginationBoundary().assessPage("github_pr", args, json(value))
+            assertEquals(value, "GITHUB_PAGINATION_INCOMPLETE", result.errorCode)
+            assertEquals(JsonPrimitive(false), result.data["complete"])
+        }
+        val unrelated = GitHubPaginationBoundary().assessPage("github_pr", json("""{"action":"list_pull_requests"}"""), json("""{"tasks":[],"has_more":false}"""))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", unrelated.errorCode)
+    }
+
+    @Test fun copilotTaskPagesRetainUniqueIdsAndRequireAllPages() {
+        val boundary = GitHubPaginationBoundary()
+        fun args(page: Int) = json("""{"action":"copilot_tasks","page":$page,"per_page":1}""")
+        boundary.assessPage("github_pr", args(1), json("""{"tasks":[{"id":"task-1"}],"has_more":true}"""))
+        val duplicate = boundary.assessPage("github_pr", args(2), json("""{"tasks":[{"id":"task-1"}],"has_more":false}"""))
+        assertEquals("GITHUB_PAGINATION_STALLED", duplicate.errorCode)
+        assertEquals(JsonArray(emptyList()), duplicate.data["tasks"])
+        val complete = GitHubPaginationBoundary()
+        complete.assessPage("github_pr", args(1), json("""{"tasks":[{"id":"task-1"}],"has_more":true}"""))
+        val emptyTerminal = complete.assessPage("github_pr", args(2), json("""{"tasks":[],"has_more":false}"""))
+        assertEquals(null, emptyTerminal.errorCode)
+        assertEquals(JsonPrimitive(true), emptyTerminal.data["complete"])
+        assertEquals(JsonPrimitive(1), emptyTerminal.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+    }
+
     @Test fun sparseBranchInventoryIdentifiesTheFirstMissingPage() {
         val boundary = GitHubPaginationBoundary()
         fun read(page: Int, more: Boolean): GitHubPaginationBoundary.Assessment {
@@ -303,6 +345,74 @@ class GitHubPaginationBoundaryTest {
         assertEquals(2, seen.size)
         assertFalse(tool.execute("refresh", fresh).isError)
         assertEquals(3, seen.size)
+    }
+
+    @Test fun comparisonPageLimitKeepsItsScopedExplicitRestartThroughCompaction() = runBlocking {
+        val seen = mutableListOf<JsonObject>()
+        val base = "a".repeat(40)
+        val head = "b".repeat(40)
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                seen += arguments
+                val window = dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.window(arguments, 1001)
+                val data = buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repository")
+                    put("base_sha", base)
+                    put("head_sha", head)
+                    put("files_total", 1001)
+                    put("effective_per_page", window.size)
+                    put("total_pages", window.totalPages)
+                    put("tree_complete", true)
+                    put("has_more", window.hasMore)
+                    put(
+                        "files",
+                        JsonArray(
+                            (window.from until window.until).map {
+                                buildJsonObject {
+                                    put("filename", "File$it.kt")
+                                    put("patch", "+line\n".repeat(5000))
+                                }
+                            }
+                        )
+                    )
+                    if (window.hasMore) put("continuation", JsonObject(arguments + ("page" to JsonPrimitive(window.page + 1))))
+                }
+                return AgentToolResult(callId, ToolResultContent.Json(data), false)
+            }
+        }
+        val tool = GitHubOperationTool("github_context", backend, "bounded-comparison", "github_context__selected")
+        val request = buildJsonObject {
+            put("action", "changes")
+            put("owner", "owner")
+            put("repo", "repository")
+            put("base_sha", base)
+            put("commit_sha", head)
+            put("per_page", 1)
+            put("page", 1000)
+            put("include_patches", true)
+        }
+        val failed = tool.execute("sample", request)
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", failed.errorCode)
+        assertEquals(1, seen.size)
+        assertEquals(JsonPrimitive(1), seen.single()["per_page"])
+        val body = (failed.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive(false), body["has_more"])
+        assertFalse("continuation" in body)
+        val correction = body.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive("github_context__selected"), correction["tool"])
+        val corrected = correction.getValue("arguments").jsonObject
+        assertEquals(JsonObject(request + mapOf("page" to JsonPrimitive(1), "per_page" to JsonPrimitive(2))), corrected)
+        val compact = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery.compact(failed.content, 2048)) as ToolResultContent.Json
+        assertEquals(correction, compact.value.jsonObject["correction_call"])
+        assertEquals(JsonPrimitive(1), compact.value.jsonObject.getValue("metadata").jsonObject["effective_per_page"])
+        assertEquals(JsonPrimitive(2), compact.value.jsonObject.getValue("metadata").jsonObject["minimum_per_page"])
+        val retained = ToolObservationRetention.content(failed.content, 8192) as ToolResultContent.Json
+        assertEquals(correction, retained.value.jsonObject.getValue("excerpt").jsonObject["correction_call"])
+        assertFalse(tool.execute("explicit-restart", corrected).isError)
+        assertEquals(2, seen.size)
+        assertEquals(JsonPrimitive(2), seen.last()["per_page"])
     }
 
     @Test fun repositoryRecoveryUsesTheSameAuthorizedConnectionAlias() = runBlocking {

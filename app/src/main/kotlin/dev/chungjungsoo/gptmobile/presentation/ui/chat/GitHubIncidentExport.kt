@@ -22,7 +22,7 @@ internal fun githubIncidentExport(records: JsonObject): JsonObject {
     val events = rawEvents.mapNotNull { runCatching { decoder.decodeFromJsonElement(ToolEvent.serializer(), it) }.getOrNull() }
     val workspace = (records["workspace"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
     val verificationRows = workspace.filter { it.text("id")?.let { id -> id.startsWith("github-evidence:") && ":verification_" in id } == true }
-        .sortedWith(compareBy({ (it["updatedAt"] as? JsonPrimitive)?.longOrNull ?: 0 }, { it.text("id").orEmpty() }))
+        .sortedWith(compareBy({ (it["updatedAt"] as? JsonPrimitive)?.longOrNull ?: 0L }, { it.text("id").orEmpty() }))
         .associateBy { it.text("runId") }
     val eventGroups = events.groupBy { it.runId }
     return buildJsonObject {

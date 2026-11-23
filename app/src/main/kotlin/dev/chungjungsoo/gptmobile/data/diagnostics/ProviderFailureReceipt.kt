@@ -109,12 +109,12 @@ data class ProviderFailureReceipt(
             "GITHUB_REVIEW_BUDGET_EXHAUSTED",
             "GITHUB_CIRCUIT_OPEN", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE",
             "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_EXTRACTION_OUTPUT_LIMIT",
-            "GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_OPERATION_BLOCKED", "GITHUB_RUN_INTERRUPTED", "GITHUB_TASK_INCOMPLETE", "GITHUB_UNEXPECTED_RESPONSE", "GITHUB_VERIFICATION_INTERNAL_ERROR",
+            "GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_OPERATION_BLOCKED", "GITHUB_RUN_INTERRUPTED", "GITHUB_TASK_INCOMPLETE", "GITHUB_TASK_IDENTITY_CHANGED", "GITHUB_UNEXPECTED_RESPONSE", "GITHUB_VERIFICATION_INTERNAL_ERROR",
             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_DISABLED", "OUTPUT_CONTINUATION_NO_PROGRESS",
             "OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_PROTOCOL_INVALID",
             "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "CLIENT_TOOL_RESULTS_REQUIRED", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED",
             "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", PrivacyFailureEvidence.CODE
-        ) + GatewayEngineeringPrerequisites.codes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES +
+        ) + ExecutionCompletionDiagnostics.codes + GatewayEngineeringPrerequisites.codes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES +
             dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES + setOf(dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE) +
             dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes +
             dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.entries.map { it.code } +
@@ -125,12 +125,14 @@ data class ProviderFailureReceipt(
             val code = failure.errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf { it in ERROR_CODES } ?: if (status != null && status >= 400) "HTTP_ERROR" else "UNCLASSIFIED_PROVIDER_FAILURE"
             val failedStage = (failure.failureDetails?.get("failed_stage") as? JsonPrimitive)?.content
             val reviewStage = (failure.failureDetails?.get("review_stage") as? JsonPrimitive)?.content
+            val applicationGuard = code in setOf("WORKSPACE_EVIDENCE_CONFLICT", "GITHUB_REVIEW_COMPARISON_REQUIRED")
+            val comparisonPrerequisite = failedStage == "review_comparison"
             val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             val invocationId = failure.invocationId ?: classified.invocationId
-            val matchingUsage = usage?.takeUnless { failure.localBudgetRefusal }?.takeIf {
+            val matchingUsage = usage?.takeUnless { failure.localBudgetRefusal || applicationGuard || comparisonPrerequisite }?.takeIf {
                 if (invocationId != null || it.invocationId != null) invocationId != null && invocationId == it.invocationId else role != "github-delivery"
             }
-            val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)
+            val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)?.takeUnless { applicationGuard || comparisonPrerequisite }
             // A finish-only stream frame cannot hide usage already attached to
             // this failure. Never fill it from another invocation's last frame.
             val correlatedUsage = matchingUsage?.copy(
@@ -156,10 +158,11 @@ data class ProviderFailureReceipt(
                 classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
             val privacyAdmissionRejected = code == PrivacyFailureEvidence.CODE && failedStage == "provider_admission"
             val stage = when {
+                applicationGuard || comparisonPrerequisite -> ProviderFailureStage.ENGINEERING_GUARD
                 // The failed preparation stage does not establish whether prior
                 // work in this run was dispatched or has an uncertain outcome.
                 profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected || privacyAdmissionRejected || failure.localBudgetRefusal -> ProviderFailureStage.ADMISSION
-                classified.isUserInputRequired || classified.isEngineeringSetup || code.startsWith("MODEL_PREPARATION_") -> ProviderFailureStage.ADMISSION
+                classified.isUserInputRequired || classified.isEngineeringSetup || code == "GITHUB_TASK_IDENTITY_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" && failedStage in setOf("request_validation", "provider_admission", "binding_admission", "message_admission", "conversation_admission", "execution_admission") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProviderFailureStage.ENGINEERING_GUARD
                 classified.dispatched == false && failedStage in setOf("provider_admission", "connection_preflight", "backend_admission", "request_validation", "message_admission", "conversation_admission") -> ProviderFailureStage.ADMISSION
@@ -204,13 +207,15 @@ data class ProviderFailureReceipt(
                 generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
                 causeTypes = classified.causeTypes,
                 failureDomain = when {
+                    applicationGuard -> FailureDomain.APPLICATION_VERIFICATION
+                    comparisonPrerequisite -> if (code == "REVIEW_INPUT_REQUIRED") FailureDomain.APPLICATION_VERIFICATION else FailureDomain.TOOL_EXECUTION
                     profileSelectionRejected || githubCooldownActive || code == PrivacyFailureEvidence.CODE || failure.localBudgetRefusal -> FailureDomain.APPLICATION_VERIFICATION
                     githubRateResponse -> FailureDomain.TOOL_EXECUTION
                     classified.isUserInputRequired || classified.isEngineeringSetup || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
-                    code in setOf("GITHUB_TASK_INCOMPLETE", "GITHUB_VERIFICATION_INTERNAL_ERROR") || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION
+                    code in setOf("WORKSPACE_EVIDENCE_CONFLICT", "GITHUB_TASK_INCOMPLETE", "GITHUB_TASK_IDENTITY_CHANGED", "GITHUB_VERIFICATION_INTERNAL_ERROR") || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION
                     code in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES -> FailureDomain.APPLICATION_VERIFICATION
-                    code in setOf("TOOL_OUTCOME_UNKNOWN", "INVALID_ARGUMENTS", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "GITHUB_OPERATION_BLOCKED") -> FailureDomain.TOOL_EXECUTION
+                    code in setOf("RECONCILIATION_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "INVALID_ARGUMENTS", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "GITHUB_OPERATION_BLOCKED") -> FailureDomain.TOOL_EXECUTION
                     invocationId != null || status != null || code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES || code in setOf("TRANSPORT_ERROR", "OUTPUT_LIMIT", "INCOMPLETE_PROVIDER_STREAM", "PROVIDER_INVOCATION_FAILED") -> FailureDomain.PROVIDER
                     else -> FailureDomain.UNKNOWN
                 },

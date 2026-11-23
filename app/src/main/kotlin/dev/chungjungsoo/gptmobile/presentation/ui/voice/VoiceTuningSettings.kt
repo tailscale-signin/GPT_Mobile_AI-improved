@@ -46,7 +46,7 @@ internal fun VoiceTuningSettings(
     VoiceSettingsSection("Performance")
     VoiceCalibrationControl(benchmark)
     VoiceSynthesisStatus(feedback)
-    VoicePerformancePanel(history)
+    VoicePerformancePanel(history, feedback?.collectAsStateWithLifecycle()?.value)
 }
 
 @Composable
@@ -105,7 +105,24 @@ private fun VoiceSynthesisStatus(feedback: StateFlow<VoiceSynthesisFeedback>?) {
     val sample = feedback?.collectAsStateWithLifecycle()?.value ?: return
     if (sample.generatedAudioMs <= 0) return
     Text("${sample.executionProvider} · ${sample.threads} threads · ${if (sample.warm) "warm" else "cold"}", style = MaterialTheme.typography.labelLarge)
+    sample.executionEvidence?.let { evidence ->
+        Text("Selected ${evidence.selectedBackend.label} · ${if (evidence.verifiedAudio) "audio and timing validated" else "validation pending"}", style = MaterialTheme.typography.bodySmall)
+        if (evidence.profileAvailable == true) {
+            Text("${evidence.acceleratorKernels} accelerator / ${evidence.cpuKernels} CPU kernel events", style = MaterialTheme.typography.bodySmall)
+            Text("Shape preparation ${evidence.prepareMs} ms · profile ${evidence.profileId ?: "—"}${if (evidence.profileReused == true) " reused from this shape's first inference" else " from this shape's first inference"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Text("Kernel profile ${if (evidence.profileAvailable == false) "not collected" else "unavailable"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        evidence.currentPrepareMs?.let { Text("Current preparation $it ms · ${evidence.cachedShapeCount ?: "—"}/${evidence.cacheLimit ?: "—"} exact shapes retained", style = MaterialTheme.typography.bodySmall) }
+    }
     Text("${sample.synthesisMs} ms synthesis / ${sample.generatedAudioMs} ms audio · ${sample.bufferedAudioMs} ms queued · ${sample.underruns} underruns", style = MaterialTheme.typography.bodySmall)
+    Text("${sample.bufferMs} ms reserve · ${sample.bufferState}", style = MaterialTheme.typography.bodySmall)
+    if (sample.productionRatio?.let { it >= 1.0 } == true) {
+        Text("Speech is being prepared more slowly than it plays. A larger reserve helps; a faster verified backend can reduce pauses.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    if (sample.engineReused && !sample.warmAtRequest) {
+        Text("Reused the model prepared while this reply was waiting.", style = MaterialTheme.typography.bodySmall)
+    }
     Text("${sample.route} · ${sample.clockBasis}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     sample.cancellationMs?.let { Text("Last cancellation: $it ms", style = MaterialTheme.typography.bodySmall) }
 }

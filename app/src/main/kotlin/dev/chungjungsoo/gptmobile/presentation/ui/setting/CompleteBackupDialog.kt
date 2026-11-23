@@ -88,6 +88,11 @@ fun CompleteBackupDialog(
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Text(if (restoreOnly) "Restore" else stringResource(R.string.backup_and_restore), style = MaterialTheme.typography.headlineSmall)
+                    Text("Backups are saved snapshots. They do not keep two devices in sync.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    dev.chungjungsoo.gptmobile.presentation.common.DetailsSection(title = "Moving to another device") {
+                        Text("Save the backup to a location you can open on the new device, then choose Restore there. Keep its password or separate recovery key available. Review the included sections before restoring.", style = MaterialTheme.typography.bodySmall)
+                        Text("Profiles without credentials need their API keys again. Local model files must be included or downloaded again; an NPU package still needs to match the new device. Recheck Gateway connectivity and send a short message after restore.", style = MaterialTheme.typography.bodySmall)
+                    }
                     if (!restoreOnly) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)

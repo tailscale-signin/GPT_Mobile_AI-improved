@@ -5,6 +5,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePlaybackStartTest {
+    @Test fun timedCaptionRefreshesOnlyPresentationSignalsAndRejectsCancelledPlayback() {
+        val audio = ObservedAudio()
+        val session = session(audio)
+        audio.listeners.last().final("Read this")
+        val text = "These are the spoken words."
+        session.reply("first", text)
+        val timed = audio.timedRanges.single()
+        val sample = VoiceCaptionTiming("playback", 100, 400, 150, 1_000, 1_000_000_000, true, bufferedEndFrame = 1_000)
+        timed(0, text, 6..8, sample)
+        assertEquals(null, session.captionCursors.value.timing)
+        audio.starts.last().invoke()
+        timed(0, text, 6..8, sample)
+        assertEquals(6..8, session.captionCursors.value.range)
+        assertEquals(sample, session.captionCursors.value.timing)
+        val state = session.presentationStates.value
+        val frozen = sample.copy(presentedFrame = 200, playing = false)
+        timed(0, text, 6..8, frozen)
+        assertEquals(frozen, session.captionCursors.value.timing)
+        assertEquals(state, session.presentationStates.value)
+        session.stopSpeaking()
+        timed(0, text, 10..12, sample)
+        assertEquals(null, session.captionCursors.value.timing)
+        assertEquals(null, session.captionCursors.value.range)
+        session.close()
+    }
+
     @Test fun preparingPersistsUntilTheOutputStartsForWholeAndStreamedReplies() {
         for (streaming in listOf(false, true)) {
             val audio = ObservedAudio().apply { streamsReplies = streaming }
@@ -86,10 +112,10 @@ class VoicePlaybackStartTest {
         val audio = ObservedAudio()
         val session = session(audio)
         audio.listeners.last().final("Explain this")
-        session.streamReply("reply", "Here are four words ")
+        session.streamReply("reply", "Here are four words. ")
         val firstStart = audio.starts.single()
         firstStart()
-        session.reply("reply", "Here are four words followed by the final answer.")
+        session.reply("reply", "Here are four words. This is the final answer.")
         audio.completions.first().invoke()
         assertEquals(2, audio.starts.size)
         assertEquals(VoicePhase.PREPARING, session.state.phase)
@@ -187,6 +213,10 @@ class VoicePlaybackStartTest {
         private var observer: (() -> Unit)? = null
         val listeners = mutableListOf<VoiceAudio.Listener>()
         val ranges = mutableListOf<(Int, String, IntRange) -> Unit>()
+        val timedRanges = mutableListOf<(Int, String, IntRange, VoiceCaptionTiming) -> Unit>()
+        override fun bindTimedSpokenRange(spoken: ((Int, String, IntRange, VoiceCaptionTiming) -> Unit)?) {
+            spoken?.let(timedRanges::add)
+        }
         override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
             spoken?.let(ranges::add)
         }

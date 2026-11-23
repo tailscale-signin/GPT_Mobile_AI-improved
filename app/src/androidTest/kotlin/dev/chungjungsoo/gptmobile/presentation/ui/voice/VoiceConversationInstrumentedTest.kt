@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
@@ -10,6 +11,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
@@ -31,16 +33,19 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor
+import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionTiming
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import java.io.File
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -64,15 +69,78 @@ class VoiceConversationInstrumentedTest {
         }
         val microphone = compose.onNodeWithTag("voice_microphone_toggle").assertIsDisplayed()
         val initialBounds = microphone.fetchSemanticsNode().boundsInRoot
-        compose.onNodeWithTag("voice_caption_text").assertDoesNotExist()
+        compose.onNodeWithTag("voice_caption_text").assertTextEquals("Preparing a short reply.")
         compose.runOnIdle { session.value = session.value.copy(phase = VoicePhase.SPEAKING, reply = fullReply) }
-        compose.onNodeWithTag("voice_caption_text").assertTextEquals(fullReply)
+        compose.onNodeWithTag("voice_caption_text").assertTextEquals(VoiceSpeechText.project(fullReply))
         compose.onNodeWithTag("voice_live_captions").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("voice_caption_text").assertIsDisplayed()
         microphone.assertIsDisplayed()
         assertEquals(initialBounds, microphone.fetchSemanticsNode().boundsInRoot)
         microphone.performClick()
         compose.runOnIdle { assertEquals(1, stops) }
+    }
+
+    @Test fun readablePreviewKeepsItsOpacityAndReaderWhenTimingArrivesAndSameTextReplayStartsFresh() {
+        val reply = (1..40).joinToString("\n") { "Caption line $it" }
+        val session = mutableStateOf(VoiceState(phase = VoicePhase.PREPARING, reply = reply, captionPresentationId = 1))
+        val cursor = MutableStateFlow(VoiceCaptionCursor(presentationId = 1))
+        compose.setContent {
+            MaterialTheme(colorScheme = lightColorScheme(primary = Color.Magenta, onSurface = Color.Black)) {
+                Box(Modifier.background(Color.White)) {
+                    VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp), cursor)
+                }
+            }
+        }
+        val caption = compose.onNodeWithTag("voice_caption_text")
+        fun range() = caption.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+        fun visibleInk(): Int {
+            val bitmap = compose.onNodeWithTag("voice_live_captions").captureToImage().asAndroidBitmap()
+            var count = 0
+            for (y in 0 until bitmap.height) {
+                for (x in 0 until bitmap.width) {
+                    val pixel = bitmap.getPixel(x, y)
+                    if (android.graphics.Color.alpha(pixel) > 128 && android.graphics.Color.red(pixel) < 160 && android.graphics.Color.green(pixel) < 160 && android.graphics.Color.blue(pixel) < 160) count++
+                }
+            }
+            return count
+        }
+        compose.waitForIdle()
+        assertEquals("The preaudio answer starts at its first line", 0f, range().value(), 1f)
+        caption.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 400f) }
+        compose.waitForIdle()
+        val readingPosition = range().value()
+        assertTrue(readingPosition > 0f)
+        compose.onNodeWithTag("voice_caption_return_to_live").assertIsDisplayed()
+        val previewInk = visibleInk()
+        assertTrue(previewInk > 0)
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle {
+            session.value = session.value.copy(phase = VoicePhase.SPEAKING)
+            cursor.value = VoiceCaptionCursor(
+                0..6,
+                timing = VoiceCaptionTiming("first-audio", 0, 2400, 480, 24000, System.nanoTime(), true, bufferedEndFrame = 4800),
+                presentationId = 1
+            )
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        assertEquals("The first timing ID must not replace the manual reader", readingPosition, range().value(), 1f)
+        assertTrue("An already readable preview must not fade back to zero", visibleInk() >= previewInk / 2)
+        compose.mainClock.autoAdvance = true
+        compose.runOnIdle { session.value = session.value.copy(phase = VoicePhase.PAUSED) }
+        compose.waitForIdle()
+        assertEquals(readingPosition, range().value(), 1f)
+
+        // Deliver only the replacement snapshot: a collector need not see an empty intermediate.
+        compose.runOnIdle {
+            session.value = session.value.copy(phase = VoicePhase.PREPARING, captionPresentationId = 2)
+            cursor.value = cursor.value.copy(projectedText = "A stale caption from the preceding playback")
+        }
+        compose.waitForIdle()
+        caption.assertTextEquals(reply)
+        assertEquals("A same-text replay starts a new reader at the first line", 0f, range().value(), 1f)
+        compose.onNodeWithTag("voice_caption_return_to_live").assertDoesNotExist()
     }
 
     @Test fun captionsWaitForRestoredPreferencesAndExposeCheckedState() {
@@ -123,30 +191,50 @@ class VoiceConversationInstrumentedTest {
         compose.onNodeWithTag("voice_profile_picker").assertIsNotEnabled()
     }
 
-    @Test fun onlyTheCenterLineHighlightsAndSilenceKeepsItsPlace() {
+    @Test fun drawnHighlightsKeepGlyphGeometryAndSilenceKeepsItsPlace() {
         val reply = "One\nTwo\nThree fish\nFour\nFive\nSix"
         val session = mutableStateOf(VoiceState(phase = VoicePhase.SPEAKING, reply = reply, spokenRange = 14..17))
-        compose.setContent { MaterialTheme { VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp)) } }
+        compose.setContent {
+            MaterialTheme(colorScheme = lightColorScheme(primary = Color.Magenta, onSurface = Color.Black)) {
+                VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp))
+            }
+        }
         fun line(value: String): TextLayoutResult {
             val results = mutableListOf<TextLayoutResult>()
             compose.onNodeWithText(value, useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
             return results.single()
         }
-        val active = line("Three fish").layoutInput
-        val mark = active.text.spanStyles.single()
-        assertEquals("fish", active.text.text.substring(mark.start, mark.end))
-        assertEquals(FontWeight.Bold, mark.item.fontWeight)
-        assertEquals(null, mark.item.textDecoration)
-        assertEquals(active.style.fontSize.value * .75f, line("Two").layoutInput.style.fontSize.value, .01f)
-        assertEquals(active.style.fontSize.value * .5f, line("One").layoutInput.style.fontSize.value, .01f)
-        compose.onNodeWithText("Six", useUnmergedTree = true).assertDoesNotExist()
+        fun bounds(value: String) = compose.onNodeWithText(value, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        fun accentPixels(): Int {
+            val image = compose.onNodeWithTag("voice_live_captions").captureToImage().asAndroidBitmap()
+            var count = 0
+            for (y in 0 until image.height) {
+                for (x in 0 until image.width) {
+                    val pixel = image.getPixel(x, y)
+                    if (android.graphics.Color.red(pixel) > 180 && android.graphics.Color.blue(pixel) > 180 && android.graphics.Color.green(pixel) < 120) count++
+                }
+            }
+            return count
+        }
+        compose.waitForIdle()
+        val focused = bounds("Three fish")
+        val geometry = line("Three fish")
+        assertEquals(focused.height * .75f, bounds("Two").height, 1f)
+        assertEquals(focused.height * .5f, bounds("One").height, 1f)
+        assertTrue("The spoken glyphs must actually draw in the theme colour", accentPixels() > 0)
+        compose.runOnIdle { session.value = session.value.copy(spokenRange = 8..12) }
+        compose.waitForIdle()
+        val movedWord = line("Three fish")
+        for (offset in "Three fish".indices) assertEquals(geometry.getBoundingBox(offset), movedWord.getBoundingBox(offset))
+        assertEquals(focused, bounds("Three fish"))
         compose.runOnIdle { session.value = session.value.copy(spokenRange = null) }
-        assertTrue(line("Three fish").layoutInput.text.spanStyles.isEmpty())
-        assertEquals(active.style.fontSize, line("Three fish").layoutInput.style.fontSize)
+        compose.waitForIdle()
+        assertEquals(0, accentPixels())
+        assertEquals(focused, bounds("Three fish"))
         compose.runOnIdle { session.value = session.value.copy(spokenRange = 19..22) }
-        assertEquals(active.style.fontSize, line("Four").layoutInput.style.fontSize)
-        assertTrue(line("Three fish").layoutInput.text.spanStyles.isEmpty())
-        compose.onNodeWithText("One", useUnmergedTree = true).assertDoesNotExist()
+        compose.waitForIdle()
+        assertEquals(focused, bounds("Four"))
+        assertTrue(accentPixels() > 0)
     }
 
     @Test fun accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing() {
@@ -207,6 +295,52 @@ class VoiceConversationInstrumentedTest {
         assertTrue("An automatic move must keep following later spoken words", range().value() > middlePosition)
     }
 
+    @Test fun returnToLiveUsesTheCurrentSpokenLineAndDoesNotChangePlayback() {
+        val reply = (1..40).joinToString("\n") { "Line $it" }
+        fun spoken(line: Int): IntRange {
+            val start = reply.indexOf("Line $line\n")
+            return start until start + "Line $line".length
+        }
+        val session = mutableStateOf(VoiceState(phase = VoicePhase.SPEAKING, reply = reply, spokenRange = spoken(12)))
+        compose.setContent { MaterialTheme { VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp)) } }
+        val caption = compose.onNodeWithTag("voice_caption_text")
+        val returnToLive = compose.onNodeWithTag("voice_caption_return_to_live")
+        fun range() = caption.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+        compose.waitForIdle()
+        val lineStep = range().maxValue() / 39f
+        val viewport = caption.fetchSemanticsNode().boundsInRoot
+        returnToLive.assertDoesNotExist()
+        caption.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -2.5f * lineStep) }
+        compose.waitForIdle()
+        val readingPosition = range().value()
+        assertEquals(8.5f * lineStep, readingPosition, 1f)
+        returnToLive.assertIsDisplayed().assertTextEquals("Return to live")
+        assertEquals("Showing the control must not move the caption viewport", viewport, caption.fetchSemanticsNode().boundsInRoot)
+        compose.runOnIdle { session.value = session.value.copy(spokenRange = spoken(23)) }
+        compose.waitForIdle()
+        assertEquals(readingPosition, range().value(), 1f)
+        val beforeReturn = session.value
+        returnToLive.performClick()
+        compose.waitForIdle()
+        assertEquals("The control only changes the reader; audio state stays untouched", beforeReturn, session.value)
+        assertEquals(22f * lineStep, range().value(), 1f)
+        assertTrue("Return to live must use the spoken line, not the end of the reply", range().value() < range().maxValue())
+        returnToLive.assertDoesNotExist()
+        compose.runOnIdle { session.value = session.value.copy(spokenRange = spoken(27)) }
+        compose.waitForIdle()
+        assertEquals(26f * lineStep, range().value(), 1f)
+        compose.runOnIdle { session.value = session.value.copy(phase = VoicePhase.PAUSED, spokenRange = null) }
+        compose.waitForIdle()
+        caption.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -2.5f * lineStep) }
+        compose.waitForIdle()
+        val paused = session.value
+        returnToLive.assertIsDisplayed().performClick()
+        compose.waitForIdle()
+        assertEquals("Returning while paused must not resume audio", paused, session.value)
+        assertEquals(26f * lineStep, range().value(), 1f)
+        returnToLive.assertDoesNotExist()
+    }
+
     @Test fun correctedCaptionTextKeepsTheReadersPositionAndControlsStable() {
         val original = (1..40).joinToString("\n") { "Recognized phrase $it" }
         val session = mutableStateOf(VoiceState(phase = VoicePhase.LISTENING, transcript = original))
@@ -242,6 +376,7 @@ class VoiceConversationInstrumentedTest {
             }
         }
         compose.onNodeWithTag("voice_microphone_toggle").assertIsDisplayed()
+        compose.onNodeWithText("Go ahead, I’m listening.").assertIsDisplayed()
         capture("listening-dark")
         compose.runOnIdle {
             dark.value = false

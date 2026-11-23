@@ -1,0 +1,147 @@
+{
+  "task_id": "phone-index-nested-witness-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+  "working_branch": "work/phone-index-nested-witness-8318",
+  "parent_pr": 2254,
+  "created_at": "2026-11-23T05:06:02.215381+00:00",
+  "intent": "Preserve the owner phone-index interruption draft, reproduce nested parent cancellation retaining UNKNOWN in the actual Combined budget, and propose a minimal exact-invocation/physical-owner witness correction in a separate local commit.",
+  "ownership": "Isolated contribution only. Acceptance retains shared integration; no foreign checkout, remote, workflow or publication mutation.",
+  "status": "READY_FOR_INTEGRATION",
+  "owner_snapshot": {
+    "worktree": "/workspace/scratch/e36c814d2a6d/phone-index-recovery-work",
+    "branch": "work/phone-index-recovery-8318",
+    "head": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "e197ff4343e12fafde0e0be82c00067c5f7f0a55c8bc1fa7ea77db66380a3673",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": "3e67f5ff4905103bc72e719f9d8a1ce93b6dea2d87c29051dd33e6f8bfd052d9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt": "a66d9bdaa40655f0fa7ada9be304e8fabc458fd307a6bec171007ac1fc02bee9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt": "017756406c5b964d45eeacca2ae85237b1dc8fdffdfabfedc6fa28c7a19d6285",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepository.kt": "6a0aeb4384dcc2f197fd2dd22ce658cac6fcd77f86dc41ac688b6955b068e2df",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt": "4c7a4cbf36e9b24038177d4d71c4fd7b1a19420f4813826561a12449f8a796a7",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt": "01f50ae4665069e86c19c853261350ef8cbc736c9e310e380b5d8650287522f2",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt": "26428427a81dd279dbef7ab9ef555245b3f24103715f38bfb68a5cd4ed6315e6"
+    },
+    "before_after_hash_check": true,
+    "independent_failing_probe_snapshot_matches": true,
+    "local_snapshot_commit": "114eed315559940b083c724a1e3e311844ab06e1"
+  },
+  "validation": [
+    {
+      "kind": "actual-source bounded component baseline",
+      "source_commit": "9767fcf01e5c0a662e8150248efb6c364acf0f6b",
+      "result": "EXPECTED_RED",
+      "tests": 5,
+      "failures": 1,
+      "seconds": 21.812,
+      "failure": "PhoneIndexCombinedBudgetTest.nestedParentCancellationSettlesStoppedLocalWork: expected SETTLED, actual UNKNOWN",
+      "compiler_heap_mib": 512,
+      "test_heap_mib": 512,
+      "active_cpus": 2,
+      "source_freeze": "/workspace/scratch/6b5c8b09c56b/phone-index-nested-witness-proof/baseline-inputs.json",
+      "log": "/workspace/scratch/6b5c8b09c56b/phone-index-nested-witness-proof/baseline/tests.log",
+      "log_sha256": "9711ff24d5072bfb64e691776ed4378e085ed5bce69b1225455087dcb077fdf8",
+      "source_manifest_sha256": "3ade6d1404232398ad8f10928b84066f98db6ecbd9390a5c4342f3cf4e370086"
+    },
+    {
+      "kind": "actual-source bounded component corrected run",
+      "source_commit": "4212aed028f7cba74bb9607dc58f9546fc9d5355",
+      "result": "PASS",
+      "tests": 7,
+      "failures": 0,
+      "seconds": 21.541,
+      "compiler_heap_mib": 512,
+      "test_heap_mib": 512,
+      "active_cpus": 2,
+      "log": "/workspace/scratch/6b5c8b09c56b/phone-index-nested-witness-proof/corrected/tests.log",
+      "log_sha256": "be144ec395a8ad9de9a347239b5d7050083576fbedcc76b2b353dfe4b3b5c5b6",
+      "source_freeze": "/workspace/scratch/6b5c8b09c56b/phone-index-nested-witness-proof/corrected-inputs.json",
+      "source_manifest_sha256": "1ff013e24b879e64438a4fcc3ede2279da9b3c4b96ecffbbdc90076e15f930bb",
+      "tests_jar_sha256": "9f24771e6db74dc7f723106c9bb139482f96491d9225c5ea1d26f608d9ca2f81"
+    }
+  ],
+  "limits": [
+    "Actual-source bounded component probes only: actual Combined budget/store/serialization, native facade/repository and selected current method excerpts; Android/auth/HTTP/platform and unrelated integrations retain explicit host ports.",
+    "The fixed sealed plan does not execute CombinedPolicyResolver; no full Android, real GitHub network, physical device or private-report reproduction claim.",
+    "Returned local deadline results use normal AgentRunner receipt/checkpoint persistence by source review. Parent cancellation rethrows in AgentRunner, whose durable tool batch stores only returned results; AgentRunner parent-cancel/restart can conservatively remain TOOL_OUTCOME_UNKNOWN and is not qualified here.",
+    "Original cancellation, once-only charging, source/permission/cache ownership and unrelated Gateway UNKNOWN obligations remain required.",
+    "Generated metadata, final source integration and integrated canonical/Android gates remain with integration owner."
+  ],
+  "proposal": {
+    "source": "/workspace/scratch/abfa9f0e2c2d/analysis/phone-index-combined-probe/proposed-nested-witness.patch",
+    "sha256": "20947b0388da6b7ef528ed4960bbdb9c4f7c4c13b723049b229fb554dabac1dc",
+    "decision": "Adopt the independently reviewed two-file patch exactly; no second implementation.",
+    "applied_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt": "ecefe6d1be56afc1b7f0be8960adc40bb7b734170f502adc581a89f364b0091c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": "42f2be2ae4403f2872d5c02269b16d2c69fb9e95918980bc8e750529962faf93"
+    },
+    "verbatim_commit": "c2106a64d7f40d790beac1e26fcd4747dc7af2d3",
+    "formatting_only_commit": "4212aed028f7cba74bb9607dc58f9546fc9d5355",
+    "final_source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt": "ecefe6d1be56afc1b7f0be8960adc40bb7b734170f502adc581a89f364b0091c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": "8c2d405d0aa868e86d39bbdac14aea49a49918b6ec57d16b43ac216738b55b93",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedBudgetTest.kt": "a0ba1b9280426d6109de3fa39d0b09889f3be554bc75dabef9b8fbf792e9f7aa",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexWitnessReuseTest.kt": "dfd8b9cb406d48b8c8da49a33ff9f73ea6ffc18c1bb061ef5dcb9596d97e0a2f"
+    },
+    "semantic_policy": "Reuse only an open, nonconflicting witness for the exactly equal ToolCall under an already-budgeted wrapper whose current dispatch scope has the same physical invocation and root budget. Otherwise allocate a fresh witness; retain all native admission and unwind checks."
+  },
+  "regression": {
+    "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedBudgetTest.kt",
+    "origin_probe_sha256": "72d9bec9d19864c01188fd594cfd4566820ee0875f0c6d095b9a75440a96796c",
+    "adaptations": [
+      "Tracked class name and Kotlin formatting/imports",
+      "Explicit original cancellation identity retained through bounded cause traversal"
+    ],
+    "controls": [
+      "Single/nested deadline reservation settlement",
+      "Single/nested parent-cancellation settlement and original cancellation",
+      "Exactly one charged operation and duplicate prepared-invocation refusal",
+      "Fresh durable-store readback and no fabricated successful progress",
+      "Unrelated Gateway UNKNOWN remains unchanged and cannot be replayed"
+    ],
+    "baseline_commit": "9767fcf01e5c0a662e8150248efb6c364acf0f6b",
+    "reuse_controls": "Two focused controls reject changed call/connection/arguments, a different physical owner, and closed/conflicting witnesses."
+  },
+  "updated_at": "2026-11-23T05:25:46.986121+00:00",
+  "formatting": {
+    "status": "PASS",
+    "tool": "ktlint1.3.1",
+    "compiler_heap_mib": 512,
+    "active_cpus": 2,
+    "scope": "Two modified production files and two added regression files.",
+    "detail": "The exact reviewed patch is preserved in c2106a64. Commit4212aed028 applies only the pinned formatter condition wrapping; all non-whitespace bytes are identical.",
+    "log": "/workspace/scratch/6b5c8b09c56b/phone-index-nested-witness-proof/ktlint-final.log",
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "source_commit": "4212aed028f7cba74bb9607dc58f9546fc9d5355",
+  "proof": {
+    "receipt": "/workspace/scratch/6b5c8b09c56b/phone-index-nested-witness-proof/verification.json",
+    "sha256": "1dfc3a866e502404e5aa9d91b6564ddf7c6c5dac51baa83fc29d32cbcec62180",
+    "baseline_repository_inputs": 65,
+    "corrected_repository_inputs": 66,
+    "baseline_compiled_inputs": 92,
+    "corrected_compiled_inputs": 93,
+    "identical_dependencies": 60,
+    "changed_existing_inputs": "Exactly PhoneIndexInterruption.kt and ToolExecutionBudget.kt; one additional reuse-guard test input.",
+    "unchanged_owner_files": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepository.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt"
+    ],
+    "verification_script": "/workspace/scratch/6b5c8b09c56b/phone-index-nested-witness-proof/verify_receipt.py",
+    "verification_script_sha256": "24e9cf0b90992e0bced54f0b522e5f3b59eaa7a51099afde427d25118c59c10a",
+    "independent_review": "voice_repo_review independently cleared immutable4212 source, regression meaning and exact 65/66 repository,92/93 compiled-input and60 dependency hashes; no rerun."
+  },
+  "integration": {
+    "ownership": "Acceptance retains shared integration; this branch is a local immutable proposal and has not been pushed.",
+    "base_sha": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+    "latest_known_public_head": "d5863c2e6a30319c8eda21578f7a4924987287b3",
+    "source_scope": "Six owner production files, two original owner tests, two added regression files, and this checkpoint. Only the reviewed helper/budget correction alters the original owner draft.",
+    "remaining_gates": "Integration owner preserves current public source, updates generated inventory/release scope as necessary, and runs applicable integrated canonical/Android gates.",
+    "no_additional_claim": "This does not establish that the older private phone report was reproduced, or that durable AgentRunner parent-cancellation restart is settled."
+  }
+}

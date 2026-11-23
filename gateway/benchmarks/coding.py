@@ -6,6 +6,7 @@ import math
 
 from benchmarks import fixtures, sandbox
 from benchmarks.contracts import CODING_WEIGHTS, digest
+from benchmarks.verified_python import VERSION as INTERPRETER_POLICY, fingerprint as interpreter_digest
 from v14.engineering_backend import blob_sha, prepare_changes
 
 
@@ -34,6 +35,12 @@ PATCH_REPAIR_HINTS = {
     'REGRESSION_VECTOR_INVALID': 'Each vector needs an input object and expected value.',
     'PATCH_OUTPUT_TOO_LARGE': 'Reduce the output to a bounded patch.',
     'PATCH_PARSE_OR_ANCHOR_INVALID': 'Verify JSON structure, exact source anchors and blob hashes.',
+    'PATCH_LANGUAGE_UNSUPPORTED': 'Use the bounded Python language and imports declared in this task prompt.',
+    'CANDIDATE_SYNTAX_ERROR': 'Return syntactically valid source for the declared language.',
+    'CANDIDATE_EXECUTION_ERROR': 'Keep module initialization valid under the declared language contract.',
+    'CANDIDATE_STEP_LIMIT': 'Use a terminating algorithm within the declared interpreter step budget.',
+    'CANDIDATE_DEADLINE': 'Use an algorithm that finishes within the frozen task execution deadline.',
+    'CANDIDATE_OUTPUT_LIMIT': 'Return bounded JSON results without unbounded expansion.',
 }
 
 
@@ -70,7 +77,9 @@ def rejected_submission(task, code):
     return {
         'id': task['id'], 'family': task['family'], 'title': task['title'],
         'capstone': task['capstone'], 'fixtureDigest': task['manifestDigest'],
+        'problemId': task.get('problemId'), 'taskDigest': task['manifestDigest'], 'graderDigest': task.get('graderDigest'),
         'status': 'FAILED', 'executed': False, 'graded': True, 'resolved': False,
+        'outcomeKnown': True, 'failureDomain': 'MODEL',
         'qualified': False,
         'integrity': 'VIOLATION' if safe in {'PATCH_SCOPE_VIOLATION', 'PATCH_PATH_INVALID'} else 'VERIFIED',
         'error': safe,
@@ -143,7 +152,11 @@ def source_design(candidate):
             parsed = ast.parse(source)
             name = 'handle' if path == 'service.py' else 'solve'
             function = next((x for x in parsed.body if isinstance(x, ast.FunctionDef) and x.name == name), None)
-            checks.append(function is not None and len(function.args.args) == (1 if path == 'service.py' else 2))
+            arity = 1 if path == 'service.py' else 2
+            positional = [*function.args.posonlyargs, *function.args.args] if function is not None else []
+            checks.append(function is not None and len(positional) - len(function.args.defaults) <= arity
+                          and (len(positional) >= arity or function.args.vararg is not None)
+                          and not any(default is None for default in function.args.kw_defaults))
         except (SyntaxError, ValueError, RecursionError):
             checks.append(False)
     return sum(checks) / len(checks)
@@ -152,6 +165,8 @@ def source_design(candidate):
 def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None, prior=None):
     result = {'id': task['id'], 'family': task['family'], 'title': task['title'],
               'capstone': task['capstone'], 'fixtureDigest': task['manifestDigest'],
+              'problemId': task['problemId'], 'taskDigest': task['manifestDigest'],
+              'graderDigest': task.get('graderDigest'),
               'status': 'FAILED', 'executed': False, 'graded': False, 'resolved': False,
               'qualified': False,
               'integrity': 'VERIFIED', 'dimensions': {key: None for key in CODING_WEIGHTS}}
@@ -205,16 +220,37 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None,
         result.update(status='ERROR', integrity='VIOLATION', error='HOST_FIXTURE_INPUT_CHANGED',
                       executed=observation.get('executed'), hostInputBoundary='CHANGED')
         return result
+    if observation.get('error') == 'GRADER_LANGUAGE_UNSUPPORTED':
+        rejected = rejected_submission(task, 'PATCH_LANGUAGE_UNSUPPORTED')
+        return dict(rejected, executed=observation.get('executed') is True,
+                    taskDigest=task['manifestDigest'], problemId=task['problemId'], graderDigest=task.get('graderDigest'))
+    if observation.get('executed') is True and observation.get('error') in {
+            'CANDIDATE_SYNTAX_ERROR', 'CANDIDATE_EXECUTION_ERROR', 'CANDIDATE_STEP_LIMIT', 'CANDIDATE_DEADLINE', 'CANDIDATE_OUTPUT_LIMIT'}:
+        return dict(rejected_submission(task, observation['error']), executed=True,
+                    failureStage='CANDIDATE_EVALUATION', outputDigest=observation.get('outputDigest'),
+                    validationMs=observation.get('durationMs'))
     if observation.get('executed') is not True or observation.get('status') == 'ERROR':
         result.update(status='ERROR', error=observation.get('error', 'SANDBOX_EXECUTION_NOT_CONFIRMED'),
                       executed=observation.get('executed'), outputDigest=observation.get('outputDigest'))
         return result
     outputs = observation.get('outputs', [])
     received = len(outputs) == len(inputs)
-    # The driver shares a process with candidate code. Its input_preserved flag
-    # is an untrusted observation, not independent input-mutation verification.
-    # Retain measured outputs and patch scope, but the required preservation
-    # contract stays unknown and cannot qualify a complete task or score.
+    # Candidate AST runs inside the bounded language interpreter, without Python
+    # frame/global/import authority. The evaluator, not candidate return data,
+    # owns snapshots and receipt fields. Legacy same-process flags do not qualify.
+    verification = observation.get('verification')
+    verified = (received and isinstance(verification, dict)
+                and verification.get('policy') == INTERPRETER_POLICY
+                and verification.get('authority') == 'INTERPRETER_OWNED'
+                and verification.get('languageScope') == 'BOUNDED_PYTHON_SUBSET'
+                and verification.get('sourceDigest') == interpreter_digest(candidate)
+                and verification.get('inputDigest') == interpreter_digest(inputs)
+                and verification.get('outputDigest') == interpreter_digest(outputs)
+                and verification.get('observedInputs') == len(inputs)
+                and type(verification.get('preservedInputs')) is int
+                and verification['preservedInputs'] == sum(row.get('input_preserved') is True for row in outputs)
+                and all(type(row.get('input_preserved')) is bool for row in outputs))
+    preserved = verified and verification['preservedInputs'] == len(inputs)
     outcomes = [received and 'output' in outputs[i] and same(outputs[i]['output'], expected)
                 for i, expected in enumerate(targets)]
     repeated = [received and 'output' in outputs[len(vectors) + i] and same(outputs[len(vectors) + i]['output'], expected)
@@ -240,16 +276,17 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None,
     functional = outcomes[:-2] or outcomes
     regression = outcomes[-2:]
     output_correct = bool(outcomes) and all(outcomes) and all(repeated)
-    result.update(executed=True, graded=True,
+    result.update(executed=True, graded=True, qualified=verified,
                   resolved=False, outputCorrect=output_correct,
-                  status='BLOCKED' if output_correct else 'FAILED',
+                  outcomeKnown=verified, failureDomain='MODEL' if verified else 'EVALUATOR',
+                  status='BLOCKED' if output_correct and not verified else 'FAILED',
                   dimensions={'functional': sum(functional) / len(functional),
                               'regression': sum(regression) / len(regression),
                               'tests': len(killed_faults) / len(task['sources']),
                               'diagnosis': sum(bool(x) for x in diagnosed) / len(task['sources']),
                               'design': source_design(candidate),
                               'workflow': 1.0, 'recovery': sum(repeated) / len(repeated),
-                              'safety': None, 'evidence': float(truthful)},
+                              'safety': float(preserved) if verified else None, 'evidence': float(truthful)},
                   checks={'hiddenPassed': sum(outcomes), 'hiddenTotal': len(outcomes),
                           'replayPassed': sum(repeated), 'replayTotal': len(repeated),
                           'validRegressionVectors': len(trusted_tests), 'bugRevealingRegressionVectors': sum(tested),
@@ -258,14 +295,15 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None,
                   uncoveredDefectModules=sorted(set(task['sources']) - killed_faults),
                   patchDigest=digest(candidate), outputDigest=observation.get('outputDigest'),
                   validationMs=observation.get('durationMs'), sandboxImageDigest=settings['sandbox_image'].split('@')[-1],
-                  executionScope='LOCAL_CONTAINER_NO_NETWORK',
+                  executionScope='ISOLATED_PYTHON_CONTRACT',
                   patchScopeVerification='PASSED',
-                  hostInputBoundary='PRESERVED', inputMutationVerification='NOT_VERIFIED',
-                  qualificationBlockers=['INPUT_PRESERVATION_NOT_VERIFIED'],
+                  hostInputBoundary='PRESERVED', inputMutationVerification='PASSED' if preserved else 'FAILED' if verified else 'NOT_VERIFIED',
+                  inputVerificationReceipt=verification if verified else None,
+                  qualificationBlockers=[] if verified else ['INPUT_PRESERVATION_NOT_VERIFIED'],
                   dimensionDefinitions={
                       'functional': 'Hidden contract vectors', 'regression': 'Empty/invalid request boundaries',
                       'tests': 'Correct model-authored regression vectors that detect each independently calibrated faulty module',
-                      'diagnosis': 'Exact changed source anchors identified in each faulty file',
+                      'diagnosis': 'Changed-source attribution; not a semantic diagnosis rating',
                       'design': 'Required module function interfaces parse and remain intact',
                       'workflow': 'Exact inspected blob identities and anchored patch contract',
                       'recovery': 'Same inputs remain correct after reversed-order repeated calls',
@@ -273,7 +311,19 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None,
                       'evidence': 'Candidate accurately lists changed files and does not claim unexecuted tests'})
     if observation.get('error'):
         result['error'] = observation['error']
-    result['score'] = None
+    # Core task success comes from the executed artifact. Source attribution,
+    # model-authored test suggestions and self-reported evidence are a secondary
+    # rubric; they cannot overturn correct behavior or repair incorrect behavior.
+    result['primaryOutcomePolicy'] = 'EXECUTED_BEHAVIOR_AND_INTEGRITY_V2'
+    result['secondaryRubricStatus'] = 'BEHAVIOR_AND_SOURCE_ATTRIBUTION'
+    result['heuristicDimensions'] = ['diagnosis']
+    result['resolved'] = verified and output_correct and preserved
+    if result['resolved']:
+        result['status'] = 'PASSED'
+        result['failureDomain'] = None
+    if verified and not preserved:
+        result['error'] = 'CANDIDATE_INPUT_MUTATION'
+    result['score'] = sum(CODING_WEIGHTS[key] * value for key, value in result['dimensions'].items()) if verified else None
     result['earned'] = sum(CODING_WEIGHTS[key] * score for key, score in result['dimensions'].items() if score is not None)
     result['possible'] = sum(CODING_WEIGHTS.values())
     result['unknownWeight'] = sum(CODING_WEIGHTS[key] for key, score in result['dimensions'].items() if score is None)

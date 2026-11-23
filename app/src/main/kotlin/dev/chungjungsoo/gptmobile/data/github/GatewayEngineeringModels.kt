@@ -211,7 +211,9 @@ data class GatewayEngineeringRequest(
     @SerialName("draft_repair") val draftRepair: GitHubDraftRepair? = null,
     @SerialName("sampling_policy") val samplingPolicy: GitHubSamplingSettings? = null,
     @SerialName("execution_mode") val executionMode: String? = null,
-    @SerialName("batch_policy_version") val batchPolicyVersion: Int? = null
+    @SerialName("batch_policy_version") val batchPolicyVersion: Int? = null,
+    // Retained pre-feature requests keep their exact omitted wire field on replay.
+    @SerialName("context_variant") val contextVariant: GitHubContextVariant? = null
 )
 
 @Serializable
@@ -320,7 +322,9 @@ data class GatewayEngineeringBinding(
     val localRunId: String? = null,
     val gatewayId: String? = null,
     val originalContext: GitHubConversationContext? = null,
-    val budgetSelection: GatewayEngineeringBudgetSelection? = null
+    val budgetSelection: GatewayEngineeringBudgetSelection? = null,
+    val workspaceCommand: GatewayWorkspacePendingCommand? = null,
+    val workspaceUnresolvedCommands: List<GatewayWorkspacePendingCommand> = emptyList()
 ) {
     /** Remote request identity stays immutable when a backup maps local conversation IDs. */
     val chatId: Int get() = localChatId ?: request.chatId

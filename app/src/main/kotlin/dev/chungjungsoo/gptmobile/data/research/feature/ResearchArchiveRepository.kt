@@ -23,7 +23,7 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
         if (chats != null && migrationStarted.compareAndSet(false, true)) {
             migrationScope.launch {
                 try {
-                    val allowed = (chats.chatRoomDao().getChatRooms() + chats.chatRoomDao().getArchivedChatRooms()).filterNot { it.isTemporary }.map { it.id }.toSet()
+                    val allowed = (chats.chatRoomDao().getChatRooms() + chats.chatRoomDao().getArchivedChatRooms()).filterNot { it.isTemporary || it.privacyModeLocked }.map { it.id }.toSet()
                     bodies.migrateFeatureHistory(allowed)
                 } catch (cancel: kotlinx.coroutines.CancellationException) {
                     throw cancel
@@ -95,10 +95,14 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
         if (researchHash(text) != version.contentHash) return null
         return text.takeIf { ResearchSourceRepair(database, bodies).classify(version, it).usable }
     }
-    suspend fun capture(source: ResearchSource, text: String, authority: String, publicSource: Boolean, chatId: Int, rootId: String, archive: Boolean, epoch: Long, ownerKind: String = "chat", ownerId: String = "$chatId:$rootId"): ResearchWorkVersion =
-        bodies.publishFeatureBody(text) { chunks ->
+    suspend fun capture(source: ResearchSource, text: String, authority: String, publicSource: Boolean, chatId: Int, rootId: String, archive: Boolean, epoch: Long, ownerKind: String = "chat", ownerId: String = "$chatId:$rootId"): ResearchWorkVersion {
+        if (!bodies.sharedSourceIndexAllowed(chatId) || chatId > 0 && chats?.chatRoomDao()?.getChatRoomsByIds(listOf(chatId))?.singleOrNull()?.privacyModeLocked == true) {
+            throw dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport()
+        }
+        return bodies.publishFeatureBody(text) { chunks ->
             ResearchArchiveIngestor.capture(database, source.copy(bodyChunks = chunks, passage = text.take(8000)), authority, publicSource, chatId, rootId, archive, epoch, researchHash(text), text.toByteArray().size.toLong(), ownerKind, ownerId)
         }
+    }
 
     /** Explicit standalone imports use their own owner; they do not invent a conversation. */
     suspend fun ingestPaper(paper: dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper, ownerId: String, epoch: Long, organize: Boolean, permitted: suspend () -> Boolean): ResearchWorkVersion {
@@ -198,6 +202,7 @@ internal object ResearchArchiveIngestor {
     }.getOrDefault(false)
 
     suspend fun capture(database: ResearchDatabase, source: ResearchSource, authority: String, publicEvidence: Boolean, chatId: Int, rootId: String, archive: Boolean, epoch: Long, contentHash: String, textBytes: Long, ownerKind: String = "chat", ownerId: String = "$chatId:$rootId", automaticOrganization: Boolean = true, unexaminedLimit: Int = 1000): ResearchWorkVersion {
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         seed(database)
         return database.withTransaction {
             val dao = database.research()

@@ -22,29 +22,21 @@ from v14.validation_host import executable
 START_MARKER = 'GATEWAY_BENCHMARK_EVALUATOR_STARTED_V1'
 DRIVER = '''import json, sys
 print('GATEWAY_BENCHMARK_EVALUATOR_STARTED_V1', flush=True)
-sys.path.insert(0, '/candidate')
-import service
+sys.path.insert(0, '/evaluator')
+from verified_python import evaluate, UnsupportedLanguage, StepLimit
+sources = json.load(open('/evaluator/sources.json'))
 requests = json.load(open('/evaluator/inputs.json'))
-outputs = []
-def input_snapshot(request):
-    try:
-        return json.dumps(request, sort_keys=True, ensure_ascii=True, allow_nan=False)
-    except BaseException:
-        return None
-
-for request in requests:
-    before = input_snapshot(request)
-    try:
-        value = service.handle(request)
-        first = json.loads(json.dumps(value, allow_nan=False))
-        row = {'output': first}
-    except BaseException as error:
-        row = {'error': type(error).__name__}
-    after = input_snapshot(request)
-    # Same-process diagnostics are candidate-influenced, never grading authority.
-    row['input_preserved'] = before == after if before is not None and after is not None else None
-    outputs.append(row)
-print(json.dumps({'outputs': outputs}, ensure_ascii=True, allow_nan=False))
+try:
+    result = evaluate(sources, requests)
+except UnsupportedLanguage:
+    result = {'outputs': [], 'error': 'GRADER_LANGUAGE_UNSUPPORTED'}
+except StepLimit:
+    result = {'outputs': [], 'error': 'CANDIDATE_STEP_LIMIT'}
+except SyntaxError:
+    result = {'outputs': [], 'error': 'CANDIDATE_SYNTAX_ERROR'}
+except Exception:
+    result = {'outputs': [], 'error': 'CANDIDATE_EXECUTION_ERROR'}
+print(json.dumps(result, ensure_ascii=True, allow_nan=False))
 '''
 
 
@@ -187,6 +179,8 @@ def execute(sources, inputs, settings, cancel=None, *, docker=None, retain=None,
                 raise ValueError('Unsupported sandbox file')
             (candidate / name_path).write_text(source, encoding='utf-8')
         (evaluator / 'runner.py').write_text(DRIVER, encoding='utf-8')
+        (evaluator / 'verified_python.py').write_text((Path(__file__).parent / 'verified_python.py').read_text(encoding='utf-8'), encoding='utf-8')
+        (evaluator / 'sources.json').write_text(json.dumps(sources, ensure_ascii=True, allow_nan=False), encoding='utf-8')
         (evaluator / 'inputs.json').write_text(json.dumps(inputs, ensure_ascii=True, allow_nan=False), encoding='utf-8')
         for path in (root, candidate, evaluator):
             path.chmod(0o755)
@@ -239,6 +233,10 @@ def execute(sources, inputs, settings, cancel=None, *, docker=None, retain=None,
                         'outputDigest': result['output_sha256'], 'durationMs': result['elapsed_ms']}
             try:
                 payload = json.loads(output_text)
+                if payload.get('error') in {'GRADER_LANGUAGE_UNSUPPORTED', 'CANDIDATE_STEP_LIMIT', 'CANDIDATE_SYNTAX_ERROR', 'CANDIDATE_EXECUTION_ERROR'}:
+                    return {'status': 'ERROR' if payload['error'] == 'GRADER_LANGUAGE_UNSUPPORTED' else 'FAILED',
+                            'executed': True, 'outputs': [], 'exitCode': 0, 'error': payload['error'],
+                            'outputDigest': result['output_sha256'], 'durationMs': result['elapsed_ms']}
                 outputs = payload.get('outputs')
                 if not isinstance(outputs, list) or len(outputs) != len(inputs):
                     raise ValueError('Missing case outputs')
@@ -248,6 +246,7 @@ def execute(sources, inputs, settings, cancel=None, *, docker=None, retain=None,
                 return {'status': 'FAILED', 'executed': True, 'outputs': [], 'exitCode': 0,
                         'outputDigest': result['output_sha256'], 'durationMs': result['elapsed_ms'], 'error': 'INVALID_CANDIDATE_OUTPUT'}
             return {'status': 'COMPLETED', 'executed': True, 'outputs': outputs, 'exitCode': 0,
+                    'verification': payload.get('verification'),
                     'outputDigest': result['output_sha256'], 'durationMs': result['elapsed_ms']}
         try:
             observation = evaluate()

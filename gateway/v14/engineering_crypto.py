@@ -3,6 +3,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import secrets
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
@@ -21,14 +22,16 @@ class EngineeringCipher:
             raise ValueError('Engineering key must not be a symbolic link')
         if not path.exists():
             # Never replace a lost key when ciphertext already exists.
-            for table in ('engineering_memory', 'engineering_evidence', 'code_graph_snapshots', 'code_graph_snapshot_summaries', 'code_graph_notes', 'code_graph_index_jobs', 'engineering_artifact_chunks', 'engineering_profile_checks'):
+            for table in ('engineering_memory', 'engineering_embedding_cache', 'engineering_evidence', 'code_graph_snapshots', 'code_graph_snapshot_summaries', 'code_graph_notes', 'code_graph_index_jobs', 'engineering_artifact_chunks', 'engineering_profile_checks'):
                 if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() and db.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0]:
                     raise ValueError('Engineering key is missing; restore the protected key before reading or appending')
             if not create:
                 raise ValueError('Engineering key is unavailable')
+            # An entropy failure must not leave an empty protected key file.
+            key = secrets.token_bytes(32)
             descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(descriptor, 'wb') as stream:
-                stream.write(AESGCM.generate_key(bit_length=256))
+                stream.write(key)
                 stream.flush()
                 os.fsync(stream.fileno())
         key = path.read_bytes()

@@ -91,6 +91,7 @@ class LiteRtLmAdapter(
     private var exclusiveToolsByName: Map<String, AgentTool> = emptyMap()
     private var exclusiveToolEventSink: (suspend (ProviderEvent) -> Unit)? = null
     private var exclusiveRequestAuthority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard? = null
+    private var exclusiveConversationPrivacy: dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext? = null
 
     /** Cosmetic progress never mutates native chat state or competes for inference. */
     suspend fun summarizeActivity(activity: String): String? = activity.trim().take(96).takeIf { it.isNotBlank() }
@@ -569,6 +570,7 @@ class LiteRtLmAdapter(
                                 try {
                                     kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
                                     exclusiveRequestAuthority = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]
+                                    exclusiveConversationPrivacy = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext]
                                     exclusiveToolsByName = runToolsByName
                                     exclusiveToolEventSink = runToolEventSink
                                     if (!isEngineLoaded(requestSpec) && loadingModelNotice.isNotBlank()) {
@@ -698,7 +700,8 @@ class LiteRtLmAdapter(
                                                         // Native callbacks may arrive on an IPC coroutine without the caller's context.
                                                         // A reused native conversation must use this request's authority, not its creator's.
                                                         val authority = exclusiveRequestAuthority
-                                                        val response = withContext(authority ?: kotlin.coroutines.EmptyCoroutineContext) {
+                                                        val conversationPrivacy = exclusiveConversationPrivacy
+                                                        val response = withContext((authority ?: kotlin.coroutines.EmptyCoroutineContext) + (conversationPrivacy ?: kotlin.coroutines.EmptyCoroutineContext)) {
                                                             suspend fun validateAuthority() {
                                                                 try {
                                                                     authority?.validate?.invoke()
@@ -1107,6 +1110,7 @@ class LiteRtLmAdapter(
                                     exclusiveToolsByName = emptyMap()
                                     exclusiveToolEventSink = null
                                     exclusiveRequestAuthority = null
+                                    exclusiveConversationPrivacy = null
                                 }
                             }
                         }.collect { }
@@ -1177,7 +1181,7 @@ class LiteRtLmAdapter(
             if (tool == null) {
                 dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(call.callId, "UNKNOWN_TOOL", "Tool is absent from the final registered manifest. Do not repeat this unchanged call.")
             } else {
-                dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.requireExecution(tool)
                 tool.execute(call.callId, arguments)
             }
         } catch (error: CancellationException) {

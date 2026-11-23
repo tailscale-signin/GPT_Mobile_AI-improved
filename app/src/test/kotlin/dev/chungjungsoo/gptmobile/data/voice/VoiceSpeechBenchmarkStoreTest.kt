@@ -1,0 +1,114 @@
+package dev.chungjungsoo.gptmobile.data.voice
+
+import android.app.Application
+import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class)
+class VoiceSpeechBenchmarkStoreTest {
+    @get:Rule val temporary = TemporaryFolder()
+
+    private fun report(at: Long, state: VoiceSpeechBenchmarkRunState = VoiceSpeechBenchmarkRunState.COMPLETE) = VoiceSpeechBenchmarkReport(
+        at,
+        VoiceSpeechBenchmarkConfiguration(
+            VoiceSpeechBenchmarkMode.QUICK, listOf(VoiceSpeechBackend.CPU), KokoroVoice.HEART, 2, 1f,
+            "a".repeat(64), "runtime", 147, 34, "b".repeat(64)
+        ),
+        state = state
+    )
+
+    @Test fun savesReplaceTheCurrentRunAndRetainOnlyFiveIndependentRuns() {
+        val directory = temporary.newFolder()
+        val store = VoiceSpeechBenchmarkStore(directory)
+        for (at in 1L..7L) assertTrue(store.save(report(at)))
+        assertTrue(store.save(report(7).copy(issue = VoiceSpeechBenchmarkIssue.MODEL_UNAVAILABLE)))
+        val restored = VoiceSpeechBenchmarkStore(directory).read()
+        assertEquals(listOf(7L, 6L, 5L, 4L, 3L), restored.map { it.startedAtMillis })
+        assertEquals(VoiceSpeechBenchmarkIssue.MODEL_UNAVAILABLE, restored.first().issue)
+    }
+
+    @Test fun processInterruptionRestoresPartialResultsWithoutClaimingCompletion() {
+        val directory = temporary.newFolder()
+        val store = VoiceSpeechBenchmarkStore(directory)
+        assertTrue(store.save(report(1, VoiceSpeechBenchmarkRunState.RUNNING)))
+        val restored = VoiceSpeechBenchmarkStore(directory).read().single()
+        assertEquals(VoiceSpeechBenchmarkRunState.INTERRUPTED, restored.state)
+        assertEquals(VoiceSpeechBenchmarkBackendState.NOT_RUN, restored.results.single().state)
+        assertFalse(restored.results.single().verified)
+        assertNull(restored.recommendation())
+    }
+
+    @Test fun corruptAndOversizedHistoryCannotProduceBenchmarksAndDoesNotBlockANewRun() {
+        val directory = temporary.newFolder()
+        val file = File(directory, "results-v1.json")
+        file.writeText("not a report")
+        val store = VoiceSpeechBenchmarkStore(directory)
+        assertTrue(store.read().isEmpty())
+        file.writeBytes(ByteArray(2 * 1024 * 1024 + 1))
+        assertTrue(store.read().isEmpty())
+        assertTrue(store.save(report(10)))
+        assertEquals(10L, store.read().single().startedAtMillis)
+    }
+
+    @Test fun interruptedUtteranceKeepsItsCompletedChunksAndOriginalOrderPlan() {
+        val store = VoiceSpeechBenchmarkStore(temporary.newFolder())
+        val phrase = VoiceSpeechWorkload.phrases(VoiceSpeechBenchmarkFixture.LONG).first()
+        val chunk = VoiceSpeechBenchmarkChunk(
+            0, phrase.length, VoiceSpeechWorkload.digest(phrase), 100, 75.0, "cpu", 0, 0, 0, 0, 0, 3, true, 0, 0, -1,
+            profileAvailable = false, currentPrepareMs = 0
+        )
+        val initial = report(1, VoiceSpeechBenchmarkRunState.RUNNING)
+        val partial = initial.copy(
+            configuration = initial.configuration.copy(backendOrderSeed = 2, sourceCommit = "c".repeat(40)),
+            results = listOf(
+                initial.results.single().copy(
+                    state = VoiceSpeechBenchmarkBackendState.RUNNING,
+                    incompleteFixture = VoiceSpeechBenchmarkFixture.LONG,
+                    incompleteRepeat = 1,
+                    incompleteChunks = listOf(chunk)
+                )
+            )
+        )
+        assertTrue(store.save(partial))
+        val restored = store.read().single()
+        assertEquals(VoiceSpeechBenchmarkRunState.INTERRUPTED, restored.state)
+        assertEquals(VoiceSpeechBenchmarkBackendState.NOT_RUN, restored.results.single().state)
+        assertEquals(listOf(chunk), restored.results.single().incompleteChunks)
+        assertEquals(VoiceSpeechBenchmarkFixture.LONG, restored.results.single().incompleteFixture)
+        assertEquals(1, restored.results.single().incompleteRepeat)
+        assertEquals(2L, restored.configuration.backendOrderSeed)
+        assertEquals("c".repeat(40), restored.configuration.sourceCommit)
+        assertEquals(1, restored.completedChunks)
+        assertNull(restored.recommendation())
+    }
+
+    @Test fun legacyHistoryRemainsHistoricalAfterANewRunIsSaved() {
+        val directory = temporary.newFolder()
+        val original = speechBenchmarkJson(report(1), local = true)
+        val legacy = JsonObject(original + mapOf("schemaVersion" to JsonPrimitive(1), "fixtureVersion" to JsonPrimitive(1)))
+        File(directory, "results-v1.json").writeText(Json.encodeToString(JsonArray.serializer(), JsonArray(listOf(legacy))))
+        val store = VoiceSpeechBenchmarkStore(directory)
+        val old = store.read().single()
+        assertEquals("legacy-fixtures-v1", old.configuration.protocolId)
+        assertFalse(old.configuration.currentProtocol)
+        assertEquals(VoiceSpeechBenchmarkOutcome.HISTORICAL, old.outcome)
+        assertTrue(store.save(report(2)))
+        val retained = store.read().last()
+        assertEquals(old, retained)
+        assertNull(retained.recommendation())
+    }
+}

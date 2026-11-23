@@ -28,13 +28,21 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditAssertionCode
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditAssertionEvidence
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditEvidenceKind
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditFixtureCode
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditFixtureEvidence
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditFixtureState
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditFixtureStatus
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditMode
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditObservationSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOptions
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOutcome
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPlanEntry
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPrerequisite
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditPrivacyEvidence
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditRecoveryEvidence
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditRun
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSafetyClass
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
@@ -164,9 +172,11 @@ class AppAuditContentTest {
             AppAuditControls(true, false, false, {}, listOf(local, remote), selected, { id -> selected = if (id in selected) selected - id else selected + id }, { started = true })
         }
         compose.onNodeWithText("Comprehensive").scrollIntoView().performClick()
+        compose.onNodeWithText("No model profile selected.", substring = true).assertExists()
         compose.onNodeWithText("Optional model targets (0 selected)").scrollIntoView().performClick()
         compose.onNodeWithText("Local saved model").scrollIntoView().assertIsOff().performClick()
         assertEquals(listOf("local"), selected)
+        compose.onNodeWithText("No model profile selected.", substring = true).assertDoesNotExist()
         compose.onNodeWithText("Remote saved model").scrollIntoView().assertIsOff()
         compose.onNodeWithText("Include configured service read checks").assertIsOff()
         assertFalse(started)
@@ -185,6 +195,7 @@ class AppAuditContentTest {
             .assert(hasText("1 of 4 checks verified"))
             .assert(hasText("1 of 1 measured checks passed · 0 failed · 0 blocked · 0 unavailable · 3 untested"))
         compose.onNodeWithText("Partial coverage: 3", substring = true).assertExists()
+        compose.onNodeWithText("No model profile was selected for this audit.", substring = true).assertExists()
         compose.onNodeWithText("Untested or pending 3", substring = true).assertExists()
         compose.onNodeWithText("Export audit evidence").scrollIntoView().performClick()
         assertTrue(exported)
@@ -273,12 +284,65 @@ class AppAuditContentTest {
     @Test fun cachedFailureShowsOriginalObservationTimeAndAgeBeforeDetailsAreOpened() {
         val entry = auditEntry("catalog", AppAuditEvidenceKind.LIVE_METADATA)
         val result = auditResult(entry, AppAuditOutcome.BLOCKED, AppAuditObservationSource.CACHE, reason = "MCP_DISCOVERY_CONFIGURATION").let {
-            it.copy(startedAtEpochMs = 6_400_000, observation = it.observation.copy(observedAtEpochMs = 1_060_000))
+            it.copy(
+                startedAtEpochMs = 6_400_000,
+                observation = it.observation.copy(
+                    observedAtEpochMs = 1_060_000,
+                    recovery = AppAuditRecoveryEvidence("MCP_NETWORK_IO_FAILED", 6_500_000)
+                )
+            )
         }
         show { AppAuditEntryCard(appAuditPresentation(auditRun(listOf(entry), listOf(result))).components.single().entries.single()) }
         compose.onNodeWithText("Original observation: ${benchmarkResultDate(1_060_000)}").scrollIntoView()
         compose.onNodeWithText("Retained evidence was 89 minutes old when this audit check began.").scrollIntoView()
+        compose.onNodeWithText("Original diagnostic code: MCP_NETWORK_IO_FAILED").scrollIntoView()
+        compose.onNodeWithText("Recorded retry eligibility: no earlier than", substring = true).scrollIntoView()
         compose.onNodeWithText("Hide evidence details").assertDoesNotExist()
+    }
+
+    @Test fun oauthReauthorizationActionPreservesExactSavedConnectionAndDoesNotActUntilClicked() {
+        val entry = auditEntry("credential", AppAuditEvidenceKind.LIVE_METADATA).copy(targetId = "connection:oauth-exact")
+        val result = auditResult(entry, AppAuditOutcome.BLOCKED, AppAuditObservationSource.NONE, attempted = false, reason = "MCP_LOCAL_CREDENTIAL_INVALID")
+            .let { it.copy(observation = it.observation.copy(validationRule = "CREDENTIAL_REAUTHORIZATION_REQUIRED")) }
+        var opened: String? = null
+        show { AppAuditEntryCard(appAuditPresentation(auditRun(listOf(entry), listOf(result)), mapOf("connection:oauth-exact" to "Saved OAuth target")).components.single().entries.single(), onOpenConnection = { opened = it }) }
+        assertEquals(null, opened)
+        compose.onNodeWithText("requires a new sign-in", substring = true).assertExists()
+        compose.onNodeWithText("Open affected connection to sign in").scrollIntoView().performClick()
+        assertEquals("oauth-exact", opened)
+    }
+
+    @Test fun fixtureDetailsDisplayFailedBoundaryCountsAndPrivacyRevisionWithoutInventingNetworkDispatch() {
+        val entry = auditEntry("fixture").copy(probeId = "budget_precheck_v1")
+        val result = auditResult(entry, AppAuditOutcome.FAIL, reason = "LOCAL_CONTRACT_FAILED").let {
+            it.copy(
+                observation = it.observation.copy(
+                    fixtureEvidence = AppAuditFixtureEvidence(
+                        AppAuditFixtureStatus.EXECUTED,
+                        2,
+                        1,
+                        listOf(
+                            AppAuditAssertionEvidence(
+                                2,
+                                AppAuditAssertionCode.ACCEPTED_CALL_RESERVES_BUDGET,
+                                false,
+                                AppAuditFixtureState(AppAuditFixtureCode.SUCCESS, dispatched = true),
+                                AppAuditFixtureState(AppAuditFixtureCode.BUDGET_EXHAUSTED, dispatched = false)
+                            )
+                        )
+                    ),
+                    privacyPolicy = AppAuditPrivacyEvidence(true, 7, false)
+                )
+            )
+        }
+        show { AppAuditEntryCard(appAuditPresentation(auditRun(listOf(entry), listOf(result))).components.single().entries.single()) }
+        compose.onNodeWithText("Fixture assertions: 1 passed / 2 attempted").assertExists()
+        compose.onNodeWithText("Evidence details").scrollIntoView().performClick()
+        compose.onNodeWithText("budget_precheck_v1.assertion-2 · failed · ACCEPTED_CALL_RESERVES_BUDGET").assertExists()
+        compose.onNodeWithText("Expected: code SUCCESS · local dispatch true").assertExists()
+        compose.onNodeWithText("Observed: code BUDGET_EXHAUSTED · local dispatch false").assertExists()
+        compose.onNodeWithText("Privacy policy revision: 7").assertExists()
+        compose.onNodeWithText("do not prove any network request", substring = true).assertExists()
     }
 
     @Test fun invalidCredentialRepairOpensItsExactSavedConnectionOnlyAfterTheAction() {

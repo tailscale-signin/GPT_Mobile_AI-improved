@@ -65,9 +65,37 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Verify QNN dependency provenance
+        run: python3 scripts/check_qnn_provenance.py
+
+      # Bound generation and production compilation independently before APK
+      # packaging, as in PR Validation and the Android acceptance workflow.
+      - name: Generate application sources
+        timeout-minutes: 15
+        run: >-
+          python3 scripts/gradle_retry.py -- :app:kspDebugKotlin
+          --no-daemon --max-workers=1 --console=plain --stacktrace
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+
+      - name: Generate application annotations
+        timeout-minutes: 15
+        run: >-
+          python3 scripts/gradle_retry.py -- :app:kaptDebugKotlin
+          --no-daemon --max-workers=1 --console=plain --stacktrace
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+
+      - name: Compile application sources
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/check_android_compile_memory.py | tee build-apk-production-memory.log
+          python3 scripts/gradle_retry.py -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac \
+            --no-daemon --max-workers=1 --console=plain --stacktrace \
+            "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/build-apk-production-gc.log:time,level,tags:filecount=2,filesize=8M"
+
       - name: Build Debug APK
         run: |
-          python3 scripts/check_qnn_provenance.py
           ./gradlew assembleDebug --no-daemon --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
 
       - name: Verify local runtime native libraries
@@ -82,7 +110,10 @@ jobs:
         with:
           retention-days: 14
           name: debug-apk-size-${{ github.sha }}
-          path: apk-size-report.json
+          path: |
+            apk-size-report.json
+            build-apk-production-memory.log
+            ${{ runner.temp }}/build-apk-production-gc.log*
           if-no-files-found: ignore
 
       - name: Upload Debug APK artifact

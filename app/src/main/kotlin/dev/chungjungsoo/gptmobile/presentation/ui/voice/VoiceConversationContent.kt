@@ -277,7 +277,7 @@ private fun VoiceConversationRecovery(state: VoiceConversationUiState, actions: 
         TextButton(onClick = actions.listen, enabled = state.enabled && state.voiceReady && state.preferencesApplied) { Text("Review captured text") }
     }
     if (state.session.phase == VoicePhase.REVIEWING) {
-        OutlinedTextField(state.draft, actions.changeDraft, label = { Text("Your message") }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), minLines = 2, maxLines = 20)
+        OutlinedTextField(state.draft, actions.changeDraft, label = { Text("Heard text · editable") }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), minLines = 2, maxLines = 20)
         Button(onClick = actions.sendDraft, enabled = state.draft.isNotBlank()) { Text("Send") }
         TextButton(onClick = actions.recordAgain) { Text("Record again") }
     }
@@ -297,7 +297,7 @@ private fun VoiceConversationRecovery(state: VoiceConversationUiState, actions: 
 private fun voiceListeningHint(state: VoiceState, handsFreeInterruption: Boolean): String = when {
     state.phase == VoicePhase.PREPARING -> "Your reply is getting ready to play"
     state.phase == VoicePhase.SPEAKING -> if (handsFreeInterruption) "Speak to interrupt when echo cancellation is available" else "Listening resumes after the reply"
-    state.phase == VoicePhase.LISTENING -> "Go ahead, I’m listening"
+    state.phase == VoicePhase.LISTENING -> "Go ahead, I’m listening."
     state.phase == VoicePhase.THINKING -> "Preparing your reply"
     state.muted -> "Unmute when you’re ready to speak"
     else -> "Use the microphone when you are ready"

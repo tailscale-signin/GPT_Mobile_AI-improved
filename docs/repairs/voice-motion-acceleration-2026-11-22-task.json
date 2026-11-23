@@ -1,0 +1,1134 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_pr": 2254,
+  "source_sha": "2fb4f4434fa80ef26455d84f09e45fc425c6b629",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "intent": "Implement the approved voice mode design, GPU/NPU execution repairs and remaining diagnostic gaps on the latest draft PR, preserve concurrent commits, merge only after exact-head required verification and publish exact-main signed Android and Gateway releases.",
+  "status": "REVIEWED_DRAFT_CORRECTIONS_AWAITING_CURRENT_HEAD_CI",
+  "authorization": "User explicitly authorized implementation, pushing a draft PR, merging after green checks and publishing after green main verification.",
+  "workers": [
+    {
+      "scope": "continuous caption motion and 250 ms word colour onset",
+      "branch": "work/voice-caption-motion-2026-11-22"
+    },
+    {
+      "scope": "Kokoro execution providers and capability evidence",
+      "branch": "agent/kokoro-acceleration-2026-11-22"
+    },
+    {
+      "scope": "remaining diagnostic provenance and execution method size",
+      "branch": "local/voice-update-diagnostic-gaps-2026-11-22"
+    },
+    {
+      "scope": "audio continuity, presentation clock, lifecycle, integration and publication",
+      "branch": "fix/diagnostic-execution-completion-2026-11-22"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "caption-motion",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Continuous stable lines, five-line scale/opacity, manual scrolling and return to live, reduced motion and Unicode-safe geometry"
+    },
+    {
+      "id": "caption-highlight",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Theme colour fades in for 250 ms at actual word presentation, one active bold word and bounded cosmetic release without reflow"
+    },
+    {
+      "id": "caption-clock",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Immutable frame timing, monotonic presentation progress, pause/refill freeze and route epoch"
+    },
+    {
+      "id": "audio-continuity",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Measured next-phrase reserve, bounded PCM queue, natural first clause, aligned phrase modes and truthful warm/fallback timing"
+    },
+    {
+      "id": "kokoro-gpu-npu",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI_AND_PHYSICAL_QUALIFICATION",
+      "title": "Correct concrete device selection, compatible partitions, PCM/duration qualification, bounded capability caches and selected/effective backend evidence"
+    },
+    {
+      "id": "lifecycle",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Worker preference reads, idempotent audio cleanup and explicit pause origins"
+    },
+    {
+      "id": "diagnostic-gaps",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI",
+      "title": "Fix nested payload error provenance and remaining oversized execution method while preserving incoming diagnostic repairs"
+    },
+    {
+      "id": "release",
+      "status": "PENDING",
+      "title": "Exact-head CI, guarded merge, exact-main checks, signed publication and artifact readback"
+    }
+  ],
+  "validation": [
+    {
+      "suite": "voice synthesis, timing, PCM, speech buffer",
+      "result": "PASS",
+      "tests": 45,
+      "runtime": "Kotlin 2.4.20 host/JUnit 4.13.2; production helper sources"
+    },
+    {
+      "suite": "diagnostic nested receipt regression",
+      "result": "PASS",
+      "tests": 5,
+      "baseline_new_test_failures": 2
+    },
+    {
+      "suite": "coordinator packaged DEX guard Python",
+      "result": "PASS",
+      "tests": 15
+    },
+    {
+      "suite": "closed voice diagnostic contract and provenance Kotlin",
+      "result": "PASS",
+      "tests": 8
+    },
+    {
+      "suite": "authentication contract/config",
+      "result": "PASS",
+      "tests": 108
+    },
+    {
+      "suite": "authentication app",
+      "result": "PASS",
+      "tests": 69
+    },
+    {
+      "suite": "Android Gradle local",
+      "result": "UNAVAILABLE",
+      "reason": "No Android SDK; wrapper download direct JVM network unavailable. Exact-head hosted compile/test/packaged gates remain required."
+    },
+    {
+      "suite": "caption motion, highlights, layout and Unicode",
+      "result": "PASS",
+      "tests": 31,
+      "runtime": "Kotlin 2.4.20 host; production helpers"
+    },
+    {
+      "suite": "streaming fallback ownership",
+      "result": "PASS",
+      "tests": 3,
+      "baseline_regression": "duplicate offline utterance reproduced without guard",
+      "scope": "actual production wrapper and repository test bodies; Android/diagnostics boundary shims"
+    },
+    {
+      "suite": "Gateway fallback-source contract",
+      "result": "PASS",
+      "tests": 4
+    },
+    {
+      "suite": "authentication contract and reporter configuration after Gateway-source addition",
+      "result": "PASS",
+      "tests": 109
+    },
+    {
+      "suite": "extended and legacy reporter readiness",
+      "result": "PASS",
+      "tests": 2
+    },
+    {
+      "suite": "canonical fast validation before final native integration",
+      "result": "PASS",
+      "tests": 605,
+      "command": "bash scripts/validate-local.sh fast"
+    },
+    {
+      "suite": "native graph partition and provider ownership",
+      "result": "PASS",
+      "tests": 4,
+      "runtime": "Pinned ORT1.28.2 CMake/CTest; includes 3000 randomized DAG cases"
+    },
+    {
+      "suite": "backend policy, failover and preparation provenance",
+      "result": "PASS",
+      "tests": 14,
+      "runtime": "Kotlin2.4.20 actual source; Android framework signature compile"
+    },
+    {
+      "suite": "same-inference QNN graph qualification",
+      "result": "PASS_WITH_HARDWARE_LIMIT",
+      "evidence": "docs/repairs/evidence/kokoro-qnn-graph-2026-11-22/qualification.json",
+      "scope": "Exact shipped model, official host HTP emulator,17/31/83 tokens;39 QNN kernels plus CPU partitions each; finite nonzero PCM and aligned positive durations. No physical GPU/NPU claim."
+    },
+    {
+      "suite": "final integrated canonical fast validation",
+      "result": "PASS",
+      "tests": 605,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Combined voice/native/diagnostic/release scope; regenerated architecture and app audit inventories"
+    },
+    {
+      "suite": "integrated Kokoro output compile",
+      "result": "PASS",
+      "runtime": "Kotlin2.4.20 with Android14 framework and compiled JNI Java API",
+      "scope": "Actual audio/factory/cache/clock/buffer/feedback source; model-store/log/diagnostic boundary shims. Full Android hosted checks required."
+    },
+    {
+      "suite": "fractional caption spacing and velocity continuity",
+      "result": "PASS",
+      "tests": 20,
+      "runtime": "Kotlin2.4.20 actual VoiceCaptionLine and VoiceCaptionMotion; includes both-direction nonzero-speed boundary crossings and all fractional neighboring rows"
+    },
+    {
+      "suite": "canonical fast after concurrent review and C1 caption correction",
+      "result": "PASS",
+      "tests": 605,
+      "scope": "Source at5e4ab1 plus C1 correction; subsequent privacy/Room53 integration still requires canonical schema and CI."
+    },
+    {
+      "suite": "canonical Room53 schema and migration",
+      "result": "PASS",
+      "source_head": "2fa6f59fad9084e0e72b7237f4aca0b8f01275af",
+      "merge_sha": "7676c6df92babba586f67443056c3eb04c947563",
+      "workflow_run": 45058161842,
+      "job": 137318034810,
+      "artifact_id": 14768098633,
+      "artifact_sha256": "c601674748694d9511ab3b85673ee84ece8ef476cbdb6fb02926b90d5b23b3e6",
+      "schema_sha256": "4d9294e56972dd23bb99841b263e026d9f4d97faa0acf71d4d40da4f9b28afdb",
+      "room_identity": "489fe6ad9e5f86a5af203af446e77dbf",
+      "evidence": "Canonical artifact equals lossless KSP log export; exact schema delta is the new privacy column. SQLite replay preserved a seeded legacy row and matched table metadata. Six memory-schema checks passed. Full Android and physical-device gates remain pending."
+    },
+    {
+      "suite": "privacy display filtering and source projection",
+      "result": "PASS",
+      "tests": 19,
+      "runtime": "Kotlin2.4.20 production helpers and verbatim pure preparation/parser sections; Compose integration regression committed for hosted execution"
+    },
+    {
+      "suite": "consolidated canonical fast validation with privacy and full-suite repairs",
+      "result": "PASS",
+      "tests": 608,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Merged through 7c7634 with the C1 caption correction, source-bound privacy display proof and complete DAO test fixture."
+    },
+    {
+      "suite": "final combined draft with research callback correction",
+      "result": "PASS",
+      "tests": 608,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "All concurrent changes through 6e03f1 preserved with source-bound privacy display, C1 caption motion and DAO fixture; generated inventories, schema metadata, regex, resources, icons and provenance passed."
+    },
+    {
+      "suite": "combined draft after concurrent provider evidence reconciliation",
+      "result": "PASS",
+      "tests": 608,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Source through 9e4b767 preserved with all voice corrections; inventories, schema metadata, regex, resources, icons, provenance and diff checks passed."
+    },
+    {
+      "suite": "approved incident-report upstream-code round trip",
+      "result": "PASS",
+      "tests": 98,
+      "baseline_new_test_failures": 2,
+      "scope": "Both upstream fields preserve safe string401/429 with observed HTTP200; malformed and private codes remain rejected. Existing schema version and approval bytes are unchanged."
+    },
+    {
+      "suite": "canonical fast after upstream-code mirror repair",
+      "result": "PASS",
+      "tests": 608,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "608 repository tests plus generated inventories, schema metadata, regex, resources, icons, provenance and diff checks passed;98 incident-report contract tests passed separately."
+    },
+    {
+      "suite": "packaged Kokoro ABI and dependency inventory",
+      "result": "PASS",
+      "tests": 17,
+      "scope": "Seven new Kokoro regressions plus six GGUF and four pinned-QNN inventory regressions; actual final APK byte verification remains a hosted packaging gate."
+    },
+    {
+      "suite": "selected Gateway refresh ViewModel regression",
+      "result": "PASS",
+      "tests": 3,
+      "scope": "Actual production ViewModel, monitor and client with pinned Kotlin, Lifecycle and Ktor; existing Android boundary shims. Exact selected UID, URL, credential and null-selection assertions retained; full Android execution remains required."
+    },
+    {
+      "suite": "concurrent built-in enable Room regression",
+      "result": "PENDING_HOSTED_ANDROID",
+      "scope": "Eight simultaneous enables must leave exactly one complete replacement. Added as a mandatory receipt on both Android acceptance APIs; original uniqueness and archive regressions retained."
+    },
+    {
+      "suite": "reconciled exact-issued cursor schema guidance",
+      "result": "PASS",
+      "tests": 5,
+      "scope": "Actual production schema extraction at the preserved shorter 3f047b wording; the original missing exact-issued wording reproduced the failing admission assertion."
+    },
+    {
+      "suite": "final packaging and concurrent binding canonical fast validation",
+      "result": "PASS",
+      "tests": 615,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Combined source through 3f047b plus seven APK regressions, strict Gateway fixture and mandatory concurrent Room receipt; all 407 changed paths are in the exact release scope. Generated inventory, schema metadata, regex, resources, icons, provenance and whitespace checks passed. Hosted Android and signed publication remain pending."
+    },
+    {
+      "suite": "phone graph review regressions",
+      "result": "PASS",
+      "tests": 30,
+      "scope": "Actual PhoneRepositoryGraph and PhoneRepositorySourceIndex sources with the complete graph JUnit class: relative imports, long paths, full admitted queue, exhausted search, bounded impact and exact-depth complete leaves. Pinned Kotlin compilation and ktlint passed; Android device performance remains unqualified."
+    },
+    {
+      "suite": "combined repository map UI review",
+      "result": "PASS",
+      "tests": 64,
+      "scope": "Actual six map Compose sources compile with Compose compiler2.4.20;32 ViewModel,14 presentation,7 routing,3 map-tool and8 Gateway fallback host cases pass. Platform/service boundaries are isolated in the harness; not a whole-app Android build."
+    },
+    {
+      "suite": "explicit Gateway fallback authorization fixtures",
+      "result": "PASS",
+      "tests": 18,
+      "scope": "Actual current graph tool/fallback/error sources and authorization/envelope boundaries pass all three focused test classes. DTO and unused capability boundaries are harness stubs; no native fallback arguments or permissions were broadened."
+    },
+    {
+      "suite": "provider report HTTP-status assertion reconciliation",
+      "result": "PENDING_HOSTED_ANDROID",
+      "scope": "The prior full Android suite executed12,515 tests with3 failures. Concurrent cursor and selected-Gateway repairs already resolve two fixture defects; the third now asserts authoritative context.httpStatus==200 and absence from the closed nested field set. Actual full report class execution remains required in current-head CI."
+    },
+    {
+      "suite": "closed audit transport-stage export alignment",
+      "result": "PENDING_HOSTED_ANDROID",
+      "scope": "Source and regression review, pinned formatting and audit harness catalogue check pass. The new exact round-trip test covers six emitted stages and exclusion of unknown/private strings. Actual full export-test execution remains required in hosted Android CI."
+    },
+    {
+      "suite": "combined phone map session and preparation dispatcher",
+      "result": "PASS",
+      "tests": 11,
+      "scope": "Actual repositoryMap block, whole-scope Dispatchers.Default, graph/parser/store/index sources and full session/index-preparation classes on9173 plus preserved graph corrections. Includes the caller-dispatch regression; unrelated platform/client boundaries remain fixtures."
+    },
+    {
+      "suite": "final combined map and audit integration canonical fast validation",
+      "result": "PASS",
+      "tests": 615,
+      "command": "bash scripts/validate-local.sh fast",
+      "duration_seconds": 40.704,
+      "scope": "Preserved every concurrent commit through9173e214 with graph completeness, retired-response, explicit Gateway fallback and closed audit-stage export corrections. All530 changed paths pass the exact scope;12 changed Kotlin files pass pinned formatting. Generated inventories, schema metadata, regex,36 XML resources, icons, native provenance and whitespace pass. Current-head full Android/device/security/package checks and signed publication remain mandatory."
+    },
+    {
+      "suite": "concurrent phone map privacy and bounded ordered-path follow-up",
+      "result": "PASS",
+      "tests": 98,
+      "source_head": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
+      "scope": "30 actual graph/parser cases,21 actual privacy/provider/tool cases and47 map UI/presentation cases; actual map Compose compilation passed. Platform, DTO and unrelated service boundaries remain isolated; whole Android and device qualification are separate."
+    },
+    {
+      "suite": "saved-read proof against exact production unknown-outcome codes",
+      "result": "PASS",
+      "tests": 41,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "baseline_failures": 2,
+      "scope": "The previous focused harness supplied an inaccurate unknown-outcome set and masked two invalid GITHUB_OUTCOME_UNKNOWN fixtures. The same 41 actual checkpoint, compactor, proof, replay and source-recovery tests failed twice with the exact eight production codes, then passed after using the supported GATEWAY_OUTCOME_UNKNOWN code. Production classification was not broadened; Android AtomicFile and unrelated services remain harness boundaries."
+    },
+    {
+      "suite": "independent combined completion and recovery review",
+      "result": "PASS",
+      "tests": 76,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "scope": "Actual current completion, handoff, replay, reasoning and stage-budget source with the exact production unknown-outcome constant. Existing platform/service boundaries retained; full AgentRunner/Android integration remains hosted."
+    },
+    {
+      "suite": "independent current diagnostic and CI observation review",
+      "result": "PASS",
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "scope": "9 actual receipt/report/acceptance/correlation cases and10 actual CI observation/presentation cases passed.186 selected authentication, incident and reporting-configuration tests passed; this selected rerun is not a new full206-test authentication run."
+    },
+    {
+      "suite": "canonical fast after concurrent diagnostic completion",
+      "result": "PASS",
+      "tests": 616,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "duration_seconds": 27.634,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Canonical validation before the final retained-page and transport corrections; generated inventories, policy, resources, regex and provenance passed. Changed source requires a fresh combined run."
+    },
+    {
+      "suite": "full Android predecessor unit run",
+      "result": "FAILURES_TRIAGED_CURRENT_FIXES_REQUIRED",
+      "source_head": "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2",
+      "workflow_run": 45070165494,
+      "job": 137355179755,
+      "tests": 12684,
+      "failures": 3,
+      "skipped": 5,
+      "scope": "Production and unit compilation passed. The actual full suite exposed MCP earlier-attempt evidence loss, a stale manual-versus-reconcile Gateway expectation and a graph fixture that attempted to construct an unresolved production context. Preserve all three regression contracts; exact-current-head hosted validation is still required."
+    },
+    {
+      "suite": "packaged Kokoro libraries on predecessor UI APKs",
+      "result": "PASS_ON_PREDECESSOR",
+      "source_head": "06ab96439deea13262fa48130eed367914e914d0",
+      "workflow_run": 45068650087,
+      "job": 137350486144,
+      "scope": "Actual arm64, x86_64 and universal APKs passed the timing/QNN adapter ELF ABI and dependency guards, alongside existing pinned-runtime and alignment checks. This is packaged predecessor evidence, not current-head or physical-accelerator qualification."
+    },
+    {
+      "suite": "mandatory Android acceptance receipts on predecessor",
+      "result": "PASS_ON_PREDECESSOR",
+      "source_head": "9173e21455fecd3ef331e9a4aba13709928bfa39",
+      "workflow_run": 45069702500,
+      "scope": "Both API34 and API36 passed all36 mandatory receipts:26 persistence,1 privacy migration and9 voice conversation. Includes the eight-way concurrent built-in binding replacement. Current-head acceptance must run again."
+    },
+    {
+      "suite": "full-suite Gateway and graph fixture contract corrections",
+      "result": "PASS",
+      "tests": 25,
+      "baseline_failures": 2,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "scope": "Actual production context constructor/defaults/repository normalization and Gateway projection/closed normalization reproduce both predecessor failures, then pass after correcting only the fixtures. Uncertain dispatch still requires reconciliation; unresolved context construction still fails; all six traversal cases remain. Android process/clock, entity types, BuildConfig and unrelated vault boundaries are isolated."
+    },
+    {
+      "suite": "MCP uncertain-read evidence across coroutine recovery",
+      "result": "PASS",
+      "tests": 13,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "baseline_failures_with_recovery": 1,
+      "scope": "Complete actual McpClientManager, ModernMcpTransport, Ktor privacy gate, health, retry and presentation sources reproduce UNKNOWN becoming NOT_DISPATCHED with coroutine stack recovery enabled. The initial10 cases pass with recovery disabled. All13 final cases pass with recovery both enabled and disabled after retaining the original incomplete attempt in a typed retry-policy exception. Real MockEngine/CIO exchanges retain the original assertion plus health, no-cooldown, first-denial and cancellation checks. Android preference storage and unused app-service/UI/task/persistence boundaries remain isolated;42 compiled source hashes were recorded. Independent source review and pinned formatting passed.",
+      "superseded_implementation": "These passing local-candidate results preceded concurrent dda6. Final integration preserves its broader invocation-owned interruption observation instead of the unpublished exception-only mechanism; a fresh combined transport result is required."
+    },
+    {
+      "suite": "comparison coverage bound and explicit pinned restart",
+      "result": "PASS",
+      "tests": 60,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "scope": "Actual pagination/coverage helper suite covers513 and1001 rows at per_page1, valid explicit page1/per_page2 completion,51201-row refusal without a fabricated recipe, repository/base/head ownership, cap eviction versus genuine source changes and incomplete-tree preservation. One additional actual cap-envelope/replay-compactor/observation-retention test preserves the scoped recipe through compaction and8KB retention;20 source-read/schema cases pass. The added full GitHubOperationTool dispatch/compaction/restart test is hosted-only and was not executed in this host suite. Pinned formatting and final seven-file source hashes were recorded."
+    },
+    {
+      "suite": "final comparison and MCP correction canonical validation",
+      "result": "PASS",
+      "tests": 616,
+      "duration_seconds": 24.524,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Combined frozen comparison cap/restart, typed MCP history and three fixture corrections; generated inventories, policy, dependency/secret checks,1904 literal regex patterns,36 XML resources,icons,QNN provenance and whitespace pass. All573 current changed paths are scoped. A concurrent permanent per-conversation privacy commit arrived before push and must be preserved/reviewed with a fresh combined validation."
+    },
+    {
+      "suite": "Room54 authenticated schema and migration integration",
+      "result": "PASS",
+      "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "workflow_run": 45074636925,
+      "job": 137369101292,
+      "artifact_id": 14774134766,
+      "artifact_sha256": "4f13a3c36a8a53ed8400014d7db7195e46e5e59a5e75cdd52d56bebb063926eb",
+      "schema_sha256": "6363d1cf75c4464b7bdb0d58872a7200088d93e8da744a7717f60b1f5067ee36",
+      "room_identity": "2f972404e2d13990fcf36076058a79a4",
+      "scope": "Hosted audit KSP export matches all committed54 bytes. Exact53\u219254 SQLite migration preserves all56 entities except the intended permanent privacy column, locks previously marked rooms, matches schema table metadata and has no foreign-key violations. This qualifies schema provenance/migration, not the remaining whole-app/device checks. Both acceptance APIs now require40 receipts."
+    },
+    {
+      "suite": "integrated conversation policy and MCP retry history",
+      "result": "PASS",
+      "tests": 15,
+      "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "scope": "Actual combined manager/Modern transport/privacy gate/ConversationPrivacyContext/HTTP capture and retry/presentation sources pass with coroutine recoveryON andOFF. All four incoming immutable-conversation tests are preserved. A separate local admission fixture retains UNKNOWN and CONFIRMED exchange regressions without treating availability as conversation authority.46 compiled source hashes, pinned formatting and independent review pass; Android preference storage and unrelated services remain isolated.",
+      "superseded_implementation": "These passing local-candidate results preceded concurrent dda6. Final integration preserves its broader invocation-owned interruption observation instead of the unpublished exception-only mechanism; a fresh combined transport result is required."
+    },
+    {
+      "suite": "independent shared-client conversation dispatch",
+      "result": "PASS",
+      "tests": 5,
+      "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "scope": "Actual NetworkClient, Ktor3.6 and OkHttp5.5 transport, conversation capture, privacy gate and authorization source pass concurrent private/ordinary requests, forged owner rejection, masked dispatch revalidation, copied native tags and cancellation. Loopback servers are real; Android storage, telemetry/readiness and unrelated model/service boundaries are fixtures. Source hashes retained."
+    },
+    {
+      "suite": "mixed private memory remains restricted after source deletion",
+      "result": "PASS",
+      "tests": 7,
+      "baseline_failures": 2,
+      "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "scope": "Actual policy/scope source reproduces mixed private facts and topics widening to the surviving chat after pruning. The two-line sticky private:unshared guard passes all seven committed policy tests without altering pruning or final-source removal. Added WorkspaceIntegration Room regression covers deletion/reopen/blocked recall/final removal and is hosted-only; it was not executed in the host harness. Pinned formatting and source hashes pass."
+    },
+    {
+      "suite": "combined Room54 privacy and corrective integration canonical validation",
+      "result": "PASS",
+      "tests": 616,
+      "duration_seconds": 27.594,
+      "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "All concurrent source through6e788707 is preserved with comparison cap/restart, typed MCP history, proof/Gateway/graph fixtures and sticky mixed-private-memory correction. All620 changed paths pass exact release scope; generated inventories, schema metadata,policy,dependencies,secrets,1904 literal regex patterns,36XML resources,icons,native provenance and whitespace pass. Full facade/Room regressions remain hosted-only;40 acceptance receipts perAPI, all current-head workflows and separate active voice-response/benchmark integration remain mandatory before merge/publication."
+    },
+    {
+      "suite": "stronger concurrent Gateway and graph fixture contracts",
+      "result": "PASS",
+      "tests": 26,
+      "source_head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+      "scope": "Complete incoming fixtures retain strict unresolved-context constructor rejection and all six traversal checks, while adding dispatch/recovery-action/condition and original incident/operation identity assertions. Actual context/normalization and Gateway projection/closed sanitizer execute; existing Android/entity/vault boundaries remain isolated. The stronger incoming files are preserved byte-for-byte after pinned formatting; prior equivalent local fixtures are superseded."
+    },
+    {
+      "suite": "reconciled invocation-owned MCP interruption evidence",
+      "result": "PASS",
+      "tests": 18,
+      "source_head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+      "scope": "Preserved incoming invocation-owned interruption observations for modern and legacy SDK retries, superseding the unpublished exception-only alternative. All18 actual manager/transport/privacy/context/health/recovery/presentation cases pass with coroutine recoveryON/OFF. Added strict first-denial exclusion even under misleading wrapped transport text, cancellation, complete retained health/catalogue/no-cooldown assertions and actualCIO response\u2192interruption\u2192denial CONFIRMED precedence.46 compiled source hashes, pinned formatting and independent review pass; existing Android/service boundaries remain fixtures."
+    },
+    {
+      "suite": "canonical validation after concurrent equivalent MCP reconciliation",
+      "result": "PASS",
+      "tests": 616,
+      "duration_seconds": 25.479,
+      "source_head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Combined comparison,proof,memory and stronger concurrent MCP/fixture source passes canonical inventories,policy,dependency/secret,regex,resources,icons,provenance and whitespace. All concurrent history throughdda is retained. Subsequent voice-response/benchmark feature commit must be integrated before final current-head CI/publication."
+    },
+    {
+      "suite": "final integrated caption presentation, session, speech buffer and signals",
+      "result": "PASS",
+      "tests": 87,
+      "scope": "Actual production source including the corrected shared reasoning scanner; only diagnostic transport/failure-classification boundaries are fixtures. New Android screenshot/scroll regression is added and required but not locally device-executed."
+    },
+    {
+      "suite": "reasoning literal boundaries and independent streamed choices",
+      "result": "PASS",
+      "tests": 55,
+      "baseline_new_test_failures": 9,
+      "scope": "Actual VoiceSpeechText23, Groq parser15, stream reasoning7, stream incidents7 and SendAttemptTrace3. Covers every split/prefix, nested and incomplete literals, embedded apostrophes, more than8KiB of retained reasoning and choice-specific tool cleanup. Final unchanged regressions fail9 cases against ecd207 and pass55 after repair."
+    },
+    {
+      "suite": "current-protocol Auto ranking and bounded capability cache",
+      "result": "PASS",
+      "tests": 21,
+      "baseline_new_test_failures": 3,
+      "scope": "17 actual benchmark/policy tests plus4 actual-store tests with Android preference/device/container boundaries. Both legacy/current workload orderings and persistent identity fail before repair; current paired ranking, retest and bounds remain covered."
+    },
+    {
+      "suite": "caption renderer and new instrumentation signature compile",
+      "result": "PASS_COMPILE_ONLY",
+      "runtime": "Android37, Compose1.12.1, Kotlin/Compose compiler2.4.20",
+      "scope": "Actual renderer, glyph/layout cache, wave and exact new instrumented method with production session/caption helpers; unrelated diagnostic frame-pressure is the only additional signature fixture. Hosted device execution remains mandatory."
+    },
+    {
+      "suite": "final integrated voice and Room54 canonical validation",
+      "result": "PASS",
+      "tests": 616,
+      "seconds": 26.714,
+      "scope": "4c48 restore/acceptance plus all retained corrections and final caption/reasoning/Auto fixes.1923 literal regex patterns,97 dynamic patterns skipped,36 XML files, provenance/policy/inventories pass.35 changed Kotlin files pass pinned ktlint1.3.1; all664 changed paths are explicitly scoped. Full exact-head hosted verification remains mandatory."
+    }
+  ],
+  "hardware_qualification": "Physical phone GPU/NPU performance and audio route calibration require device execution evidence; host tests and successful compilation alone are not qualification.",
+  "remote_observations": [
+    {
+      "event": "intake",
+      "pr": 2254,
+      "head": "2fb4f4434fa80ef26455d84f09e45fc425c6b629",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "draft": true
+    },
+    {
+      "event": "pre-integration recheck",
+      "head": "2fb4f4434fa80ef26455d84f09e45fc425c6b629",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "ruleset_id": 27005122,
+      "required_checks": [
+        "Required verification",
+        "Analyze (java-kotlin)"
+      ],
+      "bypass": "never"
+    },
+    {
+      "event": "concurrent commit preserved",
+      "head": "2d42f3970d65cf169c600c3d4cc3cccc949ef14a",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Merged firewall/profile observations and inherited test fixture fixes without overwriting them."
+    },
+    {
+      "event": "second concurrent commit preserved",
+      "head": "f225c208e80393f0232ba7849340461fd23901b9",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Merged verified Robolectric-cache workflow repair without overwriting it."
+    },
+    {
+      "event": "concurrent recovery commit preserved",
+      "head": "3d672c0456abbc09318dffb69f8bb7eed11162e0",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Fast-forwarded retired engine cache recovery, readiness negotiation and regression tests; integrated audio compilation and16 backend tests passed."
+    },
+    {
+      "event": "concurrent repository review commit preserved",
+      "head": "5e4ab1ebdcc8c27110a992e982697e4071c3e5ab",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Fast-forwarded setup/routing/benchmark/export improvements. Reviewed integration and repaired the new fractional caption spacing derivative discontinuity without removing its non-overlap guarantee."
+    },
+    {
+      "event": "concurrent privacy and Room schema changes preserved",
+      "head": "7c4b142dbeb0c18663b06e3891f1fae37f1bc4f4",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Merged eeb2 privacy features,2fa6 early canonical schema verification and7c4b authentic Room53 export without losing tested C1 caption changes."
+    },
+    {
+      "event": "concurrent full-suite repairs preserved",
+      "head": "7c7634dff82f712b5122aa3d5dd4b0ba1b9c9d58",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Merged full-suite diagnostic/network/persistence regressions and stronger mandatory Room/caption emulator coverage; no required gate weakened."
+    },
+    {
+      "event": "concurrent research settings compilation correction preserved",
+      "head": "6e03f1e08f4273623a896c31a7a1d0b4fe3068d6",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Merged the explicitly named engine-selection callback and regenerated combined inventories. Both call sites were reviewed; no concurrent source change was discarded."
+    },
+    {
+      "event": "guarded push deferred for concurrent provider evidence commit",
+      "head": "9e4b767818c5a258751c22cd3eab4a91d79ebeef",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Expected-head check stopped branch mutation. Preserved safe numeric provider codes, bounded unknown-code correlation and stronger full-suite regressions; regenerated the combined inventory."
+    },
+    {
+      "event": "concurrent provider correlation and monotonic retargeting preserved",
+      "head": "7afcd240aeba55d597d0387d6d7a1afea8e30dbd",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved validated upstream-code correlation and bounded Hermite retarget duration; reviewed position/velocity continuity and close-target overshoot prevention."
+    },
+    {
+      "event": "concurrent built-in binding compatibility repair preserved",
+      "head": "85389f14ab1159d7d9d1c2c5b8ff6dfb84102e31",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved transactional replacement, raw-SQL uniqueness guards and deterministic equivalent legacy binding normalization. Independently reviewed the five-field entity, lack of inbound binding foreign keys, resolver membership semantics and extracted backup staging; the original archive is unchanged."
+    },
+    {
+      "event": "concurrent voice and Research wiring preserved",
+      "head": "f3b9b408c41d078d140062da38270bf0e75fdf84",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved explicit backend recheck, measured Auto reuse, recognition correction, supplementary RTL shaping, queued-choice state, Research controls, route details, benchmark disclosure and observed-absent firewall evidence."
+    },
+    {
+      "event": "concurrent final cursor and Gateway fixture correction preserved",
+      "head": "3f047bce0b95443d5aefd2d4ba453fe12d3baad1",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Kept the compact exact-issued cursor wording and all concurrent evidence. Retained exact selected-config refresh stubbing and explicit null-selection verification in the combined fixture."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "e9148ab3dd6df0d1ffb67a630304c1a93c139aed",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved Research read-only/saving controls, live draft state and one immutable save snapshot; independently reviewed both settings call sites and regression coverage."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "a0ac4b01d55fb837893e742728c625b257b48dbe",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved the corrected Research instrumentation label without weakening its custom-goal or small-screen assertions."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "24a12620de2aa4ed11eae4bc38dc4210c454ed8a",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved binding UID ownership checks, atomic enable/disable/import validation, all 26 mandatory persistence receipts and exact selected-Gateway refresh fixtures."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "87204b8667233f1d01334cdae2765d1f152d6545",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved explicit Any? SQL bind argument typing after the actual Android instrumentation compiler failure."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "66cbf7122c28f9d895ee1863e613287fe44baeed",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved Research state assertions after completed recomposition and recorded focused Android/JVM evidence."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "26560d62a29b9d9cc628d5d5bf2bc64554222e9d",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved large-font GitHub choices with wrapped actions, readable expanded titles and the actual TextLayoutResult regression."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "38098840f81a7216c5d2ad6d09d37c3f22f57e56",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved default phone repository maps, bounded source indexing, account/revision-bound caches and explicit Gateway selection. Independently reviewed routing, live authority checks and source limits; added precise graph and stale-response corrections."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "06ab96439deea13262fa48130eed367914e914d0",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved immediate privacy-policy intent, serialized background persistence, retry, asynchronous provider verification and local draft creation. Independently reviewed locking, cancellation, revision and actual transport enforcement."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved trusted private local tools, typed GitHub/MCP transport evidence, bounded audit export and effective policy observations. Reconciled the authoritative provider HTTP-status fixture with the independently added closed-schema assertion."
+    },
+    {
+      "event": "concurrent map dispatcher correction preserved",
+      "head": "9173e21455fecd3ef331e9a4aba13709928bfa39",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved complete phone-map preparation on Dispatchers.Default, retained authority/cancellation context and the actual caller-dispatch regression. Independently reviewed all local returns and nested cache/parse boundaries."
+    },
+    {
+      "event": "concurrent phone map privacy and long-path pagination preserved",
+      "head": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved typed policy rejection with actual dispatch accounting, retained selected-map guidance and bounded ordered-path pagination. Independently reviewed source and 98 focused follow-up tests with actual Compose compilation."
+    },
+    {
+      "event": "concurrent diagnostic review completion preserved",
+      "head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved order-independent comparison coverage, exact delivered-body proof, saved-view recovery, bounded visible-output repair and stage budgets, source-window splitting, original uncertain-operation identity, CI observation selection and additive reporting capability negotiation. Independently reviewed all groups; found and corrected a host fixture assumption against the production unknown-outcome code set and identified the retained-page boundary gap."
+    },
+    {
+      "event": "concurrent permanent conversation privacy preserved",
+      "head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Stopped the guarded push before mutation, preserved the complete per-conversation privacy/Room54 commit, reviewed core transport, masking, voice, creation/UI, durable execution, migration, memory and research paths, and reconciled MCP fixtures without weakening either incoming policy tests or typed retry evidence. Corrected a reproduced mixed-private-memory source-pruning widening defect."
+    },
+    {
+      "event": "concurrent equivalent MCP and full-suite corrections preserved",
+      "head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Stopped branch mutation when another worker published the same MCP and fixture repairs. Preserved the broader invocation-owned interrupted-read observation across modern and legacy SDK retries and the stronger incoming Gateway/graph assertions. The unpublished exception-only alternative is superseded; additional first-denial, cancellation, health and confirmed-response coverage is retained."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "ecd207312bbbcef04790762217c3d66a75ebb26f",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved conversational voice policy, durable presentation, answer/details routing, pronunciation, streaming changes and CPU/GPU/NPU benchmark. Independently reviewed policy, privacy and native ownership; corrected reproduced caption, reasoning and Auto protocol regressions with actual-source tests."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved permanent privacy during full and selected-conversation SQL restore, older-column compatibility, actual SQLite/Robolectric regressions and mandatory voice-control acceptance receipts. Reconciled only release scope, ledgers and generated inventories; retained all unpublished root corrections."
+    }
+  ],
+  "integration_regressions": [
+    "Wait for the presentation tail before pausing an empty hardware queue.",
+    "Do not consume newly queued captions or ahead-offset words during pause/refill.",
+    "Continue calibrated final caption motion until the visual tail drains.",
+    "Require a validated phrase from the current reply before reporting native fallback success.",
+    "Retain accelerator preparation evidence if subsequent CPU creation or synthesis also fails.",
+    "Do not classify an Auto CPU-baseline failure as CPU-to-CPU fallback.",
+    "Do not show uncollected CPU operator counts as a zero-work profile.",
+    "Preserve continuous row velocity and non-overlap across fractional caption scale boundaries using bounded leading and matching viewport extent.",
+    "Do not transfer privacy proof across removed thinking blocks or unmapped source-list cleanup.",
+    "Keep prepared text and privacy proof together and prevent retained Markdown trees from acquiring a different snapshot\u2019s proof.",
+    "Complete the AgentPersistenceDao test fixture for the new privacy-use method.",
+    "Keep the reporting-service closed upstream-code mirror aligned with the safe Android numeric authentication/rate-limit values; reject non-string, unlisted and private values.",
+    "Verify the Kokoro timing and QNN adapter ELF libraries and same-ABI dependencies in every final APK without weakening pinned runtime or alignment checks.",
+    "Require the current selected Gateway refresh configuration and retain explicit null-selection coverage.",
+    "Require one surviving complete built-in binding after simultaneous transactional enables; preserve legacy normalization and archive safety.",
+    "Scope relative-import memoization to the calling directory, including Python modules encoded in source text.",
+    "Keep the complete bounded source-to-target path and inspect every admitted queue node before concluding a path is absent.",
+    "Report path and impact search limits explicitly, preserve valid partial impact candidates, and retain all byte, node, depth and paging bounds.",
+    "Recheck the current map generation after a suspended architecture refresh before publishing indexing-paused state.",
+    "Exercise Gateway fallback revocation with an explicit Gateway source while keeping native status arguments and phone no-fallback behavior unchanged.",
+    "Assert provider HTTP status at its authoritative IssueReportContext field while preserving hash-only classification and the closed nested diagnostic schema.",
+    "Retain the six closed GitHub transport stage values in audit exports; unknown or private stage strings remain excluded.",
+    "Retain requested comparison samples without unusable page continuations or false upstream-change claims when the512-page completeness bound is exceeded; offer only an explicit same-revision restart within the100-row page-size contract.",
+    "Use the exact production unknown-outcome code set in delivery-proof regressions; unsupported test-only codes must not masquerade as classified unknown outcomes.",
+    "Retain the earlier incomplete MCP read through coroutine exception recovery when a subsequent privacy denial blocks its sole retry; preserve first-denial non-dispatch, prior confirmed responses, cancellation, catalogue health and retry limits.",
+    "Keep Gateway unknown dispatch on reconciliation recovery and reject unresolved repository contexts at construction while retaining traversal checks.",
+    "Keep mixed private facts and topics unshared after source pruning, room deletion and reload; deleting provenance cannot grant another conversation access, and final-source forgetting still removes the memory.",
+    "Keep readable preview opacity and manual reader position through first audio timing; reset same-text replies and replays by explicit presentation identity even if no empty frame is collected.",
+    "Keep quoted/code/escaped/nested reasoning delimiters and embedded apostrophes within their channel across arbitrary streaming chunks and saved projections; one truncated choice cannot clear another choice\u2019s reasoning or tools.",
+    "Exclude legacy two-phrase cache receipts from current three-fixture Auto ranking and include the workload/scoring protocol in persistent and resident identities."
+  ],
+  "last_reconciled_remote_head": "5a9302855e1a65f8ac30174fae319c4dd2088370",
+  "pending_concurrent_scope": [
+    "acceptance-completion saved-cursor union: rejected size-stripped and unissued cursors must not consume successful issued corrections; exact native cursor/outcome provenance and wrong-result/pending exclusions remain active. Preserve the admitted-context half now integrated at5a930.",
+    "github-context-reference-2026-11-22: the shared PR announces an active repository-reference/context package under separate ownership. Preserve its existing privacy, authority, source identity and bounded retrieval requirements; integrate and review before readiness."
+  ],
+  "integration_review_followup": {
+    "source_head": "ecd207312bbbcef04790762217c3d66a75ebb26f",
+    "status": "FIXED_FOCUSED_VALIDATION_PASSED",
+    "caption": "Added stable presentation ownership through preview, first timing, chunks and pause; new captures, restores, replies and explicit replay receive new identities. Readable previews retain opacity and manual position; stale independently collected cursors are rejected; preaudio focus starts at the first line. The actual Android visual regression is mandatory in acceptance.",
+    "reasoning": "Shared bounded literal state protects quoted, escaped, inline/fenced/indented-code and nested reasoning across arbitrary chunks; embedded apostrophes cannot close single-quoted literals prematurely. Stored brief/full/rich projections stay prefix-safe. Terminal discard is choice-scoped while global cleanup still closes all pending state.",
+    "auto": "Current three-fixture workload and complete-cost scoring protocol now participate in capability cache and resident engine identity; Auto requires exactly three valid samples. Explicit qualification and the standalone benchmark remain independent.",
+    "prior_corrections": "Preserved comparison cap and pinned restart, actual closed outcome fixtures, invocation-owned MCP interrupted-read observation and extra denial/cancellation/confirmed-response coverage, incoming stronger Gateway/graph tests, and sticky unshared private memory.",
+    "gates": "Final616 canonical host tests,35-file pinned Kotlin formatting, generated metadata/inventories, committed Room schema history and664-path exact release scope pass. Exact integrated hosted Android/unit/security/native/device checks, guarded merge, exact-main validation and signed Android/Gateway publication remain required."
+  },
+  "hosted_unit_followup": {
+    "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "run_id": 45074676939,
+    "job_id": 137371424410,
+    "tests": 12803,
+    "failures": 41,
+    "skipped": 5,
+    "status": "CORRECTED_AWAITING_FINAL_HEAD_FULL_SUITE",
+    "already_repaired": "Four failures are superseded by the preserved c29 delivery-proof2, Gateway recovery1 and graph-context1 fixture corrections.",
+    "remaining_groups": {
+      "gateway_privacy_repository": 20,
+      "graph_and_recorder": 12,
+      "reporting_audit_schema": 5
+    },
+    "policy": "Preserve new durable conversation authority, exact phone/Gateway evidence, closed diagnostics, existing schema budgets and all substantive regression assertions. Use a real Android runtime for actual AtomicFile paths.",
+    "deleted_room_contract": "The old remote-only reopening test assumed that a deleted local room could be silently replaced. Current privacy policy intentionally rejects missing saved authority before any network read. Preserve same-room reopening, original remote binding/history and zero replay; after deletion assert the exact denial and no added external reads/commands. No production privacy guard is weakened.",
+    "incoming_review": "Clean fast-forward retained all c29 corrections. Independently reviewed dbc29 unknown-room screen protection, per-window leases and ordinary FactVault scope moves; private and unshared scope restrictions remain sticky. No further blocker in those incoming changes.",
+    "corrections": {
+      "gateway_privacy_repository": "Preserve exact-chat ordinary admission in the 17 Gateway engineering fixtures; keep deleted-room authority fail-closed with retained history and zero external work; capture the originating private conversation in the local-tool fixture; represent unsaved/nonpositive chat IDs truthfully in the shared repository fixture without changing original trace assertions.",
+      "graph_and_recorder": "Explicit Gateway fixtures retain real native uncertainty and dispatch evidence. Assert every original retained audit payload field plus the complete traversal envelope. Production graph status/job/cursor recipes preserve typed source ownership; Phone and Gateway observations cannot settle or consume each other's work.",
+      "reporting_audit_schema": "Advertise the independent execution-completion capability required by existing reporter codes; preserve typed ENGINEERING_GUARD and distinct enabled/featureAvailable audit fields. Shorten redundant no-repository wording while retaining the closed schemas and unchanged <2000-token limit."
+    },
+    "focused_validation": [
+      {
+        "suite": "Captured private turn and physical dispatch boundary",
+        "tests": 11,
+        "result": "PASS",
+        "baseline": "The original direct local-session fixture failed without its captured conversation; corrected fixture passes before and after c818.",
+        "boundary": "Actual session/context/authority source; unrelated DTO/platform boundaries isolated."
+      },
+      {
+        "suite": "Graph follow-up source ownership",
+        "tests": 13,
+        "result": "PASS",
+        "baseline_failures": 4,
+        "boundary": "Actual complete helper and inventory; exact validator/DTO/digest declarations and minimal ToolCall boundary."
+      },
+      {
+        "suite": "Current graph/map/fallback and retained envelope",
+        "tests": 30,
+        "result": "PASS",
+        "baseline_failures": 1,
+        "boundary": "Actual graph tool/map/fallback sources plus exact envelope method; full facade/recorder/Room integration remains hosted."
+      },
+      {
+        "suite": "Reporting and original provider interruption receipts",
+        "tests": 5,
+        "result": "PASS",
+        "baseline_failures": 3,
+        "boundary": "Actual reporting/incident/receipt/serialization/OkHttp; unused Android/storage/service boundaries isolated."
+      },
+      {
+        "suite": "Full bounded audit exporter",
+        "tests": 1,
+        "result": "PASS",
+        "baseline_failures": 1,
+        "boundary": "Actual exporter/models/scoring serialization; unrelated inventory/container inputs isolated."
+      },
+      {
+        "suite": "Exact selected native schema pipeline",
+        "tests": 1,
+        "result": "PASS",
+        "baseline_tokens": 2008,
+        "corrected_c818_tokens": 1979,
+        "corrected_f025_tokens": 1976,
+        "limit": "<2000 unchanged",
+        "boundary": "Actual native schema builders, planning suffix, discovery schema and estimator; full resolver lifecycle remains hosted."
+      }
+    ],
+    "full_suite_limit": "These focused runs do not establish that all 37 predecessor failures pass on the final head. Actual full Android/Room/Robolectric/unit execution, required instrumentation and every applicable final-head workflow remain mandatory."
+  },
+  "combined_incoming_review": {
+    "preserved_through": "f0250cf0c82b0a1939af9721a814c89129be377a",
+    "reviewed": "Restored-screen protection and ordinary memory moves; captured and physical private authority; exact-total Auto selection and benchmark ownership; reasoning delimiters; local pagination generations; evidence-bound acceptance, original provider-call identity, complete durable recovery, exact source/cursor/CI selectors and bounded source replanning.",
+    "validation": [
+      {
+        "suite": "Incoming reasoning/provider parsing",
+        "tests": 63,
+        "result": "PASS"
+      },
+      {
+        "suite": "Benchmark/Auto/export",
+        "tests": 23,
+        "result": "PASS"
+      },
+      {
+        "suite": "Runtime benchmark ownership",
+        "tests": 2,
+        "result": "PASS"
+      },
+      {
+        "suite": "Comparison/pagination including incoming generation and empty tasks",
+        "tests": 70,
+        "result": "PASS",
+        "boundary": "Actual complete boundary/page/coverage helpers plus exact supporting methods; full operation facade remains hosted."
+      },
+      {
+        "suite": "Acceptance contract and task recovery",
+        "tests": 9,
+        "result": "PASS"
+      },
+      {
+        "suite": "Criterion source/regression/draft proof",
+        "tests": 13,
+        "result": "PASS",
+        "boundary": "Actual acceptance helpers; unrelated bulk issue and positive comparison adapters fail closed in host boundaries."
+      },
+      {
+        "suite": "Native recipes, source and CI selectors",
+        "tests": 62,
+        "result": "PASS",
+        "boundary": "Actual sources/exact methods with explicit platform/data boundaries; full Android facade remains hosted."
+      },
+      {
+        "suite": "Measured queue headroom",
+        "tests": 18,
+        "result": "PASS",
+        "baseline_failures": 1,
+        "boundary": "Actual synthesis performance helpers; synthetic timings do not establish physical playback continuity."
+      },
+      {
+        "suite": "Final integrated voice session, caption, buffer and parser",
+        "tests": 89,
+        "result": "PASS",
+        "boundary": "Actual merged VoiceSession/caption/performance/reserve/parser; only diagnostic transport/failure classification isolated. No changed renderer signature or physical rendering claim."
+      },
+      {
+        "suite": "Complete durable recovery and journal integrity",
+        "tests": 110,
+        "result": "PASS",
+        "boundary": "Actual checkpoint, output continuation, provider checkpoint/replay source; Android AtomicFile and unrelated platform/storage boundaries isolated."
+      }
+    ],
+    "additional_regressions": [
+      {
+        "finding": "A generic TLS response interruption could lose invocation-owned uncertainty before a legacy reconnect was blocked locally.",
+        "correction": "Exclude typed handshake/peer-admission errors; retain ambiguous TLS read uncertainty without changing retry, certificate or transport policies.",
+        "baseline": "23 tests / 1 failure",
+        "corrected": "23 tests pass with coroutine debug/stacktrace recovery enabled and disabled; actual complete manager and modern/legacy transport paths use real pinned Ktor and MCP SDK, with labelled platform boundaries."
+      },
+      {
+        "finding": "A saved local/reused result could change while retaining its old projection hash, allowing unchanged journal identity to attest a changed body.",
+        "correction": "Validate every present projection hash against stored body before recovery or journal evidence, preserving compatible legacy missing hashes.",
+        "status": "PASS",
+        "baseline": "Incoming recovery suite107 PASS; identical new three-test group reproduced two failures while legacy compatibility passed.",
+        "corrected": "Full actual recovery suite110 PASS, including changed result/body/hash, prior budget refusal and legacy absent-hash/dedup regressions. Android AtomicFile/platform boundaries are explicitly isolated in this host harness; full hosted execution remains required."
+      }
+    ],
+    "qualification": "Software integration only. No physical GPU/NPU speed, acoustic latency, thermal, battery or frame-time qualification; exact final-head Android gates and exact-main signed publication remain pending.",
+    "format": {
+      "kotlin_files": 21,
+      "tool": "ktlint1.3.1",
+      "result": "PASS"
+    },
+    "release_scope": {
+      "changed_paths": 712,
+      "explicit_allowed_paths": 712,
+      "qualification": "scoped",
+      "result": "PASS"
+    },
+    "canonical": {
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 616,
+      "seconds": 23.413,
+      "result": "PASS",
+      "literal_regexes": 1949,
+      "dynamic_regexes_skipped": 99,
+      "resource_xml_files": 36
+    }
+  },
+  "subsequent_hosted_unit_followup": {
+    "source_head": "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+    "run_id": 45080132750,
+    "job_id": 137386234890,
+    "tests": 12916,
+    "failures": 48,
+    "skipped": 5,
+    "previous_overlap": "37 cases match the earlier failures addressed in35228794. No current-head pass is inferred from that predecessor run.",
+    "voice_startup_fixtures": {
+      "cases": 10,
+      "integrated_at": "57ee520c5b4d99947e724c4eff13e413ddc7ce78",
+      "correction": "Supply a complete stable opening clause in the existing streaming fixtures while retaining every numeric timing, cause, cancellation, privacy, stale callback and raw-content redaction assertion. Production startup policy is unchanged.",
+      "review": "Independent review of all five changed test files found no weakened assertion; matches the reviewed369de97f local source.",
+      "focused_proof": "Actual lifecycle/buffer24 tests: six matching baseline failures, then24 pass. Six producer-admission cases: three baseline failures, then six pass. The four full native-producer/Robolectric incident-reporting cases remain mandatory hosted execution."
+    },
+    "openrouter_cancellation": {
+      "cases": 1,
+      "production_changed": false,
+      "diagnosis": "The fixture assumed fast IO would suspend the caller and enqueue another continuation, but could fail before exercising cancellation.",
+      "correction": "Preserve the stronger concurrent fixture: hold IO at captured authority revision until caller suspension, cancel before queued delivery, drain cancelled continuations and reset hooks in finally; retain five cancellations, all four delivered preview slots, fifth-slot refusal and reuse after discard.",
+      "focused_proof": "Independent review matched all10 production/test inputs to the actual20/20 setup suite and25 repeated target runs (125 cancellation windows). Inspected the negative control that removes only production prepared-preview discard and fails the committed capacity assertion. This exact incoming fixture supersedes the earlier equivalent local test; no duplicate edit remains. Full Android remains required.",
+      "integrated_at": "3a7563e3cad2707dbe577470811ab05b5d67728b"
+    },
+    "graph_compile_fixture": "Remove only c14's accidentally appended duplicate graphAction helper; preserve every graph source/continuation assertion and exactly one original definition.",
+    "status": "ALL_REPORTED_CASES_HAVE_REVIEWED_CORRECTIONS_AWAITING_FINAL_HEAD_HOSTED_SUITE"
+  },
+  "later_shared_review": {
+    "c14e2eb1": "Preserve stronger independent reporter capability gates, exact private Gateway/missing-context negatives, the truthful nonpositive-room fixture and exactly one real-platform web-search test. Voice UI assertions keep independent spoken content, exact projection whitespace and collapsed planning/details.",
+    "ede2caa9": {
+      "finding": "Short phrase tails can fill all60 PCM slots below the duration reserve and block the producer while priming waits.",
+      "review": "Capacity exit preserves ownership, synthesis completion, no-producer and deadline checks, leaves queue consumption with the playback worker and keeps actual writes under the active track lock.",
+      "evidence": "All12 actual production/test source hashes match the reviewed upstream27/27 proof; old source reproduced one regression with a real blocked producer and4740 synthetic milliseconds of polling. Actual Android framework signature compile also passed; no physical audio result claimed."
+    },
+    "891e77cf": {
+      "review": "Typed journal corruption retains the352 byte/hash guards, legacy fallback and settled deduplication. Untrusted observed digests/counts are omitted rather than asserted as zero. Polite requests keep original source spans, conditions, dependencies and full pinned evidence obligations.",
+      "validation": "Current actual recovery112/112 passed, plus25 actual acceptance/criterion cases. Existing labelled host boundaries remain; full Android/Room/facade execution pending."
+    },
+    "2f95744c": {
+      "review": "Phone graph recipes stay within native capabilities; explicit Gateway source/advanced analyses and typed uncertainty remain. Per-request Gateway response evidence forwards only to its own acquisition; fresh denied index cleanup retains prior unknown work and exact replacement ownership. Wrapped MCP cancellation cannot reconnect or replay a read; handshake/certificate exclusions and ambiguous TLS interruption evidence remain separate.",
+      "evidence": "Independent source review plus identity-matched8-case Gateway proof; upstream29 unique MCP core/legacy/realSDK cases and23 planner cases remain scoped component evidence. No additional whole Android result is inferred."
+    },
+    "368e9a83_workspace": {
+      "review": "Reachable Android/Windows workspace retains exact job, account, source and command identity; private encrypted originals survive unknown outcomes; only confirmed absence permits exact retry. Source pages and candidates remain bound to observed blobs. Workers share atomic budgets and task evidence remains tied to the tested patch and approved policy.",
+      "android_fixture": "Independent actual-signature compile reproduced two stale Unit-returning privacy mocks. Two exact ConversationPrivacyContext(8,false) returns correct the fixture without changing assertions; identical concurrent3a correction is preserved. All26 client/repository/store component cases pass.",
+      "python_validation": "92 focused workspace/graph cases qualified after3a (updated34 intelligence cases replace prior31), plus9 desktop original-command cases,2 frozen-worker entry cases and44 repository-setup cases.",
+      "ui": "13 Android UI/model/test inputs match the recorded26-case Compose/component source;27 Windows native files match the prior successful WPF build. These are source-matched prior component/build evidence, not a fresh whole Android or live Windows result.",
+      "adapter": "Independent original50-case actual Python adapter suite passes; separately reproduced real-child startup after confirmed cancellation requires the local atomic startup/stop follow-up below. External credential rotation and SQL cancellation receipt follow-ups remain pending."
+    },
+    "6f887cc3_verification": {
+      "review": "Preserve Long timestamp fallbacks in ranking/export, exact exclusive saved-cursor replay, useful discovery schema hints, generation-aware schema admission messages, observed local search-budget causes and independent single-pass reporting capability. No broader completion or dispatch authority is manufactured.",
+      "validation": "Actual full ranking object with exact committed regression reproduced ClassCastException against850; current regression passes.102 reporting-contract and71 actual HTTP service tests pass. Source/Android runner tests retain final hosted obligations."
+    },
+    "3a7563e3_privacy": {
+      "review": "Blocked local-only, private, disabled, remote-denied and unlisted-tool requests remain passive before optional MCP discovery. Another enabled integration cannot lend the requested tool authority. Authorized dispatch retains current schemas, leases and exact replay identity. Stronger OpenRouter and typed workspace fixtures preserved.",
+      "validation": "Updated actual workspace intelligence34/34 pass; only two inputs changed from the prior89-case workspace review, yielding92 source-qualified cases, not an additional duplicate89."
+    }
+  },
+  "android_build_staging_followup": {
+    "observed_failure": {
+      "source_head": "35228794d6fb667a56f0ff97c80672852093d74b",
+      "run_id": 45082366423,
+      "api36_job": 137393904054,
+      "api34_job": 137393904338,
+      "stage": ":app:compileDebugKotlin before APK packaging or device execution",
+      "symptom": "API36 Java heap-space exhaustion in compiler diagnostics; API34 insufficient compilation memory. These are separate from c14's later test-source duplicate."
+    },
+    "correction": "Use the established PRValidation/Diagnostic fresh-process generation and compile boundaries. Both acceptance and required main APK builds separately run application KSP, KAPT, Kotlin/Java compilation, then packaging. Acceptance additionally separates instrumentation KSP, KAPT stubs/annotations and Kotlin/Java compilation.",
+    "limits": "Keep4096MB heap,768MB metaspace,one worker,no-daemon/in-process strategy and existing60/90-minute job limits. No skipped compilation, continue-on-error, reduced device matrix or disabled test.",
+    "gates": "Pinned QNN provenance stays before the first distribution Gradle invocation. Packaged native/size validation, APK selectors, API34/API36 device regressions and artifact checks are retained. Build Android APK now becomes an additional applicable PR workflow through its existing path trigger.",
+    "validation": "Both new ordered-stage/limit/gate contract cases fail against original workflows and pass after correction. Targeted pipeline/native-receipt/emulator preparation suite84/84, YAML parse and diff check pass. Actual hosted compilation/device execution remains required.",
+    "qualification": "Earlier ba775 unit/lint jobs passed separated production compilation;352 CodeQL/Diagnostic production steps were cancelled, not successful. Both352 acceptance variants failed compile memory;ede API34 later completed but API36 failed. The workflow staging correction requires its own exact-head hosted result."
+  },
+  "predecessor_device_design_review": {
+    "source_head": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
+    "run_id": 45083730342,
+    "job_id": 137398080771,
+    "api": 34,
+    "result": "SUCCESS",
+    "primary_cases": 47,
+    "local_voice_cases": 4,
+    "permitted_skip": "Exact approved English-TTS prerequisite only.",
+    "visual_review": "Inspected original listening-dark, speaking-light and transcript-controls-large-dark screenshots: theme highlight, hierarchy and enlarged controls are legible, without observed clipping or overlap. Still images do not establish scroll smoothness or250ms timing.",
+    "limits": "Predecessor design/device evidence only. Its API36 compile failed; the full final-head matrix and actual final code checks remain required."
+  },
+  "adapter_startup_stop_followup": {
+    "source_head": "368e9a8373cad17586de8b7287fa240097ab0352",
+    "failure": "Actual real-child probe reproduced a live SDK child launched after cancellation confirmed CANCELLED while source preparation was blocked. Independent concurrent launch probe produced two real children after both callers passed preparation.",
+    "correction": "Use the existing reentrant lock to gate terminal-state checks and child publication together with stop. Recheck both stopped_state and existing process after preparation. Stop captures the exact published child under the gate, then terminates outside it. Source preparation, readers and protocol waits remain outside the lock.",
+    "validation": "Each exact committed regression fails its matching original source; complete corrected adapter suite52/52 passes with no skips. Real subprocesses and process groups are exercised; provider services remain fixtures. Existing cancellation, protocol, deadlines and import constraints are preserved.",
+    "pending": "Operation-bound redaction and atomic durable SQL cancellation receipts are integrated at a769. Current combined actual adapter suite57/57 passes; current-head hosted gates remain required."
+  },
+  "subsequent_hosted_compile_followup": {
+    "source_head": "57ee520c5b4d99947e724c4eff13e413ddc7ce78",
+    "run_id": 45085098496,
+    "job_id": 137401905917,
+    "stage": "Unit test compilation; production compilation passed, no unit tests ran.",
+    "failures": [
+      "Duplicate graphAction helper already removed without assertion changes.",
+      "Missing Json and jsonObject imports in ToolReportIncidentProjectionTest corrected; four existing parsing/assertion expressions remain unchanged."
+    ],
+    "validation": "Pinned formatting and source/diff checks; whole class Android/Robolectric execution remains required on final hosted head.",
+    "integration": "Concurrent e091 supplies exactly the same two imports and duplicate-helper removal as the reviewed local corrections. Preserve that commit and all original test bodies."
+  },
+  "latest_local_validation": {
+    "canonical_tests": 625,
+    "test_duration_seconds": 26.541,
+    "command_duration_seconds": 31.129,
+    "scope_paths": 905,
+    "result": "PASS",
+    "source": "All shared source through5a930 admitted-context saved-page integration, preserving every prior code/issue-review commit and all locally reviewed corrections.",
+    "independent_suites": {
+      "adapter_runtime": 57,
+      "scoped_discovery_router_readiness_upgrade": 86,
+      "benchmark_domain_phone": 90,
+      "benchmark_external_generation_preparation": 39,
+      "native_benchmark_controls": 14,
+      "desktop_comparison_qualification_benchmark_bridge": 51,
+      "native_desktop_contract_assertions": 44,
+      "journal_recovery_source_matched": 126,
+      "journal_independent_adversarial_probes_source_matched": 8,
+      "openrouter_setup": 20,
+      "report_contract_and_http": 171,
+      "pipeline_workflow_provisioning": 68,
+      "admitted_cursor_existing_proof": 70,
+      "admitted_cursor_new_journal_compatibility_existing_proof": 19
+    },
+    "other_checks": [
+      "Actual WPF Release cross-compile: zero warnings/errors",
+      "Architecture/audit inventories and agent metadata synchronized",
+      "Committed Room schema history verified",
+      "Gateway source manifest hashes validated",
+      "2023 literal Android regexes and36 XML resources checked",
+      "Pinned Kotlin formatting and whitespace verified for changed Kotlin source/test"
+    ],
+    "limits": "Separate component suites overlap and are not a deduplicated total. Source-matched existing journal proof is not rerun. Full final-head Android unit/lint, both emulator APIs, independent native/security/Windows gates and exact-main signed Android/Gateway publication remain mandatory. Optional live providers and physical GPU/NPU speed/acoustic/thermal/battery performance remain unqualified."
+  },
+  "benchmark_integration_review": {
+    "source_head": "b541378f5257c8f21d73fd4a7c0c18e4c7bcf83d",
+    "manifest_acknowledgement": "e315be06e0c943c442f7f74b216930ee3f32aae4",
+    "status": "REVIEWED_TWO_REPRODUCED_BOUNDARY_FIXES_FOCUSED_VALIDATED",
+    "preserved": "Four evidence lanes, frozen paired episodes/profiles/settings/budgets, exact task/grader/model identities, independent grading, distinct first/final/best results, all-attempt and setup accounting, explicit incomplete usage/cost, durable original-request reconciliation and five-view Android/desktop workspaces.",
+    "android_domain": "Actual current-source domain/phone suite90/90 with zero skips; actual API/transport/contract/plan/recovery/comparison/profile components,14 explicit platform or exact-slice boundaries. Full BatchRunner/Store/phone-executor HTTP/Android execution is not inferred.",
+    "android_ui": "All four actual source/declaration inputs match the prior successful Android37/Compose2.4.20 compile. Explicit ViewModel/domain platform boundaries remain; no full application build or rendered UI claim.",
+    "desktop_python": "Actual current-source comparison21, qualification3, benchmark5 and native bridge22 pass (51 total within these four suites). No live provider invocation or GUI rendering claim.",
+    "native_desktop": "Actual current source .NET10 contracts44 assertions pass; complete WPF Release cross-compile succeeds with zero warnings/errors in an isolated copy. Linux cross-compile is not Windows GUI/runtime or installer qualification.",
+    "gateway_grading": "Existing independent grader, admission/API, journal/grading/lifecycle and cleanup suites88/88, plus ten actual Kotlin/JVM/SQLite/YAML/shell native controls with zero skips. The separately reproduced native resource-bound accounting correction is being qualified.",
+    "ci_integration": "Preserved incoming per-origin dependency cooldowns and measured process deadlines/logs; reconciled instrumentation KSP and KAPT stages with the existing device gates. Combined pipeline/workflow/provisioning suite68/68 passes.",
+    "findings": [
+      "Started native candidate deadline/output-limit exhaustion was incorrectly ungraded HARNESS instead of a known model failure after successful calibration and confirmed cleanup.",
+      "An enclosing task deadline could propagate before cancelJob/onInterrupted and overwrite the already durable pending sample, losing its original request and cleanup obligation."
+    ],
+    "qualification": "Focused component evidence only. Current combined-head hosted Android/unit/lint/CodeQL/native/device/Windows checks and exact-main signed Android/Gateway publication remain mandatory.",
+    "native_resource_followup": {
+      "status": "FIXED_FOCUSED_VALIDATION_PASSED",
+      "correction": "Classify a measured native process deadline/output limit as a known model failure only after the trusted execution start marker and successful positive/negative calibration; preserve setup, transport, malformed observations, user cancellation and unknown cleanup as unqualified.",
+      "validation": "Four new regressions produce two failing resource-bound subcases on baseline; corrected mandatory offline native gate14/14 passes with zero skips, actual pinned Kotlin/JVM/SQLite/YAML/shell controls, bounded512MB/2CPU compiler. Docker/process boundaries are substituted only for the new resource-failure scenarios.",
+      "sources": {
+        "gateway/benchmarks/repository_sandbox.py": "1a0d789defd3fb6e50af7c65058580e84175aba2fae503cc2ca87f18e5313ce0",
+        "gateway/tests/test_gateway_repository_tasks.py": "4ced8d9201391631973d11721d34c0b7b212240a491145e005acfecd669b083b"
+      }
+    },
+    "deadline_retention_followup": {
+      "status": "FIXED_FOCUSED_VALIDATION_PASSED",
+      "correction": "Run the existing bounded NonCancellable remote cleanup for every CancellationException. A healthy parent with an inner task timeout returns TIMED_OUT; enclosing cancellation publishes the complete latest original generation/attempt/usage/cleanup receipt before rethrowing. No BatchRunner change or request replay.",
+      "validation": "Actual-source enclosing-timeout probe fails before correction with zero cancellation and no callback despite a durable pending attempt, then passes with exactly one cancellation and a callback. Complete executor/generation/preparation suite39/39 passes, including confirmed and unknown cleanup; remote phone/live contracts20/20, pinned ktlint and diff checks pass.",
+      "sources": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringExternalExecutor.kt": "00b3b013287048b674d7f22f384506f06136f5e779efa0404d7baabf7215f0b9",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringExternalTest.kt": "88f896d3981d889e35360d9492578c26c6d6917eb8c25a25fde1165fac1321bd"
+      }
+    }
+  },
+  "journal_and_adapter_a769_review": {
+    "source_head": "1c25a94dbf381dd6a575d2faad92573f8c9656ce",
+    "manifest_head": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+    "integration": "Preserved incoming versioned full-journal proof, explicit legacy semantics limitation, exact source/replay/execution binding, stronger OpenRouter fixture and operation-bound redaction/atomic cancellation receipts.",
+    "adapter_validation": "Actual combined adapter suite57/57 with persistent SQLite and real root stop/start subprocess regressions. Incoming config/runs unchanged, all four reviewed source hashes stable. Optional provider transports are fixtures.",
+    "privacy_validation": "Actual current OpenRouterPrivacySetupTest20/20 passes,1.845s runtime, bounded650MB/2CPU compiler; production/policy/test execute with explicit Android/settings/approval ports. Five-second synchronization bounds and exact fifth-slot rejection preserved.",
+    "journal_validation": "All113 compiled inputs,83 immutable repository blobs and six build artifacts match the126-case recovery proof; eight independent adversarial probes also source/base-jar verified. Independent writer/reader/dedup/reconciliation review found no additional blocker. Actual recovery components execute with explicit host ports; full AgentRunner/ChatRepository/Room/Hilt/device qualification remains required.",
+    "report_mirror_followup": {
+      "status": "FIXED_FOCUSED_VALIDATION_PASSED",
+      "added_exact_reasons": [
+        "TOOL_REPLAY_PROJECTION_UNPROVEN",
+        "TOOL_RESULT_SEMANTICS_UNPROVEN",
+        "TOOL_RESULT_SEMANTICS_CHANGED"
+      ],
+      "baseline": "Two new methods reproduce three valid-reason rejections and a native/server parity failure.",
+      "corrected": "Targeted2/2 and actual contract/report HTTP171/171 pass, zero skips. Exact17-value native/server set matches; all other enum sets and schemas unchanged; unknown/private/malformed values remain rejected."
+    }
+  },
+  "scoped_discovery_6c_review": {
+    "source_head": "b3ef2afea46521d10afcbaaf5925f27ad9a21072",
+    "manifest_head": "6c5a70f733b3491366526dfd6b7641c8d027b8b1",
+    "status": "INTEGRATED_INDEPENDENTLY_REVIEWED_FOCUSED_VALIDATED",
+    "validation": "Actual combined suite86/86: dedicated privacy/concurrency26, intelligence34, readiness10, upgrade/cache10, exact routing/replay6. Five changed files match incoming; all eight observed inputs stable during validation.",
+    "review": "Exact named connection scope before I/O; recheck privacy, policy/configuration and cancellation before each discovery page and actual dispatch. Nested scopes cannot widen. Shared producer ownership lasts until physical exit; one cancelled follower cannot cancel another admitted/global owner. Preserve global catalogue publication; invocation-local compiled bindings isolate concurrent selected operations and preserve durable replay/schema/config gates.",
+    "limits": "Controlled MCP transport; actual Gateway catalogue/router/SQLite ledger. No live provider execution claim."
+  },
+  "late_issue_metadata_ac503_review": {
+    "head": "ac5030cbf0d82fcc9cc32bc845867befe03dda60",
+    "review": "Preserved metadata-only accounting of88 issue reports and later feature checks; three late reports map to the already reviewed merge-status, empty Copilot collection and admissible-read scheduler corrections. No additional production changes."
+  },
+  "concurrent_push_guard_5a930": {
+    "expected_parent": "ac5030cbf0d82fcc9cc32bc845867befe03dda60",
+    "observed_head": "5a9302855e1a65f8ac30174fae319c4dd2088370",
+    "outcome": "Stopped before ref update. Source and manifest commit objects were prepared, but neither was attached to the shared branch. Preserve and integrate incoming saved-page source before rebuilding the upload.",
+    "source_objects": "09071f48 / f4f5b316 remain unpublished preparation objects and do not represent a completed draft push."
+  },
+  "admitted_cursor_5a930_review": {
+    "head": "5a9302855e1a65f8ac30174fae319c4dd2088370",
+    "status": "INTEGRATED_INDEPENDENTLY_REVIEWED_EXISTING_PROOF_SOURCE_VERIFIED",
+    "review": "Preserve successful compatible-context native saved reads before compaction and restore completed/pending-completed results. Retain exact admission, unsupported selector/unknown outcome exclusions, original32-attempt allowance and separate delivered-range proof.",
+    "existing_evidence": "Baseline68 cases has exactly the matching-context replay failure; corrected70/70 and updated-journal compatibility19/19 pass. All three reviewed source hashes match immutable5a and current checkout. Compatibility manifest31 actual repository inputs and14 host boundaries match; original70-case suite keeps only its documented older checkpoint dependency. The19-case suite supplies actual new checkpoint plus complete handoff/replay evidence. No duplicate compilation was performed.",
+    "limits": "Actual recovery/result-view components; full AgentRunner live/restored wiring reviewed in source and remains a current-head Android gate. Rejected/unissued/native receipt provenance remains separately owned pending work.",
+    "sources": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "1253073db08ecabc945869450ba8ccab641259bc5291a708e483d1789f80038d",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt": "182b861582bc41c7d0896e36499752dfdbb46df3b0881a9028f5ecfeeb722594",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedCursorContinuationTest.kt": "00800b157e63195f05bd98377c08f24800c4fcbf2ac62cd1f05067d756e48b39"
+    }
+  }
+}

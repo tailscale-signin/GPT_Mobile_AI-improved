@@ -19,6 +19,7 @@ internal interface KokoroOutput {
     val reportsPlaybackStart: Boolean get() = false
     fun bindPlaybackStarted(started: (() -> Unit)?) = Unit
     fun bindSpokenRange(spoken: SpokenRangeObserver?) = Unit
+    fun bindTimedSpokenRange(spoken: TimedSpokenRangeObserver?) = Unit
     fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit)
     fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit) = speak(text, voice, complete, error)
     fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit): VoiceReplyPlayback? = null
@@ -55,6 +56,7 @@ internal class VoicePluginAudio(
     var requireLocalOutput: Boolean = false
     private var playbackGeneration = 0L
     private var playbackStarted: (() -> Unit)? = null
+    private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
     private val interruption = local as? VoiceInterruptionInput
     private val unavailableInterruption = MutableStateFlow(VoiceInterruptionStatus.UNAVAILABLE)
     val interruptionState: StateFlow<VoiceInterruptionStatus>
@@ -125,6 +127,10 @@ internal class VoicePluginAudio(
         kokoro?.bindSpokenRange(spoken)
     }
 
+    override fun bindTimedSpokenRange(spoken: ((Int, String, IntRange, VoiceCaptionTiming) -> Unit)?) {
+        kokoro?.bindTimedSpokenRange(spoken)
+    }
+
     // offlineSpeech belongs to the same Android output and shares its start observer.
     override val reportsPlaybackStart: Boolean
         get() = system.reportsPlaybackStart && (kokoroVoice == null || kokoro == null || kokoro.reportsPlaybackStart)
@@ -160,18 +166,35 @@ internal class VoicePluginAudio(
         val ticket = ++playbackGeneration
         val fallbackText = StringBuilder()
         var useFallback = false
+        var fallbackStarted = false
+        var fallbackFailure: VoicePlaybackFailure? = null
+        val origin = diagnosticProbe
         var finished = false
         fun current() = !closed && playbackGeneration == ticket
         output.bindPlaybackStarted { if (current() && !useFallback) playbackBegan(ticket) { output.outputLevel?.value } }
         system.bindPlaybackStarted { if (current() && useFallback) playbackBegan(ticket) }
         fun finishFallback() {
-            offlineSpeech(fallbackText.toString(), { playbackFinished(ticket, complete) }, { playbackFinished(ticket) { error(VoicePlaybackFailure(it)) } })
+            if (!current() || fallbackStarted) return
+            val original = fallbackFailure ?: return
+            fallbackStarted = true
+            origin?.playbackFallback(original, "STARTED")
+            offlineSpeech(fallbackText.toString(), {
+                if (current()) origin?.playbackFallback(original, "SUCCEEDED")
+                playbackFinished(ticket, complete)
+            }, {
+                if (current()) origin?.playbackFallback(original, "FAILED")
+                playbackFinished(ticket) { error(VoicePlaybackFailure(it, original.cause, original.code, original.sourceProvider)) }
+            })
         }
-        val reply = output.openReplyWithFailure(voice, complete = { playbackFinished(ticket, complete) }, error = { failure, canFallback ->
-            if (current()) {
+        val reply = output.openReplyWithFailure(voice, complete = {
+            // The original producer no longer owns completion once recovery is selected.
+            if (!useFallback) playbackFinished(ticket, complete)
+        }, error = { failure, canFallback ->
+            if (current() && !useFallback) {
                 stopMonitoring()
                 if (canFallback && !requireLocalOutput) {
                     useFallback = true
+                    fallbackFailure = failure
                     if (finished) finishFallback()
                 } else {
                     playbackFinished(ticket) { error(failure) }
@@ -231,6 +254,7 @@ internal class VoicePluginAudio(
         stopMonitoring()
         local.stop()
         val ticket = ++playbackGeneration
+        val origin = diagnosticProbe
         fun current() = !closed && ticket == playbackGeneration
         system.bindPlaybackStarted { if (current()) playbackBegan(ticket) }
         val voice = kokoroVoice
@@ -264,8 +288,15 @@ internal class VoicePluginAudio(
                 val fallbackTicket = ++playbackGeneration
                 fun fallbackCurrent() = !closed && fallbackTicket == playbackGeneration
                 if (canFallback && !requireLocalOutput) {
+                    origin?.playbackFallback(failure, "STARTED")
                     system.bindPlaybackStarted { if (fallbackCurrent()) playbackBegan(fallbackTicket) }
-                    offlineSpeech(text, { playbackFinished(fallbackTicket, complete) }, { playbackFinished(fallbackTicket) { error(VoicePlaybackFailure(it)) } })
+                    offlineSpeech(text, {
+                        if (fallbackCurrent()) origin?.playbackFallback(failure, "SUCCEEDED")
+                        playbackFinished(fallbackTicket, complete)
+                    }, {
+                        if (fallbackCurrent()) origin?.playbackFallback(failure, "FAILED")
+                        playbackFinished(fallbackTicket) { error(VoicePlaybackFailure(it, failure.cause, failure.code, failure.sourceProvider)) }
+                    })
                 } else {
                     error(failure)
                 }
@@ -278,6 +309,7 @@ internal class VoicePluginAudio(
     }
 
     override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
+        diagnosticProbe = probe
         system.bindDiagnostics(probe)
         local.bindDiagnostics(probe)
         kokoro?.bindDiagnostics(probe)

@@ -60,8 +60,9 @@ class GatewayJobsMigrationTest {
         val database = Room.databaseBuilder(context, ChatDatabaseV2::class.java, name).addMigrations(*ChatDatabaseV2Migrations.ALL_MIGRATIONS).build()
         try {
             assertEquals("Keep original room", database.gatewayJobDao().localChat(7)?.title)
+            assertFalse(requireNotNull(database.gatewayJobDao().localChat(7)).privacyModeEnabled)
             assertEquals("Keep original turn", database.gatewayJobDao().localMessage(11)?.content)
-            assertEquals(51, database.openHelper.readableDatabase.version)
+            assertCurrentSchemaAndCaptureIndex(database.openHelper.readableDatabase)
             database.gatewayJobDao().saveMigration(GatewayMigrationRecord("verified", "checksum", 1))
             assertNotNull(database.gatewayJobDao().migration("verified"))
             database.openHelper.readableDatabase.query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'gateway_%'").use { rows -> assertTrue(rows.count >= 7) }
@@ -81,7 +82,8 @@ class GatewayJobsMigrationTest {
         }
         val db = openMigrated(name)
         try {
-            assertEquals(51, db.openHelper.readableDatabase.version)
+            assertCurrentSchemaAndCaptureIndex(db.openHelper.readableDatabase)
+            assertFalse(requireNotNull(db.gatewayJobDao().localChat(7)).privacyModeEnabled)
             assertEquals("retained-cursor", db.gatewayJobDao().conversation(key)?.messageCursor)
             assertTrue(requireNotNull(db.gatewayJobDao().message(key, "original")).content.length < 1000)
             val parts = mutableListOf<dev.chungjungsoo.gptmobile.data.database.entity.GatewayMessagePartRecord>()
@@ -224,6 +226,14 @@ class GatewayJobsMigrationTest {
         helper.writableDatabase
         helper.close()
         return name
+    }
+
+    private fun assertCurrentSchemaAndCaptureIndex(database: SupportSQLiteDatabase) {
+        assertEquals(54, database.version)
+        database.query("PRAGMA index_info(`index_workspace_records_chatId_updatedAt`)").use { columns ->
+            val names = buildList { while (columns.moveToNext()) add(columns.getString(2)) }
+            assertEquals(listOf("chatId", "updatedAt"), names)
+        }
     }
 
     private fun openMigrated(name: String): ChatDatabaseV2 = Room.databaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java, name).addMigrations(*ChatDatabaseV2Migrations.ALL_MIGRATIONS).build()

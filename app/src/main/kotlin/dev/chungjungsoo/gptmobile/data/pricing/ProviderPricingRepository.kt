@@ -87,11 +87,6 @@ class ProviderPricingRepository @Inject constructor(
         }
     }
 
-    fun resolve(profile: PlatformV2, settings: AppFeatureSettings, entries: List<ModelPrice>, now: Long): ModelPrice? {
-        val override = settings.manualPrices.lastOrNull { it.contextKey == priceContextKey(profile) && it.price.valid() && it.price.freshness(now) != PriceFreshness.EXPIRED }
-        if (override != null) return override.price
-        val provider = billingProvider(profile) ?: return null
-        if (profile.batchMode || profile.model.endsWith(":batch")) return null
-        return entries.firstOrNull { it.provider == provider && it.model == profile.model && it.valid() && it.freshness(now) != PriceFreshness.EXPIRED }
-    }
+    fun resolve(profile: PlatformV2, settings: AppFeatureSettings, entries: List<ModelPrice>, now: Long): ModelPrice? =
+        resolveProfilePrice(profile, settings.manualPrices, entries, now)
 }

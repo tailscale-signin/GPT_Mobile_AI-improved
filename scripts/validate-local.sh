@@ -7,6 +7,7 @@ case "$mode" in fast|full) ;; *) echo 'Usage: bash scripts/validate-local.sh [fa
 python3 scripts/check_ci_policy.py
 python3 scripts/generate_architecture_index.py --check
 python3 scripts/sync_agent_metadata.py --check
+python3 scripts/generate_repository_reference.py --check
 python3 scripts/generate_diagnostic_schema.py --check
 python3 scripts/generate_app_audit_inventory.py --check
 python3 scripts/check_dependency_catalog.py

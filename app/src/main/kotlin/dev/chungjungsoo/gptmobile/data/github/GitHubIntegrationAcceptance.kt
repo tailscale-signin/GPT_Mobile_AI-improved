@@ -36,6 +36,8 @@ internal object GitHubIntegrationAcceptance {
                 val text = requirement.lowercase()
                 var proof: List<JsonObject> = emptyList()
                 var conditionalFixture = false
+                var blocker: GitHubCriterionBlocker? = null
+                var reserveState: VerificationReserveState? = null
                 val assessment: Pair<Boolean, String> = when {
                     "classify" in text && "capabilit" in text && "before" in text -> {
                         val plan = fixturePreflight?.get("capability_classification") as? JsonObject
@@ -54,17 +56,16 @@ internal object GitHubIntegrationAcceptance {
                         val testIds = targets.flatMap { (it["test_job_receipts"] as? JsonArray).orEmpty() }.toSet()
                         val jobs = eligible.filter { it["receipt_id"] in testIds }
                         val discovery = receipts.values.filter { it.text("tool") == GitHubAuthorizedCatalog.TOOL || remotePage(it) }
-                        val reserveKept = discovery.isNotEmpty() &&
-                            discovery.all {
-                                val budget = it["tool_budget"] as? JsonObject
-                                val used = (budget?.get("used") as? JsonPrimitive)?.intOrNull
-                                val limit = (budget?.get("limit") as? JsonPrimitive)?.intOrNull
-                                used != null && limit != null && limit - used >= GitHubChecklistBudget.VERIFICATION_RESERVE
-                            }
+                        reserveState = verificationReserve(discovery)
+                        blocker = when (reserveState) {
+                            VerificationReserveState.UNKNOWN -> GitHubCriterionBlocker.VERIFICATION_RESERVE_NOT_OBSERVED
+                            VerificationReserveState.EXHAUSTED -> GitHubCriterionBlocker.VERIFICATION_RESERVE_EXHAUSTED
+                            else -> null
+                        }
                         val pages = GitHubTestChecklist.pendingPages(receipts)
-                        proof = jobs + eligible.filter { it["receipt_id"] in targets.map { run -> run["dispatch_receipt"] } }
-                        (jobs.isNotEmpty() && reserveKept && pages.all { it["arguments"] is JsonObject && it.text("tool").isNotBlank() }) to
-                            "Exact-revision test job receipts: ${jobs.size}. Saved pending page recipes: ${pages.size}. Discovery preserved the verification reserve: $reserveKept."
+                        proof = jobs + discovery + eligible.filter { it["receipt_id"] in targets.map { run -> run["dispatch_receipt"] } }
+                        (jobs.isNotEmpty() && reserveState == VerificationReserveState.PRESERVED && pages.all { it["arguments"] is JsonObject && it.text("tool").isNotBlank() }) to
+                            "Exact-revision test job receipts: ${jobs.size}. Saved pending page recipes: ${pages.size}. Discovery verification reserve: ${reserveState.name}."
                     }
                     listOf("separate", "separation", "distinguish").any { it in text } && "device" in text && ("mock" in text || "live" in text) -> {
                         proof = eligible
@@ -81,6 +82,13 @@ internal object GitHubIntegrationAcceptance {
                         proof = eligible.filter { it.text("tool") == GitHubAuthorizedCatalog.TOOL } + reads
                         val needsReads = "read" in text
                         val valid = catalog["complete"] == JsonPrimitive(true) && (!needsReads || reads.isNotEmpty())
+                        blocker = when {
+                            valid -> null
+                            catalog["complete"] == JsonPrimitive(true) -> GitHubCriterionBlocker.REPRESENTATIVE_READ_NOT_OBSERVED
+                            catalog.text("status") == "NOT_OBSERVED" -> GitHubCriterionBlocker.CATALOG_NOT_OBSERVED
+                            catalog["continuation_call"] is JsonObject -> GitHubCriterionBlocker.CATALOG_NOT_EXHAUSTED
+                            else -> GitHubCriterionBlocker.CATALOG_EVIDENCE_INVALID
+                        }
                         valid to if (valid) {
                             "The version-bound authorized inventory is exhausted${if (needsReads) "; representative live reads preceded repository pagination" else ""}."
                         } else {
@@ -130,10 +138,31 @@ internal object GitHubIntegrationAcceptance {
                         }
                     )
                     put("acceptance", assessment.second)
+                    blocker?.takeUnless { assessment.first }?.let { put("blocker_code", it.name) }
+                    reserveState?.let { put("verification_reserve_state", it.name) }
                     put("evidence_receipt_ids", JsonArray(proof.mapNotNull { it["receipt_id"] }.distinct()))
                 }
             }
         )
+    }
+
+    internal enum class VerificationReserveState { PRESERVED, EXHAUSTED, UNKNOWN }
+
+    /** Missing or malformed budget evidence is not an observed reserve violation. */
+    internal fun verificationReserve(discovery: Collection<JsonObject>): VerificationReserveState {
+        if (discovery.isEmpty()) return VerificationReserveState.UNKNOWN
+        val observations = discovery.map { receipt ->
+            if (receipt["trusted"] != JsonPrimitive(true) || receipt["verification_eligible"] == JsonPrimitive(false)) return@map null
+            val budget = receipt["tool_budget"] as? JsonObject
+            val used = (budget?.get("used") as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+            val limit = (budget?.get("limit") as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+            if (used == null || limit == null || used < 0 || limit < 0 || used > limit) null else limit - used
+        }
+        return when {
+            observations.any { it != null && it < GitHubChecklistBudget.VERIFICATION_RESERVE } -> VerificationReserveState.EXHAUSTED
+            observations.any { it == null } -> VerificationReserveState.UNKNOWN
+            else -> VerificationReserveState.PRESERVED
+        }
     }
 
     fun binding(receipts: Collection<JsonObject>, runtime: JsonObject = GitHubRuntimeIdentity.current()): JsonObject {

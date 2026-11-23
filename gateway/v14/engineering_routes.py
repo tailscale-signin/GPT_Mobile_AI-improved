@@ -221,6 +221,11 @@ def install_engineering_routes(app, service):
                     'instance_id': getattr(getattr(service.store.runtime, 'gateway_service', None), 'instance_id', None),
                     'task_scope_protocol': 1, 'task_scopes': ['read', 'plan', 'implement'], 'features': dict({key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES}, mutation_identity_preconditions_v1=True, repository_lifecycle_v1=repository_operations['enabled']), **{key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES},
                     'repository_operations': repository_operations,
+                    'agent_workspace': {'schema_version': 1, 'supported': True,
+                                        'commands_require_explicit_user_action': True,
+                                        'execution_owner': 'EXISTING_ENGINEERING_CONTROLLER',
+                                        'optional_agents_require_host_configuration': True,
+                                        'unknown_operations_automatically_replayed': False},
                     'copilot_tasks': {'schema': 'github.copilot-tasks.v1', 'supported': True,
                                       'enabled': bool(service.store.runtime.GATEWAY_DURABLE_JOBS and service.copilot.enabled()),
                                       'requires_explicit_consent': True, 'orchestration_owner': 'GATEWAY',
@@ -504,6 +509,47 @@ def install_engineering_routes(app, service):
         from v14.engineering_checkpoints import history
         async def run():
             return await asyncio.to_thread(history, service, principal(request), job_id)
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/workspace')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/workspace')
+    async def workspace_board(job_id: str, request: Request):
+        from v14.workspace_board import snapshot
+        async def run():
+            value = await asyncio.to_thread(snapshot, service, principal(request), job_id)
+            return JSONResponse(value, headers={'Cache-Control': 'no-store'})
+        return await execute(run)
+
+    @app.post('/gateway/engineering/jobs/{job_id}/workspace')
+    @app.post('/v1/gateway/engineering/jobs/{job_id}/workspace')
+    async def workspace_command(job_id: str, request: Request):
+        async def run():
+            if request.headers.get('X-Gateway-User-Action') != 'workspace-command':
+                raise PermissionError('An explicit workspace action is required')
+            return await asyncio.to_thread(service.workspace_commands.enqueue, principal(request), job_id, await body(request))
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/workspace/source')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/workspace/source')
+    async def workspace_source(job_id: str, request: Request, head_sha: str, path: str, start_line: int = 1, line_count: int = 80):
+        from v14.workspace_board import source_page
+        async def run():
+            return await asyncio.to_thread(source_page, service, principal(request), job_id, head_sha, path, start_line, line_count)
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/workspace/tree')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/workspace/tree')
+    async def workspace_tree(job_id: str, request: Request, head_sha: str, query: str = '', offset: int = 0):
+        from v14.workspace_board import tree_page
+        async def run():
+            return await asyncio.to_thread(tree_page, service, principal(request), job_id, head_sha, query, offset)
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/workspace/commands/{command_id}')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/workspace/commands/{command_id}')
+    async def workspace_command_receipt(job_id: str, command_id: str, request: Request):
+        async def run():
+            return await asyncio.to_thread(service.workspace_commands.read, principal(request), job_id, command_id)
         return await execute(run)
 
     @app.get('/gateway/engineering/jobs/{job_id}/checkpoints/{check_id}')

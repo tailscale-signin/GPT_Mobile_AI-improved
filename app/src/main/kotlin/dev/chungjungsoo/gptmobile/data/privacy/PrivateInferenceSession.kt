@@ -9,7 +9,6 @@ import dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import java.io.IOException
-import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -26,10 +25,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-internal object PrivateTurn : AbstractCoroutineContextElement(Key) {
-    object Key : CoroutineContext.Key<PrivateTurn>
-}
-
 internal class PrivateInferenceSession(
     private val verifier: PrivacyProviderVerifier,
     private val store: PrivacyModeStore,
@@ -42,16 +37,20 @@ internal class PrivateInferenceSession(
         val inferenceDispatched = java.util.concurrent.atomic.AtomicBoolean(false)
         try {
             check(tools.isEmpty() && exchanges.isEmpty()) { "External tools require separate privacy verification." }
-            val state = store.snapshot()
-            check(state.enabled) { "Privacy settings changed. Resend to confirm the new settings." }
+            check(PrivacyModeStore.active()) { "This request has no private conversation policy." }
+            val state = store.effectiveSnapshot(true)
             val mask = PrivateTextMask(state.categories, store.privateTerms())
+            val protection = currentCoroutineContext()[PrivateProtectionContext]
+            mask.seedIdentities(listOfNotNull(profile.systemPrompt) + turns.flatMap { listOfNotNull(it.userMessage.content, it.assistantMessage?.content) })
             val messages = buildJsonArray {
-                fun message(role: String, text: String) {
+                fun message(role: String, text: String, source: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2? = null) {
                     if (text.isNotBlank()) {
+                        val protected = mask.protectWithReceipt(text)
+                        source?.let { protection?.input(it, protected.receipt) }
                         add(
                             buildJsonObject {
                                 put("role", role)
-                                put("content", mask.protect(text))
+                                put("content", protected.text)
                             }
                         )
                     }
@@ -59,14 +58,14 @@ internal class PrivateInferenceSession(
                 profile.systemPrompt?.let { message("system", it) }
                 turns.forEach { turn ->
                     check(turn.userMessage.attachments.isEmpty() && turn.assistantMessage?.attachments.isNullOrEmpty()) { "Attachments require separate privacy verification." }
-                    message("user", turn.userMessage.content)
-                    turn.assistantMessage?.let { message("assistant", it.content) }
+                    message("user", turn.userMessage.content, turn.userMessage)
+                    turn.assistantMessage?.let { message("assistant", it.content, it) }
                 }
             }
             val preferred = constraints.outputLimit(profile.maxTokens) ?: 4096
             val limit = if (profile.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(profile).outputAllowance(preferred) else preferred
             // The response map exists only for this invocation. No plaintext mapping is persisted.
-            val restore = mask.sealForResponse()
+            val restore = mask.sealWithReceipts()
             val originalContext = currentCoroutineContext()
             val authorization = originalContext[RequestAuthorizationGuard]
             authorization?.validate?.invoke()
@@ -84,6 +83,7 @@ internal class PrivateInferenceSession(
                     requestRole = constraints.requestRole ?: "primary"
                 )
                 val wire = verifier.preparation.prepareQueued(body.toString(), config, requestModel, limit)
+                protection?.flushInputs()
                 val request = Request.Builder().url(route.url).apply {
                     if (route.kind == ClientType.ANTHROPIC) {
                         header("x-api-key", profile.token.orEmpty())
@@ -106,8 +106,8 @@ internal class PrivateInferenceSession(
                             check(verifier.routingUnchanged(profile, route))
                             check(verifier.accountUnchanged(profile, route))
                             authorization?.validate?.invoke()
+                            check(store.effectiveSnapshot(true) == state)
                         }
-                        check(store.snapshot() == state)
                         check(proof == null || verifier.approval(profile, route.url, proof.policyUrl) == proof)
                     } catch (_: Exception) {
                         throw IOException("The profile or its permissions changed before dispatch.")
@@ -137,7 +137,9 @@ internal class PrivateInferenceSession(
                 }
                 emit(ProviderEvent.Usage(inputTokens = count("prompt_tokens", "input_tokens"), outputTokens = count("completion_tokens", "output_tokens"), totalTokens = count("total_tokens")))
             }
-            emit(ProviderEvent.TextDelta(restore(text)))
+            val restored = currentCoroutineContext()[PrivateToolReplyMask]?.restore(text, restore) ?: restore(text)
+            protection?.restored(restored)
+            emit(ProviderEvent.TextDelta(restored.text))
             emit(ProviderEvent.Completed)
         } catch (cancelled: CancellationException) {
             throw cancelled

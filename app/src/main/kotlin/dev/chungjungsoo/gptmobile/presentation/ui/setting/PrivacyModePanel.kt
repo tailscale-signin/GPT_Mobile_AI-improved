@@ -33,10 +33,12 @@ import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class PrivacyModeViewModel @Inject constructor(
@@ -44,6 +46,7 @@ class PrivacyModeViewModel @Inject constructor(
     settings: SettingRepository
 ) : ViewModel() {
     val state = store.state
+    val updates = store.updates
     internal val authority get() = store.verifier.authority
     internal val setup get() = store.verifier.accountSetup
     internal val openRouterProfiles = settings.observePlatformV2s().map { profiles ->
@@ -55,18 +58,21 @@ class PrivacyModeViewModel @Inject constructor(
         }.distinctBy { it.apiUrl.trimEnd('/') to it.token }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun setEnabled(enabled: Boolean) = store.setEnabled(enabled)
+    fun setEnabled(enabled: Boolean) = store.requestEnabled(enabled)
 
-    suspend fun privateTerms() = store.privateTerms().joinToString("\n")
-    suspend fun saveTerms(value: String) = store.savePrivateTerms(value)
+    fun retrySaving() = store.retrySaving()
 
-    fun setCategory(category: PrivacyCategory, enabled: Boolean) = store.setCategory(category, enabled)
+    suspend fun privateTerms() = withContext(Dispatchers.IO) { store.privateTerms().joinToString("\n") }
+    suspend fun saveTerms(value: String) = withContext(Dispatchers.IO) { store.savePrivateTerms(value) }
+
+    fun setCategory(category: PrivacyCategory, enabled: Boolean) = store.requestCategory(category, enabled)
 }
 
-/** Simple master switch; maximum safeguards when enabled, individual categories default ON. */
+/** Availability for new private conversations; saved conversation locks remain permanent. */
 @Composable
 internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val updates by viewModel.updates.collectAsStateWithLifecycle()
     val profiles by viewModel.openRouterProfiles.collectAsStateWithLifecycle()
     var customize by remember { mutableStateOf(false) }
     var details by remember { mutableStateOf(false) }
@@ -78,7 +84,7 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("Privacy Mode", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (state.enabled) "ON · Local text masking" else "OFF · Standard profile availability",
+                    if (state.enabled) "Available for new private chats" else "Unavailable for new private chats",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -89,8 +95,20 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
                 modifier = Modifier.testTag("settings_privacy_mode")
             )
         }
+        if (updates.saving) Text("Saving privacy settings…", style = MaterialTheme.typography.bodySmall)
+        if (updates.failed) {
+            Text("Privacy settings could not be saved. Review the current choices and retry.", color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = viewModel::retrySaving, enabled = !updates.saving, modifier = Modifier.testTag("privacy_settings_retry")) {
+                Text("Retry saving")
+            }
+        }
         Text(
-            "When on, Privacy Mode masks personal details on this device and checks cloud routes for no training, content logging or routine retention. All enabled profiles can be selected. Unverified providers receive masked text under their own retention policies.",
+            "Enable this option to make Private chat available in New Chat. Select it there to permanently protect that conversation and every selected AI profile. New chats start unchecked. Turning this option off only prevents new private chats; saved private chats stay protected after reopening or restarting the app.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            "Private conversations mask personal details on this device and check cloud routes for no training, content logging or routine retention. All enabled profiles can be selected. Unverified providers receive masked text under their own retention policies.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -121,6 +139,7 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
         }
         if (details) {
             Text("Each cloud model and upstream is checked before sending text. Strict Zero Data Retention excludes routine Safety Retention; fallback, response caching and supported plugins are disabled. External tools, attachments and voice require separate verification.", style = MaterialTheme.typography.bodySmall)
+            Text("Enabled calculator, current-date and text-slicing tools run on this device. Their results pass through the same personal-data permissions and local masking before reaching a model. GitHub, Research and connected service tools remain blocked until their external routes meet the privacy requirements.", style = MaterialTheme.typography.bodySmall)
             Text("Available means the required checks passed. Not verified means a check is incomplete. Incompatible means the route conflicts with a privacy requirement. Free providers are checked individually and may remain unavailable.", style = MaterialTheme.typography.bodySmall)
             Text("Automated masking recognizes common formats and your custom terms. Provider agreements may allow legally required exceptions and non-content usage metadata. Other cloud providers require their applicable account and endpoint approvals.", style = MaterialTheme.typography.bodySmall)
         }

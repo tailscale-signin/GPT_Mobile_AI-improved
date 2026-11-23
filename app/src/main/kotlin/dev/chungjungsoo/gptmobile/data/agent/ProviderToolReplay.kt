@@ -13,6 +13,12 @@ data class ProviderToolInvocation(val name: String, val arguments: JsonObject) {
 
 /** Capture at the runner boundary before changing execution names or arguments. */
 internal fun ProviderEvent.ToolCall.captureProviderInvocation(): ProviderEvent.ToolCall {
+    if (originalInvocation != null || originalInvocationFingerprint != null) {
+        // A trusted session may already have corrected execution arguments. Keep
+        // its verified provider envelope; never bless a changed retained identity.
+        providerInvocation()
+        return this
+    }
     val original = ProviderToolInvocation(name, arguments)
     return copy(originalInvocationFingerprint = original.fingerprint(callId), originalInvocation = original)
 }

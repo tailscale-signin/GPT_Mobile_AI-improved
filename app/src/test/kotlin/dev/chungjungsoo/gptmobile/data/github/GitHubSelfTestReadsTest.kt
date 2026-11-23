@@ -19,6 +19,55 @@ class GitHubSelfTestReadsTest {
         val headers = next.single { it.arguments["action"] == JsonPrimitive("headers") }
         assertEquals(JsonPrimitive(1970), headers.arguments["pull_number"])
         assertEquals(JsonPrimitive(head), headers.arguments["expected_head_sha"])
+        val status = next.single { it.arguments["action"] == JsonPrimitive("agent_merge_status") }
+        assertEquals(null, status.arguments["expected_head_sha"])
+        next.forEach { call ->
+            assertEquals(emptyList<String>(), dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors("github_pr", call.arguments))
+            assertTrue(GitHubSelfTestReads.valid(tool, call.arguments))
+        }
+    }
+
+    @Test fun legacyMergeStatusRejectionGetsOneCorrectedReadOnItsExactAuthorizedTool() {
+        val head = "a".repeat(40)
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_pr").copy(name = "github_pr__selected")
+        val inventory = json("""{"trusted":true,"success":true,"tool":"github_pr__selected","arguments":{"action":"list"},"result":{"pull_requests":[{"number":2254,"state":"open","head":{"sha":"$head"}}]}}""")
+        val rejected = json("""{"trusted":true,"success":false,"dispatched":false,"binding":"task","repository":"owner/repo","tool":"github_pr__selected","arguments":{"action":"agent_merge_status","pull_number":2254,"expected_head_sha":"$head","verify_live":true},"error_code":"INVALID_ARGUMENTS"}""")
+        fun status(receipts: List<JsonObject>) = GitHubSelfTestReads.available(listOf(tool), listOf(inventory) + receipts).singleOrNull { it.arguments["action"] == JsonPrimitive("agent_merge_status") }
+        val corrected = requireNotNull(status(listOf(rejected)))
+        assertEquals("github_pr__selected", corrected.name)
+        assertEquals(json("""{"action":"agent_merge_status","pull_number":2254,"verify_live":true}"""), corrected.arguments)
+        assertTrue(GitHubSelfTestReads.valid(tool, corrected.arguments))
+        val attempted = JsonObject(rejected + ("arguments" to corrected.arguments))
+        assertEquals(null, status(listOf(rejected, attempted)))
+        assertEquals(null, status(listOf(JsonObject(rejected + ("error_code" to JsonPrimitive("GITHUB_PERMISSION_DENIED"))))))
+        assertEquals(null, status(listOf(JsonObject(rejected + ("dispatched" to JsonPrimitive(true))))))
+        val anotherPull = JsonObject(rejected + ("arguments" to JsonObject((rejected["arguments"] as JsonObject) + ("pull_number" to JsonPrimitive(2255)))))
+        assertEquals(null, status(listOf(anotherPull)))
+    }
+
+    @Test fun familySchemaCannotAdmitAnActionSpecificInvalidRecipe() {
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_pr")
+        val invalid = json("""{"action":"agent_merge_status","pull_number":2254,"expected_head_sha":"${"a".repeat(40)}"}""")
+        assertEquals(emptyList<String>(), dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(invalid, tool.inputSchema))
+        assertTrue(!GitHubSelfTestReads.valid(tool, invalid))
+        val read = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_read")
+        assertTrue(GitHubSelfTestReads.valid(read, json("""{"view_cursor":"saved:1"}""")))
+    }
+
+    @Test fun legacyEmptyCopilotListFailureIsRecheckedOnceWithoutAcceptingMalformedLists() {
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_pr").copy(name = "github_pr__github_api")
+        val failed = json("""{"trusted":true,"success":false,"dispatched":true,"tool":"github_pr__github_api","arguments":{"action":"copilot_tasks","verify_live":true},"error_code":"GITHUB_PAGINATION_INCOMPLETE","result":{"schema":"github.copilot-task.v1","tasks":[],"page":1,"per_page":30,"has_more":false,"upstream_has_more":false,"complete":false,"reason":"MISSING_REMOTE_RECORD_COLLECTION"}}""")
+        fun next(receipts: List<JsonObject>) = GitHubSelfTestReads.available(listOf(tool), receipts).singleOrNull { it.arguments["action"] == JsonPrimitive("copilot_tasks") }
+        val retry = requireNotNull(next(listOf(failed)))
+        assertEquals(failed["arguments"], retry.arguments)
+        assertTrue(retry.callId.startsWith("copilot-empty-list-recheck-"))
+        assertEquals(null, next(listOf(failed, JsonObject(failed + ("call_id" to JsonPrimitive(retry.callId))))))
+        assertEquals(null, next(listOf(JsonObject(failed + ("error_code" to JsonPrimitive("GITHUB_PERMISSION_DENIED"))))))
+        for (tasks in listOf(JsonObject(emptyMap()), JsonPrimitive("missing"))) {
+            val malformed = JsonObject(failed + ("result" to JsonObject((failed.getValue("result") as JsonObject) + ("tasks" to tasks))))
+            assertEquals(null, next(listOf(malformed)))
+        }
+        assertEquals(JsonPrimitive(false), failed["success"])
     }
 
     @Test fun releaseDetailUsesTheObservedReleaseIdEvenWhenItsTagHasNoPublishedRelease() {

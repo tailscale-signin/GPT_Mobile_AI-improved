@@ -8,7 +8,19 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -19,11 +31,170 @@ import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenRouterPrivacySetupTest {
+    @Test
+    fun savedStatusReadsUseBackgroundIoAndPreserveManagedPrecedence() = runBlocking {
+        val caller = Thread.currentThread()
+        val fixture = Fixture()
+        every { fixture.authority.managedSetup() } answers {
+            assertNotSame(caller, Thread.currentThread())
+            false
+        }
+        every { fixture.authority.personalSetupSummary(fixture.profile) } answers {
+            assertNotSame(caller, Thread.currentThread())
+            "Saved account confirmation"
+        }
+        val setup = fixture.setup()
+        assertEquals(OpenRouterPrivacySetup.SavedStatus(false, "Saved account confirmation"), setup.savedStatus(fixture.profile))
+        every { fixture.authority.managedSetup() } returns true
+        assertEquals(OpenRouterPrivacySetup.SavedStatus(true, null), setup.savedStatus(fixture.profile))
+        verify(exactly = 1) { fixture.authority.personalSetupSummary(any()) }
+        assertTrue(fixture.requests.isEmpty())
+    }
+
+    @Test
+    fun blockedSavedStatusReadDoesNotBlockOtherCallerWork() = runBlocking {
+        val fixture = Fixture()
+        val entered = CompletableDeferred<Unit>()
+        val release = CountDownLatch(1)
+        every { fixture.authority.managedSetup() } answers {
+            entered.complete(Unit)
+            check(release.await(5, TimeUnit.SECONDS))
+            false
+        }
+        val read = async { fixture.setup().savedStatus(null) }
+        try {
+            withTimeout(5_000) {
+                entered.await()
+                assertEquals("Navigation remains responsive", async { "Navigation remains responsive" }.await())
+                assertFalse(read.isCompleted)
+            }
+        } finally {
+            release.countDown()
+        }
+        assertEquals(OpenRouterPrivacySetup.SavedStatus(false, null), read.await())
+    }
+
+    @Test
+    fun savedStatusFailureDoesNotCreateApprovalAndCanBeRetried() = runBlocking {
+        val fixture = Fixture()
+        val setup = fixture.setup()
+        every { fixture.authority.managedSetup() } throws IOException("Restrictions read unavailable")
+        expectSetupFailure { setup.savedStatus(fixture.profile) }
+        assertTrue(fixture.saved.isEmpty())
+        assertTrue(fixture.requests.isEmpty())
+
+        every { fixture.authority.managedSetup() } returns false
+        every { fixture.authority.personalSetupSummary(fixture.profile) } returns null
+        assertEquals(OpenRouterPrivacySetup.SavedStatus(false, null), setup.savedStatus(fixture.profile))
+    }
+
+    @Test
+    fun inspectApplyAndVerificationKeepAuthorityAndJournalAccessOffCallerThread() = runBlocking {
+        val fixture = Fixture()
+        fixture.enableWorkspaceLogging()
+        val caller = Thread.currentThread()
+        val observed = mutableSetOf<String>()
+        fixture.onAuthorityAccess = { operation ->
+            assertNotSame(operation, caller, Thread.currentThread())
+            observed += operation
+        }
+        fixture.beforeDispatch = { assertNotSame(caller, Thread.currentThread()) }
+        val setup = fixture.setup()
+        val preview = setup.inspect(fixture.profile, MANAGEMENT)
+        setup.apply(fixture.profile, preview, pluginsConfirmed = true)
+        assertTrue(setup.verifyPersonal(fixture.profile, fixture.saved.single()))
+        assertEquals(setOf("revision", "allowed", "records", "management", "pending", "begin", "confirm", "save"), observed)
+    }
+
+    @Test
+    fun cancellationAfterIoCompletesDiscardsUndeliveredPreviews() {
+        val fixture = Fixture()
+        val setup = fixture.setup()
+        val queued = LinkedBlockingQueue<Runnable>()
+        val caller = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                queued.add(block)
+            }
+        }
+        val scope = CoroutineScope(SupervisorJob() + caller)
+        try {
+            repeat(5) {
+                val entered = CountDownLatch(1)
+                val release = CountDownLatch(1)
+                fixture.onAuthorityAccess = { operation ->
+                    if (operation == "revision") {
+                        entered.countDown()
+                        check(release.await(5, TimeUnit.SECONDS)) { "The caller did not release the inspection worker." }
+                    }
+                }
+                val inspection = scope.async { setup.inspect(fixture.profile, MANAGEMENT) }
+                try {
+                    checkNotNull(queued.poll(5, TimeUnit.SECONDS)) { "The inspection did not reach the caller dispatcher." }.run()
+                    assertTrue(entered.await(5, TimeUnit.SECONDS))
+                    assertFalse(inspection.isCompleted)
+                    // Hold IO until the caller has suspended. A fast IO result can
+                    // otherwise return in the first caller turn without a dispatch.
+                    release.countDown()
+                    val delivery = checkNotNull(queued.poll(5, TimeUnit.SECONDS)) { "The completed inspection did not return to the caller." }
+                    assertFalse(inspection.isCompleted)
+                    inspection.cancel()
+                    delivery.run()
+                    assertTrue(inspection.isCancelled)
+                    assertTrue(inspection.isCompleted)
+                } finally {
+                    release.countDown()
+                    inspection.cancel()
+                    while (!inspection.isCompleted) {
+                        checkNotNull(queued.poll(5, TimeUnit.SECONDS)) { "The cancelled inspection did not finish." }.run()
+                    }
+                    while (true) (queued.poll() ?: break).run()
+                    fixture.onAuthorityAccess = {}
+                }
+            }
+            // Every slot remains usable after cancelling unseen previews, and the
+            // four-session limit still applies to previews actually delivered.
+            val previews = mutableListOf<OpenRouterPrivacySetup.Preview>()
+            try {
+                runBlocking {
+                    repeat(4) { previews += setup.inspect(fixture.profile, MANAGEMENT) }
+                    val failure = expectSetupFailure { setup.inspect(fixture.profile, MANAGEMENT) }
+                    assertEquals("Close the other privacy setup and check this account again.", failure.userMessage)
+                }
+            } finally {
+                previews.forEach(setup::discard)
+            }
+            runBlocking { setup.discard(setup.inspect(fixture.profile, MANAGEMENT)) }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun cancellationAfterDispatchKeepsUncertainMutationReceiptWithoutRepeatingWrite() = runBlocking {
+        val fixture = Fixture()
+        fixture.enableWorkspaceLogging()
+        fixture.beforeCommitFailure = { if (it.method == "PATCH") CancellationException("Screen closed") else null }
+        val setup = fixture.setup()
+        try {
+            setup.apply(fixture.profile, setup.inspect(fixture.profile, MANAGEMENT), pluginsConfirmed = true)
+            throw AssertionError("Expected cancellation")
+        } catch (_: CancellationException) {
+            // Cancellation remains cancellation, not a setup error or confirmed success.
+        }
+        assertNotNull(fixture.pending)
+        assertTrue(fixture.saved.isEmpty())
+        val recreated = fixture.setup()
+        expectSetupFailure { recreated.apply(fixture.profile, recreated.inspect(fixture.profile, MANAGEMENT), pluginsConfirmed = true) }
+        assertEquals(1, fixture.writes.count { it.method == "PATCH" })
+        assertNotNull(fixture.pending)
+    }
+
     @Test
     fun existingStrictPolicyAndWorkspacePatchCompletePersonalSetupWithoutSignedEvidence() = runBlocking {
         val fixture = Fixture()
@@ -352,6 +523,7 @@ class OpenRouterPrivacySetupTest {
         val hash = OpenRouterIdentity.digest(profile.token.orEmpty())
         val authority = mockk<ProviderApprovalSource>()
         var personalAllowed = true
+        var onAuthorityAccess: (String) -> Unit = {}
         var pending: String? = null
         val saved = mutableListOf<ProviderApproval>()
         val requests = mutableListOf<Request>()
@@ -377,12 +549,28 @@ class OpenRouterPrivacySetupTest {
 
         init {
             if (directPolicy) policies[POLICY] = policy(POLICY, OpenRouterPrivacyPolicy.strictFields)
-            every { authority.personalRevision() } returns REVISION
-            every { authority.personalAllowed(any()) } answers { personalAllowed && firstArg<String>() == REVISION }
-            every { authority.records() } answers { saved.toList() }
-            coEvery { authority.managementKey() } returns MANAGEMENT
-            every { authority.pendingSetupMutation() } answers { pending }
+            every { authority.personalRevision() } answers {
+                onAuthorityAccess("revision")
+                REVISION
+            }
+            every { authority.personalAllowed(any()) } answers {
+                onAuthorityAccess("allowed")
+                personalAllowed && firstArg<String>() == REVISION
+            }
+            every { authority.records() } answers {
+                onAuthorityAccess("records")
+                saved.toList()
+            }
+            coEvery { authority.managementKey() } answers {
+                onAuthorityAccess("management")
+                MANAGEMENT
+            }
+            every { authority.pendingSetupMutation() } answers {
+                onAuthorityAccess("pending")
+                pending
+            }
             every { authority.beginSetupMutation(any()) } answers {
+                onAuthorityAccess("begin")
                 if (pending != null) {
                     false
                 } else {
@@ -391,9 +579,11 @@ class OpenRouterPrivacySetupTest {
                 }
             }
             every { authority.confirmSetupMutation(any()) } answers {
+                onAuthorityAccess("confirm")
                 if (pending == firstArg<String>()) pending = null
             }
             coEvery { authority.savePersonal(any(), any(), any()) } answers {
+                onAuthorityAccess("save")
                 assertEquals(MANAGEMENT, secondArg<String>())
                 assertEquals(REVISION, thirdArg<String>())
                 check(personalAllowed)

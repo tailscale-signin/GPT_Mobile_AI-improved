@@ -149,7 +149,10 @@ data class AppAuditObservation(
     val configurationRevision: String? = null,
     val remoteIdentity: AppAuditRemoteIdentity? = null,
     val gatewayReadiness: AppAuditGatewayReadiness? = null,
-    val declaredRpcErrorCode: Int? = null
+    val declaredRpcErrorCode: Int? = null,
+    val fixtureEvidence: AppAuditFixtureEvidence? = null,
+    val privacyPolicy: AppAuditPrivacyEvidence? = null,
+    val recovery: AppAuditRecoveryEvidence? = null
 ) {
     init {
         require(appAuditIdentifier(reasonCode) && appAuditIdentifier(stage))

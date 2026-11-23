@@ -7,9 +7,34 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AssistantDisplayPreparationTest {
+    @Test fun filteredThinkingCannotTransferProtectionToAnAssembledAnswer() {
+        val display = prepareAssistantDisplay("Al<think>Alice</think>ice and Bob", combined = false, privacyProtectedValues = listOf("Alice", "Bob"))
+        assertEquals("Alice and Bob", display.response)
+        assertEquals(listOf("Bob"), display.privacyProtectedValues)
+    }
+
+    @Test fun unchangedProtectedWordsSurviveReasoningAndLeadingSubjectRemoval() {
+        val raw = "<think>Hidden.</think><!-- chat_subject: Greeting --> Hello **Alice**."
+        for (combined in listOf(false, true)) {
+            val display = prepareAssistantDisplay(raw, combined, privacyProtectedValues = listOf("Alice"))
+            assertEquals("Hello **Alice**.", display.response)
+            assertEquals(listOf("Alice"), display.privacyProtectedValues)
+        }
+        assertEquals(listOf("Alice"), prepareAssistantDisplay("Hello Alice  \n", combined = false, privacyProtectedValues = listOf("Alice")).privacyProtectedValues)
+    }
+
+    @Test fun sourceCleanupWithoutAnOffsetMapWithholdsPrivacyEvidence() {
+        val raw = "Protected Al ice.\nAl [S1]ice"
+        val display = prepareAssistantDisplay(raw, combined = false, privacyProtectedValues = listOf("Al ice"))
+        assertEquals("Protected Al ice.\nAl ice", display.response)
+        assertTrue(display.privacyProtectedValues.isEmpty())
+        assertEquals(listOf("Al ice"), prepareAssistantDisplay(raw, combined = true, privacyProtectedValues = listOf("Al ice")).privacyProtectedValues)
+    }
+
     @Test fun preparationSeparatesReasoningAndPreservesCombinedCitationText() {
         val raw = "<think>Private work.</think>Portugal joined the EU in 1986. [Source](https://example.com/history)"
         val display = prepareAssistantDisplay(raw, combined = true)

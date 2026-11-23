@@ -3,11 +3,17 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.github.GatewayAgentWorkspace
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringCheckpoints
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringSettings
 import dev.chungjungsoo.gptmobile.data.github.GatewayObserverPolling
+import dev.chungjungsoo.gptmobile.data.github.GatewayWorkspaceCommandReceipt
+import dev.chungjungsoo.gptmobile.data.github.GatewayWorkspaceSource
+import dev.chungjungsoo.gptmobile.data.github.GatewayWorkspaceSourcePath
+import dev.chungjungsoo.gptmobile.data.github.GatewayWorkspaceTree
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.di.IoDispatcher
 import javax.inject.Inject
@@ -21,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 data class CandidatePageCursor(val binding: GatewayEngineeringBinding, val checkId: String, val offset: Int, val next: Int?, val left: String? = null)
 
@@ -31,7 +38,17 @@ data class GatewayEngineeringUiState(
     val error: String? = null,
     val evidencePreview: String? = null,
     val candidateCursor: CandidatePageCursor? = null,
-    val checkpoints: Pair<GatewayEngineeringBinding, dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringCheckpoints>? = null
+    val checkpoints: Pair<GatewayEngineeringBinding, dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringCheckpoints>? = null,
+    val workspaceRequestId: String? = null,
+    val workspace: GatewayAgentWorkspace? = null,
+    val workspaceCandidates: GatewayEngineeringCheckpoints? = null,
+    val workspaceCandidate: CandidatePageCursor? = null,
+    val workspaceDiff: String? = null,
+    val workspaceTree: GatewayWorkspaceTree? = null,
+    val workspaceTreeQuery: String = "",
+    val workspaceSource: GatewayWorkspaceSource? = null,
+    val workspaceReceipt: GatewayWorkspaceCommandReceipt? = null,
+    val workspaceNotice: String? = null
 )
 
 @HiltViewModel
@@ -54,7 +71,7 @@ class GatewayEngineeringViewModel @Inject constructor(
             if (chat == chatId) return
             chat = chatId
             epoch.incrementAndGet().also {
-                mutable.update { it.copy(bindings = emptyList(), evidencePreview = null, candidateCursor = null, checkpoints = null, error = null) }
+                mutable.update { it.copy(bindings = emptyList(), evidencePreview = null, candidateCursor = null, checkpoints = null, error = null, workspaceRequestId = null, workspace = null, workspaceCandidates = null, workspaceCandidate = null, workspaceDiff = null, workspaceTree = null, workspaceTreeQuery = "", workspaceSource = null, workspaceReceipt = null, workspaceNotice = null) }
             }
         }
         polling?.cancel()
@@ -99,6 +116,7 @@ class GatewayEngineeringViewModel @Inject constructor(
                     }
                     val saved = repository.bindings(chatId)
                     updateForEpoch(selectedEpoch) { it.copy(bindings = saved, error = failure?.message) }
+                    refreshVisibleWorkspace(selectedEpoch, saved)
                     val activeStates = setOf("QUEUED", "ACCEPTED", "STARTING", "RUNNING", "PLAN", "READ", "IMPLEMENT", "REVIEW", "TEST", "COMMIT", "OPEN_PR", "CI", "WAIT_CI", "PROMOTE", "MERGE", "VERIFY", "CANCELLING")
                     val active = saved.any { binding -> binding.job == null || binding.job.state.uppercase() in activeStates }
                     nextDelayMillis = if (active) 5_000 else 30_000
@@ -109,6 +127,19 @@ class GatewayEngineeringViewModel @Inject constructor(
                 }
                 delay(nextDelayMillis)
             }
+        }
+    }
+
+    private suspend fun refreshVisibleWorkspace(selectedEpoch: Long, bindings: List<GatewayEngineeringBinding>) {
+        val requestId = mutable.value.workspaceRequestId ?: return
+        if (mutable.value.busy || bindings.none { it.request.requestId == requestId }) return
+        val board = repository.workspace(requestId)
+        updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == requestId) it.copy(workspace = board) else it }
+        if (bindings.single { it.request.requestId == requestId }.workspaceCommand?.settled == false) {
+            val receipt = repository.reconcileWorkspaceCommand(requestId)
+            updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == requestId) it.copy(workspaceReceipt = receipt) else it }
+            val refreshed = repository.bindings(chat)
+            updateForEpoch(selectedEpoch) { it.copy(bindings = refreshed) }
         }
     }
 
@@ -162,6 +193,96 @@ class GatewayEngineeringViewModel @Inject constructor(
     fun restoreCandidate(binding: GatewayEngineeringBinding, checkId: String) = action { selectedEpoch ->
         repository.restoreCandidate(binding.request.requestId, requireNotNull(binding.job), checkId)
         updateForEpoch(selectedEpoch) { it.copy(checkpoints = null) }
+    }
+
+    fun openWorkspace(binding: GatewayEngineeringBinding) = action { selectedEpoch ->
+        updateForEpoch(selectedEpoch) {
+            if (it.workspaceRequestId == binding.request.requestId) it else it.copy(workspaceRequestId = binding.request.requestId, workspace = null, workspaceCandidates = null, workspaceCandidate = null, workspaceDiff = null, workspaceTree = null, workspaceTreeQuery = "", workspaceSource = null, workspaceReceipt = null, workspaceNotice = null)
+        }
+        repository.observe(binding.request.requestId)
+        val board = repository.workspace(binding.request.requestId)
+        updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId) it.copy(workspace = board) else it }
+        if (repository.bindings().single { it.request.requestId == binding.request.requestId }.workspaceCommand != null) {
+            val receipt = repository.reconcileWorkspaceCommand(binding.request.requestId)
+            updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId) it.copy(workspaceReceipt = receipt) else it }
+        }
+    }
+
+    fun closeWorkspace() {
+        mutable.update { it.copy(workspaceRequestId = null, workspace = null, workspaceCandidates = null, workspaceCandidate = null, workspaceDiff = null, workspaceTree = null, workspaceTreeQuery = "", workspaceSource = null, workspaceReceipt = null, workspaceNotice = null) }
+    }
+
+    fun workspaceCommand(binding: GatewayEngineeringBinding, action: String, arguments: JsonObject = JsonObject(emptyMap())) = action { selectedEpoch ->
+        val board = requireNotNull(mutable.value.workspace).also {
+            check(mutable.value.workspaceRequestId == binding.request.requestId && it.jobId == binding.job?.id)
+        }
+        try {
+            val receipt = repository.workspaceCommand(binding.request.requestId, board, action, arguments)
+            updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId) it.copy(workspaceReceipt = receipt, workspaceNotice = "${action.replace('_', ' ')} · ${receipt.status.lowercase()}") else it }
+        } finally {
+            // Retain the command identity in the UI even if its HTTP response was lost.
+            val saved = repository.bindings(chat)
+            updateForEpoch(selectedEpoch) { it.copy(bindings = saved) }
+        }
+        val refreshed = repository.workspace(binding.request.requestId)
+        updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId) it.copy(workspace = refreshed) else it }
+    }
+
+    fun reconcileWorkspaceCommand(binding: GatewayEngineeringBinding, commandId: String? = null) = action { selectedEpoch ->
+        val receipt = repository.reconcileWorkspaceCommand(binding.request.requestId, commandId)
+        updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId) it.copy(workspaceReceipt = receipt, workspaceNotice = receipt?.let { value -> "Saved command · ${value.status.lowercase()}" }) else it }
+        val board = repository.workspace(binding.request.requestId)
+        updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId) it.copy(workspace = board) else it }
+    }
+
+    fun retryWorkspaceCommand(binding: GatewayEngineeringBinding) = action { selectedEpoch ->
+        try {
+            val receipt = repository.retryWorkspaceCommand(binding.request.requestId)
+            updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId) it.copy(workspaceReceipt = receipt, workspaceNotice = "Original command · ${receipt.status.lowercase()}") else it }
+        } finally {
+            val saved = repository.bindings(chat)
+            updateForEpoch(selectedEpoch) { it.copy(bindings = saved) }
+        }
+    }
+
+    fun dismissAbsentWorkspaceCommand(binding: GatewayEngineeringBinding) = action { selectedEpoch ->
+        repository.dismissAbsentWorkspaceCommand(binding.request.requestId)
+        updateForEpoch(selectedEpoch) { it.copy(workspaceNotice = "Stale absent command dismissed locally. No command was sent.") }
+    }
+
+    fun acknowledgeUnknownWorkspaceCommand(binding: GatewayEngineeringBinding) = action { selectedEpoch ->
+        repository.acknowledgeUnknownWorkspaceCommand(binding.request.requestId)
+        updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId) it.copy(workspaceNotice = "The original unresolved command remains saved. Safe maintenance is available while this job waits for review.") else it }
+    }
+
+    fun workspaceCandidates(binding: GatewayEngineeringBinding) = action { selectedEpoch ->
+        val candidates = repository.checkpoints(binding.request.requestId)
+        val job = requireNotNull(binding.job)
+        check(candidates.headSha == job.headSha && candidates.jobId == job.id) { "The candidate source changed. Refresh the workspace." }
+        updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId) it.copy(workspaceCandidates = candidates, workspaceCandidate = null, workspaceDiff = null) else it }
+    }
+
+    fun workspaceCandidate(binding: GatewayEngineeringBinding, checkId: String, offset: Int = 0, left: String? = null) = action { selectedEpoch ->
+        val candidates = requireNotNull(mutable.value.workspaceCandidates)
+        val job = requireNotNull(binding.job)
+        check(candidates.jobId == job.id && candidates.headSha == job.headSha && candidates.candidates.any { it.checkId == checkId && it.sourceSha == candidates.headSha }) { "Refresh candidate evidence at the current source revision." }
+        check(left == null || candidates.candidates.any { it.checkId == left && it.sourceSha == candidates.headSha })
+        val (text, next) = repository.candidatePage(binding.request.requestId, checkId, offset, left)
+        updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId) it.copy(workspaceDiff = text, workspaceCandidate = CandidatePageCursor(binding, checkId, offset, next, left)) else it }
+    }
+
+    fun workspaceTree(binding: GatewayEngineeringBinding, query: String, offset: Int = 0) = action { selectedEpoch ->
+        val board = requireNotNull(mutable.value.workspace)
+        check(mutable.value.workspaceRequestId == binding.request.requestId && board.jobId == binding.job?.id)
+        val tree = repository.workspaceTree(binding.request.requestId, board.headSha, query, offset)
+        updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId && it.workspace?.headSha == board.headSha) it.copy(workspaceTree = tree, workspaceTreeQuery = query, workspaceSource = null) else it }
+    }
+
+    fun workspaceSource(binding: GatewayEngineeringBinding, file: GatewayWorkspaceSourcePath, startLine: Int = 1) = action { selectedEpoch ->
+        val tree = requireNotNull(mutable.value.workspaceTree)
+        check(mutable.value.workspaceRequestId == binding.request.requestId && tree.headSha == mutable.value.workspace?.headSha && file in tree.paths)
+        val source = repository.workspaceSource(binding.request.requestId, tree, file, startLine)
+        updateForEpoch(selectedEpoch) { if (it.workspaceRequestId == binding.request.requestId && it.workspace?.headSha == tree.headSha) it.copy(workspaceSource = source) else it }
     }
 
     fun closeCheckpoints() {

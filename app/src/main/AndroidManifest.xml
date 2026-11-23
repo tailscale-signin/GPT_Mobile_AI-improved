@@ -83,6 +83,7 @@
             android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE"
             tools:targetApi="34" />
         <receiver android:name=".data.voice.VoicePluginCancelReceiver" android:exported="false" />
+        <receiver android:name=".data.github.GitHubDecisionActionReceiver" android:exported="false" />
         <activity android:name=".presentation.ui.main.ShareIncomingActivity" android:exported="true" android:excludeFromRecents="true">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

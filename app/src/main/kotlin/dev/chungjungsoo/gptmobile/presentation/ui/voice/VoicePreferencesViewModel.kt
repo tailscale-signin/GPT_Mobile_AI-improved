@@ -27,15 +27,15 @@ internal data class VoicePreferences(
     val captions: Boolean = true,
     val review: Boolean = false,
     val automatic: Boolean = true,
-    val rate: Float = 1.25f,
+    val rate: Float = 1.1f,
     val voice: String = "",
     val recognitionBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE,
     val kokoroVoice: KokoroVoice? = null,
     val spokenReplies: Boolean = true,
     val kokoroThreads: Int = 2,
     val buttonSounds: Boolean = false,
-    val pause: VoicePauseDuration = VoicePauseDuration.SHORT,
-    val performance: VoicePerformanceMode = VoicePerformanceMode.BALANCED,
+    val pause: VoicePauseDuration = VoicePauseDuration.NATURAL,
+    val performance: VoicePerformanceMode = VoicePerformanceMode.AUTO,
     val speakWhileGenerating: Boolean = true,
     val tuning: VoiceTuningPreferences = VoiceTuningPreferences()
 )

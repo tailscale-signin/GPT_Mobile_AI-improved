@@ -35,7 +35,7 @@ internal object GitHubSourcePages {
             }
     }
 
-    fun page(source: JsonObject, offset: Int, bytes: Int, continuations: List<JsonObject>, call: (Int, Int) -> JsonObject): JsonObject? {
+    fun page(source: JsonObject, offset: Int, bytes: Int, continuations: List<JsonObject>, maximumBytes: Int = bytes, call: (Int, Int) -> JsonObject): JsonObject? {
         val inputs = source["items"] as JsonArray
         val slices = mutableListOf<JsonObject>()
         val end = FIRST + inputs.sumOf { (it as JsonObject).text("content").orEmpty().length + 1 }
@@ -78,6 +78,11 @@ internal object GitHubSourcePages {
             }
         }
         var next = offset
+        // Size changes require a native-issued handle at the same source offset.
+        // Retain the view's original allowance when a small replay page is read,
+        // so subsequent recovery can grow again without inventing a cursor.
+        val recoverySizes = listOf(4096, 8192).filter { it <= maximumBytes }.toMutableList()
+        val continuationSizes = listOf(4096, 8192).filter { it <= maximumBytes && it != bytes }.toMutableList()
         fun envelope() = buildJsonObject {
             put("schema", GitHubResultViews.SCHEMA)
             put("operation", "github_read")
@@ -90,12 +95,24 @@ internal object GitHubSourcePages {
             (source["failed_ranges"] as? JsonArray)?.let { put("failed_range_count", it.size) }
             (source["active_instructions"] as? JsonObject)?.let { put("instruction_files", (it["files"] as? JsonArray)?.size ?: 0) }
             put("recovery_call", call(offset, minOf(bytes, 1536)))
+            if (recoverySizes.isNotEmpty()) put("recovery_options", JsonArray(recoverySizes.map { call(offset, it) }))
             put("original_call", call(0, bytes))
             if (next < end) {
                 put("continuation_call", call(next, bytes))
+                if (continuationSizes.isNotEmpty()) put("continuation_options", JsonArray(continuationSizes.map { call(next, it) }))
             } else if (continuations.isNotEmpty()) {
                 put("remote_continuations", JsonArray(continuations))
                 if (continuations.size == 1) put("continuation_call", continuations.single().getValue("call"))
+            }
+        }
+        // Optional recipes must leave room for source. Prefer retaining the
+        // largest alternative at each offset on narrow replay budgets.
+        while (envelope().toString().encodeToByteArray().size > bytes - minOf(bytes / 3, 512) && (recoverySizes.isNotEmpty() || continuationSizes.isNotEmpty())) {
+            when {
+                recoverySizes.size > 1 -> recoverySizes.removeAt(0)
+                continuationSizes.size > 1 -> continuationSizes.removeAt(0)
+                recoverySizes.isNotEmpty() -> recoverySizes.clear()
+                else -> continuationSizes.clear()
             }
         }
         var base = FIRST

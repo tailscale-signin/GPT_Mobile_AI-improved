@@ -137,6 +137,13 @@ class ConversationCompletionReplayTest {
         clock += 10_000
         restored.authorizeTimeWindow("Continue for 10 minutes", 13, clock / 1000)
         assertEquals(590_000L, restored.remainingTaskMillis())
+        assertEquals(JsonPrimitive("EXPLICIT_USER_MESSAGE"), stored.getValue("deadline_grant_13")["authorization_source"])
+        assertEquals(JsonPrimitive(600_000L), stored.getValue("deadline_grant_13")["authorized_duration_ms"])
+        val timing = restored.deadlineTiming()
+        assertEquals(JsonPrimitive("WALL_CLOCK"), timing["task_deadline_clock"])
+        assertEquals(JsonPrimitive(true), timing["task_deadline_renewed"])
+        assertEquals(JsonPrimitive(10L), timing["task_deadline_elapsed_seconds"])
+        assertEquals(JsonPrimitive(590L), timing["task_deadline_remaining_seconds"])
         assertEquals(JsonPrimitive(1_060_000L), stored.getValue("task_contract")["deadline_at_ms"])
         assertEquals(task, restored.acceptedTaskRequest())
     }

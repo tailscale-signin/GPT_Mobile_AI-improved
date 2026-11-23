@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
+import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
+import dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -14,14 +16,22 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class GatewayDashboardClientTest {
+    @Before
+    @After
+    fun clearFixtureConnectionCooldown() {
+        LocalServiceHealth.checkAgain(config.apiUrl)
+    }
+
     @Test fun normalizedInventoryPreservesStableIdsAndOnlyMeasuredMetrics() {
         val body = """{
             "schema":"gptmobile.gateway.capability-inventory.v1","schemaVersion":1,"status":"PARTIAL",
@@ -97,12 +107,17 @@ class GatewayDashboardClientTest {
             val client = GatewayDashboardClient(http)
             assertTrue(runCatching { client.readiness(config, "selected-model") }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
             assertEquals(1, calls)
+            assertEquals(0L, LocalServiceHealth.retryAfterMillis(config.apiUrl))
             cancelled = false
             val results = List(12) { async { runCatching { client.readiness(config, "selected-model") } } }.awaitAll()
             assertTrue(results.all { it.exceptionOrNull() is java.net.ConnectException })
             assertEquals(3, calls)
             client.refresh()
-            assertTrue(runCatching { client.readiness(config, "selected-model") }.isFailure)
+            assertTrue(runCatching { client.readiness(config, "selected-model") }.exceptionOrNull() is LocalServiceUnavailableException)
+            assertEquals(3, calls)
+            // Explicit refresh rechecks this service after cache-only invalidation stays held.
+            client.refresh(config)
+            assertTrue(runCatching { client.readiness(config, "selected-model") }.exceptionOrNull() is java.net.ConnectException)
             assertEquals(5, calls)
         }
     }
@@ -124,9 +139,65 @@ class GatewayDashboardClientTest {
             repeat(5) { assertTrue(runCatching { client.read(config) }.isFailure) }
             assertEquals(2, calls)
             client.refresh()
-            assertTrue(runCatching { client.read(config) }.isFailure)
+            assertTrue(runCatching { client.read(config) }.exceptionOrNull() is LocalServiceUnavailableException)
+            assertEquals(2, calls)
+            assertEquals(1, evictions)
+            client.refresh(config)
+            val refreshed = List(12) { async { runCatching { client.read(config) } } }.awaitAll()
+            assertTrue(refreshed.all { it.exceptionOrNull() is EOFException })
             assertEquals(4, calls)
             assertEquals(2, evictions)
+        }
+    }
+
+    @Test fun explicitRefreshReopensOnlyTheSelectedServiceWithoutInventingANetworkChange() = runTest {
+        val other = config.copy(apiUrl = "http://192.168.1.2:8091/v1")
+        LocalServiceHealth.checkAgain(other.apiUrl)
+        val epoch = LocalServiceHealth.networkEpoch
+        var calls = 0
+        try {
+            LocalServiceHealth.recordLocalFailure(config.apiUrl, java.net.ConnectException("connection refused"))
+            LocalServiceHealth.recordLocalFailure(other.apiUrl, java.net.ConnectException("connection refused"))
+            http(
+                MockEngine {
+                    calls++
+                    respond(dashboardFixture().toString())
+                }
+            ).use { http ->
+                val client = GatewayDashboardClient(http)
+                assertTrue(runCatching { client.read(config) }.exceptionOrNull() is LocalServiceUnavailableException)
+                assertTrue(runCatching { client.read(other) }.exceptionOrNull() is LocalServiceUnavailableException)
+                assertEquals(0, calls)
+                client.refresh(config)
+                assertNotNull(client.read(config))
+                assertTrue(runCatching { client.read(other) }.exceptionOrNull() is LocalServiceUnavailableException)
+                assertEquals(1, calls)
+                assertEquals(epoch, LocalServiceHealth.networkEpoch)
+            }
+        } finally {
+            LocalServiceHealth.checkAgain(other.apiUrl)
+        }
+    }
+
+    @Test fun aNetworkChangeInvalidatesCachedTransportFailureBeforeAReadinessRecovery() = runTest {
+        var calls = 0
+        var connected = false
+        http(
+            MockEngine {
+                calls++
+                if (!connected) throw java.net.ConnectException("connection refused")
+                respond(readinessFixture("selected-model").toString())
+            }
+        ).use { http ->
+            val client = GatewayDashboardClient(http)
+            assertTrue(runCatching { client.readiness(config, "selected-model") }.exceptionOrNull() is java.net.ConnectException)
+            assertEquals(2, calls)
+            assertTrue(runCatching { client.readiness(config, "selected-model") }.exceptionOrNull() is java.net.ConnectException)
+            assertEquals(2, calls)
+            connected = true
+            LocalServiceHealth.networkChanged()
+            assertTrue(requireNotNull(client.readiness(config, "selected-model")).ready)
+            assertEquals(3, calls)
         }
     }
 

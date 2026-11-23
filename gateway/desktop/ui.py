@@ -285,6 +285,24 @@ def build_window(root, parent=None, section='General'):
 
     messages = queue.Queue()
     busy = False
+    connection_results = queue.Queue()
+    connection_observation = tk.StringVar(value='Inspect this PC to observe the saved port, routes, VPN adapter signals, startup and firewall rule.')
+    ttk.Label(general, textvariable=connection_observation, wraplength=600, justify='left', style='Muted.TLabel').grid(row=11, column=0, columnspan=3, sticky='w', pady=8)
+    connection_checking = False
+
+    def inspect_connection():
+        nonlocal connection_checking
+        if connection_checking:
+            return
+        connection_checking = True
+        connection_observation.set('Observing this PC’s saved connection settings…')
+        def work():
+            from desktop.connection_diagnostics import collect
+            try:
+                connection_results.put(collect(root)['summary'])
+            except Exception:
+                connection_results.put('Host connection observations are unavailable. No settings were changed.')
+        threading.Thread(target=work, daemon=True).start()
 
     from desktop.phone_panel import show as show_phone_controls
     ttk.Button(general, text='Android controls and pairing…', command=lambda: show_phone_controls(window, root)).grid(row=20, column=0, columnspan=3, sticky='w', pady=8)
@@ -338,7 +356,7 @@ def build_window(root, parent=None, section='General'):
         actions.columnconfigure(index % 3, weight=1)
 
     def refresh():
-        nonlocal busy, last_open
+        nonlocal busy, last_open, connection_checking
         try:
             opened = json.loads((root / 'show-settings.json').read_text(encoding='utf-8'))
             if opened['requestedAt'] > last_open:
@@ -359,6 +377,9 @@ def build_window(root, parent=None, section='General'):
             pass
         refresh_github()
         validation_panel.refresh()
+        while not connection_results.empty():
+            connection_observation.set(connection_results.get_nowait())
+            connection_checking = False
         while not messages.empty():
             success, text = messages.get_nowait()
             busy = False
@@ -384,6 +405,7 @@ def build_window(root, parent=None, section='General'):
         threading.Thread(target=work, daemon=True).start()
     ttk.Button(network_buttons, text='Allow LAN through firewall…', command=firewall).pack(side='left', padx=(0, 6))
     ttk.Button(network_buttons, text='Remove firewall rule…', command=lambda: firewall(True)).pack(side='left')
+    ttk.Button(network_buttons, text='Inspect this PC', command=inspect_connection).pack(side='left', padx=(6, 0))
     refresh()
     from desktop.window_lifecycle import watch
     watch(window, root, window.destroy)

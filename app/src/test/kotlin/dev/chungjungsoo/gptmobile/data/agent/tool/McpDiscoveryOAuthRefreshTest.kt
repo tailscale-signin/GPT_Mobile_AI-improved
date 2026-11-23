@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
+import dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied
+import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.engine.mock.MockEngine
@@ -153,6 +155,84 @@ class McpDiscoveryOAuthRefreshTest {
             assertFalse(presentation.message.contains("private"))
             assertEquals(null, failure.cause)
         }
+    }
+
+    @Test fun privacyDeniedRefreshKeepsTheCurrentPolicyCauseAndEarlier401WithoutExposingOAuthProse() = runBlocking {
+        for (refreshFailure in listOf(
+            UnverifiedServiceTransport(),
+            PrivateMetadataDenied(),
+            IOException("oauth-refresh-secret https://private.example/refresh", PrivateMetadataDenied())
+        )) {
+            var requests = 0
+            var refreshes = 0
+            val client = HttpClient(
+                MockEngine {
+                    requests++
+                    respond("oauth-response-secret", HttpStatusCode.Unauthorized)
+                }
+            )
+            val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+            val startedAt = System.currentTimeMillis()
+            try {
+                val failure = requireNotNull(
+                    runCatching {
+                        withMcpDiscoveryOAuthRefresh(initial, oauth = true, refresh = {
+                            refreshes++
+                            throw refreshFailure
+                        }) { config, refreshed ->
+                            manager.listTools(config, forceRefresh = refreshed, awaitCompletion = true)
+                        }
+                    }.exceptionOrNull()
+                )
+                assertEquals(1, requests)
+                assertEquals(1, refreshes)
+                assertTrue(failure is McpDiscoveryPolicyRejection)
+                assertFalse(failure.isMcpUnauthorized())
+                val retained = manager.healthSnapshot(initial.connectionUid)
+                assertEquals(401, retained.lastHttpStatus)
+                val presentation = mcpFailurePresentation(failure, retained)
+                assertEquals("PRIVACY_SERVICE_UNVERIFIED", presentation.errorCode)
+                assertEquals("POLICY_BLOCKED", presentation.outcome)
+                assertEquals("local_validation", presentation.phase)
+                assertEquals("CONFIRMED", presentation.dispatchEvidence)
+                assertEquals("AFTER_POLICY_CHANGE", presentation.retryDecision)
+                assertEquals(false, presentation.retryable)
+                assertFalse(presentation.authenticationRequired)
+                assertEquals(null, presentation.httpStatus)
+                assertTrue(requireNotNull(presentation.observedAtEpochMs) in startedAt..System.currentTimeMillis())
+                assertEquals("PRIVACY_SERVICE_UNVERIFIED", mcpConnectFailureReportCode(failure))
+                assertFalse(failure.stackTraceToString().contains("oauth-refresh-secret"))
+                assertFalse(presentation.message.contains("oauth-response-secret"))
+            } finally {
+                manager.closeAll()
+                client.close()
+                LocalServiceHealth.networkChanged()
+            }
+        }
+    }
+
+    @Test fun policyDeniedRediscoveryRetainsThe401AfterARefreshSucceeds() = runBlocking {
+        var calls = 0
+        var refreshes = 0
+        val failure = requireNotNull(
+            runCatching {
+                withMcpDiscoveryOAuthRefresh(initial, oauth = true, refresh = {
+                    refreshes++
+                    replacement()
+                }) { _, refreshed ->
+                    calls++
+                    if (!refreshed) throw ModernMcpError(401, null, "Credential rejected")
+                    throw PrivateMetadataDenied()
+                }
+            }.exceptionOrNull()
+        )
+        assertEquals(2, calls)
+        assertEquals(1, refreshes)
+        val presentation = mcpFailurePresentation(failure, McpConnectionHealth())
+        assertEquals("PRIVACY_SERVICE_UNVERIFIED", presentation.errorCode)
+        assertEquals("POLICY_BLOCKED", presentation.outcome)
+        assertEquals("CONFIRMED", presentation.dispatchEvidence)
+        assertFalse(presentation.authenticationRequired)
     }
 
     @Test fun permissionDenialsLocalGatesAndUncertainTransportFailuresNeverRefresh() = runBlocking {

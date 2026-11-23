@@ -68,7 +68,7 @@ internal fun PrivacyStoragePanel(embedded: Boolean = false) {
                 Text(stringResource(R.string.ui_v2_hide_screenshots_and_recent_app_previews), Modifier.weight(1f))
                 Switch(
                     checked = devicePrivacy?.secureScreen != false || locked,
-                    enabled = devicePrivacy != null && !locked && devicePrivacy?.privacyMode == false,
+                    enabled = devicePrivacy != null && !locked,
                     onCheckedChange = { preferences.edit().putBoolean("secure_screen", it).apply() }
                 )
             }

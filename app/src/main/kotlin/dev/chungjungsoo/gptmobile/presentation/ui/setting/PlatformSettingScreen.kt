@@ -94,6 +94,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.SamplingCreativity
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
+import dev.chungjungsoo.gptmobile.data.readiness.configuredInferenceRoute
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
@@ -231,6 +232,14 @@ fun PlatformSettingScreen(
                         SettingsTabs(listOf("Profile", "Tools", "Advanced", "Statistics"), profileTab) { profileTab = it }
                     }
                     if (profileTab == 0) {
+                        val route = configuredInferenceRoute(platformData.compatibleType, platformData.apiUrl)
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(route.label, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                                SettingsHelpIcon(route.detail + " Saving a profile does not test a reply. A completed request and a measured benchmark are separate evidence.")
+                            }
+                            TextButton(onClick = onNavigateToBenchmarks) { Text("Check response and performance") }
+                        }
                         PreferenceSwitchWithContainer(
                             title = stringResource(if (isLocalPlatform) R.string.enable_platform else R.string.enable),
                             isChecked = platformData.enabled

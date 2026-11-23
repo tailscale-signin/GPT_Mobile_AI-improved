@@ -10,6 +10,43 @@ import org.junit.Before
 import org.junit.Test
 
 class LocalServiceHealthTest {
+    @Test fun policyRejectionNeitherCreatesNorClearsARealConnectivityFailure() {
+        val url = "https://privacy.example/mcp"
+        val policy = java.io.IOException("wrapper", PrivateMetadataDenied())
+        LocalServiceHealth.recordFailure(url, policy)
+        assertEquals(0L, LocalServiceHealth.retryAfterMillis(url))
+        assertEquals(ConnectionHealth.UNKNOWN, LocalServiceHealth.health(url))
+        LocalServiceHealth.recordFailure(url, java.net.ConnectException("Connection refused"))
+        val originalWindow = LocalServiceHealth.retryAfterMillis(url)
+        repeat(3) { LocalServiceHealth.recordFailure(url, policy) }
+        assertTrue(originalWindow > 0)
+        assertTrue(LocalServiceHealth.retryAfterMillis(url) <= originalWindow)
+        assertEquals(ConnectionHealth.CONNECTION_REFUSED, LocalServiceHealth.health(url))
+    }
+
+    @Test fun gatewayAliasesShareOnlyTransportFailuresAndExplicitReconnectReopensTheService() {
+        val capabilities = "http://100.64.0.2:8090/v1/gateway/capabilities"
+        val ready = "http://100.64.0.2:8090/gateway/ready"
+        LocalServiceHealth.recordFailure(capabilities, java.net.ConnectException("Connection refused"))
+        assertThrows(java.io.IOException::class.java) { LocalServiceHealth.requireAvailable(ready) }
+        LocalServiceHealth.requireAvailable("http://100.64.0.2:8101/mcp")
+        LocalServiceHealth.checkAgain(ready)
+        LocalServiceHealth.requireAvailable(capabilities)
+        LocalServiceHealth.recordFailure(capabilities, IllegalStateException("HTTP 403 forbidden"))
+        LocalServiceHealth.requireAvailable(ready)
+        assertEquals(ConnectionHealth.AUTHENTICATION_FAILED, LocalServiceHealth.health(capabilities))
+    }
+
+    @Test fun successfulHandshakeClearsTheSharedConnectionFailureWithoutChangingOtherPorts() {
+        val capabilities = "http://100.64.0.2:8090/gateway/capabilities"
+        val ready = "http://100.64.0.2:8090/v1/gateway/ready"
+        LocalServiceHealth.recordFailure(capabilities, SocketTimeoutException("Connect timed out"))
+        LocalServiceHealth.recordFailure("http://100.64.0.2:8101/mcp", SocketTimeoutException("Connect timed out"))
+        LocalServiceHealth.recordHandshakeSuccess(ready)
+        LocalServiceHealth.requireAvailable(capabilities)
+        assertThrows(java.io.IOException::class.java) { LocalServiceHealth.requireAvailable("http://100.64.0.2:8101/mcp") }
+    }
+
     @org.junit.Test fun phaseTimeoutsAreDistinguishedFromSocketConnectionTimeouts() {
         assertEquals(ConnectionHealth.MCP_HANDSHAKE_FAILED, LocalServiceHealth.classify(IllegalStateException("MCP_INITIALIZATION_TIMEOUT: initialization timed out")))
         assertEquals(ConnectionHealth.STREAM_IDLE_TIMEOUT, LocalServiceHealth.classify(SocketTimeoutException("Read timed out")))

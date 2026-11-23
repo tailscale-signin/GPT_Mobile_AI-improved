@@ -76,8 +76,14 @@ internal class GitHubVerifiedSession(
     private var verificationOnlyAttempted = false
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
-    private fun failureCauses(error: Throwable): Sequence<Throwable> =
-        generateSequence(error) { current -> current.cause?.takeUnless { it === current } }.take(16)
+    private fun failureCauses(error: Throwable): List<Throwable> = buildList {
+        val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
+        var current: Throwable? = error
+        while (current != null && size < 16 && seen.add(current)) {
+            add(current)
+            current = if (size < 16) current.cause else null
+        }
+    }
 
     private suspend fun retainProgress(tools: List<AgentToolDefinition>, failure: ProviderEvent.Failed? = null) {
         try {
@@ -131,13 +137,15 @@ internal class GitHubVerifiedSession(
             emitAll(deliverRetainedReport())
             return@flow
         }
-        if (evidence.remainingTaskMillis() == 0L) {
+        val admissionFailure = evidence.taskAdmissionFailure()
+        if (admissionFailure != null) {
+            val deadlineReached = admissionFailure.failureDetails?.get("stop_reason") == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")
             emitAll(
                 publish(
                     null,
-                    GitHubAcceptancePublicationEvidence.Entry.TASK_DEADLINE,
-                    failureCode = "GITHUB_TASK_INCOMPLETE",
-                    originalFailure = observeExpiredDeadline(GitHubExecutionLimits.expiredTaskFailure(GitHubExecutionLimits.DeadlineCheck.VERIFIED_SESSION_ENTRY))
+                    if (deadlineReached) GitHubAcceptancePublicationEvidence.Entry.TASK_DEADLINE else GitHubAcceptancePublicationEvidence.Entry.RETAINED_FAILURE,
+                    failureCode = admissionFailure.errorCode,
+                    originalFailure = if (deadlineReached) observeExpiredDeadline(admissionFailure) else admissionFailure
                 )
             )
             return@flow
@@ -344,29 +352,17 @@ internal class GitHubVerifiedSession(
             }
             val planningRemaining = remainingToolCalls()
             val planningBudget = evidence.stageBudget(receipts, planningRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
-            val (checkpoint, planned, missing) = withContext(computationDispatcher) {
-                Triple(
-                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, planningRemaining, fixturePreflight, planningBudget),
-                    GitHubTestChecklist.nextCall(task, tools, receipts, planningRemaining, fixturePreflight),
-                    authorizedTools.filter { definition ->
-                        (definition.name.startsWith("github_") || definition.name.isGatewayRepositoryTool()) &&
-                            tools.none { it.name == definition.name } &&
-                            receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) }
-                    }.take(12)
-                )
+            val (checkpoint, schedule) = withContext(computationDispatcher) {
+                val schedule = GitHubTestChecklist.schedule(task, authorizedTools, tools, receipts, planningRemaining, fixturePreflight)
+                JsonObject(
+                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, planningRemaining, fixturePreflight, planningBudget) +
+                        ("execution_plan" to schedule.snapshot)
+                ) to schedule
             }
             val discovery = tools.firstOrNull { it.name == GitHubAuthorizedCatalog.TOOL && it.modelVisible }
             val catalogNext = GitHubAuthorizedCatalog.next(tools, receipts, authorizedTools)
             val catalogComplete = GitHubAuthorizedCatalog.snapshot(receipts, authorizedTools)["complete"] == kotlinx.serialization.json.JsonPrimitive(true)
-            val discoveryArgs = buildJsonObject { put("names", JsonArray(missing.map { kotlinx.serialization.json.JsonPrimitive(it.name) })) }
-            val discoveryAlreadyTried = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") && it["arguments"] == discoveryArgs }
-            val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remainingToolCalls())
-            val next = when {
-                planned != null && planned.name.substringBefore("__") == "github_commit" && planned.arguments["action"] in setOf(kotlinx.serialization.json.JsonPrimitive("delete_branch"), kotlinx.serialization.json.JsonPrimitive("delete_fixture_branch")) -> planned
-                acquisitionAllowed && catalogNext != null -> catalogNext
-                acquisitionAllowed && catalogComplete && discovery != null && missing.isNotEmpty() && !discoveryAlreadyTried -> ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(discoveryArgs.toString()).take(20), discovery.name, discoveryArgs)
-                else -> planned
-            }
+            val next = schedule.next
             if (checkpoint != lastChecklist) {
                 if (receipts.isNotEmpty()) withContext(computationDispatcher) { evidence.retainChecklist(checkpoint) }
                 lastChecklist = checkpoint
@@ -551,8 +547,8 @@ internal class GitHubVerifiedSession(
         if (openExecutionContinuation != null && replannedReader == null && latest != null && readProgress.replan(latest, completedDecisionMillis)) {
             val saved = evidence.snapshot().first
             val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, saved, evidence.diagnostic()) +
-                "\nOverlapping source reads have stopped adding evidence. Use retained excerpts to propose a concrete edit, or identify the specific missing prerequisite."
-            progress("Reusing the saved source and checking what the repair still needs")
+                "\n" + GitHubExecutionContinuation.replanInstruction(task, currentRequest)
+            progress("Reusing the saved findings and checking the remaining evidence")
             replannedReader = openExecutionContinuation.invoke(prompt)
             replanBoundary = latest.calls.first().callId
         }
@@ -746,7 +742,7 @@ internal class GitHubVerifiedSession(
                 }
                 is ProviderEvent.ToolCall -> {
                     calls = true
-                    emit(event)
+                    emit(evidence.repairSourceRead(event))
                 }
                 is ProviderEvent.ToolResult -> {
                     evidence.observe(event.call, event.result)
@@ -771,8 +767,10 @@ internal class GitHubVerifiedSession(
     private suspend fun FlowCollector<ProviderEvent>.handleCheckpointFailure(error: Throwable) {
         // Flow.catch preserves collector failures and cancellation. A failed
         // progress checkpoint stops work before any further provider/tool action.
-        val policy = failureCauses(error)
+        val causes = failureCauses(error)
+        val policy = causes
             .filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
+        val persistence = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()
         val original = (error as? ProgressCheckpointFailure)?.originalFailure
         if (original != null) {
             val checkpoint = buildJsonObject {
@@ -781,6 +779,7 @@ internal class GitHubVerifiedSession(
                     put("checkpoint_failure_code", "DISPATCH_POLICY_CHANGED")
                     put("resume_required", true)
                 }
+                persistence?.event()?.failureDetails?.let { put("persistence_failure", it) }
             }
             emit(original.copy(failureDetails = JsonObject(original.failureDetails.orEmpty() + checkpoint)))
             return
@@ -789,6 +788,10 @@ internal class GitHubVerifiedSession(
             // Do not ask the old profile to regenerate or acquire more evidence.
             // Earlier durable receipts remain available to a newly authorized run.
             emit(GitHubTaskLifecycle.configurationInvalidated(policy))
+            return
+        }
+        if (persistence != null) {
+            emit(persistence.event())
             return
         }
         if (error !is ProgressCheckpointFailure) throw error
@@ -918,7 +921,7 @@ internal class GitHubVerifiedSession(
                 val reportingRemaining = remainingToolCalls()
                 val reportingBudget = evidence.stageBudget(receipts, reportingRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
                 withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, reportingRemaining, reportingBudget, evidence.acceptedPromptContract(), fixturePreflight)
+                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, reportingRemaining, reportingBudget, evidence.acceptedPromptContract(), fixturePreflight, lastChecklist?.get("execution_plan") as? JsonObject)
                 }
             } else {
                 null
@@ -968,7 +971,10 @@ internal class GitHubVerifiedSession(
                 rendered
             }
             val (checklist, progressDigest) = withContext(computationDispatcher) {
-                val checklist = report["test_checklist"] as? JsonObject
+                val checklist = (report["test_checklist"] as? JsonObject)?.let { recorded ->
+                    val plan = GitHubChecklistSchedule.current(lastChecklist?.get("execution_plan") as? JsonObject, publicationReceipts)
+                    if (plan == null) recorded else JsonObject(recorded + ("execution_plan" to plan))
+                }
                 checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, publicationReceipts, authorizedTools, fixturePreflight) }
             }
             val previous = evidence.diagnostic()
@@ -1165,12 +1171,21 @@ internal class GitHubVerifiedSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            failureCauses(failure).filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
-            failureCauses(failure).firstOrNull {
+            val causes = failureCauses(failure)
+            causes.filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+            val persistence = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()
+            if (persistence != null) {
+                // A local save failure must not hide an already uncertain remote
+                // operation or be mislabeled as a provider/verification failure.
+                val local = persistence.event()
+                emit(originalFailure?.copy(failureDetails = JsonObject(originalFailure.failureDetails.orEmpty() + ("persistence_failure" to requireNotNull(local.failureDetails)))) ?: local)
+                return@flow
+            }
+            causes.firstOrNull {
                 it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
                     it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied
             }?.let { throw it }
-            val policy = failureCauses(failure).filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
+            val policy = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
             if (policy != null) {
                 evidence.retainVerdict(
                     buildJsonObject {
@@ -1250,7 +1265,7 @@ internal class GitHubVerifiedSession(
             publication.extractionFailure == null &&
             openExecutionContinuation != null &&
             continuationTools.isNotEmpty() &&
-            progressCorrections < 3 &&
+            GitHubExecutionContinuation.hasAcquisitionBudget(remainingToolCalls(), evidence.remainingTaskMillis()) &&
             (newEvidenceProgress || requestedCorrection) &&
             staleReceiptIds.isEmpty() &&
             (GitHubRequestCompletion.requiresRepositoryEvidence(task) || currentSessionReview) &&
@@ -1574,13 +1589,14 @@ internal class GitHubVerifiedSession(
         // that exceeds the bounded batch plan remains incomplete until it is split or
         // a larger, explicitly supported plan is introduced.
         if (groups.size > GitHubClaimBatches.MAX_BATCHES) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_BATCH_LIMIT, groups.size)
+        val criterionContracts = GitHubAcceptanceContract.criteria(task, GitHubRequestCompletion.requirements(task, issueWork)).associateBy { it.id }
         val catalog by lazy { JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()) }
         val requests = groups.mapIndexed { index, requirements ->
             // Never replay a history-sized saved report into the extractor. Completed
             // reads remain in the evidence ledger; this bounded excerpt is only context.
-            val candidate = draftExcerpt(draft, requirements)
+            var candidate = draftExcerpt(draft, requirements)
             val ids = requirements.map(GitHubRequestCompletion::id)
-            fun payload(selected: List<kotlinx.serialization.json.JsonElement>) = buildJsonObject {
+            fun payload(selected: List<kotlinx.serialization.json.JsonElement>, excerpt: String = candidate) = buildJsonObject {
                 put("task", task)
                 put("batch", index + 1)
                 put("batches", groups.size)
@@ -1592,11 +1608,12 @@ internal class GitHubVerifiedSession(
                             buildJsonObject {
                                 put("id", id)
                                 put("text", text)
+                                criterionContracts[id]?.let { put("criterion_contract", it.json()) }
                             }
                         }
                     )
                 )
-                put("candidate", candidate)
+                put("candidate", excerpt)
                 put("claim_selection", "Address the listed requirement IDs only. Prioritize the smallest set of evidenced claims needed to answer them.")
                 put("catalog", JsonArray(selected))
                 put("retained_receipts", receipts.size)
@@ -1604,7 +1621,23 @@ internal class GitHubVerifiedSession(
                 put("coverage", "Full originals remain in the encrypted ledger. Omitted source is not proof; unresolved claims must remain Not measured.")
             }.toString()
             var request = payload(emptyList())
-            val baseTokens = TextTokenEstimate.estimate(request)
+            var baseTokens = TextTokenEstimate.estimate(request)
+            if (baseTokens > hardLimit && candidate.isNotEmpty() && TextTokenEstimate.estimate(payload(emptyList(), "")) <= hardLimit) {
+                // Preserve the entire task and criterion scaffold; fit only the selected draft context.
+                var low = 0
+                var high = candidate.codePointCount(0, candidate.length)
+                while (low < high) {
+                    val count = (low + high + 1) / 2
+                    val prefix = candidate.substring(0, candidate.offsetByCodePoints(0, count))
+                    if (TextTokenEstimate.estimate(payload(emptyList(), prefix)) <= hardLimit) low = count else high = count - 1
+                }
+                val fitted = candidate.substring(0, candidate.offsetByCodePoints(0, low))
+                if (fitted.isNotBlank()) {
+                    candidate = fitted
+                    request = payload(emptyList())
+                    baseTokens = TextTokenEstimate.estimate(request)
+                }
+            }
             if (baseTokens > hardLimit) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_INPUT_LIMIT, groups.size, baseTokens, hardLimit)
             val limit = minOf(hardLimit, maxOf(6_000, baseTokens + 2_048))
             val query = "$task\n${requirements.joinToString("\n")}\n$candidate"

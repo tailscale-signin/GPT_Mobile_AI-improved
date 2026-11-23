@@ -119,7 +119,8 @@ internal suspend fun writeStagedChatDiagnostics(
             authorized()
             checkBudget()
             val bounded = if (projected) value else DiagnosticValueProjector(maximumSourceCharacters) { omit(it) }.element(value)
-            redactedRecord(redactor.redact(bounded), maximumCharacters, evidence)
+            val redacted = phaseTimings.measure(dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureTimings.Phase.REDACTION) { redactor.redact(bounded) }
+            redactedRecord(redacted, maximumCharacters, evidence)
         }
         suspend fun captureLogs(sink: DiagnosticStageSink, critical: Boolean) {
             authorized()
@@ -254,7 +255,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 database.capture(room.id, "latest_state", maximumCharacters, {
                     authorized()
                     sink.checkBudget()
-                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint, sourceRecord = sink::sourceRecord, sourcePageSize = sink.sourcePageSize)
+                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint, sourceRecord = sink::sourceRecord, sourcePageSize = sink.sourcePageSize, timings = sink.phaseTimings)
             },
             DiagnosticCaptureStage("critical_logs", "critical-app-logs.jsonl", critical = true, lowMemorySafe = true, resumableRecords = true, emptyReason = "NO_RETAINED_CRITICAL_LOGS") { captureLogs(it, critical = true) },
             DiagnosticCaptureStage("capture_context", "capture-context.jsonl", lowMemorySafe = true, content = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticStageContent.CONFIGURATION) { sink ->
@@ -359,7 +360,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 database.capture(room.id, section, maximumCharacters, {
                     authorized()
                     sink.checkBudget()
-                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint, sourceRecord = sink::sourceRecord, sourcePageSize = sink.sourcePageSize)
+                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint, sourceRecord = sink::sourceRecord, sourcePageSize = sink.sourcePageSize, timings = sink.phaseTimings)
             }
         }
         stages += DiagnosticCaptureStage("live_messages", "live-messages.jsonl") { sink ->
@@ -431,7 +432,7 @@ internal suspend fun writeStagedChatDiagnostics(
             }, { row ->
                 val event = DiagnosticTimeline.database(row, System.currentTimeMillis())
                 if (event == null) sink.omit("TIMELINE_SOURCE_UNAVAILABLE") else sink.emit(event)
-            }, { sink.omit(it) }, metadata = { sink.emit(it, evidence = false) })
+            }, { sink.omit(it) }, metadata = { sink.emit(it, evidence = false) }, timings = sink.phaseTimings)
             try {
                 // One rollback boundary prevents a damaged captured journal from
                 // contributing apparently valid timeline events before its final hash check.

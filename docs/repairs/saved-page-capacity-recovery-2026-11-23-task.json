@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_head": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+  "working_branch": "work/saved-page-capacity-8318",
+  "source_owner": "acceptance",
+  "intent": "Stop automatic saved-page retries after a native capacity refusal; retain the incomplete page and exact issued larger recovery across compaction and restart without enlarging the accepted budget or weakening cursor/source authority.",
+  "status": "FOCUSED_AND_CANONICAL_VALIDATION_PASSED_INDEPENDENT_REVIEW_PENDING",
+  "report": {
+    "issue": 2338,
+    "source_commit": "b0f78edc8021b3b8c059f81d901c43df50c8fed9",
+    "source_parent": "93b110310b7c479ebfa0be68d38f848bf633edd8",
+    "source_tree": "93fe4b142c4e852ba450f7cb3d7abde1fce80b90",
+    "observed": "Issued unexpired github_search saved cursor rejected locally with public OUTPUT_LIMIT. Domain-separated public code hash exactly identifies SAVED_VIEW_PAGE_CAPACITY.",
+    "limit": "The report does not include subsequent calls or private source bytes; the unchanged-size automatic loop is separately reproduced on current code with synthetic repository content."
+  },
+  "correction": [
+    "Record only a current native capacity refusal with exact call, operation, cursor, source/scope hash and nonremote outcome proof; keep it separate from successful consumption.",
+    "Do not automatically select an equally small page after the refusal. Select only the exact native-issued larger correction within the caller-provided allowance; never invent an intermediate cursor or increase the allowance.",
+    "Retain bounded correction metadata across replay eviction and raw-journal restoration. A compacted native correction remains usable; an omitted correction cannot be manufactured from its hash.",
+    "Preserve independent views, successful read witnesses, the existing 32 automatic-attempt bound, all remote unknown-outcome handling, and ordinary caller cancellation."
+  ],
+  "validation": {
+    "baseline": {
+      "source": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+      "tests": 115,
+      "failures": 6,
+      "existing_tests": 106,
+      "new_methods": 9,
+      "expected_new_failures_only": true
+    },
+    "candidate": {
+      "tests": 115,
+      "failures": 0,
+      "seconds": 1.036
+    },
+    "invalid_refusal_variants": 17,
+    "invalid_correction_variants": 4,
+    "format": "ktlint1.3.1 PASS",
+    "boundaries": "Actual current native saved reader, replay planner/compactor, delivered-read progress and delivery proof are compiled. The frozen host support boundary has 26 unchanged other repository inputs, declared non-Android service/contract ports and the earlier unused ToolBatchCheckpoint dependency. Full wrapper/AgentRunner/Android execution remains mandatory on final shared source.",
+    "canonical": {
+      "tests": 650,
+      "seconds": 22.858,
+      "result": "PASS",
+      "literal_regexes": 2040,
+      "dynamic_patterns_excluded": 100,
+      "xml_resources": 36
+    },
+    "generated_references": "PASS"
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt": "246b52d68d5e1d742c9e7baba412970653baf66dc72ac654114f3a4d73c82249",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageCapacityTest.kt": "bfc69dfb177e9c62e33be2feab121ab6f6b09c5fd0cd1a18271554940de44f95"
+  },
+  "evidence": "/workspace/scratch/e36c814d2a6d/issue2338-capacity-probe/baseline-final and candidate-final retain complete inputs, harness, dependency hashes and compiler/JUnit logs.",
+  "remaining": [
+    "Independent review of the immutable candidate.",
+    "Preserve concurrent commits and integrate with the other owned report/compiler fixes.",
+    "All applicable final-head CI, current merge rules, expected-head merge, exact-main checks and verified Android/Gateway publication."
+  ]
+}

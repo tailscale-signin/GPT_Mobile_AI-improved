@@ -286,7 +286,7 @@ class MultiEngineSearchTool(
             }
             val text = resultText(result)
             val outcome = when {
-                result.outputBudgetExhausted || result.toolCallBudgetExhausted -> "budget_exhausted"
+                result.outputBudgetExhausted || result.toolCallBudgetExhausted || result.combinedWorkBudgetExhausted -> "budget_exhausted"
                 result.isError && result.errorCode in setOf("DUPLICATE_ACTION", "DUPLICATE_INVOCATION") -> "duplicate"
                 result.isError && (result.errorCode == "AUTH_REQUIRED" || text.contains("permission", true)) -> "denied"
                 result.isError && result.errorCode == SearchEvidenceOutcome.RATE_LIMITED.name -> "rate_limited"
@@ -487,13 +487,18 @@ class MultiEngineSearchTool(
         val retained = ToolResultContent.Json(envelope(merged.retainedSources))
         val failed = initial.all { it.result.isError }
         val failureCodes = initial.mapNotNull { it.result.errorCode }.distinct()
+        val dispatchedAttempts = allAttempts.count { it.result.dispatched }
         val errorCode = when {
             !failed -> null
             initial.isEmpty() -> "NO_SEARCH_ENGINES"
             failureCodes.size == 1 && initial.all { it.result.errorCode != null } -> failureCodes.single()
+            // A local budget stopped these attempts before any source was contacted.
+            // Preserve each sibling refusal in the engine list and receipt counts.
+            dispatchedAttempts == 0 && initial.any { it.result.errorCode == "COMBINED_BUDGET_EXHAUSTED" && it.result.combinedWorkBudgetExhausted } -> "COMBINED_BUDGET_EXHAUSTED"
+            dispatchedAttempts == 0 && initial.any { it.result.errorCode == "BUDGET_EXHAUSTED" && (it.result.outputBudgetExhausted || it.result.toolCallBudgetExhausted) } -> "BUDGET_EXHAUSTED"
             else -> "SEARCH_PROVIDERS_UNAVAILABLE"
         }
-        val bytesAvailable = if (errorCode == "BUDGET_EXHAUSTED" && allAttempts.none { it.result.dispatched }) {
+        val bytesAvailable = if (errorCode == "BUDGET_EXHAUSTED" && dispatchedAttempts == 0) {
             // One value actually seen by this call's local byte guard, not a sum,
             // a provider-supplied field or a later read of shared allowance.
             allAttempts.mapNotNull { response ->
@@ -508,7 +513,7 @@ class MultiEngineSearchTool(
             callId, content,
             isError = failed,
             errorCode = errorCode,
-            dispatched = allAttempts.any { it.result.dispatched },
+            dispatched = dispatchedAttempts > 0,
             executionReceipt = buildJsonObject {
                 put("schema", "gptmobile.search-operation.v1")
                 put("callId", callId)
@@ -518,7 +523,7 @@ class MultiEngineSearchTool(
                     "state",
                     if (!failed) {
                         "COMPLETED"
-                    } else if (allAttempts.none { it.result.dispatched }) {
+                    } else if (dispatchedAttempts == 0) {
                         "PRECHECK_REJECTED"
                     } else {
                         "FAILED"
@@ -529,7 +534,7 @@ class MultiEngineSearchTool(
                 if (failed && errorCode != null) {
                     put("errorCode", errorCode)
                     put("attemptCount", allAttempts.size)
-                    put("dispatchedAttemptCount", allAttempts.count { it.result.dispatched })
+                    put("dispatchedAttemptCount", dispatchedAttempts)
                     put(
                         "budgetRejectedAttemptCount",
                         allAttempts.count {
@@ -545,6 +550,7 @@ class MultiEngineSearchTool(
             retainedContent = retained.takeUnless { it == content },
             outputBudgetExhausted = allAttempts.any { it.result.outputBudgetExhausted },
             toolCallBudgetExhausted = allAttempts.any { it.result.toolCallBudgetExhausted },
+            combinedWorkBudgetExhausted = allAttempts.any { it.result.combinedWorkBudgetExhausted },
             toolCallBudgetUsed = allAttempts.mapNotNull { it.result.toolCallBudgetUsed }.maxOrNull(),
             toolCallBudgetLimit = allAttempts.mapNotNull { it.result.toolCallBudgetLimit }.maxOrNull(),
             toolCallBudgetConfigured = allAttempts.mapNotNull { it.result.toolCallBudgetConfigured }.maxOrNull(),

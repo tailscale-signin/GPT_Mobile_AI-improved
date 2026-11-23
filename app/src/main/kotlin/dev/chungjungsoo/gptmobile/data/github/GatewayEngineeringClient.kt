@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
 import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException
+import dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
@@ -12,12 +13,15 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayPairedRequestSource
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.HttpStatement
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -26,9 +30,12 @@ import io.ktor.http.contentType
 import io.ktor.http.encodeURLParameter
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readLine
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -61,12 +68,21 @@ class GatewayEngineeringClient internal constructor(
 
     private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false, root: String = "gateway/engineering", operationId: String? = null, userAction: String? = null): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
-        val endpoint = config.buildEndpoint("$root/$path")
+        val requestPath = if (path.isEmpty() || path.startsWith('?')) "$root$path" else "$root/$path"
+        val endpoint = config.buildEndpoint(requestPath)
         val bindingRead = body == null && path.startsWith("bindings/") && path.endsWith("/capabilities")
         val exchange: suspend () -> String = {
             gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST", operationId = operationId) { headers ->
                 // A safe GET retry gets a fresh nonce. Writes are never automatically replayed.
-                val paired = pairedRequests?.prepare(config, if (body == null) "GET" else "POST", "/$root/$path", body.orEmpty())
+                val paired = try {
+                    pairedRequests?.prepare(config, if (body == null) "GET" else "POST", "/$requestPath", body.orEmpty())
+                } catch (failure: Exception) {
+                    generateSequence<Throwable>(failure) { it.cause }.take(16).filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+                    // Preparation can exchange metadata, but the following graph POST
+                    // has not started. Its unsent checkpoint must not become uncertain.
+                    if (path == "graph" && failure.isLocalPrivacyPolicyRejection()) throw GatewayGraphPrivacyRejected(failure, requestUnsent = true)
+                    throw failure
+                }
                 val repositoryRequest = path == "repository-operations" || path.startsWith("repository-operations/")
                 val repositoryRequestId = if (repositoryRequest) GitHubDispatchAccounting.started(body != null) else null
                 (paired?.http ?: if (body == null) readHttp else http).prepareRequest(paired?.endpoint ?: endpoint) {
@@ -75,7 +91,7 @@ class GatewayEngineeringClient internal constructor(
                     (paired?.requestHeaders(headers) ?: headers).forEach { (key, value) -> header(key, value) }
                     if ((body == null || path in setOf("bindings", "preflight")) && LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     if (approval) header("X-Gateway-User-Action", "approve-and-merge")
-                    if (userAction == "restore-local-candidate") header("X-Gateway-User-Action", userAction)
+                    if (userAction in setOf("restore-local-candidate", "workspace-command")) header("X-Gateway-User-Action", requireNotNull(userAction))
                     if (body != null) {
                         contentType(ContentType.Application.Json)
                         setBody(body)
@@ -85,7 +101,7 @@ class GatewayEngineeringClient internal constructor(
                         requestTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
                         socketTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
                     }
-                }.execute { response ->
+                }.executeObserved(path) { response ->
                     if (repositoryRequest) GitHubDispatchAccounting.responded(body != null, response.status.value, repositoryRequestId, response.headers["X-Request-ID"])
                     GatewayClientDiagnostics.observe(diagnostic, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                     if (path == "capabilities" && response.status.value in setOf(404, 501)) throw UnsupportedEngineeringGateway()
@@ -223,6 +239,33 @@ class GatewayEngineeringClient internal constructor(
                 throw capabilityReadFailure(failure, preparationPost = body != null, operationId = GatewayClientDiagnostics.operationIdentity(diagnostic.extraHeaders))
             }
             throw failure
+        }
+    }
+
+    /** Observe each physical request before a safe-read retry can replace its failure. */
+    private suspend fun <T> HttpStatement.executeObserved(path: String, block: suspend (HttpResponse) -> T): T {
+        val observation = MetadataResponseObservation(currentCoroutineContext()[MetadataResponseObservation])
+        return withContext(observation) {
+            try {
+                execute { response ->
+                    observation.responded()
+                    block(response)
+                }
+            } catch (failure: Exception) {
+                val causes = generateSequence<Throwable>(failure) { it.cause }.take(16).toList()
+                causes.filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+                val privacyDenied = failure.isLocalPrivacyPolicyRejection()
+                if (!privacyDenied &&
+                    causes.any { it is IOException } &&
+                    causes.none { it is java.net.ConnectException || it is java.net.UnknownHostException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }
+                ) {
+                    observation.readInterrupted()
+                }
+                if (path == "graph" && privacyDenied) {
+                    throw GatewayGraphPrivacyRejected(failure, requestUnsent = observation.observedAtEpochMs == null && !observation.hasInterruptedRead)
+                }
+                throw failure
+            }
         }
     }
 
@@ -402,6 +445,14 @@ class GatewayEngineeringClient internal constructor(
         json.parseToJsonElement(request(config, "diagnostics/$path", body?.toString())) as? JsonObject
             ?: error("Invalid gateway diagnostic response.")
 
+    /** Durable benchmark commands use the same paired identity fence and never replay a POST automatically. */
+    internal suspend fun benchmark(config: ProviderRequestConfig, path: String, body: JsonObject? = null): JsonObject {
+        require(path.isEmpty() || path.matches(Regex("[A-Za-z0-9_/?=&.%-]{1,400}")))
+        return json.parseToJsonElement(
+            request(config, path, body?.toString(), root = "gateway/benchmarks", operationId = body?.get("request_id")?.jsonPrimitive?.contentOrNull)
+        ) as? JsonObject ?: error("The benchmark service returned an invalid durable receipt.")
+    }
+
     suspend fun create(config: ProviderRequestConfig, payload: GatewayEngineeringRequest): GatewayEngineeringJob {
         val response = if (payload.conversationId == null) {
             request(config, "jobs", json.encodeToString(payload), operationId = payload.requestId)
@@ -489,6 +540,44 @@ class GatewayEngineeringClient internal constructor(
     suspend fun checkpoints(config: ProviderRequestConfig, jobId: String): GatewayEngineeringCheckpoints {
         require(jobId.matches(Regex("eng_[a-f0-9]{32}")))
         return json.decodeFromString(request(config, "jobs/$jobId/checkpoints"))
+    }
+
+    suspend fun workspace(config: ProviderRequestConfig, jobId: String): GatewayAgentWorkspace {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")))
+        return json.decodeFromString<GatewayAgentWorkspace>(request(config, "jobs/$jobId/workspace")).also {
+            check(it.schemaVersion == 1 && it.jobId == jobId) { "The Gateway returned a different workspace." }
+        }
+    }
+
+    suspend fun workspaceCommand(config: ProviderRequestConfig, command: GatewayWorkspacePendingCommand, arguments: JsonObject): GatewayWorkspaceCommandReceipt {
+        require(command.jobId.matches(Regex("eng_[a-f0-9]{32}")) && command.commandId.matches(Regex("[A-Za-z0-9_-]{1,100}")))
+        require(command.headSha.matches(Regex("[a-f0-9]{40}|[a-f0-9]{64}")) && command.revision >= 0 && command.action in GatewayWorkspaceAction.names)
+        requireWorkspaceArguments(arguments)
+        val body = buildJsonObject {
+            put("command_id", command.commandId)
+            put("revision", command.revision)
+            put("head_sha", command.headSha)
+            put("action", command.action)
+            put("arguments", arguments)
+        }
+        return json.decodeFromString<GatewayWorkspaceCommandReceipt>(request(config, "jobs/${command.jobId}/workspace", body.toString(), operationId = command.commandId, userAction = "workspace-command")).also { it.requireCommand(command) }
+    }
+
+    suspend fun workspaceCommandStatus(config: ProviderRequestConfig, command: GatewayWorkspacePendingCommand): GatewayWorkspaceCommandReceipt {
+        require(command.jobId.matches(Regex("eng_[a-f0-9]{32}")) && command.commandId.matches(Regex("[A-Za-z0-9_-]{1,100}")))
+        return json.decodeFromString<GatewayWorkspaceCommandReceipt>(request(config, "jobs/${command.jobId}/workspace/commands/${command.commandId}")).also { it.requireCommand(command) }
+    }
+
+    suspend fun workspaceTree(config: ProviderRequestConfig, jobId: String, headSha: String, query: String, offset: Int): GatewayWorkspaceTree {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && headSha.isWorkspaceSha() && query.length <= 200 && offset >= 0)
+        val path = "jobs/$jobId/workspace/tree?head_sha=$headSha&query=${query.encodeURLParameter()}&offset=$offset"
+        return json.decodeFromString<GatewayWorkspaceTree>(request(config, path)).also { it.requirePage(jobId, headSha, offset) }
+    }
+
+    suspend fun workspaceSource(config: ProviderRequestConfig, jobId: String, headSha: String, file: GatewayWorkspaceSourcePath, startLine: Int): GatewayWorkspaceSource {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && headSha.isWorkspaceSha() && file.path.isWorkspacePath() && file.blobSha.isWorkspaceSha() && startLine > 0)
+        val path = "jobs/$jobId/workspace/source?head_sha=$headSha&path=${file.path.encodeURLParameter()}&start_line=$startLine&line_count=80"
+        return json.decodeFromString<GatewayWorkspaceSource>(request(config, path)).also { it.requirePage(jobId, headSha, file, startLine) }
     }
 
     suspend fun artifactPage(config: ProviderRequestConfig, jobId: String, artifactId: String, offset: Int): JsonObject {

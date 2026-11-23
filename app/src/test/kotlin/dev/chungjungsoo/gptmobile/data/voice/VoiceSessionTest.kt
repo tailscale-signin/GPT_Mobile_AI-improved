@@ -2,12 +2,49 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
 import dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance
+import dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceCaption
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSessionTest {
+    @Test fun fullDetailsPlaybackIsExplicitAndTheNextAnswerResetsItsProjection() {
+        val output = Audio().apply { streamsReplies = true }
+        val playback = VoiceSession(output, { error("Manual replay must not dispatch a prompt") }, {})
+        playback.access(true, false, true)
+        val source = "<think>Private planning</think>The short answer. <details>Extra facts and context.</details>"
+        assertTrue(playback.beginMessage("details", manual = true, includeDetails = true))
+        playback.reply("details", source)
+        assertTrue(playback.state.readingDetails)
+        assertTrue(output.spoken.joinToString("").contains("Extra facts and context."))
+        assertFalse(output.spoken.joinToString("").contains("Private planning"))
+        val staleCompletion = output.done
+        val priorChunks = output.spoken.size
+
+        assertTrue(playback.beginMessage("answer", manual = true))
+        playback.reply("answer", source)
+        assertFalse(playback.state.readingDetails)
+        assertEquals("The short answer.", output.spoken.drop(priorChunks).joinToString("").trim())
+        staleCompletion?.invoke()
+        assertEquals(VoicePhase.SPEAKING, playback.state.phase)
+        assertEquals(source, playback.state.reply)
+        output.done?.invoke()
+        assertEquals(VoicePhase.PAUSED, playback.state.phase)
+        assertTrue(output.listeners.isEmpty())
+    }
+
+    @Test fun automaticPlaybackCannotOptIntoFullDetails() {
+        val output = Audio().apply { streamsReplies = true }
+        val playback = VoiceSession(output, { true }, {})
+        playback.access(true, false, true)
+        assertTrue(playback.beginMessage("automatic", includeDetails = true))
+        playback.reply("automatic", "Answer first. <details>Read only on request.</details>")
+        assertFalse(playback.state.readingDetails)
+        assertEquals("Answer first.", output.spoken.joinToString("").trim())
+    }
+
     @Test fun disablingEarlySpeechKeepsCaptionsLiveAndWaitsForTheTerminalReply() {
         audio.streamsReplies = true
         start()
@@ -16,6 +53,11 @@ class VoiceSessionTest {
         val partial = "Here is the answer "
         session.streamReply("run", partial)
         assertEquals(partial, session.state.reply)
+        val caption = requireNotNull(VoiceCaption.from(session.state))
+        assertEquals(partial, caption.text)
+        assertEquals("AI reply", caption.speaker)
+        assertFalse(caption.live)
+        assertNull(caption.highlightRange(session.state.spokenRange))
         assertTrue(audio.spoken.isEmpty())
         assertEquals(0, audio.opened)
 
@@ -26,10 +68,47 @@ class VoiceSessionTest {
         assertEquals(1, audio.sealed)
     }
 
+    @Test fun aNewCapturedTurnClearsThePriorAnswerAndDetailsBeforeItsFirstResponse() {
+        val output = Audio().apply { streamsReplies = true }
+        val accepted = mutableListOf<String>()
+        val playback = VoiceSession(output, {
+            accepted += it
+            true
+        }, {}).apply { autoContinue = true }
+        playback.access(true, true, true)
+        val previous = "The previous answer. <details>Previous extra facts.</details>"
+        assertTrue(playback.beginMessage("previous", manual = true, includeDetails = true))
+        playback.reply("previous", previous)
+        assertTrue(playback.state.readingDetails)
+        requireNotNull(output.done).invoke()
+        assertEquals(VoicePhase.LISTENING, playback.state.phase)
+
+        val capture = output.listeners.last()
+        capture.partial("My next question")
+        assertEquals("My next question", VoiceCaption.from(playback.state)?.text)
+        capture.final("My next question")
+        assertEquals(listOf("My next question"), accepted)
+        assertEquals(VoicePhase.THINKING, playback.state.phase)
+        assertEquals("", playback.state.reply)
+        assertFalse(playback.state.readingDetails)
+        assertEquals("You", VoiceCaption.from(playback.state)?.speaker)
+        assertEquals("My next question", VoiceCaption.from(playback.state)?.text)
+
+        playback.speakWhileGenerating = false
+        val spokenBefore = output.spoken.toList()
+        playback.streamReply("current", "The current answer. ")
+        val caption = requireNotNull(VoiceCaption.from(playback.state))
+        assertEquals("The current answer.", caption.text.trim())
+        assertEquals("AI reply", caption.speaker)
+        assertFalse(caption.live)
+        assertNull(caption.highlightRange(playback.state.spokenRange))
+        assertEquals(spokenBefore, output.spoken)
+    }
+
     @Test fun `Android speech starts at a stable word boundary before the final answer and stays sequential`() {
         start()
         audio.listeners.last().final("Explain this")
-        val opening = "Here is the answer "
+        val opening = "Here is the answer. "
         session.streamReply("run", opening)
         assertEquals(listOf(opening), audio.spoken)
         assertEquals(VoicePhase.SPEAKING, session.state.phase)
@@ -55,7 +134,7 @@ class VoiceSessionTest {
         val final = "Read [the guide](https://private.example/path) or https://other.example/opaque.\n```code\nopaqueIdentifier()\n```\nDone."
         session.reply("run", final)
         assertEquals(final, session.state.reply)
-        assertEquals("Read the guide or link. Code is available in the chat. Done.", audio.spoken.single().replace(Regex("\\s+"), " ").trim())
+        assertEquals("Read the guide or . Code is available in the chat. Done.", audio.spoken.single().replace(Regex("\\s+"), " ").trim())
         assertEquals(1, audio.listeners.size)
         requireNotNull(audio.done).invoke()
         assertEquals(2, audio.listeners.size)
@@ -67,7 +146,7 @@ class VoiceSessionTest {
         val reply = "## Answer\nRead [the setup guide](https://example.com/very/long?secret=value) and visit https://example.com/raw/path?x=1.\n```kotlin\nprintln(\"nonsense code\")\n```\nThen **restart** and skip `rm -rf scratch` now."
         session.reply("run", reply)
         assertEquals(reply, session.state.reply)
-        assertEquals("Answer Read the setup guide and visit link. Code is available in the chat. Then restart and skip now.", audio.spoken.joinToString("").replace(Regex("\\s+"), " ").trim())
+        assertEquals("Answer Read the setup guide and visit . Code is available in the chat. Then restart and skip now.", audio.spoken.joinToString("").replace(Regex("\\s+"), " ").trim())
         assertEquals(VoicePhase.SPEAKING, session.state.phase)
         audio.done?.invoke()
         assertEquals(2, audio.listeners.size)
@@ -84,7 +163,7 @@ class VoiceSessionTest {
         }
         session.reply("run", reply)
         assertEquals(reply, session.state.reply)
-        assertEquals("Here are the steps open the guide and follow them. Code is available in the chat. Use link with the diagram, then skip and finish.", audio.spoken.joinToString("").replace(Regex("\\s+"), " ").trim())
+        assertEquals("Here are the steps open the guide and follow them. Code is available in the chat. Use with the diagram, then skip and finish.", audio.spoken.joinToString("").replace(Regex("\\s+"), " ").trim())
         assertEquals(1, audio.opened)
         assertEquals(1, audio.sealed)
         assertEquals(1, audio.listeners.size)
@@ -92,19 +171,19 @@ class VoiceSessionTest {
         assertEquals(2, audio.listeners.size)
     }
 
-    @Test fun `first streamed speech starts after four complete words without waiting for punctuation`() {
+    @Test fun `first streamed speech has a bounded eight word fallback without punctuation`() {
         audio.streamsReplies = true
         start()
         audio.listeners.last().final("Read the answer")
-        session.streamReply("run", "Here are four wor")
+        session.streamReply("run", "Here are eight complete words before the ans")
         assertTrue(audio.spoken.isEmpty())
-        session.streamReply("run", "Here are four words ")
-        assertEquals(listOf("Here are four words "), audio.spoken)
-        session.streamReply("run", "Here are four words ")
-        val reply = "Here are four words followed by [the final answer](https://example.test/private)."
+        session.streamReply("run", "Here are eight complete words before the answer ")
+        assertEquals(listOf("Here are eight complete words before the answer "), audio.spoken)
+        session.streamReply("run", "Here are eight complete words before the answer ")
+        val reply = "Here are eight complete words before the answer followed by [the final answer](https://example.test/private)."
         session.reply("run", reply)
         assertEquals(reply, session.state.reply)
-        assertEquals("Here are four words followed by the final answer.", audio.spoken.joinToString(""))
+        assertEquals("Here are eight complete words before the answer followed by the final answer.", audio.spoken.joinToString(""))
         assertEquals(1, audio.opened)
         assertEquals(1, audio.sealed)
     }
@@ -114,13 +193,13 @@ class VoiceSessionTest {
         audio.listeners.last().final("Read the answer")
         session.streamReply("run", "Here are four wor")
         assertTrue(audio.spoken.isEmpty())
-        session.streamReply("run", "Here are four words ")
-        assertEquals(listOf("Here are four words "), audio.spoken)
-        session.streamReply("run", "Here are four words ")
-        session.reply("run", "Here are four words followed by the final answer.")
+        session.streamReply("run", "Here are four words. ")
+        assertEquals(listOf("Here are four words. "), audio.spoken)
+        session.streamReply("run", "Here are four words. ")
+        session.reply("run", "Here are four words. Followed by the final answer.")
         assertEquals(1, audio.listeners.size)
         audio.done?.invoke()
-        assertEquals("Here are four words followed by the final answer.", audio.spoken.joinToString(""))
+        assertEquals("Here are four words. Followed by the final answer.", audio.spoken.joinToString(""))
         assertEquals(0, audio.opened)
         audio.done?.invoke()
         assertEquals(2, audio.listeners.size)
@@ -136,7 +215,7 @@ class VoiceSessionTest {
             val reply = "https://example.com/raw/path\n```sh\necho hidden_code\n```"
             session.reply("run", reply)
             assertEquals(reply, session.state.reply)
-            assertEquals("link Code is available in the chat.", audio.spoken.joinToString("").replace(Regex("\\s+"), " ").trim())
+            assertEquals("Code is available in the chat.", audio.spoken.joinToString("").replace(Regex("\\s+"), " ").trim())
             assertEquals(if (streaming) 1 else 0, audio.opened)
             assertEquals(1, audio.listeners.size)
             assertEquals(VoicePhase.SPEAKING, session.state.phase)
@@ -153,10 +232,10 @@ class VoiceSessionTest {
         val text = "See [the guide](https://example.test/private) and https://example.test/other now."
         session.reply("run", text)
         assertEquals(text, session.state.reply)
-        assertEquals(listOf("See the guide and link now."), audio.spoken)
+        assertEquals(listOf("See the guide and  now."), audio.spoken)
         audio.done?.invoke()
         session.replay()
-        assertEquals(listOf("See the guide and link now.", "See the guide and link now."), audio.spoken)
+        assertEquals(listOf("See the guide and  now.", "See the guide and  now."), audio.spoken)
         assertEquals(text, session.state.reply)
         assertEquals(listOf("Read the answer"), prompts)
     }
@@ -184,6 +263,7 @@ class VoiceSessionTest {
         var done: (() -> Unit)? = null
         var audioError: ((String) -> Unit)? = null
         var stopped = 0
+        val stopReasons = mutableListOf<String>()
         var closed = false
         override var streamsReplies = false
         var opened = 0
@@ -213,6 +293,10 @@ class VoiceSessionTest {
         }
         override fun stop() {
             stopped++
+        }
+        override fun stop(reason: String) {
+            stopReasons += reason
+            stop()
         }
         override fun close() {
             closed = true
@@ -499,6 +583,7 @@ class VoiceSessionTest {
         session.reply("run", "Reply")
         val callback = audio.done
         session.access(true, true, false)
+        assertEquals("lifecycle_background", audio.stopReasons.last())
         callback?.invoke()
         assertEquals(1, audio.listeners.size)
         assertEquals(VoicePhase.PAUSED, session.state.phase)

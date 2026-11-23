@@ -112,6 +112,8 @@ internal object GitHubTaskLifecycle {
         put("logical_continuation_allowed", effective.continueWork)
         put("request_replay_allowed", false)
         automaticContinuations?.let { put("automatic_continuations", it) }
+        dev.chungjungsoo.gptmobile.data.agent.GitHubNoOutputProgress.retainedDetails(originalFailure)?.let { put("output_progress", it) }
+        originalFailure?.get("delivery_state")?.takeIf { it in setOf(JsonPrimitive("PARTIAL_DRAFT"), JsonPrimitive("NO_VISIBLE_ANSWER")) }?.let { put("delivery_state", it) }
         listOf("required_criteria", "verified_criteria", "remaining_criteria").forEach { key -> ledger?.get(key)?.let { put(key, it) } }
         GitHubAcceptanceReportDiagnostics.fields(verdict, retainedReport).forEach { (key, value) -> put(key, value) }
     }
@@ -124,6 +126,10 @@ internal object GitHubTaskLifecycle {
         val outcome = buildJsonObject {
             put("schema", "github.failure-outcome.v1")
             put("failure_code", failure.errorCode ?: classification.category)
+            if (failure.errorCode in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES) {
+                put("current_failure_code", failure.errorCode)
+                dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.retainedDetails(failure.failureDetails)?.let { put("latest_recovery_failure", it) }
+            }
             put("failure_domain", if (classification.isTaskVerification) "TASK_VERIFICATION" else "EXECUTION")
             put("failure_scope", "CURRENT_STAGE")
             if (classification.isTaskVerification) put("continuation_required", true)
@@ -148,6 +154,8 @@ internal object GitHubTaskLifecycle {
             details["resume_required"]?.let { put("resume_required", it) }
             details["missing_requirements"]?.let { put("missing_requirements", it) }
             details["corrective_actions"]?.let { put("corrective_actions", it) }
+            classification.outputProgress?.let { put("output_progress", it) }
+            details["delivery_state"]?.takeIf { it in setOf(JsonPrimitive("PARTIAL_DRAFT"), JsonPrimitive("NO_VISIBLE_ANSWER")) }?.let { put("delivery_state", it) }
             listOf(
                 "stop_reason", "next_action", "resume_allowed", "resume_kind", "user_input_required", "requires_reconciliation",
                 "automatic_retry_allowed", "user_resumable", "resume_requires_changed_input_or_configuration",

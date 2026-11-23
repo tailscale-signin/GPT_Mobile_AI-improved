@@ -109,6 +109,7 @@ class AppAuditRunner internal constructor(
     private suspend fun execute(batch: BenchmarkBatch, entry: AppAuditPlanEntry) {
         val run = checkNotNull(batch.audit)
         val started = epochMs()
+        val privacyBefore = appAuditPrivacySnapshot()
         val monotonicStart = monotonicMs()
         checkpoint(
             batch.copy(audit = run.copy(activeProbeId = entry.id, activeStartedAtEpochMs = started, activeDispatchEvidence = AppAuditDispatchEvidence.NOT_DISPATCHED, executedProbes = run.executedProbes + 1, updatedAtEpochMs = started)),
@@ -183,7 +184,7 @@ class AppAuditRunner internal constructor(
             entry.safetyClass == AppAuditSafetyClass.NETWORK_READ && observation.observationSource == AppAuditObservationSource.LIVE && observation.outcome == AppAuditOutcome.PASS && observation.dispatchEvidence != AppAuditDispatchEvidence.CONFIRMED -> contractFailure("DISPATCH_CONFIRMATION_MISSING")
             else -> observation.copy(metrics = observation.metrics.take(run.limits.maxMetricsPerProbe))
         }
-        retain(latest, entry, normalized, started, (monotonicMs() - monotonicStart).coerceAtLeast(0), attempted = true)
+        retain(latest, entry, normalized.copy(privacyPolicy = appAuditPrivacyObservation(privacyBefore, appAuditPrivacySnapshot())), started, (monotonicMs() - monotonicStart).coerceAtLeast(0), attempted = true)
         if (normalized.configChanged || normalized.reasonCode in setOf("PROBE_EVIDENCE_MISMATCH", "DISPATCH_RECEIPT_MISSING", "DISPATCH_CONFIRMATION_MISSING")) {
             val stopped = checkNotNull(read(batch.id))
             val reason = if (normalized.configChanged) "CONFIGURATION_CHANGED" else "PROBE_CONTRACT_INVALID"

@@ -20,6 +20,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubStageBudgetTest {
+    @Test fun visibleRecoveryReservesOutputWithinCapsAndRetainsUsefulEvidenceCapacity() {
+        val normal = GitHubStageBudget.resolve(65536, 16384, GitHubStageBudget.CONTINUATION_ROLE)
+        val repair = GitHubStageBudget.resolve(65536, 16384, GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE)
+        assertEquals(8192, normal.output)
+        assertEquals(2048, normal.visibleOutput)
+        assertEquals(16384, repair.output)
+        assertEquals(4096, repair.visibleOutput)
+        assertTrue(repair.input > 32768)
+        for (context in listOf(4096, 8192, 32768, 65536)) {
+            for (cap in listOf(256, 1024, 6144, 8192, 16384)) {
+                for (role in listOf(GitHubStageBudget.CONTINUATION_ROLE, GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE)) {
+                    val allowance = GitHubStageBudget.resolve(context, cap, role)
+                    assertTrue(allowance.output <= cap)
+                    assertTrue(allowance.output <= context / 4)
+                    assertTrue(allowance.visibleOutput in 0..allowance.output / 2)
+                    val finalPrompt = allowance.input.toLong() + 1536
+                    val measurement = RequestMeasurement(finalPrompt, RequestAdmission.estimateSafety(finalPrompt), TokenMeasurementKind.UTF8_ESTIMATE)
+                    val prepared = RequestAdmission.prepare("bounded visible-output request", role, CapacitySnapshot(runtime(), context.toLong()), measurement, allowance.output.toLong(), "accepted")
+                    assertTrue(prepared.receipt.capacityChecked)
+                    if (context >= 32768) assertTrue(allowance.input > 16000)
+                }
+            }
+        }
+    }
+
     @Test fun inputCapacityRejectionNeverBecomesObservedContext() {
         for (provenance in listOf(CapacityProvenance.DECLARED, CapacityProvenance.VERIFIED_ROUTE)) {
             val capacity = CapacitySnapshot(runtime(), 32768, inputTokens = 512, provenance = provenance)

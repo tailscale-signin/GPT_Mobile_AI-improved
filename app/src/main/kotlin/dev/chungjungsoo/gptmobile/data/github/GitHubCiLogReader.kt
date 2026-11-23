@@ -15,7 +15,7 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
     private data class Hop(val redirect: String? = null, val log: Log? = null)
 
     suspend fun read(path: String, immutable: Boolean, archiveEntry: String? = null, archiveDigest: String? = null): Log {
-        require(archiveEntry == null || archiveEntry == "release-publication.json" && archiveDigest?.matches(Regex("[a-f0-9]{64}")) == true && path.endsWith("/zip"))
+        require(archiveEntry == null || archiveEntry in setOf("release-publication.json", "result.json") && archiveDigest?.matches(Regex("[a-f0-9]{64}")) == true && path.endsWith("/zip"))
         require(path.startsWith("/") && !path.startsWith("//")) { "Use a relative GitHub API log path." }
         val cacheKey = "ci-log:${apiOrigins.rest}:${GitHubRepositoryStateStore.digest(token)}:$path:${archiveEntry.orEmpty()}:${archiveDigest.orEmpty()}"
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
@@ -105,7 +105,7 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                         }
                         val text = if (archiveEntry != null) {
                             check(complete) { "Release evidence archive exceeds the byte limit." }
-                            GitHubReleaseEvidence.archive(bytes, archiveEntry, requireNotNull(archiveDigest))
+                            if (archiveEntry == "result.json") GitHubPhoneBenchmarkApi.archive(bytes, requireNotNull(archiveDigest)) else GitHubReleaseEvidence.archive(bytes, archiveEntry, requireNotNull(archiveDigest))
                         } else {
                             bytes.copyOf(minOf(bytes.size, MAX_LOG_BYTES)).decodeToString()
                         }

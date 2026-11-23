@@ -17,6 +17,10 @@ import kotlinx.serialization.json.intOrNull
 internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: PluginExecutionSettings) :
     OwnedAgentTool,
     ApprovedReadOnlyAgentTool {
+    init {
+        dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.inherit(this, delegate)
+    }
+
     private val settings = settings.normalized()
     override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = ConfiguredPluginTool(delegate.withChildBudget(bind), settings)
     override val definition = delegate.definition.let { original ->

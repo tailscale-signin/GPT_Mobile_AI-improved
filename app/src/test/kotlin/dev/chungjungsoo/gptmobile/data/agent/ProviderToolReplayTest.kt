@@ -19,6 +19,7 @@ class ProviderToolReplayTest {
         for (arguments in listOf(JsonObject(emptyMap()), buildJsonObject { put("action", "") }, buildJsonObject { put("action", "rerun") })) {
             val original = ProviderEvent.ToolCall("opaque call/東京:0", "github_ci", arguments)
             val execution = original.captureProviderInvocation().copy(name = "github_ci__fixture", arguments = buildJsonObject { put("action", "resolved_action") })
+                .captureProviderInvocation()
             val exchange = AgentToolExchange(listOf(execution), listOf(AgentToolResult(original.callId, ToolResultContent.Text("Retained receipt"), false)))
             val chat = exchange.toChatMessages()
             val wire = chat.first().toolCalls!!.single()
@@ -63,6 +64,7 @@ class ProviderToolReplayTest {
             original.copy(originalInvocationFingerprint = null),
             original.copy(name = "github_ci__fixture", originalInvocation = null)
         )) {
+            assertTrue(runCatching { changed.captureProviderInvocation() }.isFailure)
             assertTrue(runCatching { AgentToolExchange(listOf(changed), emptyList()).toChatMessages() }.isFailure)
         }
     }

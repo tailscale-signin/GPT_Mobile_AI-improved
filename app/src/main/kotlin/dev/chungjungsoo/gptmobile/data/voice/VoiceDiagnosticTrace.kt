@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
 import dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots
 import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
+import dev.chungjungsoo.gptmobile.data.diagnostics.VoiceExecutionDiagnostics
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
@@ -188,10 +189,12 @@ class VoiceDiagnosticTrace internal constructor(
             val previous = owner.values["voice_engine"]
             if (previous != null && previous != engine.name) {
                 owner.speechProvider = null
-                listOf("warmup", "ready", "synthesis", "audio").forEach(owner.moments::remove)
+                listOf("warmup", "ready", "synthesis", "pcm", "audio").forEach(owner.moments::remove)
                 listOf("voice_warmup_ms", "voice_engine_warm", "voice_playback_audio_mode", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_first_audio_basis", "voice_playback_failure", "voice_playback_focus_attempts", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_unknown_word_length", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed").forEach(owner.values::remove)
             }
             owner.values["voice_engine"] = engine.name
+            if (engine == Engine.SYSTEM) owner.values["voice_effective_provider"] = "SYSTEM"
+            if (engine == Engine.LOCAL) owner.values.remove("voice_effective_provider")
         }
 
         /** Actual execution only: a fallback CPU run never inherits the selected experimental backend. */
@@ -207,6 +210,28 @@ class VoiceDiagnosticTrace internal constructor(
                 owner.values["voice_engine_warm"] = false
             }
             owner.speechProvider = provider
+            if (provider != null) owner.values["voice_effective_provider"] = provider
+        }
+
+        fun selectedSpeechBackend(selected: String) = owner.record(this) {
+            if (selected in VoiceExecutionDiagnostics.enums.getValue("voice_selected_backend")) owner.values["voice_selected_backend"] = selected
+        }
+
+        /** A recovery receipt keeps the failed producer linked to the same reply after engine changes. */
+        fun playbackFallback(failure: VoicePlaybackFailure, outcome: String, target: String = "SYSTEM") = owner.record(this) {
+            if (outcome !in setOf("STARTED", "SUCCEEDED", "FAILED") || target !in setOf("SYSTEM", "KOKORO_CPU")) return@record
+            val source = when (failure.sourceProvider) {
+                "cpu" -> "KOKORO_CPU"
+                "qnn-gpu" -> "QNN_GPU"
+                "qnn-htp" -> "QNN_HTP"
+                "gateway-cuda" -> "GATEWAY_CUDA"
+                else -> "KOKORO"
+            }
+            owner.values["voice_fallback_source"] = source
+            owner.values["voice_fallback_target"] = target
+            owner.values["voice_fallback_outcome"] = outcome
+            owner.values["voice_fallback_failure"] = failure.code?.takeIf { it in VoiceExecutionDiagnostics.playbackFailures } ?: "ENGINE_FAILED"
+            if (outcome == "STARTED") owner.values["voice_fallback_count"] = ((owner.values["voice_fallback_count"] as? Long ?: 0L) + 1).coerceAtMost(100)
         }
         fun phase(phase: VoicePhase) = owner.record(this) { owner.values["voice_phase"] = phase.name }
         fun access(permission: Boolean, foreground: Boolean, muted: Boolean) = owner.record(this) {
@@ -299,8 +324,15 @@ class VoiceDiagnosticTrace internal constructor(
             owner.moments.putIfAbsent("response", owner.now())
             owner.elapsed("voice_request_to_response_ms", "accepted", "response")
         }
+        fun publishableSpeech() = owner.record(this) {
+            if (owner.moments.putIfAbsent("publishable", owner.now()) == null) {
+                owner.moments["response"]?.let { first -> owner.performance.observe("text_to_publishable", owner.now() - first) }
+            }
+        }
         fun queued() = owner.record(this) {
-            owner.moments.putIfAbsent("queue", owner.now())
+            if (owner.moments.putIfAbsent("queue", owner.now()) == null) {
+                owner.moments["publishable"]?.let { first -> owner.performance.observe("publishable_to_queue", owner.now() - first) }
+            }
             owner.elapsed("voice_response_to_queue_ms", "response", "queue")
         }
         fun warmupStarted() = owner.record(this) { owner.moments.putIfAbsent("warmup", owner.now()) }
@@ -314,8 +346,15 @@ class VoiceDiagnosticTrace internal constructor(
             owner.moments.putIfAbsent("synthesis", owner.now())
             owner.elapsed("voice_queue_to_synthesis_ms", "queue", "synthesis")
         }
+        fun firstPcm() = owner.record(this) {
+            if (owner.moments.putIfAbsent("pcm", owner.now()) == null) {
+                owner.moments["queue"]?.let { first -> owner.performance.observe("queue_to_pcm", owner.now() - first, owner.performanceEngine("synthesis_to_audio"), owner.values["voice_engine_warm"] as? Boolean) }
+            }
+        }
         fun firstAudio(basis: FirstAudio) = owner.record(this) {
-            if (owner.moments.putIfAbsent("audio", owner.now()) == null && basis != FirstAudio.AUDIO_TIMESTAMP) {
+            val first = owner.moments.putIfAbsent("audio", owner.now()) == null
+            if (first) owner.moments["pcm"]?.let { pcm -> owner.performance.observe("pcm_to_audio", owner.now() - pcm, owner.performanceEngine("synthesis_to_audio"), owner.values["voice_engine_warm"] as? Boolean) }
+            if (first && basis != FirstAudio.AUDIO_TIMESTAMP) {
                 // Detailed timestamp-clock evidence stays in the local dashboard. Existing hosted
                 // reporters advertise the older closed vocabulary; do not mislabel this as a head read.
                 owner.values["voice_first_audio_basis"] = basis.name

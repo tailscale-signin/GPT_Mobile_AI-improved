@@ -35,6 +35,7 @@ class GraphIndexContinuationTest {
         var indexWrites = 0
         var statusReads = 0
         val graph = RepositoryGraphTool("repository_graph__selected") { arguments ->
+            assertEquals(JsonPrimitive("gateway"), arguments["map_source"])
             if (arguments["action"] == JsonPrimitive("index")) {
                 indexWrites++
                 throw GatewayGraphOperationException(IOException("Lost index reply"), "selected-host", "Selected host", "CHECK_SAVED_INDEX", true, indexAttemptHash = attempt, currentIndexOutcomeUnknown = true)
@@ -56,12 +57,13 @@ class GraphIndexContinuationTest {
         val tools = listOf(context, graph.definition)
         val book = GitHubEvidenceBook("task", "owner/repo", "main", tools.map { it.name }.toSet(), now = { 1000L })
         observeContext(book)
-        val index = ProviderEvent.ToolCall("first-index", graph.definition.name, action("index"))
+        val index = ProviderEvent.ToolCall("first-index", graph.definition.name, graphAction("index"))
         book.observe(index, graph.execute(index.callId, index.arguments))
         val gate = session(book, tools, "request-1")
         val recovery = gate.streamRound(tools, emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>().single()
         assertEquals(graph.definition.name, recovery.name)
         assertEquals(JsonPrimitive("status"), recovery.arguments["action"])
+        assertEquals(JsonPrimitive("gateway"), recovery.arguments["map_source"])
         val observed = graph.execute(recovery.callId, recovery.arguments)
         val continued = gate.streamRound(tools, listOf(AgentToolExchange(listOf(recovery), listOf(observed)))).toList()
         val read = continued.filterIsInstance<ProviderEvent.ToolCall>().single()
@@ -82,6 +84,7 @@ class GraphIndexContinuationTest {
         var indexWrites = 0
         var statusReads = 0
         val graph = RepositoryGraphTool("repository_graph__selected") { arguments ->
+            assertEquals(JsonPrimitive("gateway"), arguments["map_source"])
             val indexing = arguments["action"] == JsonPrimitive("index")
             if (indexing) indexWrites++ else statusReads++
             buildJsonObject {
@@ -102,12 +105,12 @@ class GraphIndexContinuationTest {
         val tools = listOf(context, graph.definition)
         val book = GitHubEvidenceBook("task", "owner/repo", "main", tools.map { it.name }.toSet(), now = { 1000L })
         observeContext(book)
-        val index = ProviderEvent.ToolCall("accepted-index", graph.definition.name, action("index"))
+        val index = ProviderEvent.ToolCall("accepted-index", graph.definition.name, graphAction("index"))
         book.observe(index, graph.execute(index.callId, index.arguments))
         val gate = session(book, tools, "request-1")
         val refresh = gate.streamRound(tools, emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>().single()
         assertEquals(graph.definition.name, refresh.name)
-        assertEquals(action("status"), refresh.arguments)
+        assertEquals(graphAction("status"), refresh.arguments)
         val observed = graph.execute(refresh.callId, refresh.arguments)
         val continued = gate.streamRound(tools, listOf(AgentToolExchange(listOf(refresh), listOf(observed)))).toList()
         val read = continued.filterIsInstance<ProviderEvent.ToolCall>().single()
@@ -151,6 +154,11 @@ class GraphIndexContinuationTest {
                 false
             )
         )
+    }
+
+    private fun graphAction(value: String) = buildJsonObject {
+        put("action", value)
+        put("map_source", "gateway")
     }
 
     private fun action(value: String) = buildJsonObject { put("action", value) }

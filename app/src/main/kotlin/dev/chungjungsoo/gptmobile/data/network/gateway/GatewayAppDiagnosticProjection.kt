@@ -68,6 +68,7 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
     }
     val error = when {
         execution.state == "UNKNOWN_OUTCOME" -> "DISPATCH_UNCERTAIN"
+        reason == "PRIVACY_SERVICE_UNVERIFIED" -> "PRIVACY_SERVICE_UNVERIFIED"
         execution.dispatched == false && classification.actionable -> "PRECHECK_REJECTED"
         reason == "TRANSPORT_EOF" -> "TRANSPORT_EOF"
         reason == "COMPLETION_REPAIR_BUDGET_EXHAUSTED" -> "COMPLETION_REPAIR_BUDGET_EXHAUSTED"
@@ -109,7 +110,7 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
                 "retry_class",
                 if (error == "NONE" && !classification.actionable) {
                     "none"
-                } else if ((fields["retryable"] as? JsonPrimitive)?.booleanOrNull == false) {
+                } else if (reason == "PRIVACY_SERVICE_UNVERIFIED" || (fields["retryable"] as? JsonPrimitive)?.booleanOrNull == false) {
                     "manual"
                 } else {
                     "unknown"

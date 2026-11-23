@@ -240,7 +240,7 @@ class CalculatorTool(private val decimalPlaces: Int = 8) : AgentTool {
 
             if (c.isLetter()) {
                 val start = position
-                while (position < text.length && text[position].isLetter()) {
+                while (position < text.length && text[position].isLetterOrDigit()) {
                     position++
                 }
                 val name = text.substring(start, position).lowercase()

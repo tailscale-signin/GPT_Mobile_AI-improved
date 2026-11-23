@@ -48,13 +48,14 @@ fun SetupCompleteScreen(
             SetupCompleteText(isPendingLocalPlatform = isPendingLocalPlatform)
             Column(Modifier.padding(24.dp)) {
                 Text("1. Tap New chat", style = MaterialTheme.typography.titleMedium)
-                Text("2. Choose your AI and send a message", modifier = Modifier.padding(vertical = 12.dp))
-                Text("3. Use the wrench to adjust models and tools")
+                Text("2. Choose one AI profile and send a short message", modifier = Modifier.padding(vertical = 12.dp))
+                Text("3. Check that a complete reply arrives")
+                Text("For a local model, finish its download first. If a reply fails, open AI Profiles and check that profile's connection or model. Check response and performance opens its test screen.", modifier = Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodySmall)
             }
             Spacer(modifier = Modifier.weight(1f))
             PrimaryLongButton(
                 onClick = { onNavigate(Route.CHAT_LIST) },
-                text = stringResource(R.string.done)
+                text = "Open chats"
             )
         }
     }
@@ -80,7 +81,7 @@ private fun SetupCompleteText(
         )
         Text(
             modifier = Modifier.padding(4.dp),
-            text = if (isPendingLocalPlatform) "Your model is downloading. It will be ready when the download finishes." else "You're ready to chat. Change any setting later.",
+            text = if (isPendingLocalPlatform) "Your profile is saved. The local model must finish downloading and load successfully before its first reply." else "Your profiles are saved. Send a first message to verify that your selected model can reply.",
             style = MaterialTheme.typography.bodyLarge
         )
     }

@@ -51,7 +51,7 @@ import kotlinx.serialization.json.put
 /**
  * The Status tab owns a visual, source-backed map. Loading the map does not
  * authorize writes, infer live code execution or synthesize missing edges.
- * The selected gateway remains the only graph data source.
+ * Phone indexing is available independently; a configured gateway is optional.
  */
 @Composable
 fun RepositoryGraphStatusMap(
@@ -74,7 +74,8 @@ fun RepositoryGraphStatusMap(
         onNextPage = model::nextMapPage,
         onPreviousPage = model::previousMapPage,
         onRetryFailed = model::retryFailed,
-        onNeighborhood = model::focusMap
+        onNeighborhood = model::focusMap,
+        onSourceChange = model::selectSource
     )
 }
 
@@ -93,7 +94,7 @@ private fun observeRepositoryGraph(context: GitHubConversationContext, profile: 
     }
     val observed by model.state.collectAsStateWithLifecycle()
     return observed.takeIf { it.boundContext == context && it.gatewayProfileUid == profile?.uid && model.isBoundTo(context, profile?.uid, profile) && it == model.state.value }
-        ?: RepositoryGraphUiState(boundContext = context, gatewayProfileUid = profile?.uid, gatewayName = profile?.name, busy = true)
+        ?: RepositoryGraphUiState(boundContext = context, gatewayProfileUid = profile?.uid, gatewayName = profile?.name, busy = true, mapSource = observed.mapSource)
 }
 
 /** A bounded repository explorer opened from GitHub workspace settings. */
@@ -101,11 +102,12 @@ private fun observeRepositoryGraph(context: GitHubConversationContext, profile: 
 fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2?, onDismiss: () -> Unit, model: RepositoryGraphViewModel = hiltViewModel(key = "github-repository-graph-explorer"), onConfigureGateway: (() -> Unit)? = null) {
     val state = observeRepositoryGraph(context, profile, model)
     val gatewayConfigured = GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)
-    val canInspect = gatewayConfigured && !state.busy && !state.indexOutcomeUnknown && state.error == null
-    var showTools by remember(context, profile) { mutableStateOf(false) }
-    var query by remember(context, profile) { mutableStateOf("") }
-    var target by remember(context, profile) { mutableStateOf("") }
-    var selected by remember(context, profile) { mutableStateOf<JsonObject?>(null) }
+    val sourceConfigured = state.onPhone || gatewayConfigured
+    val canInspect = sourceConfigured && !state.busy && !state.indexOutcomeUnknown && state.error == null
+    var showTools by remember(context, profile, state.mapSource) { mutableStateOf(false) }
+    var query by remember(context, profile, state.mapSource) { mutableStateOf("") }
+    var target by remember(context, profile, state.mapSource) { mutableStateOf("") }
+    var selected by remember(context, profile, state.mapSource) { mutableStateOf<JsonObject?>(null) }
     val result = state.result ?: JsonObject(emptyMap())
     val metadata = result["graph"] as? JsonObject
     val graph = remember(result) { repositoryGraphPresentation(result) }
@@ -149,29 +151,35 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                         onNextPage = model::nextMapPage,
                         onPreviousPage = model::previousMapPage,
                         onRetryFailed = model::retryFailed,
-                        onNeighborhood = model::focusMap
+                        onNeighborhood = model::focusMap,
+                        onSourceChange = model::selectSource
                     )
                 }
-                if (gatewayConfigured) {
+                if (sourceConfigured) {
                     item {
                         TextButton(onClick = { showTools = !showTools }, modifier = Modifier.testTag("github_repository_map_source_tools")) { Text(if (showTools) "Hide source tools" else "Explore source tools") }
                     }
                 }
-                if (showTools && gatewayConfigured) {
+                if (showTools && sourceConfigured) {
                     item {
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("Index" to "index", "Health" to "status", "Architecture" to "architecture", "PR overlap" to "prs", "Memory" to "notes", "Requirements" to "requirements", "Docs" to "wiki", "Metrics" to "metrics").forEach { (label, action) ->
+                            val actions = if (state.onPhone) {
+                                listOf("Index source" to "index", "Coverage" to "status", "Architecture" to "architecture", "Metrics" to "metrics")
+                            } else {
+                                listOf("Index" to "index", "Health" to "status", "Architecture" to "architecture", "PR overlap" to "prs", "Memory" to "notes", "Requirements" to "requirements", "Docs" to "wiki", "Metrics" to "metrics")
+                            }
+                            actions.forEach { (label, action) ->
                                 TextButton(onClick = {
                                     selected = null
                                     model.request(action)
                                 }, enabled = canInspect) { Text(label) }
                             }
-                            if (state.busy) TextButton(onClick = model::stopIndexing) { Text("Stop") }
+                            if (state.busy) TextButton(onClick = model::stopIndexing) { Text(if (state.onPhone && state.operation == "index") "Pause" else "Stop") }
                         }
-                        Text("Source relationships guide investigation. Test results and current GitHub checks remain authoritative.", style = MaterialTheme.typography.bodySmall)
+                        Text(if (state.onPhone) "Source analysis shows structural links and possible dependencies. Caller, callee and impact results are candidates from the indexed files." else "Source relationships guide investigation. Test results and current GitHub checks remain authoritative.", style = MaterialTheme.typography.bodySmall)
                         if (result["stale"] == JsonPrimitive(true)) Text("The branch has moved. This map describes ${context.commitSha.take(10)}.", color = MaterialTheme.colorScheme.error)
                         if (result["truncated"] == JsonPrimitive(true)) Text("Showing a bounded selection. Search for a narrower symbol or subsystem.")
-                        if (metadata != null) Text("${metadata.text("processed_files")} / ${metadata.text("expected_files")} files · ${metadata.text("nodes", "—")} symbols · ${metadata.text("unresolved_references", "—")} unresolved", style = MaterialTheme.typography.bodySmall)
+                        if (metadata != null) Text("${metadata.text("processed_files")} / ${metadata.text("expected_files")} files · ${metadata.text("nodes", "—")} ${if (state.onPhone) "sources and symbols" else "symbols"} · ${metadata.text("unresolved_references", "—")} unresolved", style = MaterialTheme.typography.bodySmall)
                         if (result.text("status") == "NOT_INDEXED") Text("Index this revision to build its local repository map.")
                         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
@@ -183,7 +191,7 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                                 model.request("query", query = query)
                             }, enabled = canInspect && query.isNotBlank()) { Text("Search") }
                             TextButton(onClick = { model.request("node", symbol = query) }, enabled = canInspect && query.isNotBlank()) { Text("Inspect") }
-                            TextButton(onClick = { model.request("impact", symbol = query) }, enabled = canInspect && query.isNotBlank()) { Text("Impact & tests") }
+                            TextButton(onClick = { model.request("impact", symbol = query) }, enabled = canInspect && query.isNotBlank()) { Text(if (state.onPhone) "Possible impact" else "Impact & tests") }
                         }
                         OutlinedTextField(value = target, onValueChange = { target = it.take(2000) }, modifier = Modifier.fillMaxWidth(), label = { Text("Target symbol for a dependency path") }, singleLine = true)
                         TextButton(onClick = {
@@ -212,12 +220,10 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                                     if (selected?.text("id") == node.text("id")) {
                                         Text(node.text("excerpt"), style = MaterialTheme.typography.bodySmall)
                                         Row(Modifier.horizontalScroll(rememberScrollState())) {
-                                            val prefix = "https://github.com/${context.owner}/${context.repo}/blob/${context.commitSha}/"
-                                            val source = node.text("url").takeIf { it.startsWith(prefix) }
-                                                ?: node.text("path").takeIf { it.isNotBlank() && it.split('/').none { segment -> segment == ".." || segment.isBlank() } }?.let { prefix + android.net.Uri.encode(it, "/") }
+                                            val source = repositoryGraphSourceUrl(context, node)
                                             TextButton(onClick = { source?.let(uri::openUri) }, enabled = source != null) { Text("Source") }
-                                            TextButton(onClick = { model.request("callers", symbol = node.text("id")) }, enabled = canInspect) { Text("Callers") }
-                                            TextButton(onClick = { model.request("callees", symbol = node.text("id")) }, enabled = canInspect) { Text("Callees") }
+                                            TextButton(onClick = { model.request("callers", symbol = node.text("id")) }, enabled = canInspect) { Text(if (state.onPhone) "Possible callers" else "Callers") }
+                                            TextButton(onClick = { model.request("callees", symbol = node.text("id")) }, enabled = canInspect) { Text(if (state.onPhone) "Possible callees" else "Callees") }
                                         }
                                     }
                                 }
@@ -264,8 +270,12 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                             Text(result.text("markdown"), style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                    if (state.resultOperation == "metrics") item { Text("Answer accuracy: ${result.text("accuracy")}\nToken savings: ${result.text("token_savings")}", style = MaterialTheme.typography.bodySmall) }
-                    if (nodes.isEmpty() && result.text("status") in setOf("NOT_FOUND_IN_INDEX", "NO_PATH_IN_INDEX")) item { Text("No matching relationship in this index. Use source search to investigate unindexed or dynamic code.") }
+                    if (state.resultOperation == "metrics") {
+                        item {
+                            Text(if (state.onPhone) "Source collection: ${metadata?.text("processed_files", "0")} / ${metadata?.text("expected_files", "—")} files\nRelationships are source candidates; compiler resolution is unavailable." else "Answer accuracy: ${result.text("accuracy")}\nToken savings: ${result.text("token_savings")}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    graph.resultGuidance(result.text("status"))?.let { message -> item { Text(message) } }
                 }
             }
         }

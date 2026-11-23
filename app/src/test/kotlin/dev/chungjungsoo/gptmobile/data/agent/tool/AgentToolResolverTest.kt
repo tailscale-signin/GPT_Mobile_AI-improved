@@ -55,6 +55,151 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun capturedPrivateTurnNeverDiscoversServicesAfterProtectionChanges() = runBlocking(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(101, true)) {
+        val profile = PlatformV2(uid = "private-native", name = "Private native", compatibleType = ClientType.LITERT_LM)
+        val dao = io.mockk.spyk(ResolverFakeToolConnectionDao())
+        dao.bind(connection("remote", ToolConnectionType.MCP), binding(profile.uid, "remote", "current_date"))
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        var policy = dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = true, revision = 1)
+        val store = mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore>()
+        io.mockk.every { store.snapshot() } answers { policy }
+        io.mockk.every { store.effectiveSnapshot(any()) } answers { callOriginal() }
+        val turn = dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.capture(store)
+        val subject = resolver(dao = dao, settings = settings)
+        policy = policy.copy(enabled = false, revision = 2, protectionRevision = 2)
+        kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(null, false)) {
+            val failure = runCatching {
+                kotlinx.coroutines.withContext(turn) { subject.resolve(profile.uid) }
+            }.exceptionOrNull()
+            assertTrue(failure.toString(), failure is DispatchPolicyChangedException)
+            assertEquals(listOf("devicePrivacy"), (failure as DispatchPolicyChangedException).fields)
+            val warmFailure = runCatching {
+                kotlinx.coroutines.withContext(turn) { subject.warmSelectedCatalogues(profile.uid) }
+            }.exceptionOrNull()
+            assertTrue(warmFailure.toString(), warmFailure is DispatchPolicyChangedException)
+            coVerify(exactly = 0) { dao.listConnections() }
+            coVerify(exactly = 0) { dao.listBindingsWithConnections(any()) }
+        }
+    }
+
+    @Test fun capturedPrivateAllowlistRetainsLiveProfileAndPluginRevocation() = runBlocking(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(101, true)) {
+        val profile = PlatformV2(uid = "private-native", name = "Private native", compatibleType = ClientType.LITERT_LM)
+        val dao = io.mockk.spyk(ResolverFakeToolConnectionDao())
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val store = mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore>()
+        io.mockk.every { store.snapshot() } returns dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = true, revision = 1)
+        io.mockk.every { store.effectiveSnapshot(any()) } answers { callOriginal() }
+        val turn = dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.capture(store)
+        kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(null, false)) {
+            kotlinx.coroutines.withContext(turn) {
+                val tools = resolver(dao = dao, settings = settings).resolve(profile.uid)
+                assertEquals(listOf("calculate_expression", "current_date", "read_file_slice"), tools.map { it.modelToolName })
+                assertTrue(tools.all { dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.isTransportFree(it.tool) })
+                resolver(dao = dao, settings = settings).warmSelectedCatalogues(profile.uid)
+                settings.features = settings.features.copy(toolPluginStates = mapOf(ToolPluginId.CALCULATOR to false))
+                assertFalse(tools.single { it.modelToolName == "calculate_expression" }.executionAdmission(buildJsonObject { put("expression", "6 * 7") }).invoke())
+                assertTrue(resolver(settings = ResolverFakeSettingRepository(listOf(profile.copy(disableLocalTools = true)))).resolve(profile.uid).isEmpty())
+            }
+            coVerify(exactly = 0) { dao.listConnections() }
+            coVerify(exactly = 0) { dao.listBindingsWithConnections(any()) }
+        }
+    }
+
+    @Test fun privacyModeResolvesOnlyOwnedLocalImplementationsWithoutDiscoveringServices() = runBlocking {
+        val profile = PlatformV2(uid = "private-local", name = "Private local")
+        val dao = io.mockk.spyk(ResolverFakeToolConnectionDao())
+        dao.bind(connection("remote", ToolConnectionType.MCP), binding(profile.uid, "remote", "current_date"))
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        io.mockk.mockkObject(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.Companion) {
+            io.mockk.every { dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() } returns true
+            val resolver = resolver(dao = dao, settings = settings)
+            val local = resolver.resolve(profile.uid)
+            assertEquals(listOf("calculate_expression", "current_date", "read_file_slice"), local.map { it.modelToolName })
+            assertTrue(local.all { dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.isTransportFree(it.tool) })
+            resolver.warmSelectedCatalogues(profile.uid)
+            coVerify(exactly = 0) { dao.listConnections() }
+            coVerify(exactly = 0) { dao.listBindingsWithConnections(any()) }
+            assertFalse(local.single { it.modelToolName == "calculate_expression" }.tool.execute("calculator", buildJsonObject { put("expression", "6 * 7") }).isError)
+            settings.features = settings.features.copy(toolPluginStates = mapOf(ToolPluginId.CALCULATOR to false))
+            assertFalse(local.single { it.modelToolName == "calculate_expression" }.executionAdmission(buildJsonObject { put("expression", "6 * 7") }).invoke())
+            assertTrue(local.single { it.modelToolName == "current_date" }.executionAdmission(buildJsonObject {}).invoke())
+        }
+    }
+
+    @Test fun privateLocalResolutionRetainsChatAndProfileDisableControls() = runBlocking {
+        val profile = PlatformV2(uid = "private-local", name = "Private local")
+        io.mockk.mockkObject(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.Companion) {
+            io.mockk.every { dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() } returns true
+            val subject = resolver(settings = ResolverFakeSettingRepository(listOf(profile)))
+            assertTrue(subject.resolve(profile.uid, ChatMcpToolConfig(allToolsDisabled = true)).isEmpty())
+            assertEquals(listOf("current_date"), subject.resolve(profile.uid, ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf("current_date"))).map { it.modelToolName })
+            for (disabled in listOf(profile.copy(disableAllTools = true), profile.copy(disableLocalTools = true), profile.copy(enabled = false))) {
+                assertTrue(resolver(settings = ResolverFakeSettingRepository(listOf(disabled))).resolve(profile.uid).isEmpty())
+            }
+            assertEquals(3, resolver(settings = ResolverFakeSettingRepository(listOf(profile.copy(disableRemoteTools = true)))).resolve(profile.uid).size)
+        }
+    }
+
+    @Test fun explicitGatewayMapCannotReuseSharingConsentForADifferentRequestedModel() = runBlocking {
+        val profile = PlatformV2(uid = "cloud-map", name = "Cloud map", model = "approved-model")
+        val selected = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("native", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("native", ToolConnectionType.GITHUB, "https://api.github.com"))
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        settings.features = settings.features.copy(
+            conversationGitHub = mapOf(7 to selected),
+            githubProfileOverrides = mapOf(
+                profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(
+                    engineeringGatewayProfileUid = "desktop",
+                    graphSharingConsent = dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.key(profile, selected.connectionUid, selected.repository.fullName, "desktop")
+                )
+            )
+        )
+        val maps = mockk<dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository>()
+        val resolver = resolver(dao = dao, settings = settings, repositoryMaps = maps)
+        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Show the repository map", platformType = null)
+        val graph = resolver.resolve(profile.uid, ChatMcpToolConfig(github = selected), message, requestedModel = "different-model").single { it.realToolName == "repository_graph" }
+        val result = graph.tool.execute(
+            "gateway-map",
+            buildJsonObject {
+                put("action", "architecture")
+                put("map_source", "gateway")
+            }
+        )
+        assertTrue(result.isError)
+        assertEquals("GRAPH_SOURCE_SHARING_REQUIRED", result.errorCode)
+        coVerify(exactly = 0) { maps.execute(any(), any()) }
+    }
+
+    @Test fun phoneGraphIsAvailableForCloudProfileWithSessionOnlyMemoryAndNoGateway() = runBlocking {
+        val profile = PlatformV2(uid = "cloud-map", name = "Cloud map")
+        val selected = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("native", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("native", ToolConnectionType.GITHUB, "https://api.github.com"))
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        settings.features = settings.features.copy(
+            conversationGitHub = mapOf(7 to selected),
+            githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(engineeringMemory = dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.SESSION_ONLY))
+        )
+        val maps = mockk<dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository>()
+        coEvery { maps.execute(selected, any()) } returns buildJsonObject {
+            put("map_source", "phone")
+            put("compiler_resolution", false)
+        }
+        val resolver = resolver(dao = dao, settings = settings, repositoryMaps = maps)
+        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Show the repository map", platformType = null)
+        val config = ChatMcpToolConfig(github = selected)
+        val tools = resolver.resolve(profile.uid, config, message)
+        val graph = tools.single { it.realToolName == "repository_graph" }
+        val result = graph.tool.execute("phone-map", buildJsonObject { put("action", "architecture") })
+        assertFalse(result.isError)
+        coVerify(exactly = 1) { maps.execute(selected, match { it["map_source"] == JsonPrimitive("phone") }) }
+        assertTrue(requireNotNull(graph.canReuseResult).invoke())
+        settings.features = settings.features.copy(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(githubTools = false)))
+        assertFalse(requireNotNull(graph.canReuseResult).invoke())
+        assertFalse(resolver.resolve(profile.uid, config, message).any { it.realToolName == "repository_graph" })
+    }
+
     @Test fun officialMcpCopilotAssignmentIsOffInOrdinaryChatsWithoutARepositoryWrapper() = runBlocking {
         val profile = PlatformV2(uid = "ordinary", name = "Ordinary")
         val remote = connection("official", ToolConnectionType.MCP, "https://api.githubcopilot.com/mcp", authType = ToolConnectionAuthType.NONE)
@@ -189,6 +334,22 @@ class AgentToolResolverTest {
         dao.upsertConnection(connection)
         settings.features = settings.features.copy(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(copilotExecutionOwner = dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.ANDROID_DIRECT)))
         assertFalse(pr.executionAdmission(status)())
+    }
+
+    @Test fun transportFreeAdmissionUsesTheSameGitHubProfileProjectionAsResolution() = runBlocking {
+        val profile = PlatformV2(uid = "github-local", name = "GitHub local", disableAllTools = true, disableLocalTools = true, disableRemoteTools = true)
+        val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val subject = resolver(settings = settings)
+        val selected = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf("calculate_expression", "current_date", "read_file_slice"), github = workspace)
+        assertTrue(subject.resolve(profile.uid).isEmpty())
+        val tools = subject.resolve(profile.uid, selected)
+        assertEquals(listOf("calculate_expression", "current_date", "read_file_slice"), tools.map { it.modelToolName })
+        assertTrue(tools.all { it.executionAdmission(buildJsonObject {}).invoke() })
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.CURRENT_DATE, false)
+        assertFalse(tools.single { it.modelToolName == "current_date" }.executionAdmission(buildJsonObject {}).invoke())
+        assertTrue(tools.single { it.modelToolName == "calculate_expression" }.executionAdmission(buildJsonObject {}).invoke())
+        assertTrue(subject.resolve(profile.uid).isEmpty())
     }
 
     @Test fun githubOverrideEnablesSearchWithoutChangingOrdinaryProfileAndRevokesLive() = runBlocking {
@@ -1664,7 +1825,8 @@ class AgentToolResolverTest {
         statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
         managerOverride: McpClientManager? = null,
         githubAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null,
-        copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null
+        copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null,
+        repositoryMaps: dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -1691,7 +1853,8 @@ class AgentToolResolverTest {
             gitHubRepositoryState = gitHubState,
             statistics = statistics,
             gitHubPublicAuth = githubAuth,
-            copilotGateway = copilotGateway
+            copilotGateway = copilotGateway,
+            repositoryMaps = repositoryMaps
         )
     }
 
@@ -1835,7 +1998,9 @@ private class ResolverFakeToolConnectionDao : ToolConnectionDao {
         .filter { it.profileUid == profileUid }
         .sortedWith(compareBy<AgentToolBinding> { it.toolName }.thenBy { it.connectionUid ?: "" }.thenBy { it.bindingUid })
 
-    override suspend fun insertBinding(binding: AgentToolBinding) {
+    override suspend fun rawBindingByUid(bindingUid: String): AgentToolBinding? = bindings[bindingUid]
+
+    override suspend fun insertBindingRow(binding: AgentToolBinding) {
         bindings[binding.bindingUid] = binding
     }
 

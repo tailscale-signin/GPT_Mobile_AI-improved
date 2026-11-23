@@ -144,6 +144,40 @@ def verify_operator_work(root, pinned_image, head):
             'analysis_revisions': 2, 'spreadsheet_sha256': hashlib.sha256(sheet).hexdigest()}
 
 
+def verify_independent_coding_grader(pinned_image):
+    """Exercise actual container observations, including correct-output mutation."""
+    from benchmarks import coding, fixtures
+    from v14.engineering_backend import blob_sha
+    task = fixtures.find_task('pagination-1')
+    settings = dict(sandbox_image=pinned_image, sandbox_seconds=30, repair_attempts=0)
+    def proposed(candidate):
+        return json.dumps(dict(changes=[dict(path=path, expected_blob_sha=blob_sha(source), content=candidate[path])
+                                       for path, source in task['sources'].items()],
+                               diagnosis=dict(task['sources']),
+                               tests=[dict(input=vector, expected=fixtures.expected(task, vector)) for vector in task['vectors'][:6]],
+                               evidence=dict(tests_executed=False, changed_files=list(task['sources']))))
+    correct = coding.grade(task, proposed(task['referenceSources']), settings, Event())
+    if correct.get('resolved') is not True or correct.get('qualified') is not True or correct.get('inputMutationVerification') != 'PASSED':
+        raise ValueError('The independent Docker grader did not verify the trusted correct artifact')
+    mutation = dict(task['referenceSources'])
+    mutation['service.py'] = """from core import solve
+def handle(request):
+    if not isinstance(request, dict) or not isinstance(request.get('items'), list):
+        return {'error': 'invalid_request'}
+    result = {'result': solve(request['items'], request.get('config', {}))}
+    request['items'].clear()
+    return result
+"""
+    rejected = coding.grade(task, proposed(mutation), settings, Event())
+    if (rejected.get('outputCorrect') is not True or rejected.get('qualified') is not True
+            or rejected.get('resolved') is not False or rejected.get('inputMutationVerification') != 'FAILED'):
+        raise ValueError('Correct-output mutation bypassed independent container input verification')
+    return dict(status='PASSED', executor='real Docker', taskDigest=task['taskDigest'], graderDigest=task['graderDigest'],
+                image=pinned_image, positiveArtifactVerified=True, correctOutputMutationRejected=True,
+                primaryOutcomePolicy=correct['primaryOutcomePolicy'],
+                positiveOutputDigest=correct['outputDigest'], negativeOutputDigest=rejected['outputDigest'])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--report', type=Path, required=True)
@@ -181,6 +215,7 @@ def main():
                     receipt['paired_workspace_check'] = verify_profile_checks(root, mirror, head)
                     receipt['offline_terminal'] = verify_terminal(mirror, head, setup.read_settings(root)[0][setup.DEFAULT_REPOSITORY])
                     receipt['operator_work'] = verify_operator_work(root, options['image'], head)
+                    receipt['independent_coding_grader'] = verify_independent_coding_grader(options['image'])
             finally:
                 if previous is None:
                     os.environ.pop(SETTING, None)

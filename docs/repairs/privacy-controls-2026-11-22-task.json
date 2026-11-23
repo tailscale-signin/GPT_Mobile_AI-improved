@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_pr": 2254,
+  "source_sha": "24a12620de2aa4ed11eae4bc38dc4210c454ed8a",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "intent": "Restore responsive privacy switches, provider settings and new-chat entry by isolating local persistence and account setup I/O from UI interactions, retaining privacy dispatch checks and selectable profiles.",
+  "status": "IMPLEMENTED_HOST_VERIFIED_ANDROID_PENDING",
+  "diagnostic_evidence": {
+    "app": "0.9.66.13 (147)",
+    "app_commit": "deb6fba6c66f0b6509610c3202b7d517e2fc124a",
+    "finding": "11 privacy-related StrictMode DiskReadViolation records; six during settings composition and five during OpenRouter setup. No fatal exception or ANR in supplied capture; permanent navigation lockout not proven by logs alone."
+  },
+  "scope": [
+    "Background serialized privacy-setting mutations with visible save error/retry",
+    "Asynchronous provider setup summary and IO-confined account setup",
+    "Privacy on/off, pending/failing verification and navigation/creation regressions",
+    "Allow local GitHub workspace opening and Research draft creation while preserving actual external-service privacy gates, plugin permissions and provider activation"
+  ],
+  "validation": {
+    "host": "PASS: 615 canonical repository host tests plus generated inventories, regex, resources/icons, dependency provenance and whitespace; 13 PrivacyModeStore, seven PrivacySettingsWriter and 20 OpenRouterPrivacySetup actual-production-source tests (40 focused total). Focused Kotlin suites use real Kotlin/coroutines/MockK/JUnit with narrow Android/authority boundaries.",
+    "android": "Local full-app Gradle reached app:kspDebugKotlin then its daemon disappeared; no full-app Android, Hilt, packaging or device pass claimed. The isolated production Compose component build/test passed separately.",
+    "device": "NOT_RUN",
+    "ui": "PASS: two actual ProviderVerificationSetup Compose/Robolectric tests using Android API 34 and real Compose/Parcelize compilers: saved status read failure/retry and rejection of stale profile results. PENDING: full-app NewChatViewModel tests and profile-card device instrumentation; the isolated NewChat model graph exceeded 300 sources and was not replaced with synthetic policy implementations."
+  },
+  "concurrent_commits_preserved": [
+    "87204b8",
+    "66cbf7122c28f9d895ee1863e613287fe44baeed",
+    "26560d6",
+    "3809884"
+  ],
+  "review": "Independent review verified immediate intent precedes queued persistence, short state lock never waits for disk, older completions cannot revert a newer revision, retries persist current intent, and optional diagnostics cannot terminate the writer.",
+  "transport_enforcement": [
+    "GitHubEngineeringApi.execute and its network interceptor",
+    "PrivateExternalServiceGate at actual SendingRequest",
+    "AgentToolResolver, AgentRunner and ToolExecutionBudget dispatch checks"
+  ],
+  "focused_test_count": 42
+}

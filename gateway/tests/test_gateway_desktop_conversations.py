@@ -96,6 +96,7 @@ class DesktopConversationTest(unittest.TestCase):
         selection = session.calls[0][2]['json']['selection']
         self.assertEqual(model, selection['requested_model_id'])
         self.assertEqual('a' * 40, payload['source_sha'])
+        self.assertEqual('TASK', payload['context_variant'])
         self.assertEqual('conversation', client.submit_engineering(payload)['conversation_id'])
         self.assertEqual(payload, session.calls[2][2]['json'])
 
@@ -114,7 +115,30 @@ class DesktopConversationTest(unittest.TestCase):
         self.assertEqual(source, payload['source_sha'])
         self.assertEqual(17, payload['expected_revision'])
         self.assertEqual('feature', payload['source_branch'])
+        self.assertEqual('TASK', payload['context_variant'])
         self.assertEqual(['GET', 'POST'], [row[0] for row in session.calls])
+
+    def test_engineering_context_choice_remains_frozen_across_desktop_followup(self):
+        for variant in ('CURRENT', 'REFERENCE', 'TASK', 'SEMANTIC'):
+            with self.subTest(variant=variant):
+                job_id = 'eng_' + 'c' * 32
+                source = 'd' * 40
+                stored = dict(IDENTITY, id=job_id, conversation_id='conversation', model='saved-model',
+                              repository='owner/repo', base='main', branch='feature', head_sha=source,
+                              profile_id='saved-profile', execution_binding_id='bind_' + 'a' * 32,
+                              state='NEEDS_INPUT', context_variant=variant)
+                client, session = self.client([Response(stored), Response(self.preflight_receipt(True, source=source, objective='Follow up'))])
+                conversation = {'conversation_id': 'conversation', 'active_job_id': job_id,
+                                'active_job_kind': 'engineering', 'revision': 17}
+                payload, _ = client.prepare_engineering('saved-model', {'provider': None, 'objective': 'Follow up', 'context_variant': 'UNTRUSTED_CHANGE'}, 'next-task', conversation)
+                self.assertEqual(variant, payload['context_variant'])
+                self.assertEqual(variant, session.calls[-1][2]['json']['context_variant'])
+
+    def test_new_engineering_context_choice_is_validated_before_model_binding(self):
+        client, session = self.client([])
+        with self.assertRaisesRegex(ClientError, 'repository context'):
+            client.prepare_engineering('model', {'provider': 'LLAMA', 'objective': 'Inspect source', 'context_variant': 'OTHER'}, 'task')
+        self.assertEqual([], session.calls)
 
     def test_multipart_history_checks_utf8_hash_and_replaces_newer_revision(self):
         transcript = Transcript()

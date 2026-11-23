@@ -83,15 +83,23 @@ class OpenAIRecoveryTransportTest {
                         withContext(ProviderWaitContext(durableRateLimits = true) {}) {
                             val error = api.streamChatCompletion(request, 5, config).toList().mapNotNull { it.error }.single()
                             assertEquals(1, requests)
-                            assertEquals(status.toString(), error.code)
+                            assertEquals(if (stream && status == 503) "PROVIDER_UNAVAILABLE" else status.toString(), error.code)
                             assertEquals(false, error.retryable)
                             assertFalse(error.providerLimit?.knownNotAccepted == true)
                             val details = requireNotNull(error.failureDetails)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(if (stream) 200 else status), details["http_status"])
+                            if (stream) {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(if (status == 429) "RATE_LIMIT" else "UNAVAILABLE"), details["provider_failure_kind"])
+                                if (status == 503) assertEquals(kotlinx.serialization.json.JsonPrimitive("503"), details["upstream_error_code"])
+                            }
                             assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                            assertFalse(details.containsKey("cause_types"))
                             val recovery = details.getValue("gateway_recovery").jsonObject
                             val receipts = recovery.getValue("attempt_receipts") as kotlinx.serialization.json.JsonArray
                             assertEquals(2, receipts.size)
                             assertEquals(kotlinx.serialization.json.JsonPrimitive(11), receipts.first().jsonObject["reasoning_output_bytes"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(status), receipts.last().jsonObject["terminal_status_code"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive("backend_http_error"), receipts.last().jsonObject["terminal_error_code"])
                             val known = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(details)
                             assertEquals(if (measured) 7 else null, known?.outputTokens)
                             assertFalse(known?.outputComplete == true)
@@ -323,6 +331,165 @@ class OpenAIRecoveryTransportTest {
                     assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details?.get("retryable"))
                     assertEquals(kotlinx.serialization.json.JsonPrimitive("model_invocation"), details?.get("failed_stage"))
                     assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details?.get("dispatched"))
+                }
+            }
+        }
+    }
+
+    @Test fun successfulHttpChatErrorsRetainSemanticCauseWithoutCreatingARateWaitOrTransportRetry() = runTest {
+        for (streaming in listOf(false, true)) {
+            for ((code, type, expected) in listOf(Triple("429", "insufficient_quota", "BILLING_UNAVAILABLE"), Triple("server_error", "server_error", "UPSTREAM_UNAVAILABLE"))) {
+                var requests = 0
+                val selected = config.copy(apiUrl = "https://semantic-$streaming-$code.$fixtureHost/v1/", profileUid = "semantic-profile")
+                val failureBody = """{"id":"response_semantic_fixture","error":{"code":"$code","type":"$type","message":"An error occurred while processing your request"}}"""
+                val body = if (streaming) "data: $failureBody\n\ndata: [DONE]\n\n" else failureBody
+                withApi(
+                    MockEngine {
+                        requests++
+                        respond(body, headers = headersOf(HttpHeaders.ContentType to listOf(if (streaming) "text/event-stream" else "application/json"), "X-Request-Id" to listOf("req_semantic_fixture")))
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        val failure = requireNotNull(api.streamChatCompletion(request.copy(stream = streaming), 5, selected).toList().last().error)
+                        val record = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.code, failure.failureDetails)
+                        assertEquals(expected, record.category)
+                        assertEquals("response_stream", record.phase)
+                        assertEquals("req_semantic_fixture", record.serverRequestId)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(200), record.providerFailure?.get("http_status"))
+                        assertEquals(expected != "BILLING_UNAVAILABLE", record.retryAllowed)
+                        assertNull(failure.providerLimit)
+                        assertNull(record.retryAfterMillis)
+                        assertEquals(1, requests)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun structuredUnknownOutcomeCannotBecomeASemanticRateLimitWait() = runTest {
+        val body = """data: {"type":"response.failed","response":{"id":"resp_unknown","status":"failed","error":{"code":"429","type":"rate_limit_error","message":"Current request rejected","command_outcome_unknown":true,"retryable":true}}}
+
+        """.trimIndent()
+        withApi(MockEngine { respond(body, headers = headersOf(HttpHeaders.ContentType, "text/event-stream")) }) { api ->
+            withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                val error = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, config).toList().filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                assertEquals("GATEWAY_OUTCOME_UNKNOWN", error.code)
+                assertNull(error.providerLimit)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), error.failureDetails?.get("request_replay_allowed"))
+            }
+        }
+    }
+
+    @Test fun responsesFailureRetainsItsResponseIdentityAndUsageAfterPartialText() = runTest {
+        val body = """
+            data: {"type":"response.created","response":{"id":"resp_failed_fixture","status":"in_progress"}}
+
+            data: {"type":"response.output_text.delta","item_id":"text","output_index":0,"content_index":0,"delta":"Saved prefix"}
+
+            data: {"type":"response.failed","response":{"id":"resp_failed_fixture","status":"failed","error":{"code":"server_error","message":"Internal error"},"usage":{"input_tokens":21,"output_tokens":13,"total_tokens":34,"output_tokens_details":{"reasoning_tokens":8}}}}
+
+        """.trimIndent()
+        var requests = 0
+        withApi(
+            MockEngine {
+                requests++
+                respond(body, headers = headersOf(HttpHeaders.ContentType to listOf("text/event-stream"), "X-Request-Id" to listOf("req_failed_fixture")))
+            }
+        ) { api ->
+            val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+            val assembler = dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesEventAssembler()
+            val events = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, config).toList().flatMap(assembler::accept)
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            val record = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
+            assertEquals("Saved prefix", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+            assertEquals(13, events.filterIsInstance<ProviderEvent.Usage>().last().outputTokens)
+            assertEquals(8, events.filterIsInstance<ProviderEvent.Usage>().last().reasoningTokens)
+            assertEquals("UPSTREAM_UNAVAILABLE", record.category)
+            assertEquals("req_failed_fixture", record.serverRequestId)
+            assertEquals(dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.YES, record.remoteAcceptance)
+            assertEquals(false, record.requestReplayAllowed)
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("response.failed"), record.providerFailure?.get("stream_event_type"))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("resp_failed_fixture"), failure.failureDetails?.get("provider_response_id"))
+            assertTrue(record.providerFailure?.get("provider_response_id_hash") != null)
+            assertEquals(1, requests)
+        }
+    }
+
+    @Test fun explicitBillingDenialDoesNotCreateADurableRateWaitForEitherApi() = runTest {
+        val bodies = listOf(
+            """{"error":{"code":"insufficient_quota","message":"The account allowance is exhausted"}}""",
+            """{"code":"insufficient_credits","error":{"message":"Allowance unavailable"}}""",
+            """{"error":{"message":"You have no credits remaining"}}"""
+        )
+        for (responses in listOf(false, true)) {
+            for ((index, body) in bodies.withIndex()) {
+                var requests = 0
+                val selected = config.copy(apiUrl = "https://billing-$responses-$index.$fixtureHost/v1/", profileUid = "billing-profile", providerType = "OPENAI")
+                withApi(
+                    MockEngine {
+                        requests++
+                        respond(body, HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("600"), "X-Request-Id" to listOf("req_billing_fixture")))
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        repeat(2) {
+                            val record = if (responses) {
+                                val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                                val error = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected).toList()
+                                    .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                                assertNull(error.providerLimit)
+                                dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                            } else {
+                                val error = api.streamChatCompletion(request, 5, selected).toList().mapNotNull { chunk -> chunk.error }.single()
+                                assertNull(error.providerLimit)
+                                assertEquals(false, error.retryable)
+                                dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                            }
+                            assertEquals("BILLING_UNAVAILABLE", record.category)
+                            assertFalse(record.retryAllowed)
+                            assertEquals(false, record.requestReplayAllowed)
+                            assertNull(record.retryAfterMillis)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(429), record.providerFailure?.get("http_status"))
+                            assertEquals("req_billing_fixture", record.serverRequestId)
+                            assertEquals("An explicit next attempt must not inherit a rate cooldown", it + 1, requests)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun billingDenialCannotReplaceAnUnknownGatewayOperationInEitherApi() = runTest {
+        for (responses in listOf(false, true)) {
+            var requests = 0
+            val selected = config.copy(apiUrl = "https://billing-gateway-$responses.$fixtureHost/v1/", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))
+            withApi(
+                MockEngine { incoming ->
+                    if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
+                        respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""")
+                    } else {
+                        requests++
+                        respond("""{"error":{"code":"insufficient_quota","message":"No credits remaining"}}""", HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.RetryAfter, "600"))
+                    }
+                }
+            ) { api ->
+                withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                    val record = if (responses) {
+                        val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                        val error = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected).toList()
+                            .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                        assertNull(error.providerLimit)
+                        dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                    } else {
+                        val error = api.streamChatCompletion(request, 5, selected).toList().mapNotNull { it.error }.single()
+                        assertNull(error.providerLimit)
+                        dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                    }
+                    assertEquals(1, requests)
+                    assertEquals("GATEWAY_OUTCOME_UNKNOWN", record.category)
+                    assertFalse(record.retryAllowed)
+                    assertEquals(false, record.requestReplayAllowed)
                 }
             }
         }
@@ -664,9 +831,19 @@ class OpenAIRecoveryTransportTest {
                         assertEquals(kotlinx.serialization.json.JsonPrimitive("backend_failed"), failure.failureDetails?.get("upstream_error_code"))
                         assertRetainedServerPrecheck(failure.failureDetails)
                     } else {
-                        assertEquals("backend_failed", failure.errorCode)
+                        assertEquals("PROVIDER_GENERATION_FAILED", failure.errorCode)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive("UNKNOWN"), failure.failureDetails?.get("provider_failure_kind"))
+                        assertNull(failure.failureDetails?.get("upstream_error_code"))
+                        assertEquals(
+                            kotlinx.serialization.json.JsonPrimitive(requireNotNull(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("provider-error-code", "backend_failed"))),
+                            failure.failureDetails?.get("upstream_error_code_hash")
+                        )
                         assertFalse(failure.failureDetails?.get("requires_reconciliation") == kotlinx.serialization.json.JsonPrimitive(true))
                     }
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(200), failure.failureDetails?.get("http_status"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(type), failure.failureDetails?.get("stream_event_type"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("generation_completed"))
+                    assertEquals(if (type == "response.failed") kotlinx.serialization.json.JsonPrimitive("response-1") else null, failure.failureDetails?.get("provider_response_id"))
                 }
             }
         }

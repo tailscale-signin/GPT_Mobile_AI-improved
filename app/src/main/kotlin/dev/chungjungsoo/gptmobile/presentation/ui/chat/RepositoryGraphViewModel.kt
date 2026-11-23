@@ -5,10 +5,10 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
-import dev.chungjungsoo.gptmobile.data.github.GatewayGraphRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphResponse
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -51,14 +51,16 @@ data class RepositoryGraphUiState(
     val indexJob: JsonObject? = null,
     val durableIndexJobs: Boolean = false,
     val modelAccess: String = "NOT_CHECKED",
-    val errorCode: String? = null
+    val errorCode: String? = null,
+    val mapSource: String = "phone"
 ) {
     val visibleMap: JsonObject? get() = searchResult ?: architecture
-    val indexingOnGateway: Boolean get() = indexJob?.graphText("state") in setOf("QUEUED", "RUNNING")
+    val onPhone: Boolean get() = mapSource == "phone"
+    val indexingOnGateway: Boolean get() = !onPhone && indexJob?.graphText("state") in setOf("QUEUED", "RUNNING")
 }
 
 @HiltViewModel
-class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGraphRepository) : ViewModel() {
+class RepositoryGraphViewModel @Inject constructor(private val graphs: RepositoryMapRepository) : ViewModel() {
     private val mutable = MutableStateFlow(RepositoryGraphUiState())
     val state = mutable.asStateFlow()
     private var context: GitHubConversationContext? = null
@@ -84,8 +86,18 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
         this.gatewayProfileUid = gatewayProfileUid
         gatewayConfiguration = gatewayProfile
         mapRequests.clear()
-        mutable.value = RepositoryGraphUiState(boundContext = selected, gatewayProfileUid = gatewayProfileUid)
+        mutable.value = RepositoryGraphUiState(boundContext = selected, gatewayProfileUid = gatewayProfileUid, mapSource = mutable.value.mapSource)
         request("status")
+    }
+
+    /** Sources own different indexes and cursors. Never adopt a late result from the previous source. */
+    fun selectSource(source: String) {
+        require(source in setOf("phone", "gateway"))
+        if (source == mutable.value.mapSource) return
+        stop()
+        mapRequests.clear()
+        mutable.value = RepositoryGraphUiState(boundContext = context, gatewayProfileUid = gatewayProfileUid, mapSource = source)
+        if (context != null) request("status")
     }
 
     /** Closing the view detaches observers; a saved gateway job continues independently. */
@@ -97,7 +109,7 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
         pending = null
         polling = null
         mutable.update {
-            val unconfirmed = it.indexOutcomeUnknown || it.busy && it.operation == "index" && it.indexJob == null
+            val unconfirmed = !it.onPhone && (it.indexOutcomeUnknown || it.busy && it.operation == "index" && it.indexJob == null)
             it.copy(busy = false, indexingPaused = !it.indexingOnGateway && it.operation == "index" && it.indexCursor != null, indexOutcomeUnknown = unconfirmed, repairAction = if (unconfirmed) "CHECK_SAVED_INDEX" else it.repairAction)
         }
     }
@@ -138,7 +150,7 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
         val cursor = mutable.value.mapNextCursor ?: return
         val previous = mapRequests.getOrNull(mutable.value.mapPage) ?: return
         if (mapRequests.take(mutable.value.mapPage + 1).any { it.graphText("result_cursor") == cursor }) {
-            mutable.update { it.copy(error = "The gateway repeated a result page. Refresh the map to start a new search.", errorCode = "GRAPH_RESULT_CURSOR_REPEATED", repairAction = "RESTART_MAP_SEARCH") }
+            mutable.update { it.copy(error = "The map repeated a result page. Refresh the map to start a new search.", errorCode = "GRAPH_RESULT_CURSOR_REPEATED", repairAction = "RESTART_MAP_SEARCH") }
             return
         }
         requestMapPage(JsonObject(previous + ("result_cursor" to JsonPrimitive(cursor))), mutable.value.mapPage + 1)
@@ -157,21 +169,22 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
         val more = response.result["has_more"] == JsonPrimitive(true)
         val job = response.result["index_job"] as? JsonObject
         mutable.update {
+            val unknown = !it.onPhone && response.indexOutcomeUnknown
             it.copy(
                 result = if (inspection) response.result else it.result,
                 resultOperation = if (inspection) response.operation else it.resultOperation,
                 indexStatus = if (isStatus) response.result else it.indexStatus,
-                gatewayProfileUid = response.gatewayProfileUid,
+                gatewayProfileUid = if (it.onPhone) gatewayProfileUid else response.gatewayProfileUid,
                 gatewayName = response.gatewayName,
                 indexCursor = if (isStatus) cursor.takeIf { more } else it.indexCursor,
                 indexingPaused = isStatus && more && job?.graphText("state") !in setOf("QUEUED", "RUNNING"),
                 indexJob = if (isStatus) job else it.indexJob,
                 durableIndexJobs = response.durableIndexJobs,
                 modelAccess = response.modelAccess,
-                indexOutcomeUnknown = response.indexOutcomeUnknown,
-                repairAction = if (response.indexOutcomeUnknown) "CHECK_SAVED_INDEX" else null,
-                error = if (response.indexOutcomeUnknown) "The gateway has not yet confirmed the previous index request. Check the saved index before continuing." else null,
-                errorCode = if (response.indexOutcomeUnknown) "GRAPH_INDEX_OUTCOME_UNKNOWN" else null
+                indexOutcomeUnknown = unknown,
+                repairAction = if (unknown) "CHECK_SAVED_INDEX" else null,
+                error = if (unknown) "The gateway has not yet confirmed the previous index request. Check the saved index before continuing." else null,
+                errorCode = if (unknown) "GRAPH_INDEX_OUTCOME_UNKNOWN" else null
             )
         }
     }
@@ -189,8 +202,8 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
             return
         }
         val next = response.result.graphText("next_cursor").ifBlank { response.result.graphText("result_cursor") }.takeIf(String::isNotBlank)
-        if (response.result["has_more"] == JsonPrimitive(true) && next == null) throw GatewayGraphResultException("GRAPH_RESULT_CURSOR_MISSING", "The gateway omitted the next result cursor. Refresh this search before continuing.", "RESTART_MAP_SEARCH")
-        if (next != null && next == arguments.graphText("result_cursor")) throw GatewayGraphResultException("GRAPH_RESULT_CURSOR_REPEATED", "The gateway repeated a result page. Refresh this search before continuing.", "RESTART_MAP_SEARCH")
+        if (response.result["has_more"] == JsonPrimitive(true) && next == null) throw GatewayGraphResultException("GRAPH_RESULT_CURSOR_MISSING", "The map omitted the next result cursor. Refresh this search before continuing.", "RESTART_MAP_SEARCH")
+        if (next != null && next == arguments.graphText("result_cursor")) throw GatewayGraphResultException("GRAPH_RESULT_CURSOR_REPEATED", "The map repeated a result page. Refresh this search before continuing.", "RESTART_MAP_SEARCH")
         if (requestedPage == 0) mapRequests.clear()
         while (mapRequests.size > requestedPage) mapRequests.removeAt(mapRequests.lastIndex)
         mapRequests.add(arguments)
@@ -222,6 +235,7 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
                             selected,
                             buildJsonObject {
                                 put("action", "status")
+                                put("map_source", "gateway")
                                 put("budget_bytes", 32000)
                             },
                             selectedGateway,
@@ -247,11 +261,11 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
     private fun showFailure(failure: Exception, indexing: Boolean) {
         mutable.update {
             if (failure is GatewayGraphOperationException) {
-                it.copy(error = failure.message, errorCode = failure.failureCode, gatewayProfileUid = failure.gatewayProfileUid ?: it.gatewayProfileUid, gatewayName = failure.gatewayName ?: it.gatewayName, repairAction = failure.repairAction, indexOutcomeUnknown = failure.indexOutcomeUnknown)
+                it.copy(error = failure.message, errorCode = failure.failureCode, gatewayProfileUid = if (it.onPhone) gatewayProfileUid else failure.gatewayProfileUid ?: it.gatewayProfileUid, gatewayName = failure.gatewayName ?: it.gatewayName, repairAction = failure.repairAction, indexOutcomeUnknown = !it.onPhone && failure.indexOutcomeUnknown)
             } else if (failure is GatewayGraphResultException) {
                 it.copy(error = failure.message, errorCode = failure.code, repairAction = failure.repairAction)
             } else {
-                it.copy(error = failure.message ?: "Repository graph unavailable.", errorCode = "GRAPH_OPERATION_FAILED", indexOutcomeUnknown = it.indexOutcomeUnknown || indexing && it.indexJob == null, repairAction = if (indexing) "CHECK_SAVED_INDEX" else it.repairAction)
+                it.copy(error = failure.message ?: "Repository graph unavailable.", errorCode = "GRAPH_OPERATION_FAILED", indexOutcomeUnknown = !it.onPhone && (it.indexOutcomeUnknown || indexing && it.indexJob == null), repairAction = if (indexing && !it.onPhone) "CHECK_SAVED_INDEX" else it.repairAction)
             }
         }
     }
@@ -266,13 +280,21 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
         }
         val admittedGeneration = ++generation
         val selectedGateway = gatewayProfileUid
-        fun current() = context == selected && admittedGeneration == generation && gatewayProfileUid == selectedGateway
+        val selectedSource = mutable.value.mapSource
+        fun current() = context == selected && admittedGeneration == generation && gatewayProfileUid == selectedGateway && mutable.value.mapSource == selectedSource
+        if (action == "index" && selectedSource == "phone") {
+            // Ingestion can add a shard even if this foreground batch is stopped.
+            // Retain the last visible evidence, but never reuse its old page cursor.
+            mapRequests.clear()
+            mutable.update { it.copy(mapPage = 0, mapNextCursor = null) }
+        }
         mutable.update { it.copy(busy = true, error = null, errorCode = null, repairAction = null, operation = action, indexingPaused = false) }
         pending = viewModelScope.launch {
             suspend fun readStatus(): GatewayGraphResponse = graphs.executeForMap(
                 selected,
                 buildJsonObject {
                     put("action", "status")
+                    put("map_source", selectedSource)
                     put("budget_bytes", 32000)
                 },
                 selectedGateway,
@@ -289,7 +311,8 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
                 if (mutable.value.indexOutcomeUnknown) return
                 val arguments = buildJsonObject {
                     put("action", "architecture")
-                    put("limit", MAP_PAGE_SIZE)
+                    put("map_source", selectedSource)
+                    put(if (selectedSource == "phone") "page_size" else "limit", MAP_PAGE_SIZE)
                     put("budget_bytes", 32000)
                 }
                 val response = graphs.executeForMap(selected, arguments, selectedGateway, false)
@@ -304,12 +327,17 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
                         val arguments = buildJsonObject {
                             options.forEach { (key, value) -> put(key, value) }
                             put("action", action)
+                            put("map_source", selectedSource)
                             if (query.isNotBlank()) put("query", query)
                             if (symbol.isNotBlank()) put("symbol", symbol)
-                            if (action in setOf("architecture", "query")) put("limit", MAP_PAGE_SIZE)
+                            if (action in setOf("architecture", "query")) put(if (selectedSource == "phone") "page_size" else "limit", MAP_PAGE_SIZE)
                             if (action == "index" && !cancel && mutable.value.durableIndexJobs) put("background", true)
                             cursor?.let { put("index_cursor", it) }
                             put("budget_bytes", 32000)
+                        }
+                        if (selectedSource == "phone" && action == "index") {
+                            mapRequests.clear()
+                            mutable.update { it.copy(mapPage = 0, mapNextCursor = null) }
                         }
                         val response = graphs.executeForMap(selected, arguments, selectedGateway, pages == 0)
                         if (!current()) return@withTimeout
@@ -324,12 +352,19 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
                         pages++
                         val more = response.result["has_more"] == JsonPrimitive(true)
                         val next = response.result.graphText("index_cursor").takeIf(String::isNotBlank)
-                        check(!more || next != null) { "The gateway did not return the next indexing cursor. Check the saved index before continuing." }
-                        check(!more || seenCursors.add(checkNotNull(next))) { "Indexing stopped because the gateway repeated a page. Check the saved index before continuing." }
+                        check(!more || next != null) { "The map did not return the next indexing cursor. Check the saved index before continuing." }
+                        check(!more || seenCursors.add(checkNotNull(next))) { "Indexing stopped because the map repeated a page. Check the saved index before continuing." }
                         cursor = next.takeIf { more }
                         mutable.update { it.copy(indexCursor = cursor) }
+                        val pageBudget = if (selectedSource == "phone") MAX_PHONE_INDEX_PAGES else MAX_INDEX_PAGES
+                        if (selectedSource == "phone" && (pages == 1 || pages % PHONE_MAP_REFRESH_BATCHES == 0 || !more || pages >= pageBudget)) {
+                            // Coverage updates after every bounded source batch. Refresh
+                            // the diagram periodically without rebuilding it on every file.
+                            loadArchitecture(response.result)
+                            if (!current()) return@withTimeout
+                        }
                         if (!more) break
-                        if (pages >= MAX_INDEX_PAGES) {
+                        if (pages >= pageBudget) {
                             mutable.update { it.copy(indexingPaused = true) }
                             return@withTimeout
                         }
@@ -344,7 +379,17 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
                     }
                 }
             } catch (_: TimeoutCancellationException) {
-                if (current()) mutable.update { it.copy(error = "The repository graph request timed out. Check its saved status when the gateway is available.", errorCode = "GRAPH_REQUEST_TIMEOUT", indexingPaused = action == "index" && !it.indexingOnGateway, indexOutcomeUnknown = it.indexOutcomeUnknown || action == "index" && it.indexJob == null, repairAction = if (action == "index") "CHECK_SAVED_INDEX" else it.repairAction) }
+                if (current()) {
+                    mutable.update {
+                        if (it.onPhone && action == "index") {
+                            // Foreground work exhausted its time budget. Saved shards are
+                            // safe to reuse; no remote write outcome needs reconciliation.
+                            it.copy(error = null, errorCode = null, indexingPaused = true, indexOutcomeUnknown = false, repairAction = null)
+                        } else {
+                            it.copy(error = if (it.onPhone) "The repository map request timed out. Refresh to read saved source coverage." else "The repository graph request timed out. Check its saved status when the gateway is available.", errorCode = "GRAPH_REQUEST_TIMEOUT", indexingPaused = action == "index" && !it.indexingOnGateway, indexOutcomeUnknown = !it.onPhone && (it.indexOutcomeUnknown || action == "index" && it.indexJob == null), repairAction = if (action == "index" && !it.onPhone) "CHECK_SAVED_INDEX" else it.repairAction)
+                        }
+                    }
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -360,6 +405,8 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
 
     internal companion object {
         const val MAX_INDEX_PAGES = 32
+        const val MAX_PHONE_INDEX_PAGES = 16
+        const val PHONE_MAP_REFRESH_BATCHES = 4
         const val MAP_PAGE_SIZE = 12
         const val INDEX_POLL_MILLIS = 2_000L
     }

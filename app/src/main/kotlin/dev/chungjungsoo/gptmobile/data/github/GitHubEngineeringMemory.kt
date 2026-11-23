@@ -144,7 +144,10 @@ class GitHubEngineeringMemory @Inject constructor(
         }
         if (!privateDestination && !settings.allowCloudEngineeringMemory) return "Engineering memory stays on this device. No historical repository memory was included in this cloud request."
         val authorizedScopes = (listOf(scope) + legacyScopes).distinct()
-        val rows = authorizedScopes.flatMap { workspace.dao.engineeringMemory(it) }.distinctBy { it.id }.sortedByDescending { it.updatedAt }.take(128)
+        val recent = authorizedScopes.flatMap { workspace.dao.engineeringMemory(it) }.distinctBy { it.id }.sortedByDescending { it.updatedAt }.take(128)
+        // Decisions have their own bounded retrieval lane, so busy tool activity
+        // cannot remove an older architectural choice before relevance ranking.
+        val rows = (recent + authorizedScopes.flatMap { workspace.dao.engineeringDecisions(it) }).distinctBy { it.id }
         val candidates = rows.mapNotNull { row ->
             workspace.protectedSynthesisCheckpoint(row.id)?.takeIf {
                 it["kind"] != JsonPrimitive("task_checkpoint_reference") &&
@@ -166,7 +169,9 @@ class GitHubEngineeringMemory @Inject constructor(
                 }
         }.take(48)
         val meanings = if (settings.engineeringMemory == GitHubEngineeringMemoryMode.HYBRID) {
-            semantic.rankEngineering(task, scope, ranked.associate { it.key to it.value["content"].toString().take(4000) })
+            kotlinx.coroutines.withTimeoutOrNull(750) {
+                semantic.rankEngineering(task, scope, ranked.associate { it.key to it.value["content"].toString().take(4000) })
+            }
         } else {
             null
         }

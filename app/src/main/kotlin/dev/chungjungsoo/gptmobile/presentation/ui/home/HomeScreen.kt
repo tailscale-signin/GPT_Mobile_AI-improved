@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -103,7 +104,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1204,8 +1204,7 @@ internal fun ChatListItem(
     rowActions: Map<String, () -> Unit> = emptyMap(),
     compact: Boolean = false,
     animateStatus: Boolean = true,
-    workProgress: ConversationWorkProgress? = null,
-    showGatewayMode: Boolean = false
+    workProgress: ConversationWorkProgress? = null
 ) {
     var menuOpen by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
@@ -1299,22 +1298,12 @@ internal fun ChatListItem(
                                 isGenerating,
                                 hasUnreadResponse,
                                 animate = motionEnabled,
-                                conversationType = conversationType(chatRoom, isResearch, isGitHub).takeIf { showGatewayMode }
+                                conversationType = conversationType(chatRoom, isResearch, isGitHub),
+                                privacyEnabled = chatRoom.privacyModeLocked || chatRoom.privacyModeEnabled,
+                                privacyLocked = chatRoom.privacyModeLocked
                             )
                         } else {
                             ConversationModeSymbol(chatRoom, isResearch, hasUnreadResponse, isGitHub)
-                        }
-                        if (hasUnreadResponse && !isGateway) {
-                            dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(
-                                modifier = Modifier.align(AbsoluteAlignment.BottomRight).size(18.dp),
-                                shape = CircleShape,
-                                opacity = 0.80f,
-                                blurRadius = 12.dp
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Rounded.ChatBubble, "Unread reply", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.error)
-                                }
-                            }
                         }
                     }
                 }
@@ -1340,12 +1329,17 @@ private fun ConversationModeSymbol(
     isGitHub: Boolean
 ) {
     val type = conversationType(chatRoom, isResearch, isGitHub)
-    Icon(
-        conversationTypeIcon(type, hasUnreadResponse),
-        "${type.title} · ${if (hasUnreadResponse) "unread reply" else "read"}",
-        Modifier.size(24.dp),
-        tint = MaterialTheme.colorScheme.primary
-    )
+    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+        Icon(
+            conversationTypeIcon(type, hasUnreadResponse),
+            "${type.title} · ${if (hasUnreadResponse) "unread reply" else "read"}",
+            Modifier.size(24.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        if (chatRoom.privacyModeLocked || chatRoom.privacyModeEnabled) {
+            ConversationPrivacyBadge(Modifier.align(Alignment.BottomEnd).offset(x = 6.dp, y = 6.dp), locked = chatRoom.privacyModeLocked)
+        }
+    }
 }
 
 @Composable

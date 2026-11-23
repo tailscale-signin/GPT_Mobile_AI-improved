@@ -4,13 +4,13 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
-import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.appAuditLocalTool
 import dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant
 import javax.inject.Inject
 import kotlinx.coroutines.flow.flow
@@ -36,13 +36,34 @@ internal class AppAuditBehaviorProbeSource @Inject constructor() :
                     }
                 )
                 val invalid = tool.execute("invalid", buildJsonObject { put("value", 7) })
-                verify(invalid.errorCode == "INVALID_ARGUMENTS" && !invalid.dispatched && budget.usedCalls() == 0 && invocations == 0)
+                verify(
+                    invalid.errorCode == "INVALID_ARGUMENTS" && !invalid.dispatched && budget.usedCalls() == 0 && invocations == 0,
+                    AppAuditAssertionCode.ARGUMENTS_REJECTED_BEFORE_DISPATCH,
+                    AppAuditFixtureState(AppAuditFixtureCode.INVALID_ARGUMENTS, dispatched = false, usedCalls = 0, invocationCount = 0),
+                    appAuditFixtureState(invalid, budget.usedCalls(), invocationCount = invocations)
+                )
                 val arguments = buildJsonObject { put("value", "fixture") }
                 val accepted = tool.execute("accepted", arguments)
-                verify(!accepted.isError && accepted.dispatched && accepted.toolCallBudgetReserved == 1 && budget.usedCalls() == 1)
-                verify(tool.execute("accepted", arguments).errorCode == "DUPLICATE_INVOCATION")
+                verify(
+                    !accepted.isError && accepted.dispatched && accepted.toolCallBudgetReserved == 1 && budget.usedCalls() == 1,
+                    AppAuditAssertionCode.ACCEPTED_CALL_RESERVES_BUDGET,
+                    AppAuditFixtureState(AppAuditFixtureCode.SUCCESS, dispatched = true, admission = AppAuditNetworkAdmission.ADMITTED, reservedCalls = 1, usedCalls = 1),
+                    appAuditFixtureState(accepted, budget.usedCalls(), invocationCount = invocations)
+                )
+                val duplicate = tool.execute("accepted", arguments)
+                verify(
+                    duplicate.errorCode == "DUPLICATE_INVOCATION",
+                    AppAuditAssertionCode.DUPLICATE_INVOCATION_REJECTED,
+                    AppAuditFixtureState(AppAuditFixtureCode.DUPLICATE_INVOCATION),
+                    appAuditFixtureState(duplicate, budget.usedCalls())
+                )
                 val exhausted = tool.execute("exhausted", arguments)
-                verify(exhausted.errorCode == "BUDGET_EXHAUSTED" && !exhausted.dispatched && invocations == 1 && budget.remainingCalls() == 0)
+                verify(
+                    exhausted.errorCode == "BUDGET_EXHAUSTED" && !exhausted.dispatched && invocations == 1 && budget.remainingCalls() == 0,
+                    AppAuditAssertionCode.TOOL_BUDGET_EXHAUSTED,
+                    AppAuditFixtureState(AppAuditFixtureCode.BUDGET_EXHAUSTED, dispatched = false, remainingCalls = 0, invocationCount = 1),
+                    appAuditFixtureState(exhausted, budget.usedCalls(), budget.remainingCalls(), invocations)
+                )
             },
             AppAuditFixture("authorization_denial_v1", "Denied tool authority dispatches no work", listOf("auth_and_security", "agent_tools")) {
                 var invocations = 0
@@ -55,8 +76,18 @@ internal class AppAuditBehaviorProbeSource @Inject constructor() :
                     authorize = { _, _ -> false }
                 )
                 val denied = tool.execute("denied", JsonObject(emptyMap()))
-                verify(denied.errorCode == "AUTH_REQUIRED" && !denied.dispatched)
-                verify(invocations == 0 && budget.usedCalls() == 0)
+                verify(
+                    denied.errorCode == "AUTH_REQUIRED" && !denied.dispatched,
+                    AppAuditAssertionCode.DENIED_AUTHORITY,
+                    AppAuditFixtureState(AppAuditFixtureCode.AUTH_REQUIRED, dispatched = false),
+                    appAuditFixtureState(denied)
+                )
+                verify(
+                    invocations == 0 && budget.usedCalls() == 0,
+                    AppAuditAssertionCode.DENIAL_PRESERVES_BUDGET,
+                    AppAuditFixtureState(usedCalls = 0, invocationCount = 0),
+                    appAuditFixtureState(denied, budget.usedCalls(), invocationCount = invocations)
+                )
             },
             AppAuditFixture("unknown_receipt_v1", "Unknown tool outcome requires reconciliation", listOf("agent_execution", "agent_tools")) {
                 var invocations = 0
@@ -68,9 +99,19 @@ internal class AppAuditBehaviorProbeSource @Inject constructor() :
                 )
                 val arguments = buildJsonObject { put("path", "fixture.txt") }
                 val first = tool.execute("first", arguments)
-                verify(first.errorCode == "TOOL_RESULT_ID_MISMATCH" && first.dispatched)
+                verify(
+                    first.errorCode == "TOOL_RESULT_ID_MISMATCH" && first.dispatched,
+                    AppAuditAssertionCode.MISMATCHED_RECEIPT_UNCERTAIN,
+                    AppAuditFixtureState(AppAuditFixtureCode.TOOL_RESULT_ID_MISMATCH, dispatched = true),
+                    appAuditFixtureState(first)
+                )
                 val next = tool.execute("retry", arguments)
-                verify(next.errorCode == "RECONCILIATION_REQUIRED" && !next.dispatched && invocations == 1)
+                verify(
+                    next.errorCode == "RECONCILIATION_REQUIRED" && !next.dispatched && invocations == 1,
+                    AppAuditAssertionCode.UNCERTAIN_RECEIPT_BLOCKS_REPLAY,
+                    AppAuditFixtureState(AppAuditFixtureCode.RECONCILIATION_REQUIRED, dispatched = false, invocationCount = 1),
+                    appAuditFixtureState(next, invocationCount = invocations)
+                )
             },
             AppAuditFixture("grant_scope_v1", "Permission identity binds schema, chat and resource", listOf("auth_and_security")) {
                 val schema = buildJsonObject { put("type", "object") }
@@ -81,10 +122,10 @@ internal class AppAuditBehaviorProbeSource @Inject constructor() :
                     put("action", "read")
                 }
                 val reversed = JsonObject(arguments.entries.reversed().associate { it.key to it.value })
-                verify(ScopedToolGrant.canonicalHash(arguments) == ScopedToolGrant.canonicalHash(reversed))
+                verify(ScopedToolGrant.canonicalHash(arguments) == ScopedToolGrant.canonicalHash(reversed), AppAuditAssertionCode.CANONICAL_ARGUMENT_ORDER)
                 val grant = ScopedToolGrant.from(1, schema, arguments)
-                verify(grant.key() == ScopedToolGrant.from(1, schema, reversed).key())
-                verify(grant.key() != ScopedToolGrant.from(2, schema, arguments).key())
+                verify(grant.key() == ScopedToolGrant.from(1, schema, reversed).key(), AppAuditAssertionCode.GRANT_IDENTITY_STABLE)
+                verify(grant.key() != ScopedToolGrant.from(2, schema, arguments).key(), AppAuditAssertionCode.GRANT_CHAT_BOUND)
                 verify(
                     grant.key() != ScopedToolGrant.from(
                         1,
@@ -93,7 +134,8 @@ internal class AppAuditBehaviorProbeSource @Inject constructor() :
                             arguments.forEach { (key, value) -> put(key, value) }
                             put("path", "two.txt")
                         }
-                    ).key()
+                    ).key(),
+                    AppAuditAssertionCode.GRANT_RESOURCE_BOUND
                 )
                 verify(
                     grant.key() != ScopedToolGrant.from(
@@ -103,7 +145,8 @@ internal class AppAuditBehaviorProbeSource @Inject constructor() :
                             arguments.forEach { (key, value) -> put(key, value) }
                             put("action", "write")
                         }
-                    ).key()
+                    ).key(),
+                    AppAuditAssertionCode.GRANT_ACTION_BOUND
                 )
             },
             AppAuditFixture("runner_isolation_v1", "Agent collections retain independent execution budgets", listOf("agent_execution")) {
@@ -128,11 +171,26 @@ internal class AppAuditBehaviorProbeSource @Inject constructor() :
                 repeat(2) {
                     val events = run.toList()
                     val receipts = events.filterIsInstance<AgentRunEvent.ToolFinished>()
-                    verify(receipts.size == 1 && receipts.single().result.dispatched && !receipts.single().result.isError)
+                    verify(
+                        receipts.size == 1 && receipts.single().result.dispatched && !receipts.single().result.isError,
+                        AppAuditAssertionCode.RUNNER_RECEIPT_SUCCESS,
+                        AppAuditFixtureState(AppAuditFixtureCode.SUCCESS, dispatched = true),
+                        receipts.singleOrNull()?.result?.let { appAuditFixtureState(it) }
+                    )
                     val provider = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
-                    verify(provider.count { it is ProviderEvent.Completed } == 1 && provider.none { it is ProviderEvent.Failed })
+                    verify(
+                        provider.count { it is ProviderEvent.Completed } == 1 && provider.none { it is ProviderEvent.Failed },
+                        AppAuditAssertionCode.RUNNER_COMPLETION,
+                        AppAuditFixtureState(completedCount = 1, failedCount = 0),
+                        AppAuditFixtureState(completedCount = provider.count { it is ProviderEvent.Completed }, failedCount = provider.count { it is ProviderEvent.Failed })
+                    )
                 }
-                verify(invocations == 2 && rounds == 4)
+                verify(
+                    invocations == 2 && rounds == 4,
+                    AppAuditAssertionCode.RUNNER_BUDGET_ISOLATED,
+                    AppAuditFixtureState(invocationCount = 2, roundCount = 4),
+                    AppAuditFixtureState(invocationCount = invocations, roundCount = rounds)
+                )
             }
         )
     )
@@ -143,7 +201,4 @@ private fun fixtureTool(
     name: String,
     schema: JsonObject = buildJsonObject { put("type", "object") },
     execute: suspend (String, JsonObject) -> AgentToolResult
-) = object : AgentTool {
-    override val definition = AgentToolDefinition(name, "Disposable app-audit fixture", schema)
-    override suspend fun execute(callId: String, arguments: JsonObject) = execute.invoke(callId, arguments)
-}
+) = appAuditLocalTool(name, schema, execute)

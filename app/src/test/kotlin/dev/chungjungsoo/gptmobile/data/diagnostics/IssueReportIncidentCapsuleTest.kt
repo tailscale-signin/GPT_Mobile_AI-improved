@@ -373,6 +373,33 @@ class IssueReportIncidentCapsuleTest {
         assertNull(diagnostics.copy(values = values - "changed_policy_unknown_count").validated())
     }
 
+    @Test fun contextVariantPolicyNameSurvivesWithoutExportingItsValueOrUnknownLookalikes() {
+        val field = "githubProfileOverride.contextVariant"
+        val known = capture(
+            ReportFeature.CHAT,
+            "CHAT_FAILURE",
+            "DISPATCH_POLICY_CHANGED",
+            mapOf("changed_policy_fields" to listOf(field), field to "PRIVATE_CONTEXT_SELECTION")
+        )
+        val diagnostic = requireNotNull(known.diagnostics)
+        assertTrue(diagnostic.isValid())
+        assertEquals(JsonArray(listOf(JsonPrimitive(field))), diagnostic.values["changed_policy_fields"])
+        assertEquals(JsonPrimitive("OBSERVED"), diagnostic.values["changed_policy_observation"])
+        assertEquals(JsonPrimitive(0), diagnostic.values["changed_policy_unknown_count"])
+        assertFalse(report(known).approvedPayload().contains("PRIVATE_CONTEXT_SELECTION"))
+        assertNull(diagnostic.values["request_replay_allowed"])
+        for (unknown in listOf("$field.PRIVATE_SELECTION", "$field=SEMANTIC")) {
+            assertNull(IssueReportIncidentCapsule.validValue("changed_policy_fields", JsonArray(listOf(JsonPrimitive(unknown)))))
+            val partial = capture(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to listOf(field, unknown)))
+            val values = requireNotNull(partial.diagnostics).values
+            assertEquals(JsonArray(listOf(JsonPrimitive(field))), values["changed_policy_fields"])
+            assertEquals(JsonPrimitive(2), values["changed_policy_field_count"])
+            assertEquals(JsonPrimitive(1), values["changed_policy_unknown_count"])
+            assertEquals(JsonPrimitive("PARTIAL"), values["changed_policy_observation"])
+            assertFalse(report(partial).approvedPayload().contains(unknown))
+        }
+    }
+
     @Test fun missingMalformedAndOversizedPolicyEvidenceStayDistinctFromObservedEmptyLists() {
         val missing = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", emptyMap()).diagnostics).values
         assertTrue(missing.keys.none { it.startsWith("changed_policy_") })
@@ -396,7 +423,7 @@ class IssueReportIncidentCapsuleTest {
     }
 
     @Test fun everyKnownPolicyNameSurvivesWithoutChangingAuthorityOrUnknownOutcomeEvidence() {
-        assertEquals(76, IssueReportIncidentCapsule.policyFieldNames.size)
+        assertEquals(77, IssueReportIncidentCapsule.policyFieldNames.size)
         for (field in IssueReportIncidentCapsule.policyFieldNames) {
             val context = capture(
                 ReportFeature.CHAT,

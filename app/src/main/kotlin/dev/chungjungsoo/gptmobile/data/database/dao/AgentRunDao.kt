@@ -18,6 +18,10 @@ data class GatewayRunDiagnosticState(val runId: String, val status: String, val 
 
 @Dao
 interface AgentRunDao : RunPolicySnapshotAccess {
+    /** A notification answer cannot follow a retried message or a deleted/temporary chat. */
+    @Query("SELECT EXISTS(SELECT 1 FROM agent_runs r JOIN messages_v2 m ON m.message_id = r.assistant_message_id JOIN chats_v2 c ON c.chat_id = r.chat_id WHERE r.run_id = :runId AND r.chat_id = :chatId AND r.user_message_id = :messageId AND r.profile_uid = :profileUid AND m.chat_id = r.chat_id AND m.current_run_id = r.run_id AND m.ownership_fence = r.ownership_fence AND c.is_temporary = 0 AND r.status NOT IN ('CANCELED','COMPLETED'))")
+    suspend fun ownsPendingDecision(runId: String, chatId: Int, messageId: Int, profileUid: String): Boolean
+
     @Query(
         """SELECT c.chat_id AS chatId,
             CASE WHEN m.current_run_id = r.run_id THEN r.assistant_message_id ELSE r.user_message_id END AS messageId

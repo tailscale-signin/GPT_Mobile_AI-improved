@@ -16,13 +16,13 @@ class GitHubAcceptanceRecoveryEvidenceTest {
     @Test fun retainedDeadlineReportsRelativeTimeOnlyWhenObserved() {
         val contract = json("""{"accepted_at_ms":1000,"deadline_at_ms":61000}""")
         val expired = GitHubExecutionLimits.deadlineTiming(contract, 66000)
-        assertEquals(json("""{"task_deadline_observation":"WINDOW_EXPIRED","task_deadline_window_seconds":60,"task_deadline_overdue_seconds":5}"""), expired)
+        assertEquals(json("""{"task_deadline_observation":"WINDOW_EXPIRED","task_deadline_clock":"WALL_CLOCK","task_deadline_renewed":false,"task_deadline_window_seconds":60,"task_deadline_elapsed_seconds":65,"task_deadline_remaining_seconds":0,"task_deadline_overdue_seconds":5}"""), expired)
         val open = GitHubExecutionLimits.deadlineTiming(contract, 60000)
         assertEquals(JsonPrimitive("WINDOW_OPEN"), open["task_deadline_observation"])
         assertNull(open["task_deadline_overdue_seconds"])
         assertEquals(json("""{"task_deadline_observation":"NO_ACCEPTED_DEADLINE"}"""), GitHubExecutionLimits.deadlineTiming(json("{}"), 66000))
         assertEquals(json("""{"task_deadline_observation":"CONTRACT_UNAVAILABLE"}"""), GitHubExecutionLimits.deadlineTiming(null, 66000))
-        val retained = GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_check":"BEFORE_TOOL_RESTORE","task_deadline_observation":"WINDOW_EXPIRED","task_deadline_window_seconds":60,"task_deadline_overdue_seconds":5,"deadline_at_ms":61000}}"""))
+        val retained = GitHubAcceptanceRecoveryEvidence.fields(JsonObject(mapOf("original_failure" to JsonObject(expired + json("""{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_check":"BEFORE_TOOL_RESTORE","deadline_at_ms":61000}""")))))
         assertEquals(JsonObject(expired + ("task_deadline_check" to JsonPrimitive("BEFORE_TOOL_RESTORE"))), retained)
         assertTrue(GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"OTHER","task_deadline_check":"BEFORE_TOOL_RESTORE"}}""")).isEmpty())
     }

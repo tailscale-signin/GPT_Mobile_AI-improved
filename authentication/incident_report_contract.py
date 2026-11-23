@@ -176,6 +176,7 @@ POLICY_FIELD_NAMES = {
     'githubProfileOverride.githubTools',
     'githubProfileOverride.engineeringMode',
     'githubProfileOverride.maximumContext',
+    'githubProfileOverride.contextVariant',
     'githubProfileOverride.engineeringMemory',
     'githubProfileOverride.allowCloudEngineeringMemory',
     'githubProfileOverride.workflowPreset',
@@ -278,6 +279,7 @@ POLICY_RESPONSE_HEADER_FIELDS = {'status_policy_protection_permission_header_nam
 POLICY_RESPONSE_FIELDS = POLICY_RESPONSE_HEADER_FIELDS | {'status_policy_protection_404_kind', 'status_policy_rules_404_kind'}
 
 TOOL_FIELDS = {
+    'search_argument_field', 'search_argument_rule', 'search_argument_expected', 'search_native_action', 'search_mode', 'search_query_hash',
     'round_catalog_tool_count',
     'url_reader_dns_state', 'url_reader_availability', 'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
     'tool_budget_calls_used', 'tool_budget_calls_limit', 'tool_permission_scope',
@@ -344,11 +346,26 @@ ACCEPTANCE_PUBLICATION_COUNTS = {'acceptance_extraction_planned_batches', 'accep
 ACCEPTANCE_PUBLICATION_TOKENS = {'acceptance_extraction_required_tokens', 'acceptance_extraction_input_limit_tokens'}
 ACCEPTANCE_PUBLICATION_FIELDS = ACCEPTANCE_PUBLICATION_COUNTS | ACCEPTANCE_PUBLICATION_TOKENS | {'acceptance_publication_source', 'acceptance_extraction_observation', 'acceptance_draft_state'}
 ACCEPTANCE_OBSERVATION_FIELDS = {'acceptance_claim_trust_failures', 'acceptance_publication_entry'}
+ACCEPTANCE_EXPLANATION_FIELDS = {'acceptance_applicability', 'acceptance_contract_state', 'acceptance_plan_state', 'acceptance_extraction_state', 'acceptance_coverage_state', 'acceptance_empty_reason', 'acceptance_original_failure_present'}
 REVIEW_COMPARISON_OBSERVATION_FIELDS = {'review_comparison_state', 'review_comparison_policy'}
 TOOL_EVENT_SIGNED_SEQUENCES = {'tool_event_requested_sequence', 'tool_event_previous_max_sequence'}
 TOOL_EVENT_PERSISTENCE_FIELDS = TOOL_EVENT_SIGNED_SEQUENCES | {'tool_event_persistence_operation', 'tool_event_persistence_phase', 'tool_event_persistence_failure', 'tool_event_assigned_sequence', 'tool_event_write_attempted'}
 PROVIDER_FIELDS = {'claim_extraction_validation_stage', 'claim_extraction_schema_hash', 'provider_route_hash', 'provider_wait_checkpoint_hash', 'provider_wait_claim_hash', 'provider_wait_terminal_status', 'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'tool_protocol_frame_kind', 'tool_protocol_recovery_outcome', 'claim_extraction_failure_kind', 'claim_extraction_response_characters', 'claim_extraction_max_claims', 'claim_extraction_completed', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
-VOICE_FIELDS = {'voice_pronunciation_unknown_word_length', 'run_id_hash', 'invocation_id_hash', 'voice_reply_failed', 'voice_reply_terminal_status', 'voice_reply_failure_evidence', 'voice_chat_failure_code', 'voice_chat_failure_code_hash', 'voice_chat_failure_phase', 'voice_focus_last_transition', 'voice_focus_transition_count', 'voice_pronunciation_unknown_words', 'voice_pronunciation_initialisms', 'voice_pronunciation_failure_kind', 'voice_pronunciation_audio_queued', 'voice_pronunciation_first_audio_observed'}
+VOICE_PLAYBACK_FAILURES = {
+    'AUDIO_FOCUS_DENIED', 'AUDIO_FOCUS_LOST', 'AUDIO_FOCUS_TIMEOUT', 'AUDIO_FOCUS_RESUME_FAILED',
+    'TIMEOUT', 'MEMORY_PRESSURE', 'TEXT_QUEUE_FULL', 'SYNTHESIS_FAILED', 'ENGINE_FAILED', 'AUDIO_FAILED',
+    'PRONUNCIATION_UNAVAILABLE', 'LEXICON_UNAVAILABLE',
+}
+VOICE_EXECUTION_ENUMS = {
+    'voice_selected_backend': {'AUTO', 'CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
+    'voice_effective_provider': {'SYSTEM', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
+    'voice_fallback_source': {'KOKORO', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
+    'voice_fallback_target': {'SYSTEM', 'KOKORO_CPU'},
+    'voice_fallback_outcome': {'STARTED', 'SUCCEEDED', 'FAILED'},
+    'voice_fallback_failure': VOICE_PLAYBACK_FAILURES,
+}
+VOICE_EXECUTION_FIELDS = set(VOICE_EXECUTION_ENUMS) | {'voice_fallback_count'}
+VOICE_FIELDS = VOICE_EXECUTION_FIELDS | {'voice_pronunciation_unknown_word_length', 'run_id_hash', 'invocation_id_hash', 'voice_reply_failed', 'voice_reply_terminal_status', 'voice_reply_failure_evidence', 'voice_chat_failure_code', 'voice_chat_failure_code_hash', 'voice_chat_failure_phase', 'voice_focus_last_transition', 'voice_focus_transition_count', 'voice_pronunciation_unknown_words', 'voice_pronunciation_initialisms', 'voice_pronunciation_failure_kind', 'voice_pronunciation_audio_queued', 'voice_pronunciation_first_audio_observed'}
 
 GATEWAY_FIELDS = {
     'command_id_hash',
@@ -358,6 +375,7 @@ GATEWAY_FIELDS = {
 }
 
 HASHES = {
+    'search_query_hash',
     'search_id_hash', 'search_cursor_hash', 'provider_wait_checkpoint_hash', 'provider_wait_claim_hash', 'provider_route_hash',
     'mcp_connection_hash',
     'saved_view_restore_error_hash',
@@ -463,6 +481,7 @@ PHASES = {
     'gateway_recovery',
     'inventory_pagination',
     'lifecycle',
+    'application_persistence',
     'message_admission',
     'model_invocation',
     'provider_wait',
@@ -568,11 +587,11 @@ ENUMS = {
     'reasoning_probe_observation': {'GATEWAY_OBSERVATION_AVAILABLE', 'DEADLINE_WITHOUT_GATEWAY_OBSERVATION', 'NO_GATEWAY_OBSERVATION'},
     'gateway_terminal_status': {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'},
     'gateway_result_quality': {'complete', 'partial'},
-    'combined_repair_stop': {'CORRECTION_CAPACITY_UNAVAILABLE', 'LEGACY_REVISION_REQUIRES_NEW_OWNER', 'LEGACY_REPAIR_ALLOWANCE_REACHED', 'NO_PROGRESS_AFTER_REQUIRED_REVISIONS', 'NO_PROGRESS_AFTER_REQUIRED_REVISION', 'NEWER_REVISION_OR_UNAVAILABLE_REPLACEMENT_OWNER', 'REPAIR_REJECTED', 'NO_REMAINING_REQUIRED_CORRECTION', 'REPAIR_PREPARATION_FAILED', 'REPLACEMENT_MADE_NO_TEXT_PROGRESS', 'REPLACEMENT_OWNER_COMPARE_AND_SET_REJECTED'},
+    'combined_repair_stop': {'SINGLE_PASS_LOCAL_CHECKS_ONLY', 'CORRECTION_CAPACITY_UNAVAILABLE', 'LEGACY_REVISION_REQUIRES_NEW_OWNER', 'LEGACY_REPAIR_ALLOWANCE_REACHED', 'NO_PROGRESS_AFTER_REQUIRED_REVISIONS', 'NO_PROGRESS_AFTER_REQUIRED_REVISION', 'NEWER_REVISION_OR_UNAVAILABLE_REPLACEMENT_OWNER', 'REPAIR_REJECTED', 'NO_REMAINING_REQUIRED_CORRECTION', 'REPAIR_PREPARATION_FAILED', 'REPLACEMENT_MADE_NO_TEXT_PROGRESS', 'REPLACEMENT_OWNER_COMPARE_AND_SET_REJECTED'},
     'combined_requirement_gap': {'CURRENT_ARTICLE', 'LENGTH', 'TOPIC', 'OTHER'},
     'search_cursor_state': {'RETAINED_SEARCH_MISSING', 'PAGE_BOUNDARY_UNOBSERVED'},
     'mcp_failure_phase': {'configuration', 'catalog', 'discovery', 'initialization', 'execution', 'connection', 'dns', 'tls', 'oauth_refresh', 'local_validation'},
-    'mcp_failure_category': (MCP_HEALTH - {'HEALTHY'}) | {'MCP_TOOL_ERROR', 'MCP_OUTPUT_INVALID'},
+    'mcp_failure_category': (MCP_HEALTH - {'HEALTHY'}) | {'MCP_TOOL_ERROR', 'MCP_OUTPUT_INVALID', 'POLICY_BLOCKED'},
     'mcp_connection_health': MCP_HEALTH,
     'mcp_connection_state': {'CONNECTED', 'DEGRADED', 'UNREACHABLE', 'AUTHENTICATION_REQUIRED', 'RECOVERING'},
     'mcp_readiness_state': {'NOT_DISCOVERED', 'DISCOVERING', 'READY', 'STALE'},
@@ -590,6 +609,12 @@ ENUMS = {
     'acceptance_publication_source': {'STATUS', 'COVERAGE', 'CI_OBSERVATION', 'CLAIM_EXTRACTION', 'PARTIAL_FALLBACK', 'EVIDENCE_ADVANCED'},
     'acceptance_extraction_observation': {'NOT_NEEDED', 'NO_DRAFT', 'PLAN_BATCH_LIMIT', 'PLAN_INPUT_LIMIT', 'PLAN_LIMIT_CHANGED', 'COMPLETED', 'FAILED'},
     'acceptance_draft_state': {'ABSENT', 'EMPTY', 'PRESENT'},
+    'acceptance_applicability': {'REQUIRED', 'NOT_APPLICABLE', 'UNDETERMINED'},
+    'acceptance_contract_state': {'RETAINED', 'NOT_RECORDED'},
+    'acceptance_plan_state': {'DEFINED', 'EMPTY', 'NOT_RECORDED'},
+    'acceptance_extraction_state': {'NOT_RECORDED', 'NOT_NEEDED', 'NO_DRAFT', 'PLAN_BATCH_LIMIT', 'PLAN_INPUT_LIMIT', 'PLAN_LIMIT_CHANGED', 'COMPLETED', 'FAILED'},
+    'acceptance_coverage_state': {'RECEIPTS_RETAINED', 'NO_RECEIPTS', 'NOT_RECORDED'},
+    'acceptance_empty_reason': {'CRITERIA_PRESENT', 'PRIMARY_FAILURE', 'EXTRACTION_FAILED', 'EXTRACTION_NOT_RUN', 'NOT_APPLICABLE', 'MISSING_CONTRACT', 'MISSING_PLAN', 'NO_REQUIRED_CRITERIA'},
     'provider_wait_state': {'WAITING_PROVIDER_LIMIT', 'CHECKPOINT_UNAVAILABLE', 'AUTHORITY_CHANGED', 'PERSIST_FAILED', 'NOT_SCHEDULED', 'RESUMED'},
     'retry_delay_source': {'PROVIDER_HEADER', 'PROVIDER_BODY', 'LOCAL_BACKOFF', 'UNKNOWN'},
     'recovery_authority': {'VALID', 'CHANGED', 'UNVERIFIED'},
@@ -605,10 +630,17 @@ ENUMS = {
     'dispatch_policy_stage': {'provider_admission', 'tool_precheck', 'tool_dispatch', 'tool_execution', 'delivery', 'verification'},
     'github_validation_endpoint': {'COMMIT_LOOKUP', 'TREE_READ', 'REVISION_COMPARE'},
     'native_tool_action': ACTIONS,
+    'search_argument_field': {'query', 'mode', 'file_extension', 'path_prefix', 'batch_size', 'max_new_blobs', 'path_suffix', 'case_sensitive', 'fuzzy_match', 'fuzzy_threshold', 'min_lines', 'max_lines', 'context_lines'},
+    'search_argument_rule': {'TYPE', 'QUERY_LENGTH', 'MODE', 'QUERY_QUALIFIER', 'EXTENSION', 'RANGE', 'LINE_ORDER', 'PATTERN_SYNTAX', 'PATTERN_FUZZY', 'PATTERN_BOUNDS', 'FUZZY_IDENTIFIER'},
+    'search_argument_expected': {'STRING', 'BOOLEAN', 'INTEGER', 'NUMBER', 'QUERY_1_200', 'SEARCH_MODE', 'EXPLICIT_FILTERS', 'FILE_EXTENSION', 'NUMBER_0_5_1', 'INTEGER_0_1000000', 'INTEGER_1_1000000', 'MAX_AT_LEAST_MIN', 'INTEGER_0_100', 'TEXT_MAX_200', 'INTEGER_1_1000', 'INTEGER_1_100', 'LITERAL_STAR_PATTERN', 'FALSE', 'BOUNDED_PATTERN', 'IDENTIFIER_2_80'},
+    'search_native_action': {'search_repository'},
+    'search_mode': {'literal', 'definitions', 'references', 'paths', 'tests', 'patterns', 'UNSUPPORTED'},
     'saved_view_owner_operation': OPERATIONS,
     'expected_operation': OPERATIONS,
     'expected_action': ACTIONS,
 }
+
+ENUMS.update(VOICE_EXECUTION_ENUMS)
 
 ENUM_LISTS = {
     'status_policy_protection_permission_header_names': set(POLICY_RESPONSE_HEADER_ORDER),
@@ -674,8 +706,73 @@ ENUMS.update({
 })
 
 
+
+# Same-failure, closed evidence for durable recovery and semantic stream failures.
+EXECUTION_COMPLETION_FEATURE = 'EXECUTION_COMPLETION_EVIDENCE_V1'
+EXECUTION_COMPLETION_CODES = {'WORKSPACE_EVIDENCE_CONFLICT', 'GITHUB_REVIEW_COMPARISON_REQUIRED', 'RECONCILIATION_REQUIRED', 'BILLING_UNAVAILABLE', 'PROVIDER_CONTENT_POLICY', 'PROVIDER_GENERATION_FAILED', 'PROVIDER_UNAVAILABLE', 'AUTHENTICATION_FAILED', 'ACCESS_FORBIDDEN'}
+EXECUTION_COMPLETION_HASHES = {
+    'provider_response_id_hash', 'no_output_parent_invocation_hash',
+    'reconciliation_original_call_hash', 'reconciliation_original_tool_hash', 'reconciliation_original_arguments_hash',
+    'no_output_draft_hash', 'no_output_segment_hash', 'no_output_evidence_hash',
+    'evidence_record_hash', 'evidence_proposed_payload_hash', 'evidence_retained_payload_hash',
+    'provider_wait_expected_tool_journal_hash', 'provider_wait_observed_tool_journal_hash',
+    'provider_wait_expected_tool_evidence_hash', 'provider_wait_observed_tool_evidence_hash', 'provider_wait_tool_binding_hash',
+}
+EXECUTION_COMPLETION_COUNTS = {
+    'no_output_visible_bytes', 'no_output_reasoning_bytes', 'no_output_tool_call_count',
+    'no_output_repairs', 'no_output_repair_limit',
+    'no_output_continuation_attempt', 'no_output_continuation_limit',
+    'no_output_generated_tokens', 'no_output_reasoning_tokens', 'no_output_effective_limit', 'no_output_serialized_limit',
+    'provider_wait_queued_tool_count', 'provider_wait_unsettled_tool_count', 'provider_wait_settled_tool_count',
+}
+EXECUTION_COMPLETION_UPSTREAM_CODES = {
+    '401', '402', '429', 'insufficient_quota', 'insufficient_credits', 'budget_exceeded', 'credit_limit_exceeded', 'kudosupfront', 'sharedkeyempty',
+    '500', '502', '503', '504', 'server_error', 'internal_error', 'internal_server_error', 'service_unavailable', 'overloaded_error', 'api_error', 'processing_error',
+    'invalid_api_key', 'authentication_error', 'permission_denied', 'model_access_denied', 'route_forbidden', 'anonforbidden', 'noworkers', 'no_valid_workers',
+    'context_window_exceeded', 'context_length_exceeded', 'rate_limit_exceeded', 'tokens_limit_exceeded', 'rate_limit_error', 'content_policy_violation', 'content_filter', 'safety_blocked',
+}
+EXECUTION_COMPLETION_ENUMS = {
+    'reconciliation_identity_state': {'IDENTIFIED', 'MULTIPLE', 'NOT_RECORDED'},
+    'reconciliation_original_code': {'TIMEOUT_OUTCOME_UNKNOWN', 'DISPATCH_OUTCOME_UNKNOWN', 'TOOL_OUTCOME_UNKNOWN', 'TOOL_RESULT_ID_MISMATCH', 'RECONCILIATION_REQUIRED', 'GATEWAY_OUTCOME_UNKNOWN', 'GATEWAY_TOOL_OUTCOME_UNKNOWN', 'REMOTE_OUTCOME_UNKNOWN'},
+    'no_output_kind': {'REASONING_ONLY', 'EMPTY_VISIBLE_COMPLETION', 'DUPLICATE_DRAFT', 'OUTPUT_LIMIT_WITHOUT_NOVELTY'},
+    'no_output_stop_reason': {'BOUNDED_EMPTY_OUTPUT_REPAIR', 'BOUNDED_VISIBLE_OUTPUT_REPAIR', 'VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED', 'DUPLICATE_DRAFT', 'OUTPUT_ALLOWANCE_WITHOUT_NOVELTY', 'NO_PROGRESS_AFTER_CONTINUATION', 'EMPTY_OUTPUT_REPAIR_LIMIT'},
+    'evidence_conflict_reason': {'IMMUTABLE_PAYLOAD_CHANGED', 'RETAINED_PAYLOAD_UNAVAILABLE', 'CONCURRENT_APPEND_CONFLICT'},
+    'evidence_record_kind': {'github_evidence', 'github_engineering_memory', 'synthesis_checkpoint'},
+    'evidence_writer_phase': {'IMMUTABLE_APPEND', 'CHECKPOINT_REPLACE', 'TERMINAL_RECONCILIATION'},
+    'provider_failure_kind': {'AUTHENTICATION', 'BUDGET', 'PERMISSION', 'CONTENT_POLICY', 'FORBIDDEN_UNKNOWN', 'RATE_LIMIT', 'UNAVAILABLE', 'UNKNOWN'},
+    'upstream_error_code': EXECUTION_COMPLETION_UPSTREAM_CODES,
+    'upstream_error_type': EXECUTION_COMPLETION_UPSTREAM_CODES,
+    'stream_event_type': {'error', 'response.failed'},
+    'checkpoint_validation_stage': {'TOOL_JOURNAL'},
+    'provider_wait_decision_state': {'ELIGIBLE', 'INELIGIBLE', 'ROUTE_MISMATCH', 'DURABLE_WAIT', 'NOT_SCHEDULED', 'PERSISTENCE_UNCERTAIN'},
+    'provider_wait_scheduler_state': {'ENQUEUED', 'PENDING_RECONCILIATION', 'NOT_SCHEDULED'},
+    'provider_wait_no_wait_reason': {
+        'DECISION_UNAVAILABLE', 'REJECTION_NOT_REPLAY_SAFE', 'RETRY_LIMIT_REACHED', 'CONNECTIVITY_RESUME_UNSAFE',
+        'RESEARCH_CHECKPOINT_INVALID', 'ROUTE_MISMATCH', 'RUN_UNAVAILABLE', 'MESSAGE_UNAVAILABLE', 'OWNER_CHANGED',
+        'CHECKPOINT_UNAVAILABLE', 'CHECKPOINT_CHANGED', 'REMOTE_JOB_PRESENT', 'INITIAL_OUTPUT_PRESENT',
+        'CONTINUATION_PREFIX_CHANGED', 'COMBINED_SNAPSHOT_INVALID', 'COMBINED_RESUME_UNSAFE', 'AUTHORITY_UNAVAILABLE',
+        'AUTHORITY_CHANGED', 'PROFILE_UNAVAILABLE', 'INPUT_UNAVAILABLE', 'TASK_SOURCE_UNAVAILABLE', 'TASK_SOURCE_INVALID',
+        'DEADLINE_EXPIRED', 'PERSISTENCE_REJECTED', 'PERSISTENCE_FAILED', 'PERSISTENCE_OUTCOME_UNKNOWN',
+        'WAIT_STORE_UNAVAILABLE', 'MESSAGE_CHECKPOINT_FAILED', 'WAIT_PREPARATION_FAILED',
+    },
+}
+RECONCILIATION_IDENTITY_FIELDS = {'reconciliation_identity_state', 'reconciliation_tracked_operation_count', 'reconciliation_original_call_hash', 'reconciliation_original_tool_hash', 'reconciliation_original_arguments_hash', 'reconciliation_original_code', 'reconciliation_original_dispatched'}
+EXECUTION_COMPLETION_FIELDS = EXECUTION_COMPLETION_HASHES | EXECUTION_COMPLETION_COUNTS | set(EXECUTION_COMPLETION_ENUMS) | RECONCILIATION_IDENTITY_FIELDS | {'provider_semantic_status', 'no_output_repair_scheduled', 'provider_wait_state', 'provider_wait_persisted', 'ownership_fence'}
+HASHES.update(EXECUTION_COMPLETION_HASHES)
+FLAGS.add('no_output_repair_scheduled')
+FLAGS.add('reconciliation_original_dispatched')
+FLAGS.add('acceptance_original_failure_present')
+ENUMS.update(EXECUTION_COMPLETION_ENUMS)
+ENUMS['checkpoint_mismatch_reason'].update({
+    'TOOL_OUTCOME_UNKNOWN', 'TOOL_RESULTS_PENDING', 'TOOL_JOURNAL_CHANGED', 'TOOL_RECEIPTS_CHANGED',
+    'TOOL_REPLAY_PROJECTION_UNPROVEN', 'TOOL_RESULT_SEMANTICS_UNPROVEN', 'TOOL_RESULT_SEMANTICS_CHANGED',
+    'TOOL_JOURNAL_CHANGED_DURING_RESTORE', 'RECOVERY_OWNER_UNAVAILABLE', 'CHECKPOINT_COMPARE_AND_SET_REJECTED',
+})
+ENUMS['observed_checkpoint_state'].update({'GENERATING', 'WRITING', 'NO_OUTPUT_REPAIR', 'OUTPUT_LIMIT', 'INTERRUPTED', 'BLOCKED_NO_PROGRESS'})
+
+
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | {LAST_UNSENT_CODE} | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS, 'INCIDENT': {'github_prerequisite_observation', 'app_search_readiness'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | (EXECUTION_COMPLETION_FIELDS if area in {'INCIDENT', 'PROVIDER'} else set()) | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | {LAST_UNSENT_CODE} | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS | RECONCILIATION_IDENTITY_FIELDS, 'INCIDENT': {'github_prerequisite_observation', 'app_search_readiness'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | ACCEPTANCE_EXPLANATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
@@ -722,8 +819,18 @@ def valid_value(key, value):
         return type(value) is bool
     if type(value) is not int:
         return False
+    if key in EXECUTION_COMPLETION_COUNTS:
+        return 0 <= value <= 2_147_483_647
+    if key == 'reconciliation_tracked_operation_count':
+        return 0 <= value <= 1024
+    if key == 'ownership_fence':
+        return 0 <= value <= 9_223_372_036_854_775_807
+    if key == 'provider_semantic_status':
+        return value == 429
     if key == 'voice_pronunciation_unknown_word_length':
         return 1 <= value <= 256
+    if key == 'voice_fallback_count':
+        return 0 <= value <= 100
     if key in {'retry_delay_ms', 'privacy_metadata_age_ms', 'mcp_health_age_ms'}:
         return 0 <= value <= 86_400_000
     if key == 'tool_contract_version':

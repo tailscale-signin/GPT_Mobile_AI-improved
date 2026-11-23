@@ -715,6 +715,16 @@ if [ "$EMULATOR_TEST_FAILURE" = voice-transcript ]; then
     *VoiceTranscriptInstrumentedTest*) exit 58 ;;
   esac
 fi
+if [ "$EMULATOR_TEST_FAILURE" = privacy-migration ]; then
+  case "$*" in
+    *PrivacyModeMigrationInstrumentedTest*) exit 59 ;;
+  esac
+fi
+if [ "$EMULATOR_TEST_FAILURE" = agent-persistence ]; then
+  case "$*" in
+    *AgentPersistenceDaoInstrumentedTest*) exit 60 ;;
+  esac
+fi
 ''')
         python = binaries / 'python3'
         python.write_text('''#!/bin/sh
@@ -796,6 +806,20 @@ esac
             self.assertEqual(1, len(invocations))
             for name in ('voice-transcript-instrumentation.txt', 'logcat.txt', 'exit-logcat.txt', 'window-state.txt', 'process-state.txt', 'last-anr.txt'):
                 self.assertIn('retained emulator evidence', (artifacts / name).read_text())
+
+    def test_privacy_database_suites_execute_and_fail_closed_with_retained_evidence(self):
+        for phase, test_class, status in (
+            ('privacy-migration', 'PrivacyModeMigrationInstrumentedTest', 59),
+            ('agent-persistence', 'AgentPersistenceDaoInstrumentedTest', 60),
+        ):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as directory:
+                result, commands, artifacts = self.run_fixture(directory, phase)
+                self.assertEqual(status, result.returncode, result.stderr)
+                invocations = [command for command in commands if 'am instrument' in command and test_class in command]
+                self.assertEqual(1, len(invocations))
+                self.assertNotIn('#', invocations[0], 'The full database class must execute')
+                for name in (f'{phase}-instrumentation.txt', 'logcat.txt', 'exit-logcat.txt', 'window-state.txt', 'process-state.txt', 'last-anr.txt'):
+                    self.assertIn('retained emulator evidence', (artifacts / name).read_text())
 
 
 if __name__ == '__main__':

@@ -11,7 +11,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -36,7 +35,7 @@ class RepositoryGraphFallbackTest {
             nativeReads++
             AgentToolResult(call, ToolResultContent.Json(JsonObject(mapOf("commit_sha" to JsonPrimitive("a".repeat(40))))), false, executionReceipt = receipt)
         }) { throw IOException("gateway unreachable") }
-        val result = tool.execute("status", JsonObject(mapOf("action" to JsonPrimitive("status"))))
+        val result = tool.execute("status", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("status"))))
         val root = (result.content as ToolResultContent.Json).value as JsonObject
         val fallback = root["native_fallback"] as JsonObject
         assertTrue(result.isError)
@@ -54,7 +53,7 @@ class RepositoryGraphFallbackTest {
                 nativeReads++
                 AgentToolResult(call, ToolResultContent.Text("status"), false)
             }) { throw failure }
-            assertTrue(tool.execute("status", JsonObject(mapOf("action" to JsonPrimitive("status")))).isError)
+            assertTrue(tool.execute("status", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("status")))).isError)
             assertEquals(0, nativeReads)
         }
     }
@@ -65,7 +64,7 @@ class RepositoryGraphFallbackTest {
             calls++
             error("Only status may run the native probe")
         }) { throw IOException("unreachable") }
-        val result = tool.execute("graph-query", JsonObject(mapOf("action" to JsonPrimitive("query"))))
+        val result = tool.execute("graph-query", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("query"))))
         val root = (result.content as ToolResultContent.Json).value as JsonObject
         val alternatives = root["native_read_alternatives"] as kotlinx.serialization.json.JsonArray
         assertTrue(alternatives.toString().contains("github_pr__selected"))
@@ -73,22 +72,32 @@ class RepositoryGraphFallbackTest {
         assertEquals(JsonPrimitive(false), root["graph_complete"])
         assertEquals(0, calls)
         val denied = RepositoryGraphTool("repository_graph", nativeStatus = { error("No fallback") }) { throw IllegalStateException("permission denied") }
-        val rejected = (denied.execute("denied", JsonObject(mapOf("action" to JsonPrimitive("query")))).content as ToolResultContent.Json).value as JsonObject
+        val rejected = (denied.execute("denied", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("query")))).content as ToolResultContent.Json).value as JsonObject
         assertFalse(rejected.containsKey("native_read_alternatives"))
         assertFalse(rejected.containsKey("recovery_call"))
     }
 
     @Test fun indexingAndCancellationAreNeverReplayed() = runTest {
         var nativeReads = 0
+        val queries = mutableListOf<JsonObject>()
         val cancelled = CancellationException("cancel")
         val tool = RepositoryGraphTool("repository_graph", nativeStatus = { call ->
             nativeReads++
             AgentToolResult(call, ToolResultContent.Text("status"), false)
-        }) { arguments -> if (arguments["action"] == JsonPrimitive("status")) throw cancelled else throw IOException("interrupted") }
-        val index = tool.execute("index", JsonObject(mapOf("action" to JsonPrimitive("index"))))
+        }) { arguments ->
+            queries += arguments
+            if (arguments["action"] == JsonPrimitive("status")) throw cancelled else throw IOException("interrupted")
+        }
+        val index = tool.execute("index", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("index"))))
         assertTrue(index.isError)
         assertFalse(((index.content as ToolResultContent.Json).value as JsonObject).containsKey("native_fallback"))
-        assertSame(cancelled, runCatching { tool.execute("status", JsonObject(mapOf("action" to JsonPrimitive("status")))) }.exceptionOrNull())
+        val propagated = runCatching { tool.execute("status", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("status")))) }.exceptionOrNull()
+        assertTrue(propagated is CancellationException)
+        assertEquals(cancelled.message, propagated?.message)
+        // Coroutine stack-trace recovery may copy the exception while retaining its original cause.
+        assertTrue("The original cancellation must remain in its cause chain", generateSequence(propagated) { it.cause }.take(16).any { it === cancelled })
+        assertEquals(listOf(JsonPrimitive("index"), JsonPrimitive("status")), queries.map { it["action"] })
+        assertTrue(queries.all { it["map_source"] == JsonPrimitive("gateway") })
         assertEquals(0, nativeReads)
     }
 
@@ -98,11 +107,11 @@ class RepositoryGraphFallbackTest {
             nativeReads++
             AgentToolResult(call, ToolResultContent.Text("Selected repository status"), false)
         }) { throw dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException("Graph is unavailable") }
-        val status = tool.execute("status", JsonObject(mapOf("action" to JsonPrimitive("status"))))
+        val status = tool.execute("status", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("status"))))
         assertTrue(status.isError)
         assertEquals(1, nativeReads)
         assertTrue(((status.content as ToolResultContent.Json).value as JsonObject).containsKey("native_fallback"))
-        tool.execute("index", JsonObject(mapOf("action" to JsonPrimitive("index"))))
+        tool.execute("index", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("index"))))
         assertEquals(1, nativeReads)
     }
 
@@ -113,7 +122,7 @@ class RepositoryGraphFallbackTest {
                 nativeReads++
                 AgentToolResult(call, ToolResultContent.Text("native"), false)
             }) { throw dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException(code, "Restore the selected configuration.") }
-            val result = tool.execute("denied", JsonObject(mapOf("action" to JsonPrimitive("status"))))
+            val result = tool.execute("denied", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("status"))))
             val body = (result.content as ToolResultContent.Json).value as JsonObject
             assertEquals(code, result.errorCode)
             assertFalse(result.dispatched)
@@ -126,7 +135,7 @@ class RepositoryGraphFallbackTest {
 
     @Test fun successfulNativeFallbackIsDegradedNotVerifiedGraphCoverage() = runTest {
         val tool = RepositoryGraphTool("repository_graph", nativeStatus = { call -> AgentToolResult(call, ToolResultContent.Text("native"), false) }) { throw IOException("transport") }
-        val result = tool.execute("status", JsonObject(mapOf("action" to JsonPrimitive("status"))))
+        val result = tool.execute("status", JsonObject(mapOf("map_source" to JsonPrimitive("gateway"), "action" to JsonPrimitive("status"))))
         val body = (result.content as ToolResultContent.Json).value as JsonObject
         assertTrue(result.isError)
         assertEquals(JsonPrimitive("DEGRADED"), body["state"])

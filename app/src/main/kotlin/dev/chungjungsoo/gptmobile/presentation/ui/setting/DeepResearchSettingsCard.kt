@@ -42,7 +42,7 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                 Switch(value.enabled, { onChange(value.copy(enabled = it)) }, enabled = enabled)
             }
             if (value.enabled) {
-                SettingsTabs(listOf("Fast", "Balanced", "Thorough"), ResearchIntensity.entries.indexOf(value.intensity)) { onChange(value.preset(ResearchIntensity.entries[it]).copy(customSourceTarget = null)) }
+                SettingsTabs(listOf("Fast", "Balanced", "Thorough"), ResearchIntensity.entries.indexOf(value.intensity), enabled = enabled) { onChange(value.preset(ResearchIntensity.entries[it]).copy(customSourceTarget = null)) }
                 Text(
                     when (value.intensity) {
                         ResearchIntensity.QUICK -> "A focused starting point with fewer research rounds."
@@ -54,10 +54,10 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                 Text("$goal source goal · ${value.effort}% depth", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Text("Report style", style = MaterialTheme.typography.titleSmall)
                 val details = dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail.entries
-                SettingsTabs(details.map { it.label }, details.indexOf(value.reportDetail)) { onChange(value.copy(reportDetail = details[it])) }
+                SettingsTabs(details.map { it.label }, details.indexOf(value.reportDetail), enabled = enabled) { onChange(value.copy(reportDetail = details[it])) }
                 Text("Report structure", style = MaterialTheme.typography.titleSmall)
                 val structures = dev.chungjungsoo.gptmobile.data.model.ResearchReportStructure.entries
-                SettingsTabs(structures.map { it.label }, structures.indexOf(value.reportStructure)) { onChange(value.copy(reportStructure = structures[it])) }
+                SettingsTabs(structures.map { it.label }, structures.indexOf(value.reportStructure), enabled = enabled) { onChange(value.copy(reportStructure = structures[it])) }
                 Text("Choose Examine to review consent for an Examiner. Public study discovery can also be allowed here.", style = MaterialTheme.typography.bodySmall)
                 if (value.academicSources) {
                     TextButton(onClick = { onChange(value.copy(academicSources = false)) }, enabled = enabled) { Text("Revoke default papers consent") }
@@ -79,7 +79,11 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                             OutlinedTextField(value.excludeDomains, { onChange(value.copy(excludeDomains = it.take(1000))) }, label = { Text("Exclude these domains") }, enabled = enabled, modifier = Modifier.fillMaxWidth())
                             OutlinedTextField(if (value.recencyDays == 0) "" else value.recencyDays.toString(), { onChange(value.copy(recencyDays = it.filter(Char::isDigit).take(3).toIntOrNull()?.coerceIn(0, 365) ?: 0)) }, label = { Text("Past days · blank for any time") }, enabled = enabled, modifier = Modifier.fillMaxWidth())
                         }
-                        1 -> ResearchEngineHealthPanel(value.disabledEngineIds) { id, selected -> if (enabled) onChange(value.copy(disabledEngineIds = if (selected) value.disabledEngineIds - id else value.disabledEngineIds + id)) }
+                        1 -> ResearchEngineHealthPanel(
+                            disabledEngineIds = value.disabledEngineIds,
+                            editingEnabled = enabled,
+                            onEngineEnabled = { id, selected -> onChange(value.copy(disabledEngineIds = if (selected) value.disabledEngineIds - id else value.disabledEngineIds + id)) }
+                        )
                         2 -> {
                             ResearchLimit("Follow-up rounds", value.maxRounds, 1..8, enabled) { onChange(value.copy(maxRounds = it)) }
                             ResearchLimit("Link levels", value.linkDepth, 0..2, enabled) { onChange(value.copy(linkDepth = it)) }

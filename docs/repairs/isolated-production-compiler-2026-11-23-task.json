@@ -1,0 +1,173 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2254,
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
+  "main_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "working_branch": "work/phone-repository-map-2026-11-22",
+  "intent": "Repair independently observed production Kotlin compiler heap exhaustion with isolated bounded production compilation across equivalent CI and cold release runners, preserving every non-production resource limit and qualification gate.",
+  "status": "IMPLEMENTED_FOCUSED_AND_CANONICAL_VALIDATION_PASSED_PENDING_HOSTED",
+  "observed_failures": [
+    {
+      "workflow": "release-0950-acceptance.yml",
+      "run_id": 45100661888,
+      "job_id": 137450612932,
+      "source": "672ab1b7b3e3e0afe0b0cdde9d3ec623b0578400",
+      "owner": "benchmark"
+    },
+    {
+      "workflow": "audit-workspace.yml",
+      "run_id": 45101470908,
+      "job_id": 137453155361,
+      "source": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
+      "owner": "benchmark"
+    },
+    {
+      "workflow": "geniex-preview.yml",
+      "run_id": 45101472365,
+      "job_id": 137453156261,
+      "source": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc"
+    },
+    {
+      "workflow": "build-apk.yml",
+      "run_id": 45101471009,
+      "job_id": 137453147361,
+      "source": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc"
+    },
+    {
+      "workflow": "github-build-downloads.yml",
+      "run_id": 45101470721,
+      "job_id": 137453153291,
+      "source": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc"
+    },
+    {
+      "workflow": "marketplace-contracts.yml",
+      "run_id": 45101470788,
+      "job_id": 137453163066,
+      "source": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc"
+    },
+    {
+      "workflow": "ui-review-apk.yml",
+      "run_id": 45101470930,
+      "job_id": 137455381030,
+      "source": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc"
+    }
+  ],
+  "diagnosis": "Production compileDebugKotlin exhausts its explicit4096m JVM heap after KSP/KAPT have completed. Logs identify JVM heap exhaustion, not a kernel kill; they do not establish actual host headroom or the source file responsible.",
+  "resource_policy": {
+    "production_heap_mib": 6144,
+    "production_metaspace_mib": 768,
+    "workers": 1,
+    "kotlin_strategy": "in-process",
+    "daemon": false,
+    "non_production_limits": "UNCHANGED",
+    "configuration_cache": "UNCHANGED_DISABLED",
+    "retry_policy": "UNCHANGED",
+    "tests_lint_r8_packaging_release_gates": "REQUIRED_UNCHANGED"
+  },
+  "ownership": {
+    "benchmark": "Acceptance/audit workflows, shared compile-memory preflight and existing delivery/modernization contract expectations.",
+    "map_integration": "Other isolated production workflow boundaries, android_pipeline compile preparation and cold callers; separate focused regression coverage and checkpoint."
+  },
+  "validation": [
+    {
+      "check": "combined_delivery_modernization_and_cold_compile_contracts",
+      "tests": 54,
+      "failures": 0,
+      "seconds": 0.131,
+      "log": "compile-memory-proof/combined-host-contracts.log"
+    },
+    {
+      "check": "independent_workflow_boundaries",
+      "existing_production_commands_preserved_except_heap_and_gc": 11,
+      "unrelated_steps_unchanged": 188,
+      "diagnostic_uploads_only_extended": 9,
+      "direct_production_stages": 12,
+      "denied_preflight_controls": 12,
+      "successful_wrapper_controls": 12,
+      "evidence": "production-workflow-proof/workflow-boundaries.json"
+    },
+    {
+      "check": "independent_pipeline_review",
+      "previously_accepted_command_arrays_unchanged": 28,
+      "preflight": "After separate KSP/KAPT; outside retry; unknown/insufficient stops before production compilation; receipts retained."
+    },
+    {
+      "check": "actual_gradle_argument_splitting_and_jdk21_startup",
+      "result": "PASS",
+      "gc_rotation": "filecount=2,filesize=8M",
+      "path_with_spaces": "PASS",
+      "evidence": "compile-memory-proof/gc-argument-receipt.json",
+      "android_compilation_executed": false
+    },
+    {
+      "check": "canonical_fast",
+      "tests": 650,
+      "seconds": 25.03,
+      "result": "PASS",
+      "literal_regexes": 2038,
+      "dynamic_regexes_excluded": 100,
+      "xml_resources": 36,
+      "source_boundary": "Combined compiler changes on6227953 before incoming056 fixture-only integration; repeated exact-tree qualification is recorded separately."
+    },
+    {
+      "check": "canonical_fast_final_combined_tree",
+      "base_sha": "056399c8349c4975facc8f3c2226ede348a17e28",
+      "tests": 650,
+      "seconds": 23.566,
+      "result": "PASS",
+      "literal_regexes": 2038,
+      "dynamic_regexes_excluded": 100,
+      "xml_resources": 36,
+      "log": "compile-memory-proof/canonical-final-local.log"
+    }
+  ],
+  "remaining": [
+    "Actual final-head Android/CodeQL/Windows/device qualification",
+    "Exact-main checks and joint verified publication"
+  ],
+  "integrated_base_sha": "056399c8349c4975facc8f3c2226ede348a17e28",
+  "shared_candidate": {
+    "commit": "f9d31a5c90a086c0074744be660e2979a540d2a7",
+    "checker_sha256": "234d03a8f70e9f9d69ae903dc93b6570f456dd15947541657d4d130f98bec53b",
+    "integration": "Exact five-file candidate plus agreed production-only heap expectations for build-apk, github-build-downloads and native-memory-smoke.",
+    "contract_commit": "c9705d3f58a245cb6c05565193b7d329594bc039",
+    "combined_contract_sha256": "8143b8b3416406df93f91e1e2d8936fb3eec01e34c3de168e7992221b55ac223",
+    "contract_match": "Byte-identical to the benchmark owner independent three-line amendment."
+  },
+  "cold_callers": [
+    "debug-build.yml",
+    "unsigned-release-build.yml",
+    "apply-ui-pipeline.yml",
+    "release-build.yml publication build job",
+    "geniex-preview.yml NativeSmoke variant before R8"
+  ],
+  "headroom": {
+    "required_bytes": 9395240960,
+    "swap_counts": false,
+    "unknown_or_insufficient": "Fail before compilation without smaller retry",
+    "local_runtime": "UNKNOWN headroom; no full Android compilation attempted",
+    "hosted_runtime": "Pending actual final-head execution"
+  },
+  "source_sha256": {
+    ".github/workflows/apply-ui-pipeline.yml": "3d4ea94ccdb20a439f95736644d10a2ae90fd0b4f6741b00eefab64163591fc4",
+    ".github/workflows/audit-workspace.yml": "297ba63e0e4b4c1a97abaa31a9957131f73223498a33e15fa0e41d5e6f3e5c21",
+    ".github/workflows/build-apk.yml": "d796a159eb7ff3fac215dc970065601380c0f0cd7308587f9bf672a9b6f98b7d",
+    ".github/workflows/codeql.yml": "2b5d2ac94ecee7e3b1b17603066db7d091b1d0db206c5827cedf3f22bc6ff8f8",
+    ".github/workflows/debug-build.yml": "bec32ba142b870a2e6aed758d673f7d4da798ced3aab89048441cd6ec6fdb172",
+    ".github/workflows/geniex-preview.yml": "26dfb63ff081e222a19d127f0d2f1fb4cbccd9494cbd78af5f8213a2dc318a5d",
+    ".github/workflows/github-build-downloads.yml": "fb9e6eaf23b956b419c6ed4254b58b6a0ad036ac3e720d9285fe857c433cbee9",
+    ".github/workflows/marketplace-contracts.yml": "20b2f457512d485ee2ba2c67d7863d366804dd3186ec20210f010355f0d9971c",
+    ".github/workflows/native-memory-smoke.yml": "185fd2662775043761bec30380997548d6af1a13b777dd46a38dded86d0f5232",
+    ".github/workflows/pr-validation.yml": "e56d84578da5b0338aa78a65f0040aeb02e49689576cf8e83caee5d0fa3f7eae",
+    ".github/workflows/release-0950-acceptance.yml": "d06b177dfc08c7dfa8b3d98715ea0de313a441fcaa1b942899e06ed917574343",
+    ".github/workflows/release-build.yml": "a0a2afb2b08b28252089ec744c996f53ca301a114d073931916902c2f1251eb0",
+    ".github/workflows/ui-review-apk.yml": "9a21e34b7ba33e241c594a621167e3c2a75e45ab097113d62c161e87110069fb",
+    ".github/workflows/unsigned-release-build.yml": "a29c334cce6403be0711935b4267ae0842d27767483c88c285b3be7069595ec8",
+    "scripts/android_pipeline.py": "09acf97db1efa43e4d73eed7e942fb8c0197bf07dd2cba798fc40d4ce6e00009",
+    "scripts/check_android_compile_memory.py": "234d03a8f70e9f9d69ae903dc93b6570f456dd15947541657d4d130f98bec53b",
+    "scripts/tests/test_android_compile_boundaries.py": "4450837c9c26f2bf317a1642751dd36f49db347aa681e43eef82612e2c8a41a6",
+    "scripts/tests/test_ci_modernization.py": "ec85053a88379c67d3f99e5a6c66e6dd2c246bc69a170c7caf01960b8d3a7b19",
+    "scripts/tests/test_delivery_pipeline.py": "8143b8b3416406df93f91e1e2d8936fb3eec01e34c3de168e7992221b55ac223"
+  }
+}

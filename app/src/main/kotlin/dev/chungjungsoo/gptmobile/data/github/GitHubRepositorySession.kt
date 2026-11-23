@@ -157,10 +157,17 @@ internal class GitHubRepositorySession(
         return bounded
     }
 
-    private suspend fun blob(context: GitHubTaskSnapshot, item: JsonObject): JsonObject {
+    private data class BlobRead(val content: JsonObject, val cacheHit: Boolean)
+
+    private suspend fun blob(context: GitHubTaskSnapshot, item: JsonObject): JsonObject = readBlob(context, item).content
+
+    private suspend fun readBlob(context: GitHubTaskSnapshot, item: JsonObject): BlobRead {
         val sha = item.s("sha")
         require(sha.sha()) { "Blob identity is unavailable." }
-        cachedSource(blobScope(context), "blob:$sha")?.let { return it }
+        cachedSource(blobScope(context), "blob:$sha")?.let {
+            retainSymbols(context, sha, it)
+            return BlobRead(it, cacheHit = true)
+        }
         GitHubBlobContent.checkSize(item["size"]?.jsonPrimitive?.longOrNull ?: 0)
         val response = request("${root(context.owner, context.repo)}/git/blobs/$sha").jsonObject
         require(response.s("sha").isBlank() || response.s("sha") == sha) { "Returned blob identity differs from the selected tree." }
@@ -178,7 +185,28 @@ internal class GitHubRepositorySession(
             }
         }
         store.write(blobScope(context), "blob:$sha", result)
-        return result
+        retainSymbols(context, sha, result)
+        return BlobRead(result, cacheHit = false)
+    }
+
+    private suspend fun retainSymbols(context: GitHubTaskSnapshot, sha: String, blob: JsonObject, fillOnly: Boolean = false) {
+        val index = blob["index"] as? JsonObject ?: return
+        val names = (index["definitions"] as? JsonArray).orEmpty().take(2000).mapNotNull { (it as? JsonObject)?.s("name") }
+        val text = GitHubTaskContextBundle.terms(names.joinToString(" "), 2048).joinToString(" ").take(8192)
+        val sourceScope = blobScope(context)
+        val catalogKey = "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:catalog-v1:${sha.take(2)}"
+        val existing = store.read(sourceScope, catalogKey)?.get(sha)
+        if (existing == JsonPrimitive(text) || fillOnly && existing != null) return
+        var changed = false
+        store.update(sourceScope, catalogKey) { prior ->
+            changed = prior?.get(sha) != JsonPrimitive(text)
+            JsonObject((prior.orEmpty() - sha).entries.toList().takeLast(255).associate { it.toPair() } + (sha to JsonPrimitive(text)))
+        }
+        if (changed) {
+            store.update(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:generation-v1") { prior ->
+                buildJsonObject { put("generation", ((prior?.get("generation") as? JsonPrimitive)?.longOrNull ?: 0) + 1) }
+            }
+        }
     }
 
     /** Explicit patch targets have their own immutable base and never move the selected workspace. */
@@ -240,6 +268,7 @@ internal class GitHubRepositorySession(
     }
 
     suspend fun execute(action: String, owner: String, repo: String, args: JsonObject): JsonElement {
+        if (action == "search_repository") GitHubSearchArguments.validate(args)
         val commitImmediately = args["commit_immediately"]?.let { requireNotNull((it as? JsonPrimitive)?.booleanOrNull) { "commit_immediately must be a boolean." } } == true
         if (commitImmediately) {
             require(action == "stage_patch") { "commit_immediately is supported only for stage_patch." }
@@ -389,7 +418,7 @@ internal class GitHubRepositorySession(
 
     /** Index coverage excludes binary and unsupported blobs that preparation never fetches. */
     private fun indexableSourceEntries(entries: List<JsonObject>): List<JsonObject> {
-        val extensions = setOf("kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "json", "yaml", "yml", "xml", "toml", "md", "c", "cpp", "h", "hpp", "rs", "go", "cs", "swift", "sh", "properties", "gradle", "txt")
+        val extensions = setOf("kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "json", "yaml", "yml", "xml", "toml", "md", "c", "cc", "cpp", "h", "hpp", "rs", "go", "cs", "swift", "sh", "properties", "gradle", "txt")
         val extensionless = setOf("README", "LICENSE", "DOCKERFILE", "MAKEFILE")
         return entries.filter { entry ->
             val path = entry.s("path")
@@ -430,8 +459,274 @@ internal class GitHubRepositorySession(
         }
     }
 
+    /** Build the immutable tree and inspect its cached shards away from the workspace UI. */
+    internal suspend fun repositoryMap(owner: String, repo: String, args: JsonObject): JsonObject = withContext(Dispatchers.Default) {
+        require(args.toString().length <= 64_000) { "Repository map request is too large." }
+        val action = args.s("action").ifBlank { "status" }
+        if (action !in setOf("status", "index", "architecture", "query", "node", "callers", "callees", "path", "impact", "metrics", "task_context_bundle")) {
+            throw GatewayGraphResultException("PHONE_GRAPH_OPERATION_UNSUPPORTED", "This operation requires the optional Gateway map.", "SELECT_GATEWAY_ANALYSIS")
+        }
+        require(args.s("commit_sha").sha()) { "Repository map requires an immutable selected commit." }
+        require(args.s("job_action").isBlank() && args["background"] != JsonPrimitive(true)) {
+            "Phone indexing runs in bounded foreground batches."
+        }
+        val context = resolve(owner, repo, args)
+        val tree = tree(context)
+        if (action == "task_context_bundle") return@withContext taskContextBundle(context, tree, args)
+        val entries = tree.getValue("tree").jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
+        val eligible = indexableSourceEntries(entries)
+        val sourceScope = blobScope(context)
+        val checkpointKey = "phone-map-progress:${context.commitSha}:${PhoneRepositoryGraph.PARSER_VERSION}"
+        val cursorPrefix = "phone-index:${GitHubRepositoryStateStore.digest("$accountId|$connectionUid|${context.owner.lowercase()}/${context.repo.lowercase()}|${context.commitSha}|${context.treeSha}|${PhoneRepositoryGraph.PARSER_VERSION}").take(32)}:"
+        val saved = store.read(sourceScope, checkpointKey)
+        val savedPosition = (saved?.get("prepared_through") as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..eligible.size } ?: 0
+        val suppliedCursor = args.s("index_cursor")
+        val start = when {
+            args["retry_failed"] == JsonPrimitive(true) -> 0
+            suppliedCursor.isNotBlank() -> {
+                if (!suppliedCursor.startsWith(cursorPrefix)) throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_STALE", "Refresh this repository map before continuing its index.", "REFRESH_PHONE_MAP")
+                suppliedCursor.removePrefix(cursorPrefix).toIntOrNull()?.takeIf { it in 0..eligible.size }
+                    ?: throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_INVALID", "Refresh this repository map before continuing its index.", "REFRESH_PHONE_MAP")
+            }
+            else -> savedPosition
+        }
+
+        fun shardKey(entry: JsonObject) = "phone-graph:${PhoneRepositoryGraph.PARSER_VERSION}:${entry.s("path").substringAfterLast('.', "").lowercase()}:${entry.s("sha")}"
+        suspend fun shard(entry: JsonObject): JsonObject? = store.read(sourceScope, shardKey(entry))
+            ?.takeIf { it.s("blob_sha") == entry.s("sha") && it["parser_version"] == JsonPrimitive(PhoneRepositoryGraph.PARSER_VERSION) }
+
+        suspend fun retainShard(entry: JsonObject, blob: JsonObject): JsonObject {
+            val parsed = PhoneRepositoryGraph.sourceIndex(entry.s("path"), blob.s("content"))
+            val retained = buildJsonObject {
+                put("blob_sha", entry.s("sha"))
+                put("parser_version", PhoneRepositoryGraph.PARSER_VERSION)
+                put("phone_graph", parsed)
+            }
+            store.write(sourceScope, shardKey(entry), retained)
+            return retained
+        }
+
+        val batch = if (action == "index") {
+            buildIndex(
+                context,
+                buildJsonObject { put("index_cursor", start) },
+                alreadyPrepared = { entry ->
+                    shard(entry)?.also { retained ->
+                        (retained["phone_graph"] as? JsonObject)?.let { parsed -> retainSymbols(context, entry.s("sha"), buildJsonObject { put("index", parsed) }, fillOnly = true) }
+                    } != null
+                },
+                onBlob = { entry, blob -> retainShard(entry, blob) }
+            ).also { store.write(sourceScope, checkpointKey, it) }
+        } else {
+            saved
+        }
+        val position = (batch?.get("prepared_through") as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..eligible.size } ?: 0
+        val inspect = action !in setOf("status", "index")
+        val cached = linkedMapOf<String, JsonObject>()
+        var indexed = 0
+        var indexedSupported = 0
+        var partialSupported = 0
+        var shardBytes = 0
+        var sourceBytes = 0
+        var unparsedCached = 0
+        var retryableFiles = 0
+        var shardsTruncated = false
+        val focus = (args["paths"] as? JsonArray).orEmpty().map { it.jsonPrimitive.content }.toSet()
+        val query = args.s("query")
+        val prioritized = if (focus.isEmpty() && query.isBlank()) {
+            eligible
+        } else {
+            eligible.sortedByDescending {
+                (if (it.s("path") in focus) 2 else 0) + (if (query.isNotBlank() && it.s("path").contains(query, true)) 1 else 0)
+            }
+        }
+        for (entry in prioritized) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            var parsed = shard(entry)
+            val hasBlob = parsed != null || store.contains(sourceScope, "blob:${entry.s("sha")}")
+            if (!hasBlob) {
+                if (position == eligible.size &&
+                    PhoneRepositorySourceIndex.supports(entry.s("path")) &&
+                    entry.s("mode") !in setOf("120000", "160000") &&
+                    (entry["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()) in 0..MAX_BLOB_BYTES.toLong()
+                ) {
+                    retryableFiles++
+                }
+                continue
+            }
+            if (inspect && parsed == null) {
+                val size = entry["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
+                // Read-time preparation stays bounded. Explicit index batches finish
+                // other cached sources and persist their reusable compact shards.
+                if (size in 0..MAX_BLOB_BYTES.toLong() && sourceBytes + size <= 4 * 1024 * 1024) {
+                    cachedSource(sourceScope, "blob:${entry.s("sha")}")?.let { blob ->
+                        sourceBytes += blob.s("content").toByteArray(Charsets.UTF_8).size
+                        parsed = retainShard(entry, blob)
+                    }
+                }
+            }
+            val prepared = parsed
+            if (prepared != null) {
+                indexed++
+                val sourceIndex = prepared["phone_graph"] as? JsonObject
+                if (sourceIndex?.get("supported") == JsonPrimitive(true)) {
+                    indexedSupported++
+                    if (sourceIndex["complete"] != JsonPrimitive(true)) partialSupported++
+                }
+            } else {
+                unparsedCached++
+                if (position == eligible.size && PhoneRepositorySourceIndex.supports(entry.s("path")) && entry.s("mode") !in setOf("120000", "160000")) retryableFiles++
+            }
+            if (inspect && prepared != null) {
+                val size = prepared.toString().toByteArray(Charsets.UTF_8).size
+                if (shardBytes + size <= 24 * 1024 * 1024) {
+                    cached[entry.s("path")] = JsonObject(prepared + ("sha" to JsonPrimitive(entry.s("sha"))))
+                    shardBytes += size
+                } else {
+                    shardsTruncated = true
+                }
+            }
+        }
+        val treeComplete = tree["truncated"] != JsonPrimitive(true)
+        val coverageComplete = indexed == eligible.size && treeComplete
+        val more = !coverageComplete && position < eligible.size
+        val status = buildJsonObject {
+            batch?.filterKeys { it in setOf("prepared_through", "fetched_this_batch", "attempted_this_batch", "skipped_this_batch", "prepared_bytes_this_batch") }?.forEach { (name, value) -> put(name, value) }
+            put("commit_sha", context.commitSha)
+            put("tree_sha", context.treeSha)
+            put("total_paths", entries.size)
+            put("eligible_paths", eligible.size)
+            put("indexed_blobs", indexed)
+            put("indexed_eligible_blobs", indexed)
+            put("unparsed_cached_files", unparsedCached)
+            put("phone_indexed_supported_files", indexedSupported)
+            put("phone_partial_supported_files", partialSupported)
+            put("phone_retryable_files", retryableFiles)
+            put("processed_files", indexed)
+            put("expected_files", eligible.size)
+            put("excluded_nonindexable_paths", entries.size - eligible.size)
+            put("tree_complete", treeComplete)
+            put("complete", coverageComplete)
+            put("coverage_complete", coverageComplete)
+            put("processing_complete", coverageComplete || position == eligible.size)
+            put("preparation_finished", position == eligible.size && treeComplete)
+            put("has_more", more)
+            if (more) put("index_cursor", cursorPrefix + position)
+            put("cached_sources_truncated", shardsTruncated || inspect && unparsedCached > 0)
+            put("loaded_source_files", cached.size)
+            put("map_source", "phone")
+            put("graph_source", "PHONE")
+            put("index_coverage_scope", "ELIGIBLE_TEXT_SOURCE_ONLY")
+            put("compiler_resolution", false)
+        }
+        val result = PhoneRepositoryGraph.execute(context, tree, cached, status, args)
+        if (action == "status") {
+            val summary = store.read(scope, "phone-context-summary:${context.commitSha}")?.takeIf { it.s("source_sha") == context.commitSha }
+            JsonObject(result + mapOf("source_storage" to store.sourceStorageStatus()) + summary?.let { mapOf("task_context" to it) }.orEmpty())
+        } else {
+            result
+        }
+    }
+
+    private suspend fun taskContextBundle(context: GitHubTaskSnapshot, tree: JsonObject, args: JsonObject): JsonObject {
+        val started = System.nanoTime()
+        val preparationBudgetMs = ((args["preparation_budget_ms"] as? JsonPrimitive)?.longOrNull ?: 6000).coerceIn(500, 20_000)
+        val variant = runCatching { GitHubContextVariant.valueOf(args.s("variant").ifBlank { "TASK" }.uppercase(java.util.Locale.ROOT)) }
+            .getOrElse { throw IllegalArgumentException("Choose CURRENT, REFERENCE, TASK or SEMANTIC context.") }
+        val query = args.s("query").take(6000)
+        val budget = ((args["budget_bytes"] as? JsonPrimitive)?.intOrNull ?: 12_000).coerceIn(4096, 64_000)
+        val sourceScope = blobScope(context)
+        val entries = indexableSourceEntries(tree.getValue("tree").jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" && it.s("mode") !in setOf("120000", "160000") }).associateBy { it.s("path") }
+        suspend fun generation() = store.read(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:generation-v1")?.s("generation").orEmpty()
+        val requestKey = GitHubRepositoryStateStore.digest(
+            buildJsonObject {
+                put("bundle_version", GitHubTaskContextBundle.VERSION)
+                put("parser_version", PhoneRepositoryGraph.PARSER_VERSION)
+                put("repository", "${context.owner}/${context.repo}")
+                put("ref", context.ref)
+                put("commit_sha", context.commitSha)
+                put("tree_sha", context.treeSha)
+                put("query", query)
+                put("variant", variant.name)
+                put("budget_bytes", budget)
+                put("preparation_budget_ms", preparationBudgetMs)
+            }.toString()
+        )
+        val cacheKey = "task-context:$requestKey:${generation()}"
+        if (variant != GitHubContextVariant.SEMANTIC && !forceLiveReads()) {
+            store.read(sourceScope, cacheKey)?.takeIf {
+                it.s("repository") == "${context.owner}/${context.repo}" &&
+                    it.s("branch") == context.ref &&
+                    it.s("source_sha") == context.commitSha &&
+                    it.s("variant") == variant.name
+            }?.let {
+                val reused = GitHubTaskContextBundle.measure(JsonObject(it + mapOf("cache_hit" to JsonPrimitive(true), "cache" to JsonObject((it["cache"] as? JsonObject).orEmpty() + ("cache_hit" to JsonPrimitive(true))), "cache_status" to JsonPrimitive("PINNED_PACKET_REUSED"), "preparation_ms" to JsonPrimitive(0))))
+                retainTaskContextSummary(context, reused)
+                return reused
+            }
+        }
+        val catalogs = if (variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC)) {
+            entries.values.map { it.s("sha").take(2) }.distinct().associateWith { prefix -> cachedSource(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:catalog-v1:$prefix") }
+        } else {
+            emptyMap()
+        }
+        val files = entries.values.map { entry ->
+            val blobSha = entry.s("sha")
+            GitHubContextFile(entry.s("path"), blobSha, (entry["size"] as? JsonPrimitive)?.longOrNull ?: 0, (catalogs[blobSha.take(2)]?.get(blobSha) as? JsonPrimitive)?.content.orEmpty())
+        }
+        val keys = mutableListOf<String>()
+        val result = GitHubTaskContextBundle.build(
+            "${context.owner}/${context.repo}", context.commitSha, context.ref, files, query, variant, budget,
+            treeComplete = tree["truncated"] != JsonPrimitive(true),
+            load = { path ->
+                val entry = entries[path]
+                if (entry == null) {
+                    null
+                } else {
+                    val key = "blob:${entry.s("sha")}"
+                    val remaining = preparationBudgetMs - (System.nanoTime() - started) / 1_000_000
+                    val read = if (remaining <= 0) null else kotlinx.coroutines.withTimeoutOrNull(minOf(remaining, 2500)) { readBlob(context, entry) }
+                    read?.let {
+                        keys += key
+                        GitHubContextSource(path, entry.s("sha"), it.content.s("content"), it.cacheHit)
+                    }
+                }
+            },
+            localRanker = kotlinx.coroutines.currentCoroutineContext()[GitHubTaskContextRanking]?.let { ranker ->
+                { query, records -> ranker.rank(query, records, context.accountId) }
+            },
+            indexedFiles = files.count { catalogs[it.blobSha.take(2)]?.containsKey(it.blobSha) == true }.takeIf { variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC) },
+            localRankingFallback = kotlinx.coroutines.currentCoroutineContext()[GitHubTaskContextRanking]?.fallbackReason
+        )
+        store.retainSourceWorkingSet(sourceScope, keys)
+        val indexedNow = files.count { catalogs[it.blobSha.take(2)]?.containsKey(it.blobSha) == true || "blob:${it.blobSha}" in keys }
+        val coverage = JsonObject((result["coverage"] as? JsonObject).orEmpty() + ("indexed_files" to if (variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC)) JsonPrimitive(indexedNow) else JsonNull))
+        val enriched = GitHubTaskContextBundle.measure(JsonObject(result + mapOf("coverage" to coverage, "cache_status" to JsonPrimitive(if (result["cache_hit"] == JsonPrimitive(true)) "SOURCE_REUSED" else "SOURCE_FETCHED"))))
+        if (variant != GitHubContextVariant.SEMANTIC && result["source_complete"] == JsonPrimitive(true)) store.write(sourceScope, "task-context:$requestKey:${generation()}", enriched)
+        retainTaskContextSummary(context, enriched)
+        return enriched
+    }
+
+    /** UI diagnostics retain identities and counts, never task text or source excerpts. */
+    private suspend fun retainTaskContextSummary(context: GitHubTaskSnapshot, packet: JsonObject) {
+        val scalarKeys = setOf("schema", "repository", "source_sha", "variant", "reference_digest", "index_digest", "manifest_status", "freshness", "ranking", "semantic_applied", "semantic_fallback", "cache_hit", "cache_status", "cached_files", "loaded_files", "coverage", "cache", "preparation_ms", "content_bytes", "bytes", "token_count", "token_count_basis", "token_estimate", "token_estimate_basis", "selection_truncated", "selected_paths", "test_candidates", "unavailable_files", "source_complete", "delivery_status")
+        val summary = buildJsonObject {
+            packet.filterKeys { it in scalarKeys }.forEach { (key, value) -> put(key, value) }
+            put("selected_ranges", JsonArray((packet["selected_ranges"] as? JsonArray).orEmpty().mapNotNull { row -> (row as? JsonObject)?.let { JsonObject(it.filterKeys { name -> name in setOf("path", "blob_sha", "start_line", "end_line", "reason") }) } }))
+            put("documents", JsonArray((packet["documents"] as? JsonArray).orEmpty().mapNotNull { row -> (row as? JsonObject)?.let { JsonObject(it.filterKeys { name -> name in setOf("path", "blob_sha", "start_line", "end_line") }) } }))
+            put("source_current", packet.s("source_sha") == context.commitSha)
+            put("summary_scope", "SELECTED_ACCOUNT_PROFILE_REPOSITORY_REVISION")
+        }
+        store.write(scope, "phone-context-summary:${context.commitSha}", summary)
+    }
+
     /** Explicit foreground preparation. Every batch is bounded and pinned to one SHA. */
-    private suspend fun buildIndex(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
+    private suspend fun buildIndex(
+        context: GitHubTaskSnapshot,
+        args: JsonObject,
+        alreadyPrepared: (suspend (JsonObject) -> Boolean)? = null,
+        onBlob: (suspend (JsonObject, JsonObject) -> Unit)? = null
+    ): JsonObject {
         val entries = tree(context)["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
         val eligible = indexableSourceEntries(entries)
         val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..eligible.size) }
@@ -443,7 +738,7 @@ internal class GitHubRepositorySession(
         while (next < eligible.size && next - cursor < 100 && attempted < 24 && bytes < 4L * 1024 * 1024) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             val item = eligible[next++]
-            if (!forceLiveReads() && store.contains(blobScope(context), "blob:${item.s("sha")}")) continue
+            if (!forceLiveReads() && (alreadyPrepared?.invoke(item) ?: store.contains(blobScope(context), "blob:${item.s("sha")}"))) continue
             val size = item["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
             if (size > MAX_BLOB_BYTES || size < 0) {
                 skipped++
@@ -456,6 +751,7 @@ internal class GitHubRepositorySession(
             try {
                 attempted++
                 val retained = blob(context, item)
+                onBlob?.invoke(item, retained)
                 bytes += retained.s("content").toByteArray(Charsets.UTF_8).size
                 fetched++
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -592,8 +888,6 @@ internal class GitHubRepositorySession(
     }
 
     private suspend fun search(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
-        require(args.s("query").isNotBlank() && args.s("query").length <= 200) { "Search requires a non-blank query of at most 200 characters." }
-        require(args.s("mode").ifBlank { "literal" } in setOf("literal", "definitions", "references", "paths", "tests", "patterns"))
         val request = prepareSearch(context, args, tree(context))
         cachedSource(scope, request.cacheKey)?.let { cached ->
             return withSearchRecovery(JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0))), request.recovery)
@@ -612,15 +906,11 @@ internal class GitHubRepositorySession(
 
     private suspend fun prepareSearch(context: GitHubTaskSnapshot, args: JsonObject, data: JsonObject): SearchRequest {
         val query = args.s("query")
-        require(query.isNotBlank() && query.length <= 200) { "Search requires a non-blank query of at most 200 characters." }
         val mode = args.s("mode").ifBlank { "literal" }
-        require(mode in setOf("literal", "definitions", "references", "paths", "tests", "patterns"))
-        require(!Regex("(?:^|\\s)(?:extension|path):[^\\s]+").containsMatchIn(query)) { "Use file_extension and path_prefix arguments instead of extension:/path: query qualifiers. No content scan was dispatched." }
-        val options = GitHubSearchOptions.from(args)
+        val options = GitHubSearchArguments.validate(args)
         val extension = args.s("file_extension").removePrefix(".").lowercase(java.util.Locale.ROOT)
-        require(extension.isEmpty() || extension.matches(Regex("[a-z0-9]+"))) { "file_extension must be a single extension such as kt or .kt." }
-        val batchSize = args.s("batch_size").ifBlank { "1000" }.toInt().also { require(it in 1..1000) }
-        val maxNewBlobs = args.s("max_new_blobs").ifBlank { "4" }.toInt().also { require(it in 1..100) }
+        val batchSize = GitHubSearchArguments.integer(args, "batch_size", 1000)
+        val maxNewBlobs = GitHubSearchArguments.integer(args, "max_new_blobs", 4)
         val pathPrefix = args.s("path_prefix")
         val definition = buildJsonObject {
             put("owner", context.owner.lowercase(java.util.Locale.ROOT))
@@ -1492,7 +1782,8 @@ internal class GitHubRepositorySession(
         val before = oldTree["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.associateBy { it.s("path") }
         val after = newTree["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.associateBy { it.s("path") }
         val changes = (before.keys + after.keys).sorted().filter { before[it]?.s("sha") != after[it]?.s("sha") || before[it]?.s("mode") != after[it]?.s("mode") }
-        val page = (args["page"]?.jsonPrimitive?.intOrNull ?: 1).also { require(it in 1..1000) }
+        val window = GitHubComparisonPage.window(args, changes.size)
+        val page = window.page
         val includePatches = args["include_patches"]?.jsonPrimitive?.booleanOrNull == true
         // GitHub compare exposes patches for at most 300 files. Missing/binary patches
         // remain explicitly unavailable; tree comparison still covers every file.
@@ -1503,13 +1794,17 @@ internal class GitHubRepositorySession(
             emptyMap()
         }
         return buildJsonObject {
+            put("owner", context.owner)
+            put("repo", context.repo)
             put("base_sha", base.commitSha)
             put("head_sha", context.commitSha)
             put("files_total", changes.size)
+            put("effective_per_page", window.size)
+            put("total_pages", window.totalPages)
             put(
                 "files",
                 JsonArray(
-                    changes.drop((page - 1) * 100).take(100).map { path ->
+                    changes.subList(window.from, window.until).map { path ->
                         buildJsonObject {
                             put("filename", path)
                             put(
@@ -1537,10 +1832,10 @@ internal class GitHubRepositorySession(
                 )
             )
             put("page", page)
-            put("has_more", page * 100 < changes.size)
-            put("files_truncated", page * 100 < changes.size)
+            put("has_more", window.hasMore)
+            put("files_truncated", window.hasMore)
             put("tree_complete", oldTree["truncated"]?.jsonPrimitive?.booleanOrNull != true && newTree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
-            if (page * 100 < changes.size) {
+            if (window.hasMore) {
                 put(
                     "continuation",
                     buildJsonObject {
@@ -1548,11 +1843,12 @@ internal class GitHubRepositorySession(
                         put("base", base.commitSha)
                         put("commit_sha", context.commitSha)
                         put("page", page + 1)
+                        put("per_page", window.size)
                         put("include_patches", includePatches)
                     }
                 )
             }
-        }
+        }.let { GitHubComparisonPage.limitResult(args, it) ?: it }
     }
 
     companion object {

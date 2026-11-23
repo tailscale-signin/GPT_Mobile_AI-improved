@@ -174,5 +174,43 @@ class AppAuditGitHubReadTest {
         }
     }
 
+    @Test fun transportDiagnosticsRetainTypedPhasesWithoutPrivateExceptionText() = runTest {
+        val failures = listOf(
+            Triple(java.net.UnknownHostException("private-host"), "GITHUB_AUDIT_DNS_FAILED", "dns"),
+            Triple(javax.net.ssl.SSLHandshakeException("private-certificate"), "GITHUB_AUDIT_TLS_FAILED", "tls"),
+            Triple(java.net.ConnectException("Connection refused private-host"), "GITHUB_AUDIT_CONNECTION_FAILED", "connection"),
+            Triple(java.net.SocketTimeoutException("private timeout"), "GITHUB_AUDIT_TIMEOUT", "transport"),
+            Triple(java.io.EOFException("private stream detail"), "GITHUB_AUDIT_STREAM_INTERRUPTED", "response_stream")
+        )
+        for ((failure, reason, phase) in failures) {
+            val http = HttpClient(MockEngine { throw IOException("private wrapper", failure) })
+            try {
+                val result = readAccount(GitHubWorkspaceClient("fixture-transport", http, persistentState = false))
+                assertEquals(reason, result.reasonCode)
+                assertEquals(phase, result.failurePhase)
+                assertEquals(reason != "GITHUB_AUDIT_TLS_FAILED", result.retryable)
+                assertEquals(AppAuditDispatchEvidence.ATTEMPTED, result.dispatchEvidence)
+                assertEquals(null, result.httpStatus)
+                assertFalse(result.toString().contains("private"))
+            } finally {
+                http.close()
+            }
+        }
+    }
+
+    @Test fun unclassifiedClientExceptionDoesNotClaimANetworkFailure() = runTest {
+        val http = HttpClient(MockEngine { throw IllegalStateException("private implementation detail") })
+        try {
+            val result = readAccount(GitHubWorkspaceClient("fixture-client", http, persistentState = false))
+            assertEquals(AppAuditOutcome.FAIL, result.outcome)
+            assertEquals("GITHUB_AUDIT_CLIENT_FAILURE", result.reasonCode)
+            assertEquals("CLIENT_FAILURE", result.failureCategory)
+            assertEquals(false, result.retryable)
+            assertFalse(result.toString().contains("private"))
+        } finally {
+            http.close()
+        }
+    }
+
     private suspend fun readAccount(client: GitHubWorkspaceClient) = appAuditGitHubRead(AppAuditGitHubCatalog.live.first(), repository, "7", client) {}
 }

@@ -26,6 +26,29 @@ class GitHubExecutionJournalTest {
     }
     private val receipt = buildJsonObject { put("sha", "b".repeat(40)) }
 
+    @Test fun typedPolicyRejectionReleasesOnlyAProvenUnsentClaim() = runTest {
+        for (priorAttempt in listOf(false, true)) {
+            val journal = GitHubExecutionJournal(GitHubRepositoryStateStore(), "privacy-$priorAttempt")
+            runCatching {
+                journal.run("write", arguments) {
+                    if (priorAttempt) GitHubMutationAttempts.dispatched()
+                    throw dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied()
+                }
+            }
+            var replayed = false
+            val next = journal.run("write", arguments) {
+                replayed = true
+                receipt
+            }.jsonObject
+            assertEquals(!priorAttempt, replayed)
+            if (priorAttempt) {
+                assertEquals("RECONCILE_REQUIRED", next["status"]!!.jsonPrimitive.content)
+            } else {
+                assertEquals("COMPLETED", next["execution"]!!.jsonObject["status"]!!.jsonPrimitive.content)
+            }
+        }
+    }
+
     @Test fun queueRejectionDoesNotCreateAnUncertainWriteOrReplayAnEarlierReceipt() = runTest {
         val journal = GitHubExecutionJournal(GitHubRepositoryStateStore(), "scope")
         val scheduler = GitHubRequestScheduler(concurrency = 1, maxQueued = 0)

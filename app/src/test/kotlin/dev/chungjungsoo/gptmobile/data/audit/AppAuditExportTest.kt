@@ -35,6 +35,91 @@ import org.junit.Test
 
 class AppAuditExportTest {
     @Test
+    fun typedGitHubFailureStagesRoundTripWhilePrivateStagesAreRemoved() = runBlocking {
+        val check = entry().copy(sourceId = AppAuditGitHubCatalog.LIVE_SOURCE, probeId = "github_live_account_v1")
+        val observedStages = listOf("local_validation", "dns", "tls", "connection", "transport", "response_stream")
+        for (stage in observedStages + listOf("PRIVATE_STAGE_CANARY", "unreported_stage")) {
+            val observation = AppAuditObservation(
+                AppAuditOutcome.UNAVAILABLE,
+                "GITHUB_AUDIT_TRANSPORT_UNAVAILABLE",
+                stage = stage,
+                evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,
+                observationSource = AppAuditObservationSource.NONE,
+                dispatchEvidence = AppAuditDispatchEvidence.ATTEMPTED,
+                failurePhase = stage
+            )
+            val saved = export(batch(run(listOf(check)).copy(results = listOf(AppAuditResult(check.id, observation, 10, 11, 1, true)))))
+            val record = saved.getValue("results").jsonArray.single().jsonObject
+            if (stage in observedStages) {
+                assertEquals(stage, record.getValue("stage").jsonPrimitive.content)
+                assertEquals(stage, record.getValue("failurePhase").jsonPrimitive.content)
+            } else {
+                assertEquals("UNKNOWN_STAGE", record.getValue("stage").jsonPrimitive.content)
+                assertEquals(JsonNull, record.getValue("failurePhase"))
+                assertFalse(saved.toString().contains(stage))
+            }
+        }
+    }
+
+    @Test
+    fun fixturePolicyBlockExportsBoundedBoundaryMetadataWithoutEarningMeasuredScore() = runBlocking {
+        val private = "PRIVATE_RECOVERY_CAUSE"
+        val check = entry().copy(probeId = "budget_precheck_v1", evidenceKind = AppAuditEvidenceKind.LOCAL_CONTRACT, safetyClass = AppAuditSafetyClass.LOCAL_READ)
+        val observation = AppAuditObservation(
+            AppAuditOutcome.BLOCKED, "LOCAL_FIXTURE_POLICY_BLOCKED",
+            stage = "fixture_setup", evidenceKind = AppAuditEvidenceKind.LOCAL_CONTRACT, observationSource = AppAuditObservationSource.FIXTURE,
+            failurePhase = "local_validation", failureCategory = "POLICY_BLOCKED",
+            fixtureEvidence = AppAuditFixtureEvidence(
+                AppAuditFixtureStatus.SETUP_BLOCKED,
+                1,
+                0,
+                listOf(
+                    AppAuditAssertionEvidence(
+                        1,
+                        AppAuditAssertionCode.ACCEPTED_CALL_RESERVES_BUDGET,
+                        false,
+                        AppAuditFixtureState(AppAuditFixtureCode.SUCCESS, true, AppAuditNetworkAdmission.ADMITTED),
+                        AppAuditFixtureState(AppAuditFixtureCode.PRIVACY_EXTERNAL_TOOL_BLOCKED, false, AppAuditNetworkAdmission.NOT_ADMITTED),
+                        blocked = true
+                    )
+                )
+            ),
+            privacyPolicy = AppAuditPrivacyEvidence(true, 7, false, featureAvailable = false), recovery = AppAuditRecoveryEvidence(private, Long.MAX_VALUE, true)
+        )
+        val saved = export(batch(run(listOf(check)).copy(results = listOf(AppAuditResult(check.id, observation, 10, 11, 1, true)))))
+        assertFalse(saved.toString().contains(private))
+        assertEquals(0, saved.getValue("score").jsonObject.getValue("measuredWeight").jsonPrimitive.int)
+        val record = saved.getValue("results").jsonArray.single().jsonObject
+        assertEquals("LOCAL_FIXTURE_POLICY_BLOCKED", record.getValue("reasonCode").jsonPrimitive.content)
+        assertEquals("fixture_setup", record.getValue("stage").jsonPrimitive.content)
+        assertEquals("POLICY_BLOCKED", record.getValue("failureCategory").jsonPrimitive.content)
+        val assertion = record.getValue("fixtureEvidence").jsonObject.getValue("assertions").jsonArray.single().jsonObject
+        assertEquals("budget_precheck_v1.assertion-1", assertion.getValue("id").jsonPrimitive.content)
+        assertEquals("BLOCKED", assertion.getValue("outcome").jsonPrimitive.content)
+        assertEquals("NOT_ADMITTED", assertion.getValue("observed").jsonObject.getValue("admission").jsonPrimitive.content)
+        assertEquals(setOf("enabled", "revision", "changedDuringProbe", "featureAvailable"), record.getValue("privacyPolicy").jsonObject.keys)
+        assertTrue(record.getValue("privacyPolicy").jsonObject.getValue("enabled").jsonPrimitive.boolean)
+        assertFalse(record.getValue("privacyPolicy").jsonObject.getValue("featureAvailable").jsonPrimitive.boolean)
+        assertEquals(7, record.getValue("privacyPolicy").jsonObject.getValue("revision").jsonPrimitive.int)
+        assertFalse(record.getValue("privacyPolicy").jsonObject.getValue("changedDuringProbe").jsonPrimitive.boolean)
+        assertEquals("UNKNOWN_REASON", record.getValue("recovery").jsonObject.getValue("originalReasonCode").jsonPrimitive.content)
+        assertEquals(JsonNull, record.getValue("recovery").jsonObject.getValue("retryEligibleAtEpochMs"))
+        assertEquals("NO_PROFILE_SELECTED", saved.getValue("run").jsonObject.getValue("modelQualification").jsonPrimitive.content)
+    }
+
+    @Test
+    fun availablePrivacyFeatureDoesNotRelabelAnOrdinaryObservationAsPrivate() = runBlocking {
+        val observed = result("entry", AppAuditOutcome.PASS)
+        val result = observed.copy(observation = observed.observation.copy(privacyPolicy = AppAuditPrivacyEvidence(false, 7, false, featureAvailable = true)))
+        val saved = export(batch(run().copy(results = listOf(result))))
+        val policy = saved.getValue("results").jsonArray.single().jsonObject.getValue("privacyPolicy").jsonObject
+        assertFalse(policy.getValue("enabled").jsonPrimitive.boolean)
+        assertTrue(policy.getValue("featureAvailable").jsonPrimitive.boolean)
+        assertEquals(7, policy.getValue("revision").jsonPrimitive.int)
+        assertEquals(1, saved.getValue("score").jsonObject.getValue("measuredWeight").jsonPrimitive.int)
+    }
+
+    @Test
     fun retainedBuildAndDeviceIdentityRemainSeparateFromSourceVerification() = runBlocking {
         val base = appAuditHash("base")
         val splits = listOf(appAuditHash("split"))

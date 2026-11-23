@@ -1,8 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -151,6 +153,45 @@ class GitHubWorkspaceClient(
     }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
+
+    /** Native map transport stays outside the agent action catalogue and never submits a repository mutation. */
+    internal suspend fun repositoryMap(owner: String, repo: String, arguments: JsonObject): JsonObject {
+        refreshCredential()
+        require(owner.isNotBlank() && repo.isNotBlank() && '/' !in owner && '/' !in repo) { "Select one GitHub repository." }
+        return withContext(Invocation(GitHubRepositoryStateStore.digest("phone-repository-map|${GitHubExecutionJournal.canonical(arguments)}"))) {
+            repositorySession.repositoryMap(owner, repo, arguments)
+        }
+    }
+
+    /** Narrow native transport for the explicitly reviewed disposable benchmark repository. */
+    internal suspend fun phoneBenchmarkRequest(repository: String, path: String, body: JsonObject? = null): JsonObject {
+        val method = if (body == null) HttpMethod.Get else HttpMethod.Post
+        GitHubPhoneBenchmarkApi.validate(repository, path, method, body)
+        refreshCredential()
+        val attempts = GitHubMutationAttempts(currentCoroutineContext()[GitHubMutationAttempts])
+        return withContext(Invocation(GitHubRepositoryStateStore.digest("phone-benchmark|$repository|$path|${body?.let { GitHubExecutionJournal.canonical(it) }}")) + attempts) {
+            if (method == HttpMethod.Get) {
+                val ownedRef = path.contains("/git/ref/heads/")
+                try {
+                    requestUntracked(path, method, null, authenticated = true, forceLiveRead = true, expectedOwnedRefAbsence = ownedRef).jsonObject
+                } catch (rejected: GitHubRequestRejected) {
+                    if (!ownedRef || rejected.status != 404) throw rejected
+                    // This result is an observed endpoint response, never an exception-message guess.
+                    buildJsonObject { put("owned_ref_absent", true) }
+                }
+            } else {
+                request(path, method, body, authenticated = true).jsonObject
+            }
+        }
+    }
+
+    internal suspend fun phoneBenchmarkArtifact(repository: String, artifactId: Long, digest: String): String {
+        require(repository.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) && artifactId > 0 && digest.matches(Regex("[a-f0-9]{64}")))
+        refreshCredential()
+        val credential = requestCredential()
+        return GitHubCiLogReader(client, credential.token, scheduler, responseCache, requestPriority, credential.authenticationRejected, apiOrigins)
+            .read("/repos/$repository/actions/artifacts/$artifactId/zip", immutable = true, archiveEntry = "result.json", archiveDigest = digest).text
+    }
     internal fun transportRetryAfterMillis(): Long = scheduler.transportRetryAfterMillis()
     internal suspend fun prepareFixtureCreation(arguments: JsonObject) =
         ownedFixtures.prepareCreation("/repos/${segment(arguments.getValue("owner").jsonPrimitive.content)}/${segment(arguments.getValue("repo").jsonPrimitive.content)}", arguments)
@@ -2320,7 +2361,7 @@ class GitHubWorkspaceClient(
             scheduler.recordRequest()
             if (!readOnlyQuery) GitHubMutationAttempts.dispatched()
             val observationId = GitHubDispatchAccounting.started(!readOnlyQuery)
-            val response = client.githubRequest(apiOrigins.graphQl) {
+            val response = accountedRequest(apiOrigins.graphQl, observationId, !readOnlyQuery) {
                 method = HttpMethod.Post
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
@@ -2807,7 +2848,7 @@ class GitHubWorkspaceClient(
                 scheduler.recordRequest()
                 if (method != HttpMethod.Get) GitHubMutationAttempts.dispatched()
                 val observationId = GitHubDispatchAccounting.started(method != HttpMethod.Get, path)
-                var response = client.githubRequest("${apiOrigins.rest}$path") {
+                var response = accountedRequest("${apiOrigins.rest}$path", observationId, method != HttpMethod.Get) {
                     this.method = method
                     header(HttpHeaders.Accept, "application/vnd.github+json")
                     header(HttpHeaders.UserAgent, "GPT-Mobile-App")
@@ -2828,7 +2869,7 @@ class GitHubWorkspaceClient(
                     rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
                     scheduler.recordRequest()
                     val recoveryObservationId = GitHubDispatchAccounting.started(false, path)
-                    response = client.githubRequest("${apiOrigins.rest}$path") {
+                    response = accountedRequest("${apiOrigins.rest}$path", recoveryObservationId, false) {
                         header(HttpHeaders.Accept, "application/vnd.github+json")
                         header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                         header("X-GitHub-Api-Version", API_VERSION)
@@ -2925,6 +2966,17 @@ class GitHubWorkspaceClient(
     }
 
     private fun immutablePath(path: String): Boolean = Regex("/(?:git/(?:blobs|trees)|commits)/[a-fA-F0-9]{40,64}(?:[/?]|$)").containsMatchIn(path) && !path.contains("check-runs") && !path.substringBefore('?').endsWith("/status") || Regex("[?&]ref=[a-fA-F0-9]{40,64}(?:&|$)").containsMatchIn(path)
+
+    private suspend fun accountedRequest(url: String, observationId: String?, mutation: Boolean, block: HttpRequestBuilder.() -> Unit): GitHubBoundedResponse = try {
+        client.githubRequest(url, block)
+    } catch (failure: Exception) {
+        if (failure.isLocalPrivacyPolicyRejection()) {
+            GitHubDispatchAccounting.locallyRejected(observationId)
+            scheduler.recordLocalRequestRejection()
+            if (mutation) GitHubMutationAttempts.rejected()
+        }
+        throw failure
+    }
 
     private fun requestHint(
         status: Int,

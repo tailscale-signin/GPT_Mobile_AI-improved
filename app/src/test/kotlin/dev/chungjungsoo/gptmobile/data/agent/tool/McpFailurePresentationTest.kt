@@ -11,6 +11,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpFailurePresentationTest {
+    @Test fun privacyDenialIsLocalPolicyAndCannotInheritAnEarlierTransportReceipt() {
+        for (failure in listOf(
+            dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied(),
+            IOException("wrapper", dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport())
+        )) {
+            val prior = McpConnectionHealth().copy(
+                state = McpConnectionHealthState.UNREACHABLE,
+                lastFailureAtMs = 1000,
+                lastErrorCode = "MCP_NETWORK_IO_FAILED",
+                nextRetryAtMs = 3000,
+                lastHttpStatus = 503,
+                lastDispatchEvidence = "CONFIRMED"
+            )
+            val result = mcpFailurePresentation(failure, prior)
+            assertEquals("POLICY_BLOCKED", result.outcome)
+            assertEquals("PRIVACY_SERVICE_UNVERIFIED", result.errorCode)
+            assertEquals("NOT_DISPATCHED", result.dispatchEvidence)
+            assertEquals("local_validation", result.phase)
+            assertEquals("AFTER_POLICY_CHANGE", result.retryDecision)
+            assertEquals(false, result.retryable)
+            assertEquals(null, result.httpStatus)
+            assertEquals(null, result.observedAtEpochMs)
+            assertFalse(result.waitingForRecovery)
+        }
+    }
+
     @Test fun currentLocalValidationCannotInheritStaleOAuthRepairGuidance() {
         val error = McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_FORMAT_INVALID)
         val prior = McpConnectionHealth().copy(

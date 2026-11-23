@@ -3,19 +3,21 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -23,6 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.research.engine.ResearchEngineRegistry
+import dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt
 import dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -31,8 +34,32 @@ import kotlinx.coroutines.withContext
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet(), onEngineEnabled: ((String, Boolean) -> Unit)? = null) {
+internal fun ResearchEngineHealthPanel(
+    disabledEngineIds: Set<String> = emptySet(),
+    onEngineEnabled: ((String, Boolean) -> Unit)? = null,
+    editingEnabled: Boolean = true,
+    onOpenSearch: (() -> Unit)? = null,
+    onOpenCitationImport: (() -> Unit)? = null
+) {
     val context = LocalContext.current
+    Text("${ResearchEngineRegistry.entries.count { it.ready }} implemented adapters · ${ResearchEngineRegistry.entries.count { !it.ready }} unavailable integrations", style = MaterialTheme.typography.titleSmall)
+    Text("An implemented adapter still needs a successful request. Useful results, readable full text and examined evidence are tracked separately.", style = MaterialTheme.typography.bodySmall)
+    onOpenSearch?.let { open -> OutlinedButton(onClick = open) { Text("Search studies to check access") } }
+    if (onEngineEnabled != null) {
+        Text("Search sources", style = MaterialTheme.typography.titleSmall)
+        ResearchEngineRegistry.entries.filter { it.id in ResearchEngineRegistry.searchableIds }.forEach { engine ->
+            ResearchFeatureSwitch(engine.name, engine.id !in disabledEngineIds, editingEnabled) { onEngineEnabled(engine.id, it) }
+        }
+    }
+    var pending by rememberSaveable { mutableStateOf(false) }
+    OutlinedButton(onClick = { pending = !pending }) { Text(if (pending) "Hide unimplemented integrations" else "Unavailable integrations (not queued)") }
+    if (pending) {
+        onOpenCitationImport?.let { open -> OutlinedButton(onClick = open) { Text("Import citations or open Google Scholar") } }
+        ResearchEngineRegistry.entries.filterNot { it.ready }.forEach { engine ->
+            Text("${engine.name} · ${if (engine.id == "google_scholar") "Browser-assisted" else "Adapter not ready"}", style = MaterialTheme.typography.labelLarge)
+            Text(engine.limitation, style = MaterialTheme.typography.bodySmall)
+        }
+    }
     var initializationRetry by remember(context) { mutableStateOf(0) }
     val initialized by produceState<Result<ResearchTelemetryStore>?>(null, context, initializationRetry) {
         value = try {
@@ -67,22 +94,20 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
     }
     OutlinedButton(onClick = { export.launch("research-engine-events.json") }) { Text("Export native engine events") }
     exportStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-    var since by remember { mutableStateOf(0L) }
+    var windowDays by rememberSaveable { mutableIntStateOf(0) }
     var rollups by remember { mutableStateOf(emptyMap<String, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchEngineRollup>()) }
     var latencies by remember { mutableStateOf(emptyMap<String, Pair<Long?, Long?>>()) }
     var selectedEngine by remember { mutableStateOf<String?>(null) }
-    var attempts by remember { mutableStateOf(emptyList<dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt>()) }
     var confirmClear by remember { mutableStateOf(false) }
-    var pending by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
     var retry by remember { mutableStateOf(0) }
-    LaunchedEffect(selectedEngine, retry) {
-        attempts = selectedEngine?.let { withContext(Dispatchers.IO) { store.recent(it) } }.orEmpty()
-    }
-    LaunchedEffect(since, retry) {
+    LaunchedEffect(store, windowDays, retry) {
         loading = true
         error = false
+        rollups = emptyMap()
+        latencies = emptyMap()
+        val since = if (windowDays == 0) 0L else System.currentTimeMillis() - windowDays * 86_400_000L
         try {
             rollups = withContext(Dispatchers.IO) { ResearchEngineRegistry.entries.filter { it.ready }.associate { it.id to store.rollup(it.id, since) } }
             latencies = withContext(Dispatchers.IO) { ResearchEngineRegistry.entries.filter { it.ready }.associate { it.id to store.latency(it.id, since) } }
@@ -100,46 +125,34 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
         OutlinedButton(onClick = { retry++ }) { Text("Retry") }
     }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { since = 0 }) { Text("Retained history") }
-        OutlinedButton(onClick = { since = System.currentTimeMillis() - 86_400_000 }) { Text("24 hours") }
-        OutlinedButton(onClick = { since = System.currentTimeMillis() - 7 * 86_400_000L }) { Text("7 days") }
-        OutlinedButton(onClick = { since = System.currentTimeMillis() - 30 * 86_400_000L }) { Text("30 days") }
+        for ((days, label) in listOf(0 to "Retained history", 1 to "24 hours", 7 to "7 days", 30 to "30 days")) {
+            FilterChip(selected = windowDays == days, onClick = { windowDays = days }, label = { Text(label) })
+        }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ResearchEngineRegistry.entries.filter { it.ready }.forEach { engine ->
-            val health = rollups[engine.id]
-            if (onEngineEnabled != null && engine.id in ResearchEngineRegistry.searchableIds) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Enable ${engine.name}")
-                    androidx.compose.material3.Switch(engine.id !in disabledEngineIds, { onEngineEnabled(engine.id, it) })
+        if (!loading && !error) {
+            ResearchEngineRegistry.entries.filter { it.ready }.forEach { engine ->
+                val health = rollups[engine.id]
+                Text(engine.name + " · " + engine.capability, style = MaterialTheme.typography.labelLarge, modifier = Modifier.fillMaxWidth())
+                Text(
+                    if (health == null || health.attempts == 0) {
+                        "No completed requests · Useful rate unavailable"
+                    } else {
+                        "${health.successes}/${health.attempts} useful outcomes · ${health.empty} empty · ${health.canceled} canceled · ${health.failures} failures · ${health.transportSuccesses} HTTP completions · ${health.transportFailures} HTTP failures · ${health.transportCanceled} transport cancellations${if (health.lowSample) " · Low sample" else ""}"
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (health != null && health.attempts > 0) {
+                    ResearchOutcomeBar(engine.name, health)
+                    Text("Useful rate: ${"%.1f".format(health.successPercent)}% · definition v2 · completed useful + empty + failed", style = MaterialTheme.typography.bodySmall)
                 }
-            }
-            Text(engine.name + " · " + engine.capability, style = MaterialTheme.typography.labelLarge, modifier = Modifier.fillMaxWidth())
-            Text(
-                if (health == null || health.attempts == 0) {
-                    "No completed requests · Useful rate unavailable"
-                } else {
-                    "${health.successes}/${health.attempts} useful outcomes · ${health.empty} empty · ${health.canceled} canceled · ${health.failures} failures · ${health.transportSuccesses} HTTP completions · ${health.transportFailures} HTTP failures · ${health.transportCanceled} transport cancellations${if (health.lowSample) " · Low sample" else ""}"
-                },
-                style = MaterialTheme.typography.bodySmall
-            )
-            if (health != null && health.attempts > 0) {
-                ResearchOutcomeBar(engine.name, health)
-                Text("Useful rate: ${"%.1f".format(health.successPercent)}% · definition v2 · completed useful + empty + failed", style = MaterialTheme.typography.bodySmall)
-            }
-            latencies[engine.id]?.let { (p50, p95) -> Text("Successful live latency · p50 ${p50?.let { "$it ms" } ?: "Unknown"} · p95 ${p95?.let { "$it ms" } ?: "Unknown"}", style = MaterialTheme.typography.bodySmall) }
-            OutlinedButton(onClick = { selectedEngine = engine.id }) { Text("Recent operation receipts") }
-            Text(engine.limitation, style = MaterialTheme.typography.bodySmall)
-        }
-        Text("Counts are retained observations, not scientific accuracy. HTTP completion, useful parsed results and article appraisal are separate. Historical events pruned before durable receipts were introduced cannot be reconstructed.", style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = { confirmClear = true }) { Text("Clear research statistics") }
-        OutlinedButton(onClick = { pending = !pending }) { Text(if (pending) "Hide unimplemented integrations" else "Unavailable integrations (not queued)") }
-        if (pending) {
-            ResearchEngineRegistry.entries.filterNot { it.ready }.forEach { engine ->
-                Text("${engine.name} · ${if (engine.id == "google_scholar") "Browser-assisted" else "Adapter not ready"}", style = MaterialTheme.typography.labelLarge)
+                latencies[engine.id]?.let { (p50, p95) -> Text("Successful live latency · p50 ${p50?.let { "$it ms" } ?: "Unknown"} · p95 ${p95?.let { "$it ms" } ?: "Unknown"}", style = MaterialTheme.typography.bodySmall) }
+                OutlinedButton(onClick = { selectedEngine = engine.id }) { Text("Recent operation receipts") }
                 Text(engine.limitation, style = MaterialTheme.typography.bodySmall)
             }
         }
+        Text("Counts are retained observations, not scientific accuracy. HTTP completion, useful parsed results and article appraisal are separate. Historical events pruned before durable receipts were introduced cannot be reconstructed.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { confirmClear = true }) { Text("Clear research statistics") }
     }
     if (confirmClear) {
         dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = { confirmClear = false }, title = { Text("Clear research statistics?") }, text = { Text("Starts a new measurement epoch. Article evidence is retained; older restored receipts will not reappear in totals.") }, confirmButton = {
@@ -149,6 +162,8 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
                     try {
                         withContext(Dispatchers.IO) { store.clearStatistics() }
                         retry++
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
                     } catch (_: Exception) {
                         error = true
                     }
@@ -157,15 +172,47 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
         }, dismissButton = { OutlinedButton(onClick = { confirmClear = false }) { Text("Cancel") } })
     }
     selectedEngine?.let { engine ->
-        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = { selectedEngine = null }, title = { Text("$engine · Recent receipts") }, text = {
-            androidx.compose.foundation.lazy.LazyColumn {
-                items(attempts.size) { index ->
-                    val attempt = attempts[index]
-                    Text("${attempt.operation} · ${attempt.outcome} · ${attempt.durationMs} ms · ${attempt.owner}/${attempt.transportId}${if (attempt.cacheHit) " · cached" else ""}", Modifier.padding(vertical = 6.dp), style = MaterialTheme.typography.bodySmall)
+        // Dispose the previous result when a different engine opens.
+        androidx.compose.runtime.key(engine) { ResearchReceiptsDialog(engine, store) { selectedEngine = null } }
+    }
+}
+
+@Composable
+private fun ResearchReceiptsDialog(engine: String, store: ResearchTelemetryStore, onClose: () -> Unit) {
+    var retry by remember { mutableIntStateOf(0) }
+    val result by produceState<Result<List<ResearchAttempt>>?>(null, store, engine, retry) {
+        value = null
+        value = try {
+            Result.success(withContext(Dispatchers.IO) { store.recent(engine) })
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Result.failure(failure)
+        }
+    }
+    val attempts = result?.getOrNull()
+    val name = ResearchEngineRegistry.entries.firstOrNull { it.id == engine }?.name ?: engine
+    dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("$name · Recent receipts") },
+        text = {
+            when {
+                result == null -> Text("Loading recent requests…")
+                attempts == null -> Column {
+                    Text("Recent requests could not be loaded.")
+                    OutlinedButton(onClick = { retry++ }) { Text("Retry") }
+                }
+                attempts.isEmpty() -> Text("No requests recorded for this source.")
+                else -> androidx.compose.foundation.lazy.LazyColumn {
+                    items(attempts.size) { index ->
+                        val attempt = attempts[index]
+                        Text("${attempt.operation} · ${attempt.outcome} · ${attempt.durationMs} ms · ${attempt.owner}/${attempt.transportId}${if (attempt.cacheHit) " · cached" else ""}", Modifier.padding(vertical = 6.dp), style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
-        }, confirmButton = { OutlinedButton(onClick = { selectedEngine = null }) { Text("Close") } })
-    }
+        },
+        confirmButton = { OutlinedButton(onClick = onClose) { Text("Close") } }
+    )
 }
 
 @Composable

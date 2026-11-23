@@ -163,7 +163,7 @@ internal object GitHubEvidencePolicy {
         return assertions.isNotEmpty() && assertions.all { it.string("status") in allowed }
     }
 
-    fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, issueWork: GitHubIssueRemediation.Context? = null): Pair<String, JsonObject> {
+    fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, issueWork: GitHubIssueRemediation.Context? = null, executionPlan: JsonObject? = null): Pair<String, JsonObject> {
         val claims = answer["claims"] as? JsonArray ?: error("Missing claim-level evidence response")
         require(claims.size in 1..128) { "Claim count exceeds the verification bound" }
         val checked = mutableListOf<JsonObject>()
@@ -264,7 +264,7 @@ internal object GitHubEvidencePolicy {
         val unmeasuredScopes = checked.filter(::explicitlyUnmeasured)
         val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now, omittedOptionalClaimIndexes = omitted, issueWork = issueWork)
         val checklist = if (GitHubTaskCoverage.matches(task)) {
-            GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, stageBudget, acceptedContract)
+            GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, stageBudget, acceptedContract, executionPlan)
         } else {
             null
         }
@@ -429,7 +429,7 @@ internal object GitHubEvidencePolicy {
         val eligible = receipts.entries.filter { (_, receipt) ->
             val at = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0
             receipt["success"] == JsonPrimitive(true) && receipt["trusted"] == JsonPrimitive(true) && receipt["verification_eligible"] != JsonPrimitive(false) && at > 0 && at <= now
-        }.sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }
+        }.sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0L }
         val recent = eligible.take(96)
         val recentIds = recent.mapTo(mutableSetOf()) { it.key }
         // Reserve a small slice for earlier relevant observations. Later inventory
@@ -448,7 +448,7 @@ internal object GitHubEvidencePolicy {
                 else -> 1
             }
         }.take(32).toList()
-        val inspected = (recent + earlierRelevant).sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }
+        val inspected = (recent + earlierRelevant).sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0L }
         for ((id, receipt) in inspected) {
             val observed = facts(receipt["result"] ?: JsonNull)
             val family = receipt.string("tool").githubOperationFamily()
@@ -553,7 +553,7 @@ internal object GitHubEvidencePolicy {
     }
 
     /** Deterministic test reporting does not need another model to rediscover execution receipts. */
-    fun testing(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null): Pair<String, JsonObject> {
+    fun testing(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, executionPlan: JsonObject? = null): Pair<String, JsonObject> {
         val claims = mutableListOf<JsonObject>()
         val operations = mutableSetOf<String>()
         for ((id, receipt) in receipts.entries.reversed()) {
@@ -579,7 +579,7 @@ internal object GitHubEvidencePolicy {
             put("kind", "not_measured")
             put("subject", "Full requested test coverage requires execution evidence")
         }
-        val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, tools, remainingToolCalls, stageBudget, acceptedContract, fixturePreflight)
+        val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, tools, remainingToolCalls, stageBudget, acceptedContract, fixturePreflight, executionPlan = executionPlan)
         val checklist = report["test_checklist"] as? JsonObject
         val requirements = if (GitHubTestChecklist.integration(task)) {
             (checklist?.get("requirements") as? JsonArray) ?: JsonArray(emptyList())
@@ -835,7 +835,10 @@ internal object GitHubEvidencePolicy {
                 }
                 if (family in setOf("github_pr", "github_issue") && (parent as? JsonObject)?.get("number") is JsonPrimitive) numberedResource = parent
             }
-            if ("/workflow_runs/" in pointer) return "Workflow run · " + parts.last().replace('_', ' ')
+            if ("/workflow_runs/" in pointer) {
+                val filteredFailure = (receipt?.get("arguments") as? JsonObject)?.get("status") == JsonPrimitive("failure")
+                return (if (filteredFailure) "Observed failed workflow · " else "Observed workflow · ") + parts.last().replace('_', ' ')
+            }
             val subject = numberedResource?.let { "${if (family == "github_issue") "Issue" else "PR"} #${it.string("number")}" } ?: (parent as? JsonObject)?.let { obj ->
                 if ("/pull_requests/" in pointer || "/pull_request/" in pointer) {
                     (obj["number"] as? JsonPrimitive)?.contentOrNull?.let { "PR #$it" }

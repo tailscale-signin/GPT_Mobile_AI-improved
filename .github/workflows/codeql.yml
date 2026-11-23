@@ -95,16 +95,18 @@ jobs:
     - if: matrix.build-mode == 'manual'
       name: Compile production sources for CodeQL
       timeout-minutes: 30
+      shell: bash
       env:
         GRADLE_OPTS: "-Dorg.gradle.caching=false -Dkotlin.incremental=false -Dkotlin.compiler.execution.strategy=in-process"
       run: |
+        set -o pipefail
         # Force these compilers, while reusing the freshly generated sources so
         # KSP/KAPT graphs can be released with the preceding Gradle process.
-        # Run 43739302243 exhausted the 4 GiB Kotlin heap in ASM frame analysis
-        # while CodeQL tracing was active. Keep a single worker and bound this
-        # compile-only process below the hosted runner's RAM + swap allowance.
+        # Retain the forced CodeQL compilation with one worker and a bounded
+        # production heap; source generation keeps its separate process limit.
+        python3 scripts/check_android_compile_memory.py | tee codeql-production-memory.log
         python3 scripts/build_metrics.py --label codeql-build --output build/reports/profile/codeql-metrics.json -- python3 scripts/gradle_retry.py -- :app:compileDebugKotlin --rerun :app:compileDebugJavaWithJavac --rerun \
-          -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8" \
+          -Dorg.gradle.jvmargs="-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/codeql-production-gc.log:time,level,tags:filecount=2,filesize=8M" \
           -Pkotlin.incremental=false --no-daemon --no-build-cache --max-workers=1 --stacktrace --info --profile
 
     - name: Perform CodeQL Analysis
@@ -122,6 +124,8 @@ jobs:
         path: |
           results/*.sarif
           build/reports/profile/
+          codeql-production-memory.log
+          ${{ runner.temp }}/codeql-production-gc.log*
         if-no-files-found: ignore
         retention-days: 30
 

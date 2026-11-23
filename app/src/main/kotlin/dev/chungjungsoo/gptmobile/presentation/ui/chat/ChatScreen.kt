@@ -160,6 +160,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.UiOperationContext
 import dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
+import dev.chungjungsoo.gptmobile.data.privacy.effectivePrivacyProtectedValues
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as ModalBottomSheet
@@ -249,7 +250,11 @@ private fun ChatScreenContent(
     viewportHeight: Dp
 ) {
     val voiceControls = dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoiceMessageControls.current
+    fun submitQuestion() {
+        if (voiceControls != null) chatViewModel.askVoiceQuestion() else chatViewModel.askQuestion()
+    }
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
+    dev.chungjungsoo.gptmobile.presentation.common.PrivateConversationScreenProtection(chatRoom.id, chatRoom.privacyModeLocked)
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val providerWaitDeadlines by chatViewModel.providerWaitDeadlines.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
@@ -351,6 +356,7 @@ private fun ChatScreenContent(
     val academicGateways by chatViewModel.academicGateways.collectAsStateWithLifecycle()
     val invocationDiagnostics by chatViewModel.invocationDiagnostics.collectAsStateWithLifecycle()
     val invocationsByRun = remember(invocationDiagnostics) { invocationDiagnostics.groupBy { it.parentRunId } }
+    val runsByTurn = remember(agentRunsById) { agentRunsById.values.groupBy { it.userMessageId } }
     val hasTargetMessage = chatViewModel.targetMessageId > 0
     val hasTargetAssistant = hasTargetAssistantMessage(groupedMessages.assistantMessages, chatViewModel.targetMessageId)
     var revealedArchivedTurns by rememberSaveable(chatRoom.id) { mutableIntStateOf(0) }
@@ -454,6 +460,7 @@ private fun ChatScreenContent(
     val disabledPlatformUids by chatViewModel.disabledPlatformUids.collectAsStateWithLifecycle()
     val nextMessageProfileUid by chatViewModel.nextMessageProfileUid.collectAsStateWithLifecycle()
     val activePlatformUids by chatViewModel.activePlatformUids.collectAsStateWithLifecycle()
+    val activePlatformUidSet = remember(activePlatformUids) { activePlatformUids.toSet() }
     val isChatTitleDialogOpen by chatViewModel.isChatTitleDialogOpen.collectAsStateWithLifecycle()
     val isChatModelDialogOpen by chatViewModel.isChatModelDialogOpen.collectAsStateWithLifecycle()
     val messageEditSession by chatViewModel.messageEditSession.collectAsStateWithLifecycle()
@@ -630,7 +637,7 @@ private fun ChatScreenContent(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted && sendAfterLocalNetworkPermission) {
-            chatViewModel.askQuestion()
+            submitQuestion()
         } else if (!granted) {
             Toast.makeText(context, R.string.local_network_permission_required, Toast.LENGTH_SHORT).show()
         }
@@ -648,7 +655,7 @@ private fun ChatScreenContent(
                 sendAfterLocalNetworkPermission = true
                 localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
             } else {
-                chatViewModel.askQuestion()
+                submitQuestion()
             }
         }
         sendAfterNotificationPermission = false
@@ -908,6 +915,7 @@ private fun ChatScreenContent(
                     isTitleCustomized = chatRoom.isTitleCustomized,
                     isMenuItemEnabled = chatRoom.id > 0,
                     isModelItemEnabled = chatViewModel.enabledPlatformsInChat.isNotEmpty(),
+                    privacyLocked = chatRoom.privacyModeLocked,
                     onBackAction = onBackFromChat,
                     scrollBehavior = scrollBehavior,
                     onChatTitleItemClick = chatViewModel::openChatTitleDialog,
@@ -1031,6 +1039,25 @@ private fun ChatScreenContent(
                     val replyVisible by remember(listState, pairKey) {
                         derivedStateOf { listState.layoutInfo.visibleItemsInfo.any { it.key == pairKey } }
                     }
+                    val rowMessages = remember(pairKey) { ChatValueProjection<List<MessageV2>>() }.retain(groupedMessages.assistantMessages.getOrNull(index).orEmpty())
+                    val turnRuns = runsByTurn[message.id].orEmpty()
+                    val rowRunIds = remember(rowMessages, turnRuns) {
+                        buildSet {
+                            turnRuns.forEach { add(it.runId) }
+                            rowMessages.forEach { reply ->
+                                reply.currentRunId?.let(::add)
+                                reply.effectiveRunId()?.let(::add)
+                                reply.revisions.mapNotNullTo(this) { it.runId }
+                                reply.effectiveCombinedSources().mapNotNullTo(this) { it.attemptId }
+                            }
+                        }
+                    }
+                    val rowRuns = remember(pairKey) { ChatRunProjection<AgentRun>() }.select(rowRunIds, agentRunsById)
+                    val rowWaits = remember(pairKey) { ChatRunProjection<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline>() }.select(rowRunIds, providerWaitDeadlines)
+                    val rowActiveRuns = remember(pairKey) { ChatRunProjection<ActiveAgentRun>() }.select(rowRunIds, activeAgentRuns)
+                    val rowNotices = remember(pairKey) { ChatRunProjection<List<ChatRunNotice>>() }.select(rowRunIds, runNoticesById)
+                    val rowEvents = remember(pairKey) { ChatRunProjection<List<ToolEvent>>() }.select(rowRunIds, toolEventsByRun)
+                    val rowInvocations = remember(pairKey) { ChatRunProjection<List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>>() }.select(rowRunIds, invocationsByRun)
                     GitHubLineScope(renderedLines.takeIf { index == lastMessageIndex }, pairKey) {
                         ChatMessagePair(
                             awaitingGitHubTurn = index == lastMessageIndex && awaitingGitHubTurn,
@@ -1042,25 +1069,25 @@ private fun ChatScreenContent(
                             githubAssistantReferences = githubResponseLinkContext,
                             messageIndex = index,
                             message = message,
-                            assistantMessages = groupedMessages.assistantMessages.getOrNull(index) ?: emptyList(),
-                            agentRunsById = agentRunsById,
-                            providerWaitDeadlines = providerWaitDeadlines,
-                            activeAgentRuns = activeAgentRuns,
-                            runNoticesById = runNoticesById,
-                            toolEventsByRun = toolEventsByRun,
+                            assistantMessages = rowMessages,
+                            agentRunsById = rowRuns,
+                            providerWaitDeadlines = rowWaits,
+                            activeAgentRuns = rowActiveRuns,
+                            runNoticesById = rowNotices,
+                            toolEventsByRun = rowEvents,
                             platformIndexState = indexStates.getOrElse(index) { 0 },
-                            loadingStates = loadingStates,
+                            loadingStates = if (index == lastMessageIndex) loadingStates else emptyList(),
                             enabledPlatformsInChat = chatViewModel.enabledPlatformsInChat,
                             enabledPlatformLookup = enabledPlatformLookup,
                             disabledPlatformUids = disabledPlatformUids,
-                            activePlatformUids = activePlatformUids.toSet(),
+                            activePlatformUids = activePlatformUidSet,
                             canUseChat = canUseChat,
                             isIdle = isIdle,
                             isActiveMessage = index == lastMessageIndex,
                             maximumUserChatBubbleWidth = maximumUserChatBubbleWidth,
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
                             debugMode = debugMode,
-                            invocationsByRun = invocationsByRun,
+                            invocationsByRun = rowInvocations,
                             debugSettings = featureSettings,
                             debugMemorySources = debugMemorySources,
                             showReasoning = featureSettings.showReasoning,
@@ -1297,7 +1324,7 @@ private fun ChatScreenContent(
                         ) {
                             GatewayMergeInteractions(chatRoom.id)
                             bottomInteractionContent?.invoke()
-                            visibleGitHubDecisions.forEach { decision ->
+                            GitHubDecisionQueue(visibleGitHubDecisions) { decision ->
                                 key(decision.id) {
                                     val timing = remember(decision.id, decision.offeredAtMillis, agentRunsById, invocationsByRun, toolEventsByRun) {
                                         val runs = agentRunsById.values.filter { it.userMessageId == decision.sourceMessageId && it.profileUid == decision.profileUid }
@@ -1320,7 +1347,7 @@ private fun ChatScreenContent(
                                     }
                                     GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer ->
                                         chatViewModel.answerGitHubDecision(decision.id, option, answer)
-                                    }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) }, runStartedMs = timing.first, observedWorkMs = timing.second)
+                                    }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) }, runStartedMs = timing.first, observedWorkMs = timing.second, compact = true)
                                 }
                             }
                             approvals.forEach { approval ->
@@ -1413,7 +1440,7 @@ private fun ChatScreenContent(
                             sendAfterLocalNetworkPermission = true
                             localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
                         } else {
-                            chatViewModel.askQuestion()
+                            submitQuestion()
                         }
                     }
                     if (chatViewModel.enabledPlatformsInChat.size > 1 || chatRoom.conversationMode == ConversationMode.COMBINED) {
@@ -2092,9 +2119,12 @@ internal fun ChatMessagePair(
             message.content
         }
     }
+    val rowTiming = remember(selectedRunId, assistantMessages.size) {
+        Modifier.diagnosticFrameTiming(CombinedOperationOwner(screen = "Chat", runId = selectedRunId, uiContext = UiOperationContext("ChatTurn", itemCount = assistantMessages.size)))
+    }
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
         Column(
-            modifier = Modifier
+            modifier = Modifier.then(rowTiming)
                 .fillMaxWidth()
                 .onSizeChanged {
                     if (targetAssistantIndex >= 0) onTargetResponseOffset(it.height + responseInsetPx)
@@ -2109,6 +2139,7 @@ internal fun ChatMessagePair(
                     UserChatBubble(
                         modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
                         text = visiblePrompt,
+                        privacyProtectedValues = remember(message) { message.effectivePrivacyProtectedValues() },
                         timestamp = (message.createdAt * 1000L).takeIf { debugSettings.messageTimestamps },
                         files = message.attachments.map { it.filePathForDisplay },
                         canEdit = canUseChat && isIdle,
@@ -2276,6 +2307,7 @@ internal fun ChatMessagePair(
                         debugMemorySources = debugMemorySources,
                         showReasoning = showReasoning,
                         text = assistantContent,
+                        privacyProtectedValues = remember(selectedAssistantMessage) { selectedAssistantMessage?.effectivePrivacyProtectedValues().orEmpty() },
                         combinedManifest = selectedAssistantMessage?.effectiveCombinedManifest(),
                         originalSource = selectedSourceReader,
                         loadCombinedBlocks = loadCombinedBlocks,
@@ -2542,6 +2574,7 @@ private fun ChatTopBar(
     onDisablePlatformClick: () -> Unit = {},
     onOutlineClick: () -> Unit = {},
     onStatisticsClick: () -> Unit = {},
+    privacyLocked: Boolean = false,
     gatewayStatus: String? = null,
     onGatewayStatus: () -> Unit = {},
     expanded: Boolean,
@@ -2627,6 +2660,14 @@ private fun ChatTopBar(
             ),
             scrollBehavior = scrollBehavior
         )
+        if (privacyLocked) {
+            Text(
+                "Private chat · Privacy stays on for this conversation",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag("chat_permanent_privacy")
+            )
+        }
         AnimatedVisibility(
             visible = expanded,
             enter = expandVertically(animationSpec = tween(280)) + fadeIn(tween(280)),

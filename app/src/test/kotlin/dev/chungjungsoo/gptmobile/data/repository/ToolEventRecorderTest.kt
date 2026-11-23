@@ -272,7 +272,10 @@ class ToolEventRecorderTest {
                 reports.add(arg<String?>(3) to arg<Map<String, Any?>>(5))
                 Unit
             }
-            val args = buildJsonObject { put("action", "index") }
+            val args = buildJsonObject {
+                put("action", "index")
+                put("map_source", "gateway")
+            }
             val event = recorder.startTool("private-graph-run", 0, "private-graph-call", "repository_graph", "repository_graph__selected", args, startedAt = 10L)
             val tool = dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool(event.modelToolName) {
                 throw dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException(
@@ -1095,6 +1098,7 @@ class ToolEventRecorderTest {
 private class FakeAgentRunDao :
     AgentRunDao,
     UnusedPolicySnapshotAccess {
+    override suspend fun ownsPendingDecision(runId: String, chatId: Int, messageId: Int, profileUid: String): Boolean = false
     override suspend fun chatsWithRecordedOutcome(status: String): List<RecordedChatOutcome> = emptyList()
     override suspend fun gatewayDiagnosticStates(baseUrl: String, profileUid: String): List<GatewayRunDiagnosticState> = emptyList()
     override suspend fun recordGatewayCancellation(runId: String, jobId: String, receipt: String): Int = 0
@@ -1151,6 +1155,7 @@ private class FakeAgentPersistenceDao :
     AgentPersistenceDao,
     UnusedPolicySnapshotAccess {
     override suspend fun copyProjectMembership(sourceId: Int, duplicateId: Int) = unused<Unit>()
+    override suspend fun markPrivacyModeUsed(chatId: Int) = unused<Unit>()
 
     override suspend fun combinedFinalMessage(chatId: Int, userId: Int): dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage? = null
     override suspend fun insertCombinedFinalMessage(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage) {
@@ -1229,7 +1234,7 @@ private class FakeAgentPersistenceDao :
     }
 
     override suspend fun insertChatRoom(chatRoom: ChatRoomV2): Long = unused()
-    override suspend fun updateChatRoom(chatRoom: ChatRoomV2) = unused<Unit>()
+    override suspend fun rawUpdateChatRoom(chatRoom: ChatRoomV2) = unused<Unit>()
     override suspend fun insertMessage(message: MessageV2): Long = unused()
     override suspend fun insertRun(run: AgentRun) = unused<Unit>()
     override suspend fun insertToolEvent(event: ToolEvent) {

@@ -78,8 +78,9 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             endpoints[config.connectionUid] = shared
             return@withLock shared.discovery != null
         }
-        if (refresh) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
-        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireAvailable(config.endpointUrl)
+        // Explicit recovery may try once without deleting the last real observation.
+        // A policy change in SendingRequest must leave that observation intact.
+        if (!refresh) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireAvailable(config.endpointUrl)
         val endpointHost = URI(config.endpointUrl).host
         val connectivity = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
         val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP discovery is waiting for the single connectivity probe; retryAfterMs=${connectivity.recoveryDelayMillis(endpointHost)}.")
@@ -421,6 +422,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             }
             setBody(body.toString())
         }.execute { response ->
+            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation]?.responded()
             // Any actual HTTP response proves this host is reachable, even an auth or protocol error.
             dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(URI(config.endpointUrl).host)
             val status = response.status.value

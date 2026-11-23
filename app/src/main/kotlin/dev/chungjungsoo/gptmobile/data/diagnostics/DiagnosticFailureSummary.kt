@@ -32,7 +32,7 @@ internal fun diagnosticMessageFailureEvidence(messageId: Long, timeline: JsonEle
         put("failure_code", category)
         text("phase", Regex("[a-z][a-z0-9_]{1,63}"))?.let { put("failed_stage", it) }
         text("invocationId", Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}"))?.let { put("invocation_id", it) }
-        for ((stored, projected) in listOf("dispatched" to "dispatched", "retryAllowed" to "retryable", "requestReplayAllowed" to "request_replay_allowed")) {
+        for ((stored, projected) in listOf("dispatched" to "dispatched", "retryAllowed" to "retryable", "requestReplayAllowed" to "request_replay_allowed", "generationCompleted" to "generation_completed")) {
             (failure[stored] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put(projected, it) }
         }
         text("remoteAcceptance", Regex("YES|NO|UNKNOWN"))?.let { put("remote_acceptance", it) }
@@ -45,6 +45,13 @@ internal fun diagnosticMessageFailureEvidence(messageId: Long, timeline: JsonEle
                 details["invalid_fields"]?.let { put("invalid_fields", it) }
             }
         }
+        val typedDetails = buildJsonObject {
+            listOf("outputProgress", "persistenceFailure", "providerFailure", "recoveryDetails", "toolReconciliation").forEach { key ->
+                (failure[key] as? JsonObject)?.forEach { (field, value) -> put(field, value) }
+            }
+        }
+        ExecutionCompletionDiagnostics.compact(category, typedDetails).forEach { (key, value) -> put(key, value) }
+        if (category in setOf("WORKSPACE_EVIDENCE_CONFLICT", "OUTPUT_CONTINUATION_NO_PROGRESS")) put("task_outcome", "BLOCKED")
         dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.retainedDetails(failure["recoveryDetails"] as? JsonObject)?.let { details ->
             put(
                 "latest_recovery_failure",
@@ -113,7 +120,7 @@ internal fun diagnosticFailureSummary(
     // be filled with the ID/stage/recovery of a successful earlier generation.
     val causal = retained.filter { it.source == "RECOVERY_CHECKPOINT" }.ifEmpty { if (terminalRecoveryCode != null) emptyList() else retained.filter { it.source == "REVIEW_CHECKPOINT" }.ifEmpty { retained } }
     fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
-    data class Value(val value: String, val source: String)
+    data class Value(val value: String, val source: String, val recordId: String? = null)
     fun readFrom(items: List<DiagnosticFailureEvidence>, vararg keys: String): Value? {
         for (item in items) {
             val objects = listOfNotNull(
@@ -125,7 +132,7 @@ internal fun diagnosticFailureSummary(
             )
             for (key in keys) {
                 for (value in objects) {
-                    value.text(key)?.let { return Value(it, item.source) }
+                    value.text(key)?.let { return Value(it, item.source, item.recordId) }
                 }
             }
         }
@@ -140,7 +147,7 @@ internal fun diagnosticFailureSummary(
     val terminalCode = Regex("\\bcode=([A-Za-z][A-Za-z0-9_]{2,95})\\b").find(terminalError.orEmpty())?.groupValues?.get(1)
         ?: Regex("\\b(?:GITHUB_[A-Z0-9_]+|GATEWAY_[A-Z0-9_]+|CLIENT_TOOL_RESULTS_REQUIRED|CONVERSATION_CONFLICT|EXECUTION_SELECTION_INVALID|WAITING_FOR_APPROVAL|PARTIAL_EVIDENCE)\\b").find(terminalError.orEmpty())?.value
     val retainedFailure = read("code", "verification_failure", "failure_code", "stop_code")
-        ?: retained.firstNotNullOfOrNull { item -> (item.payload["stop_reason"] as? JsonObject)?.text("code")?.let { Value(it, item.source) } }
+        ?: retained.firstNotNullOfOrNull { item -> (item.payload["stop_reason"] as? JsonObject)?.text("code")?.let { Value(it, item.source, item.recordId) } }
         ?: terminalCode?.let { Value(it, "TERMINAL_ERROR") }
     val failure = terminalRecoveryCode?.let { Value(it, "TERMINAL_ERROR") } ?: retainedFailure
     val retainedTaskState = read("task_state")
@@ -262,6 +269,19 @@ internal fun diagnosticFailureSummary(
                 sources[key] = JsonPrimitive(source)
             }
         }
+        if (!reviewResolved) {
+            val typed = causal.filter { it.recordId == failure?.recordId }.firstNotNullOfOrNull { item ->
+                listOfNotNull(item.payload["verification_failure"] as? JsonObject, item.payload["failure_details"] as? JsonObject, item.payload)
+                    .map { row -> ExecutionCompletionDiagnostics.compact(failure?.value.orEmpty(), row) }
+                    .firstOrNull { it.isNotEmpty() }?.let { item.source to it }
+            }
+            typed?.let { (source, details) ->
+                details.forEach { (key, value) ->
+                    put(key, value)
+                    sources[key] = JsonPrimitive(source)
+                }
+            }
+        }
         for (key in listOf("exception_fingerprint", "observed_checkpoint_digest")) {
             readFrom(causal, key)?.takeIf { it.value.matches(Regex("[a-f0-9]{64}")) }?.let { put(key, record(key, it)) }
         }
@@ -277,8 +297,8 @@ internal fun diagnosticFailureSummary(
             }
         }
         recovery.firstNotNullOfOrNull { it.payload["original_interruption"] }?.let { put("original_interruption", it) }
-        for (key in listOf("dispatched", "retryable", "request_replay_allowed", "remote_acceptance", "dispatch_state")) {
-            causal.firstOrNull { it.payload[key] != null && it.payload[key] != JsonNull }?.let { item ->
+        for (key in listOf("dispatched", "retryable", "request_replay_allowed", "remote_acceptance", "dispatch_state", "generation_completed")) {
+            causal.firstOrNull { (key != "generation_completed" || it.recordId == failure?.recordId) && it.payload[key] != null && it.payload[key] != JsonNull }?.let { item ->
                 put(key, item.payload.getValue(key))
                 sources[key] = JsonPrimitive(item.source)
             }

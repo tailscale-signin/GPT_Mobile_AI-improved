@@ -70,6 +70,10 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
             try {
                 val current = settings.fetchPlatformV2s().singleOrNull { it.uid == profile.uid && it.enabled && it.apiUrl == profile.apiUrl }
                 if (current != null) {
+                    if (forceNetwork) {
+                        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(current.apiUrl)
+                        lastUnavailable = null
+                    }
                     repository.refresh(current)
                     if (current.model.isBlank() && (forceNetwork || (current.uid to current.apiUrl) !in candidates.value)) resolveProfileModel(current)
                     if (repository.states.value[current.uid]?.phase == GatewayControlPhase.UNPAIRED) {

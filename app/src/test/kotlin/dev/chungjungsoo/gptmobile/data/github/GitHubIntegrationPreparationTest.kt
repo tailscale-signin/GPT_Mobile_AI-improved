@@ -20,6 +20,36 @@ class GitHubIntegrationPreparationTest {
     private val task = "Test all authorized GitHub integration tools and verify cleanup."
     private val sha = "a".repeat(40)
     private val fixture = "codex-self-test/" + GitHubEvidenceBook.digest("tasksource").take(20)
+
+    @Test fun fullAuthorizedPlanDiscoversReadyHiddenReadAndReportsItsExactAdmissionIfExposureFails() {
+        val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_context")
+        val repository = native.copy(inputSchema = JsonObject(native.inputSchema + ("properties" to JsonObject(native.inputSchema.getValue("properties").jsonObject + ("action" to json("""{"const":"repository"}"""))))))
+        val discovery = AgentToolDefinition("discover_available_tools", "Discover", json("""{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"additionalProperties":false}"""))
+        val authorized = listOf(repository, discovery)
+        val receipts = linkedMapOf(
+            "catalog-failed" to json("""{"trusted":true,"success":false,"tool":"discover_available_tools","arguments":{},"error_code":"CATALOG_CONTRACT_CHANGED"}"""),
+            "earlier-read" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"resolve"},"result":{}}""")
+        )
+        val request = "Test all GitHub tools read-only."
+        val plan = GitHubTestChecklist.schedule(request, authorized, listOf(discovery), receipts, 220)
+        assertEquals(discovery.name, plan.next?.name)
+        assertEquals(json("""{"names":["github_context"]}"""), plan.next?.arguments)
+        val ready = GitHubTestChecklist.checkpoint(request, receipts, authorized, 220, executionPlan = plan.snapshot)
+        assertEquals(JsonPrimitive("ADMISSIBLE_WORK_REMAINING"), GitHubIntegrationReport.stopReason(request, receipts, authorized, 220, ready)["code"])
+        receipts["discovered"] = json("""{"receipt_id":"discovered","trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_context"]},"result":{}}""")
+        val blocked = GitHubTestChecklist.schedule(request, authorized, listOf(discovery), receipts, 219)
+        assertNull(blocked.next)
+        val (text, report) = GitHubEvidencePolicy.testing(receipts, 1000, 0, request, authorized, 219, executionPlan = blocked.snapshot)
+        val checklist = report.getValue("test_checklist").jsonObject
+        assertEquals(blocked.snapshot, checklist["execution_plan"])
+        assertEquals(JsonPrimitive("CANDIDATE_ADMISSION_BLOCKED"), GitHubIntegrationReport.stopReason(request, receipts, authorized, 219, checklist)["code"])
+        assertTrue(text.contains("TOOL_NOT_ADVERTISED_AFTER_DISCOVERY"))
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        assertEquals(JsonPrimitive(false), checklist.getValue("authorized_catalog").jsonObject["complete"])
+        val stale = GitHubTestChecklist.checkpoint(request, receipts, authorized, 219, executionPlan = plan.snapshot)
+        assertNull(stale["execution_plan"])
+    }
+
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
     private fun tool(name: String, vararg actions: String) = AgentToolDefinition(
         name,

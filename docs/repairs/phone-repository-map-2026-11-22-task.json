@@ -1,0 +1,259 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "local_worktree_branch": "work/phone-repository-map-2026-11-22",
+  "source_sha": "e9148ab3dd6df0d1ffb67a630304c1a93c139aed",
+  "pull_request": 2254,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "phone-repository-map-2026-11-22",
+  "state": "IMPLEMENTED_AWAITING_EXACT_HEAD_CI",
+  "intent": [
+    "Display repository structure directly from the selected immutable GitHub revision without Gateway",
+    "Progressively index cached source on the phone and expose definitions, imports and qualified relationship candidates",
+    "Connect the local index to visual map browsing, search, source navigation and model tools",
+    "Persist revision/account-bound preparation and reuse unchanged blobs with bounded foreground work",
+    "Expose coverage, incomplete scans, uncertain relationships and compiler-resolution limits accurately",
+    "Keep explicitly selected Gateway graph analysis and background indexing available as optional services",
+    "Preserve concurrent branch changes; publish through draft PR, required current-head checks, merge and release readback"
+  ],
+  "authorization": "User explicitly requested all proposed repository-map changes on the latest PR, followed by merge after green checks and publication.",
+  "validation": {
+    "focused_tests": "PASS: 101 actual-component tests (24 engine, 10 session, 6 provider authorization, 31 ViewModel, 12 presentation, 7 facade, 3 model tool, 8 Gateway fallback); platform boundaries isolated",
+    "canonical_host": "PASS: canonical validate-local.sh fast on a7698653 plus scoped discovery repair; 623 tests, 2023 literal Android regex patterns, 99 dynamic patterns explicitly skipped, 36 XML resources, generated inventories, dependency/provenance, secret and whitespace checks.",
+    "android_ci": "PENDING: required exact final head validation",
+    "physical_device": "NOT_RUN",
+    "published_release": "PENDING",
+    "focused_ui_routing_tool_tests": "PASS: 61 actual-component tests, platform boundaries isolated",
+    "compose_compile": "PASS: actual map UI and ViewModel sources against cached AndroidX/Compose compiler",
+    "local_android_compile": "BLOCKED: Gradle daemon disappeared during KSP, then KAPT stub generation; not a successful build",
+    "changed_kotlin": "PASS:ktlint1.3.1 on all13 current changed Kotlin files, including new dedicated Gateway regression and regenerated inventory.",
+    "release_scope": "PASS: bounded scoped manifest includes concurrent and phone-map changes",
+    "integration_followup": "PASS: 98 focused current-component tests (30 engine, 47 UI, 21 provider/tool/fallback), actual Compose compilation and ktlint on all changed production/test Kotlin files; platform boundaries isolated",
+    "hosted_integration_repair": "PASS: 42 focused repair cases; full current-head Android validation still required",
+    "cause_chain_followup": "PASS:29unique focused MCP cases, exact18-method core union, actualSDK/CIO controls,4-filektlint. Full manager/Robolectric and physicalTLS not run.",
+    "gateway_privacy_receipt": "PASS:8dedicated actual-component tests (unchanged baseline5failures),6-filektlint and independentreview; unused platform boundaries isolated.",
+    "phone_recipe_capabilities": "PASS:23focused actual-planner cases (8independent+15repository methods), including incoming typed-legacy/source controls. Baseline3522 reproduces2capabilityfailures. Three unchanged checklist integration methods remain outsidehost boundary and mandatoryinhostedCI.",
+    "workspace_discovery": "PASS: 86 actual-component tests: 26 new scoped-discovery/cancellation/router regressions, 34 existing intelligence tests, 20 unchanged cache/readiness/upgrade cases and six exact routing/replay cases. Unchanged6f baseline reproduced seven of seven failures; separate actual-router probe reproduced concurrent binding replacement. All incoming3a denial assertions retained. Independent final review found no remaining finding. Physical MCP boundary controlled by fixtures; no live external-provider qualification.",
+    "workspace_discovery_integration": "PASS:168 combined cases on a7698653 plus this repair; full Gateway142suites/1854reportedcases/35skips plus7browser on e315 plus identical frozen repair."
+  },
+  "reconciled_remote_heads": [
+    "e9148ab3dd6df0d1ffb67a630304c1a93c139aed",
+    "66cbf7122c28f9d895ee1863e613287fe44baeed",
+    "26560d62a29b9d9cc628d5d5bf2bc64554222e9d",
+    "06ab96439deea13262fa48130eed367914e914d0",
+    "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
+    "9173e21455fecd3ef331e9a4aba13709928bfa39",
+    "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2",
+    "fea1a6ac82756817aad485b6267e4294873bfb8b",
+    "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+    "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+    "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+    "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
+    "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+    "c818b9161978e03a6a8e848d1a1066159f7c2718",
+    "f0250cf0c82b0a1939af9721a814c89129be377a",
+    "35228794d6fb667a56f0ff97c80672852093d74b",
+    "c14e2eb10ff90bf6da0f1f45734e9bc42c25f580",
+    "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
+    "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e",
+    "8504366c8edf4e1911284ea6426ccb53e449141c",
+    "57ee520c5b4d99947e724c4eff13e413ddc7ce78",
+    "368e9a8373cad17586de8b7287fa240097ab0352",
+    "6f887cc3f4e81deb497879c9f83cf773fc002189",
+    "3a7563e3cad2707dbe577470811ab05b5d67728b",
+    "5efa5446ddd644c119cbfdf86d77c2e4cf8d157b",
+    "e0915300b1f5413d105203da7abf28fc6c6b196e",
+    "b541378f5257c8f21d73fd4a7c0c18e4c7bcf83d",
+    "e315be06e0c943c442f7f74b216930ee3f32aae4",
+    "1c25a94dbf381dd6a575d2faad92573f8c9656ce",
+    "a7698653f8917f1b99043a4f2b0ad6a6519dd715"
+  ],
+  "privacy_integration": {
+    "source_sha": "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
+    "finding": "The outbound gate blocks typed local privacy denial correctly, but the map wrapper converts it to a generic failure and infers dispatch from absence of an admission exception. This loses policy-specific recovery and authority invalidation.",
+    "intent": [
+      "Preserve typed privacy code through graph provider and model tool without fallback",
+      "Use existing native GitHub dispatch accounting so first-send denial is not dispatched and later denial retains earlier observed reads",
+      "Keep native read reconciliation false and retain explicit Gateway unknown-index checkpoints",
+      "Show privacy-specific map recovery guidance and add behavioral regressions"
+    ],
+    "validation": "PASS: 21 focused tests (8 real-gate provider/auth, 5 native map tool with actual dispatch accounting, 8 Gateway fallback) and 47 combined ViewModel/presentation tests; actual Compose compilation passed",
+    "integrated_source_sha": "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2"
+  },
+  "adopted_ci_repair": {
+    "source_sha": "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
+    "test": "ProviderFailureReportTest.publicProviderHashesKeepActualUpstreamIdentityAndCanonicalClassificationSeparate",
+    "result": "PASS: real pinned projection harness reproduced old 200/null assertion failure and passed exact adopted corrected method plus stronger raw/typed/no-duplicate fixture; no duplicate code commit needed"
+  },
+  "concurrent_search_integration": {
+    "source_sha": "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2",
+    "finding": "Complete path traversal retains the full singular path ID array on every response, so a supported 250-hop path exceeds the 16000-byte tool budget before any page can be returned.",
+    "intent": "Page ordered path IDs with the node slice, retain explicit whole-path position metadata, and verify complete traversal within the actual model-tool response budget.",
+    "validation": "PASS: 30 current engine tests. The b8ac baseline failed only the 250-hop/251-node regression with PHONE_GRAPH_RESULT_TOO_LARGE; the fixed implementation traverses all ordered IDs within each 16000-byte page."
+  },
+  "hosted_integration_repair": {
+    "source_sha": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+    "failed_run_sha": "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2",
+    "run_id": 45070165494,
+    "job_id": 137355179755,
+    "observation": "Hosted Android production and test compilation passed; 12684 tests ran, 3 failed, 5 skipped. All three failing test files are unchanged on the current branch.",
+    "intent": [
+      "Preserve the earlier uncertain MCP read when a subsequent retry is locally rejected by Privacy Mode; reproduce and repair actual transport accounting without weakening uncertainty evidence",
+      "Reconcile diagnostic recovery expectation with the original unknown-operation priority, retaining typed privacy cause",
+      "Correct the source-link test fixture to honor the real immutable GitHubConversationContext constructor invariant and test traversal/source-link rejection through valid contexts"
+    ],
+    "validation": "PASS: 42 focused current repair tests (15 map presentation with real immutable context, 11 diagnostic projection, 16 MCP); owned-file ktlint; canonical validate-local.sh fast with 616 tests on combined 6e source; generated inventories, ICU, resources, provenance and whitespace. Exact-head hosted gates remain pending.",
+    "map_presentation": "PASS: real GitHubConversationContext, normalization and map presentation reproduced old fixture failure (14 tests/1 failure), corrected suite15/0; immutable SHA validation and traversal rejection retained",
+    "gateway_projection": "PASS: actual-source old assertion reproduced (1 test/1 failure); corrected full projection class11/0. Earlier unknown outcome retains reconciliation, privacy reason, original correlation IDs and retryable=false; no production change",
+    "mcp_retry": "PASS: pinned fea1 baseline, 12 cases / 3 failures; current 6e-compatible source, 16 cases / 0 failures, including actual Ktor wrapped-error and real MCP SDK/CIO/local-server reconnect. Per-invocation interruption survives local retry rejection; policy, cancellation and Not connected controls remain unsent. Four concurrent immutable-conversation tests are preserved. Whole-manager/Robolectric execution remains hosted scope.",
+    "integrated_source_sha": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "concurrent_privacy_policy": "Adopted permanent per-conversation policy and Room schema 54 from 6e788707. Its immutable conversation tests replace the obsolete global-toggle mid-request scenario. Preserved the independently reproduced prior-interrupted-read accounting repair and adapted its regressions to the current semantics."
+  },
+  "current_integration_fixture_repair": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "source_sha": "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
+    "working_branch": "work/phone-repository-map-2026-11-22",
+    "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "failed_run_sha": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "run_id": 45074676939,
+    "job_id": 137371424410,
+    "observation": "12803 tests,41 failed,5 skipped. Four failures already have later fixture repairs. Current Gateway-oriented graph tests omit explicit map_source and reject on the native default before their intended scenarios. Compact resolver schema exceeds2000-token assertion at2008.",
+    "intent": [
+      "Correct explicit Gateway graph fixture routing and preserve exact persisted/event argument identity, native defaults and uncertainty assertions",
+      "Keep compact native schema within its existing budget without relaxing admission, privacy or response contracts",
+      "Review other inherited failures for already active worker repairs; preserve all concurrent changes and qualify exact final head",
+      "Retain authoritative map source in generated saved Gateway index recovery recipes, with actual-source regressions; preserve native no-reconciliation semantics and exact receipt identity.",
+      "Reconcile three stale diagnostic test expectations with existing protocol-2 reporter readiness and comparison application-guard classification, retaining unsupported-service/no-dispatch controls and immutable approved payloads; verify actual production paths before changing tests."
+    ],
+    "validation": "Shared37-case repair adopted at35228794 and stronger fixtures atc14e2eb1. Independent3522 diagnostics10/10 passed after exact3-failure baseline; compact schemas1976tokens pass strict<2000 after2008baseline. Final current-head full Android suite pending; no claim that all37 cases independently ran. Currentc14 stronger reporter feature-gate tests independently rerun:10/10pass, production sources unchanged byede2.",
+    "production_finding": "GitHubSelfTestGraph generates pending/saved Gateway index status and availability recovery arguments without map_source. With native phone default, these actual recovery recipes can choose the wrong source.",
+    "ownership": "Overlapping37-case repairs belong to the shared full-suite workstream; this workstream retains independent schema/graph/diagnostic reproduction and incoming-commit review.",
+    "independent_diagnostics_baseline": "PASS reproduction: currentc818 actual receipt/context/diagnostic/serialization/submission + OkHttp compile;10 focused tests yield exactly3 hosted failures, with7 capability/version/unchanged-payload controls passing. No diagnostic repository edits; shared full-suite workstream owns repair.",
+    "integrated_source_sha": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8"
+  },
+  "mcp_cause_chain_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "source_sha": "c818b9161978e03a6a8e848d1a1066159f7c2718",
+    "working_branch": "work/phone-repository-map-2026-11-22",
+    "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "status": "MERGED_SOURCE_UNION_FOCUSED_VALIDATION_PASSED",
+    "findings": [
+      "New blanket SSLException evidence exclusion conflicts with legacy interrupted-read retry after a sent read; later typed local denial can erase prior uncertainty.",
+      "Inherited wrapped CancellationException can pass modern and legacy retry admission even though interruption accounting correctly excludes it."
+    ],
+    "intent": [
+      "Reproduce actual read/reconnect cause-chain behavior with focused real-source regressions before correction.",
+      "Keep known pre-dispatch handshake/connect/DNS failures distinct from uncertain established-transport reads and preserve earlier confirmed/interrupted facts.",
+      "Prevent wrapped cancellation from replaying reads; retain typed policy denial, one-read-retry bounds, no mutation replay and immutable conversation semantics.",
+      "Preserve concurrent37-case/full-suite and feature work; publish only after exact-head qualification."
+    ],
+    "validation": "Unchangedc818 actual-source baseline27cases/6failures; minimal fix27/0. Separate actualSDK/CIO3-case baseline2failures/current3pass. TLS case wraps an actual request interruption after a plaintext local server receives the request; physical TLS-engine behavior not claimed. Wrapped cancellation preserves identity and avoids reconnect. Four owned files passktlint1.3.1 anddiff-check; independent source review found no issue. Final integrated recheck follows Gateway metadata-observer parent forwarding.",
+    "preserved_remote_sha": "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e",
+    "integrated_validation": {
+      "unique_focused_cases": 29,
+      "result": "PASSED",
+      "shared_observer_sha256": "e050700c2315ab873471a671be05f85610febc1bf49420c39d556c0a5cf967c4",
+      "method": "Recompiled actual merged recovery, shared observer and all18 core-test methods. Verified retained legacy-session and SDK source identity. Ran29 unique core/legacy/Ktor/actualSDK cases; incoming15 and retained17 core methods preserved as exact18-method union. Four-filektlint and both working/cached diff-check passed. Sources unchanged byc14e2eb1.",
+      "evidence": "/workspace/scratch/c067b3dc0a58/mcp-cause-chain-host/repair-evidence.json",
+      "whole_android_ci": "PENDING"
+    }
+  },
+  "gateway_privacy_receipt_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "source_sha": "c818b9161978e03a6a8e848d1a1066159f7c2718",
+    "working_branch": "work/phone-repository-map-2026-11-22",
+    "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "status": "FOCUSED_REPAIR_PASSED",
+    "finding": "Explicit Gateway GraphTool typed local privacy denial is omitted from localRejection and can report dispatched=true/FAILED/tool_execution for an unsent call.",
+    "intent": "Use actual request/exchange evidence to distinguish zero-send local denial from earlier completed/uncertain exchanges, while preserving a prior unknown-index obligation. Add a dedicated actual-source regression without competing with shared Gateway graph fixture edits.",
+    "validation": "Exact saved pre-edit source compiles and8dedicatedtests reproduce5failures; formatted corrected source compiles andall8pass. Actual client request/capability/graph slices, fullrepository/checkpoint/state/tool andrealKtor privacygate/context; unusedengineering/Android/settings/diagnostic boundaries isolated. Six-filektlint1.3.1 anddiff-check pass; independentreviewfoundnoissue.",
+    "approved_files": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClient.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/MetadataResponseObservation.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphResponse.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphPrivacyDispatchTest.kt"
+    ],
+    "required_controls": [
+      "Real first-send gate with zero dispatch",
+      "Earlier confirmed response retained",
+      "Earlier interrupted exchange retained through later denial",
+      "Prior unknown index remains unresolved",
+      "Fresh denied graphPOST clears only own token",
+      "Paired prepare denial before graphPOST preserves earlier prepare exchanges",
+      "Cancellation does not falsely clear unknown dispatched work"
+    ],
+    "source_review": "Root and MCP agent independent reviews found no additional issue: per-request observer forwards monotonic facts to invocation parent; typed graph-local unsent proof includes paired-prepare denial; repository confirms only its own attempt as notexecuted. Prior unknown checkpoint and earlier exchange facts remain separate. All8dedicatedcases pass.",
+    "integrated_source_sha": "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e",
+    "android_signature_review": "PASS independent read-only actual constructor/interface/KtorAPI review; no concrete harness signature mismatch. Whole Android compilation remains required."
+  },
+  "phone_recipe_capability_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "source_sha": "35228794d6fb667a56f0ff97c80672852093d74b",
+    "working_branch": "work/phone-repository-map-2026-11-22",
+    "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "finding": "Independent8-case source recipe replay confirms fixed source/selector provenance, but automatic phone plans still schedule Gateway-only notes/requirements/wiki/prs and ungated contract/diagnose work.",
+    "intent": "Restrict automatic phone graph recipes to supported native capabilities while retaining explicit Gateway recipes and typed legacy provenance. Reject unproven source-less saved-job inference rather than weakening incoming trust checks.",
+    "validation": "PASS:23focused actual-planner cases (8independent+15repository methods), including incoming typed-legacy/source controls. Baseline3522 reproduces2capabilityfailures. Three unchanged checklist integration methods remain outsidehost boundary and mandatoryinhostedCI.",
+    "status": "FOCUSED_REPAIR_PASSED",
+    "integrated_source_sha": "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e"
+  },
+  "workspace_discovery_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "source_sha": "8504366c8edf4e1911284ea6426ccb53e449141c",
+    "working_branch": "work/phone-repository-map-2026-11-22",
+    "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "finding": "New workspace integration status calls global MCP discovery before enabled/private/LOCAL_ONLY/allow_remote checks; CatalogCache.get starts configured server producers. Cancellation is checked only later in actual call. tools/list carries no repository content, but denied/unrelated discovery can occur.",
+    "intent": [
+      "Reproduce real discovery dispatch for denied and cancelled workspace jobs before correction.",
+      "Gate all discovery before I/O, keep denied status passive and restrict admitted discovery to exact configured integration connections.",
+      "Preserve catalogue caching/readiness/retry bounds and shared producer ownership; cancellation must stop newly owned work without cancelling another caller.",
+      "Retain actual successful allowed integration execution, existing durable mutation/call identity fences and all source-map work."
+    ],
+    "owned_paths": [
+      "gateway/v14/workspace_tool_integrations.py",
+      "gateway/v14/catalog.py",
+      "gateway/tests/test_gateway_workspace_intelligence.py",
+      "gateway/tests/test_gateway_workspace_integration_privacy.py",
+      "gateway/v14/tools.py"
+    ],
+    "validation": "PASS: 86 actual-component tests: 26 new scoped-discovery/cancellation/router regressions, 34 existing intelligence tests, 20 unchanged cache/readiness/upgrade cases and six exact routing/replay cases. Unchanged6f baseline reproduced seven of seven failures; separate actual-router probe reproduced concurrent binding replacement. All incoming3a denial assertions retained. Independent final review found no remaining finding. Physical MCP boundary controlled by fixtures; no live external-provider qualification.",
+    "integrated_source_sha": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+    "router_followup": "Independent actual-router probe reproduces concurrent scoped catalogue overwriting global admitted map before first caller consumes it. Add narrow invocation-local compiled binding snapshots for dispatch; retain public catalogue list API, exact schema/config checks, durable ledger/replay and no lock across network I/O.",
+    "concurrent_repair": "Preserved3a7563 early-denial implementation and all3newintelligence-test methods; resolved onlyworkspace module overlap.5efa canonicalmanifestrefresh ande091compile-onlyimports/duplicate-helper cleanup retained.",
+    "remaining": "No unpushed implementation slice remains after this guarded upload. Preserve other active workstreams, qualify final shared PR head, merge under current rules, qualify exact main and verify both releases.",
+    "source_sha256": {
+      "gateway/v14/catalog.py": "5fb31751f6c698c2e0a3eeb99b8cf8e022732fd27b628840ae5bdd50c5412f30",
+      "gateway/v14/tools.py": "9e471c799be48d79ca9ee2ba78e2a3a7c45d692298c162614ddd9c8f772d7f52",
+      "gateway/v14/workspace_tool_integrations.py": "c4350c54875c1fd75e58377fc1ff2e853f28e0b652ebe2fb8442ad49bcc8b92b"
+    },
+    "canonical_host": "PASS: canonical validate-local.sh fast on a7698653 plus scoped discovery repair; 623 tests, 2023 literal Android regex patterns, 99 dynamic patterns explicitly skipped, 36 XML resources, generated inventories, dependency/provenance, secret and whitespace checks.",
+    "generated_kotlin": "PASS: ktlint1.3.1 on regenerated AppAuditSourceInventory.kt.",
+    "gateway_full": {
+      "result": "PASS",
+      "source_parent": "e315be06e0c943c442f7f74b216930ee3f32aae4",
+      "python_suites": 142,
+      "python_tests": 1854,
+      "python_skipped": 35,
+      "browser_tests": 7,
+      "command": "PYTHONPATH=gateway:gateway/tests python gateway/check_gateway.py",
+      "scope": "Full Gateway suite on frozen e315 plus this repair; platform-specific skips explicit. Later a769 adapter integration receives focused follow-up and exact-head hosted qualification."
+    },
+    "integrated_focus": {
+      "result": "PASS",
+      "source_parent": "a7698653f8917f1b99043a4f2b0ad6a6519dd715",
+      "tests": 168,
+      "scope": "Actual adapter, workspace intelligence/privacy/commands/lifecycle/HTTP, readiness/upgrade and exact routing/replay cases. Physical provider boundary controlled."
+    },
+    "independent_incoming_review": "a769 adapter operation-bound redaction and atomic cancellation/restart evidence: no concrete findings; exact-head hosted gates pending."
+  }
+}

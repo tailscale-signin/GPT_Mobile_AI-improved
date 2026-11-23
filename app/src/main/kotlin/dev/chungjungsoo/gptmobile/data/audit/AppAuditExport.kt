@@ -49,7 +49,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
         val writer = AppAuditJsonWriter(output) { coroutine.ensureActive() }
         writer.field("format", JsonPrimitive("gptmobile.app-audit.v1"))
         writer.field("schemaVersion", JsonPrimitive(1))
-        writer.field("privacyPolicy", JsonPrimitive("app-audit-allowlist-v2"))
+        writer.field("privacyPolicy", JsonPrimitive("app-audit-allowlist-v3"))
         writer.field("recordScope", JsonPrimitive("Selected app audit only; no model answers, chat history, credentials, tool bodies or uncorrelated application logs."))
         writer.field(
             "run",
@@ -66,6 +66,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                 put("catalogHash", safeDigest(run.catalogHash))
                 put("auditMode", run.options.mode.name)
                 put("selectedProfileCount", run.options.selectedProfileIds.distinct().size)
+                put("modelQualification", if (run.options.selectedProfileIds.isEmpty()) "NO_PROFILE_SELECTED" else "SELECTED_PROFILES_REQUIRE_BENCHMARK")
                 put("networkReadsSelected", run.options.allowNetworkReads)
                 put("executedProbes", run.executedProbes.coerceAtLeast(0))
                 put("networkAccountingVersion", 3)
@@ -178,7 +179,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                 buildJsonObject {
                     put("id", ids.getValue(entry.id))
                     put("sourceId", safeSource(entry.sourceId))
-                    put("probeId", safeProbe(entry.probeId))
+                    put("probeId", safeAuditProbe(entry.probeId))
                     put("label", safeAuditLabel(entry.probeId, entry.componentId))
                     put("componentId", safeComponent(entry.componentId))
                     put("githubCategory", AppAuditGitHubCatalog.category(entry)?.id)
@@ -231,6 +232,28 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("validationField", safeAuditDiagnosticField(observation.validationField))
                     put("observedAtEpochMs", observation.observedAtEpochMs?.nonnegative() ?: JsonNull)
                     put("configurationRevision", safeAuditConfigurationRevision(observation.configurationRevision))
+                    put("fixtureEvidence", appAuditFixtureEvidenceJson(observation.fixtureEvidence, boundedRun.plan.first { it.id == result.entryId }.probeId) ?: JsonNull)
+                    put(
+                        "privacyPolicy",
+                        observation.privacyPolicy?.let { policy ->
+                            buildJsonObject {
+                                put("enabled", policy.enabled?.let(::JsonPrimitive) ?: JsonNull)
+                                put("featureAvailable", policy.featureAvailable?.let(::JsonPrimitive) ?: JsonNull)
+                                put("revision", policy.revision?.takeIf { it >= 0 }?.let(::JsonPrimitive) ?: JsonNull)
+                                put("changedDuringProbe", policy.changedDuringProbe?.let(::JsonPrimitive) ?: JsonNull)
+                            }
+                        } ?: JsonNull
+                    )
+                    put(
+                        "recovery",
+                        observation.recovery?.let { recovery ->
+                            buildJsonObject {
+                                put("originalReasonCode", recovery.originalReasonCode?.let(::safeAuditReason))
+                                put("retryEligibleAtEpochMs", recovery.retryEligibleAtEpochMs?.takeIf { it in 0 until Long.MAX_VALUE }?.let(::JsonPrimitive) ?: JsonNull)
+                                put("explicitReconnectRequired", recovery.explicitReconnectRequired)
+                            }
+                        } ?: JsonNull
+                    )
                     put("remoteServiceIdentity", appAuditRemoteIdentityJson(observation.remoteIdentity) ?: JsonNull)
                     put("remoteServiceIdentityStatus", appAuditRemoteIdentityStatus(observation.remoteIdentity))
                     observation.gatewayReadiness?.let { gateway ->
@@ -425,7 +448,7 @@ private fun Long.nonnegative(): JsonElement = takeIf { it >= 0 }?.let(::JsonPrim
 private fun safeRunId(value: String): String = value.takeIf { it.matches(Regex("[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}")) } ?: "audit-${appAuditTargetDigest(value)}"
 private fun safeArea(value: String): String = value.takeIf { id -> AppAuditSourceInventory.areas.any { it.id == id } } ?: "unknown_source_area"
 private fun safeSource(value: String): String = value.takeIf { it in setOf("local-contracts", "plugins", "source-inventory", "behavior", "appearance", "research_contract", "memory_contract", "selected_models", AppAuditGitHubCatalog.CONTRACT_SOURCE, AppAuditGitHubCatalog.LIVE_SOURCE) } ?: "unknown_source"
-private fun safeProbe(value: String): String = value.takeIf { it in AUDIT_LABELS } ?: "unknown_probe"
+internal fun safeAuditProbe(value: String): String = value.takeIf { it in AUDIT_LABELS } ?: "unknown_probe"
 private fun safeAuditLabel(probe: String, component: String): String =
     AppAuditPluginProbeSource.label(probe, component) ?: AUDIT_LABELS[probe] ?: "Unrecognized audit check"
 private fun safeComponent(value: String): String = value.takeIf {
@@ -458,7 +481,7 @@ private val AUDIT_LABELS = AppAuditPluginProbeSource.labels + AppAuditSelectedMo
     "memory_validity_v1" to "Memory validity boundaries and decay arithmetic",
     "memory_graph_v1" to "Knowledge graph extraction and bounded recall"
 )
-private val AUDIT_STAGES = AppAuditPluginProbeSource.stages + setOf("admission", "execution", "interruption", "validation", "fixture")
+private val AUDIT_STAGES = AppAuditPluginProbeSource.stages + setOf("admission", "execution", "interruption", "validation", "fixture", "fixture_setup", "local_validation", "dns", "tls", "connection", "transport", "response_stream")
 private val AUDIT_REASONS = AppAuditPluginProbeSource.reasonCodes + AppAuditSelectedModelProbeSource.reasonCodes + AppAuditGitHubCatalog.reasonCodes + setOf(
     "AUDIT_VERSION_CHANGED", "INVALID_COVERAGE_CLAIM", "AUDIT_SOURCE_CHANGED", "AUDIT_MANIFEST_CHANGED", "INVALID_AUDIT_MANIFEST",
     "INVALID_AUDIT_RECEIPTS", "INVALID_AUDIT_BUDGET", "RUN_BUDGET_EXHAUSTED", "RUN_DEADLINE_EXCEEDED", "NOT_SELECTED", "NOT_CONFIGURED",
@@ -466,7 +489,8 @@ private val AUDIT_REASONS = AppAuditPluginProbeSource.reasonCodes + AppAuditSele
     "NETWORK_BUDGET_EXHAUSTED", "PROBE_SOURCE_UNAVAILABLE", "INVENTORY_UNAVAILABLE", "DISPATCH_NOT_ALLOWED", "PROBE_TIMEOUT",
     "CHILD_OPERATION_ABORTED", "PROBE_FAILED", "PROBE_EVIDENCE_MISMATCH", "DISPATCH_RECEIPT_MISSING", "DISPATCH_CONFIRMATION_MISSING", "CONFIGURATION_CHANGED", "USER_STOP",
     "SERVICE_INTERRUPTION", "PROCESS_INTERRUPTION", "STORAGE_CHECKPOINT_FAILED", "FIXTURE_PASSED", "FIXTURE_FAILED", "FIXTURE_CHANGED", "UNKNOWN_LOCAL_FIXTURE",
-    "PROBE_CONTRACT_INVALID", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "AUDIT_PROBE_CHANGED", "LOCAL_CONTRACT_PASSED", "LOCAL_CONTRACT_FAILED", "DEVICE_MEASUREMENT_REQUIRED"
+    "PROBE_CONTRACT_INVALID", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "AUDIT_PROBE_CHANGED", "LOCAL_CONTRACT_PASSED", "LOCAL_CONTRACT_FAILED", "DEVICE_MEASUREMENT_REQUIRED",
+    "LOCAL_FIXTURE_POLICY_BLOCKED", "LOCAL_FIXTURE_SETUP_FAILED", "LOCAL_FIXTURE_EXECUTION_FAILED"
 )
 
 private const val MAX_EXPORT_CHECKS = 4096

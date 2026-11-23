@@ -1,3 +1,111 @@
+# 0.9.66.13 — 2026-11-22
+
+- Requalify speech acceleration after the native profile-lifecycle update; older capability results stay in history and cannot rank or disable the updated runtime.
+- Preserve completed speech playback measurements when a cancellation request arrives after audio has already stopped.
+- Retain preparation thermal evidence and interrupted speech-benchmark cost, keep unobserved playback routes and clocks unknown, and retire unfinished accelerator profiles before session reuse while preserving successfully qualified cached sessions.
+- Run complete long speech benchmarks through bounded production phrases, retain exact failed-chunk context, and distinguish completed execution from a qualified comparison. Add separate native-phrase and changing-shape workloads with per-fixture statistics and versioned history.
+- Bind Auto comparison receipts to the selected voice and rate, invalidate old broken workloads, and validate ordinary accelerator startup on its first requested phrase. Reuse a bounded exact-shape cache, require real GPU discovery, and report current preparation, available profiles and non-silent audio evidence.
+- Add an audible production playback benchmark for first queued and presented audio, refills, underruns, cancellation acknowledgement and complete caption word coverage; preserve partial measurements without claiming acoustic latency or battery benefits.
+- Add maintained revision-checked repository/feature references and automatic source-range/document context in GitHub mode, with independent encrypted phone index retention and incremental blob reuse.
+- Expose context choices and source/coverage/cache receipts on Android and Gateway, exact-range private context exports, selected-tokenizer limits, bounded warm language-server reuse and run-scoped adaptive read feedback.
+- Add structured feature/symbol discovery and controlled same-model context comparisons with frozen public fixtures, explicit semantic fallback and independent grading evidence.
+- Avoid duplicate GitHub checkpoint writes when only the copied observation time changes; preserve receipt timestamps, recovery authority and immutable state transitions.
+- Fit optional verification draft context within the original token budget without dropping the task or acceptance criteria, splitting Unicode characters or bypassing a later budget change.
+- Protect original pending benchmark attempt identities referenced by legacy samples and events even when their separate attempt rows are absent from a backup.
+- Retain exact admitted saved-page proof through replay compaction and recovery, release rejected cursor reservations, and count every automatic attempt within the existing 32-call limit.
+- Retain successful saved-page reads with matching request context across replay compaction and recovery, preserving cursor authority and explicit rereads.
+- Preserve the original benchmark request, usage, attempts and cleanup receipt when an enclosing task deadline interrupts remote verification.
+- Count native coding candidates that start and exhaust a time or output limit as known failures after successful grader calibration; keep unavailable runtimes and uncertain cleanup unqualified.
+- Require complete typed native benchmark results, SQLite observations and declared workflow jobs, with identical typed comparison in local and exported GitHub verification. Malformed receipts and unavailable runtimes cannot establish model success or failure.
+- Prevent optional agent children from starting after a confirmed stop or being launched twice by concurrent startup requests.
+- Confirm agent model/session startup before concurrent prompts, stop children after failed initialization, and retain completed cancellation or timeout state.
+- Preserve operation-bound credential redaction across account rotation and persist cancellation dispatch atomically for truthful restart recovery.
+- Bind resumed provider waits to a versioned complete journal covering original source identity, stored replay bytes, payload type, error state, budget flags and execution metadata; preserve settled writes and reject unproven legacy semantics.
+- Make OpenRouter preview-cancellation coverage deterministic at the IO-to-caller boundary, retaining all four reusable session slots and the unchanged cancellation cleanup contract.
+- Add four distinct engineering benchmark lanes, frozen two-profile comparisons, conservative family-based uncertainty and five-view Android/Gateway comparison workspaces.
+- Add independent Python behavioral and input-preservation grading, distinct Kotlin/SQLite/CI defects, mandatory native controls and exact-revision disposable GitHub verification through Gateway or direct phone-to-Actions execution.
+- Preserve original request and cancellation identities across interruptions; retain all failed and repaired attempts, physical-request usage ownership, immutable evidence and unknown costs.
+- Retain unsettled GitHub benchmark ownership after Gateway restart or journal relocation, including legacy results already marked interrupted, and prevent Android history deletion until the original remote work is reconciled.
+- Keep GitHub benchmark publication and cleanup bound to the verified account through credential rotation, recording dispatch only after account admission succeeds.
+- Preserve pending benchmark ownership and original receipt bytes when restoring backups, including conflicting imported IDs; settled and unrelated results keep normal restore behavior.
+- Check pending benchmark cleanup before wider backup changes; retain the complete current benchmark section and finish an already committed restore when late cleanup ownership appears, with a visible recovery notice.
+- Serialize benchmark initialization during startup, preference refreshes and backup imports with canonical storage; preserve committed history if optional scores fail and keep unreadable ownership errors free of saved payload details.
+- Check conversation privacy and exact integration permissions before discovering or calling optional workspace tools.
+- Restrict optional workspace discovery to each admitted tool's configured connection, preserve other callers when discovery is cancelled, and isolate concurrent exact-route bindings without replacing the global tool cache.
+- Add a source-bound Android/Windows agent workspace with actual optional SDK/API/ACP coding runtimes, scoped workers, dependency-ready task evidence, graph-ranked context, private review drafts, local next-edit validation and configured documentation/browser tools. Keep agent comparisons separate from model benchmarks and preserve unknown-command/cancellation evidence.
+
+- Keep automatic phone-map checks within supported native actions, while retaining explicitly selected Gateway analysis and source-bound recovery.
+- Record Gateway map privacy rejection from actual request evidence, clearing only a newly proven unsent index attempt and preserving earlier exchanges and unresolved jobs.
+- Propagate cancellation wrapped by MCP transport failures before reconnect or replay, while retaining earlier observed responses and interrupted reads.
+- Reject altered saved tool-result bytes with the typed recovery-integrity error, without fabricating observed receipt counts or digests.
+- Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.
+- Preserve the selected Phone or Gateway source through repository-map status recovery, saved jobs and cursor continuation, keeping their evidence and pending work separate.
+- Validate retained result bytes before reusing a saved journal projection hash, preserving legacy file decoding and settled-call deduplication while requiring protected replay and semantic proof before automatic provider recovery.
+- Keep saved-conversation privacy admission, reporter capability negotiation, audit metadata and compact tool-schema limits aligned across the full-suite integration fixtures.
+
+- Compile compound engineering requests into stable source-linked acceptance criteria with explicit dependencies and evidence producers; preserve original scope and budgets when refining saved contracts.
+- Require actual pinned source content, complete instruction coverage, a changed regression at the tested revision, complete diff coverage and the matching live draft pull request before their individual obligations can pass.
+- Bind provider cooldown recovery to the complete atomic durable tool journal independently of compacted provider replay; retain local projection identity, original failure provenance, settled-write replay and unknown-write reconciliation.
+- Keep task acceptance, delivered responses and output attempts independent; reconcile same-task recovery refusals and require observed scheduler ownership instead of inferring a live executor from saved state.
+- Execute every currently admissible GitHub checklist lane, discover exact missing schemas within the accepted budget, retain candidate admission reasons and correct a proven legacy invalid status recipe once.
+- Route instruction discovery through native path search, replay exact saved continuation selectors, convert search receipts to pinned source reads and derive CI run/job selectors from observed identities.
+- Request one bounded replan after three unproductive source rounds or sixty seconds of unproductive work while preserving exact incomplete search frontiers and useful source progress; continue eligible work beyond three correction rounds within the original finite budget.
+- Accept an observed empty Copilot task collection without confusing it with malformed or incomplete responses, and preserve exact comparison, CI, reserve and optional-service evidence through full paged diagnostic export.
+
+- Add a durable conversational voice system prompt for microphone and typed turns, concise spoken-answer display, optional visual details and explicit full-details replay; keep reasoning outside answer audio across streamed and restored responses.
+- Improve contextual pronunciation and caption mapping for dates, times, signed quantities, units and IP addresses; add natural speech defaults and a preset without overwriting saved choices.
+- Add Quick/Full CPU, GPU and NPU speech benchmarks with identical fixtures, cold/warm timing, first PCM, real-time factor, median/p95, thermal and actual mixed-kernel evidence, cancellation, saved reports and private JSON export.
+- Preserve readable captions through the start of speech, isolate replay cursor ownership, keep literal reasoning delimiters out of answer audio, and prevent Auto from mixing incompatible comparison protocols.
+- Preserve final answers after inline code and numeric inch marks in reasoning, and enforce Auto's ten percent improvement threshold using exact measured costs.
+- Start playback when partial phrase tails fill the PCM queue, avoiding an unnecessary reserve wait without increasing memory or queue limits.
+- Make Options enable the availability of private chats, with a separate permanent privacy choice for every profile selected in New Chat. Keep saved private chats protected when Options is disabled, across restart, retry, copy and restore; migrate existing privacy history conservatively with Room 54.
+- Preserve existing permanent privacy locks when restoring an older conversation backup, including direct imports that clear current data, without inventing masking evidence for the restored content.
+- Protect restored voice captions until the saved conversation's privacy policy finishes loading after app restart.
+- Allow ordinary memories to move between personal and project scopes while keeping private and unshared memories permanently restricted.
+- Scope provider, background, local-tool and voice transport to the originating conversation, preserving ordinary chats during concurrent private work. Retain screen protection and clear private-chat labels independently of feature availability.
+- Isolate private memories, documents and legacy mixed-source evidence through edits, deletion and restore; keep private content out of shared research indexes and unsupported external workflows. Preserve responsive profile selection, New Chat and asynchronous settings saves.
+- Complete comparison coverage when GitHub pages arrive out of order; retain the original failed page receipts and exact remaining fragment obligations, and honor the requested bounded comparison page size.
+- Distinguish full tool-result delivery from compacted evidence summaries. Use exact delivered-content proof to resume saved pages across restarts without skipping unread fragments or changing an explicit reread.
+- Plan stage-aware output capacity with a visible-output target and allow one materially changed empty-output repair. Preserve explicit reasoning choices, accepted context limits, durable provider waits and unknown-operation reconciliation; effort-only provider APIs cannot guarantee a fixed visible-token reserve.
+- Split oversized finite source reads into exact windows of at most 2,000 lines within the eight-range contract, preserving the requested tail and original invocation. Invalid actions and unsupported search fields receive schema-specific correction guidance.
+- Separate complete authorized catalogues from missing representative live reads, keep unobserved verification reserves unknown, classify application guards separately from provider failures, and preserve hash-only identity for original uncertain operations.
+- Report a complete empty failure query for the selected commit as zero observed failed workflow runs. Keep historical failure observations distinct from the latest workflow and do not infer passing required checks or newly executed tests.
+- Allow trusted calculator, date and supplied-text slicing tools in Privacy Mode while masking model continuations and preserving permissions; keep external service tools behind their existing privacy checks.
+- Distinguish local privacy rejection from GitHub/MCP network failure, preserve earlier uncertain operations and genuine cooldowns, and retain bounded audit assertion, transport, policy and recovery evidence with exact-connection repair guidance.
+- Make the repository map work directly on the phone without Gateway, with immediate revision-bound structure, progressive resumable source indexing, source navigation, search and explicitly qualified relationship candidates. Preserve native GitHub permissions and encrypted cache identity; retain Gateway as an explicit optional analysis source.
+- Clarify first-chat readiness, phone/cloud/network processing routes, actual local processor receipts, research adapter availability and backup recovery guidance.
+- Centralize provider session dispatch and reduce optional preparation for routine tasks only within explicitly enabled automatic/adaptive choices, preserving accepted participants, reviews and budgets.
+- Add per-success benchmark effort and configured API cost reporting with failed-attempt inclusion, immutable price evidence, explicit unknowns and exportable measurement scope.
+- Add a private numeric voice measurement export and correct fractional caption edge overlap while preserving the concurrent audio-clock and accelerator work.
+- Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.
+- Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.
+- Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.
+- Reserve accepted PCM against measured next-phrase synthesis time within a bounded 5.9-second reserve inside the existing six-second PCM queue, preserve natural first clauses, and align follow-up phrase targets to Quality 24 words, Balanced 16 and Fast 12 with adaptive Auto pacing.
+- Separate first visible text, publishable phrase, queued speech, prepared PCM and presented audio timings; distinguish warm-at-request from engine reuse and show measured buffering, refill and effective-provider evidence.
+- Repair Kokoro QNN partition proposals with a convex, static-interface graph adapter; select the concrete GPU or NPU device and keep dynamic duration/alignment sections on CPU within the same audio-and-timing inference.
+- Qualify backend execution from valid PCM, aligned durations and actual kernel profiles for each prepared token shape; retain bounded device/model/runtime/lexicon/thread-scoped capability receipts and explicit rechecks. Auto retains CPU unless measured accelerator cost, including preparation, is at least 10% lower.
+- Retire a failed accelerator and retry only its current unplayed phrase on CPU; preserve typed source, target, outcome and original failure when CPU or permitted Android system speech recovery occurs, including optional Gateway CUDA failures. Fence duplicate and stale fallback callbacks.
+- Move deferred speech preference reads off the UI path and retain explicit cancellation origins, bounded cleanup and separate synthesis/playback ownership.
+- Separate immutable approval, classification and recheck records and preserve typed local persistence conflicts with safe correlation.
+- Correlate provider retry checkpoints and permit one durable bounded repair for reasoning-only or empty completions while preserving unknown-write reconciliation.
+- Issue larger exact source-page alternatives, retain path/query/branch facts through compaction, and move repeated exploration toward implementation milestones.
+- Preserve exact review-comparison page chains and explicit deadline-renewal evidence; correct invalid fuzzy-search requests.
+- Use conservative reasoning effort for mechanical issued-cursor rounds while retaining selected behavior for coding, review and explicit choices.
+- Classify HTTP and streamed provider failures consistently, make exhausted credits action-required, and preserve transport and upstream error identity.
+- Share local Gateway transport cooldown across aliases, support explicit reconnect, and scope MCP catalogue invalidation with actionable cache-miss evidence.
+- Keep one compact active GitHub decision above the composer, support queued detail, and answer notification choices through durable identity-checked actions.
+- Remove the overlapping red unread badge, add themed Gateway cloud indicators, and improve bounded Markdown/cache rendering with capture allocation evidence.
+- Retain explicit provider-wait refusal and scheduler outcomes, non-overlapping work/wait timing, and closed diagnostic evidence across restart and report submission.
+- Make immutable evidence writes atomic with explicit stored, duplicate, rejected-owner and conflict results; preserve completed comparison coverage across duplicate reads.
+- Retain exact search frontiers and typed rule failures, match replanning to task intent, and explain missing acceptance contracts without treating zero-of-zero as complete.
+- Isolate transcript row updates, profile per-row layout, index diagnostic paging with Room migration 52, and retain query/hydration/redaction/serialization/write/checkpoint timings.
+- Split saved Gateway job recovery and the main run execution coroutine into bounded phases; enforce packaged ART code-unit limits for the coordinator and generated classes while preserving ownership, cancellation and terminal publication.
+- Coalesce exact-service TCP probes per network generation, show actionable offline guidance, and add read-only Gateway host connectivity observations.
+- Unify operation incident aliases within their process/session context and distinguish owned metadata deadlines from expected observer cancellation.
+- Keep nested GitHub payload text from becoming the current operation's failure code; require genuine top-level failure provenance and preserve explicit success or unknown observations.
+- Prevent duplicate built-in tool entries, retain existing settings when replacement fails, and restore older backups with equivalent duplicate bindings safely.
+- Android build 147 and Gateway 18.1.1 retain scoped qualification and all required release checks. Host HTP emulator evidence demonstrates mixed QNN/CPU graph execution; physical Adreno/Hexagon acceleration and audio-route performance remain unqualified. See [release notes and limitations](RELEASE_NOTES.md).
+
 # 0.9.66.7 — Gateway continuity and diagnostic reliability
 
 - Add persistent gateway conversations, a gateway-wide Jobs tab, durable queued commands and reconnection to the original saved work.
@@ -26,6 +134,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.9.66.5] - 2026-11-05
+
+- Prevent an empty protected cache-key file after secure entropy fails, preserving encryption and lost-key safeguards; isolate Windows semantic-test settings without removing OS runtime variables and close every fixture SQLite connection.
 
 - Preserve GitHub tasks, objective evidence and review state across branch changes and approved operations; improve workspace admission, bounded final review, task history, recovery presentation and the Status dashboard.
 - Add and repair bounded repository graph navigation and cumulative audit evidence, while retaining explicit limitations for external Graphify and compiler-resolved semantics.

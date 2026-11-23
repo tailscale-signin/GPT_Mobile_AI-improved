@@ -7,12 +7,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
@@ -89,8 +92,22 @@ class ChatMarkdownWordingTest {
                 )
             }
         }
-        fun colours(text: String): Set<Color> = compose.onAllNodesWithText(text, useUnmergedTree = true)
-            .fetchSemanticsNodes().flatMap { it.config[SemanticsProperties.Text] }.flatMap { it.spanStyles }.map { it.item.color }.filter { it != Color.Unspecified }.toSet()
+        fun colours(text: String): Set<Color> {
+            val nodes = compose.onAllNodesWithText(text, useUnmergedTree = true)
+            val layouts = mutableListOf<TextLayoutResult>()
+            nodes.fetchSemanticsNodes().indices.forEach { index ->
+                nodes[index].performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            }
+            // Plain paragraphs reuse a span-free string and take their colour from
+            // TextStyle. Verify the effective colour of every laid-out character,
+            // including any richer paragraph's explicit span overrides.
+            return layouts.flatMap { layout ->
+                val input = layout.layoutInput
+                input.text.indices.map { offset ->
+                    input.text.spanStyles.lastOrNull { it.start <= offset && offset < it.end && it.item.color != Color.Unspecified }?.item?.color ?: input.style.color
+                }
+            }.toSet()
+        }
         fun ordinaryTextRetainsItsColour(): Boolean = listOf(legacyText, directText, unknownText).all { colours(it) == setOf(ordinary) }
         compose.waitUntil(5000) {
             ordinaryTextRetainsItsColour() && colours(gatewayText) == setOf(ResponseSourceAppearance.gatewayForeground(accent, surface))

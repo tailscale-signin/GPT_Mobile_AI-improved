@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
+import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -21,6 +23,7 @@ internal suspend fun <T> withMcpDiscoveryOAuthRefresh(
     val rejected = causes.any { (it is StreamableHttpError && it.code == 401) || (it is ModernMcpError && it.status == 401) }
     // A permission denial, local auth gate, or interrupted request is not proof of an expired token.
     if (!oauth || !rejected || causes.any { (it is StreamableHttpError && it.code == 403) || (it is ModernMcpError && it.status == 403) }) throw failure
+    val rejectedObservedAtEpochMs = System.currentTimeMillis()
     currentCoroutineContext().ensureActive()
     val replacement = try {
         refresh(initial.authorizationHeader)
@@ -29,13 +32,28 @@ internal suspend fun <T> withMcpDiscoveryOAuthRefresh(
     } catch (refreshFailure: Exception) {
         val refreshCauses = generateSequence<Throwable>(refreshFailure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
         refreshCauses.filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+        if (refreshFailure.isLocalPrivacyPolicyRejection()) {
+            // Retain the first response and the current policy cause, never OAuth response prose.
+            throw McpDiscoveryPolicyRejection(UnverifiedServiceTransport(), rejectedObservedAtEpochMs)
+        }
         // The first discovery already received 401. Do not replace that dispatch evidence
         // with a later credential-preparation rejection or expose OAuth response prose.
         throw McpDiscoveryOAuthRefreshException(refreshCauses.filterIsInstance<McpLocalValidationException>().firstOrNull()?.rule)
     }
     currentCoroutineContext().ensureActive()
-    // This call deliberately sits outside the try/catch: a second 401 is terminal.
-    discover(replacement, true)
+    // A second 401 is terminal; a later local policy denial cannot erase the first response.
+    try {
+        discover(replacement, true)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (rediscoveryFailure: Exception) {
+        val rediscoveryCauses = generateSequence<Throwable>(rediscoveryFailure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+        rediscoveryCauses.filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+        if (rediscoveryFailure.isLocalPrivacyPolicyRejection()) {
+            throw McpDiscoveryPolicyRejection(UnverifiedServiceTransport(), rejectedObservedAtEpochMs)
+        }
+        throw rediscoveryFailure
+    }
 }
 
 internal class McpDiscoveryOAuthRefreshException(localRule: McpLocalValidationRule? = null) :

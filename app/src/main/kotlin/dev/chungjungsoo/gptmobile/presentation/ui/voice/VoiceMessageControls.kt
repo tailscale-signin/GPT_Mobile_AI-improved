@@ -1,7 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -16,7 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -28,6 +28,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText
 
 internal data class VoiceMessageControls(
     val active: VoiceMessageIdentity?,
@@ -35,7 +36,8 @@ internal data class VoiceMessageControls(
     val available: Boolean,
     val read: (MessageV2, String) -> Unit,
     val stop: () -> Unit,
-    val pauseCapture: () -> Unit
+    val pauseCapture: () -> Unit,
+    val readDetails: ((MessageV2, String) -> Unit)? = null
 )
 
 internal val LocalVoiceMessageControls = compositionLocalOf<VoiceMessageControls?> { null }
@@ -46,12 +48,23 @@ internal fun MessageV2.voiceIdentity() = VoiceMessageIdentity(
     if (hasHistoricalRevisionSelected()) activeRevisionIndex else ACTIVE_REVISION_LATEST
 )
 
-/** One message-local action backed by the conversation's sole output owner. */
+/** Answer and details share one playback owner; selecting either fences the previous output. */
 @Composable
 internal fun VoiceMessageSpeaker(message: MessageV2, text: String) {
     val controls = LocalVoiceMessageControls.current ?: return
     val active = controls.active == message.voiceIdentity() && controls.phase in setOf(VoicePhase.THINKING, VoicePhase.PREPARING, VoicePhase.SPEAKING)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+    val hasDetails = remember(text) { VoiceSpeechText.hasDetails(text) }
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        if (hasDetails && controls.readDetails != null && !active) {
+            TextButton(
+                onClick = { controls.readDetails.invoke(message, text) },
+                enabled = controls.available,
+                modifier = Modifier.heightIn(min = 48.dp).testTag("voice_response_details_${message.id}")
+                    .semantics { contentDescription = "Read full AI response details aloud" }
+            ) {
+                Text("Read full details")
+            }
+        }
         TextButton(
             onClick = { if (active) controls.stop() else controls.read(message, text) },
             enabled = active || controls.available && text.isNotBlank(),

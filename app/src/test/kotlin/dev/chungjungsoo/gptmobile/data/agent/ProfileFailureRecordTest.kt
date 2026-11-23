@@ -6,6 +6,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun taskIdentityAdmissionPreservesTheAcceptedContractRecoveryAction() {
+        for (action in listOf("RESTORE_ACCEPTED_TASK_CONTRACT", "RESTORE_ACCEPTED_TASK_CRITERIA", "AUTHORIZE_NEW_TIME_WINDOW")) {
+            val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"admission","dispatched":false,"retryable":false,"request_replay_allowed":false,"next_action":"$action"}""") as kotlinx.serialization.json.JsonObject
+            val record = ProfileFailureRecord.fromProvider("The accepted task contract is unavailable", "GITHUB_TASK_IDENTITY_CHANGED", details)
+            val saved = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), record))
+            assertEquals("GITHUB_TASK_IDENTITY_CHANGED", saved.category)
+            assertEquals("admission", saved.phase)
+            assertFalse(saved.retryAllowed)
+            assertEquals(false, saved.requestReplayAllowed)
+            assertEquals(listOf(action), saved.recoveryActions)
+        }
+        assertFalse(ProfileFailureRecord.classify("GITHUB_TASK_IDENTITY_CHANGED").retryAllowed)
+    }
+
     @Test fun internalVerifierFailureSurvivesSerializationWithoutBecomingMissingEvidenceOrRetryable() {
         val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"verification","recovery_action":"INSPECT_VERIFICATION_FAILURE","retryable":false,"request_replay_allowed":false}""") as kotlinx.serialization.json.JsonObject
         val failure = ProfileFailureRecord.fromProvider("An internal verification fault; historical HTTP 429 text is not a current rejection", "GITHUB_VERIFICATION_INTERNAL_ERROR", details)

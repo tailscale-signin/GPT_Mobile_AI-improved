@@ -14,6 +14,18 @@ void Reject(string line)
     throw new Exception("Malformed bridge frame was accepted");
 }
 string Frame(string kind, JsonNode? value) => new JsonObject { ["protocol"] = "gptmobile.desktop.v1", ["event"] = kind, ["value"] = value }.ToJsonString();
+const string inconclusive = "Inconclusive · no qualified winner";
+foreach (JsonNode? winner in new JsonNode?[] { null, JsonValue.Create(""), JsonValue.Create(" "), JsonValue.Create(42) })
+    Check(BenchmarkComparisonPresentation.Headline(new JsonObject { ["status"] = "SUPERIOR_ON_MATCHED_SUITE", ["winner"] = winner }) == inconclusive,
+        "Missing or invalid winner cannot become a superiority headline");
+Check(BenchmarkComparisonPresentation.Headline(new JsonObject { ["status"] = "INCONCLUSIVE", ["winner"] = "model-a" }) == inconclusive,
+    "Unqualified retained model name cannot become a winner");
+Check(BenchmarkComparisonPresentation.Headline(new JsonObject { ["status"] = "INCONCLUSIVE", ["winner"] = null }) == inconclusive,
+    "Normal inconclusive backend summary stays inconclusive");
+Check(BenchmarkComparisonPresentation.Headline(new JsonObject { ["winner"] = "model-a" }) == inconclusive,
+    "Missing qualification status cannot become a winner");
+Check(BenchmarkComparisonPresentation.Headline(new JsonObject { ["status"] = "SUPERIOR_ON_MATCHED_SUITE", ["winner"] = "model-a" }) == "Superior on this matched suite: model-a",
+    "Qualified matched-suite winner remains visible");
 var delta = BridgeFrame.Parse(Frame("delta", JsonValue.Create("Unicode reply · 你好")));
 Check(delta.Event == "delta" && delta.Value?.ToString() == "Unicode reply · 你好", "Streaming text survives transport");
 var accepted = BridgeFrame.Parse(Frame("accepted", new JsonObject { ["command_id"] = "send-123", ["detach_safe"] = true }));

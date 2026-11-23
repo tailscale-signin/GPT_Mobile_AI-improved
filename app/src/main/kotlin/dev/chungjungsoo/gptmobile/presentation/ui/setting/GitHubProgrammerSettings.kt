@@ -73,6 +73,9 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         onOpenRepositoryMap?.let { open ->
             OutlinedButton(onClick = open, modifier = Modifier.fillMaxWidth().testTag("github_repository_map")) { Text("Repository map") }
         }
+        if (state.privacyModeLocked == true) {
+            Text("Private chat · Repository map requests and external sharing require a verified private route.", style = MaterialTheme.typography.bodySmall)
+        }
         var gatewayMenu by remember { mutableStateOf(false) }
         OutlinedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -105,6 +108,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                         Text("Share repository map results from $repository with ${inference.model}", Modifier.weight(1f))
                         Switch(
                             checked = state.profileSettings.graphSharingConsent == consentKey,
+                            enabled = state.privacyModeLocked == false,
                             onCheckedChange = { enabled -> onSettings(state.profileSettings.copy(graphSharingConsent = consentKey.takeIf { enabled })) }
                         )
                     }
@@ -112,6 +116,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                         Text("Run approved Gateway checks and share the output with ${inference.model}", Modifier.weight(1f))
                         Switch(
                             checked = state.profileSettings.workspaceCheckConsent == consentKey,
+                            enabled = state.privacyModeLocked == false,
                             onCheckedChange = { enabled -> onSettings(state.profileSettings.copy(workspaceCheckConsent = consentKey.takeIf { enabled })) }
                         )
                     }
@@ -251,7 +256,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Cache source files", style = MaterialTheme.typography.titleSmall)
-                Text("Cache file contents for on-demand reads. Build the separate symbol and dependency index in Repository map.", style = MaterialTheme.typography.bodySmall)
+                Text("Cache file contents for on-demand reads and progressive Repository map analysis on this phone. Gateway is optional.", style = MaterialTheme.typography.bodySmall)
             }
             Switch(state.prepareIndex, onIndex, modifier = Modifier.testTag("github_index_option"))
         }
@@ -309,6 +314,7 @@ internal fun GitHubGatewayConnectionCheck(profileUid: String?, onCheck: (String)
 private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride, enabled: Boolean, configuredCallLimit: Int?, onChange: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var workflowMenu by remember { mutableStateOf(false) }
+    var contextMenu by remember { mutableStateOf(false) }
     var advanced by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -336,6 +342,21 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
             }
             GitHubOverrideSwitch("Web search", "Search the web and read source pages.", value.webSearch, enabled) { onChange(value.copy(webSearch = it)) }
             GitHubOverrideSwitch("GitHub tools", "Use the connected repository and review changes before committing.", value.githubTools, enabled) { onChange(value.copy(githubTools = it)) }
+            Column {
+                Text("Repository context", style = MaterialTheme.typography.titleSmall)
+                OutlinedButton(onClick = { contextMenu = true }, enabled = enabled && value.githubTools, modifier = Modifier.testTag("github_context_variant")) {
+                    Text(repositoryContextLabel(value.contextVariant))
+                }
+                DropdownMenu(expanded = contextMenu, onDismissRequest = { contextMenu = false }) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant.entries.forEach { variant ->
+                        DropdownMenuItem(text = { Text(repositoryContextLabel(variant)) }, onClick = {
+                            contextMenu = false
+                            onChange(value.copy(contextVariant = variant))
+                        })
+                    }
+                }
+                Text("Task context selects source ranges, repository guidance and test candidates for your request. Semantic context adds local similarity ranking. All choices keep the selected model, permissions and source revision.", style = MaterialTheme.typography.bodySmall)
+            }
             TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced settings" else "Advanced settings") }
             if (advanced) {
                 GitHubOverrideSwitch("Maximum context expansion", "Expand up to the provider or local model capacity, with room for results and review.", value.maximumContext, enabled) { onChange(value.copy(maximumContext = it)) }
@@ -445,4 +466,11 @@ private fun GatewayAdmissionControl(loadOrToggle: suspend (GatewayAdmissionSetti
             Text("Current setting unknown. Check the connection, host version and engineering access, then read it again.", style = MaterialTheme.typography.bodySmall)
         }
     }
+}
+
+private fun repositoryContextLabel(variant: dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant): String = when (variant) {
+    dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant.CURRENT -> "Current context baseline"
+    dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant.REFERENCE -> "Repository reference"
+    dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant.TASK -> "Task context (recommended)"
+    dev.chungjungsoo.gptmobile.data.github.GitHubContextVariant.SEMANTIC -> "Task context with local similarity"
 }

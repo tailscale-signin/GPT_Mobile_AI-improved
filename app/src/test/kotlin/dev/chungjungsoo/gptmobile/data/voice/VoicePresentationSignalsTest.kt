@@ -1,8 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePresentationSignalsTest {
@@ -12,6 +14,15 @@ class VoicePresentationSignalsTest {
         assertEquals(state.presentationState(), next.presentationState())
         assertNotEquals(state, next)
         assertNotEquals(state.presentationState(), next.copy(phase = VoicePhase.PAUSED).presentationState())
+        assertNotEquals(state.presentationState(), state.copy(captionPresentationId = state.captionPresentationId + 1).presentationState())
+    }
+
+    @Test fun independentlyCollectedOldCursorCannotOwnTheNextSameTextReply() {
+        val old = VoiceCaptionCursor(2..7, "Same answer", presentationId = 12)
+        assertTrue(old.belongsTo(12))
+        assertFalse(old.belongsTo(13))
+        assertTrue(old.copy(presentationId = 13).belongsTo(13))
+        assertTrue("Legacy producers retain their untimed cursor contract", VoiceCaptionCursor(2..7).belongsTo(13))
     }
 
     @Test fun liveMeterAndPlaybackCursorDoNotRecheckpointOrPublishTheScreen() {
@@ -35,6 +46,7 @@ class VoicePresentationSignalsTest {
         assertSame(speaking, session.presentationStates.value)
         assertEquals(playbackChanges, checkpoints.size)
         assertEquals(2..9, session.captionCursors.value.range)
+        assertEquals(session.state.captionPresentationId, session.captionCursors.value.presentationId)
         assertEquals(2..9, session.states.value.spokenRange)
         session.pause()
         assertEquals(null, session.captionCursors.value.range)

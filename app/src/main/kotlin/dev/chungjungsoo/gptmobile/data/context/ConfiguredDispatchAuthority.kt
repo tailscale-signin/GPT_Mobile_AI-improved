@@ -28,6 +28,8 @@ internal object ConfiguredDispatchAuthority {
                 return guard
             } catch (stale: IllegalStateException) {
                 if (attempt == 2 || stale.message?.startsWith("DISPATCH_POLICY_CHANGED:") != true) throw stale
+                // A revoked captured parent cannot be resnapshotted as mutable child configuration.
+                currentCoroutineContext()[RequestAuthorizationGuard]?.validate?.invoke()
             }
         }
         error("DISPATCH_POLICY_CHANGED: configuration kept changing; retry after settings settle.")
@@ -97,6 +99,8 @@ internal object ConfiguredDispatchAuthority {
                 val details = githubOverrideChanges(capturedFields, currentFields) + profileBehaviorChanges(capturedFields, currentFields)
                 throw DispatchPolicyChangedException(changed + details, gatewaySelectionChange(capturedFields, currentFields))
             }
+            // Child settings reads can suspend after the captured parent passed.
+            inherited?.validate?.invoke()
         }
     }
 
@@ -104,7 +108,7 @@ internal object ConfiguredDispatchAuthority {
     internal fun githubOverrideChanges(before: JsonObject, after: JsonObject): List<String> {
         val previous = (before["githubProfileOverride"] as? JsonObject).orEmpty()
         val current = (after["githubProfileOverride"] as? JsonObject).orEmpty()
-        return listOf("webSearch", "githubTools", "engineeringMode", "maximumContext", "engineeringMemory", "allowCloudEngineeringMemory", "workflowPreset", "quickWorkflows", "engineeringGatewayProfileUid", "executionBatchMode", "sampling")
+        return listOf("webSearch", "githubTools", "engineeringMode", "maximumContext", "contextVariant", "engineeringMemory", "allowCloudEngineeringMemory", "workflowPreset", "quickWorkflows", "engineeringGatewayProfileUid", "executionBatchMode", "sampling")
             .filter { previous[it] != current[it] }.map { "githubProfileOverride.$it" }
     }
 

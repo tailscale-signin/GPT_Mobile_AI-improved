@@ -12,6 +12,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 # Android API 31–36 runtimes used by this repository's Robolectric suites.
 # Each JAR and POM is pinned to its SHA-512 sidecar from Maven Central.
@@ -90,7 +91,7 @@ def retry_after_seconds(error, wall_clock=time.time):
 
 
 def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=time.sleep, clock=time.monotonic,
-             jitter=random.uniform, wall_clock=time.time):
+             jitter=random.uniform, wall_clock=time.time, *, host_cooldowns=None):
     if verified(target, digest):
         return
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -106,13 +107,35 @@ def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=
             MAVEN_CENTRAL_ALTERNATE_BASE + suffix,
             GOOGLE_MAVEN_CENTRAL_BASE + suffix,
         )
+    origins = {source: (urlsplit(source).scheme.lower(), urlsplit(source).netloc.lower()) for source in sources}
+    host_cooldowns = {} if host_cooldowns is None else host_cooldowns
+    last_error = None
     for attempt in range(THROTTLED_ATTEMPTS):
-        temporary = None
-        try:
+        now = clock()
+        remaining = deadline - now
+        if remaining <= 0:
+            raise TimeoutError("Robolectric provisioning deadline expired")
+        # Retry-After belongs to the responding host. Try a separately routed,
+        # checksum-pinned transport while that host cools down; never replay it
+        # early or apply its wait to every other Maven transport.
+        offset = attempt % len(sources)
+        ordered = sources[offset:] + sources[:offset]
+        selected = min(ordered, key=lambda source: max(now, host_cooldowns.get(origins[source], now)))
+        pause = max(0, host_cooldowns.get(origins[selected], now) - now)
+        if pause >= remaining:
+            print("Robolectric source cooldowns exceed the remaining provisioning deadline", flush=True)
+            if last_error is not None:
+                raise last_error
+            raise TimeoutError("Robolectric provisioning deadline cannot accommodate source cooldowns")
+        if pause:
+            print(f"Waiting {pause:g}s for a Robolectric source cooldown", flush=True)
+            wait(pause)
             remaining = deadline - clock()
             if remaining <= 0:
                 raise TimeoutError("Robolectric provisioning deadline expired")
-            with opener(sources[attempt % len(sources)], timeout=min(20, remaining)) as source, tempfile.NamedTemporaryFile(dir=target.parent, suffix=".part", delete=False) as output:
+        temporary = None
+        try:
+            with opener(selected, timeout=min(20, remaining)) as source, tempfile.NamedTemporaryFile(dir=target.parent, suffix=".part", delete=False) as output:
                 temporary = Path(output.name)
                 total = 0
                 while chunk := source.read(65536):
@@ -127,7 +150,7 @@ def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=
             os.replace(temporary, target)
             return
         except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as error:
-            selected = sources[attempt % len(sources)]
+            last_error = error
             # Central edges can miss an already published POM. A primary 404 may
             # rotate only for an exact repository-owned URL and its matching pin.
             missing_at_edge = (
@@ -143,19 +166,24 @@ def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=
                 # Shared CI egress can remain throttled beyond the former 15-second
                 # retry window. Keep the overall deadline and permit bounded recovery.
                 attempts_allowed = THROTTLED_ATTEMPTS
-            remaining = deadline - clock()
-            if attempt + 1 >= attempts_allowed or remaining <= 0:
-                raise
+            now = clock()
+            remaining = deadline - now
             backoff = min((15 if throttled else 5) * (2 ** attempt), MAX_RETRY_BACKOFF_SECONDS)
             pause = max(backoff, retry_after_seconds(error, wall_clock) or 0)
             if pause < remaining:
                 pause += jitter(0, min(5, backoff / 5))
-            detail = f"HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else type(error).__name__
-            if pause >= remaining:
-                print(f"Robolectric {detail}: next retry cannot fit within the provisioning deadline", flush=True)
+            try:
+                ready_at = now + pause
+            except OverflowError:
+                # Even a syntactically valid enormous header must fail closed,
+                # without preventing an independent transport from being tried.
+                ready_at = float('inf')
+            origin = origins[selected]
+            host_cooldowns[origin] = max(host_cooldowns.get(origin, now), ready_at)
+            if attempt + 1 >= attempts_allowed or remaining <= 0:
                 raise
-            print(f"Transient Robolectric download failure ({detail}); retry {attempt + 2}/{attempts_allowed} after {pause:g}s", flush=True)
-            wait(pause)
+            detail = f"HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+            print(f"Transient Robolectric download failure ({detail}); selecting ready transport for attempt {attempt + 2}/{attempts_allowed}", flush=True)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
@@ -163,11 +191,13 @@ def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=
 
 def provision(repository, sdks=SDKS, opener=urllib.request.urlopen, wait=time.sleep, clock=time.monotonic):
     deadline = clock() + 480
+    host_cooldowns = {}
     for version, artifacts in sdks.items():
         for extension, digest in artifacts.items():
             filename = f"android-all-instrumented-{version}.{extension}"
             target = Path(repository) / "org/robolectric/android-all-instrumented" / version / filename
-            download(target, f"{BASE}/{version}/{filename}", digest, deadline, opener, wait, clock)
+            download(target, f"{BASE}/{version}/{filename}", digest, deadline, opener, wait, clock,
+                     host_cooldowns=host_cooldowns)
             target.with_suffix(target.suffix + ".sha512").write_text(digest + "\n")
             print(f"Verified {filename}", flush=True)
 

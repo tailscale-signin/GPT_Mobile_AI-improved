@@ -1,0 +1,277 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "github-agent-integrations-2026-11-22",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 2254,
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "starting_head": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+  "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "working_branch": "work/github-agent-integrations-final-2026-11-22",
+  "intent": "Implement every feature from the GitHub agent integration research, preserve concurrent scopes, publish a draft, verify the combined current PR head, merge through active rules, verify exact main and publish signed Android and Gateway releases.",
+  "authorization": "User explicitly authorized implementation, draft integration, merge after green and full publication on 2026-11-22.",
+  "state": "ALL_FEATURES_IMPLEMENTED_PENDING_HOSTED_QUALIFICATION",
+  "requirements": [
+    {
+      "id": "G01",
+      "name": "Fair model and complete agent-system comparisons, independent preservation qualification",
+      "owner": "concurrent github-coding-benchmark task + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G02",
+      "name": "Capability-aware common agent adapters with actual transports and durable operation identity",
+      "owner": "agent_adapters",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G03",
+      "name": "Task-relevant graph ranking and measured bounded context selection",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G04",
+      "name": "Explicit scoped planner, editor, reviewer and retrieval roles",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G05",
+      "name": "Executable dependency-ready tasks tied to accepted requirements and retained evidence",
+      "owner": "context_workers + concurrent acceptance-completion task",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G06",
+      "name": "Reachable concurrent-worker workspace board with isolated candidates and conflicts",
+      "owner": "workspace_android + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G07",
+      "name": "Background continuation and revision-bound live steering with unknown-outcome recovery",
+      "owner": "agent_adapters + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G08",
+      "name": "Integrated source, candidate diff, tests and draft review workspace",
+      "owner": "workspace_android + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G09",
+      "name": "Task-specific toolsets and progressive scoped instruction loading",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G10",
+      "name": "Environment and runtime qualification before paid agent execution",
+      "owner": "agent_adapters + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G11",
+      "name": "Compact durable summaries preserving immutable evidence references",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G12",
+      "name": "Optional local-only next-edit proposals with isolated validation",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G13",
+      "name": "Selective context export, versioned documentation and browser-workflow tool integrations",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G14",
+      "name": "Optional SDK/API/ACP backends and explicit product/adapter availability",
+      "owner": "agent_adapters",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G15",
+      "name": "Phone-only GitHub workflows plus optional Gateway and cloud execution boundaries",
+      "owner": "workspace_android + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    }
+  ],
+  "concurrent_tasks": [
+    "docs/repairs/acceptance-completion-70afcf89-2026-11-22-task.json",
+    "docs/repairs/github-coding-benchmark-2026-11-22-task.json"
+  ],
+  "guardrails": [
+    "One authoritative job controller; isolated candidates; current source SHA and policy binding",
+    "Preserve concurrent commits with expected-head updates and no force push",
+    "Reconcile uncertain writes and commands before any replay",
+    "Keep local inference and private content local unless explicitly authorized",
+    "Missing optional credentials or runtimes remain setup-needed; no simulated live success",
+    "Current-head applicable checks and active repository rules govern merge",
+    "Verify exact-main release workflows, tags, signed assets and provenance"
+  ],
+  "validation": [
+    {
+      "check": "Canonical host repository validation",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASSED",
+      "tests": 616,
+      "source_parent": "578c89c214",
+      "details": "Generated inventories, repository rules, dependency catalog, secret scan, Android regex and resource preflight pass."
+    },
+    {
+      "check": "Optional runtime adapters",
+      "result": "PASSED",
+      "tests": 50,
+      "source_parent": "26846176d2",
+      "details": "Independent review and repeated focused tests cover durable authorization, source/account/turn identity, local process and cloud deadline/cancellation, source-complete candidates and existing checkpoint compatibility."
+    },
+    {
+      "check": "Windows native workspace build",
+      "result": "PASSED",
+      "source_parent": "26846176d2",
+      "details": "Actual .NET 10 WPF Release target compiled with zero warnings and zero errors; Linux cross-build is not Windows installation qualification."
+    },
+    {
+      "check": "Android workspace source qualification",
+      "result": "PASSED_COMPONENT_SCOPE",
+      "tests": 52,
+      "source_parent": "7525facd41",
+      "details": "26 actual domain/ViewModel tests and 26 transport/repository/encrypted-store tests; actual Kotlin 2.4.20/Compose and SDK37 source compiled in focused harness. Full Gradle/Hilt/device validation belongs to current-head hosted gates."
+    },
+    {
+      "check": "Frozen provider HTTP worker entry",
+      "result": "PASSED",
+      "tests": 2,
+      "source_parent": "760c705a26",
+      "details": "Actual desktop entry and worker main consume pipe input before parser/settings/UI/supervisor, and reject unrelated arguments."
+    },
+    {
+      "check": "Canonical Gateway suite",
+      "result": "PASSED",
+      "command": "PYTHONPATH=gateway python gateway/check_gateway.py",
+      "python_tests": 1739,
+      "python_skipped": 33,
+      "node_tests": 7,
+      "source_parent": "760c705a26",
+      "details": "All 134 isolated Python suites and browser bridge passed before the narrow draft-admission fix; that fix was then requalified in the 113-test workspace suite."
+    },
+    {
+      "check": "Current-head hosted PR gates",
+      "result": "PENDING"
+    },
+    {
+      "check": "Exact-main gates and signed release readback",
+      "result": "PENDING"
+    },
+    {
+      "check": "Final workspace follow-up and integration",
+      "result": "PASSED",
+      "tests": 113,
+      "source_parent": "578c89c214",
+      "details": "Includes all 17 command tests, actual HTTP dispatch, source/candidate views, encrypted desktop recovery and scoped workers. No live optional provider accounts were used."
+    },
+    {
+      "check": "Kotlin formatting",
+      "result": "PASSED",
+      "details": "Complete PR changed Kotlin sources passed against the full main SHA; incoming map/recovery changes were checked against the full adapter-freeze SHA separately."
+    },
+    {
+      "check": "Combined source and final integration documentation",
+      "command": "bash scripts/validate-local.sh fast; python3 scripts/check_release_scope.py",
+      "result": "PASSED",
+      "tests": 623,
+      "source_parent": "5a9302855e1a65f8ac30174fae319c4dd2088370",
+      "details": "Canonical repository checks, generated inventories, dependency and secret policies, 2023 literal regex patterns, resources, whitespace and exact scoped-release checks passed. Both relative benchmark guide links resolve. This is local host validation, not final hosted qualification."
+    }
+  ],
+  "publication": {
+    "state": "AWAITING_FINAL_HEAD_AND_EXACT_MAIN_GATES",
+    "android_version": "0.9.66.13",
+    "version_code": 147,
+    "gateway_version": "18.1.1",
+    "merge_commit": null,
+    "android_release": null,
+    "gateway_release": null,
+    "receipt_source": "Exact-head GitHub Actions checks, release-checks.json, release-upload.json and release-publication.json; immutable publication readback is recorded by the release workflows and final PR status."
+  },
+  "review_followup": "Fixed artifact-backed review-draft admission before the SQLite writer lock; exact source-tree identity remains bound at admission. Successful hydration, same-revision replacement and cancellation races pass.",
+  "qualification_limits": [
+    "Optional provider accounts, SDK images and installed runtimes were not live-qualified; protocol fixtures do not certify paid execution, model quality or unsupported remote cancellation.",
+    "Model-only comparison and complete agent-system comparison remain distinct. Missing execution, cost or settings observations remain unqualified or inconclusive.",
+    "The repository release remains scoped and does not claim completion of unexecuted physical-device or wider Unified Reliability v2 scenarios."
+  ],
+  "integrated_public_sources": {
+    "agent_workspace": {
+      "source": "368e9a8373cad17586de8b7287fa240097ab0352",
+      "metadata": "8504366c8edf4e1911284ea6426ccb53e449141c"
+    },
+    "model_benchmark": {
+      "source": "b541378f5257c8f21d73fd4a7c0c18e4c7bcf83d",
+      "metadata": "e315be06e0c943c442f7f74b216930ee3f32aae4"
+    },
+    "journal_and_credential_recovery": {
+      "source": "1c25a94dbf381dd6a575d2faad92573f8c9656ce",
+      "metadata": "a7698653f8917f1b99043a4f2b0ad6a6519dd715"
+    },
+    "scoped_mcp_discovery": {
+      "source": "b3ef2afea46521d10afcbaaf5925f27ad9a21072",
+      "metadata": "6c5a70f733b3491366526dfd6b7641c8d027b8b1"
+    }
+  },
+  "validation_source_convention": "Component source_parent values are local integration checkpoints. Public source and metadata commits are listed separately; each upload was reconciled against the validated tree. Final merge and publication require current-head hosted gates, not these historical component results.",
+  "completion_scope": "All G01-G15 implementation slices are public. The shared PR remains draft while independently owned context and recovery changes are integrated; this task status does not approve a mutable branch or supersede final-head gates.",
+  "legacy_benchmark_recovery_followup": {
+    "base": "de2f1ddaa75c0eea40388f93da4cd476616094f8",
+    "integrated_parent": "08be45dc10c742bef0fe2d3550885086a050cea1",
+    "local_implementation_commit": "11744ba81f2fa8b6cd3222d9c10c20a279bda4cb",
+    "state": "IMPLEMENTED_COMPONENT_VALIDATION_PENDING_HOSTED",
+    "finding": "A journal already terminalized by the previous recovery as INTERRUPTED/PROCESS_INTERRUPTED could retain an unverified GitHub ref dispatch yet disappear from cleanup discovery and become removable.",
+    "repair": "Project missing legacy ownership through the common cleanup projection; preserve the original raw terminal payload and completion receipt. All settlement remains append-only. Copy the projection input so repeated readbacks retain original failure and initial cancellation evidence.",
+    "consumers": [
+      "cleanup discovery",
+      "submission terminal status",
+      "request retirement",
+      "history deletion",
+      "successor admission",
+      "journal rebinding"
+    ],
+    "independent_review": "Root reviewed original and final source, including repeated-projection identity and unchanged caller/settlement contracts. No additional blocker in this scoped fix.",
+    "regression": {
+      "methods": 3,
+      "baseline_failing_subcases": 4,
+      "suite_tests": 48,
+      "passed": 48,
+      "skipped": 0,
+      "seconds": 20.041,
+      "coverage": "Actual SQLite ownership; raw payload/completion bytes; all consumers; lost cancellation and restart without replay; exact terminal readback; five pre-dispatch/settled/ordinary controls."
+    },
+    "source_sha256": {
+      "gateway/benchmarks/store.py": "d5691eab34adb627c0048338f273fde5e082cb1e99ff8e11fb93e7c501c6eed9",
+      "gateway/tests/test_gateway_benchmark_cleanup.py": "3999cd21ef49fa64b7aadac2166a7160f2c56deec4155fe09677cdfceb8f7435"
+    },
+    "limits": "GitHub HTTP and process boundaries remain fixtures. This suite does not qualify live GitHub, Docker, Windows, Android Room or physical-device execution.",
+    "combined_validation": {
+      "result": "PASSED",
+      "canonical_host_tests": 625,
+      "test_seconds": 23.331,
+      "source_parent": "08be45dc10c742bef0fe2d3550885086a050cea1",
+      "details": "Preserved public cursor/lifecycle union08be; regenerated only conflicted audit inventories from combined source. Legacy production/test blobs remain identical to independently reviewed11744. Canonical inventory/CI/secret/resources and2024 literal regex checks pass; source scope remains exact."
+    },
+    "combined_validation_history": [
+      {
+        "result": "PASSED",
+        "canonical_host_tests": 625,
+        "test_seconds": 28.397,
+        "source_parent": "e094773cb40c3fbd52a2e0218cb3478145249cee",
+        "details": "Regenerated audit inventory; canonical metadata/resource/secret/CI checks, 2023 literal regex patterns and exact release scope passed. Final package hashes bind the acknowledged public source before ref advancement."
+      }
+    ]
+  }
+}

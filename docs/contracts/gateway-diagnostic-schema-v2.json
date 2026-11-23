@@ -74,7 +74,8 @@
       "TOOL_FAILURE",
       "TRANSPORT_EOF",
       "TRANSPORT_FAILURE",
-      "UNKNOWN_CAUSE"
+      "UNKNOWN_CAUSE",
+      "PRIVACY_SERVICE_UNVERIFIED"
     ],
     "owner": [
       "android",
@@ -690,7 +691,8 @@
       "transport_identity_required",
       "unknown_diagnostic_job",
       "unknown_job",
-      "unknown_receipt"
+      "unknown_receipt",
+      "PRIVACY_SERVICE_UNVERIFIED"
     ],
     "failure_transition": [
       "unchanged",
@@ -1126,7 +1128,8 @@
       "transport_identity_required",
       "unknown_diagnostic_job",
       "unknown_job",
-      "unknown_receipt"
+      "unknown_receipt",
+      "PRIVACY_SERVICE_UNVERIFIED"
     ],
     "recovery_action": [
       "none",

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -12,6 +13,7 @@ import java.io.EOFException
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -27,8 +29,12 @@ class GatewayAdmissionClientTest {
     private val catalog = """{"schema_version":1,"gateway_id":"original-installation","principal_id":"network:shared","server_now":1,"items":[],"complete":true}"""
     private fun capabilities(source: String = sha) = """{"gatewayVersion":"15.0.0","contractVersion":1,"gateway_id":"original-installation","principal_id":"network:shared","instanceId":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","build":{"sourceCommit":"$source"},"features":{"conversation_sync_v1":true,"job_catalog_v1":true},"contracts":{"gatewayConversations":["gptmobile.gateway.conversations.v1"],"gatewayJobCatalog":["gptmobile.gateway.job-catalog.v1"]}}"""
 
-    @Before fun clearSharedCapabilityEvidence() {
+    @Before
+    @After
+    fun clearSharedReadEvidence() {
         dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy.shared.invalidate()
+        // Deliberate transport failures must not hold the next independent fixture.
+        LocalServiceHealth.checkAgain(config.apiUrl)
     }
 
     @Test fun unsupportedCapabilitiesShareNegativeEvidenceUntilExplicitRefresh() = runBlocking {
@@ -258,6 +264,33 @@ class GatewayAdmissionClientTest {
             }
             assertEquals(1, calls)
             assertEquals(0, evictions)
+        }
+    }
+
+    @Test fun failedReadHoldsOtherSurfacesUntilTheSameConnectionIsExplicitlyRechecked() = runBlocking {
+        var calls = 0
+        var offline = true
+        HttpClient(
+            MockEngine { request ->
+                calls++
+                assertEquals(HttpMethod.Get, request.method)
+                if (offline) throw EOFException("fixture connection closed")
+                respond(identity)
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val failed = runCatching { GatewayJobClient(http).catalog(config) }.exceptionOrNull() as GatewayAdmissionException
+            assertEquals(GatewayAdmissionReason.TRANSPORT_INTERRUPTED, failed.reason)
+            assertEquals(2, calls)
+            offline = false
+            // A fresh client and a different read surface do not bypass the shared hold.
+            val held = runCatching { GatewayJobClient(http).identity(config) }.exceptionOrNull() as GatewayAdmissionException
+            assertEquals(GatewayAdmissionReason.TRANSPORT_INTERRUPTED, held.reason)
+            assertEquals(GatewayAdmissionDispatchState.NOT_DISPATCHED, held.dispatchState)
+            assertNull(held.httpStatus)
+            assertEquals(2, calls)
+            LocalServiceHealth.checkAgain(config.apiUrl)
+            assertEquals("original-installation", GatewayJobClient(http).identity(config).gatewayId)
+            assertEquals(3, calls)
         }
     }
 

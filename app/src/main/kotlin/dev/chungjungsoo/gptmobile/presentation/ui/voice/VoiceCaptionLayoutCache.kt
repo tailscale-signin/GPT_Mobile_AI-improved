@@ -1,7 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
-internal data class VoiceCaptionLine(val start: Int, val end: Int)
-
 /** Append-only text retains shaped lines; corrections rebuild from the corrected snapshot. */
 internal class VoiceCaptionLayoutCache {
     private var previous = ""
@@ -12,11 +10,10 @@ internal class VoiceCaptionLayoutCache {
         if (text == previous && lines.isNotEmpty()) return lines
         val appended = text.startsWith(previous)
         val changed = if (appended) text.substring(previous.length) else text
-        bidirectional = appended &&
-            bidirectional ||
-            changed.any {
+        bidirectional = (appended && bidirectional) ||
+            changed.codePoints().anyMatch {
                 when (Character.getDirectionality(it)) {
-                    Character.DIRECTIONALITY_RIGHT_TO_LEFT, Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC, Character.DIRECTIONALITY_RIGHT_TO_LEFT_EMBEDDING, Character.DIRECTIONALITY_RIGHT_TO_LEFT_OVERRIDE -> true
+                    Character.DIRECTIONALITY_RIGHT_TO_LEFT, Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC, Character.DIRECTIONALITY_RIGHT_TO_LEFT_EMBEDDING, Character.DIRECTIONALITY_RIGHT_TO_LEFT_OVERRIDE, Character.DIRECTIONALITY_RIGHT_TO_LEFT_ISOLATE -> true
                     else -> false
                 }
             }
@@ -38,14 +35,9 @@ internal class VoiceCaptionWordCache {
     fun update(caption: VoiceCaption): List<IntRange> {
         if (caption.text == previous) return words
         val retain = if (caption.text.startsWith(previous)) (words.size - 2).coerceAtLeast(0) else 0
-        val start = words.getOrNull(retain)?.first ?: 0
+        val start = if (retain > 0) words[retain].first else 0
         words = words.take(retain) + caption.copy(text = caption.text.substring(start)).wordRanges().map { (it.first + start)..(it.last + start) }
         previous = caption.text
         return words
     }
-}
-
-internal fun List<VoiceCaptionLine>.lineForOffset(offset: Int): Int {
-    val index = binarySearchBy(offset) { it.start }
-    return (if (index >= 0) index else -index - 2).coerceIn(0, lastIndex.coerceAtLeast(0))
 }

@@ -5,7 +5,9 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitSchedulingResult.NoWaitReason
 import dev.chungjungsoo.gptmobile.data.chat.decodedArchiveText
 import dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
@@ -41,6 +43,9 @@ internal enum class ProviderWaitMode { INITIAL, RESEARCH_STAGE, COMBINED_APPEND,
 internal data class ProviderContinuationCheckpoint(val rootWorkId: String, val sourceMessageId: Int, val prefixDigest: String)
 
 @Serializable
+internal data class ProviderWaitInterval(val startMillis: Long, val endMillis: Long)
+
+@Serializable
 internal data class ProviderWaitCheckpoint(
     val version: Int = 2,
     val chatId: Int,
@@ -69,13 +74,22 @@ internal data class ProviderWaitCheckpoint(
     val resumeCount: Int = 0,
     val recoveryFailure: kotlinx.serialization.json.JsonObject? = null,
     val waitStartedAtMillis: Long? = null,
-    val accumulatedProviderWaitMillis: Long? = null
+    val accumulatedProviderWaitMillis: Long? = null,
+    val closedWaitIntervals: List<ProviderWaitInterval> = emptyList(),
+    val closedWaitIntervalsComplete: Boolean = false
 ) {
     fun closeWait(nowMillis: Long): ProviderWaitCheckpoint {
         if (waitStartedAtMillis == null) return this
         val elapsed = waitStartedAtMillis?.let { start -> runCatching { Math.subtractExact(nowMillis, start) }.getOrNull()?.takeIf { it >= 0 } }
         val total = accumulatedProviderWaitMillis?.takeIf { it >= 0 }?.let { previous -> elapsed?.let { runCatching { Math.addExact(previous, it) }.getOrNull() } }
-        return copy(waitStartedAtMillis = null, accumulatedProviderWaitMillis = total)
+        val interval = elapsed?.takeIf { waitStartedAtMillis >= 0 }?.let { ProviderWaitInterval(waitStartedAtMillis, nowMillis) }
+        val history = closedWaitIntervals + listOfNotNull(interval)
+        return copy(
+            waitStartedAtMillis = null,
+            accumulatedProviderWaitMillis = total,
+            closedWaitIntervals = history.takeLast(128),
+            closedWaitIntervalsComplete = closedWaitIntervalsComplete && total != null && interval != null && history.size <= 128
+        )
     }
 }
 
@@ -99,8 +113,10 @@ class ProviderWaitStore @Inject constructor(
         encodeDefaults = true
     }
 
-    suspend fun defer(request: AgentRunRequest): Boolean {
-        val rawDecision = providerPreflightLimit(request.platform) ?: return false
+    suspend fun defer(request: AgentRunRequest): Boolean = deferResult(request).valueOrThrow()
+
+    internal suspend fun deferResult(request: AgentRunRequest): ProviderWaitSchedulingResult = prepareWait {
+        val rawDecision = providerPreflightLimit(request.platform) ?: return@prepareWait refused(NoWaitReason.DECISION_UNAVAILABLE)
         val guard = try {
             // A renewed quota wait retains the original grant across wake/launch.
             // Capturing current settings alone could authorize a revoked saved wait.
@@ -110,17 +126,21 @@ class ProviderWaitStore @Inject constructor(
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            return false
+            return@prepareWait refused(NoWaitReason.AUTHORITY_CHANGED)
         }
         val decision = rawDecision.copy(gitHubCheckpoint = request.providerGitHubCheckpoint).bindAuthority(guard)
         // The caller's preflight and this read can straddle a wall/monotonic clock
         // sample. Persist this freshly admitted deadline without rewriting evidence.
-        if (decision.retryAt <= System.currentTimeMillis()) return false
-        return save(request, decision, if (decision.gitHubCheckpoint == null) ProviderWaitMode.INITIAL else ProviderWaitMode.GITHUB_STEP, null, running = false)
+        if (decision.retryAt <= System.currentTimeMillis()) return@prepareWait refused(NoWaitReason.DEADLINE_EXPIRED)
+        save(request, decision, if (decision.gitHubCheckpoint == null) ProviderWaitMode.INITIAL else ProviderWaitMode.GITHUB_STEP, null, running = false)
     }
 
-    internal suspend fun deferRunning(request: AgentRunRequest, decision: ProviderLimitDecision, stage: ResearchDeferredStage? = null): Boolean {
-        if (!decision.mayWait || decision.consecutiveRejections >= 9 && decision.retrySource == "APP_BACKOFF") return false
+    internal suspend fun deferRunning(request: AgentRunRequest, decision: ProviderLimitDecision, stage: ResearchDeferredStage? = null): Boolean =
+        deferRunningResult(request, decision, stage).valueOrThrow()
+
+    internal suspend fun deferRunningResult(request: AgentRunRequest, decision: ProviderLimitDecision, stage: ResearchDeferredStage? = null): ProviderWaitSchedulingResult = prepareWait {
+        if (!decision.mayWait) return@prepareWait refused(NoWaitReason.REJECTION_NOT_REPLAY_SAFE)
+        if (decision.consecutiveRejections >= 9 && decision.retrySource == "APP_BACKOFF") return@prepareWait refused(NoWaitReason.RETRY_LIMIT_REACHED)
         val combined = request.chatToolConfig?.combined
         val mode = when {
             combined?.role?.finalization == true -> ProviderWaitMode.COMBINED_APPEND
@@ -129,50 +149,69 @@ class ProviderWaitStore @Inject constructor(
             stage != null -> ProviderWaitMode.RESEARCH_STAGE
             else -> ProviderWaitMode.INITIAL
         }
-        if (decision.retrySource == "CONNECTIVITY_BACKOFF" && (mode != ProviderWaitMode.INITIAL || combined != null)) return false
-        if (mode == ProviderWaitMode.RESEARCH_STAGE && (stage == null || stage.limit != decision || stage.stage.isBlank() || stage.promptDigest.isBlank())) return false
-        if (mode != ProviderWaitMode.RESEARCH_STAGE && (decision.profileUid != request.platform.uid || decision.model != request.platform.model)) return false
+        if (decision.retrySource == "CONNECTIVITY_BACKOFF" && (mode != ProviderWaitMode.INITIAL || combined != null)) return@prepareWait refused(NoWaitReason.CONNECTIVITY_RESUME_UNSAFE)
+        if (mode == ProviderWaitMode.RESEARCH_STAGE && (stage == null || stage.limit != decision || stage.stage.isBlank() || stage.promptDigest.isBlank())) return@prepareWait refused(NoWaitReason.RESEARCH_CHECKPOINT_INVALID)
+        if (mode != ProviderWaitMode.RESEARCH_STAGE && (decision.profileUid != request.platform.uid || decision.model != request.platform.model)) return@prepareWait refused(NoWaitReason.ROUTE_MISMATCH)
         val dao = database.agentPersistenceDao()
-        val run = database.agentRunDao().getById(request.runId) ?: return false
-        val message = dao.recoveryMessage(run.assistantMessageId) ?: return false
-        if (mode == ProviderWaitMode.GITHUB_STEP && (run.gatewayJobId != null || !validGitHubCheckpoint(decision))) return false
-        if (mode == ProviderWaitMode.INITIAL && (message.content.isNotBlank() || message.thoughts.isNotBlank() || dao.rawGetToolEventsForRun(run.runId).isNotEmpty())) return false
-        if (mode == ProviderWaitMode.TEXT_CONTINUATION && (message.content.isBlank() || researchHash(message.content) != decision.continuationPrefixDigest || run.synthesisKey != null)) return false
+        val run = database.agentRunDao().getById(request.runId) ?: return@prepareWait refused(NoWaitReason.RUN_UNAVAILABLE)
+        val message = dao.recoveryMessage(run.assistantMessageId) ?: return@prepareWait refused(NoWaitReason.MESSAGE_UNAVAILABLE)
+        if (run.assistantMessageId != request.assistantMessage.id || run.ownershipFence != request.assistantMessage.ownershipFence || message.currentRunId != request.runId || message.ownershipFence != run.ownershipFence) return@prepareWait refused(NoWaitReason.OWNER_CHANGED)
+        if (mode == ProviderWaitMode.GITHUB_STEP) {
+            if (run.gatewayJobId != null) return@prepareWait refused(NoWaitReason.REMOTE_JOB_PRESENT)
+            val expected = requireNotNull(decision.gitHubCheckpoint)
+            val checkpoint = workspace?.protectedSynthesisCheckpoint("github-output:${expected.binding}") ?: return@prepareWait refused(NoWaitReason.CHECKPOINT_UNAVAILABLE)
+            if (!expected.matches(checkpoint)) return@prepareWait refused(NoWaitReason.CHECKPOINT_CHANGED)
+        }
+        if (mode == ProviderWaitMode.INITIAL && (message.content.isNotBlank() || message.thoughts.isNotBlank() || dao.rawGetToolEventsForRun(run.runId).isNotEmpty())) return@prepareWait refused(NoWaitReason.INITIAL_OUTPUT_PRESENT)
+        if (mode == ProviderWaitMode.TEXT_CONTINUATION && (message.content.isBlank() || researchHash(message.content) != decision.continuationPrefixDigest || run.synthesisKey != null)) return@prepareWait refused(NoWaitReason.CONTINUATION_PREFIX_CHANGED)
         if (mode == ProviderWaitMode.COMBINED_APPEND) {
-            val raw = run.synthesisSnapshot ?: return false
-            if (researchHash(raw) != run.synthesisKey) return false
-            val frozen = runCatching { json.decodeFromString<CombinedInputSnapshot>(raw) }.getOrNull() ?: return false
-            if (frozen.combined?.requested?.appendContinuations != true || frozen.deliveryProtocol != "PASSAGES_V3") return false
+            val raw = run.synthesisSnapshot ?: return@prepareWait refused(NoWaitReason.COMBINED_SNAPSHOT_INVALID)
+            if (researchHash(raw) != run.synthesisKey) return@prepareWait refused(NoWaitReason.COMBINED_SNAPSHOT_INVALID)
+            val frozen = runCatching { json.decodeFromString<CombinedInputSnapshot>(raw) }.getOrNull() ?: return@prepareWait refused(NoWaitReason.COMBINED_SNAPSHOT_INVALID)
+            if (frozen.combined?.requested?.appendContinuations != true || frozen.deliveryProtocol != "PASSAGES_V3") return@prepareWait refused(NoWaitReason.COMBINED_RESUME_UNSAFE)
             var checkpoint = dao.combinedDeliveryCheckpoint(run.runId, frozen.liveRevisionId(run.runId))
             val previous = checkpoint?.let { runCatching { json.decodeFromString<CombinedRecordCheckpoint>(it.stateJson) }.getOrNull() }
             if (previous == null || previous.lastAttemptOutcome != "KNOWN_PROVIDER_REJECTION" || previous.retryAtMillis != decision.retryAt) {
                 // Main admission can discover a new local cooldown before opening the
                 // record session. Bind that never-sent attempt only at a safe cursor.
-                val authority = decision.authority ?: return false
+                val authority = decision.authority ?: return@prepareWait refused(NoWaitReason.AUTHORITY_UNAVAILABLE)
                 authority.validate(settings)
                 val maxCharacters = settings.getFeatureSettings().tokenBudget.responseCharacterLimit.takeIf { it > 0 } ?: 1_048_576
                 checkpoint = CombinedAppendPreflight.save(dao, run, frozen, decision, maxCharacters)
             }
-            val savedCheckpoint = checkpoint ?: return false
-            val state = runCatching { json.decodeFromString<CombinedRecordCheckpoint>(savedCheckpoint.stateJson) }.getOrNull() ?: return false
-            if (savedCheckpoint.fence != run.ownershipFence || !state.appendReady || state.ended || state.noProgressAttempts >= 2 || state.lastAttemptOutcome != "KNOWN_PROVIDER_REJECTION" || state.retryAtMillis != decision.retryAt) return false
+            val savedCheckpoint = checkpoint ?: return@prepareWait refused(NoWaitReason.CHECKPOINT_UNAVAILABLE)
+            val state = runCatching { json.decodeFromString<CombinedRecordCheckpoint>(savedCheckpoint.stateJson) }.getOrNull() ?: return@prepareWait refused(NoWaitReason.CHECKPOINT_CHANGED)
+            if (savedCheckpoint.fence != run.ownershipFence || !state.appendReady || state.ended || state.noProgressAttempts >= 2 || state.lastAttemptOutcome != "KNOWN_PROVIDER_REJECTION" || state.retryAtMillis != decision.retryAt) return@prepareWait refused(NoWaitReason.COMBINED_RESUME_UNSAFE)
         }
-        return save(request, decision, mode, stage, running = true)
+        save(request, decision, mode, stage, running = true)
     }
 
-    private suspend fun save(request: AgentRunRequest, decision: ProviderLimitDecision, mode: ProviderWaitMode, stage: ResearchDeferredStage?, running: Boolean): Boolean {
+    private suspend fun prepareWait(block: suspend () -> ProviderWaitSchedulingResult): ProviderWaitSchedulingResult = try {
+        block()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged) {
+        refused(NoWaitReason.AUTHORITY_CHANGED, failure)
+    } catch (failure: Exception) {
+        refused(NoWaitReason.WAIT_PREPARATION_FAILED, failure)
+    }
+
+    private fun refused(reason: NoWaitReason, failure: Exception? = null) = ProviderWaitSchedulingResult.refused(reason, failure)
+
+    private suspend fun save(request: AgentRunRequest, decision: ProviderLimitDecision, mode: ProviderWaitMode, stage: ResearchDeferredStage?, running: Boolean): ProviderWaitSchedulingResult {
         val profiles = settings.fetchPlatformV2s()
-        val registered = profiles.singleOrNull { it.uid == request.platform.uid } ?: return false
-        val limitProfile = profiles.singleOrNull { it.uid == decision.profileUid } ?: return false
-        val run = database.agentRunDao().getById(request.runId) ?: return false
-        if (run.status != (if (running) "RUNNING" else "QUEUED") || !running && run.startedAt != null && request.providerWaitAuthority == null) return false
-        if (!decision.mayWait || request.userMessages.any { it.id <= 0 }) return false
+        val registered = profiles.singleOrNull { it.uid == request.platform.uid } ?: return refused(NoWaitReason.PROFILE_UNAVAILABLE)
+        val limitProfile = profiles.singleOrNull { it.uid == decision.profileUid } ?: return refused(NoWaitReason.PROFILE_UNAVAILABLE)
+        val run = database.agentRunDao().getById(request.runId) ?: return refused(NoWaitReason.RUN_UNAVAILABLE)
+        if (run.assistantMessageId != request.assistantMessage.id || run.ownershipFence != request.assistantMessage.ownershipFence || run.status != (if (running) "RUNNING" else "QUEUED") || !running && run.startedAt != null && request.providerWaitAuthority == null) return refused(NoWaitReason.OWNER_CHANGED)
+        if (!decision.mayWait) return refused(NoWaitReason.REJECTION_NOT_REPLAY_SAFE)
+        if (request.userMessages.any { it.id <= 0 }) return refused(NoWaitReason.INPUT_UNAVAILABLE)
         val continuation = if (mode == ProviderWaitMode.TEXT_CONTINUATION) {
             val inherited = request.assistantMessage.timeline.mapNotNull { it.recovery }.firstOrNull { it.generationId == request.runId }
             val recovered = inherited?.let { resolveTaskRecovery(request.userMessages, it) } ?: resolveTaskRecovery(request.userMessages)
             val sourceId = request.stage?.acceptedTask?.originatingUserMessageId ?: recovered?.sourceMessageId ?: run.userMessageId
-            val source = request.userMessages.singleOrNull { it.id == sourceId && it.chatId == request.chatId && it.platformType == null } ?: return false
-            if (TaskRecoveryAction.fromText(source.content) != null) return false
+            val source = request.userMessages.singleOrNull { it.id == sourceId && it.chatId == request.chatId && it.platformType == null } ?: return refused(NoWaitReason.TASK_SOURCE_UNAVAILABLE)
+            if (TaskRecoveryAction.fromText(source.content) != null) return refused(NoWaitReason.TASK_SOURCE_INVALID)
             ProviderContinuationCheckpoint("${request.chatId}:$sourceId", sourceId, requireNotNull(decision.continuationPrefixDigest))
         } else {
             null
@@ -184,7 +223,7 @@ class ProviderWaitStore @Inject constructor(
         val scheduledDecision = if (decision.retrySource == "CONNECTIVITY_BACKOFF") {
             val earlier = previous?.decision?.takeIf { it.retrySource == decision.retrySource && it.scope == decision.scope }
             val count = (earlier?.consecutiveRejections ?: 0) + 1
-            if (count > 6) return false
+            if (count > 6) return refused(NoWaitReason.RETRY_LIMIT_REACHED)
             val backoff = (5_000L shl (count - 1)).coerceAtMost(120_000L)
             decision.copy(retryAt = maxOf(decision.retryAt, System.currentTimeMillis() + backoff), consecutiveRejections = count)
         } else {
@@ -202,23 +241,44 @@ class ProviderWaitStore @Inject constructor(
             limitPolicyRevision = ConfiguredDispatchAuthority.policyRevision(settings.getFeatureSettings(), limited.uid, request.chatId),
             limitPermissionRevision = settings.providerPermissionRevision(limited), continuation = continuation,
             lastResumedAtMillis = previous?.lastResumedAtMillis, resumeCount = previous?.resumeCount ?: 0,
-            waitStartedAtMillis = System.currentTimeMillis(), accumulatedProviderWaitMillis = if (previous == null) 0L else previous.accumulatedProviderWaitMillis
+            waitStartedAtMillis = System.currentTimeMillis(), accumulatedProviderWaitMillis = if (previousRow == null) 0L else previous?.accumulatedProviderWaitMillis,
+            closedWaitIntervals = previous?.closedWaitIntervals.orEmpty(), closedWaitIntervalsComplete = previous?.closedWaitIntervalsComplete ?: (previousRow == null)
         )
         val row = ProviderWait(request.runId, run.ownershipFence, scheduledDecision.scope, scheduledDecision.retryAt, json.encodeToString(checkpoint))
-        val acceptedAuthority = decision.authority ?: return false
-        if (!acceptedAuthority.matches(limited)) return false
+        val acceptedAuthority = decision.authority ?: return refused(NoWaitReason.AUTHORITY_UNAVAILABLE)
+        if (!acceptedAuthority.matches(limited)) return refused(NoWaitReason.AUTHORITY_CHANGED)
         // Read the checkpoint first, then validate the authority captured before the
         // rejected operation. A settings change cannot become a new scheduling grant.
         acceptedAuthority.validate(settings)
         val dao = database.agentPersistenceDao()
-        val persisted = when {
-            running -> dao.deferRunningProvider(row)
-            request.providerWaitClaimId != null || run.startedAt != null -> previousRow?.let { dao.redeferClaimedProvider(it, row, request.providerWaitClaimId) } == true
-            else -> dao.deferProvider(row)
-        }
-        if (!persisted) return false
-        database.agentPersistenceDao().providerWaits().filter { it.scope == row.scope }.minOfOrNull { it.retryAt }?.let { ProviderLimitResumeWorker.enqueue(context, row.scope, it) }
-        return true
+        return persistProviderWaitSafely(
+            persist = {
+                when {
+                    running -> dao.deferRunningProvider(row)
+                    request.providerWaitClaimId != null || run.startedAt != null -> previousRow?.let { dao.redeferClaimedProvider(it, row, request.providerWaitClaimId) } == true
+                    else -> dao.deferProvider(row)
+                }
+            },
+            observeOwned = {
+                // A transaction may have committed before its result was lost.
+                // Only an atomic read of the exact row and both owners can prove it.
+                database.withTransaction {
+                    val currentRow = dao.rawProviderWait(row.runId)
+                    val currentRun = dao.rawRecoveryRun(row.runId)
+                    val currentMessage = currentRun?.let { dao.rawRecoveryMessage(it.assistantMessageId) }
+                    val owned = currentRun?.ownershipFence == row.fence && currentMessage?.currentRunId == row.runId && currentMessage?.ownershipFence == row.fence
+                    when {
+                        currentRow == row && owned && currentRun?.status == "WAITING_PROVIDER_LIMIT" -> true
+                        currentRow == previousRow && owned && currentRun?.status == run.status -> false
+                        else -> null
+                    }
+                }
+            },
+            enqueue = {
+                val retryAt = dao.providerWaits().filter { it.scope == row.scope }.minOfOrNull { it.retryAt } ?: row.retryAt
+                ProviderLimitResumeWorker.enqueueConfirmed(context, row.scope, retryAt)
+            }
+        )
     }
 
     suspend fun pendingIds(chatId: Int? = null, profileUid: String? = null): Set<String> = database.agentPersistenceDao().providerWaits().mapNotNullTo(hashSetOf()) { row ->
@@ -373,7 +433,7 @@ class ProviderWaitStore @Inject constructor(
         val saved = runCatching { json.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint) }.getOrNull()
         val refusal = ProviderRecoveryFailure(reason)
         val failure = saved?.let { recoveryForWait(row, it, refusal) } ?: refusal
-        if (database.agentPersistenceDao().blockCurrentProviderWait(row, reason, failure.original)) synchronizeRecoveryCheckpointSafely(row, reason)
+        if (database.agentPersistenceDao().blockCurrentProviderWait(row, reason, failure.original, failure.correlation)) synchronizeRecoveryCheckpointSafely(row, reason)
     }
 
     internal suspend fun localRecoveryFailure(request: AgentRunRequest, failure: ProviderRecoveryFailure): ProviderRecoveryFailure {
@@ -390,7 +450,7 @@ class ProviderWaitStore @Inject constructor(
         if (row.fence != request.assistantMessage.ownershipFence) return
         val saved = runCatching { json.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint) }.getOrNull() ?: return
         if (saved.resumeClaimId != request.providerWaitClaimId) return
-        val failure = recoveryForWait(row, saved, ProviderRecoveryFailure(requireNotNull(code), details?.get("original_interruption") as? JsonObject))
+        val failure = recoveryForWait(row, saved, ProviderRecoveryFailure(requireNotNull(code), details?.get("original_interruption") as? JsonObject, ProviderRecoveryFailure.retainedDetails(details) ?: JsonObject(emptyMap())))
         if (database.agentPersistenceDao().recordCurrentProviderRecovery(row, requireNotNull(failure.event().failureDetails))) synchronizeRecoveryCheckpointSafely(row, code)
     }
 
@@ -398,28 +458,28 @@ class ProviderWaitStore @Inject constructor(
         val expected = saved.decision?.gitHubCheckpoint
         var observedCheckpoint: JsonObject? = null
         var checkpointRead = false
-        val original = failure.original ?: expected?.let { checkpoint ->
-            val digest = JsonPrimitive(checkpoint.digest)
-            val recorded = saved.recoveryFailure?.takeIf { it["checkpoint_digest"] == digest }
-            (recorded?.get("original_interruption") as? JsonObject) ?: try {
-                val source = workspace?.protectedSynthesisCheckpoint("github-output:${checkpoint.binding}")
-                observedCheckpoint = source
+        if (expected != null && (failure.original == null || failure.code == "PROVIDER_WAIT_CHECKPOINT_CHANGED")) {
+            try {
+                observedCheckpoint = workspace?.protectedSynthesisCheckpoint("github-output:${expected.binding}")
                 checkpointRead = workspace != null
-                source?.takeIf {
-                    checkpoint.matches(it) || (it["latest_recovery_failure"] as? JsonObject)?.get("checkpoint_digest") == digest
-                }?.let(ProviderRecoveryFailure::interruption)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                // The current refusal can still be recorded if its earlier provider evidence is unreadable.
-                null
+                // A local refusal remains reportable when its earlier bytes cannot be read.
             }
         }
-        val observation = if (expected != null && failure.code == "PROVIDER_WAIT_CHECKPOINT_CHANGED" && checkpointRead) {
-            ProviderRecoveryFailure.checkpointCorrelation(expected, observedCheckpoint)
-        } else {
-            JsonObject(ProviderRecoveryFailure.retainedDetails(saved.recoveryFailure).orEmpty() + failure.correlation)
+        val original = failure.original ?: expected?.let { checkpoint ->
+            val digest = JsonPrimitive(checkpoint.digest)
+            val recorded = saved.recoveryFailure?.takeIf { it["checkpoint_digest"] == digest }
+            (recorded?.get("original_interruption") as? JsonObject) ?: observedCheckpoint?.takeIf {
+                checkpoint.matches(it) || (it["latest_recovery_failure"] as? JsonObject)?.get("checkpoint_digest") == digest
+            }?.let(ProviderRecoveryFailure::interruption)
         }
+        val observation = JsonObject(
+            ProviderRecoveryFailure.retainedDetails(saved.recoveryFailure).orEmpty() +
+                (if (expected != null && failure.code == "PROVIDER_WAIT_CHECKPOINT_CHANGED" && checkpointRead) ProviderRecoveryFailure.checkpointCorrelation(expected, observedCheckpoint) else emptyMap()) +
+                failure.correlation
+        )
         return ProviderRecoveryFailure(failure.code, ProviderRecoveryFailure.retainedInterruption(original), JsonObject(observation + ProviderRecoveryFailure.correlation(expected, saved.resumeClaimId, row.fence, row.runId)))
     }
 
@@ -436,7 +496,10 @@ class ProviderWaitStore @Inject constructor(
     }
 
     private suspend fun synchronizeRecoveryCheckpoint(row: ProviderWait, code: String) {
-        val saved = runCatching { json.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint) }.getOrNull() ?: return
+        val previousWait = runCatching { json.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint) }.getOrNull() ?: return
+        val current = database.agentPersistenceDao().rawProviderWait(row.runId)?.takeIf { it.fence == row.fence } ?: return
+        val saved = runCatching { json.decodeFromString<ProviderWaitCheckpoint>(current.checkpoint) }.getOrNull() ?: return
+        if (saved.resumeClaimId != previousWait.resumeClaimId || saved.decision?.gitHubCheckpoint != previousWait.decision?.gitHubCheckpoint) return
         val expected = saved.decision?.gitHubCheckpoint ?: return
         val store = workspace ?: return
         val key = "github-output:${expected.binding}"
@@ -444,7 +507,7 @@ class ProviderWaitStore @Inject constructor(
         // A newer checkpoint belongs to its own outcome. Never rewrite it merely
         // because this wait was blocked after its original authority changed.
         if (!expected.matches(previous)) return
-        val failure = ProviderRecoveryFailure(code, ProviderRecoveryFailure.interruption(previous), ProviderRecoveryFailure.correlation(expected, saved.resumeClaimId, row.fence, row.runId))
+        val failure = ProviderRecoveryFailure(code, ProviderRecoveryFailure.interruption(previous), JsonObject(ProviderRecoveryFailure.retainedDetails(saved.recoveryFailure).orEmpty() + ProviderRecoveryFailure.correlation(expected, saved.resumeClaimId, row.fence, row.runId)))
         store.saveProtectedSynthesisCheckpoint(key, saved.chatId, row.runId, failure.block(previous), expectedDigest = expected.digest, expectedRunFence = row.fence)
     }
 

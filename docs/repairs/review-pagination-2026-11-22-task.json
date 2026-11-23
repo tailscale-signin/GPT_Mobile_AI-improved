@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "06ab96439deea13262fa48130eed367914e914d0",
+  "parent_pr": 2254,
+  "working_branch": "work/review-pagination-2026-11-22",
+  "intent": "Repair response-order-dependent comparison coverage, bound in-flight generation ownership, honor declared comparison page size, and preserve valid retained completed comparisons. Reproduce with actual-source tests, commit only scoped implementation; root integrates and validates combined head.",
+  "status": "IMPLEMENTED_SCOPED_VALIDATION_COMPLETE",
+  "evidence": {
+    "capture_build": 146,
+    "capture_commit": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "reproduction": "Actual source at 459261b5: response orders 1,2,4,3 and 1,2,4,5,3 retained GITHUB_PAGINATION_INCOMPLETE with 327/327 files; sequential order completed."
+  },
+  "validation": {
+    "focused": {
+      "status": "PASSED",
+      "tests": 54,
+      "scope": "Host JVM: actual GitHubPaginationBoundary, GitHubInventoryQuery, GitHubPullRequestQuery, GitHubComparisonPage, GitHubComparisonCoverage and GitHubActionIdentity sources; exact extracted checklist/semantic data methods; narrow Android-independent boundary shims.",
+      "coverage": "All 24 four-page and 120 five-page scheduled response permutations; all 24 unscheduled late-gap receipt permutations; 34 existing boundary regressions; effective and legacy page-size identity; explicit refresh, duplicate, expired and superseded requests; empty extra pages and inconsistency."
+    },
+    "formatting": "ktlint 1.3.1 on all changed Kotlin files passed",
+    "whitespace": "git diff --check passed",
+    "canonical_fast": "CI policy passed; stopped at stale architecture index. Parent owns combined inventory generation and rerun.",
+    "full_android_gradle": "NOT_RUN: avoid concurrent full Gradle; parent owns exact combined-head gates.",
+    "combined_head_ci": "ROOT_OWNED_REQUIRED_BEFORE_MERGE",
+    "remote_interaction": "Compared 06ab9643..9173e21455 session changes: repositoryMap background dispatch has no overlap with changed() pagination windows."
+  },
+  "changes": [
+    "Compute traversal completion from retained terminal boundary and all observed pages, independent of arrival order; retain already complete pinned observations.",
+    "Track in-flight page ownership with an atomic dispatch guard and generation ticket; reject superseded or expired responses and cancel failed dispatches.",
+    "Honor comparison per_page from 1 to 100 with explicit effective_per_page metadata and matching immutable continuations; preserve historical fixed-100 receipt interpretation.",
+    "Allow a successful aggregate completion to satisfy earlier retained missing-gap page observations without changing original failure receipts or local fragment obligations.",
+    "Clarify selected-head latest-attempt CI diagnosis and the difference between content continuation and same-offset recovery."
+  ]
+}

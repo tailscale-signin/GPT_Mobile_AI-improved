@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitSchedulingResult
+import dev.chungjungsoo.gptmobile.data.agent.providerWaitDecisionRequired
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import kotlinx.serialization.json.JsonArray
@@ -25,6 +27,15 @@ internal object ProviderFailureReport {
         metadata: GatewayResponseMetadata? = null
     ): JsonObject = buildJsonObject {
         put("diagnostic_area", "PROVIDER")
+        dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.retained(failure.errorCode, failure.failureDetails)?.forEach { (key, value) -> put(key, value) }
+        val semanticFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(failure.failureDetails)
+        semanticFailure?.forEach { (key, value) -> put(key, value) }
+        val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
+        val rateLimitFailure = providerWaitDecisionRequired(failure.errorCode, classified) ||
+            receipt.httpStatus == 429 &&
+            providerWaitDecisionRequired("429", classified) ||
+            semanticFailure?.get("provider_failure_kind") == JsonPrimitive("RATE_LIMIT") &&
+            semanticFailure["provider_semantic_status"] == JsonPrimitive(429)
         for (key in listOf("verification_phase", "continuation_cause", "continuation_trigger", "continuation_saved_characters", "continuation_attempt_count", "continuation_output_cap", "checkpoint_mismatch_reason", "observed_checkpoint_state")) {
             failure.failureDetails?.get(key)?.let { value -> IssueReportIncidentCapsule.validValue(key, value) }?.let { put(key, it) }
         }
@@ -37,7 +48,7 @@ internal object ProviderFailureReport {
             receipt.privacyReasonCode?.let { put("privacy_reason_code", it) }
             receipt.privacyStatus?.let { put("privacy_status", it) }
         }
-        if (failure.errorCode == "PROVIDER_RATE_LIMITED" || receipt.httpStatus == 429) {
+        if (rateLimitFailure) {
             val details = failure.failureDetails
             when ((details?.get("retry_source") as? JsonPrimitive)?.contentOrNull) {
                 "RETRY_AFTER", "RATE_LIMIT_RESET" -> put("retry_delay_source", "PROVIDER_HEADER")
@@ -135,7 +146,7 @@ internal object ProviderFailureReport {
         configured?.configuredProfileOutputTokens?.bounded()?.let { put("configured_output_limit", it) }
         (configured?.serializedOutputTokens ?: configured?.effectiveOutputTokens)?.bounded()?.let { put("effective_output_limit", it) }
         // Usage without the owning invocation cannot supplement a different failure.
-        usage?.takeIf { it.invocationId == receipt.invocationId }?.inputTokens?.bounded()?.let { put("input_tokens", it) }
+        usage?.takeIf { receipt.failureDomain == FailureDomain.PROVIDER && it.invocationId == receipt.invocationId }?.inputTokens?.bounded()?.let { put("input_tokens", it) }
         receipt.outputTokens?.bounded()?.let { put("output_tokens", it) }
         receipt.reasoningTokens?.bounded()?.let { put("reasoning_tokens", it) }
         receipt.outputTokenSource?.let { put("usage_source", it) }
@@ -143,7 +154,9 @@ internal object ProviderFailureReport {
         receipt.generationCompleted?.let { put("generation_completed", it) }
         receipt.requestReplayAllowed?.let { put("request_replay_allowed", it) }
         receipt.logicalContinuationAllowed?.let { put("logical_continuation_allowed", it) }
-        IssueReportContext.identifierHash("provider-error-code", failure.errorCode)?.let { put("original_error_code_hash", it) }
+        val originalCodeHash = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.upstreamCodeHash(semanticFailure)
+            ?: IssueReportContext.identifierHash("provider-error-code", failure.errorCode)
+        originalCodeHash?.let { put("original_error_code_hash", it) }
         IssueReportContext.identifierHash("server-request", receipt.serverRequestId ?: metadata?.takeIf { it.transportVerified }?.requestId)?.let { put("server_request_id_hash", it) }
         IssueReportContext.identifierHash("generation", receipt.generationId)?.let { put("generation_id_hash", it) }
         if (receipt.invocationId != null && "causal_id" !in failure.failureDetails.orEmpty()) {
@@ -163,16 +176,22 @@ internal object ProviderFailureReport {
         val jobId = (failure.failureDetails?.get("job_id") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?: metadata?.takeIf { it.transportVerified }?.jobId
         IssueReportContext.identifierHash("job", jobId)?.let { put("job_id_hash", it) }
-        if (receipt.httpStatus == 429) {
+        if (rateLimitFailure || failure.providerLimit != null) {
             val decision = failure.providerLimit
             val state = when {
-                decision == null -> "NOT_RECORDED"
+                decision == null -> "INELIGIBLE"
                 dev.chungjungsoo.gptmobile.data.research.researchHash(decision.profileUid) != receipt.profileHash ||
                     dev.chungjungsoo.gptmobile.data.research.researchHash(decision.model) != receipt.modelHash -> "ROUTE_MISMATCH"
                 decision.mayWait -> "ELIGIBLE"
                 else -> "INELIGIBLE"
             }
             put("provider_wait_decision_state", state)
+            val noWaitReason = when (state) {
+                "ROUTE_MISMATCH" -> ProviderWaitSchedulingResult.NoWaitReason.ROUTE_MISMATCH
+                "INELIGIBLE" -> if (decision == null) ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE else ProviderWaitSchedulingResult.NoWaitReason.REJECTION_NOT_REPLAY_SAFE
+                else -> null
+            }
+            noWaitReason?.let { put("provider_wait_no_wait_reason", it.name) }
         }
         failure.providerLimit?.takeIf {
             dev.chungjungsoo.gptmobile.data.research.researchHash(it.profileUid) == receipt.profileHash &&

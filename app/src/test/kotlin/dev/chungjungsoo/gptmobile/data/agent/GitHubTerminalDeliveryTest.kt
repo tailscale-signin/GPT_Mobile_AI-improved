@@ -67,6 +67,46 @@ class GitHubTerminalDeliveryTest {
         assertTrue(text.contains("tool_reconciliation"))
         assertTrue(text.contains("RECONCILE_TOOL_RECEIPTS"))
         assertTrue(text.contains("do not establish completion"))
+        assertTrue(text.contains("Status: BLOCKED"))
+    }
+
+    @Test fun successfulReadsRemainFindingsWhenTypedExecutionStopsBlocked() = runTest {
+        val call = ProviderEvent.ToolCall(
+            "saved-pr-list",
+            "github_pr",
+            buildJsonObject {
+                put("action", "list")
+                put("state", "open")
+            }
+        )
+        val result = AgentToolResult(
+            call.callId,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("items", JsonArray(emptyList()))
+                    put("has_more", false)
+                }
+            ),
+            false,
+            dispatched = true
+        )
+        for (code in listOf("OUTPUT_CONTINUATION_NO_PROGRESS", "WORKSPACE_EVIDENCE_CONFLICT")) {
+            val failure = ProviderEvent.Failed(
+                "Saved execution requires review.",
+                errorCode = code,
+                taskOutcome = "BLOCKED",
+                failureDetails = buildJsonObject { put("failed_stage", if (code == "WORKSPACE_EVIDENCE_CONFLICT") "application_persistence" else "output_continuation") }
+            )
+            val events = flowOf(AgentRunEvent.ToolFinished(call, result), provider(failure)).withGitHubTerminalDelivery(true).toList()
+            val delivered = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            val text = delivered.filterIsInstance<ProviderEvent.TextDelta>().single().text
+            assertTrue(text.contains("Status: BLOCKED"))
+            assertFalse(text.contains("Status: PARTIAL"))
+            assertTrue(text.contains("Open pull requests observed: 0"))
+            assertTrue(text.contains("saved-pr-list"))
+            assertTrue(text.contains(code))
+            assertTrue(delivered.filterIsInstance<ProviderEvent.Failed>().single() === failure)
+        }
     }
 
     @Test fun failureWithoutTextProducesOneVisibleIncompleteResponseAndPreservesCause() = runTest {

@@ -10,6 +10,95 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolExchangeCompactorTest {
+    private fun retainedSummaryExchange(): AgentToolExchange {
+        val call = ProviderEvent.ToolCall("unread-issue", "github_issue", buildJsonObject { put("issue_number", 2257) })
+        val summary = buildJsonObject {
+            put("schema", "github.semantic-summary.v1")
+            put("operation", "github_issue")
+            put("finding", "The retained issue has not necessarily reached the model.")
+        }
+        val result = AgentToolResult(
+            call.callId,
+            ToolResultContent.Text("Retained issue evidence ".repeat(1000)),
+            false,
+            executionReceipt = buildJsonObject {
+                put("semantic_summary", summary)
+                put("retained_original_complete", true)
+            }
+        )
+        return AgentToolExchange(listOf(call), listOf(result))
+    }
+
+    @Test fun unreadRetainedResultDoesNotClaimDeliveryWhenOnlyItsSummaryFits() {
+        val exchange = retainedSummaryExchange()
+        val replay = ToolExchangeCompactor.compact(listOf(exchange), 2000, 512)
+        val summary = (replay.single().results.single().content as ToolResultContent.Json).value as JsonObject
+        assertEquals(JsonPrimitive(false), summary["previously_delivered"])
+        assertEquals(JsonPrimitive("UNCONFIRMED"), summary["prior_delivery_scope"])
+        assertEquals(JsonPrimitive(true), summary["retained_original_complete"])
+        assertEquals(exchange.calls, replay.single().calls)
+    }
+
+    @Test fun restoredLegacySummaryCannotProveDeliveryWithoutACheckpointedConsumption() {
+        val exchange = retainedSummaryExchange()
+        val legacy = exchange.results.single().copy(
+            content = ToolResultContent.Json(
+                buildJsonObject {
+                    put("schema", "github.evidence-summary.v1")
+                    put("semantic_summary", buildJsonObject { put("operation", "github_issue") })
+                    put("previously_delivered", true)
+                }
+            ),
+            executionReceipt = null
+        )
+        val replay = ToolExchangeCompactor.compact(listOf(exchange.copy(results = listOf(legacy))), 2000, 512)
+        val summary = (replay.single().results.single().content as ToolResultContent.Json).value as JsonObject
+        assertEquals(JsonPrimitive(false), summary["previously_delivered"])
+        assertEquals(JsonPrimitive("UNCONFIRMED"), summary["prior_delivery_scope"])
+    }
+
+    @Test fun consumedFullResultKeepsItsDeliveryScopeAcrossSerializedSummaryRestoration() {
+        val exchange = retainedSummaryExchange()
+        val consumed = setOf(exchange.calls.single().callId)
+        val first = ToolExchangeCompactor.compact(listOf(exchange), 2000, 512, consumed)
+        val projected = first.single().results.single()
+        val restored = projected.copy(
+            content = ToolResultContent.Json(kotlinx.serialization.json.Json.parseToJsonElement((projected.content as ToolResultContent.Json).value.toString())),
+            executionReceipt = null
+        )
+        val replay = ToolExchangeCompactor.compact(listOf(exchange.copy(results = listOf(restored))), 2000, 512, consumed)
+        val summary = (replay.single().results.single().content as ToolResultContent.Json).value as JsonObject
+        assertEquals(JsonPrimitive(true), summary["previously_delivered"])
+        assertEquals(JsonPrimitive("FULL_RESULT"), summary["prior_delivery_scope"])
+        assertEquals(JsonPrimitive(true), summary["retained_original_complete"])
+    }
+
+    @Test fun consumingOnlyAProjectedSummaryNeverClaimsFullSourceDelivery() {
+        val exchange = retainedSummaryExchange()
+        val first = ToolExchangeCompactor.compact(listOf(exchange), 2000, 512)
+        val restored = first.map { it.copy(results = it.results.map { row -> row.copy(executionReceipt = null) }) }
+        val consumed = setOf(exchange.calls.single().callId)
+        val replay = ToolExchangeCompactor.compact(restored, 2000, 512, consumed)
+        val summary = (replay.single().results.single().content as ToolResultContent.Json).value as JsonObject
+        assertEquals(JsonPrimitive(true), summary["previously_delivered"])
+        assertEquals(JsonPrimitive("SEMANTIC_SUMMARY"), summary["prior_delivery_scope"])
+    }
+
+    @Test fun unreadSummaryStaysUnreadAfterRestorationAndHardReplayCompaction() {
+        val exchange = retainedSummaryExchange()
+        val first = ToolExchangeCompactor.compact(listOf(exchange), 2000, 512)
+        val restored = first.map { it.copy(results = it.results.map { row -> row.copy(executionReceipt = null) }) }
+        for (budget in listOf(2000, 180, 80)) {
+            val replay = ToolExchangeCompactor.compact(restored, budget, 512)
+            val content = replay.single().results.single().content
+            if (content is ToolResultContent.Json) {
+                assertEquals(JsonPrimitive(false), (content.value as JsonObject)["previously_delivered"])
+            } else {
+                assertTrue(!(content as ToolResultContent.Text).text.contains("consumed"))
+            }
+        }
+    }
+
     @Test fun compactKeepsIssueFindingAcrossRepeatedConsumedSummaryProjection() {
         val summary = buildJsonObject {
             put("schema", "github.semantic-summary.v1")

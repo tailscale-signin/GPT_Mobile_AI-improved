@@ -50,7 +50,7 @@ data class CombinedWriterRequestPlan(
         require(version in 1..3 && planId.isNotBlank()) { "COMBINED_WRITER_PLAN_UNAVAILABLE" }
         require(profileUid == snapshot.profileUid && model == snapshot.model && deliveryProtocol == snapshot.deliveryProtocol) { "COMBINED_WRITER_PLAN_IDENTITY_CHANGED" }
         require(promptDigest == combinedDigest(snapshot.prompt)) { "COMBINED_WRITER_PLAN_PROMPT_CHANGED" }
-        require(systemPromptDigest == combinedDigest(combinedWriterSystemPrompt(snapshot.systemPrompt, snapshot.deliveryProtocol, snapshot.userMessage.content, version >= 2 && snapshot.combined?.requested?.appendContinuations == true))) { "COMBINED_WRITER_PLAN_SYSTEM_CHANGED" }
+        require(systemPromptDigest == combinedDigest(combinedWriterSystemPrompt(snapshot.systemPrompt, snapshot.deliveryProtocol, snapshot.userMessage.content, version >= 2 && snapshot.combined?.requested?.appendContinuations == true, snapshot.acceptedTools?.voiceResponsePolicy))) { "COMBINED_WRITER_PLAN_SYSTEM_CHANGED" }
         require(historyDigest == writerHistoryDigest(snapshot.writerContext?.historyText() ?: combinedWriterHistory(snapshot.history, snapshot.replies, snapshot.profileUid))) { "COMBINED_WRITER_PLAN_HISTORY_CHANGED" }
         require(preparedContextDigest == snapshot.writerContext?.envelopeDigest(snapshot.prompt)) { "COMBINED_WRITER_PLAN_CONTEXT_CHANGED" }
         require(requiredOutputTokens > 0 && effectiveOutputTokens >= requiredOutputTokens) { "COMBINED_WRITER_PLAN_OUTPUT_INSUFFICIENT" }
@@ -233,8 +233,8 @@ internal class CombinedWriterDispatchGuard(val plan: CombinedWriterRequestPlan) 
 }
 
 /** Shared by the frozen plan, initial writer, explicit retry and successor writer. */
-internal fun combinedWriterSystemPrompt(base: String?, protocol: String, request: String, appendContinuations: Boolean = false): String =
-    listOf(base.orEmpty(), combinedEditorialInstruction(protocol, request, appendContinuations)).filter(String::isNotBlank).joinToString("\n\n")
+internal fun combinedWriterSystemPrompt(base: String?, protocol: String, request: String, appendContinuations: Boolean = false, voiceResponsePolicy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy? = null): String =
+    listOf(base.orEmpty(), voiceResponsePolicy?.instruction().orEmpty(), combinedEditorialInstruction(protocol, request, appendContinuations)).filter(String::isNotBlank).joinToString("\n\n")
 
 /** Match actual history selection, including selected revisions and undelivered Combined turns. */
 internal fun combinedWriterHistory(history: List<MessageV2>, replies: List<List<MessageV2>>, profileUid: String): List<String> =

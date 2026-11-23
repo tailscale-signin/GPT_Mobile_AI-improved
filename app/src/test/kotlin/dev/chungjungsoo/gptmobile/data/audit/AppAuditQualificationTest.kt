@@ -17,6 +17,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAuditQualificationTest {
+    @Test fun privacyPrerequisiteAndMissingModelSelectionProduceSpecificWorkWithoutExecutionAuthority() {
+        val original = fixture(1, 1)
+        val run = original.copy(
+            results = original.results.map {
+                if (it.entryId == "discovery-0") it.copy(observation = it.observation.copy(outcome = AppAuditOutcome.BLOCKED, reasonCode = "PRIVACY_SERVICE_UNVERIFIED", failureCategory = "POLICY_BLOCKED")) else it
+            }
+        )
+        val plan = qualification(run)
+        val target = plan.getValue("checks").jsonArray.first().jsonObject
+        assertEquals("PRIVACY_POLICY_REVIEW_REQUIRED", target.getValue("readiness").jsonPrimitive.content)
+        assertEquals("REVIEW_EXACT_SERVICE_PRIVACY_POLICY_THEN_RECHECK", target.getValue("nextAction").jsonPrimitive.content)
+        assertEquals("NO_PROFILE_SELECTED", plan.getValue("selectedModelQualification").jsonPrimitive.content)
+        assertEquals("SELECT_EXACT_SAVED_PROFILE_FOR_NEW_AUDIT_THEN_PREPARE_BENCHMARK", plan.getValue("modelNextAction").jsonPrimitive.content)
+        assertFalse(plan.getValue("grantsExecution").jsonPrimitive.boolean)
+        assertEquals(original.plan, run.plan)
+        val selected = qualification(run.copy(options = run.options.copy(selectedProfileIds = listOf("exact-profile"))))
+        assertEquals("BENCHMARK_EXECUTION_REQUIRED", selected.getValue("selectedModelQualification").jsonPrimitive.content)
+    }
+
     @Test fun responseIdMismatchRetainsItsSpecificBridgeRepairInTheExportedWorklist() {
         val original = fixture(1, 1)
         val run = original.copy(

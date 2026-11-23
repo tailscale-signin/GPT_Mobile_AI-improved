@@ -1,0 +1,115 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "adaptive-verification-excerpt-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "bcf1c4523f4b615390f3cecdf8ab436ea4023e7d",
+  "stacked_fixture_commit": "d8799da219aff2ce0c80d48272f1ae6445bc4983",
+  "working_branch": "fix/adaptive-verification-excerpt-20261123",
+  "parent_pr": 2254,
+  "intent": "Fit only the bounded private draft excerpt within the existing verification input cap while preserving the full task, all criterion contracts and privacy/acceptance gates.",
+  "state": "IMPLEMENTED_FOCUSED_REGRESSIONS_PASSED",
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt"
+  ],
+  "constraints": [
+    "Keep the ready d879 fixture commit intact; this change is additive and leaves its progress-continuation fixture unchanged.",
+    "Do not raise the input limit or drop task, requirements, criterion contracts, scaffold fields, evidence or authority checks.",
+    "Fit a nonblank codepoint-safe prefix of the existing relevance-selected excerpt using the complete serialized request estimate; retain input/batch/late-limit rejection and private-draft withholding.",
+    "No root or foreign worktree edits and no remote writes."
+  ],
+  "validation": {
+    "baseline": {
+      "tests": 7,
+      "failures": 4,
+      "expected_failures": [
+        "original 512-token positive refused at 518 tokens",
+        "escaped Unicode and all criteria refused before extraction",
+        "whole-codepoint fitting unavailable",
+        "early input rejection prevents reaching the independent late-limit guard"
+      ],
+      "existing_controls_passed": 3
+    },
+    "after": {
+      "tests": 7,
+      "failures": 0
+    },
+    "measurements": {
+      "unchanged_2048_budget": {
+        "request_tokens": 518,
+        "candidate_chars": 900
+      },
+      "escaped_unicode_512_budget": {
+        "request_tokens": 512,
+        "candidate_utf16_chars": 442,
+        "candidate_codepoints": 331
+      },
+      "five_criterion_1024_budget": {
+        "batches": 2,
+        "request_tokens": [
+          1024,
+          1024
+        ],
+        "candidate_utf16_chars": [
+          1325,
+          2080
+        ]
+      },
+      "oversized_4000_char_task": {
+        "budget": 2048,
+        "required_tokens": 4217,
+        "admitted": false
+      },
+      "undersized_required_scaffold": {
+        "budget": 128,
+        "admitted": false
+      },
+      "late_limit_change": {
+        "initial": 512,
+        "current": 128,
+        "outcome": "PLAN_LIMIT_CHANGED"
+      }
+    },
+    "formatting": "Pinned ktlint 1.3.1 and git diff --check passed.",
+    "source_preservation": {
+      "progress_matches_d879": true,
+      "outside_owned_test_methods_unchanged": true,
+      "same_generated_test_bytes": true,
+      "same_dependency_jar": true,
+      "source_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "ee6e88200bb28c6fd6b9ecb1d08528b616a584f5a4862736e3d2b20d286ec7a0",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": "99b1843216e78aa72b64c3808417a1667a65b973122b57cfa2e18d5918574a5e",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressContinuationTest.kt": "5a353b5a08cb18f99e4562943a228b5265a2585763a090b1f143f3b7699ca219"
+      }
+    },
+    "jvm_max_heap_mb": 512,
+    "boundaries": [
+      "Actual verification plan and draftExcerpt bodies; only private visibility and helper object names are adapted.",
+      "Actual nonissue verificationWindow; issue context fixed null and positive unrelated issue branches fail closed.",
+      "Full current criterion contracts, claim batching, publication evidence, catalog selection and UTF-8 token estimate.",
+      "Source-matched actual request parsing and checked helper excerpts from retained component dependency jar copied into own proof directory.",
+      "Zero receipts; positive receipt fact/excerpt branches fail closed. No full session, Android, AgentRunner or terminal publication/privacy execution claim.",
+      "Budget and Unicode fixture setup/assertion slices copied from current test source; additional controls call the actual extracted planner directly."
+    ],
+    "canonical_validation": "Parent integration owns canonical and final-head hosted gates; no broader rerun performed here.",
+    "independent_review": {
+      "reviewer": "speech_acceleration",
+      "result": "CLEAR",
+      "scope": "Read-only exact-hash review of planner, Unicode/late-limit fixture paths and d879 progress-file preservation. Full request fields, criterion contracts, batch bounds, catalog admission and final cap recheck remain intact; complete-session execution is not claimed."
+    }
+  },
+  "local_fixture_parent": "5ee4b58e8058fa40a3a08dcc09d93eb0a27c38de",
+  "judgment": "The existing 900-character per-line and 3600-character total excerpt bounds are maxima, not minimum context requirements. Refusing a 512-token plan solely because that optional excerpt reaches 518 tokens is avoidable without dropping task or criterion content.",
+  "behavior": [
+    "Leave already-fitting requests unchanged.",
+    "When required content fits but the selected private draft excerpt does not, retain the longest nonblank whole-codepoint prefix whose complete serialized payload fits the original input cap.",
+    "Preserve every task, requirement, criterion contract, batch field, catalog admission rule and final input-limit recheck; keep refusal when required content cannot fit.",
+    "Retain the original full draft and receipt ledger; private context is not published as an answer."
+  ],
+  "owned_test_methods": [
+    "oversizedTaskStaysIncompleteAndOversizedDraftUsesABoundedExcerpt",
+    "boundedExcerptPreservesEveryCriterionAndEscapedUnicode",
+    "verificationRechecksTheInputLimitAfterFittingTheExcerpt"
+  ]
+}

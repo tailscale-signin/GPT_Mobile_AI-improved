@@ -7,6 +7,20 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class McpReportDiagnosticsTest {
+    @Test fun privacyPolicyCategorySurvivesTheReportProjectionWithoutChangingRetainedHealth() {
+        val fields = McpReportDiagnostics.fields("private-connection", "local_validation", "POLICY_BLOCKED", "UNREACHABLE", "STALE", "CONNECTION_REFUSED", 800)
+        val diagnostic = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields + mapOf("diagnostic_area" to "TOOL", "tool_error_code" to "PRIVACY_SERVICE_UNVERIFIED"), 1_800_000_000_000))
+        assertEquals("PRIVACY_SERVICE_UNVERIFIED", IssueReportCodes.toolResult("PRIVACY_SERVICE_UNVERIFIED"))
+        assertEquals(JsonPrimitive("PRIVACY_SERVICE_UNVERIFIED"), diagnostic.values["tool_error_code"])
+        assertEquals(JsonPrimitive("local_validation"), diagnostic.values["mcp_failure_phase"])
+        assertEquals(JsonPrimitive("POLICY_BLOCKED"), diagnostic.values["mcp_failure_category"])
+        assertEquals(JsonPrimitive("CONNECTION_REFUSED"), diagnostic.values["mcp_connection_health"])
+        assertEquals(JsonPrimitive("RETAINED_SNAPSHOT"), diagnostic.values["mcp_health_observation"])
+        assertFalse(diagnostic.values.toString().contains("private"))
+        assertNull(IssueReportCodes.toolResult("PRIVACY_SERVICE_UNVERIFIED private detail"))
+        assertNull(McpReportDiagnostics.fields(null, "local_validation", "POLICY_BLOCKED private detail")["mcp_failure_category"])
+    }
+
     @Test fun reportingAliasesPreserveTypedSearchAndValidationCategories() {
         assertEquals("DNS_RESOLUTION_FAILED", IssueReportCodes.toolResult("DNS_RECOVERY"))
         assertEquals("SAVED_VIEW_UNAVAILABLE", IssueReportCodes.toolResult("GITHUB_SEARCH_CURSOR_UNAVAILABLE"))

@@ -7,6 +7,8 @@ import androidx.test.core.app.ApplicationProvider
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.VoiceBackendCapabilityStore
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import io.mockk.coEvery
 import io.mockk.every
@@ -28,6 +30,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -39,6 +42,38 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VoiceBackendViewModelTest {
+    @Test fun voiceAndRateChangesReplaceOnlyTheMatchingQualificationIdentity() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        try {
+            val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher)
+            owners.put("voice", model)
+            runCurrent()
+            val original = model.state.value.factory
+            model.configureSpeech(KokoroVoice.HEART, 1.25f)
+            runCurrent()
+            val rate = model.state.value.factory
+            assertNotEquals(original.identity, rate.identity)
+            model.configureSpeech(KokoroVoice.HEART, 1.25f)
+            runCurrent()
+            assertSame(rate, model.state.value.factory)
+            model.configureSpeech(KokoroVoice.EMMA, 1.25f)
+            runCurrent()
+            assertNotEquals(rate.identity, model.state.value.factory.identity)
+            assertTrue(model.state.value.loaded)
+        } finally {
+            owners.clear()
+            applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test fun initialPreferenceAndCatalogFailuresShowErrorsWithoutPermanentlyGatingCpuSpeech() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)
@@ -130,6 +165,38 @@ class VoiceBackendViewModelTest {
         } finally {
             owners.clear()
             applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun selectingAutoReusesMeasurementsAndOnlyCompareRequestsCalibration() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        try {
+            val context = context()
+            val preferences = context.getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val model = VoiceBackendViewModel(context, settings, VoiceBackendPreferenceStore({ preferences }, scope), dispatcher)
+            owners.put("voice", model)
+            runCurrent()
+            val capabilities = VoiceBackendCapabilityStore(context)
+            val revision = capabilities.revision()
+
+            model.selectBackend(VoiceSpeechBackend.AUTO)
+            runCurrent()
+            assertEquals(revision, capabilities.revision())
+            assertEquals(30_000L, model.state.value.factory.preparationTimeoutMs)
+
+            model.recheckBackend()
+            runCurrent()
+            assertEquals(revision + 1, capabilities.revision())
+            assertEquals(360_000L, model.state.value.factory.preparationTimeoutMs)
+        } finally {
+            owners.clear()
+            scope.cancel()
             Dispatchers.resetMain()
         }
     }

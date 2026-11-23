@@ -81,7 +81,15 @@ data class ChatRoomV2(
     val branchMessageId: Int? = null,
 
     @ColumnInfo(name = "combined_primary_uid")
-    val combinedPrimaryUid: String? = null
+    val combinedPrimaryUid: String? = null,
+
+    /** Records Privacy Mode use for this conversation, independently of the current global toggle. */
+    @ColumnInfo(name = "privacy_mode_enabled", defaultValue = "0")
+    val privacyModeEnabled: Boolean = false,
+
+    /** Permanent conversation policy. The default also protects privacy-marked legacy JSON backups. */
+    @ColumnInfo(name = "privacy_mode_locked", defaultValue = "0")
+    val privacyModeLocked: Boolean = privacyModeEnabled
 ) : Parcelable
 
 class StringListConverter {

@@ -20,8 +20,8 @@ import kotlinx.serialization.json.intOrNull
 /** Only the persisted call supplies identity and argument shape; result prose never supplies either. */
 internal object ToolReportDiagnostics {
     private val actions = setOf("status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch")
-    private val errors = setOf("APP_ERROR", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PR_HEAD_CHANGED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_COOLDOWN_ACTIVE")
-    private val reasons = setOf("BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH")
+    private val errors = setOf("PRIVACY_SERVICE_UNVERIFIED", "APP_ERROR", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PR_HEAD_CHANGED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_COOLDOWN_ACTIVE")
+    private val reasons = setOf("BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_SEARCH_FUZZY_QUERY_INVALID", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH")
 
     // Closed graph-specific codes are emitted only by an exact call-bound, source-owned graph receipt.
     // Keep them separate from generic tool reasons so arbitrary tool receipts cannot impersonate graph evidence.
@@ -46,7 +46,7 @@ internal object ToolReportDiagnostics {
             (receipt["requestSent"] == JsonPrimitive(true) || receipt["bodyReceived"] == JsonPrimitive(true))
         return when {
             result.errorCode == "CHALLENGE" && result.dispatched && (aggregate || directResponse) -> "UPSTREAM_CHALLENGE"
-            result.errorCode == "SEARCH_PROVIDERS_UNAVAILABLE" && aggregate -> "NO_ENGINE_SUCCEEDED"
+            aggregate && result.errorCode in setOf("SEARCH_PROVIDERS_UNAVAILABLE", "BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED") -> "NO_ENGINE_SUCCEEDED"
             else -> null
         }
     }
@@ -88,6 +88,15 @@ internal object ToolReportDiagnostics {
     /** The public alias describes the retained earlier index; the unsent current result stays unchanged. */
     fun reportCode(event: ToolEvent?, result: AgentToolResult): String? {
         val receipt = result.executionReceipt
+        if (event?.callId == result.callId &&
+            result.isError &&
+            !result.dispatched &&
+            result.errorCode == "DEPENDENCY_DEFERRED" &&
+            receipt?.get("native_dependency_state") == JsonPrimitive("DEFERRED") &&
+            receipt["dependency_admission_reasons"] == JsonArray(listOf(JsonPrimitive("TOOL_UNAVAILABLE")))
+        ) {
+            return "TOOL_UNAVAILABLE"
+        }
         val savedIndexPrecheck = event != null &&
             event.callId == result.callId &&
             event.modelToolName.substringBefore("__") == "repository_graph" &&
@@ -115,7 +124,7 @@ internal object ToolReportDiagnostics {
         }
         return when (searchFailure(event, result)) {
             "UPSTREAM_CHALLENGE" -> "SOURCE_ACCESS_BLOCKED"
-            "NO_ENGINE_SUCCEEDED" -> "SOURCE_UNAVAILABLE"
+            "NO_ENGINE_SUCCEEDED" -> IssueReportCodes.toolResult(result.errorCode) ?: "SOURCE_UNAVAILABLE"
             else -> IssueReportCodes.toolResult(result.errorCode)
         }
     }
@@ -127,6 +136,7 @@ internal object ToolReportDiagnostics {
         put("run_id_hash", IssueReportContext.identifierHash("run", event.runId))
         put("call_id_hash", IssueReportContext.identifierHash("call", event.callId))
         put("tool_name_hash", IssueReportContext.identifierHash("tool-name", event.modelToolName))
+        putAll(dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.retained(result.errorCode, result.executionReceipt).orEmpty())
         putAll(ToolInventoryPaginationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
         putAll(dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
         readerRefusal(event, result)?.let { put("url_reader_refusal", it) }

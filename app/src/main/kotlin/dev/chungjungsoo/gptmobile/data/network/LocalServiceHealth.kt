@@ -34,23 +34,27 @@ internal object LocalServiceHealth {
     private data class State(val health: ConnectionHealth, val failures: Int, val until: Long)
     private val states = ConcurrentHashMap<String, State>()
     private val epoch = AtomicLong()
+    private val reachability = LocalReachabilityProbes()
     val networkEpoch: Long get() = epoch.get()
     private fun now() = System.nanoTime() / 1_000_000
     private fun endpoint(url: String): URI? = runCatching { URI(url) }.getOrNull()?.takeIf { it.host != null }
     private fun port(uri: URI) = if (uri.port >= 0) {
         uri.port
-    } else if (uri.scheme == "https") {
+    } else if (uri.scheme.equals("https", ignoreCase = true)) {
         443
     } else {
         80
     }
-    private fun key(uri: URI) = "${uri.scheme}://${uri.host.lowercase()}:${port(uri)}${uri.path.orEmpty()}"
-    private fun dnsKey(uri: URI) = "dns:${uri.host.lowercase()}"
+    private fun key(uri: URI) = "${uri.scheme.lowercase()}://${uri.host.lowercase().removeSuffix(".")}:${port(uri)}${uri.path.orEmpty()}"
+    private fun transportKey(uri: URI) = "tcp:${uri.scheme.lowercase()}://${uri.host.lowercase().removeSuffix(".")}:${port(uri)}"
+    private fun dnsKey(uri: URI) = "dns:${uri.host.lowercase().removeSuffix(".")}"
+    private fun keys(uri: URI) = listOf(key(uri), transportKey(uri), dnsKey(uri))
 
     fun networkChanged() {
+        epoch.incrementAndGet()
+        reachability.invalidate()
         states.clear()
         dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.reset()
-        epoch.incrementAndGet()
     }
 
     fun requireLocalAvailable(url: String) {
@@ -70,7 +74,7 @@ internal object LocalServiceHealth {
         if (endpointLocality(url) == EndpointLocality.EXTERNAL && !dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available(endpoint(url)?.host)) throw IOException("DNS_RECOVERY: correlated public DNS failures; retry after network recovery")
         val uri = endpoint(url) ?: return
         val time = now()
-        val cooling = listOf(key(uri), dnsKey(uri)).mapNotNull(states::get).filter { it.until > time }.maxByOrNull { it.until }
+        val cooling = keys(uri).mapNotNull(states::get).filter { it.until > time }.maxByOrNull { it.until }
         if (cooling != null) {
             throw LocalServiceUnavailableException(cooling.health, "${uri.host}:${port(uri)}", cooling.until - time)
         }
@@ -78,24 +82,29 @@ internal object LocalServiceHealth {
 
     fun retryAfterMillis(url: String): Long {
         val uri = endpoint(url) ?: return 0
-        return listOf(key(uri), dnsKey(uri)).mapNotNull(states::get).maxOfOrNull { (it.until - now()).coerceAtLeast(0) } ?: 0
+        return keys(uri).mapNotNull(states::get).maxOfOrNull { (it.until - now()).coerceAtLeast(0) } ?: 0
     }
 
     fun health(url: String): ConnectionHealth {
         val uri = endpoint(url) ?: return ConnectionHealth.UNKNOWN
-        return states[dnsKey(uri)]?.takeIf { it.until > now() }?.health ?: states[key(uri)]?.health ?: ConnectionHealth.UNKNOWN
+        return states[dnsKey(uri)]?.takeIf { it.until > now() }?.health
+            ?: states[transportKey(uri)]?.takeIf { it.until > now() }?.health
+            ?: states[key(uri)]?.health
+            ?: states[transportKey(uri)]?.health
+            ?: ConnectionHealth.UNKNOWN
     }
 
     fun checkAgain(url: String) {
         val uri = endpoint(url) ?: return
-        states.remove(key(uri))
-        states.remove(dnsKey(uri))
+        keys(uri).forEach(states::remove)
+        reachability.invalidate()
     }
 
     fun recordHandshakeSuccess(url: String) {
         val uri = endpoint(url) ?: return
         trim()
         states.remove(dnsKey(uri))
+        states.remove(transportKey(uri))
         states[key(uri)] = State(ConnectionHealth.HEALTHY, 0, 0)
         dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(uri.host)
     }
@@ -131,12 +140,18 @@ internal object LocalServiceHealth {
         val causes = generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
         // A denied preflight/cooldown is not another physical connection attempt,
         // including when an SDK or gateway layer wraps the original exception.
-        if (causes.any { it is kotlinx.coroutines.CancellationException || it is LocalServiceUnavailableException }) return
+        if (failure.isLocalPrivacyPolicyRejection() || causes.any { it is kotlinx.coroutines.CancellationException || it is LocalServiceUnavailableException }) return
         val uri = endpoint(url) ?: return
         val health = classify(failure)
         if (endpointLocality(url) == EndpointLocality.EXTERNAL) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(uri.host, failure)
         if (health == ConnectionHealth.DNS_RECOVERY) return
-        val scope = if (health == ConnectionHealth.DNS_FAILED) dnsKey(uri) else key(uri)
+        // A failed TCP connection applies to the service origin, including its
+        // /gateway and /v1/gateway aliases. Protocol/auth failures remain path scoped.
+        val scope = when (health) {
+            ConnectionHealth.DNS_FAILED -> dnsKey(uri)
+            ConnectionHealth.ROUTE_UNAVAILABLE, ConnectionHealth.CONNECTION_REFUSED, ConnectionHealth.CONNECT_TIMEOUT -> transportKey(uri)
+            else -> key(uri)
+        }
         trim()
         val count = ((states[scope]?.failures ?: 0) + 1).coerceAtMost(8)
         val delay = (1_000L shl count.coerceAtMost(5)) + kotlin.random.Random.nextLong(0, 1000)
@@ -147,12 +162,27 @@ internal object LocalServiceHealth {
         if (states.size >= 128) states.keys.firstOrNull()?.let(states::remove)
     }
 
-    suspend fun probe(url: String) = withContext(Dispatchers.IO) {
+    suspend fun probe(url: String, bypassRecovery: Boolean = false) = withContext(Dispatchers.IO) {
         if (endpointLocality(url) == EndpointLocality.EXTERNAL) return@withContext
         val uri = endpoint(url) ?: return@withContext
-        requireAvailable(url)
+        if (bypassRecovery) reachability.invalidate() else requireAvailable(url)
         try {
-            Socket().use { it.connect(InetSocketAddress(uri.host, port(uri)), 3_000) }
+            val generation = networkEpoch
+            val observed = reachability.probe("$generation|${transportKey(uri)}") {
+                // A queued caller sees the first attempt's cooldown instead of opening another socket.
+                if (!bypassRecovery) requireAvailable(url)
+                try {
+                    Socket().use { it.connect(InetSocketAddress(uri.host, port(uri)), 3_000) }
+                } catch (failure: IOException) {
+                    if (generation != networkEpoch) throw LocalServiceUnavailableException(ConnectionHealth.UNKNOWN, "${uri.host}:${port(uri)}", 0, cause = failure)
+                    // Publish the rejection before releasing the shared probe lock.
+                    recordFailure(url, failure)
+                    throw LocalServiceUnavailableException(classify(failure), "${uri.host}:${port(uri)}", retryAfterMillis(url), cause = failure)
+                }
+            }
+            if (!observed || generation != networkEpoch) {
+                throw LocalServiceUnavailableException(ConnectionHealth.UNKNOWN, "${uri.host}:${port(uri)}", 0)
+            }
         } catch (failure: IOException) {
             recordFailure(url, failure)
             throw LocalServiceUnavailableException(classify(failure), "${uri.host}:${port(uri)}", retryAfterMillis(url), cause = failure)

@@ -117,6 +117,75 @@ import org.junit.Test
 class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
+    @Test
+    fun savedPrivateConversationRemainsMaskedWhenOptionsAreOffAndOrdinaryChatStaysIndependent() = runBlocking {
+        val secret = "private-code-4927"
+        val persistence = persistenceFixture()
+        coEvery { persistence.getChatRoom(51) } returns ChatRoomV2(id = 51, title = "Private", privacyModeLocked = true)
+        coEvery { persistence.getChatRoom(52) } returns ChatRoomV2(id = 52, title = "Ordinary", privacyModeLocked = false)
+        val verifier = mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyProviderVerifier>()
+        coEvery { verifier.verify(any()) } returns dev.chungjungsoo.gptmobile.data.privacy.PrivacyProviderVerifier.Result(
+            dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility.Decision(false, "Fixture route uses masked text")
+        )
+        var availability = false
+        val privacy = mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore>()
+        every { privacy.verifier } returns verifier
+        every { privacy.snapshot() } answers { dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = availability) }
+        every { privacy.effectiveSnapshot(any()) } answers {
+            dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = firstArg(), categories = setOf(dev.chungjungsoo.gptmobile.data.privacy.PrivacyCategory.CUSTOM))
+        }
+        coEvery { privacy.privateTerms() } returns listOf(secret)
+        val api = RecordingOpenAIAPI(ArrayDeque(List(3) { flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Here is the requested explanation."), finishReason = "stop")))) }))
+        val repository = createRepository(openAIAPI = api, persistenceOverride = persistence, privacyModeOverride = privacy)
+        val profile = customPlatform().copy(disableAllTools = true)
+        val user = MessageV2(id = 1, chatId = 51, content = "Explain the project named $secret.", platformType = null)
+        val first = repository.completeChat(listOf(user), emptyList(), profile, "private-first").toList()
+        assertTrue(first.toString(), first.any { it is ApiState.Success })
+        assertFalse(api.requests.single().toString().contains(secret))
+        assertEquals(listOf(true), api.requestPrivacy)
+
+        availability = true
+        val ordinary = repository.completeChat(listOf(user.copy(id = 2, chatId = 52)), emptyList(), profile, "ordinary").toList()
+        assertTrue(ordinary.toString(), ordinary.any { it is ApiState.Success })
+        assertTrue(api.requests[1].toString().contains(secret))
+        assertEquals(listOf(true, false), api.requestPrivacy)
+
+        availability = false
+        val reopened = createRepository(openAIAPI = api, persistenceOverride = persistence, privacyModeOverride = privacy)
+        val retry = reopened.completeChat(listOf(user), emptyList(), profile, "private-reopened-retry").toList()
+        assertTrue(retry.toString(), retry.any { it is ApiState.Success })
+        assertFalse(api.requests[2].toString().contains(secret))
+        assertEquals(listOf(true, false, true), api.requestPrivacy)
+        io.mockk.coVerify(exactly = 2) { persistence.markPrivacyModeUsed(51) }
+        io.mockk.coVerify(exactly = 0) { persistence.markPrivacyModeUsed(52) }
+    }
+
+    @Test
+    fun missingConversationPolicyCannotFallBackToAnOrdinarySend() = runBlocking {
+        val persistence = persistenceFixture()
+        coEvery { persistence.getChatRoom(51) } returns null
+        val api = RecordingOpenAIAPI()
+        val states = createRepository(openAIAPI = api, persistenceOverride = persistence).completeChat(
+            listOf(MessageV2(id = 1, chatId = 51, content = "Saved private text", platformType = null)),
+            emptyList(),
+            customPlatform(),
+            "missing-private-owner"
+        ).toList()
+        assertEquals(listOf("CONVERSATION_POLICY_UNAVAILABLE"), states.filterIsInstance<ApiState.Error>().map { it.errorCode })
+        assertEquals(0, api.streamChatCompletionCalls)
+    }
+
+    @Test
+    fun privateSourceContextCannotBeReboundToAnOrdinaryConversation() = runBlocking {
+        val api = RecordingOpenAIAPI()
+        val repository = createRepository(openAIAPI = api)
+        val states = kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(51, true)) {
+            repository.completeChat(listOf(MessageV2(id = 1, chatId = 52, content = "Private source text", platformType = null)), emptyList(), customPlatform(), "wrong-owner").toList()
+        }
+        assertEquals(listOf("CONVERSATION_PRIVACY_MISMATCH"), states.filterIsInstance<ApiState.Error>().map { it.errorCode })
+        assertEquals(0, api.streamChatCompletionCalls)
+    }
+
     /** Invoked by the Robolectric wrapper so the real reporting collector owns Android storage. */
     fun genericPreparationExceptionRetainsEvidenceThroughCollector() = runBlocking {
         val incidents = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
@@ -130,7 +199,7 @@ class ChatRepositoryImplTest {
             val error = IllegalStateException("PRIVATE_FIXTURE_EXCEPTION https://private.invalid/token", IllegalArgumentException("PRIVATE_INNER"))
             error.stackTrace = arrayOf(StackTraceElement("dev.chungjungsoo.gptmobile.data.repository.ChatRepositoryImpl", "preparedCompleteChat", "private-file", 1879))
             val user = MessageV2(id = 1, chatId = 7, content = "Explain this PRIVATE_PROMPT synthetic fixture", platformType = null)
-            val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+            val persistence = persistenceFixture()
             coEvery { persistence.getMessages(7) } returns listOf(user)
             val runs = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao>(relaxed = true)
             coEvery { runs.getByChatId(7) } throws error
@@ -211,7 +280,7 @@ class ChatRepositoryImplTest {
         dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(true)
         try {
             val user = MessageV2(id = 1, chatId = 7, content = "Continue", platformType = null)
-            val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+            val persistence = persistenceFixture()
             coEvery { persistence.getMessages(7) } returns listOf(user)
             val api = RecordingOpenAIAPI()
             val runId = "PRIVATE_MISSING_RECOVERY_RUN"
@@ -269,7 +338,7 @@ class ChatRepositoryImplTest {
 
     @Test fun preparationCancellationStillPropagatesWithoutAnApiFailure() = runBlocking {
         val user = MessageV2(id = 1, chatId = 7, content = "Explain this synthetic fixture", platformType = null)
-        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        val persistence = persistenceFixture()
         coEvery { persistence.getMessages(7) } returns listOf(user)
         val runs = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao>(relaxed = true)
         val cancelled = CancellationException("PRIVATE_CANCEL")
@@ -732,7 +801,7 @@ class ChatRepositoryImplTest {
     }
 
     @Test fun documentOnlyRecallIsRevalidatedAtPhysicalDispatchAfterDeletionOrConsentRevocation() = runBlocking {
-        for (mode in listOf("allowed", "deleted", "revoked", "regranted_during_preparation")) {
+        for (mode in listOf("allowed", "deleted", "revoked", "regranted_during_preparation", "privacy_changed_during_validation")) {
             val storage = object : SecretVault {
                 val values = mutableMapOf<String, ByteArray>()
                 override suspend fun put(secretRef: String, secret: ByteArray) {
@@ -753,6 +822,17 @@ class ChatRepositoryImplTest {
             val packet = dev.chungjungsoo.gptmobile.data.knowledge.DocumentRecallPacket(1, dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope(), evidence, listOf(dev.chungjungsoo.gptmobile.data.knowledge.DocumentRecallSource(document, chunk)))
             val documents = mockk<dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository>(relaxed = true)
             var deleted = false
+            var physicalBoundaryReached = false
+            var privacyValidationChanges = 0
+            var privacyPolicy = dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = false, revision = 1)
+            val privacyStore = if (mode == "privacy_changed_during_validation") {
+                mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore>().also {
+                    every { it.snapshot() } answers { privacyPolicy }
+                    every { it.effectiveSnapshot(any()) } answers { callOriginal() }
+                }
+            } else {
+                null
+            }
             coEvery { documents.scopeForChat(any()) } returns dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope()
             coEvery { documents.recall(any(), any(), any()) } coAnswers {
                 if (mode == "regranted_during_preparation") {
@@ -761,22 +841,32 @@ class ChatRepositoryImplTest {
                 }
                 packet
             }
-            coEvery { documents.validateRecall(any()) } coAnswers { check(!deleted) { "DOCUMENT_RECALL_STALE: document deleted" } }
+            coEvery { documents.validateRecall(any()) } coAnswers {
+                check(!deleted) { "DOCUMENT_RECALL_STALE: document deleted" }
+                if (mode == "privacy_changed_during_validation" && physicalBoundaryReached) {
+                    // The parent guard passed, then document validation suspended at physical dispatch.
+                    kotlinx.coroutines.yield()
+                    privacyPolicy = privacyPolicy.copy(categories = emptySet(), revision = privacyPolicy.revision + 1, protectionRevision = privacyPolicy.protectionRevision + 1)
+                    privacyPolicy = privacyPolicy.copy(categories = dev.chungjungsoo.gptmobile.data.privacy.PrivacyCategory.entries.toSet(), revision = privacyPolicy.revision + 1, protectionRevision = privacyPolicy.protectionRevision + 1)
+                    privacyValidationChanges++
+                }
+            }
             val platform = groqPlatform(false, "model")
             val settings = mockk<SettingRepository>(relaxed = true)
             coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
             coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
-            val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+            val persistence = persistenceFixture()
             coEvery { persistence.getChatRoom(1) } returns ChatRoomV2(id = 1, title = "Document fixture")
             val api = FakeGroqAPI(
                 flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "The saved document contains a private excerpt."), finishReason = "stop")))),
                 enforcePhysicalBoundary = true,
                 beforePhysicalBoundary = {
+                    physicalBoundaryReached = true
                     if (mode == "deleted") deleted = true
                     if (mode == "revoked") facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = false))
                 }
             )
-            val states = createRepository(groqAPI = api, factVault = facts, settingsOverride = settings, persistenceOverride = persistence, knowledgeOverride = documents)
+            val states = createRepository(groqAPI = api, factVault = facts, settingsOverride = settings, persistenceOverride = persistence, knowledgeOverride = documents, privacyModeOverride = privacyStore)
                 .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Recall my saved document", platformType = null)), emptyList(), platform, runId = "document-$mode").toList()
             if (mode == "allowed") {
                 assertEquals(1, api.streamCalls)
@@ -784,6 +874,7 @@ class ChatRepositoryImplTest {
             } else {
                 assertEquals(states.toString(), 0, api.streamCalls)
                 assertTrue(states.any { it is ApiState.Error })
+                if (mode == "privacy_changed_during_validation") assertEquals(1, privacyValidationChanges)
             }
         }
     }
@@ -875,7 +966,7 @@ class ChatRepositoryImplTest {
             systemPrompt = platform.systemPrompt.orEmpty(), configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform)
         )
         val runId = "combined-synthesis:repository-coverage"
-        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        val persistence = persistenceFixture()
         coEvery { persistence.recoveryRun(runId) } returns dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
             runId,
             1,
@@ -944,7 +1035,7 @@ class ChatRepositoryImplTest {
             evidence = dev.chungjungsoo.gptmobile.data.agent.CombinedEvidenceLedger.freeze(dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freeze(research), emptyList(), emptyMap())
         )
         val raw = frozen.encode()
-        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        val persistence = persistenceFixture()
         coEvery { persistence.recoveryRun(runId) } returns dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
             runId, 1, original.id, 3, platform.uid, platform.compatibleType.name, platform.model,
             status = "RUNNING", ownershipFence = 7, displayRole = "COMBINED_FINAL",
@@ -1007,7 +1098,7 @@ class ChatRepositoryImplTest {
             ).seal()
             val raw = frozen.encode()
             val runId = "combined-synthesis:invalid-inventory-$index"
-            val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+            val persistence = persistenceFixture()
             coEvery { persistence.recoveryRun(runId) } returns dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
                 runId, 1, original.id, 3, platform.uid, platform.compatibleType.name, platform.model,
                 displayRole = "COMBINED_FINAL", synthesisSnapshot = raw, synthesisKey = dev.chungjungsoo.gptmobile.data.research.researchHash(raw)
@@ -1191,7 +1282,7 @@ class ChatRepositoryImplTest {
                 listOf(flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "Fixture provider stopped", code = "403"))))
             )
         )
-        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        val persistence = persistenceFixture()
         val runs = listOf("verify-preparation", "retry-preparation").mapIndexed { index, runId ->
             dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(runId, original.chatId, original.id, index + 3, platform.uid, platform.compatibleType.name, platform.model, ownershipFence = 7)
         }.associateBy { it.runId }
@@ -1478,7 +1569,7 @@ class ChatRepositoryImplTest {
             val settings = mockk<SettingRepository>(relaxed = true)
             coEvery { settings.getFeatureSettings() } returns features
             coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
-            val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+            val persistence = persistenceFixture()
             coEvery { persistence.getChatRoom(1) } returns dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2(id = 1, title = "Research fixture", enabledPlatform = listOf(platform.uid))
             val recall = mockk<dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider>()
             val evidence = "Historical study reported 10 points; https://example.org/trial; limitations: one small trial."
@@ -1549,6 +1640,62 @@ class ChatRepositoryImplTest {
         ).toList()
         assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().startsWith(expectedMemoryPrefix))
         assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().contains("Kotlin"))
+    }
+
+    @Test
+    fun protectionChangesDuringNativePreflightCannotReachToolResolutionOrInference() = runBlocking {
+        for (choices in listOf(listOf(true, false), listOf(true, false, true), listOf(true, true))) {
+            var policy = dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = false, revision = 1)
+            val store = mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore>()
+            every { store.snapshot() } answers { policy }
+            every { store.effectiveSnapshot(any()) } answers { callOriginal() }
+            val persistence = persistenceFixture()
+            coEvery { persistence.getChatRoom(51) } returns ChatRoomV2(id = 51, title = "Private native", privacyModeLocked = true)
+            val runtime = FakeLocalRuntime()
+            var preflights = 0
+            val admission = object : LocalRuntime by runtime {
+                override suspend fun preflightModel(modelPath: String, accelerator: String?) {
+                    preflights++
+                    kotlinx.coroutines.yield()
+                    choices.drop(1).forEach { protectsContacts ->
+                        policy = policy.copy(
+                            categories = if (protectsContacts) policy.categories + dev.chungjungsoo.gptmobile.data.privacy.PrivacyCategory.CONTACTS else policy.categories - dev.chungjungsoo.gptmobile.data.privacy.PrivacyCategory.CONTACTS,
+                            revision = policy.revision + 1,
+                            protectionRevision = policy.protectionRevision + 1
+                        )
+                    }
+                }
+            }
+            val resolver = mockk<AgentToolResolver>(relaxed = true)
+            val cloud = RecordingOpenAIAPI()
+            val repository = createRepository(
+                agentToolResolver = resolver,
+                openAIAPI = cloud,
+                localRuntime = admission,
+                localModelRepository = FakeLocalModelRepository(downloadedPaths = mapOf("gemma3-1b-it" to "/models/gemma.litertlm")),
+                privacyModeOverride = store,
+                persistenceOverride = persistence
+            )
+
+            val failure = runCatching {
+                repository.completeChat(
+                    userMessages = listOf(MessageV2(chatId = 51, content = "Calculate six times seven using this local model.", platformType = null)),
+                    assistantMessages = emptyList(),
+                    platform = localPlatform(),
+                    runId = "private-native-policy-change"
+                ).toList()
+            }.exceptionOrNull()
+
+            assertTrue(failure.toString(), failure is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException)
+            assertEquals(listOf("devicePrivacy"), (failure as dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException).fields)
+            assertEquals(1, preflights)
+            assertTrue(runtime.inspectModelCalls.isEmpty())
+            assertTrue(runtime.loadEngineCalls.isEmpty())
+            assertTrue(runtime.createConversationCalls.isEmpty())
+            assertTrue(runtime.sendMessageCalls.isEmpty())
+            assertEquals(0, cloud.streamChatCompletionCalls)
+            io.mockk.coVerify(exactly = 0) { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) }
+        }
     }
 
     @Test(expected = IllegalStateException::class)
@@ -2168,7 +2315,7 @@ class ChatRepositoryImplTest {
         assertEquals(1, openAIAPI.streamChatCompletionCalls)
     }
 
-    @Test
+    /** The Robolectric wrapper supplies real AtomicFile storage for the retained denied tool result. */
     fun `complete chat rejects unapproved web search and persists its trace`() = runBlocking {
         val connection = ToolConnection(
             connectionUid = "search-1",
@@ -2462,7 +2609,7 @@ class ChatRepositoryImplTest {
             profileBehavior = mapOf(primary.uid to dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings(delegationEnabled = true))
         )
         coEvery { settings.fetchPlatformV2s() } returns listOf(primary, helper)
-        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        val persistence = persistenceFixture()
         coEvery { persistence.getIncompleteRuns(any(), any()) } returns emptyList()
         coEvery { persistence.getCompletedRuns(any()) } returns emptyList()
         coEvery { persistence.getMessages(any()) } returns emptyList()
@@ -2653,7 +2800,7 @@ class ChatRepositoryImplTest {
             for (continued in listOf(false, true)) {
                 val latest = if (continued) original.copy(id = 3, content = "Continue") else original
                 val savedUsers = if (continued) listOf(original, latest) else listOf(original)
-                val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+                val persistence = persistenceFixture()
                 coEvery { persistence.getMessages(7) } returns savedUsers + if (storedMessage) listOf(failed) else emptyList()
                 val runs = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao>(relaxed = true)
                 coEvery { runs.getByChatId(7) } returns if (storedMessage) emptyList() else listOf(failedRun)
@@ -2711,7 +2858,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun freshMessageCannotAutomaticallyRecoverUnrelatedPreviousTurn() = runBlocking {
-        val persisted = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        val persisted = persistenceFixture()
         val inspectedUserIds = mutableListOf<List<Int>>()
         val previousRun = dev.chungjungsoo.gptmobile.data.database.entity.AgentRun("old-failed-run", 1, 10, 20, "old-profile", "GROQ", "old-model", status = "FAILED")
         coEvery { persisted.getIncompleteRuns(1, any()) } coAnswers {
@@ -2744,7 +2891,7 @@ class ChatRepositoryImplTest {
         val platform = groqPlatform(false, "working-model")
         val current = MessageV2(id = 11, chatId = 1, content = "Answer a new question", platformType = null)
         val previous = MessageV2(id = 20, chatId = 1, content = "PRIVATE_EVIDENCE_DO_NOT_SEND", platformType = platform.uid, currentRunId = "failed-run")
-        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        val persistence = persistenceFixture()
         coEvery { persistence.getIncompleteRuns(1, listOf(11)) } returns listOf(
             dev.chungjungsoo.gptmobile.data.database.entity.AgentRun("failed-run", 1, 11, 20, platform.uid, "GROQ", platform.model, status = "FAILED")
         )
@@ -2827,6 +2974,13 @@ class ChatRepositoryImplTest {
         assertEquals(0, api.streamChatCompletionCalls)
     }
 
+    private fun persistenceFixture(): dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao =
+        mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true).also { dao ->
+            coEvery { dao.getChatRoom(any()) } answers {
+                firstArg<Int>().takeIf { it > 0 }?.let { ChatRoomV2(id = it, title = "Conversation fixture") }
+            }
+        }
+
     private fun createRepository(
         groqAPI: GroqAPI = FakeGroqAPI(emptyFlow()),
         openAIAPI: OpenAIAPI = RecordingOpenAIAPI(),
@@ -2849,7 +3003,8 @@ class ChatRepositoryImplTest {
         contextOverride: android.content.Context? = null,
         runsOverride: dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao? = null,
         privacyOverride: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight? = null,
-        reasoningCapabilitiesOverride: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null
+        reasoningCapabilitiesOverride: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
+        privacyModeOverride: dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = contextOverride ?: object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
@@ -2864,7 +3019,7 @@ class ChatRepositoryImplTest {
         chatRoomV2Dao = proxy(),
         messageV2Dao = proxy(),
         chatPlatformModelV2Dao = proxy(),
-        agentPersistenceDao = persistenceOverride ?: proxy(),
+        agentPersistenceDao = persistenceOverride ?: persistenceFixture(),
         agentRunDao = runsOverride ?: proxy(),
         settingRepository = settingsOverride ?: mockk<SettingRepository>(relaxed = true).also { settings ->
             io.mockk.coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
@@ -2894,7 +3049,8 @@ class ChatRepositoryImplTest {
         invocationLedger = invocationLedgerOverride,
         combinedBudgets = combinedBudgetsOverride,
         privacyPreflight = privacyOverride,
-        reasoningCapabilities = reasoningCapabilitiesOverride
+        reasoningCapabilities = reasoningCapabilitiesOverride,
+        privacyMode = privacyModeOverride
     )
 
     private fun emptyToolResolver(): AgentToolResolver {
@@ -3013,6 +3169,7 @@ class ChatRepositoryImplTest {
     ) : OpenAIAPI {
         var streamChatCompletionCalls = 0
         val requests = mutableListOf<ChatCompletionRequest>()
+        val requestPrivacy = mutableListOf<Boolean>()
 
         override fun streamChatCompletion(
             request: ChatCompletionRequest,
@@ -3021,6 +3178,7 @@ class ChatRepositoryImplTest {
         ): Flow<ChatCompletionChunk> {
             streamChatCompletionCalls += 1
             requests += request
+            requestPrivacy += dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
             return chatRounds.removeFirstOrNull() ?: emptyFlow()
         }
 
@@ -3118,7 +3276,9 @@ private class SingleToolConnectionDao(
 
     override suspend fun listBindingsByProfile(profileUid: String): List<AgentToolBinding> = bindings.filter { it.profileUid == profileUid }
 
-    override suspend fun insertBinding(binding: AgentToolBinding) = Unit
+    override suspend fun rawBindingByUid(bindingUid: String): AgentToolBinding? = bindings.firstOrNull { it.bindingUid == bindingUid }
+
+    override suspend fun insertBindingRow(binding: AgentToolBinding) = Unit
 
     override suspend fun deleteConnectionToolBindingsForTypes(profileUid: String, toolName: String, connectionTypes: List<String>) = Unit
 

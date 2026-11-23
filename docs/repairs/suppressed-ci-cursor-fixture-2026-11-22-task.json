@@ -1,0 +1,71 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 2254,
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "source_sha": "8f2ba28c3f9d0a26602923fc28cc5421ad40d604",
+  "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "working_branch": "work/phone-repository-map-2026-11-22",
+  "state": "FIXTURE_LOCAL_CHECKS_PASSED_EXACT_HEAD_HOSTED_PENDING",
+  "owner": "phone-map and shared integration workstream; final explicit voice handoff accepted",
+  "authorization": "User authorized all latest shared PR features, exact-head green qualification, merge and complete publication. The voice owner explicitly released this tenth failing fixture to phone/map after independent baseline reproduction.",
+  "finding": "The suppressed CI-read test invents saved:0:1536 and a local result without the native execution receipt now required by R07. GitHubReplayRecovery.savedPageKey correctly refuses to consume that unproven page; repeated bounded recovery prevents the original completion/count oracle.",
+  "intent": [
+    "Replace only the positive saved-view fixture with actual GitHubResultViews present/read issuance and readback.",
+    "Retain the original three remote calls, one local saved read, five model rounds, completion assertion and existing replay/execution limits.",
+    "Preserve all production cursor proof, source identity, private scope, write reconciliation and budget checks; no hand-written execution receipts.",
+    "Run the existing actual view/recovery component harness with honest execution boundaries, then rely on exact-head hosted Android for the complete AgentRunner test."
+  ],
+  "owned_paths": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentGitHubResilienceTest.kt"
+  ],
+  "validation": {
+    "hosted_baseline": {
+      "source": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+      "run": 45092816803,
+      "job": 137426434700,
+      "result": "FAILED",
+      "test": "AgentGitHubResilienceTest.suppressedCiReadConsumesItsLocalCursorBeforeTheNextModelRound",
+      "tests_in_run": 13253,
+      "failures_in_run": 10,
+      "skips_in_run": 5
+    },
+    "independent_baseline_report": "Voice component run56 cases:55 controls passed and this missing-receipt case failed; root will inspect/replay the available exact-source harness before claiming local proof.",
+    "current_focused": {
+      "result": "PASSED",
+      "cases": 56,
+      "compiled_actual_repository_files": 35,
+      "consulted_or_extracted_inputs": 11,
+      "scope": "Actual native views, recovery, repeat, receipt, compactor, checkpoint and delivery code; exact fixture tool body and actual runner savedRead selection expression.",
+      "behavior": "Three remote reads, one native local saved read, no duplicate saved read selected before the next provider round.",
+      "not_executed": "Complete AgentRunner/provider-round/completion/aggregate-budget integration; these remain hosted CI gates.",
+      "evidence": "/workspace/scratch/c067b3dc0a58/github-resilience-cursor-proof/corrected-8f",
+      "qualification": "/workspace/scratch/c067b3dc0a58/github-resilience-cursor-proof/qualification.json"
+    },
+    "canonical": {
+      "result": "PASSED",
+      "tests": 627,
+      "source_parent": "8f2ba28c3f9d0a26602923fc28cc5421ad40d604",
+      "evidence": "/workspace/scratch/c067b3dc0a58/suppressed-ci-cursor-fast.log"
+    },
+    "exact_head_hosted": "PENDING",
+    "publication": "PENDING",
+    "component_baseline": {
+      "source": "8f2ba28c3f9d0a26602923fc28cc5421ad40d604",
+      "cases": 56,
+      "expected_failure": 1,
+      "controls_passed": 55,
+      "result": "REPRODUCED",
+      "evidence": "/workspace/scratch/c067b3dc0a58/github-resilience-cursor-proof/baseline-8f"
+    },
+    "unchanged_assertions": "Entire test suffix from first val session onward byte-identical; five rounds, completion, maxToolCalls12 and every other test method preserved.",
+    "independent_review": "No concrete issue; all source inputs match current source and no production edits.",
+    "formatting": {
+      "result": "PASSED",
+      "tool": "ktlint1.3.1",
+      "evidence": "/workspace/scratch/c067b3dc0a58/suppressed-ci-cursor-ktlint.log"
+    }
+  },
+  "scope_boundary": "No production source changes are planned. Other owners retain repository-context, native receipt and speech work.",
+  "source_sha256": "118662f4c429c411a0a0c4b7257b9af1144bb7e1de2703c5702c2f36dde173e6"
+}

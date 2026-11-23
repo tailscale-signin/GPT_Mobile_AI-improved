@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "work/diagnostic-review-completion-2026-11-22",
+  "base_sha": "da2e015419da7872525b4e8fa9fa4cea9442cda4",
+  "parent_pr": 2254,
+  "working_branch": "work/review-saved-read-proof-2026-11-22",
+  "intent": "Persist exact successful provider-delivery payload digests separately from legacy consumed call IDs. Reconstruct saved-read intervals only from matching durable proof, so ingress-compacted replay cannot mark unread original fragments delivered after restart. No production push; root integrates and owns full combined-head gates.",
+  "status": "IMPLEMENTED_SCOPED_VALIDATION_COMPLETE",
+  "reproduction": "Actual replay compaction plus production deliveredCallIds expression marked a compact envelope consumed; restoring its original page advanced offset 50 to 123 although the model never received those fragments.",
+  "validation": {
+    "focused": {
+      "status": "PASSED",
+      "tests": 41,
+      "scope": "Actual Kotlin ToolBatchCheckpoint with serialization plugin, ToolExchangeCompactor at56a0316be0, replay/saved-read/delivery-proof/source-read repair code; actual committed tests with Android AtomicFile and unrelated handoff services isolated by narrow host boundaries.",
+      "coverage": "Restart after ingress compaction; exact full-page proof; legacy consumption; restored replay cursor preservation; consumed recovery wrappers; semantic-summary scope; failed/unknown/reconciliation outcomes; malformed and bounded persisted ledgers; cache parity; prior root source/read and empty-CI helper regressions.",
+      "harness": "analysis/saved-read-proof-host/run.py"
+    },
+    "formatting": "ktlint1.3.1 passed on changed Kotlin sources and tests",
+    "whitespace": "git diff --check passed",
+    "canonical_fast": "CI policy passed; architecture index stale. Parent owns generated combined inventories and rerun.",
+    "full_android_gradle": "NOT_RUN: avoid competing full Gradle. AgentRunner integration requires the exact combined-head build gate.",
+    "combined_head_ci": "ROOT_OWNED_REQUIRED_BEFORE_MERGE"
+  },
+  "integration_base_sha": "56a0316be0ed2029ae3b36c9392b9fe2c4aef2e7",
+  "integration_note": "Fast-forwarded isolated worktree to root completion integration 56a0316be0 to validate replay consumption against the newer compactor. Original repair intent/base remain recorded.",
+  "changes": [
+    "Persist at most 1024 exact delivered checkpoint-payload digests as additive schema-2 metadata; legacy consumed IDs remain compatible history.",
+    "Capture the actual delivered provider projection and commit proof only after a completed successful provider round; failed, unknown and reconciliation-required results cannot prove delivery.",
+    "Reconstruct saved-read intervals only after authorized restoration and an exact digest match; consumed summary envelopes cannot stand for original full pages.",
+    "Qualify the consumed set supplied to every AgentRunner replay compaction by exact payload proof, retaining same-offset recovery for compacted native wrappers and preserving semantic-summary scope.",
+    "Reuse the existing render/digest cache for delivery qualification; bound the proof map and validate malformed, foreign, oversized or mismatched persisted entries."
+  ],
+  "review": {
+    "source_range_splitting": "No additional concrete correctness or authorization finding in read-only review.",
+    "empty_ci_and_presentation": "No additional concrete finding in read-only review; parent execution_audit agent independently reports10 CI-report/heading host tests passed."
+  },
+  "post_integration_review": {
+    "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+    "finding": "The initial host boundary substituted an inaccurate unknownOutcomeCodes set and therefore masked two test fixtures using unsupported GITHUB_OUTCOME_UNKNOWN.",
+    "correction": "The fixtures now use the existing supported GATEWAY_OUTCOME_UNKNOWN code. Production delivery-proof and failure classification were not weakened or broadened.",
+    "validation": "The same41 tests with the exact eight production unknown-outcome codes reproduced two failures before the fixture change and passed41/41 afterward. Actual checkpoint, compactor, proof, replay and source-recovery code is compiled; Android AtomicFile and unrelated services remain narrow host boundaries. Full exact-head Android integration remains mandatory."
+  }
+}

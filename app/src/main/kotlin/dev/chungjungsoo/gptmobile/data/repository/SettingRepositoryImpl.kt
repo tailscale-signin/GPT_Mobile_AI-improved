@@ -172,11 +172,15 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun mutateThemes(transform: (ThemeSetting) -> ThemeSetting): ThemeSetting = settingDataSource.mutateThemes(transform)
 
     override suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings = walletFeatureMutation.withLock {
-        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         // Reference repair needs the current saved inventory, not decrypted credentials or a stale UI cache.
         val profiles = platformV2Dao.getPlatforms()
         settingDataSource.mutateFeatureSettings { current ->
-            normalizeFeatureReferences(transform(normalizeFeatureReferences(current, profiles)), profiles)
+            val next = normalizeFeatureReferences(transform(normalizeFeatureReferences(current, profiles)), profiles)
+            dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance(
+                invalidateCatalogues = dev.chungjungsoo.gptmobile.data.readiness.CatalogueInvalidationPolicy.featuresChanged(current, next),
+                reason = "FEATURE_AUTHORITY_CHANGED"
+            )
+            next
         }.also {
             walletLocal?.setEnabled(dev.chungjungsoo.gptmobile.data.model.SettingsHomeConfiguration.WALLET in it.settingsHome.selectedItems)
             dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection
@@ -239,8 +243,12 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun getFeatureSettings(): AppFeatureSettings = migrateAssistPermissions(settingDataSource.getFeatureSettings()).also { dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection }
 
     override suspend fun updateFeatureSettings(settings: AppFeatureSettings) = walletFeatureMutation.withLock {
-        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
+        val previous = settingDataSource.getFeatureSettings()
         val normalized = normalizeFeatureReferences(settings, platformV2Dao.getPlatforms())
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance(
+            invalidateCatalogues = dev.chungjungsoo.gptmobile.data.readiness.CatalogueInvalidationPolicy.featuresChanged(previous, normalized),
+            reason = "FEATURE_AUTHORITY_CHANGED"
+        )
         settingDataSource.updateFeatureSettings(normalized)
         walletLocal?.setEnabled(dev.chungjungsoo.gptmobile.data.model.SettingsHomeConfiguration.WALLET in normalized.settingsHome.selectedItems)
         dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = normalized.diagnosticsCollection
@@ -436,8 +444,11 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updatePlatformV2(platform: PlatformV2) {
-        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val previous = platform.id.takeIf { it > 0 }?.let { platformV2Dao.getPlatform(it) }
+        dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance(
+            invalidateCatalogues = dev.chungjungsoo.gptmobile.data.readiness.CatalogueInvalidationPolicy.profileChanged(previous, platform),
+            reason = "PROFILE_AUTHORITY_CHANGED"
+        )
         val previousSecretRef = previous?.secretRef ?: platform.secretRef
         if (!platform.enabled) providerActivation?.revoke(platform.uid)
         val securedPlatform = securePlatform(platform.copy(enabled = platform.enabled && FreeAiProvider.fromApiUrl(platform.apiUrl)?.isRetired != true && !providerActivationRequired(platform)))

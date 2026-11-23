@@ -368,6 +368,26 @@ def dispatch(root, action, args, output):
                 lock.release()
         job = client.engineering_job(args.get('job_id'))
         conversation = {'conversation_id': job['conversation_id'], 'active_job_id': job['id'], 'active_job_kind': 'engineering'}
+        if action.startswith('engineering-workspace'):
+            from desktop import workspace_client
+            if action == 'engineering-workspace':
+                return workspace_client.board(client, job, root)
+            if action == 'engineering-workspace-command':
+                return workspace_client.submit(client, root, job, args['payload'])
+            if action == 'engineering-workspace-receipt':
+                return workspace_client.receipt(client, root, job, args['command_id'])
+            if action == 'engineering-workspace-retry':
+                return workspace_client.retry_original(client, root, job, args['command_id'])
+            if action == 'engineering-workspace-dismiss':
+                return workspace_client.dismiss_absent(client, root, job, args['command_id'])
+            if action in {'engineering-workspace-source', 'engineering-workspace-tree'}:
+                params = {key: args[key] for key in ('head_sha', 'path', 'start_line', 'line_count', 'query', 'offset') if key in args}
+                suffix = 'source' if action.endswith('-source') else 'tree'
+                value = client.request('GET', workspace_client.path(job) + '/' + suffix, params=params)
+                if value.get('job_id') != job['id'] or value.get('head_sha') != args.get('head_sha'):
+                    raise ClientError('The requested source identity changed.')
+                return value
+            raise ValueError('Unknown workspace action.')
         if action == 'engineering-inspect':
             if args.get('section') == 'Checkpoints':
                 reviewed, history = client.engineering_checkpoints(conversation)
@@ -380,7 +400,7 @@ def dispatch(root, action, args, output):
         if action == 'engineering-approve':
             return client.approve_engineering(conversation, args['reviewed'])
         if action == 'engineering-candidate':
-            return client.candidate_details(job, args['check_id'])
+            return client.candidate_details(job, args['check_id'], args.get('offset', 0), args.get('left_check_id'))
         if job['revision'] != args.get('revision'):
             raise ValueError('The reviewed job revision changed. Inspect it again.')
         if action == 'engineering-restore':
@@ -478,6 +498,36 @@ def dispatch(root, action, args, output):
         return {'requested': True}
     if action.startswith('benchmark-'):
         from desktop import benchmark
+        if action.startswith('benchmark-qualification-'):
+            from desktop import benchmark_qualification as qualification
+            if action == 'benchmark-qualification-history':
+                return {'qualifications': qualification.history(root)}
+            if action == 'benchmark-qualification-start':
+                return qualification.start(root, bound_text(args.get('path'), 4096), execute=args.get('execute', False))
+            if action == 'benchmark-qualification-read':
+                return qualification.refresh(root, args.get('id'))
+            if action == 'benchmark-qualification-resume':
+                return qualification.refresh(root, args.get('id'), execute=True)
+            raise ValueError('Unsupported qualification action.')
+        if action.startswith('benchmark-compare-'):
+            from desktop import benchmark_comparison as comparison
+            if action == 'benchmark-compare-history':
+                return {'comparisons': comparison.history(root)}
+            if action == 'benchmark-compare-export':
+                return comparison.export(root, args.get('id'), bound_text(args.get('path'), 4096))
+            if action == 'benchmark-compare-create':
+                result = comparison.create(root, args.get('models'), preset=args.get('preset', 'quick'),
+                    suite=args.get('suite', 'coding'), repeats=args.get('repeats', 3),
+                    ordering=args.get('ordering', 'SELECTED_ORDER'), seed=args.get('seed', 17), task_pack=args.get('task_pack', 'python'))
+            elif action == 'benchmark-compare-read':
+                result = comparison.read(root, args.get('id'))
+            elif action == 'benchmark-compare-advance':
+                result = comparison.advance(root, args.get('id'))
+            elif action == 'benchmark-compare-stop':
+                result = comparison.stop(root, args.get('id'))
+            else:
+                raise ValueError('Unsupported comparison action.')
+            return comparison.public_snapshot(result)
         if action == 'benchmark-history':
             return benchmark.history(root, args.get('before'))
         if action == 'benchmark-read':
@@ -492,8 +542,13 @@ def dispatch(root, action, args, output):
             payload = {'request_id': command, 'model': bound_text(args.get('model'), 512),
                        'suite': args.get('suite', 'quick_check'), 'preset': args.get('preset', 'quick'),
                        'seed': 17, 'concurrency': 2}
+            if args.get('task_pack', 'python') != 'python':
+                payload['task_pack'] = args['task_pack']
+            for key in ('context_variants', 'context_repeats', 'context_budget_bytes'):
+                if key in args:
+                    payload[key] = args[key]
             from benchmarks.contracts import validate_request
-            validate_request(payload)
+            payload = validate_request(payload)
             benchmark.save_pending(root, dict(payload, _binding=binding))
             try:
                 result = benchmark.start_run(root, binding=binding, **{k: v for k, v in payload.items() if k != 'seed'})

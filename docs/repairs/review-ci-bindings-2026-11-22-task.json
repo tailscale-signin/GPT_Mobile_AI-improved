@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "7afcd240aeba55d597d0387d6d7a1afea8e30dbd",
+  "parent_pr": 2254,
+  "working_branch": "work/review-ci-bindings-2026-11-22",
+  "intent": "Enforce atomic built-in tool binding replacement and disable across supported production mutation and restore paths, retain profile/tool ownership and rollback, and replace the impossible nullable-index instrumentation assumption with behavior regressions. Preserve authentic Room53 and mandatory acceptance receipts.",
+  "status": "IMPLEMENTED_PENDING_INTEGRATION_CI",
+  "reported_ci": {
+    "head": "6e03f1e08f4273623a896c31a7a1d0b4fe3068d6",
+    "run": 45059368354,
+    "jobs": [
+      137322973552,
+      137322973853
+    ],
+    "failure": "AgentPersistenceDaoInstrumentedTest.builtInToolBinding_rejectsDuplicateProfileAndTool"
+  },
+  "findings": [
+    "Without the database callback, Room53 table/index definitions allow repeated built-in rows with identical profile/tool and NULL connection. Incoming85389f14 supplies the INSERT/UPDATE guard.",
+    "Repository UI bindings already use deterministic IDs, so ordinary concurrent enables alone do not create duplicates. Its separate delete/insert still loses an existing grant if insertion fails and is not atomic with disable or config/legacy imports carrying arbitrary saved IDs.",
+    "Configuration and legacy import already call insertBinding; its central transaction now collapses only the exact NULL-connection profile/tool scope while preserving legacy names and rejecting binding-ID ownership changes before mutation.",
+    "Incoming complete backup staging normalizes historical duplicates by newest timestamp and descending binding ID inside its caller transaction, before guarded destination copying. The redundant local post-copy normalizer was removed. Room schema53 exports remain unchanged."
+  ],
+  "validation": {
+    "focused": "PASS: 5 actual DAO/entity JVM contract tests on the resolved root source; Room annotations stubbed, no Android atomicity claim.",
+    "acceptance_receipts": "PASS: 16 tests; all25 persistence methods are required, including raw-SQL/reopen and five supplemental cases. Missing/skipped receipts fail.",
+    "emulator_runner": "PASS: 51 runner tests.",
+    "formatting": "PASS: 10 owned Kotlin files, shell syntax and diff check after guard reconciliation.",
+    "fast": "PENDING_COMBINED_PARENT_VALIDATION",
+    "android": "PENDING_EXACT_HEAD_ROOM_AND_EMULATOR_CI"
+  },
+  "last_observed_remote_head": "f3b9b408c41d078d140062da38270bf0e75fdf84",
+  "added_or_renamed_mandatory_receipts": [
+    "builtInToolBinding_rejectsDuplicateProfileAndTool",
+    "builtInToolBinding_replacesImportedBindingsWithinItsExactScope",
+    "builtInToolBinding_rejectsForeignOwnershipAndInvalidRequests",
+    "builtInToolBinding_failedReplacementRollsBackThePreviousGrant",
+    "builtInToolBinding_concurrentUiAndImportWritesKeepOneGrant",
+    "builtInToolBinding_stagedRestorePreservesUnselectedTools"
+  ],
+  "normalization_scope": "Incoming database-open guards normalize equivalent NULL-connection legacy rows per profile/tool and prevent duplicate INSERT/UPDATE operations. Owned DAO/import replacement checks ID ownership before deletion. Backup staging prepares an isolated writable source before copying into the guarded destination; original archive and unselected live tools are preserved.",
+  "initial_validation": {
+    "focused": "PASS: 5 JUnit tests compile and execute the actual ToolConnectionDao default methods and binding/connection entities under Kotlin2.4.20. Only Room annotations are stubbed; these tests verify ownership, legacy-name compatibility and scoped replacement logic, not Android transactions.",
+    "acceptance_receipts": "PASS: 16 script tests, including exact coverage of all24 current AgentPersistenceDao instrumentation methods and omission/skip rejection for every required receipt.",
+    "emulator_runner": "PASS: 51 emulator preparation/runner tests, including fail-closed privacy/persistence suite execution with retained diagnostics.",
+    "sqlite": "PASS: independent review executed the exact production restore-normalization SQL in SQLite; newest timestamp and descending-ID tie-break work in both insertion orders, repeated normalization is idempotent, and other profile/tool scopes plus non-NULL MCP bindings are preserved.",
+    "formatting": "PASS: ktlint1.3.1 on all10 changed/new Kotlin files; bash syntax and git diff --check.",
+    "fast": "BLOCKED_AT_EXPECTED_INTEGRATION_GATE: CI policy passes; app audit source inventory is stale after owned source changes. Parent owns combined generated inventories/release scope; none were edited or bypassed.",
+    "android": "NOT_RUN_LOCALLY: no Android SDK. Actual Room production-setter rollback, concurrent UI/import writes, full/TOOLS-only/excluded-TOOLS backup restoration and all prior persistence behavior remain mandatory in the expanded24-test acceptance class on the final head."
+  },
+  "integrated_concurrent_guard_sha": "85389f14ab1159d7d9d1c2c5b8ff6dfb84102e31"
+}

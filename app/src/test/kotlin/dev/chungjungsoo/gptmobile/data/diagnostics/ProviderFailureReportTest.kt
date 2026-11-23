@@ -25,11 +25,117 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderFailureReportTest {
+    @Test fun incompleteComparisonIsAnApplicationGuardAndCannotBorrowModelUsage() {
+        val failure = dev.chungjungsoo.gptmobile.data.github.GitHubReviewComparison.blockedFailure(
+            dev.chungjungsoo.gptmobile.data.github.GitHubReviewComparison.Plan(
+                buildJsonObject { put("detail", "Comparison pages remain pending") },
+                null
+            )
+        )
+        val receipt = ProviderFailureReceipt.from(profile, "github-review", failure.copy(invocationId = "delivery-owner"), ProviderEvent.Usage(outputTokens = 18_634, invocationId = "delivery-owner"))
+        assertEquals("GITHUB_REVIEW_COMPARISON_REQUIRED", receipt.errorCode)
+        assertEquals(FailureDomain.APPLICATION_VERIFICATION, receipt.failureDomain)
+        assertEquals(ProviderFailureStage.ENGINEERING_GUARD, receipt.stage)
+        assertEquals(ProviderResponseFormat.TEXT, receipt.responseFormat)
+        assertEquals(false, receipt.dispatched)
+        assertNull(receipt.outputTokens)
+        assertNull(receipt.usageInvocationId)
+        assertTrue(receipt.valid())
+        val report = ProviderFailureReport.fields("run", failure, receipt)
+        val diagnostics = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", report, 1000).diagnostics)
+        assertEquals(JsonPrimitive("GITHUB_REVIEW_COMPARISON_REQUIRED"), diagnostics.values["provider_failure_code"])
+        assertEquals(JsonPrimitive("APPLICATION_VERIFICATION"), diagnostics.values["provider_failure_domain"])
+        assertNotNull(diagnostics.validated())
+    }
+
+    @Test fun failedComparisonPrerequisiteRetainsToolFailureRatherThanBlamingAProvider() {
+        val failure = ProviderEvent.Failed(
+            "Read rejected",
+            errorCode = "HTTP_ERROR",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "review_comparison")
+                put("inference_dispatched", false)
+                put("dispatched", true)
+                put("http_status", 403)
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(profile, "github-review", failure)
+        assertEquals("HTTP_ERROR", receipt.errorCode)
+        assertEquals(FailureDomain.TOOL_EXECUTION, receipt.failureDomain)
+        assertEquals(ProviderFailureStage.ENGINEERING_GUARD, receipt.stage)
+        assertEquals(true, receipt.dispatched)
+        assertEquals(403, receipt.httpStatus)
+    }
+
+    @Test fun publicProviderHashesKeepActualUpstreamIdentityAndCanonicalClassificationSeparate() {
+        val observedHashes = mutableSetOf<String>()
+        for (upstream in listOf("private-upstream-a", "private-upstream-b", "private-upstream-with-type", "401", "503")) {
+            val event = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
+                upstream,
+                "Private provider message",
+                type = "server_error".takeIf { upstream.endsWith("with-type") },
+                details = buildJsonObject { put("upstream_error_code_hash", "a".repeat(64)) },
+                httpStatus = 200
+            )
+            val failure = ProviderEvent.Failed(event.message, errorCode = event.code, failureDetails = event.failureDetails)
+            val fields = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
+            val expected = requireNotNull(IssueReportContext.identifierHash("provider-error-code", upstream))
+            assertEquals(JsonPrimitive(expected), fields["original_error_code_hash"])
+            assertEquals(JsonPrimitive(200), fields["http_status"])
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1000)
+            assertEquals(200, context.httpStatus)
+            val diagnostics = requireNotNull(context.diagnostics)
+            assertEquals(JsonPrimitive(expected), diagnostics.values["original_error_code_hash"])
+            assertEquals(JsonPrimitive(event.code), diagnostics.values["provider_failure_code"])
+            assertFalse(diagnostics.values.containsKey("http_status"))
+            assertFalse(diagnostics.values.containsKey("upstream_error_code_hash"))
+            if (upstream.startsWith("private")) {
+                assertFalse(diagnostics.toString().contains(upstream))
+                assertNull(diagnostics.values["upstream_error_code"])
+            } else {
+                assertEquals(JsonPrimitive(upstream), diagnostics.values["upstream_error_code"])
+            }
+            observedHashes += expected
+        }
+        assertEquals(5, observedHashes.size)
+        val withoutUpstream = ProviderEvent.Failed("Typed provider failure", errorCode = "PROVIDER_GENERATION_FAILED")
+        val fallback = ProviderFailureReport.fields("run", withoutUpstream, ProviderFailureReceipt.from(profile, "primary", withoutUpstream))
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("provider-error-code", withoutUpstream.errorCode)), fallback["original_error_code_hash"])
+    }
+
+    @Test fun semanticStreamCauseSurvivesReceiptAndPublicProjection() {
+        for ((upstream, expected) in listOf("insufficient_quota" to "BILLING_UNAVAILABLE", "server_error" to "PROVIDER_UNAVAILABLE")) {
+            val event = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(upstream, "private prompt", httpStatus = 200, streamEventType = "response.failed", providerResponseId = "resp_fixture")
+            val failure = ProviderEvent.Failed(event.message, errorCode = event.code, failureDetails = event.failureDetails)
+            val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+            assertEquals(expected, receipt.errorCode)
+            assertEquals(FailureDomain.PROVIDER, receipt.failureDomain)
+            val capture = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", ProviderFailureReport.fields("run", failure, receipt), 1000).diagnostics)
+            assertEquals(JsonPrimitive(expected), capture.values["provider_failure_code"])
+            assertEquals(JsonPrimitive("response.failed"), capture.values["stream_event_type"])
+            assertTrue(capture.values["provider_response_id_hash"] != null)
+            assertFalse(capture.toString().contains("resp_fixture"))
+        }
+        val admission = ProviderEvent.Failed(
+            "Task contract unavailable",
+            errorCode = "GITHUB_TASK_IDENTITY_CHANGED",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "admission")
+                put("dispatched", false)
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(profile, "primary", admission)
+        assertEquals("GITHUB_TASK_IDENTITY_CHANGED", receipt.errorCode)
+        assertEquals(ProviderFailureStage.ADMISSION, receipt.stage)
+        assertEquals(FailureDomain.APPLICATION_VERIFICATION, receipt.failureDomain)
+    }
+
     @Test fun internalVerificationFaultKeepsItsCodeDomainAndPhaseThroughProviderReporting() {
         val failure = dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.partial(
             ClassCastException("private payload"),
@@ -539,6 +645,52 @@ class ProviderFailureReportTest {
         assertEquals(JsonPrimitive(3), fields["provider_consecutive_rejections"])
         val foreign = ProviderFailureReport.fields("run", failure.copy(providerLimit = limit.copy(profileUid = "other")), receipt)
         assertNull(foreign["provider_wait_eligible"])
+        assertEquals(JsonPrimitive("ROUTE_MISMATCH"), foreign["provider_wait_no_wait_reason"])
+    }
+
+    @Test fun everyRateLimitReportExplainsMissingOrUnsafeWaitDecisionsIncludingStreamed429() {
+        for (httpStatus in listOf(200, 429)) {
+            val failure = ProviderEvent.Failed(
+                "Provider request limit reached.",
+                errorCode = "429",
+                failureDetails = buildJsonObject {
+                    put("http_status", httpStatus)
+                    put("provider_failure_kind", "RATE_LIMIT")
+                    put("provider_semantic_status", 429)
+                    put("failed_stage", "response_stream")
+                }
+            )
+            val missing = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
+            assertEquals(JsonPrimitive(httpStatus), missing["http_status"])
+            assertEquals(JsonPrimitive(429), missing["provider_semantic_status"])
+            assertEquals(JsonPrimitive("INELIGIBLE"), missing["provider_wait_decision_state"])
+            assertEquals(JsonPrimitive("DECISION_UNAVAILABLE"), missing["provider_wait_no_wait_reason"])
+            assertNull(missing["provider_wait_persisted"])
+            val decision = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("LLAMA", profile.uid, profile.model, 2_000, "quota", "PROVIDER_RATE_LIMITED", false)
+            val rejected = failure.copy(providerLimit = decision)
+            val unsafe = ProviderFailureReport.fields("run", rejected, ProviderFailureReceipt.from(profile, "primary", rejected))
+            assertEquals(JsonPrimitive("REJECTION_NOT_REPLAY_SAFE"), unsafe["provider_wait_no_wait_reason"])
+            val eligible = rejected.copy(providerLimit = decision.copy(knownNotAccepted = true))
+            val offered = ProviderFailureReport.fields("run", eligible, ProviderFailureReceipt.from(profile, "primary", eligible))
+            assertEquals(JsonPrimitive("ELIGIBLE"), offered["provider_wait_decision_state"])
+            assertNull(offered["provider_wait_no_wait_reason"])
+            assertNull(offered["provider_wait_persisted"])
+        }
+    }
+
+    @Test fun billingSemanticsOnHttp429CannotAcquireQuotaWaitEvidence() {
+        val failure = ProviderEvent.Failed(
+            "Provider allowance exhausted.",
+            errorCode = "BILLING_UNAVAILABLE",
+            failureDetails = buildJsonObject {
+                put("http_status", 429)
+                put("provider_failure_kind", "BUDGET")
+            }
+        )
+        val fields = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
+        assertEquals(JsonPrimitive(429), fields["http_status"])
+        assertNull(fields["provider_wait_decision_state"])
+        assertNull(fields["provider_wait_no_wait_reason"])
     }
 
     @Test fun actualStreamExportsCompletionBudgetCauseCapAndOwnedUsageWithoutAnotherRequest() = runBlocking {

@@ -100,7 +100,12 @@ internal object GitHubCiObservationReport {
         ) {
             return null
         }
-        if (observed.isEmpty() || observed.any { it.text("status") != "completed" || it.text("conclusion") !in setOf("success", "skipped", "neutral") || (it["run_attempt"] as? JsonPrimitive)?.intOrNull?.let { attempt -> attempt > 0 } != true }) return null
+        val completeEmptyFailureQuery = pages.values.any { receipt ->
+            val arguments = receipt["arguments"] as? JsonObject ?: return@any false
+            val data = receipt.data() ?: return@any false
+            GitHubStatusEvidence.fresh(receipt, now, epoch) && GitHubCiFailureObservation.emptyRevision(arguments, data) == head
+        }
+        if (observed.isEmpty() && !completeEmptyFailureQuery || observed.any { it.text("status") != "completed" || it.text("conclusion") !in setOf("success", "skipped", "neutral") || (it["run_attempt"] as? JsonPrimitive)?.intOrNull?.let { attempt -> attempt > 0 } != true }) return null
         // A separate failed/pending check observation must not disappear just because
         // the returned workflow list contains only successful and skipped runs.
         if (eligible.values.any { receipt ->
@@ -154,9 +159,12 @@ internal object GitHubCiObservationReport {
             put("completion_scope", "NO_FAILURES_OBSERVED_IN_RETURNED_SET_FOR_SELECTED_REVISION")
             put("head_sha", head)
             put("returned_run_count", observed.size)
-            put("successful_run_count", successful)
-            put("skipped_run_count", skipped)
-            put("neutral_run_count", neutral)
+            if (observed.isNotEmpty()) {
+                put("successful_run_count", successful)
+                put("skipped_run_count", skipped)
+                put("neutral_run_count", neutral)
+            }
+            put("failure_query_complete", completeEmptyFailureQuery)
             put("failed_run_count", 0)
             put("full_history_verified", false)
             put("build_health_verified", false)
@@ -166,10 +174,15 @@ internal object GitHubCiObservationReport {
             put("evidence_receipt_ids", evidenceIds)
             put("verified_at_ms", now)
         }
-        val text = "# CI investigation\n\nNo failed runs were observed in the returned set for commit `$head`.\n\n" +
-            "| Returned workflow result | Runs |\n| --- | ---: |\n| Successful | $successful |\n| Skipped | $skipped |\n| Neutral | $neutral |\n| Failed | 0 |\n\n" +
-            "All ${observed.size} observed runs for this revision were completed. Failure-specific job and log investigation, root-cause attribution and code repairs are inapplicable to this returned set.\n\n" +
-            "This is a bounded finding from saved receipts. It does not establish that older or unreturned attempts have no failures, that skipped jobs executed, or that all required checks passed. No new tests were run. A particular older failed attempt needs its own run and attempt identity."
+        val text = if (observed.isEmpty()) {
+            "# CI investigation\n\nThe complete failure query returned no failed workflow runs for commit `$head`.\n\n" +
+                "There is no failed run in this captured query to diagnose. This does not establish that every required check passed, that skipped jobs executed, or that older revisions have no failures. No new tests were run."
+        } else {
+            "# CI investigation\n\nNo failed runs were observed in the returned set for commit `$head`.\n\n" +
+                "| Returned workflow result | Runs |\n| --- | ---: |\n| Successful | $successful |\n| Skipped | $skipped |\n| Neutral | $neutral |\n| Failed | 0 |\n\n" +
+                "All ${observed.size} observed runs for this revision were completed. Failure-specific job and log investigation, root-cause attribution and code repairs are inapplicable to this returned set.\n\n" +
+                "This is a bounded finding from saved receipts. It does not establish that older or unreturned attempts have no failures, that skipped jobs executed, or that all required checks passed. No new tests were run. A particular older failed attempt needs its own run and attempt identity."
+        }
         return text to report
     }
 

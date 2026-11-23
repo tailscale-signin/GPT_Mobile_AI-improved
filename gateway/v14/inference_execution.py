@@ -14,6 +14,7 @@ from v14.adaptive_sampling import resolve_policy, generation_parameters
 from v14.execution_binding import ExecutionBindingError, canonical, fingerprint
 from v14.inference_budget import fit_engineering_payload, plan_tokens, stage_reserves
 from v14.graph_context import admitted_graph_receipt
+from v14.task_context import admitted_receipt as admitted_task_context
 from v14.execution_budget_receipt import receipt as budget_receipt
 from v14.inference_scheduler import admission_context, bound_invocation
 from v14.debug import diagnostic_execution_event
@@ -57,6 +58,7 @@ class BoundModelInvocation:
         self.physical_count, self.observed_count = 0, 0
         self.initial_budget = self.compaction = None
         self.graph_retrieval = None
+        self.task_context, self.dispatched_request = None, None
         self.budget_receipt = job['data'].get('execution_budget_receipt')
         self.stream_checkpoint_size = 0
         self.started = time.monotonic()
@@ -84,6 +86,7 @@ class BoundModelInvocation:
                 'job_id': self.job['id'], 'binding_id': self.binding['binding_id'],
                 'sampling_policy': copy.deepcopy(self.sampling_policy),
                 'graph_retrieval': copy.deepcopy(self.graph_retrieval),
+                'task_context': copy.deepcopy(self.task_context),
                 'binding_revision': fingerprint(self.binding), 'role': self.role,
                 'phase': self.job['state'], 'job_revision': self.job['revision'],
                 'boot_id': self.service.bindings.boot_id, 'owner_epoch': self.job['_owner_epoch'],
@@ -141,9 +144,14 @@ class BoundModelInvocation:
                 self.graph_retrieval = admitted_graph_receipt(self.graph_retrieval, payload, dispatched=True)
                 self.current['graph_retrieval'] = copy.deepcopy(self.graph_retrieval)
                 self.job['data']['graph_retrieval'] = copy.deepcopy(self.graph_retrieval)
+            if self.task_context is not None:
+                self.task_context = admitted_task_context(self.task_context, payload, state='DISPATCH_INTENT')
+                self.current['task_context'] = copy.deepcopy(self.task_context)
+                self.job['data']['task_context_receipt'] = copy.deepcopy(self.task_context)
             # The store checks the same lease and total run budget in the write
             # transaction. Persist intent before the socket can send bytes.
             self.persist()
+            self.dispatched_request = copy.deepcopy(payload)
             self.physical_count += 1
             if self.ticket is not None:
                 self.service.scheduler.transition(self.ticket, 'PREFILL')
@@ -232,6 +240,9 @@ class BoundModelInvocation:
         if isinstance(self.job['data'].get('graph_retrieval'), dict):
             self.graph_retrieval = admitted_graph_receipt(self.job['data']['graph_retrieval'], request)
             self.job['data']['graph_retrieval'] = copy.deepcopy(self.graph_retrieval)
+        if isinstance(self.job['data'].get('task_context_receipt'), dict):
+            self.task_context = admitted_task_context(self.job['data']['task_context_receipt'], request)
+            self.job['data']['task_context_receipt'] = copy.deepcopy(self.task_context)
         request['max_tokens'] = self.initial_budget['output_tokens']
         self.budget_receipt = budget_receipt(request, self.initial_budget, self.binding, self.capability,
             parent=self.budget_receipt, stage='admission')
@@ -249,9 +260,16 @@ class BoundModelInvocation:
             data = response.json()
             if self.physical_count == 0 or self.observed_count != self.physical_count:
                 raise ExecutionBindingError('EXECUTION_RECEIPT_MISSING', 'The transport returned without a verified receipt for every physical model request.')
+            if self.stopped():
+                raise InterruptedError('Engineering inference cancelled before accepting its result')
+            if self.task_context is not None:
+                self.task_context = admitted_task_context(self.task_context, self.dispatched_request, state='VERIFIED_RESPONSE')
+                self.current['task_context'] = copy.deepcopy(self.task_context)
+                self.job['data']['task_context_receipt'] = copy.deepcopy(self.task_context)
+                self.persist()
             if self.role in {'coding agent', 'workspace specialist'}:
                 from v14.engineering_workspace import record_model_exposure
-                record_model_exposure(self.job['data'], request)
+                record_model_exposure(self.job['data'], self.dispatched_request)
             return data
         except Exception as error:
             if self.current is None:

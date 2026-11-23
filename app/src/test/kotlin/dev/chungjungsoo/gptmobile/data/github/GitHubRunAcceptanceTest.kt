@@ -85,6 +85,74 @@ class GitHubRunAcceptanceTest {
         assertEquals("PARTIAL", assess(text = "The response was truncated").verification)
     }
 
+    @Test fun zeroCriteriaExplainsMissingContractPlanAndExplicitNonApplicabilityWithoutPassing() {
+        val empty = JsonObject(
+            report() + (
+                "acceptance_ledger" to buildJsonObject {
+                    put("requirements", JsonArray(emptyList()))
+                    put("completion_verified", true)
+                }
+                )
+        )
+        val contract = buildJsonObject {
+            put("schema", "github.task-contract.v1")
+            put("binding", "a".repeat(64))
+            put("acceptance_criteria", JsonArray(emptyList()))
+        }
+        val notApplicable = JsonObject(
+            empty + (
+                "acceptance_ledger" to buildJsonObject {
+                    put(
+                        "requirements",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("required", false)
+                                    put("state", "NOT_APPLICABLE")
+                                }
+                            )
+                        )
+                    )
+                }
+                )
+        )
+        for ((verdict, expected) in listOf(
+            empty to "MISSING_CONTRACT",
+            JsonObject(empty + (GitHubAcceptanceExplanation.KEY to GitHubAcceptanceExplanation.record(empty, contract))) to "MISSING_PLAN",
+            notApplicable to "NOT_APPLICABLE"
+        )) {
+            val acceptance = assess(verdict)
+            assertEquals(0, acceptance.requiredCriteria)
+            assertEquals(0, acceptance.verifiedCriteria)
+            assertEquals("PARTIAL", acceptance.verification)
+            assertEquals(JsonPrimitive(expected), acceptance.explanation?.get("acceptance_empty_reason"))
+            assertTrue(GitHubRunAcceptance.diagnosticLines(acceptance).first().contains(expected))
+            assertThrows(IllegalStateException::class.java) { GitHubRunAcceptance.requireCompletion(true, true, acceptance) }
+        }
+    }
+
+    @Test fun zeroCriteriaSeparatesFailedExtractionFromItsOriginalProviderFailure() {
+        val empty = JsonObject(
+            report() + mapOf(
+                "acceptance_ledger" to buildJsonObject { put("requirements", JsonArray(emptyList())) },
+                GitHubAcceptancePublicationEvidence.KEY to GitHubAcceptancePublicationEvidence.record(GitHubAcceptancePublicationEvidence.Source.CLAIM_EXTRACTION, 2, "draft", GitHubAcceptancePublicationEvidence.Extraction.FAILED, 1)
+            )
+        )
+        assertEquals(JsonPrimitive("EXTRACTION_FAILED"), assess(empty).explanation?.get("acceptance_empty_reason"))
+        val original = buildJsonObject {
+            put("code", "BILLING_UNAVAILABLE")
+            put("failed_stage", "response_stream")
+        }
+        val acceptance = assess(JsonObject(empty + ("original_failure" to original)))
+        assertEquals(JsonPrimitive("PRIMARY_FAILURE"), acceptance.explanation?.get("acceptance_empty_reason"))
+        assertEquals(JsonPrimitive("FAILED"), acceptance.explanation?.get("acceptance_extraction_state"))
+        val failure = ProfileFailureRecord("BILLING_UNAVAILABLE", false, phase = "response_stream", dispatched = true)
+        val terminal = AgentRunTerminalDiagnostics.from(AgentRunStatus.PARTIAL, failure, acceptance)
+        assertEquals("BILLING_UNAVAILABLE", terminal.reason)
+        assertEquals("response_stream", terminal.stage)
+        assertEquals("PARTIAL", terminal.taskVerification)
+    }
+
     @Test fun explicitUnknownMutationCannotBecomeVerifiedFromFlowCompletion() {
         val acceptance = assess(report(unresolved = 1))
         val terminal = AgentRunTerminalDiagnostics.from(AgentRunStatus.COMPLETED, null, acceptance)

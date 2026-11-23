@@ -49,6 +49,25 @@ class MultiEngineSearchToolTest {
         assertEquals(setOf("typed-failure:engine:0", "typed-failure:engine:1"), engines.map { it.jsonObject.getValue("callId").jsonPrimitive.content }.toSet())
     }
 
+    @Test fun mixedLocalBudgetAndReadinessRefusalsRetainTheBudgetAndDispatchEvidence() = runBlocking {
+        val query = buildJsonObject { put("query", "evidence") }
+        val denied = engine("auth") { id, _ -> AgentToolResult(id, ToolResultContent.Text("Disabled"), true, errorCode = "AUTH_REQUIRED", dispatched = false) }
+        for (combined in listOf(false, true)) {
+            val code = if (combined) "COMBINED_BUDGET_EXHAUSTED" else "BUDGET_EXHAUSTED"
+            val bounded = engine("budget") { id, _ ->
+                AgentToolResult(id, ToolResultContent.Text("Limit reached"), true, errorCode = code, dispatched = false, toolCallBudgetExhausted = !combined, combinedWorkBudgetExhausted = combined)
+            }
+            val result = MultiEngineSearchTool(listOf(denied, bounded)).execute("mixed", query)
+            assertEquals(code, result.errorCode)
+            assertEquals(combined, result.combinedWorkBudgetExhausted)
+            assertEquals(!combined, result.toolCallBudgetExhausted)
+            assertEquals(JsonPrimitive(0), result.executionReceipt?.get("dispatchedAttemptCount"))
+            assertEquals(JsonPrimitive(1), result.executionReceipt?.get("budgetRejectedAttemptCount"))
+            val sent = engine("sent") { id, _ -> AgentToolResult(id, ToolResultContent.Text("Timeout"), true, errorCode = "TIMEOUT", dispatched = true) }
+            assertEquals("SEARCH_PROVIDERS_UNAVAILABLE", MultiEngineSearchTool(listOf(sent, bounded)).execute("mixed-sent", query).errorCode)
+        }
+    }
+
     @Test fun `same failure code survives aggregation and an authorized sibling can still succeed`() = runBlocking {
         val failing = engine("dns") { id, _ -> AgentToolResult(id, ToolResultContent.Text("Hostname unavailable"), true, errorCode = "DNS_FAILED", dispatched = false) }
         val failed = MultiEngineSearchTool(listOf(failing)).execute("single", buildJsonObject { put("query", "evidence") })

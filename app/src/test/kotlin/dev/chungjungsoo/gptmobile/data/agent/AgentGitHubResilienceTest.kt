@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
@@ -8,6 +9,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,38 +22,30 @@ class AgentGitHubResilienceTest {
         var rounds = 0
         var remoteReads = 0
         var savedReads = 0
+        val views = GitHubResultViews(pageBytes = 2048)
         val read = tool("github_ci") { id, arguments ->
             if (arguments["view_cursor"] != null) {
                 savedReads++
-                AgentToolResult(
+                views.read(
+                    "ci-resilience",
+                    "github_ci",
+                    "github_ci",
+                    arguments.getValue("view_cursor").jsonPrimitive.content,
                     id,
-                    ToolResultContent.Json(
-                        buildJsonObject {
-                            put("schema", "github.operation.v1")
-                            put("data", buildJsonObject { put("saved_result", "all 18 returned runs") })
-                        }
-                    ),
-                    false,
-                    dispatched = false
+                    JsonObject(arguments - "view_cursor")
                 )
             } else {
                 remoteReads++
-                AgentToolResult(
-                    id,
-                    ToolResultContent.Json(
-                        buildJsonObject {
-                            put("schema", "github.operation.v1")
-                            put("data", buildJsonObject { put("preview", "returned CI evidence") })
-                            put(
-                                "recovery_call",
-                                buildJsonObject {
-                                    put("tool", "github_ci")
-                                    put("arguments", buildJsonObject { put("view_cursor", "saved:0:1536") })
-                                }
-                            )
-                        }
+                views.present(
+                    "ci-resilience",
+                    "github_ci",
+                    "github_ci",
+                    AgentToolResult(
+                        id,
+                        ToolResultContent.Json(buildJsonObject { put("saved_result", "all 18 returned runs") }),
+                        false
                     ),
-                    false
+                    request = arguments
                 )
             }
         }

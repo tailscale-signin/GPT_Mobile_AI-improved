@@ -84,6 +84,70 @@ class FactVaultIdentityRegressionTest {
     }
 
     @Test
+    fun `ordinary memory scope edits persist without changing identity`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repository.saveManual("A movable note", scope = "personal")
+        val original = repository.state.value.facts.single()
+
+        repository.saveManual("Updated project note", original.id, scope = "project:one", expectedRevision = original.revision)
+
+        val moved = repository.state.value.facts.single()
+        assertEquals(original.id, moved.id)
+        assertEquals("project:one", moved.scope)
+        assertEquals(original.revision + 1, moved.revision)
+        assertFalse(moved.localOnly)
+        val reopened = FactVaultRepository(storage, KnowledgeGraphEngine())
+        reopened.load()
+        assertEquals(moved, reopened.state.value.facts.single())
+
+        reopened.saveManual("Updated project note", original.id, scope = "personal", expectedRevision = moved.revision)
+
+        val restored = FactVaultRepository(storage, KnowledgeGraphEngine())
+        restored.load()
+        assertEquals(original.id, restored.state.value.facts.single().id)
+        assertEquals("personal", restored.state.value.facts.single().scope)
+        assertEquals(moved.revision + 1, restored.state.value.facts.single().revision)
+    }
+
+    @Test
+    fun `private memory scope edits retain conversation or unshared restrictions`() = runBlocking {
+        for (protectedScope in listOf("private:chat:11", "private:unshared")) {
+            val storage = MemoryVault()
+            val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+            repository.saveManual("A private note", scope = protectedScope)
+            val id = repository.state.value.facts.single().id
+            for (requestedScope in listOf("personal", "project:one")) {
+                repository.saveManual("Updated private note", id, scope = requestedScope, localOnly = false)
+
+                val reopened = FactVaultRepository(storage, KnowledgeGraphEngine())
+                reopened.load()
+                val retained = reopened.state.value.facts.single()
+                assertEquals(id, retained.id)
+                assertEquals(protectedScope, retained.scope)
+                assertTrue(retained.localOnly)
+            }
+        }
+    }
+
+    @Test
+    fun `ordinary scope moves reject a duplicate in the destination without overwriting records`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repository.saveManual("Shared wording", scope = "personal")
+        repository.saveManual("Shared wording", scope = "project:one")
+        val personal = repository.state.value.facts.single { it.scope == "personal" }
+        val before = repository.state.value
+
+        assertTrue(runCatching { repository.saveManual("Shared wording", personal.id, scope = "project:one") }.exceptionOrNull() is IllegalArgumentException)
+
+        assertEquals(before, repository.state.value)
+        val reopened = FactVaultRepository(storage, KnowledgeGraphEngine())
+        reopened.load()
+        assertEquals(before, reopened.state.value)
+    }
+
+    @Test
     fun `failed collision save leaves the edited record durable`() = runBlocking {
         val storage = MemoryVault()
         val repository = FactVaultRepository(storage, KnowledgeGraphEngine())

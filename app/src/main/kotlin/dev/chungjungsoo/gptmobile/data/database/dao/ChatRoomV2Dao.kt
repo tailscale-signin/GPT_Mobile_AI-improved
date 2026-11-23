@@ -47,7 +47,25 @@ interface ChatRoomV2Dao : RunPolicySnapshotAccess {
     suspend fun getChatRoomsByIds(ids: List<Int>): List<ChatRoomV2>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun addChatRoom(chatRoom: ChatRoomV2): Long
+    suspend fun rawAddChatRoom(chatRoom: ChatRoomV2): Long
+
+    @Query("SELECT * FROM chats_v2 WHERE chat_id = :chatId")
+    suspend fun getChatRoom(chatId: Int): ChatRoomV2?
+
+    @Query("SELECT chat_id FROM chats_v2 WHERE privacy_mode_locked = 1")
+    suspend fun privacyLockedChatIds(): List<Int>
+
+    @Transaction
+    suspend fun addChatRoom(chatRoom: ChatRoomV2): Long = rawAddChatRoom(retainPrivacy(chatRoom))
+
+    /** A stale editor or imported snapshot cannot remove an existing conversation's lock. */
+    private suspend fun retainPrivacy(chatRoom: ChatRoomV2): ChatRoomV2 {
+        val current = if (chatRoom.id > 0) getChatRoom(chatRoom.id) else null
+        return chatRoom.copy(
+            privacyModeEnabled = chatRoom.privacyModeEnabled || current?.privacyModeEnabled == true,
+            privacyModeLocked = chatRoom.privacyModeLocked || current?.privacyModeLocked == true
+        )
+    }
 
     @Query("UPDATE chats_v2 SET enabled_platform = :history, active_platform = :active, updated_at = :updatedAt WHERE chat_id = :chatId")
     suspend fun updatePlatforms(chatId: Int, history: List<String>, active: List<String>, updatedAt: Long)
@@ -89,7 +107,10 @@ interface ChatRoomV2Dao : RunPolicySnapshotAccess {
     }
 
     @Update
-    suspend fun editChatRoom(chatRoom: ChatRoomV2)
+    suspend fun rawEditChatRoom(chatRoom: ChatRoomV2)
+
+    @Transaction
+    suspend fun editChatRoom(chatRoom: ChatRoomV2) = rawEditChatRoom(retainPrivacy(chatRoom))
 
     @Query("UPDATE chats_v2 SET is_favorite = :isFavorite WHERE chat_id = :chatId")
     suspend fun updateFavorite(chatId: Int, isFavorite: Boolean)

@@ -24,7 +24,7 @@ sealed class ApiState {
     data class ActivitySummary(val text: String, val modelAuthored: Boolean = false, val preview: String? = null, val invocationId: String? = null) : ApiState()
     data class DelegationText(val invocationId: String, val profileName: String, val text: String, val remote: Boolean) : ApiState()
     data class Thinking(val thinkingChunk: String) : ApiState()
-    data class Success(val textChunk: String, val lineage: dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage()) : ApiState()
+    data class Success(val textChunk: String, val lineage: dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(), val privacyProtection: dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt? = null) : ApiState()
     data class ToolCall(val toolSequence: Int, val metrics: ToolPayloadMetrics? = null, val delegated: Boolean = false, val personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList()) : ApiState()
     data class MemoryRecalled(val facts: List<RecalledFactRef>) : ApiState()
     data class Notice(val message: String, val persistent: Boolean = false, val researchDelivery: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null, val personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList()) : ApiState()

@@ -3,9 +3,13 @@ package dev.chungjungsoo.gptmobile.data.github
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -49,10 +53,13 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
     private val mutex = Mutex()
     private val directory: File? by lazy(directoryProvider)
     private val values = LinkedHashMap<String, JsonObject>(16, 0.75f, true)
-    private var memoryCharacters = 0
+    private val memoryCharges = mutableMapOf<String, Int>()
+    private var memoryBytes = 0
     private val protectedValues = linkedMapOf<String, JsonObject>()
     private val reservations = mutableSetOf<String>()
     private var legacyReceiptsMigrated = false
+    private val sourceWorkingSets = LinkedHashMap<String, Set<String>>(8, 0.75f, true)
+    private val sourceUsage = mutableMapOf<String, Pair<Long, Int>>()
 
     // Publication fences are authority, not cache. A pruned receipt must never
     // turn the same execution into a new write. Markers contain only hashed IDs.
@@ -69,6 +76,7 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
             if (protectedValues.containsKey(identity)) return@withLock true
             if (protectedFile(identity)?.isFile == true) return@withLock true
             if (savedViewFile(identity, key)?.isFile == true) return@withLock true
+            if (sourceFile(identity, key)?.isFile == true) return@withLock true
             if (values.containsKey(identity)) return@withLock true
             val legacy = directory?.let { File(it, digest(identity) + ".record") }
             if (legacy?.isFile == true && legacy.length() in 1..MAX_RECORD_BYTES.toLong()) return@withLock true
@@ -85,6 +93,9 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
                 values.containsKey(identity)
             } else {
                 savedViewFile(identity, key)?.let {
+                    if (it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong()) return@withLock true
+                }
+                sourceFile(identity, key)?.let {
                     if (it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong()) return@withLock true
                 }
                 File(dir, digest(identity) + ".record").let { it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong() }
@@ -135,12 +146,30 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
             val restored = runCatching {
                 json.parseToJsonElement(crypt(identity, file.readBytes(), false).decodeToString()) as? JsonObject
             }.getOrNull() ?: return null
-            remember(identity, restored)
+            remember(identity, restored, file.length().toInt())
+            return restored
+        }
+        sourceFile(identity, key)?.takeIf { it.isFile }?.let { file ->
+            if (file.length() !in 1..MAX_RECORD_BYTES.toLong()) return null
+            values[identity]?.let {
+                file.setLastModified(System.currentTimeMillis())
+                return it
+            }
+            var plainBytes = 0
+            val restored = runCatching {
+                val plain = sourcePlain(crypt(identity, file.readBytes(), false))
+                plainBytes = plain.size
+                json.parseToJsonElement(plain.decodeToString()) as? JsonObject
+            }.getOrNull() ?: return null
+            file.setLastModified(System.currentTimeMillis())
+            remember(identity, restored, plainBytes)
             return restored
         }
         values[identity]?.let { cached ->
             if (isSavedViewKey(key) && directory != null) {
                 writeSavedViewLocked(identity, key, cached, cached.toString().encodeToByteArray())
+            } else if (sourceFile(identity, key) != null) {
+                writeSourceLocked(identity, key, cached, cached.toString().encodeToByteArray())
             }
             return cached
         }
@@ -151,8 +180,11 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
         if (isSavedViewKey(key)) {
             // Legacy cache-backed saved results are migrated before LRU pruning.
             writeSavedViewLocked(identity, key, value, value.toString().encodeToByteArray())
+        } else if (sourceFile(identity, key) != null) {
+            // Preserve the encrypted identity/AAD while lazily moving old source caches.
+            writeSourceLocked(identity, key, value, value.toString().encodeToByteArray())
         } else {
-            remember(identity, value)
+            remember(identity, value, raw.size)
         }
         file.setLastModified(System.currentTimeMillis())
         return value
@@ -171,13 +203,17 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
             writeSavedViewLocked(identity, key, value, plain)
             return
         }
+        if (sourceTier(key) != null) {
+            writeSourceLocked(identity, key, value, plain)
+            return
+        }
         retainPublicationClaim(identity, key)
         val (protectedBytes, protectedCount) = protectedUsage()
         if (protectedBytes + plain.size + 28 > MAX_DISK_BYTES || protectedCount >= MAX_RECORDS) {
             // Read caches can be session-only when the durable tier is full.
             // containsRetainedBody still reports false, so saved-view receipts
             // cannot claim persistence that did not happen.
-            remember(identity, value)
+            remember(identity, value, plain.size)
             return
         }
         directory?.let { dir ->
@@ -196,15 +232,18 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
             }
             pruneCachedRecords(target)
         }
-        remember(identity, value)
+        remember(identity, value, plain.size)
     }
 
     suspend fun remove(scope: String, key: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
             require(!CLAIM_KEY.matches(key)) { "Execution receipts require explicit app-data erasure; cache cleanup cannot remove them." }
             val identity = "$scope:$key"
-            memoryCharacters -= values.remove(identity)?.toString()?.length ?: 0
+            values.remove(identity)
+            memoryBytes -= memoryCharges.remove(identity) ?: 0
             savedViewFile(identity, key)?.delete()
+            sourceFile(identity, key)?.delete()
+            sourceTier(key)?.let(sourceUsage::remove)
             directory?.let { File(it, digest(identity) + ".record").delete() }
             Unit
         }
@@ -212,17 +251,135 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
 
     private fun protectedFile(identity: String): File? = directory?.let { File(File(it, "execution-receipts"), digest(identity) + ".record") }
 
+    private fun sourceTier(key: String): String? = when {
+        key.startsWith("blob:") -> "source-blobs"
+        key.startsWith("phone-graph:") || key.startsWith("source-symbols:") || key.startsWith("task-context:") -> "source-index"
+        else -> null
+    }
+
+    private fun sourceFile(identity: String, key: String): File? = sourceTier(key)?.let { tier ->
+        directory?.let { File(File(it, tier), digest(identity) + ".record") }
+    }
+
+    /** Source/index eviction never competes with execution, saved-result or user-input retention. */
+    private suspend fun writeSourceLocked(identity: String, key: String, value: JsonObject, plain: ByteArray) {
+        val target = sourceFile(identity, key)
+        if (target == null) {
+            remember(identity, value, plain.size)
+            return
+        }
+        val dir = requireNotNull(target.parentFile)
+        check(dir.isDirectory || dir.mkdirs()) { "GITHUB_SOURCE_CACHE_UNAVAILABLE: source storage unavailable" }
+        val usage = sourceUsage.getOrPut(dir.name) {
+            val entries = dir.listFiles { it.extension == "record" }.orEmpty()
+            entries.sumOf { it.length() } to entries.size
+        }
+        val previousBytes = target.takeIf { it.isFile }?.length() ?: 0L
+        val temporary = File.createTempFile("source-", ".tmp", dir)
+        try {
+            java.io.FileOutputStream(temporary).use { stream ->
+                val compressed = ByteArrayOutputStream().use { output ->
+                    output.write(byteArrayOf(71, 72, 83, 49))
+                    GZIPOutputStream(output).use { it.write(plain) }
+                    output.toByteArray()
+                }
+                stream.write(crypt(identity, if (compressed.size < plain.size) compressed else plain, true))
+                stream.fd.sync()
+            }
+            check(temporary.renameTo(target)) { "Could not atomically retain repository source." }
+            java.nio.channels.FileChannel.open(dir.toPath(), java.nio.file.StandardOpenOption.READ).use { it.force(true) }
+            // Delete the legacy body only after the replacement is durable.
+            directory?.let { File(it, digest(identity) + ".record").delete() }
+            sourceUsage[dir.name] = usage.first - previousBytes + target.length() to usage.second + if (previousBytes == 0L) 1 else 0
+            pruneSourceRecords(dir, target)
+        } catch (failure: Exception) {
+            // An atomic rename may have succeeded before a later fsync failed.
+            sourceUsage.remove(dir.name)
+            throw failure
+        } finally {
+            temporary.delete()
+        }
+        remember(identity, value, plain.size)
+    }
+
+    /** Compression lives inside encryption; old uncompressed tier records remain readable. */
+    private fun sourcePlain(bytes: ByteArray): ByteArray {
+        if (bytes.size < 4 || !bytes.copyOfRange(0, 4).contentEquals(byteArrayOf(71, 72, 83, 49))) return bytes
+        return GZIPInputStream(ByteArrayInputStream(bytes, 4, bytes.size - 4)).use { input ->
+            ByteArrayOutputStream().use { output ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    require(output.size() + count <= MAX_RECORD_BYTES - 28) { "Repository source record exceeds its decoded bound." }
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
+        }
+    }
+
+    private fun pruneSourceRecords(dir: File, keep: File) {
+        val index = dir.name == "source-index"
+        val byteLimit = if (index) MAX_SOURCE_INDEX_BYTES else MAX_SOURCE_BLOB_BYTES
+        val recordLimit = if (index) MAX_SOURCE_INDEX_RECORDS else MAX_SOURCE_BLOB_RECORDS
+        val usage = sourceUsage[dir.name] ?: return
+        if (usage.first <= byteLimit && usage.second <= recordLimit) return
+        val pinned = sourceWorkingSets.values.flatten().toSet()
+        val entries = dir.listFiles { it.extension == "record" }.orEmpty()
+            .sortedWith(compareBy<File> { it.nameWithoutExtension in pinned }.thenBy { it.lastModified() })
+        var bytes = entries.sumOf { it.length() }
+        var count = entries.size
+        for (entry in entries) {
+            if (bytes <= byteLimit && count <= recordLimit) break
+            if (entry == keep) continue
+            val length = entry.length()
+            if (entry.delete()) {
+                bytes -= length
+                count--
+            }
+        }
+        sourceUsage[dir.name] = bytes to count
+    }
+
+    /** A bounded preference, not an unbounded pin: hard disk quotas always win. */
+    internal suspend fun retainSourceWorkingSet(scope: String, keys: Collection<String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            sourceWorkingSets[scope] = keys.filter { sourceTier(it) != null }.take(96).map { digest("$scope:$it") }.toSet()
+            while (sourceWorkingSets.size > 8) sourceWorkingSets.remove(sourceWorkingSets.keys.first())
+        }
+    }
+
+    internal suspend fun sourceStorageStatus(): JsonObject = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            fun count(tier: String) = directory?.let { File(it, tier).listFiles { file -> file.extension == "record" }.orEmpty().size } ?: 0
+            buildJsonObject {
+                put("persistent", directory != null)
+                put("source_records", count("source-blobs"))
+                put("index_records", count("source-index"))
+                put("source_capacity_bytes", MAX_SOURCE_BLOB_BYTES)
+                put("index_capacity_bytes", MAX_SOURCE_INDEX_BYTES)
+                put("source_capacity_records", MAX_SOURCE_BLOB_RECORDS)
+                put("index_capacity_records", MAX_SOURCE_INDEX_RECORDS)
+                put("scope", "ACCOUNT_REPOSITORY_IMMUTABLE_BLOBS")
+                put("usage_scope", "DEVICE_CACHE_TOTALS")
+                put("eviction", "BOUNDED_WORKING_SET_THEN_LRU")
+                put("execution_receipts_separate", true)
+            }
+        }
+    }
+
     private fun isSavedViewKey(key: String): Boolean =
-        key.startsWith("saved-view-body:") || key.startsWith("saved-view-access:")
+        key.startsWith("saved-view-body:") || key.startsWith("saved-view-access:") || key.startsWith("user-input:")
 
     private fun savedViewFile(identity: String, key: String): File? =
-        if (isSavedViewKey(key)) directory?.let { File(File(it, "saved-results"), digest(identity) + ".record") } else null
+        if (isSavedViewKey(key)) directory?.let { File(File(it, if (key.startsWith("user-input:")) "user-input" else "saved-results"), digest(identity) + ".record") } else null
 
-    /** Durable saved reads have a separate quota; ordinary LRU pruning cannot evict issued handles. */
+    /** Durable reads and user inputs have separate quotas; LRU pruning cannot discard either. */
     private suspend fun writeSavedViewLocked(identity: String, key: String, value: JsonObject, plain: ByteArray) {
         val file = savedViewFile(identity, key)
         if (file == null) {
-            remember(identity, value)
+            remember(identity, value, plain.size)
             return
         }
         val dir = requireNotNull(file.parentFile)
@@ -231,12 +388,19 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
         val previousBytes = file.takeIf { it.isFile }?.length() ?: 0L
         val storedBytes = entries.sumOf { it.length() }
         val nextBytes = plain.size.toLong() + 28L
+        val input = key.startsWith("user-input:")
+        val capacity = if (input) MAX_USER_INPUT_BYTES else MAX_SAVED_VIEW_BYTES
+        val records = if (input) 64 else MAX_SAVED_VIEW_RECORDS
         check(
-            storedBytes - previousBytes + nextBytes <= MAX_SAVED_VIEW_BYTES &&
-                (previousBytes > 0 || entries.size < MAX_SAVED_VIEW_RECORDS)
+            storedBytes - previousBytes + nextBytes <= capacity &&
+                (previousBytes > 0 || entries.size < records)
         ) {
-            "GITHUB_SAVED_RESULT_CAPACITY: durable saved result quota reached. " +
-                "Preserve the original read receipt and use a fresh authorized read; never replay a mutation."
+            if (input) {
+                "GITHUB_USER_INPUT_CAPACITY: the choice could not be saved. Existing answers remain retained; retry after freeing application storage."
+            } else {
+                "GITHUB_SAVED_RESULT_CAPACITY: durable saved result quota reached. " +
+                    "Preserve the original read receipt and use a fresh authorized read; never replay a mutation."
+            }
         }
         val temp = File.createTempFile("saved-result-", ".tmp", dir)
         try {
@@ -251,7 +415,7 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
         } finally {
             temp.delete()
         }
-        remember(identity, value)
+        remember(identity, value, plain.size)
     }
 
     /** Reservations are installed before the publication fence and before any HTTP dispatch. */
@@ -443,10 +607,25 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
         }
     }
 
-    private fun remember(identity: String, value: JsonObject) {
-        memoryCharacters += value.toString().length - (values.put(identity, value)?.toString()?.length ?: 0)
-        while (values.size > 256 || memoryCharacters > 24 * 1024 * 1024) memoryCharacters -= values.remove(values.keys.first())?.toString()?.length ?: 0
+    private fun remember(identity: String, value: JsonObject, serializedBytes: Int) {
+        // Account for retained UTF-16 and JSON nodes conservatively. Eviction uses
+        // the stored charge instead of serializing every old body again.
+        val charge = (serializedBytes.toLong() * 4 + identity.length * 2L + 192L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        values.remove(identity)
+        memoryBytes -= memoryCharges.remove(identity) ?: 0
+        if (directory != null && charge > MAX_MEMORY_ENTRY_BYTES) return
+        values[identity] = value
+        memoryCharges[identity] = charge
+        memoryBytes += charge
+        val limit = if (directory == null) MAX_SESSION_MEMORY_BYTES else MAX_MEMORY_BYTES
+        while (values.size > 256 || memoryBytes > limit) {
+            val oldest = values.keys.first()
+            values.remove(oldest)
+            memoryBytes -= memoryCharges.remove(oldest) ?: 0
+        }
     }
+
+    internal suspend fun cachedMemoryCharge(): Int = mutex.withLock { memoryBytes }
 
     private suspend fun crypt(identity: String, bytes: ByteArray, encrypt: Boolean): ByteArray {
         val secrets = vault ?: return bytes
@@ -478,7 +657,15 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
         const val MAX_DISK_BYTES = 48L * 1024 * 1024
         const val MAX_SAVED_VIEW_BYTES = 48L * 1024 * 1024
         const val MAX_SAVED_VIEW_RECORDS = 1024
+        const val MAX_USER_INPUT_BYTES = 2L * 1024 * 1024
+        internal const val MAX_MEMORY_BYTES = 8 * 1024 * 1024
+        private const val MAX_MEMORY_ENTRY_BYTES = 1024 * 1024
+        private const val MAX_SESSION_MEMORY_BYTES = 32 * 1024 * 1024
         const val MAX_RECORDS = 1536
+        const val MAX_SOURCE_BLOB_BYTES = 192L * 1024 * 1024
+        const val MAX_SOURCE_INDEX_BYTES = 128L * 1024 * 1024
+        const val MAX_SOURCE_BLOB_RECORDS = 20_000
+        const val MAX_SOURCE_INDEX_RECORDS = 40_000
         const val MAX_PUBLICATION_CLAIMS = 16_384
         const val MAX_PROTECTED_BYTES = 16L * 1024 * 1024
         const val MAX_PROTECTED_RECORD_BYTES = 160 * 1024

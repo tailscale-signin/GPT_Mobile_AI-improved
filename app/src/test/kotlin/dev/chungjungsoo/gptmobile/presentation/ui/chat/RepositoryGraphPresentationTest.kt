@@ -1,8 +1,12 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -65,6 +69,78 @@ class RepositoryGraphPresentationTest {
         assertEquals(setOf("center", "caller", "callee"), neighborhood.nodes.map { it.graphText("id") }.toSet())
         assertEquals(2, neighborhood.edges.size)
         assertEquals(0, neighborhood.externalConnections)
+    }
+
+    @Test fun boundedPathSearchStaysDistinctFromAnEmptyCompletedSearch() {
+        val empty = RepositoryGraphPresentation(emptyList(), emptyList())
+        val limited = requireNotNull(empty.resultGuidance("PATH_SEARCH_LIMIT_REACHED"))
+        assertTrue(limited.contains("reached its limit"))
+        assertTrue(limited.contains("Narrow the source or target"))
+        assertFalse(limited.contains("No matching relationship"))
+        val noPath = requireNotNull(empty.resultGuidance("NO_PATH_IN_INDEX"))
+        assertTrue(noPath.contains("No matching relationship in this index"))
+        assertEquals(noPath, empty.resultGuidance("NOT_FOUND_IN_INDEX"))
+        assertNull(empty.resultGuidance("INDEXED"))
+        assertNull(empty.resultGuidance("UNREPORTED_STATUS"))
+        val visible = repositoryGraphPresentation(json("""{"nodes":[{"id":"observed-source"}]}"""))
+        for (status in listOf("PATH_SEARCH_LIMIT_REACHED", "NO_PATH_IN_INDEX", "NOT_FOUND_IN_INDEX")) {
+            assertNull(visible.resultGuidance(status))
+        }
+    }
+
+    @Test fun incompleteImpactKeepsItsPartialCandidatesAndShowsTheSearchLimit() {
+        val result = json("""{"status":"IMPACT_SEARCH_LIMIT_REACHED","nodes":[{"id":"source"},{"id":"candidate"}],"edges":[{"source":"candidate","target":"source","relation":"call_candidate"}],"impact_search_complete":false}""")
+        val graph = repositoryGraphPresentation(result)
+        val guidance = requireNotNull(graph.resultGuidance(result.graphText("status")))
+        assertTrue(guidance.contains("impact search reached its limit"))
+        assertTrue(guidance.contains("Results may be incomplete"))
+        assertFalse(guidance.contains("No matching relationship"))
+        assertEquals(listOf("source", "candidate"), graph.nodes.map { it.graphText("id") })
+        assertTrue(graph.edges.single().graphCandidate())
+        assertEquals(guidance, RepositoryGraphPresentation(emptyList(), emptyList()).resultGuidance("IMPACT_SEARCH_LIMIT_REACHED"))
+    }
+
+    @Test fun candidateLinksRetainTheirUncertaintyThroughFilteringAndPagination() {
+        val graph = repositoryGraphPresentation(json("""{"nodes":[{"id":"folder","path":"src"},{"id":"a","path":"src/A.kt"},{"id":"b","path":"src/B.kt"}],"edges":[{"source":"folder","target":"a","relation":"contains","confidence":"verified"},{"source":"a","target":"b","relation":"call_candidate","confidence":"candidate"}]}"""))
+        assertFalse(graph.edges.first().graphCandidate())
+        assertTrue(graph.edges.last().graphCandidate())
+        val selected = graph.search(".kt").page(0)
+        assertEquals(1, selected.edges.size)
+        assertTrue(selected.edges.single().graphCandidate())
+        assertEquals("candidate", selected.edges.single().graphText("confidence"))
+    }
+
+    @Test fun phonePagesRetainLinksThatExtendBeyondTheReturnedSourceWindow() {
+        val graph = repositoryGraphPresentation(json("""{"nodes":[{"id":"a"},{"id":"b"}],"edges":[{"source":"a","target":"b","relation":"contains"}],"external_connections":3}"""))
+        assertEquals(3, graph.externalConnections)
+        assertEquals(3, graph.neighborhood("a").externalConnections)
+        assertEquals(4, graph.neighborhood("a", 1).externalConnections)
+    }
+
+    @Test fun folderSourceLinksUseThePinnedTreeWithoutLineAnchors() {
+        val context = GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), "profile")
+        val folder = json("""{"kind":"directory","path":"src/feature one","line":12}""")
+        assertEquals("https://github.com/owner/repo/tree/${context.commitSha}/src/feature%20one", repositoryGraphSourceUrl(context, folder))
+    }
+
+    @Test fun symbolSourceLinksEncodeThePathAndRetainObservedLineRanges() {
+        val context = GitHubConversationContext("github", "owner", "repo", "main", "b".repeat(40), "profile")
+        val symbol = json("""{"kind":"function","path":"src/My File#.kt","line":12,"end_line":15,"url":"https://example.com/other","commit_sha":"old"}""")
+        assertEquals("https://github.com/owner/repo/blob/${context.commitSha}/src/My%20File%23.kt#L12-L15", repositoryGraphSourceUrl(context, symbol))
+        assertEquals("https://github.com/owner/repo/blob/${context.commitSha}/src/A.kt#L4", repositoryGraphSourceUrl(context, json("""{"path":"src/A.kt","start_line":4,"end_line":3}""")))
+    }
+
+    @Test fun sourceLinksRejectTraversalAtPinnedRevision() {
+        val context = GitHubConversationContext("github", "owner", "repo", "main", "c".repeat(40), "profile")
+        for (path in listOf("../outside.kt", "src/./A.kt", "/absolute.kt", "src//A.kt", "src\\A.kt", "src\nA.kt")) {
+            assertNull(repositoryGraphSourceUrl(context, kotlinx.serialization.json.buildJsonObject { put("path", kotlinx.serialization.json.JsonPrimitive(path)) }))
+        }
+    }
+
+    @Test fun unresolvedRevisionsCannotBecomeSourceLinkContexts() {
+        assertThrows(IllegalArgumentException::class.java) {
+            GitHubConversationContext("github", "owner", "repo", "main", "main", "profile")
+        }
     }
 
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject

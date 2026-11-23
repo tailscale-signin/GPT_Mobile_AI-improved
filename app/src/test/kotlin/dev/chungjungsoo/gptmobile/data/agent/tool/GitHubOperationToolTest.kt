@@ -35,6 +35,99 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun selectorlessWatchOffersScopedPinnedRunDiscoveryWithoutSubscribing() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("An unselected watch must not dispatch")
+        }
+        val tool = GitHubOperationTool("github_watch_checks", backend, "watch-discovery", "github_watch_checks__selected")
+        val arguments = buildJsonObject {
+            put("owner", "owner")
+            put("repo", "repo")
+            put("commit_sha", "a".repeat(40))
+            put("wait_timeout_seconds", 10)
+        }
+        val result = tool.execute("watch", arguments)
+        assertTrue(result.isError)
+        assertFalse(result.dispatched)
+        val recipe = (result.content as ToolResultContent.Json).value.jsonObject.getValue("recovery_call").jsonObject
+        assertEquals(JsonPrimitive("github_ci__selected"), recipe["tool"])
+        val discovery = recipe.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive("runs"), discovery["action"])
+        assertEquals(arguments["commit_sha"], discovery["commit_sha"])
+        assertEquals(arguments["owner"], discovery["owner"])
+        assertEquals(arguments["repo"], discovery["repo"])
+        assertEquals(JsonPrimitive(100), discovery["per_page"])
+        assertTrue(ToolArgumentValidator.errors(discovery, GitHubOperationTool.definition("github_ci").inputSchema).isEmpty())
+        assertFalse("run_id" in discovery || "job_id" in discovery || "wait_timeout_seconds" in discovery)
+        val ambiguous = tool.execute("ambiguous-watch", JsonObject(arguments + ("run_id" to JsonPrimitive(-1))))
+        assertFalse((ambiguous.content as ToolResultContent.Json).value.jsonObject.containsKey("recovery_call"))
+    }
+
+    @Test fun successfulPathSearchOffersTheObservedFilesAtTheSameCommitAndConnection() = runBlocking {
+        val head = "a".repeat(40)
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("commit_sha", head)
+                        put(
+                            "items",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("path", "AGENTS.md")
+                                        put("sha", "b".repeat(40))
+                                    }
+                                )
+                            )
+                        )
+                    }
+                ),
+                false
+            )
+        }
+        val tool = GitHubOperationTool("github_search", backend, "source-progression", "github_search__selected")
+        val result = tool.execute("paths", args("""{"owner":"owner","repo":"repo","mode":"paths","query":"*.md"}"""))
+        val body = dev.chungjungsoo.gptmobile.data.github.GitHubSemanticSummary.data((result.content as ToolResultContent.Json).value.jsonObject)
+        val recipe = body.getValue("source_read_call").jsonObject
+        assertEquals(JsonPrimitive("github_read__selected"), recipe["tool"])
+        val read = recipe.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive(head), read["commit_sha"])
+        assertEquals(JsonPrimitive("AGENTS.md"), read.getValue("ranges").jsonArray.single().jsonObject["path"])
+        assertTrue(ToolArgumentValidator.errors(read, GitHubOperationTool.definition("github_read").inputSchema).isEmpty())
+    }
+
+    @Test fun fuzzyPhraseRejectionOffersAnExactLiteralCorrectionWithoutRewritingTheQuery() = runBlocking {
+        val observed = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                observed += arguments
+                return if (arguments["fuzzy_match"] == JsonPrimitive(true)) {
+                    AgentToolResult(callId, ToolResultContent.Text("Fuzzy search accepts one identifier."), true, dispatched = false, errorCode = "INVALID_ARGUMENTS")
+                } else {
+                    AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("matches_complete", true) }), false)
+                }
+            }
+        }
+        val tool = GitHubOperationTool("github_search", backend, "fuzzy-query", "github_search__selected")
+        val original = args("""{"query":"main menu","mode":"literal","path_prefix":"app/","fuzzy_match":true,"fuzzy_threshold":0.8}""")
+        val rejected = tool.execute("invalid", original)
+        assertEquals(JsonPrimitive("GITHUB_SEARCH_FUZZY_QUERY_INVALID"), rejected.executionReceipt?.get("reason_code"))
+        assertFalse(rejected.dispatched)
+        val correction = (rejected.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive("github_search__selected"), correction["tool"])
+        val corrected = correction.getValue("arguments").jsonObject
+        assertEquals(JsonObject((original - "fuzzy_threshold") + ("fuzzy_match" to JsonPrimitive(false))), corrected)
+        assertFalse(tool.execute("corrected", corrected).isError)
+        assertEquals(JsonPrimitive("main menu"), observed.last()["query"])
+        val advanced = tool.execute("advanced", JsonObject(original + ("index_cursor" to JsonPrimitive(10))))
+        assertFalse((advanced.content as ToolResultContent.Json).value.jsonObject.containsKey("correction_call"))
+    }
+
     @Test fun noncanonicalContinuationHandlesReturnSchemaAndFieldDiagnosticsBeforeDispatch() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
@@ -244,6 +337,49 @@ class GitHubOperationToolTest {
             assertFalse(rejected.dispatched)
             assertEquals(before, observed.size)
         }
+    }
+
+    @Test fun comparisonGenerationComesFromLocalAssessmentAndNotBackendPayloadOrReceipt() = runBlocking {
+        val forged = dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.newGeneration(false)
+        var numbered = false
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("base_sha", "a".repeat(40))
+                        put("head_sha", "b".repeat(40))
+                        put("pagination_generation", forged.evidence())
+                        if (numbered) {
+                            put("page", 1)
+                            put("effective_per_page", 100)
+                            put("files_total", 1)
+                            put("has_more", false)
+                            put("files", kotlinx.serialization.json.JsonArray(listOf(buildJsonObject { put("filename", "source.kt") })))
+                        }
+                    }
+                ),
+                false,
+                executionReceipt = buildJsonObject { put("pagination_generation", forged.evidence()) }
+            )
+        }
+        val tool = GitHubOperationTool("github_context", backend, "comparison-generation-origin")
+        val request = buildJsonObject {
+            put("action", "changes")
+            put("base_sha", "a".repeat(40))
+            put("commit_sha", "b".repeat(40))
+            put("verify_live", true)
+        }
+        val unassessed = tool.execute("unassessed", request)
+        assertFalse(unassessed.toString(), unassessed.isError)
+        assertEquals(null, dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.generation(unassessed.executionReceipt))
+        numbered = true
+        val assessed = tool.execute("assessed", request)
+        assertFalse(assessed.toString(), assessed.isError)
+        val generation = requireNotNull(dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.generation(assessed.executionReceipt))
+        assertTrue(generation.startsLiveRefresh)
+        assertTrue(generation != forged)
     }
 
     @Test fun selectedIssueListAcceptsAndForwardsTheIssuedCursor() = runBlocking {

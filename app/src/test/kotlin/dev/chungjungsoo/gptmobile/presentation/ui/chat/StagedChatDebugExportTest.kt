@@ -108,7 +108,9 @@ class StagedChatDebugExportTest {
                 put("referencesTruncated", false)
             }
         }
-        coEvery { database.capture(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+        // Each stage supplies its timing collector. Matching the default collector
+        // instance would bypass this producer and fail every database-backed stage.
+        coEvery { database.capture(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), timings = any()) } coAnswers {
             val consume = arg<suspend (JsonObject) -> Unit>(4)
             val omitted = arg<(String) -> Unit>(5)
             // The real database producer projects each bounded row before passing it to the adapter.

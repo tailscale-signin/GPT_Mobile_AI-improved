@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
+import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -43,6 +44,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun immutableCheckpointConflictKeepsItsApplicationFailureClassification() = runBlocking {
+        val conflict = WorkspaceEvidenceConflict("private-record", "a".repeat(64), "b".repeat(64), "IMMUTABLE_PAYLOAD_CHANGED")
+        val book = GitHubEvidenceBook("task", "o/r", "main", emptySet(), save = { _, _ -> throw conflict })
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("No provider dispatch after a failed checkpoint")
+        }
+        val gate = GitHubVerifiedSession(source, book, "Implement the feature", { 8192 }, { error("No verifier dispatch") }, {}, {})
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        val failure = events.last() as ProviderEvent.Failed
+        assertEquals("WORKSPACE_EVIDENCE_CONFLICT", failure.errorCode)
+        assertEquals("BLOCKED", failure.taskOutcome)
+        assertEquals(JsonPrimitive("application_persistence"), failure.failureDetails?.get("failed_stage"))
+        assertTrue(events.none { it is ProviderEvent.TextDelta || it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+        assertFalse(failure.failureDetails.toString().contains("private-record"))
+    }
+
+    @Test fun persistenceFailureCannotReplaceUnknownRemoteOutcomeDuringProgressRetention() = runBlocking {
+        var failStorage = false
+        val conflict = WorkspaceEvidenceConflict("private-record", "a".repeat(64), "b".repeat(64), "IMMUTABLE_PAYLOAD_CHANGED")
+        val book = GitHubEvidenceBook("task", "o/r", "main", emptySet(), save = { _, _ -> if (failStorage) throw conflict })
+        val original = ProviderEvent.Failed(
+            "The remote write outcome is unknown",
+            errorCode = "TOOL_OUTCOME_UNKNOWN",
+            failureDetails = buildJsonObject {
+                put("requires_reconciliation", true)
+                put("request_replay_allowed", false)
+            }
+        )
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                failStorage = true
+                emit(original)
+            }
+        }
+        val gate = GitHubVerifiedSession(source, book, "Implement the feature", { 8192 }, { error("No verifier dispatch") }, {}, {})
+        val failure = gate.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertEquals("TOOL_OUTCOME_UNKNOWN", failure.errorCode)
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("requires_reconciliation"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+        assertEquals(JsonPrimitive("WORKSPACE_EVIDENCE_CONFLICT"), (failure.failureDetails?.get("persistence_failure") as JsonObject)["code"])
+    }
+
     @Test fun ordinaryProviderAcquisitionStopsAtVerificationReserveAndRetainsPartialTask() = runTest {
         var verdict: JsonObject? = null
         val book = GitHubEvidenceBook(
@@ -243,7 +286,8 @@ class GitHubVerifiedSessionTest {
         val tool = AgentToolDefinition("github_read", "Read repository source", JsonObject(emptyMap()))
         val read = ProviderEvent.ToolCall("source", tool.name, buildJsonObject { put("path", "app.kt") })
         val next = ProviderEvent.ToolCall("test", tool.name, buildJsonObject { put("path", "test.kt") })
-        val id = GitHubRequestCompletion.id(task)
+        val id = GitHubAcceptanceContract.criteria(task, GitHubRequestCompletion.requirements(task))
+            .single { it.producer == GitHubAcceptanceContract.Producer.REVISION_AND_TESTS }.id
         for (mapped in listOf(true, false)) {
             val stored = mutableMapOf<String, JsonObject>()
             val book = GitHubEvidenceBook(
@@ -258,16 +302,33 @@ class GitHubVerifiedSessionTest {
             )
             book.observe(read, AgentToolResult(read.callId, ToolResultContent.Json(buildJsonObject { put("path", "app.kt") }), false))
             val receiptId = book.snapshot().first.keys.single()
-            val result = if (mapped) {
-                """{"claims":[{"kind":"fact","receipt_id":"$receiptId","pointer":"/path","value":"app.kt"},{"kind":"not_measured","subject":"tests"}],"acceptance":{"$id":{"implementation_receipts":["$receiptId"]}}}"""
-            } else {
-                """{"claims":[{"kind":"fact","receipt_id":"$receiptId","pointer":"/missing","value":"unverified"}]}"""
+            val requestedRequirementIds = mutableSetOf<String>()
+            fun verifierReply(prompt: String): String {
+                val suppliedIds = Json.parseToJsonElement(prompt).jsonObject.getValue("requirements").jsonArray
+                    .map { (it.jsonObject.getValue("id") as JsonPrimitive).content }.toSet()
+                requestedRequirementIds += suppliedIds
+                val claims = if (mapped) {
+                    """{"claims":[{"kind":"fact","receipt_id":"$receiptId","pointer":"/path","value":"app.kt"},{"kind":"not_measured","subject":"tests"}]}"""
+                } else {
+                    """{"claims":[{"kind":"fact","receipt_id":"$receiptId","pointer":"/missing","value":"unverified"}]}"""
+                }
+                return buildJsonObject {
+                    put("claims", Json.parseToJsonElement(claims).jsonObject.getValue("claims"))
+                    if (mapped && id in suppliedIds) {
+                        put("requirement_claims", buildJsonObject { put(id, JsonArray(listOf(JsonPrimitive(0)))) })
+                        put("acceptance", buildJsonObject { put(id, buildJsonObject { put("implementation_receipts", JsonArray(listOf(JsonPrimitive(receiptId)))) }) })
+                    }
+                }.toString()
             }
-            val initial = GitHubVerifiedSession(answer("Candidate $mapped"), book, task, { 8192 }, { answer(result) }, {}, {}, now = { 1000L })
+            val initial = GitHubVerifiedSession(answer("Candidate $mapped"), book, task, { 8192 }, { prompt -> answer(verifierReply(prompt)) }, {}, {}, now = { 1000L })
             val failure = initial.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
             assertEquals(if (mapped) "GITHUB_TASK_INCOMPLETE" else "GITHUB_EVIDENCE_REQUIRED", failure.errorCode)
-            val branch = if (mapped) "REVISION_TEST_ACCEPTANCE" else "ACCEPTANCE_MAPPING_REQUIRED"
-            assertEquals(JsonPrimitive(branch), book.diagnostic()?.get("requirements")?.jsonArray?.single()?.jsonObject?.get("acceptance_evaluator_branch"))
+            val requirementIds = GitHubRequestCompletion.requirements(task).map(GitHubRequestCompletion::id).toSet()
+            assertEquals(requirementIds, requestedRequirementIds)
+            val requirementRows = requireNotNull(book.diagnostic()).getValue("requirements").jsonArray.map { it.jsonObject }
+            assertEquals(requirementIds, requirementRows.map { (it.getValue("id") as JsonPrimitive).content }.toSet())
+            val branch = if (mapped) "CRITERION_SPECIFIC_ACCEPTANCE" else "ACCEPTANCE_MAPPING_REQUIRED"
+            assertEquals(JsonPrimitive(branch), requirementRows.single { it["id"] == JsonPrimitive(id) }["acceptance_evaluator_branch"])
             var corrections = 0
             fun resume(remaining: Int) = GitHubVerifiedSession(
                 answer("Private original draft"), book, task, { 8192 }, { error("Validated batch already saved") }, {}, {}, now = { 1000L },
@@ -1418,27 +1479,100 @@ class GitHubVerifiedSessionTest {
     }
 
     @Test fun oversizedTaskStaysIncompleteAndOversizedDraftUsesABoundedExcerpt() = runBlocking {
-        for (largeTask in listOf(false, true)) {
+        for ((largeTask, inputLimit) in listOf(false to 128, false to 512, false to 2048, true to 2048)) {
             val draft = if (largeTask) "private" else "private".repeat(1000)
             val task = if (largeTask) "task".repeat(1000) else "task"
             val prompts = mutableListOf<String>()
-            val gate = GitHubVerifiedSession(answer(draft), GitHubEvidenceBook("b", "o/r", "main", emptySet()), task, { 512 }, { prompt ->
+            val gate = GitHubVerifiedSession(answer(draft), GitHubEvidenceBook("b", "o/r", "main", emptySet()), task, { inputLimit }, { prompt ->
                 prompts += prompt
                 answer("""{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}""")
             }, {}, {})
             val events = gate.streamRound(emptyList(), emptyList()).toList()
-            if (largeTask) {
+            if (largeTask || inputLimit == 128) {
                 assertTrue(prompts.isEmpty())
             } else {
                 val prompt = prompts.single()
-                assertTrue(TextTokenEstimate.estimate(prompt) <= 512)
-                val candidate = Json.parseToJsonElement(prompt).jsonObject.getValue("candidate") as JsonPrimitive
+                assertTrue(TextTokenEstimate.estimate(prompt) <= inputLimit)
+                val request = Json.parseToJsonElement(prompt).jsonObject
+                assertEquals(JsonPrimitive(task), request["task"])
+                val candidate = request.getValue("candidate") as JsonPrimitive
                 assertTrue(candidate.content.length in 1 until draft.length)
+                assertTrue(draft.startsWith(candidate.content))
+                val requirements = request.getValue("requirements").jsonArray.map { it.jsonObject }
+                assertEquals(GitHubRequestCompletion.requirements(task), requirements.map { (it.getValue("text") as JsonPrimitive).content })
+                assertTrue(requirements.all { "criterion_contract" in it })
             }
             assertTrue(events.last() is ProviderEvent.Failed)
             assertFalse(events.contains(ProviderEvent.Completed))
             assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().none { it.text.contains("private") })
         }
+    }
+
+    @Test fun boundedExcerptPreservesEveryCriterionAndEscapedUnicode() = runBlocking {
+        val task = "Explain the change\n- Document the source\n- Explain the effect\n- List the remaining work\n- Give the result"
+        val line = "Private context: 😀 quoted \"result\" at C:\\source. ".repeat(30)
+        val draft = "$line\n".repeat(200)
+        val prompts = mutableListOf<String>()
+        val gate = GitHubVerifiedSession(answer(draft), GitHubEvidenceBook("b", "o/r", "main", emptySet()), task, { 1024 }, { prompt ->
+            prompts += prompt
+            answer("""{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}""")
+        }, {}, {})
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        val expected = GitHubRequestCompletion.requirements(task)
+        val contracts = GitHubAcceptanceContract.criteria(task, expected).associateBy { it.id }
+        val retained = prompts.flatMap { prompt ->
+            assertTrue(TextTokenEstimate.estimate(prompt) <= 1024)
+            val request = Json.parseToJsonElement(prompt).jsonObject
+            assertEquals(JsonPrimitive(task), request["task"])
+            val candidate = (request.getValue("candidate") as JsonPrimitive).content
+            assertTrue(candidate.startsWith("Private context: 😀 quoted \"result\" at C:\\source."))
+            assertTrue(candidate.lineSequence().all(line::startsWith))
+            assertEquals(candidate, candidate.toByteArray(Charsets.UTF_8).toString(Charsets.UTF_8))
+            request.getValue("requirements").jsonArray.map { row ->
+                val requirement = row.jsonObject
+                val text = (requirement.getValue("text") as JsonPrimitive).content
+                val id = GitHubRequestCompletion.id(text)
+                assertEquals(JsonPrimitive(id), requirement["id"])
+                assertEquals(contracts.getValue(id).json(), requirement["criterion_contract"])
+                text
+            }
+        }
+        assertEquals(expected, retained)
+        assertTrue(events.last() is ProviderEvent.Failed)
+        assertFalse(events.contains(ProviderEvent.Completed))
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().none { it.text.contains("Private context") })
+    }
+
+    @Test fun verificationRechecksTheInputLimitAfterFittingTheExcerpt() = runBlocking {
+        val saved = linkedMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), now = { 1000L }, load = { saved[it] }, save = { id, value -> saved[id] = value })
+        // Publication needs a retained tool observation even when extraction is refused by its input limit.
+        book.observe(
+            ProviderEvent.ToolCall("read", "github_context", buildJsonObject { put("action", "status") }),
+            AgentToolResult("read", ToolResultContent.Json(buildJsonObject { put("branch", "main") }), false)
+        )
+        val retained = book.snapshot().first
+        assertEquals(1, retained.size)
+        var measurements = 0
+        var extractionCalls = 0
+        val gate = GitHubVerifiedSession(answer("private".repeat(1000)), book, "task", { if (measurements++ == 0) 512 else 128 }, {
+            extractionCalls++
+            error("The reduced input limit must prevent extraction")
+        }, {}, {})
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        val current = saved.filterKeys { it.startsWith("verification_current_") }.values.single()
+        val observation = current.getValue(GitHubAcceptancePublicationEvidence.KEY).jsonObject
+        assertEquals(JsonPrimitive("PLAN_LIMIT_CHANGED"), observation["acceptance_extraction_observation"])
+        assertEquals(JsonPrimitive(128), observation["acceptance_extraction_input_limit_tokens"])
+        assertTrue((observation.getValue("acceptance_extraction_required_tokens") as JsonPrimitive).content.toInt() in 129..512)
+        assertEquals(JsonPrimitive(1), observation["acceptance_receipt_snapshot_count"])
+        assertEquals(2, measurements)
+        assertEquals(0, extractionCalls)
+        assertEquals(retained, book.snapshot().first)
+        assertEquals(JsonPrimitive(false), current["completion_verified"])
+        assertTrue(events.last() is ProviderEvent.Failed)
+        assertFalse(events.contains(ProviderEvent.Completed))
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().none { it.text.contains("private") })
     }
 
     @Test fun claimExtractionResumesTheFailedBatchWithoutRegeneratingTheDraft() = runBlocking {

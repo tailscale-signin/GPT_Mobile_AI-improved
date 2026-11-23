@@ -229,15 +229,18 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual('BLOCKED', inspect(self.backend, self.job)['status'])
 
     def test_driver_observes_nested_mutation_and_grader_denies_perfect_score(self):
-        def mutate(request):
-            request['nested']['items'].clear()
-            return {'correct': True}
-        driver = sandbox.DRIVER.replace("sys.path.insert(0, '/candidate')", '')
+        from benchmarks import verified_python
+        sources = {'service.py': "def handle(request):\n    request['nested']['items'].clear()\n    return {'correct': True}\n"}
+        driver = sandbox.DRIVER.replace("sys.path.insert(0, '/evaluator')", '')
         output = io.StringIO()
-        with patch.dict(sys.modules, {'service': SimpleNamespace(handle=mutate)}), \
-                patch('builtins.open', return_value=io.StringIO('[{"nested":{"items":[1,2]}}]')), patch('sys.stdout', output):
+        with patch.dict(sys.modules, {'verified_python': verified_python}), \
+                patch('builtins.open', side_effect=[io.StringIO(json.dumps(sources)), io.StringIO('[{"nested":{"items":[1,2]}}]')]), \
+                patch('sys.stdout', output):
             exec(driver, {})
-        self.assertIs(False, json.loads(output.getvalue().splitlines()[-1])['outputs'][0]['input_preserved'])
+        observation = json.loads(output.getvalue().splitlines()[-1])
+        self.assertIs(False, observation['outputs'][0]['input_preserved'])
+        self.assertEqual('INTERPRETER_OWNED', observation['verification']['authority'])
+        self.assertEqual(0, observation['verification']['preservedInputs'])
         task = fixtures.suite('quick')[0]
         text = json.dumps({'changes': [{'path': path, 'expected_blob_sha': blob_sha(source), 'content': task['referenceSources'][path]}
                                        for path, source in task['sources'].items()]})

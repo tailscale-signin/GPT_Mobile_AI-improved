@@ -18,6 +18,7 @@ import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCancelResult
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -27,7 +28,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -76,6 +76,49 @@ class GatewayConversationRepositoryTest {
     private suspend fun turn(): PersistAgentTurnResult = db.agentPersistenceDao().persistAgentTurn(
         PersistAgentTurnRequest(ChatRoomV2(title = "Original local room", enabledPlatform = listOf("profile")), MessageV2(content = "Saved request", platformType = null), listOf(AgentRunDraft(UUID.randomUUID().toString(), "profile", "LLAMA", "model")), mapOf("profile" to "model"))
     )
+
+    @Test fun privateSavedConversationBlocksAdmissionAndPollingWithoutAnInheritedContext() = runBlocking {
+        val chatId = db.chatRoomDao().addChatRoom(ChatRoomV2(title = "Private", privacyModeLocked = true)).toInt()
+        assertFalse(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
+
+        val admission = runCatching { repository.reserveOrdinaryTurn(chatId, "profile", route.endpoint, "command", 1, 2, "run", "model") }.exceptionOrNull()
+        val bindingRead = runCatching { repository.boundSnapshot(chatId, "profile", "model") }.exceptionOrNull()
+        val recovery = runCatching { repository.refreshChat(chatId) }.exceptionOrNull()
+
+        assertTrue(admission is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        assertTrue(bindingRead is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        assertTrue(recovery is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        assertTrue(db.gatewayJobDao().submissionsForChat(chatId).isEmpty())
+        coVerify(exactly = 0) { client.scope(any()) }
+        coVerify(exactly = 0) { client.conversation(any(), any()) }
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
+    }
+
+    @Test fun retainedPrivateGatewayTranscriptBlocksDirectInstructionsBeforeNetworkOrReservation() = runBlocking {
+        val chatId = db.chatRoomDao().addChatRoom(ChatRoomV2(title = "Private", privacyModeLocked = true)).toInt()
+        db.gatewayJobDao().saveConversation(
+            dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord(
+                key, "gateway", "owner", "conversation", "profile", route.endpoint, "profile", chatId,
+                kotlinx.serialization.json.Json.encodeToString(GatewayConversationSnapshot.serializer(), snapshot)
+            )
+        )
+        val job = instructionJob()
+
+        val instruction = runCatching { repository.queueInstruction(job.key, "Private instruction", "instruction-command") }.exceptionOrNull()
+        val transcript = runCatching { repository.refreshTranscript(key) }.exceptionOrNull()
+
+        assertTrue(instruction is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        assertTrue(transcript is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        assertNull(db.gatewayJobDao().submission("instruction-command"))
+        db.gatewayJobDao().insertSubmission(
+            dev.chungjungsoo.gptmobile.data.database.entity.GatewaySubmissionRecord("private-pending", chatId, null, null, null, "profile", route.endpoint, "profile", "private-pending", "{}", "PENDING_INSTRUCTION", key, createdAtMillis = 1)
+        )
+        repository.refreshPendingInstructions()
+        assertTrue(runCatching { repository.refreshPendingInstructions(chatId) }.exceptionOrNull() is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
+        coVerify(exactly = 0) { client.conversation(any(), any()) }
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
+    }
 
     private suspend fun saveEngineering(turn: PersistAgentTurnResult) {
         GatewayEngineeringStore(db, settings).add(GatewayEngineeringBinding("profile", route.endpoint, GatewayEngineeringRequest("owner/repo", "work", "main", "Saved request", "model", chatId = turn.chatRoom.id, requestId = turn.runs.single().runId, profileId = "profile"), principalId = "owner", localUserMessageId = turn.userMessage.id, localAssistantMessageId = turn.assistantMessages.single().id, localRunId = turn.runs.single().runId, gatewayId = "gateway"))
@@ -247,17 +290,27 @@ class GatewayConversationRepositoryTest {
         assertEquals("Newer answer", db.gatewayJobDao().localMessage(run.assistantMessageId)?.content)
     }
 
-    @Test fun remoteOnlyConversationReopensSameRoomAndRebuildsDeletedRoomWithoutDuplicateServerCommands() = runBlocking {
+    @Test fun remoteOnlyConversationReopensSameRoomButDeletedPrivacyAuthorityBlocksRecreation() = runBlocking {
         remote = transcript("remote-command")
         val first = repository.openConversation("profile", "gateway", "owner", "conversation")
         val second = repository.openConversation("profile", "gateway", "owner", "conversation")
         assertEquals(first.chatId, second.chatId)
         assertEquals(2, messageCount(first.chatId))
         db.chatRoomDao().deleteChatRooms(requireNotNull(db.gatewayJobDao().localChat(first.chatId)))
-        val recreated = repository.openConversation("profile", "gateway", "owner", "conversation")
-        assertNotEquals(first.chatId, recreated.chatId)
-        assertEquals(2, messageCount(recreated.chatId))
-        assertTrue(db.gatewayJobDao().messages(key).all { db.gatewayJobDao().localMessage(requireNotNull(it.localMessageId))?.chatId == recreated.chatId })
+        val retained = requireNotNull(db.gatewayJobDao().conversation(key))
+        val history = db.gatewayJobDao().messages(key)
+        clearMocks(client, jobs, answers = false, recordedCalls = true)
+
+        val failure = runCatching { repository.openConversation("profile", "gateway", "owner", "conversation") }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+        assertEquals("The saved conversation is unavailable. No external work was started.", failure?.message)
+        assertNull(db.gatewayJobDao().localChat(first.chatId))
+        assertEquals(first.chatId, retained.localChatId)
+        assertEquals(retained, db.gatewayJobDao().conversation(key))
+        assertEquals(history, db.gatewayJobDao().messages(key))
+        coVerify(exactly = 0) { jobs.route(any(), any()) }
+        coVerify(exactly = 0) { client.conversation(any(), any()) }
+        coVerify(exactly = 0) { client.messages(any(), any(), any()) }
         coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
     }
 

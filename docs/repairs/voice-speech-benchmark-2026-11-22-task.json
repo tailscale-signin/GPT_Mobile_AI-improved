@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
+  "working_branch": "voice-benchmark-20261122",
+  "parent_pr": 2254,
+  "intent": "Implement the authorized local CPU/GPU/NPU speech benchmark with truthful provider evidence, durable numeric results, cancellation and adaptive first-clause speech buffering.",
+  "status": "IMPLEMENTED_PENDING_INTEGRATION_AND_ANDROID_CI",
+  "authorization": "User authorized implementation and explicitly requested a speech benchmark with CPU, GPU and NPU data/results. Root owns integration, CI, merge and publication.",
+  "validation": [
+    {
+      "suite": "Actual benchmark runner, output validation, cancellation, thermal handling, export and backend selection policy",
+      "result": "PASS",
+      "tests": 15,
+      "runtime": "Kotlin 2.4.20 / JUnit 4.13.2 host; actual production code, native engine boundary test doubles"
+    },
+    {
+      "suite": "Streaming speech buffer, details projection and synthesis performance helpers",
+      "result": "PASS",
+      "tests": 35,
+      "runtime": "Kotlin 2.4.20 / JUnit 4.13.2; formatter worktree helper and actual production code"
+    },
+    {
+      "suite": "Benchmark Compose UI, Hilt ViewModel, AtomicFile storage and Qualcomm factory Android signatures",
+      "result": "PASS",
+      "runtime": "Android 37 signatures and Compose compiler; installer/shared-screen declarations supplied as boundaries"
+    },
+    {
+      "suite": "Canonical fast validation",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASS",
+      "tests": 615,
+      "note": "Generated app audit inventory refreshed for this local check; root must regenerate once after all worker integration."
+    },
+    {
+      "suite": "Changed Kotlin ktlint 1.3.1",
+      "result": "PASS"
+    },
+    {
+      "suite": "AtomicFile Robolectric storage regressions",
+      "result": "PENDING_HOSTED_ANDROID_TEST",
+      "tests": 3
+    },
+    {
+      "suite": "Physical CPU/GPU/NPU speech timings and sustained energy",
+      "result": "NOT_RUN",
+      "reason": "No compatible physical phone attached; only actual in-app measurements are reported."
+    }
+  ],
+  "limitations": [
+    "No compatible physical phone is attached. Benchmark results are collected only by actual in-app execution, not fabricated host measurements."
+  ],
+  "integration_notes": [
+    "Root inserts VoiceSpeechBenchmarkSettings and pauses/releases live audio before starting.",
+    "Root owns CI, guarded merge and publication.",
+    "Regenerate app source audit inventory after combining all workers.",
+    "VoiceSpeechBuffer references formatter includeDetails and final-only length notice."
+  ]
+}

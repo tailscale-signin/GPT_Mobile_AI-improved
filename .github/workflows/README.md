@@ -2,7 +2,8 @@
 
 Workflow entry points remain directly in this directory. Shared setup lives in
 `.github/actions/setup-android/action.yml`; putting entry points in subdirectories would
-break discovery. This inventory reflects the modernization branch, not the proposed plan.
+break discovery. This inventory describes the checked-in entry points. Their branch,
+path and job conditions determine which checks apply to a particular revision.
 
 `PR Validation` runs for every pull request (including stacked feature PRs), main push,
 merge group and manual dispatch. Its `Required verification` job always runs and requires
@@ -36,6 +37,7 @@ a particular user's credentials or a live issue submission have been verified.
 
 | File | Purpose / workflow name | Triggers | Jobs |
 |---|---|---|---|
+| `apply-ui-pipeline.yml` | UI qualification pipeline | workflow_dispatch | preflight, per-runtime qualify, qualification aggregate |
 | `artifact-retention.yml` | Artifact retention | workflow_dispatch | Read-only preview or explicit cleanup |
 | `ci-observability.yml` | CI observability | workflow_dispatch, schedule | Opt-in status sampler |
 | `ci-status-notification.yml` | CI status notification | workflow_run | Opt-in signed completion notification |
@@ -44,18 +46,24 @@ a particular user's credentials or a live issue submission have been verified.
 | `codeql.yml` | CodeQL Advanced | push, pull_request, schedule | Analyze (${{ matrix.language }}) |
 | `crawler-contracts.yml` | Crawler contracts | pull_request, workflow_dispatch | contracts |
 | `debug-build.yml` | Generate Debug Version | workflow_dispatch, push | Build debug APK |
+| `dependency-audit.yml` | Locked dependency audit | schedule, workflow_dispatch, pull_request | Locked-version advisories; generated-source cleanup outside PR events |
+| `development-environments.yml` | Development environments | pull_request, push, workflow_dispatch | Recipe identity and offline Python, Node and Android profiles |
 | `device-validation.yml` | Android device validation | workflow_dispatch | device |
-| `gateway-stability.yml` | Gateway stability | pull_request, push, workflow_dispatch | gateway |
+| `gateway-stability.yml` | Gateway stability | pull_request, push, workflow_dispatch | Ubuntu/Windows Python matrix and managed validation with real Docker |
+| `gateway-windows-installer.yml` | Gateway Windows installer | push, pull_request, workflow_dispatch | Native cross-build, Windows installer/smoke, main package attestation, explicit manual publication |
 | `geniex-preview.yml` | GenieX preview validation | workflow_dispatch, pull_request | preview |
 | `gguf-native-smoke.yml` | GGUF CPU native smoke | pull_request, workflow_dispatch | native |
 | `github-build-downloads.yml` | GitHub build downloads | pull_request, workflow_dispatch | APK catalog and download contracts |
+| `integration-test.yml` | Disposable GitHub API integration fixture | workflow_dispatch | Isolated GitHub API fixture |
 | `ktlint.yml` | Kotlin Lint Check | pull_request | Check Kotlin Code Format |
 | `marketplace-contracts.yml` | Marketplace contracts | push, pull_request | contracts |
 | `native-memory-smoke.yml` | Minified native memory smoke | pull_request, workflow_dispatch | R8 and real JNI on Android 16 |
 | `post-merge-validation.yml` | Post-merge correctness | push, workflow_dispatch | Post-merge contracts |
 | `pr-validation.yml` | PR Validation | pull_request, push, merge_group, workflow_dispatch | Unified Reliability v2 scope / strict release gate, case-level JVM reconciliation, Unit tests/heap/APK, Android lint, Repository and gateway contracts, Changed Kotlin formatting, Required verification |
+| `prepare-release.yml` | Prepare release proposal | workflow_dispatch | Forward release proposal artifact |
+| `recover-verified-android144-gateway18.yml` | Recover verified Android 144 and Gateway 18 publication | pull_request, push | Historical recovery contracts, exact-source gate, retained Android and Gateway publication |
 | `release-0950-acceptance.yml` | v0.9.50 Android acceptance | pull_request, push, workflow_dispatch | emulator |
-| `release-build.yml` | Publish Signed Release | workflow_dispatch, push | Check whether the version changed, Validate exact release commit, Build, verify and publish |
+| `release-build.yml` | Publish Signed Release | workflow_dispatch, pull_request, push | Publication intent, exact-source validation, signed Android publication and coordinated Windows package publication |
 | `remote-diagnostics.yml` | Remote diagnostics | workflow_dispatch | Resource and XML preflight, ${{ matrix.label }}, PR diagnostic report |
 | `scoreboard.yml` | Community Scoreboard | issues, push, workflow_dispatch | validate-and-publish |
 | `ui-review-apk.yml` | UI Review APK | pull_request, workflow_dispatch | Build draft review APK |
@@ -69,9 +77,15 @@ require the configured signing and release credentials and exact-commit validati
 
 Artifacts use explicit retention (normally 14 days, diagnostic failures 7 days, workflow
 health 30 days). Check cancellation, timeout, first failure and current SHA before retrying.
-Main/release publishing workflows serialize and avoid cancellation; pull-request verification
-cancels superseded runs. Legacy targeted workflows remain to preserve hardware and release
-coverage until replacements have equivalent measured evidence.
+Concurrency follows each workflow's declared policy. PR Validation, Android acceptance and
+UI Review APK preserve active PR runs; a newer pending run can replace an older pending run.
+Those workflows cancel superseded active non-PR runs, while most other PR workflows cancel
+superseded active runs. Development environment profiles also group work by recipe identity.
+Signed publication is serialized separately. Preserve the exact workflow, source SHA, run
+and attempt when evaluating results; an older green run cannot replace a newer applicable
+pending or failed run. PR Validation also runs on body edits and readiness changes, so
+reconcile the latest run after marking a completed draft ready. Legacy targeted workflows
+remain until replacements have equivalent measured evidence.
 
 ## GitHub reliability additions
 

@@ -53,9 +53,14 @@ internal class IssueReportSubmission(
         }
         val diagnostics = IssueReportDiagnostics.fromJson(context?.get("diagnostics"))
         val diagnosticFeatures = diagnostics?.requiredServiceFeatures().orEmpty()
-        val requiredFeatures = diagnosticFeatures + requiredCodeFeatures(parsed, context, diagnostics)
+        val extendedFrames = (parsed["frames"] as? JsonArray).orEmpty().any { value ->
+            (value as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(IssueReport::requiresExtendedFrameSupport) == true
+        }
+        val requiredFeatures = diagnosticFeatures + requiredCodeFeatures(parsed, context, diagnostics) +
+            if (extendedFrames) setOf(IssueReport.FRAMEWORK_EXCEPTION_FRAMES_FEATURE) else emptySet()
         if (context != null || requiredFeatures.isNotEmpty()) {
-            contextSupport(requiredVersions, requiredFeatures, diagnostics?.requiredReporterVersion() ?: 0)?.let { return it }
+            val minimumReporterVersion = maxOf(diagnostics?.requiredReporterVersion() ?: 0, if (extendedFrames) 2 else 0)
+            contextSupport(requiredVersions, requiredFeatures, minimumReporterVersion)?.let { return it }
         }
         val request = Request.Builder().url("${origin.trimEnd('/')}/v1/issue-reports")
             .post(payload.toRequestBody(JSON_MEDIA_TYPE)).build()
@@ -123,6 +128,11 @@ internal class IssueReportSubmission(
         private const val PROVIDER_TERMINAL_CAUSES_FEATURE = "PROVIDER_TERMINAL_CAUSES_V1"
         private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
+            IssueReport.FRAMEWORK_EXCEPTION_FRAMES_FEATURE,
+            ExecutionCompletionDiagnostics.FEATURE,
+            ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE,
+            IssueReportDiagnostics.COMBINED_SINGLE_PASS_FEATURE,
+            VoiceExecutionDiagnostics.FEATURE,
             IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE,
             RequestByteBudget.FEATURE,
             IssueReportDiagnostics.SELECTED_MODEL_ADMISSION_FEATURE, IssueReportDiagnostics.REVIEW_CATALOG_FEATURE, IssueReportDiagnostics.ACTION_ONLY_FEATURE,
@@ -131,11 +141,13 @@ internal class IssueReportSubmission(
             IssueReportDiagnostics.INCIDENT_DETAIL_FEATURE,
             "CLAIM_EXTRACTION_SCHEMA_HASH_V1",
             GitHubAcceptancePublicationEvidence.FEATURE,
+            dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceExplanation.FEATURE,
             GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE,
             IssueReportIncidentCapsule.REPEAT_ADMISSION_FEATURE,
             IssueReportIncidentCapsule.REPEAT_HISTORY_FEATURE,
             IssueReportIncidentCapsule.GITHUB_CI_SEMANTIC_FEATURE,
             IssueReportIncidentCapsule.GITHUB_SEARCH_VALIDATION_FEATURE,
+            IssueReportIncidentCapsule.GITHUB_SEARCH_ARGUMENT_FEATURE,
             IssueReportIncidentCapsule.TOOL_INVENTORY_PAGINATION_FEATURE,
             IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE,
             IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE,
@@ -174,6 +186,16 @@ internal class IssueReportSubmission(
                     code(event)?.let(REPORT_EVENT::matchEntire)?.groupValues?.get(1)
                 }
             return buildSet {
+                if (codes.any { it in ExecutionCompletionDiagnostics.codes } ||
+                    code(context?.get("recoveryAction")) in ExecutionCompletionDiagnostics.actions ||
+                    code(context?.get("reasonCode")) == "GITHUB_SEARCH_FUZZY_QUERY_INVALID" ||
+                    code(context?.get("stage")) == "application_persistence"
+                ) {
+                    add(ExecutionCompletionDiagnostics.FEATURE)
+                }
+                if (code(context?.get("recoveryAction")) == ExecutionCompletionDiagnostics.INSPECT_SAVED_PROVIDER_ATTEMPT) {
+                    add(ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE)
+                }
                 if (RequestByteBudget.CODE in codes) add(RequestByteBudget.FEATURE)
                 if ("GITHUB_VERIFICATION_INTERNAL_ERROR" in codes ||
                     codes.any { it in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES } ||

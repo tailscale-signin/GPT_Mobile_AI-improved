@@ -33,6 +33,33 @@ class VoiceCaptionLayoutCacheTest {
         assertTrue(cache.update(revised).all { it.last < revised.text.length })
     }
 
+    @Test fun recognitionCorrectionDropsOffsetsFromAnIndentedPartialTranscript() {
+        val cache = VoiceCaptionWordCache()
+        cache.update(VoiceCaption("       waiting for the next word", "You", true))
+        val correction = VoiceCaption("Hi", "You", true)
+        assertEquals(correction.wordRanges(), cache.update(correction))
+    }
+
+    @Test fun correctedTranscriptStartsAtItsOwnFirstWord() {
+        val cache = VoiceCaptionWordCache()
+        cache.update(VoiceCaption("…   first guess", "You", true))
+        val correction = VoiceCaption("Hello again", "You", true)
+        assertEquals(listOf(0..4, 6..10), cache.update(correction))
+    }
+
+    @Test fun supplementaryRtlCharactersKeepParagraphContextOnAppend() {
+        val cache = VoiceCaptionLayoutCache()
+        val measured = mutableListOf<String>()
+        fun measure(text: String): List<VoiceCaptionLine> {
+            measured += text
+            return text.indices.step(4).map { VoiceCaptionLine(it, minOf(it + 4, text.length)) }
+        }
+        val text = "Adlam 𞤀 with several lines"
+        cache.update(text, ::measure)
+        cache.update("$text appended", ::measure)
+        assertEquals("$text appended", measured.last())
+    }
+
     @Test fun bidirectionalParagraphsRetainTheirFullShapingContext() {
         val cache = VoiceCaptionLayoutCache()
         val measured = mutableListOf<String>()

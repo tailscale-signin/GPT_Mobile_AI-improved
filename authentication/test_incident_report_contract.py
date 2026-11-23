@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -10,6 +11,313 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_visible_output_recovery_survives_approved_report_without_private_checkpoint_fields(self):
+        for reason, action in (
+            ("BOUNDED_VISIBLE_OUTPUT_REPAIR", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST"),
+            ("VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED", "INSPECT_SAVED_PROVIDER_ATTEMPT"),
+        ):
+            with self.subTest(reason=reason):
+                capture = self.capture("INCIDENT", {
+                    "incident_phase": "final_synthesis", "causal_failure_code": "OUTPUT_CONTINUATION_NO_PROGRESS",
+                    "no_output_kind": "OUTPUT_LIMIT_WITHOUT_NOVELTY", "no_output_stop_reason": reason,
+                    "no_output_repairs": 1, "no_output_repair_limit": 1, "no_output_repair_scheduled": False,
+                })
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report.update(feature="chat", errorCode="OUTPUT_CONTINUATION_NO_PROGRESS")
+                report["context"].update(source="CHAT_FAILURE", stage="final_synthesis", recoveryAction=action, retryable=False, resumeAllowed=False)
+                report["context"]["unavailableFields"] = [field for field in report["context"]["unavailableFields"] if field not in report["context"]]
+                approved = json.dumps(report, separators=(",", ":"))
+                restored = json.loads(approved)
+                _, issue = issue_from_report(restored)
+                self.assertIn(reason, issue["body"])
+                self.assertIn(action, issue["body"])
+                self.assertEqual(approved, json.dumps(restored, separators=(",", ":")))
+        for reason in ("private attempt text", True, 1, None):
+            with self.subTest(reason=reason), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {"no_output_stop_reason": reason}))
+        for field in ("repair_request_role", "visible_output_repair_pending", "visible_output_repair_request_claimed"):
+            self.assertNotIn(field, capsule.fields_for("INCIDENT"))
+            with self.subTest(field=field), self.assertRaises(ReportError):
+                issue_from_report(self.report(self.capture("INCIDENT", {field: "private-canary"})))
+
+    def test_original_operation_identity_survives_reporting_without_raw_values(self):
+        values = {
+            "reconciliation_identity_state": "IDENTIFIED", "reconciliation_tracked_operation_count": 1,
+            "reconciliation_original_call_hash": "a" * 64,
+            "reconciliation_original_tool_hash": "b" * 64,
+            "reconciliation_original_arguments_hash": "c" * 64,
+            "reconciliation_original_code": "DISPATCH_OUTCOME_UNKNOWN",
+            "reconciliation_original_dispatched": True,
+        }
+        for area in ("TOOL", "INCIDENT", "PROVIDER"):
+            with self.subTest(area=area):
+                capture = self.capture(area, values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = "RECONCILIATION_REQUIRED"
+                self.assertIn("reconciliation_original_call_hash", str(issue_from_report(report)))
+        for key, invalid in (
+            ("reconciliation_original_call_hash", "private-call-id"),
+            ("reconciliation_original_arguments_hash", {"path": "private source"}),
+            ("reconciliation_original_code", "private exception"),
+            ("reconciliation_original_dispatched", "true"),
+            ("reconciliation_tracked_operation_count", 1025),
+            ("reconciliation_tracked_operation_count", True),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {**values, key: invalid}))
+
+    def test_comparison_guard_and_acceptance_blockers_keep_closed_semantics(self):
+        capture = self.capture("PROVIDER", {
+            "provider_failure_code": "GITHUB_REVIEW_COMPARISON_REQUIRED",
+            "provider_failure_domain": "APPLICATION_VERIFICATION",
+            "provider_failure_stage": "ENGINEERING_GUARD",
+        })
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for blocker in ("CATALOG_NOT_OBSERVED", "CATALOG_EVIDENCE_INVALID", "REPRESENTATIVE_READ_NOT_OBSERVED", "VERIFICATION_RESERVE_NOT_OBSERVED", "VERIFICATION_RESERVE_EXHAUSTED"):
+            capture = self.capture("ACCEPTANCE", {"unmet_criterion_blockers": [blocker]})
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+
+    def test_voice_execution_and_original_fallback_failure_survive_system_engine_change(self):
+        values = {
+            "voice_engine": "SYSTEM", "voice_phase": "SPEAKING",
+            "voice_selected_backend": "QNN_HTP", "voice_effective_provider": "SYSTEM",
+            "voice_fallback_source": "QNN_HTP", "voice_fallback_target": "SYSTEM",
+            "voice_fallback_outcome": "SUCCEEDED", "voice_fallback_failure": "SYNTHESIS_FAILED",
+            "voice_fallback_count": 1, "voice_playback_failure": "SYNTHESIS_FAILED",
+        }
+        capture = self.capture("VOICE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        approved = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("| voice_engine | `SYSTEM` |", issue["body"])
+        self.assertIn("| voice_fallback_failure | `SYNTHESIS_FAILED` |", issue["body"])
+        self.assertIn("| voice_fallback_outcome | `SUCCEEDED` |", issue["body"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        for field in capsule.VOICE_EXECUTION_FIELDS:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {**values, field: "private speech or request-id"}))
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {field: values[field]}))
+        for field in ("speech_text", "voice_provider_request_id", "voice_native_exception"):
+            with self.subTest(field=field), self.assertRaises(ReportError):
+                issue_from_report(self.report(self.capture("VOICE", {**values, field: "private-canary"})))
+
+    def test_voice_execution_count_and_enums_are_closed_and_match_native_contract(self):
+        for field, choices in capsule.VOICE_EXECUTION_ENUMS.items():
+            for choice in choices:
+                self.assertTrue(capsule.valid_value(field, choice), (field, choice))
+            for invalid in (True, 1, None, [], {}, "private-canary"):
+                self.assertFalse(capsule.valid_value(field, invalid), (field, invalid))
+        for count in (0, 1, 100):
+            self.assertTrue(capsule.valid_value("voice_fallback_count", count))
+        for invalid in (-1, 101, "1", 1.0, True, None):
+            self.assertFalse(capsule.valid_value("voice_fallback_count", invalid))
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {"voice_fallback_count": invalid}))
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt").read_text()
+        for field, choices in capsule.VOICE_EXECUTION_ENUMS.items():
+            if field == "voice_fallback_failure":
+                match = re.search(r"val playbackFailures = setOf\((.*?)\n    \)", source, re.S)
+            else:
+                match = re.search(r'"' + field + r'" to setOf\(([^)]+)\)', source)
+            self.assertIsNotNone(match, field)
+            self.assertEqual(choices, set(re.findall(r'"([^"\n]+)"', match.group(1))))
+
+    def test_gateway_fallback_preserves_remote_source_after_system_recovery(self):
+        values = {
+            "voice_engine": "SYSTEM", "voice_phase": "SPEAKING",
+            "voice_selected_backend": "GATEWAY_CUDA", "voice_effective_provider": "SYSTEM",
+            "voice_fallback_source": "GATEWAY_CUDA", "voice_fallback_target": "SYSTEM",
+            "voice_fallback_outcome": "SUCCEEDED", "voice_fallback_failure": "SYNTHESIS_FAILED",
+            "voice_fallback_count": 1,
+        }
+        capture = self.capture("VOICE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        approved = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("| voice_fallback_source | `GATEWAY_CUDA` |", issue["body"])
+        self.assertIn("| voice_effective_provider | `SYSTEM` |", issue["body"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        for unclosed in ("gateway-cuda", "CUDA", "https://private.gateway.example/voice?request=private-id"):
+            with self.subTest(unclosed=unclosed), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {**values, "voice_fallback_source": unclosed}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("VOICE", {**values, "voice_fallback_target": "GATEWAY_CUDA"}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"voice_fallback_source": "GATEWAY_CUDA"}))
+
+    def test_search_argument_rule_survives_submission_without_raw_query_or_exception(self):
+        values = {
+            "search_argument_field": "query", "search_argument_rule": "FUZZY_IDENTIFIER",
+            "search_argument_expected": "IDENTIFIER_2_80", "search_native_action": "search_repository",
+            "search_mode": "literal", "search_query_hash": "e" * 64,
+        }
+        capture = self.capture("TOOL", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        self.assertIn("FUZZY_IDENTIFIER", str(issue_from_report(self.report(capture))))
+        for key in values:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {**values, key: "private query or exception"}))
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {key: values[key]}))
+        self.assertNotIn("query", capsule.fields_for("TOOL"))
+
+    def test_execution_completion_evidence_crosses_report_contract_without_private_fields(self):
+        samples = [
+            ("WORKSPACE_EVIDENCE_CONFLICT", "application_persistence", "REVIEW_APPLICATION_EVIDENCE", {
+                "evidence_conflict_reason": "IMMUTABLE_PAYLOAD_CHANGED",
+                "evidence_record_kind": "synthesis_checkpoint", "evidence_writer_phase": "TERMINAL_RECONCILIATION", "ownership_fence": 7,
+                "evidence_record_hash": "a" * 64,
+                "evidence_proposed_payload_hash": "b" * 64,
+                "evidence_retained_payload_hash": "c" * 64,
+            }),
+            ("OUTPUT_CONTINUATION_NO_PROGRESS", "final_synthesis", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", {
+                "no_output_kind": "REASONING_ONLY", "no_output_visible_bytes": 0,
+                "no_output_reasoning_bytes": 19128, "no_output_tool_call_count": 0,
+                "no_output_repairs": 1, "no_output_repair_limit": 1, "no_output_repair_scheduled": False,
+                "no_output_continuation_attempt": 1, "no_output_continuation_limit": 2,
+                "no_output_generated_tokens": 2048, "no_output_reasoning_tokens": 2048,
+                "no_output_effective_limit": 4096, "no_output_serialized_limit": 2048,
+                "no_output_stop_reason": "EMPTY_OUTPUT_REPAIR_LIMIT", "no_output_parent_invocation_hash": "d" * 64,
+                "no_output_draft_hash": "a" * 64,
+            }),
+            ("BILLING_UNAVAILABLE", "response_stream", None, {
+                "provider_failure_kind": "BUDGET", "upstream_error_code": "insufficient_quota",
+                "stream_event_type": "response.failed", "provider_response_id_hash": "e" * 64,
+            }),
+            ("PROVIDER_WAIT_CHECKPOINT_CHANGED", "lifecycle", "REVIEW_SAVED_RECOVERY", {
+                "checkpoint_validation_stage": "TOOL_JOURNAL", "checkpoint_mismatch_reason": "TOOL_JOURNAL_CHANGED_DURING_RESTORE",
+                "provider_wait_expected_tool_journal_hash": "a" * 64,
+                "provider_wait_observed_tool_journal_hash": "b" * 64,
+                "provider_wait_queued_tool_count": 2, "provider_wait_unsettled_tool_count": 1,
+            }),
+            ("PROVIDER_RATE_LIMITED", "provider_wait", None, {
+                "provider_failure_kind": "RATE_LIMIT", "provider_semantic_status": 429,
+                "provider_wait_decision_state": "NOT_SCHEDULED", "provider_wait_no_wait_reason": "OWNER_CHANGED",
+                "provider_wait_scheduler_state": "NOT_SCHEDULED", "provider_wait_persisted": False,
+            }),
+        ]
+        for code, stage, action, values in samples:
+            with self.subTest(code=code):
+                capture = self.capture("INCIDENT", {**values, "incident_phase": stage, "causal_failure_code": code})
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = code
+                report["context"]["stage"] = stage
+                if "stage" in report["context"]["unavailableFields"]:
+                    report["context"]["unavailableFields"].remove("stage")
+                if action:
+                    report["context"]["recoveryAction"] = action
+                    report["context"]["unavailableFields"].remove("recoveryAction")
+                self.assertIn(code, str(issue_from_report(report)))
+        for key, value in [
+            ("no_output_kind", "private provider body"), ("upstream_error_code", "secret-token"),
+            ("no_output_reasoning_bytes", "19128"), ("no_output_reasoning_bytes", True),
+            ("provider_wait_expected_tool_journal_hash", "raw-private-id"),
+            ("provider_wait_no_wait_reason", "private exception"), ("provider_semantic_status", 200),
+            ("stream_event_type", "private event"), ("provider_response_id_hash", "resp_private_id"),
+            ("evidence_record_kind", "private record"), ("evidence_writer_phase", "arbitrary phase"),
+            ("ownership_fence", -1), ("ownership_fence", True), ("ownership_fence", 2 ** 63),
+            ("no_output_generated_tokens", "2048"), ("no_output_stop_reason", "private reasoning"),
+        ]:
+            self.assertFalse(capsule.valid_value(key, value), (key, value))
+        self.assertNotIn("private_payload", capsule.fields_for("INCIDENT"))
+        self.assertNotIn("no_output_kind", capsule.fields_for("TOOL"))
+
+    def test_journal_integrity_reasons_survive_approved_report_without_private_values(self):
+        for reason in (
+            "TOOL_REPLAY_PROJECTION_UNPROVEN",
+            "TOOL_RESULT_SEMANTICS_UNPROVEN",
+            "TOOL_RESULT_SEMANTICS_CHANGED",
+        ):
+            with self.subTest(reason=reason):
+                capture = self.capture("INCIDENT", {
+                    "incident_phase": "lifecycle", "causal_failure_code": "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE",
+                    "checkpoint_validation_stage": "TOOL_JOURNAL", "checkpoint_mismatch_reason": reason,
+                })
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE"
+                report["context"].update(stage="lifecycle", recoveryAction="REVIEW_SAVED_RECOVERY")
+                report["context"]["unavailableFields"] = [
+                    field for field in report["context"]["unavailableFields"] if field not in report["context"]
+                ]
+                approved = json.dumps(report, separators=(",", ":"))
+                restored = json.loads(approved)
+                _, issue = issue_from_report(restored)
+                self.assertIn(f"| checkpoint_mismatch_reason | `{reason}` |", issue["body"])
+                self.assertIn("REVIEW_SAVED_RECOVERY", issue["body"])
+                self.assertEqual(approved, json.dumps(restored, separators=(",", ":")))
+        for invalid in ("TOOL_UNKNOWN_REASON", "private checkpoint body", True, 0, None, [], {}):
+            capture = self.capture("INCIDENT", {"checkpoint_mismatch_reason": invalid})
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(copy.deepcopy(capture))
+            with self.subTest(invalid=invalid), self.assertRaises(ReportError):
+                issue_from_report(self.report(capture))
+
+    def test_checkpoint_mismatch_reasons_match_the_closed_native_contract(self):
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderRecoveryFailure.kt").read_text()
+        match = re.search(r"val CHECKPOINT_MISMATCH_REASONS = setOf\(([^)]+)\)", source)
+        self.assertIsNotNone(match)
+        self.assertEqual(capsule.ENUMS["checkpoint_mismatch_reason"], set(re.findall(r'"([^"\n]+)"', match.group(1))))
+
+    def test_numeric_stream_denials_survive_approved_report_without_changing_http_status(self):
+        for code, kind, failure in (
+            ("401", "AUTHENTICATION", "AUTHENTICATION_FAILED"),
+            ("429", "RATE_LIMIT", "PROVIDER_RATE_LIMITED"),
+        ):
+            with self.subTest(code=code):
+                values = {
+                    "incident_phase": "response_stream", "causal_failure_code": failure,
+                    "provider_failure_kind": kind, "stream_event_type": "error",
+                    "upstream_error_code": code, "upstream_error_type": code,
+                }
+                if kind == "RATE_LIMIT":
+                    values["provider_semantic_status"] = 429
+                capture = self.capture("INCIDENT", values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = failure
+                report["context"].update(stage="response_stream", httpStatus=200)
+                report["context"]["unavailableFields"] = [
+                    field for field in report["context"]["unavailableFields"] if field not in {"stage", "httpStatus"}
+                ]
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(f"| upstream_error_code | `{code}` |", issue["body"])
+                self.assertIn(f"| upstream_error_type | `{code}` |", issue["body"])
+                self.assertIn("| HTTP status | `200` |", issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        for field in ("upstream_error_code", "upstream_error_type"):
+            for invalid in (401, 429, True, "403", "private provider text"):
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("INCIDENT", {field: invalid}))
+
+    def test_unknown_provider_code_hashes_use_the_existing_approved_report_field(self):
+        observed = set()
+        for upstream in ("private-upstream-a", "private-upstream-b"):
+            digest = hashlib.sha256(f"gptmobile.issue-context.v1:provider-error-code:{upstream}".encode()).hexdigest()
+            values = {"provider_failure_kind": "UNKNOWN", "original_error_code_hash": digest}
+            capture = self.capture("PROVIDER", values)
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+            report = self.report(capture)
+            report["errorCode"] = "PROVIDER_GENERATION_FAILED"
+            approved = json.dumps(report, separators=(",", ":"))
+            _, issue = issue_from_report(report)
+            self.assertIn(f"| original_error_code_hash | `{digest}` |", issue["body"])
+            self.assertNotIn(upstream, approved)
+            self.assertNotIn(upstream, issue["body"])
+            self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+            observed.add(digest)
+        self.assertEqual(2, len(observed))
+        for key, value in (("upstream_error_code_hash", "a" * 64), ("original_error_code_hash", "private-text"), ("original_error_code_hash", int("1" * 64))):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {key: value}))
+
     def test_conversation_recovery_details_survive_approved_report_submission(self):
         samples = [
             ("PROVIDER", "GITHUB_VERIFICATION_INTERNAL_ERROR", "INSPECT_VERIFICATION_FAILURE", {
@@ -1334,6 +1642,7 @@ class IncidentReportContractTest(unittest.TestCase):
                   "acceptance_acquisition_allowed": False, "acceptance_cleanup_reserve": 0,
                   "acceptance_fixture_start_minimum": 6, "acceptance_prerequisite_blockers": ["OWNED_FIXTURE_REQUIRED"]}
         validate_diagnostics(self.capture("ACCEPTANCE", values))
+        validate_diagnostics(self.capture("ACCEPTANCE", {**values, "task_deadline_check": "ADMISSION"}))
         for field, bad in (("task_deadline_check", "private text"), ("task_deadline_observation", "unknown clock"),
                            ("task_deadline_window_seconds", -1), ("task_deadline_overdue_seconds", 16000001),
                            ("acceptance_acquisition_allowed", "false"), ("acceptance_cleanup_reserve", -1),
@@ -1342,6 +1651,29 @@ class IncidentReportContractTest(unittest.TestCase):
                 validate_diagnostics(self.capture("ACCEPTANCE", {field: bad}))
             with self.subTest(wrong_area=field), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("PROVIDER", {field: values[field]}))
+
+    def test_empty_acceptance_explanation_is_closed_and_cannot_expose_contract_text(self):
+        fields = {
+            "acceptance_applicability": "UNDETERMINED",
+            "acceptance_contract_state": "RETAINED",
+            "acceptance_plan_state": "DEFINED",
+            "acceptance_extraction_state": "FAILED",
+            "acceptance_coverage_state": "RECEIPTS_RETAINED",
+            "acceptance_empty_reason": "PRIMARY_FAILURE",
+            "acceptance_original_failure_present": True,
+        }
+        captured = self.capture("ACCEPTANCE", fields)
+        self.assertEqual(captured, validate_diagnostics(copy.deepcopy(captured)))
+        self.assertIn("PRIMARY_FAILURE", str(issue_from_report(self.report(captured))))
+        for key, value in fields.items():
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {key: "private task instructions"}))
+            with self.subTest(wrong_area=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {key: value}))
+        for bad in (0, 1, "true", None, []):
+            self.assertFalse(capsule.valid_value("acceptance_original_failure_present", bad))
+        self.assertNotIn("requested_actions", capsule.fields_for("ACCEPTANCE"))
+        self.assertNotIn("acceptance_criteria", capsule.fields_for("ACCEPTANCE"))
 
     def test_acceptance_recovery_evidence_preserves_unknown_policy_and_prerequisites(self):
         values = {
@@ -1904,10 +2236,14 @@ class IncidentReportContractTest(unittest.TestCase):
             ("PROVIDER", {"payload_contract": "OPENAI_RESPONSES", "provider_parameter": "input", "provider_rejection_category": "INVALID_REQUEST"}),
             ("TOOL", {"mcp_failure_phase": "execution", "mcp_failure_category": "MCP_TOOL_ERROR"}),
             ("TOOL", {"mcp_failure_phase": "execution", "mcp_failure_category": "MCP_OUTPUT_INVALID"}),
+            ("TOOL", {"mcp_failure_phase": "local_validation", "mcp_failure_category": "POLICY_BLOCKED",
+                      "tool_error_code": "PRIVACY_SERVICE_UNVERIFIED"}),
             ("PROVIDER", {"provider_rejection_category": "BILLING_UNAVAILABLE", "gateway_terminal_status": "failed"}),
             ("INCIDENT", {"combined_requirement_gap": "TOPIC", "combined_issue_count": 84, "combined_failed_check_count": 3,
                           "combined_unverified_check_count": 6, "combined_repair_rounds": 2,
                           "combined_repair_stop": "CORRECTION_CAPACITY_UNAVAILABLE"}),
+            ("INCIDENT", {"combined_requirement_gap": "TOPIC", "combined_repair_rounds": 0,
+                          "combined_repair_stop": "SINGLE_PASS_LOCAL_CHECKS_ONLY"}),
         ):
             with self.subTest(area=area, fields=fields):
                 report = self.report(self.capture(area, fields))
@@ -2041,6 +2377,25 @@ class IncidentReportContractTest(unittest.TestCase):
                 with self.assertRaises(ReportError):
                     issue_from_report(self.report(self.capture(values=values)))
 
+    def test_context_variant_policy_name_is_accepted_without_admitting_unknown_lookalikes(self):
+        fields = {"changed_policy_fields": ["githubProfileOverride.contextVariant"], "changed_policy_field_count": 1,
+                  "changed_policy_unknown_count": 0, "changed_policy_malformed_count": 0, "changed_policy_omitted_count": 0,
+                  "changed_policy_observation": "OBSERVED"}
+        capture = self.capture(values=fields)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        approved = json.dumps(report, separators=(",", ":"))
+        issue_from_report(report)
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        self.assertNotIn("request_replay_allowed", capture["values"])
+        for unknown in ("githubProfileOverride.contextVariant.PRIVATE_SELECTION", "githubProfileOverride.contextVariant=SEMANTIC"):
+            with self.subTest(unknown=unknown):
+                rejected = self.capture(values={**fields, "changed_policy_fields": [unknown]})
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(rejected)
+                with self.assertRaises(ReportError):
+                    issue_from_report(self.report(rejected))
+
     def test_policy_field_vocabulary_matches_native_and_actual_production_producers(self):
         root = Path(__file__).resolve().parents[1]
         base = root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile"
@@ -2059,12 +2414,12 @@ class IncidentReportContractTest(unittest.TestCase):
         reported_keys = re.search(r"return\s+listOf\(([^)]*)\)", override_helper)
         self.assertIsNotNone(reported_keys)
         override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', reported_keys.group(1))}
-        self.assertEqual(11, len(override_keys))
+        self.assertEqual(12, len(override_keys))
         behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
         behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
         self.assertEqual(9, len(behavior_keys))
         self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
-        self.assertEqual(76, len(capsule.POLICY_FIELD_NAMES))
+        self.assertEqual(77, len(capsule.POLICY_FIELD_NAMES))
 
     def test_replay_capacity_reason_and_estimates_are_bounded_incident_fields(self):
         code = "REPLAY_EVIDENCE_REQUIRED"

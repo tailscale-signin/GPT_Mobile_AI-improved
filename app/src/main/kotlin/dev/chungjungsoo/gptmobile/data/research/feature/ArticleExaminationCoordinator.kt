@@ -149,6 +149,11 @@ class ArticleExaminationCoordinator @Inject constructor(
     private val active = ConcurrentHashMap<String, Job>()
     private data class WatchLease(val lease: Long, val deadlineNanos: Long)
     private val watchLeases = ConcurrentHashMap<String, WatchLease>()
+
+    private suspend fun unprotectedConversation(chatId: Int) =
+        dev.chungjungsoo.gptmobile.data.privacy.requireUnprotectedConversationPrivacy(chatId.takeUnless { it == 0 }) { id ->
+            chats.chatRoomDao().getChatRoomsByIds(listOf(id)).singleOrNull()?.privacyModeLocked
+        }
     init {
         scope.launch {
             while (isActive) {
@@ -212,6 +217,7 @@ class ArticleExaminationCoordinator @Inject constructor(
     }
 
     private suspend fun submit(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig, automaticRetry: Boolean = false): String = withContext(Dispatchers.IO) {
+        val privacy = unprotectedConversation(request.chatId)
         recover()
         val acceptedCombined = if (request.origin == ExaminationOrigin.USER_EXAMINE) {
             null
@@ -324,12 +330,22 @@ class ArticleExaminationCoordinator @Inject constructor(
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "ENQUEUED · actionId=${record.jobId} · jobId=${record.jobId} · workId=${record.workId} · versionId=${source.versionId} · chatId=${record.chatId} · examiner=${profile.uid}")
             val savedCombined = Json.decodeFromString<ExaminationCheckpoint>(checkpoint).combined
             check(savedCombined == acceptedCombined) { "An examination cannot move to another accepted Combined turn." }
-            val task = scope.launch(context = savedCombined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH, profile.uid, savedCombined.workItemId)?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedRunScope(it) } ?: kotlin.coroutines.EmptyCoroutineContext, start = CoroutineStart.LAZY) {
+            val task = scope.launch(context = privacy + (savedCombined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH, profile.uid, savedCombined.workItemId)?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedRunScope(it) } ?: kotlin.coroutines.EmptyCoroutineContext), start = CoroutineStart.LAZY) {
                 var acquired = false
                 try {
                     withTimeout(ExaminationLifecycle.phaseMillis(ExaminationStage.QUEUED)) { permits.acquire() }
                     acquired = true
-                    execute(record, request, profile, currentTools)
+                    val queuedPrivacy = try {
+                        unprotectedConversation(request.chatId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        archive.dao.advanceJob(record.jobId, record.lease, ExaminationStage.FAILED, checkpoint, examinationFailureDetail(failure), System.currentTimeMillis(), "ADMISSION_BLOCKED")
+                        return@launch
+                    }
+                    withContext(queuedPrivacy) {
+                        execute(record, request, profile, currentTools)
+                    }
                 } catch (cancelled: CancellationException) {
                     withContext(NonCancellable) {
                         if (!acquired) archive.dao.advanceJob(record.jobId, record.lease, ExaminationStage.PAUSED, checkpoint, "QUEUE_INTERRUPTED: execution never started; saved progress retained", System.currentTimeMillis(), if (cancelled is TimeoutCancellationException) "QUEUE_DEADLINE" else "PARENT_CANCELLED")
@@ -386,6 +402,7 @@ class ArticleExaminationCoordinator @Inject constructor(
         var currentStage = ExaminationStage.QUEUED
         var permissionChange = "unspecified_execution_boundary"
         suspend fun allowed(): Boolean {
+            unprotectedConversation(request.chatId)
             if (turnBudget?.snapshot()?.let { it.cancelled || it.closed } == true) {
                 permissionChange = "combined_budget_closed"
                 return false

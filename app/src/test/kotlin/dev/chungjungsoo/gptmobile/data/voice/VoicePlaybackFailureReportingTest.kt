@@ -141,7 +141,8 @@ class VoicePlaybackFailureReportingTest {
             val session = session(createKokoroVoiceOutput(context, models, ::attributes, { 1f }))
             try {
                 assertTrue(session.beginMessage("message:run", diagnosticRunId = "private-run"))
-                session.streamReply("message:run", "The PRIVATE_RESPONSE remains available in chat.", complete)
+                // The streaming case needs a complete clause to enter the actual producer.
+                session.streamReply("message:run", "The PRIVATE_RESPONSE remains available in chat. ", complete)
                 awaitReport()
                 val report = IssueReportIncidents.pending.value.single()
                 assertEquals("VOICE_PLAYBACK_FAILED", report.errorCode)
@@ -374,14 +375,14 @@ class VoicePlaybackFailureReportingTest {
         val originalRun = if (privateOrigin) "private-origin-run" else "public-origin-run"
         try {
             assertTrue(session.beginMessage("original", diagnosticRunId = originalRun))
-            session.streamReply("original", "The complete response remains available in chat.", complete)
+            session.streamReply("original", "The complete response remains available in chat. ", complete)
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             assertTrue(IssueReportIncidents.pending.value.isEmpty())
             if (privateOrigin) IssueReportIncidents.privacyChanged(false)
             val expectedRun = if (freshTicket) "fresh-public-run" else originalRun
             if (freshTicket) {
                 assertTrue(session.beginMessage("fresh", diagnosticRunId = expectedRun))
-                session.streamReply("fresh", "The fresh response remains available in chat.", complete)
+                session.streamReply("fresh", "The fresh response remains available in chat. ", complete)
             }
             release.countDown()
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)

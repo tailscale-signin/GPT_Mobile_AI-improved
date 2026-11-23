@@ -138,6 +138,10 @@ interface ChatRepository {
     fun observeProviderWaitDeadlines(chatId: Int): Flow<List<ProviderWaitDeadline>>
     fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>>
     suspend fun fetchChatListV2(): List<ChatRoomV2>
+
+    /** Null is an unavailable owner, never permission for an unprotected request. */
+    suspend fun conversationPrivacyLocked(chatId: Int): Boolean? =
+        (fetchChatListV2() + fetchArchivedChatListV2()).firstOrNull { it.id == chatId }?.privacyModeLocked
     suspend fun fetchArchivedChatListV2(): List<ChatRoomV2>
     suspend fun setChatArchived(chatId: Int, isArchived: Boolean)
     suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean)
@@ -201,10 +205,10 @@ interface ChatRepository {
     fun generateDefaultChatTitle(messages: List<MessageV2>): String?
     suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String, isCustomized: Boolean = false)
     suspend fun updateChatPlatforms(chatRoom: ChatRoomV2, platformUids: List<String>): ChatRoomV2
-    suspend fun generateAiTitle(userMessage: String, assistantMessage: String, platform: PlatformV2): String?
+    suspend fun generateAiTitle(userMessage: String, assistantMessage: String, platform: PlatformV2, chatId: Int? = null): String?
 
     /** Persist a configured empty conversation before its first request. */
-    suspend fun createDraftChat(profileUids: List<String>, conversationMode: String, title: String, primaryProfileUid: String? = null, firstMessage: String? = null): ChatRoomV2 =
+    suspend fun createDraftChat(profileUids: List<String>, conversationMode: String, title: String, primaryProfileUid: String? = null, firstMessage: String? = null, privacyModeLocked: Boolean = false): ChatRoomV2 =
         error("Creating empty chats is not available in this repository implementation")
     suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2
     suspend fun createEvidenceFreeRetry(sourceChatId: Int, question: String, profile: PlatformV2): ChatRoomV2 = error("Fresh evidence recovery is unavailable")

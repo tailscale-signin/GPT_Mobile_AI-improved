@@ -27,7 +27,7 @@ internal object DevicePrivacySettings {
             val preferences = application.getSharedPreferences("device_privacy", Context.MODE_PRIVATE)
             fun publish() {
                 mutable.value = DevicePrivacySnapshot(
-                    secureScreen = preferences.getBoolean("secure_screen", false) || preferences.getBoolean("privacy_mode_enabled", false),
+                    secureScreen = preferences.getBoolean("secure_screen", false),
                     appLock = preferences.getBoolean("app_lock", false),
                     privacyMode = preferences.getBoolean("privacy_mode_enabled", false)
                 )

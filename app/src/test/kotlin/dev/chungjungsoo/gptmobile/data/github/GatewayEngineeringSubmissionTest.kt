@@ -13,6 +13,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
+import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
+import dev.chungjungsoo.gptmobile.data.privacy.requireUnprotectedConversationPrivacy
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -68,6 +71,7 @@ class GatewayEngineeringSubmissionTest {
         coEvery { modelPreparation.prepareSelected(any(), any(), any(), any()) } returns null
         coEvery { history.identity(any()) } returns GatewayScopeIdentity("gateway", "owner")
         coEvery { conversations.requireSavedSelection(any()) } returns Unit
+        coEvery { conversations.requireUnprotectedConversation(8) } returns ConversationPrivacyContext(8, false)
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(githubProfileOverrides = mapOf(selected.uid to GitHubChatProfileOverride(githubTools = true)))
     }
 
@@ -75,8 +79,62 @@ class GatewayEngineeringSubmissionTest {
         unmockkObject(WorkManager.Companion)
     }
 
+    @Test fun lockedConversationIsRejectedBeforeAdmissionOrDurableSubmission() = runTest {
+        coEvery { conversations.requireUnprotectedConversation(8) } coAnswers {
+            requireUnprotectedConversationPrivacy(8) { true }
+        }
+        val workspace = GitHubConversationContext("github", "owner", "repo", "work", "a".repeat(40), selected.uid)
+
+        val failure = runCatching { repository().start(8, workspace, "main", "work", "Inspect the parser", GatewayEngineeringSettings()) }.exceptionOrNull()
+
+        assertTrue(failure is UnverifiedServiceTransport)
+        coVerify(exactly = 1) { conversations.requireUnprotectedConversation(8) }
+        coVerify(exactly = 0) {
+            settings.fetchPlatformV2s()
+            modelPreparation.prepareSelected(any(), any(), any(), any())
+            client.capabilities(any())
+            client.prepareBinding(any(), any())
+            client.create(any(), any())
+            store.add(any())
+        }
+    }
+
+    @Test fun privateOrUnavailableSavedConversationStopsSubmissionAndObservationBeforeRemoteWork() = runTest {
+        val binding = retainedBinding()
+        val repository = repository()
+        val workspace = GitHubConversationContext("github", "owner", "repo", "work", "a".repeat(40), selected.uid)
+        coEvery { store.bindings(null) } returns listOf(binding)
+        for (rejection in listOf(UnverifiedServiceTransport(), IllegalStateException("The saved conversation is unavailable."))) {
+            coEvery { conversations.requireUnprotectedConversation(8) } throws rejection
+
+            assertSame(rejection, runCatching { repository.start(8, workspace, "main", "work", "Inspect the parser", GatewayEngineeringSettings()) }.exceptionOrNull())
+            assertSame(rejection, runCatching { repository.reconnect("command") }.exceptionOrNull())
+            assertSame(rejection, runCatching { repository.observe("command") }.exceptionOrNull())
+        }
+
+        coVerify(exactly = 6) { conversations.requireUnprotectedConversation(8) }
+        coVerify(exactly = 0) {
+            store.admissionState(any())
+            store.add(any())
+            store.markAdmission(any(), any())
+            settings.fetchPlatformV2s()
+            modelPreparation.prepareSelected(any(), any(), any(), any())
+            client.principal(any(), any())
+            client.capabilities(any())
+            client.prepareBinding(any(), any())
+            client.bindingCapabilities(any(), any(), any())
+            client.preflight(any(), any())
+            client.create(any(), any())
+            client.get(any(), any(), any())
+            client.control(any(), any(), any())
+            history.identity(any())
+            history.command(any(), any())
+            history.observeCommand(any(), any())
+        }
+    }
+
     @Test fun importedConversationUsesFrozenServerDestinationAndModelWithoutPhoneWorkspace() = runTest {
-        val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "canonical", profileId = selected.uid, model = "original-chat-model", repository = "original-owner/original-repository", branch = "original-work", base = "default-branch", revision = 42, sourceBranch = "original-source", sourceSha = "a".repeat(40), workingBranch = "original-work")
+        val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "canonical", profileId = selected.uid, model = "original-chat-model", repository = "original-owner/original-repository", branch = "original-work", base = "default-branch", revision = 42, sourceBranch = "original-source", sourceSha = "a".repeat(40), workingBranch = "original-work", contextVariant = GitHubContextVariant.REFERENCE)
         val local = GatewayConversationRecord("key", "gateway", "owner", "canonical", originalGateway.uid, originalGateway.apiUrl, selected.uid, 8, Json.encodeToString(snapshot))
         coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(githubProfileOverrides = mapOf(selected.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = "different-current-gateway", githubTools = true)))
@@ -103,6 +161,7 @@ class GatewayEngineeringSubmissionTest {
         assertEquals(11, saved.captured.localUserMessageId)
         assertEquals(12, saved.captured.localAssistantMessageId)
         assertEquals(GitHubSamplingSettings(), saved.captured.request.samplingPolicy)
+        assertEquals(GitHubContextVariant.REFERENCE, saved.captured.request.contextVariant)
         assertEquals(24, saved.captured.request.durationHours)
         assertEquals(512, saved.captured.request.executionBudget?.modelCalls)
         assertEquals(2_097_152, saved.captured.request.executionBudget?.modelTokens)

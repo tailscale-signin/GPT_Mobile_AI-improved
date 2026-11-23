@@ -6,9 +6,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
@@ -40,7 +43,9 @@ internal fun GatewayConversationIcon(
     unread: Boolean,
     modifier: Modifier = Modifier,
     animate: Boolean = true,
-    conversationType: NewChatType? = null
+    conversationType: NewChatType? = null,
+    privacyEnabled: Boolean = false,
+    privacyLocked: Boolean = false
 ) {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.CREATED)
     val reduced by FrameEffectPressure.guard.reduced.collectAsStateWithLifecycle()
@@ -70,13 +75,29 @@ internal fun GatewayConversationIcon(
         // Other destinations keep the familiar gateway connection icon.
         Box(
             modifier.size(40.dp).testTag("gateway_conversation_mode_${conversationType.name}")
-                .semantics { contentDescription = "Gateway · ${conversationType.title} · $status" }
-                .graphicsLayer { this.alpha = alpha },
+                .semantics { contentDescription = "Gateway · ${conversationType.title} · $status" },
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Rounded.ChatBubble, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = if (unread) 0.18f else 0.06f))
-            Icon(Icons.Rounded.ChatBubbleOutline, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
-            Icon(conversationTypeIcon(conversationType, unread), null, Modifier.size(20.dp).offset(y = (-2).dp), tint = MaterialTheme.colorScheme.primary)
+            Box(
+                Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.ChatBubble, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = if (unread) 0.18f else 0.06f))
+                Icon(Icons.Rounded.ChatBubbleOutline, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
+                Icon(conversationTypeIcon(conversationType, unread), null, Modifier.size(20.dp).offset(y = (-2).dp), tint = MaterialTheme.colorScheme.primary)
+                Box(
+                    Modifier.align(if (privacyEnabled) Alignment.TopEnd else Alignment.BottomEnd)
+                        .offset(x = 2.dp, y = if (privacyEnabled) (-1).dp else 1.dp).size(18.dp)
+                        .background(MaterialTheme.colorScheme.surface, CircleShape)
+                        .testTag("gateway_conversation_cloud"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.Cloud, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            if (privacyEnabled) {
+                ConversationPrivacyBadge(Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 1.dp), locked = privacyLocked)
+            }
         }
     }
 }

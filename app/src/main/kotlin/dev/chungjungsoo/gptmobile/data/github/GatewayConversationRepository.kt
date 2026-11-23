@@ -40,12 +40,23 @@ class GatewayConversationRepository @Inject constructor(
     private val attachmentLock = Mutex()
     private val dao get() = database.gatewayJobDao()
 
+    internal suspend fun requireUnprotectedConversation(chatId: Int) =
+        dev.chungjungsoo.gptmobile.data.privacy.requireUnprotectedConversationPrivacy(chatId) { id ->
+            dao.localChat(id)?.privacyModeLocked
+        }
+
+    private suspend fun requireUnprotectedTranscript(conversationKey: String) =
+        dev.chungjungsoo.gptmobile.data.privacy.requireUnprotectedConversationPrivacy(dao.conversation(conversationKey)?.localChatId) { id ->
+            dao.localChat(id)?.privacyModeLocked
+        }
+
     suspend fun ownsConversation(chatId: Int): Boolean = dao.conversationsForChat(chatId).isNotEmpty() || dao.bindings(chatId).isNotEmpty() || dao.submissionsForChat(chatId).isNotEmpty()
 
     /** An original server conversation cannot silently become a differently selected local run. */
     suspend fun conversationWriteBlocker(chatId: Int): String? {
         if (!ownsConversation(chatId)) return null
         return try {
+            requireUnprotectedConversation(chatId)
             val chat = requireNotNull(dao.localChat(chatId)) { "The original conversation is unavailable. Its gateway work remains retained." }
             check(!chat.isTemporary) { "Saved gateway work cannot continue in a temporary conversation." }
             val profiles = settings.fetchPlatformV2s()
@@ -129,6 +140,7 @@ class GatewayConversationRepository @Inject constructor(
     }
 
     internal suspend fun requireSavedSelection(binding: GatewayEngineeringBinding) {
+        requireUnprotectedConversation(binding.chatId)
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == binding.request.profileId && it.enabled } ?: error("The original model profile is unavailable. The saved command was not submitted.")
         val features = settings.getFeatureSettings()
         check(!profile.disableAllTools && !profile.disableRemoteTools && features.githubProfileOverrides[profile.uid]?.githubTools == true) { "Remote GitHub tool permission changed before submission." }
@@ -147,6 +159,7 @@ class GatewayConversationRepository @Inject constructor(
 
     /** Reads retained server history without fabricating a local workspace or execution profile. */
     suspend fun prepareTranscript(connectionProfileUid: String, gatewayId: String, principalId: String, conversationId: String): String = attachmentLock.withLock {
+        requireUnprotectedTranscript(gatewayIdentityKey(gatewayId, principalId, conversationId))
         val route = jobs.originalRoute(connectionProfileUid, jobs.route(connectionProfileUid, useEngineeringGateway = false).endpoint, gatewayId, principalId)
         val snapshot = client.conversation(route.config, conversationId)
         requireSameIdentity(snapshot, gatewayId, principalId, conversationId)
@@ -156,6 +169,7 @@ class GatewayConversationRepository @Inject constructor(
     }
 
     suspend fun refreshTranscript(conversationKey: String) = attachmentLock.withLock {
+        requireUnprotectedTranscript(conversationKey)
         val local = requireNotNull(dao.conversation(conversationKey)) { "The retained conversation is unavailable." }
         val route = jobs.originalRoute(local.connectionProfileUid, local.endpoint, local.gatewayId, local.principalId)
         val snapshot = client.conversation(route.config, local.conversationId)
@@ -233,6 +247,7 @@ class GatewayConversationRepository @Inject constructor(
     }
 
     suspend fun boundSnapshot(chatId: Int, profileUid: String, model: String): Pair<GatewayConversationRecord, GatewayConversationSnapshot>? {
+        requireUnprotectedConversation(chatId)
         val retained = dao.conversationsForChat(chatId).filter { it.executionProfileUid == profileUid }
         if (retained.isEmpty()) return null
         // A room can retain its ordinary transcript and one subsequently created
@@ -254,6 +269,7 @@ class GatewayConversationRepository @Inject constructor(
         val record = requireNotNull(dao.job(jobKey)) { "This job has no verified saved gateway record. Open its retained evidence instead." }
         val job = jobs.summary(record)
         val conversationId = requireNotNull(job.conversationId) { "This legacy job retained evidence but no complete conversation." }
+        requireUnprotectedTranscript(gatewayIdentityKey(record.gatewayId, record.principalId, conversationId))
         val route = jobs.originalRoute(record.connectionProfileUid, record.endpoint, record.gatewayId, record.principalId)
         reconcileOrdinaryAdmissions(connectionProfileUid = route.profileUid, endpoint = route.endpoint, forceRefresh = true)
         reconcileEngineeringAdmissions(route)
@@ -266,6 +282,7 @@ class GatewayConversationRepository @Inject constructor(
     }
 
     suspend fun openConversation(profileUid: String, gatewayId: String, principalId: String, conversationId: String): GatewayConversationAttachment = attachmentLock.withLock {
+        requireUnprotectedTranscript(gatewayIdentityKey(gatewayId, principalId, conversationId))
         val route = jobs.route(profileUid, useEngineeringGateway = false).withIdentity(gatewayId, principalId)
         reconcileOrdinaryAdmissions(connectionProfileUid = route.profileUid, endpoint = route.endpoint, forceRefresh = true)
         reconcileEngineeringAdmissions(route)
@@ -278,6 +295,7 @@ class GatewayConversationRepository @Inject constructor(
 
     /** Only admission receipts call this association; opening a row never adopts the active workspace. */
     suspend fun associate(chatId: Int, profileUid: String, endpoint: String, gatewayId: String, principalId: String, conversationId: String, executionProfileUid: String = profileUid) = attachmentLock.withLock {
+        requireUnprotectedConversation(chatId)
         retainReceipt(chatId, profileUid, endpoint, gatewayId, principalId, conversationId, executionProfileUid)
         val expected = requireNotNull(dao.conversation(gatewayIdentityKey(gatewayId, principalId, conversationId)))
         val route = jobs.originalRoute(profileUid, endpoint, gatewayId, principalId)
@@ -289,6 +307,7 @@ class GatewayConversationRepository @Inject constructor(
 
     /** The command is a hash of the frozen request. This receipt-only reservation never replays it. */
     suspend fun reserveOrdinaryTurn(chatId: Int, profileUid: String, endpoint: String, commandId: String, userMessageId: Int, assistantMessageId: Int, runId: String, selectedModel: String) {
+        requireUnprotectedConversation(chatId)
         require(commandId.length in 1..128 && selectedModel.isNotBlank())
         val route = jobs.originalRoute(profileUid, endpoint)
         val scope = client.scope(route.config)
@@ -336,6 +355,7 @@ class GatewayConversationRepository @Inject constructor(
 
     /** Null is legacy-only. A saved canonical command with missing authority must fail closed. */
     suspend fun ordinaryCancellationConfig(run: AgentRun): ProviderRequestConfig? {
+        requireUnprotectedConversation(run.chatId)
         val submission = dao.latestSubmissionForRun(run.runId)
         if (submission == null) {
             check(
@@ -377,8 +397,11 @@ class GatewayConversationRepository @Inject constructor(
 
     /** Resolve an ambiguous ordinary admission without dispatching a replacement generation. */
     suspend fun reconcileOrdinaryAdmissions(chatId: Int? = null, connectionProfileUid: String? = null, endpoint: String? = null, forceRefresh: Boolean = false) {
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+        if (chatId != null) requireUnprotectedConversation(chatId)
         for (pending in dao.pendingOrdinary(chatId).asReversed()) {
             if (connectionProfileUid != null && (pending.connectionProfileUid != connectionProfileUid || pending.endpoint != endpoint?.trimEnd('/'))) continue
+            if (chatId == null && dao.localChat(pending.chatId)?.privacyModeLocked != false) continue
             val reservation = json.decodeFromString<GatewayOrdinaryReservation>(pending.payload)
             val route = jobs.originalRoute(pending.connectionProfileUid, pending.endpoint)
             val receipt = pendingCommand(pending, route.config, reservation.gatewayId, reservation.principalId, "generation", forceRefresh) ?: continue
@@ -409,6 +432,7 @@ class GatewayConversationRepository @Inject constructor(
     private suspend fun reconcileEngineeringAdmissions(route: GatewayJobRoute) {
         for (pending in dao.pendingEngineering()) {
             if (pending.connectionProfileUid != route.profileUid || pending.endpoint != route.endpoint) continue
+            if (dao.localChat(pending.chatId)?.privacyModeLocked != false) continue
             val binding = dao.binding(pending.commandId)?.let { json.decodeFromString<GatewayEngineeringBinding>(it.binding) } ?: continue
             val receipt = pendingCommand(pending, route.config, binding.gatewayId, binding.principalId, "engineering", forceRefresh = true) ?: continue
             check(receipt.jobKind == "engineering" && receipt.principalId == binding.principalId && (binding.gatewayId == null || receipt.gatewayId == binding.gatewayId) && receipt.profileId == binding.request.profileId && receipt.model == binding.request.model && receipt.repository == binding.request.repository && gatewayWorkingBranchMatches(binding.request, receipt.branch, receipt.sourceBranch, receipt.sourceSha, receipt.workingBranch) && receipt.base == binding.request.base) { "The retained engineering receipt changed its original execution destination." }
@@ -521,11 +545,14 @@ class GatewayConversationRepository @Inject constructor(
         val existing = dao.submission(commandId)
         check(existing != null || job.acceptsInstruction) { "Instructions require an active engineering job." }
         val conversationId = requireNotNull(job.conversationId) { "This legacy job does not accept conversation instructions." }
+        existing?.let { requireUnprotectedConversation(it.chatId) }
+        requireUnprotectedTranscript(gatewayIdentityKey(record.gatewayId, record.principalId, conversationId))
         val route = jobs.originalRoute(record.connectionProfileUid, record.endpoint, record.gatewayId, record.principalId)
         val snapshot = client.conversation(route.config, conversationId)
         requireSameIdentity(snapshot, record.gatewayId, record.principalId, conversationId)
         if (existing == null) check(snapshot.activeJobId == record.remoteJobId) { "The selected job changed or finished. Refresh it before adding an instruction." }
         val local = attachSnapshot(route, snapshot, record.executionProfileUid)
+        requireUnprotectedConversation(requireNotNull(local.localChatId))
         val command = if (existing == null) {
             GatewayInstructionCommand(commandId, content, snapshot.revision)
         } else {
@@ -561,6 +588,7 @@ class GatewayConversationRepository @Inject constructor(
                 val identity = client.identity(route.config)
                 check(identity.gatewayId == record.gatewayId && identity.principalId == record.principalId) { "The original gateway or account changed before the instruction." }
                 check(jobs.originalRoute(record.connectionProfileUid, record.endpoint, record.gatewayId, record.principalId).config == route.config) { "The original gateway credentials changed before the instruction." }
+                requireUnprotectedConversation(requireNotNull(local.localChatId))
                 commands.instruction(route.config.withGatewayIdentity(identity), conversationId, command)
             }
         } catch (conflict: GatewayConversationConflict) {
@@ -585,7 +613,10 @@ class GatewayConversationRepository @Inject constructor(
 
     /** Lost instruction replies are reconciled with GET only, even after process death. */
     suspend fun refreshPendingInstructions(chatId: Int? = null) {
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+        if (chatId != null) requireUnprotectedConversation(chatId)
         for (pending in dao.pendingInstructions(chatId)) {
+            if (chatId == null && dao.localChat(pending.chatId)?.privacyModeLocked != false) continue
             val local = pending.conversationKey?.let { dao.conversation(it) } ?: continue
             val route = jobs.originalRoute(pending.connectionProfileUid, pending.endpoint)
             val receipt = pendingCommand(pending, route.config, local.gatewayId, local.principalId, "engineering") ?: continue
@@ -614,6 +645,7 @@ class GatewayConversationRepository @Inject constructor(
 
     private suspend fun pendingCommand(pending: GatewaySubmissionRecord, config: ProviderRequestConfig, gatewayId: String?, principalId: String?, kind: String, forceRefresh: Boolean = false, throwRejection: Boolean = false): GatewayCommandReceipt? {
         if (!forceRefresh && !GatewayCommandReconciliation.due(pending)) return null
+        requireUnprotectedConversation(pending.chatId)
         try {
             val retained = if (gatewayId != null && principalId != null) config.withGatewayIdentity(GatewayScopeIdentity(gatewayId = gatewayId, principalId = principalId)) else config
             val receipt = if (forceRefresh) client.command(retained, pending.commandId) else client.observeCommand(retained, pending.commandId)
@@ -639,6 +671,7 @@ class GatewayConversationRepository @Inject constructor(
     }
 
     suspend fun refreshChat(chatId: Int) = attachmentLock.withLock {
+        requireUnprotectedConversation(chatId)
         reconcileOrdinaryAdmissions(chatId)
         refreshPendingInstructions(chatId)
         for (local in dao.conversationsForChat(chatId)) {
@@ -732,6 +765,7 @@ class GatewayConversationRepository @Inject constructor(
         var resetCursor = false
         var more: Boolean
         do {
+            requireUnprotectedTranscript(local.key)
             val page = try {
                 client.messages(route.config, local.conversationId, local.messageCursor)
             } catch (expired: GatewayCursorExpired) {

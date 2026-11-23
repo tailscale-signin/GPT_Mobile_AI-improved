@@ -17,6 +17,21 @@ class GitHubChecklistPaginationTest {
     private fun source() = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches","per_page":5},"result":{"local_page_complete":false,"continuation_call":$page}}""")
     private fun failed(recipe: JsonObject = recovery) = json("""{"trusted":true,"success":false,"tool":"github_context","arguments":{"view_cursor":"saved:1"},"error_code":"SAVED_VIEW_UNAVAILABLE","result":{"reason":"CAPACITY_EVICTED","recovery_call":$recipe}}""")
 
+    @Test fun cursorOnlyDescendantsRemainInTheBoundComparisonChain() {
+        val next = json("""{"tool":"github_context","arguments":{"view_cursor":"comparison:2:8192"}}""")
+        val last = json("""{"tool":"github_context","arguments":{"view_cursor":"comparison:3:8192"}}""")
+        fun row(arguments: JsonObject, result: JsonObject, binding: String = "task") = json("""{"trusted":true,"success":true,"binding":"$binding","repository":"owner/repo","tool":"github_context","arguments":$arguments,"result":$result}""")
+        val root = row(json("""{"action":"changes","base_sha":"${"a".repeat(40)}","commit_sha":"${"b".repeat(40)}"}"""), json("""{"local_page_complete":false,"continuation_call":$next}"""))
+        val second = row(next.getValue("arguments") as JsonObject, json("""{"local_page_complete":false,"continuation_call":$last}"""))
+        val foreign = row(last.getValue("arguments") as JsonObject, json("""{"local_page_complete":true}"""), "other-task")
+        val records = linkedMapOf("root" to root, "second" to second, "foreign" to foreign)
+        fun chain() = GitHubTestChecklist.paginationReceipts(records) { it["arguments"] == root["arguments"] }
+        assertEquals(setOf("root", "second"), chain().keys)
+        assertEquals(listOf(last), GitHubTestChecklist.pendingPages(chain()))
+        records["third"] = row(last.getValue("arguments") as JsonObject, json("""{"local_page_complete":true}"""))
+        assertTrue(GitHubTestChecklist.pendingPages(chain()).isEmpty())
+    }
+
     @Test fun unreadLocalPageRunsBeforeAnotherInventoryCanEvictIt() {
         val next = requireNotNull(GitHubTestChecklist.nextCall("test all tools", tools, mapOf("source" to source())))
         assertEquals(page["arguments"], next.arguments)

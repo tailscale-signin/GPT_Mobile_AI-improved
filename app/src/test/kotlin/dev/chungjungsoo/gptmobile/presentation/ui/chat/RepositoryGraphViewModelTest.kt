@@ -2,9 +2,10 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
-import dev.chungjungsoo.gptmobile.data.github.GatewayGraphRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphResponse
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository
+import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -23,6 +24,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -33,7 +35,7 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RepositoryGraphViewModelTest {
-    private val graphs = mockk<GatewayGraphRepository>()
+    private val graphs = mockk<RepositoryMapRepository>()
     private val context = GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), "selected-profile")
     private val indexed = json("""{"status":"INDEXED"}""")
 
@@ -45,7 +47,7 @@ class RepositoryGraphViewModelTest {
     @After fun tearDown() = Dispatchers.resetMain()
 
     @Test fun failedArchitectureCannotRelabelStatusAndFailedRefreshRetainsTheLastMap() = runTest {
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         coEvery { graphs.executeForMap(any(), match { it.graphText("action") == "architecture" }, any(), any()) } throws IllegalStateException("Gateway disconnected")
@@ -71,7 +73,7 @@ class RepositoryGraphViewModelTest {
         coEvery { graphs.executeForMap(any(), any(), any(), any()) } coAnswers {
             if (++requests == 1) awaitCancellation() else response(indexed)
         }
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         runCurrent()
         model.stop()
@@ -84,7 +86,7 @@ class RepositoryGraphViewModelTest {
 
     @Test fun repeatedIndexCursorStopsAndRetainsTheLastResumePoint() = runTest {
         coEvery { graphs.executeForMap(any(), match { it.graphText("action") == "index" }, any(), any()) } returns response(json("""{"has_more":true,"index_cursor":"page-1"}"""), "index")
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         model.request("index")
@@ -101,7 +103,7 @@ class RepositoryGraphViewModelTest {
             pages++
             if (pages <= RepositoryGraphViewModel.MAX_INDEX_PAGES) response(json("""{"has_more":true,"index_cursor":"page-$pages"}"""), "index") else response(json("""{"has_more":false}"""), "index")
         }
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         model.request("index")
@@ -126,7 +128,7 @@ class RepositoryGraphViewModelTest {
             }
         }
         val next = context.copy(commitSha = "b".repeat(40), mainProfileUid = "next-profile")
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         runCurrent()
         model.bind(next)
@@ -144,7 +146,7 @@ class RepositoryGraphViewModelTest {
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } coAnswers {
             if (++attempts == 1) awaitCancellation() else response(map, "architecture")
         }
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         model.request("architecture")
@@ -160,7 +162,7 @@ class RepositoryGraphViewModelTest {
     }
 
     @Test fun rapidTapsAdmitOnlyOneRequestBeforeTheCoroutineStarts() = runTest {
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         model.request("status")
         model.request("status")
@@ -170,7 +172,7 @@ class RepositoryGraphViewModelTest {
 
     @Test fun missingContinuationAndRequestTimeoutProduceActionableFailures() = runTest {
         coEvery { graphs.executeForMap(any(), match { it.graphText("action") == "index" }, any(), any()) } returns response(json("""{"has_more":true}"""), "index")
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         model.request("index")
@@ -188,7 +190,7 @@ class RepositoryGraphViewModelTest {
     }
 
     @Test fun explicitGatewayChangeClearsTheOldMapAndRejectsItsLateResponse() = runTest {
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         coEvery { graphs.executeForMap(context, any(), "first-host", any()) } coAnswers {
             withContext(NonCancellable) {
                 delay(100)
@@ -206,7 +208,7 @@ class RepositoryGraphViewModelTest {
     }
 
     @Test fun unconfirmedIndexCannotBeRepeatedAndReadOnlyStatusAdoptsTheSavedCursor() = runTest {
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } throws GatewayGraphOperationException(IllegalStateException("Response lost"), "gateway", "Selected gateway", "CHECK_SAVED_INDEX", true)
@@ -237,7 +239,7 @@ class RepositoryGraphViewModelTest {
                 response(indexed)
             }
         }
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context, original.uid, original)
         runCurrent()
         assertFalse(model.isBoundTo(context, edited.uid, edited))
@@ -255,7 +257,7 @@ class RepositoryGraphViewModelTest {
         val architecture = json("""{"graph":{"commit_sha":"${context.commitSha}"},"dependencies":{"a.kt":["b.kt"]}}""")
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(saved)
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns response(architecture, "architecture")
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         assertEquals(saved, model.state.value.result)
@@ -266,7 +268,7 @@ class RepositoryGraphViewModelTest {
     @Test fun unindexedStatusMetadataDoesNotTriggerArchitectureOrBecomeAnEmptyIndex() = runTest {
         val missing = json("""{"status":"NOT_INDEXED","graph":{"repository":"owner/repo","branch":"main","commit_sha":"${context.commitSha}","processing_complete":false,"coverage_complete":false,"complete":false}}""")
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(missing)
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         assertEquals(missing, model.state.value.result)
@@ -282,7 +284,7 @@ class RepositoryGraphViewModelTest {
         val empty = json("""{"nodes":[],"edges":[],"has_more":false,"graph":{"commit_sha":"${context.commitSha}","complete":true}}""")
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(saved)
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns response(empty, "architecture")
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         assertEquals(empty, model.state.value.visibleMap)
@@ -295,7 +297,7 @@ class RepositoryGraphViewModelTest {
         val missing = json("""{"status":"NOT_INDEXED","graph":{"commit_sha":"${context.commitSha}","complete":false}}""")
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(saved)
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns response(missing, "architecture")
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         assertEquals(missing, model.state.value.result)
@@ -314,7 +316,7 @@ class RepositoryGraphViewModelTest {
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "query" }, any(), any()) } coAnswers {
             response(if (secondArg<JsonObject>().graphText("result_cursor") == "page-two") second else first, "query")
         }
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         model.searchMap("symbol")
@@ -344,7 +346,7 @@ class RepositoryGraphViewModelTest {
             val request = secondArg<JsonObject>()
             response(if (request.graphText("result_cursor") == "page-two") second else first, "query")
         }
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         model.searchMap(" Hidden ")
@@ -365,7 +367,7 @@ class RepositoryGraphViewModelTest {
     @Test fun repeatedResultCursorDoesNotReplaceTheLastUsableMapPage() = runTest {
         val first = json("""{"nodes":[{"id":"one"}],"has_more":true,"next_cursor":"same"}""")
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "query" }, any(), any()) } returns response(first, "query")
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         model.searchMap("symbol")
@@ -380,7 +382,7 @@ class RepositoryGraphViewModelTest {
     @Test fun retryFailedFilesStartsWithoutTheOldContinuationCursor() = runTest {
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(json("""{"has_more":true,"index_cursor":"old-cursor"}"""))
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } returns response(json("""{"has_more":false}"""), "index")
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         model.retryFailed()
@@ -391,7 +393,7 @@ class RepositoryGraphViewModelTest {
     @Test fun closingTheMapDetachesPollingWithoutCancellingItsSavedGatewayJob() = runTest {
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(indexed).copy(durableIndexJobs = true)
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } returns response(json("""{"status":"INDEX_JOB_ACCEPTED","index_job":{"id":"saved-job","generation":1,"state":"QUEUED"}}"""), "index").copy(durableIndexJobs = true)
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         runCurrent()
         model.request("index")
@@ -414,7 +416,7 @@ class RepositoryGraphViewModelTest {
     @Test fun explicitStopCancelsOnlyTheDisplayedSavedJob() = runTest {
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(json("""{"index_job":{"id":"saved-job","generation":1,"state":"RUNNING"}}""")).copy(durableIndexJobs = true)
         coEvery { graphs.executeForMap(context, match { it.graphText("job_action") == "cancel" }, any(), any()) } returns response(json("""{"index_job":{"id":"saved-job","generation":1,"state":"CANCELLED"}}"""), "index").copy(durableIndexJobs = true)
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         runCurrent()
         model.stopIndexing()
@@ -427,7 +429,7 @@ class RepositoryGraphViewModelTest {
 
     @Test fun stoppingWithoutAnObservedJobGenerationRequiresARefresh() = runTest {
         coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(json("""{"index_job":{"id":"saved-job","state":"RUNNING"}}""")).copy(durableIndexJobs = true)
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         runCurrent()
         model.stopIndexing()
@@ -439,12 +441,265 @@ class RepositoryGraphViewModelTest {
 
     @Test fun certificateRejectionRetainsItsDistinctFailureAndRepairAction() = runTest {
         coEvery { graphs.executeForMap(context, any(), any(), any()) } throws GatewayGraphOperationException(javax.net.ssl.SSLException("Certificate rejected"), "gateway", "Selected gateway", "REVIEW_SELECTED_GATEWAY_CERTIFICATE", false)
-        val model = RepositoryGraphViewModel(graphs)
+        val model = gatewayModel()
         model.bind(context)
         advanceUntilIdle()
         assertEquals("GRAPH_TLS_REJECTED", model.state.value.errorCode)
         assertEquals("REVIEW_SELECTED_GATEWAY_CERTIFICATE", model.state.value.repairAction)
     }
+
+    @Test fun phoneMapWithoutAGatewayLoadsTheTreeAndKeepsItsBinding() = runTest {
+        val status = json("""{"map_source":"phone","graph":{"commit_sha":"${context.commitSha}","coverage_complete":false}}""")
+        val map = json("""{"map_source":"phone","nodes":[{"id":"src","kind":"directory","path":"src"}],"has_more":false}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, null, any()) } returns phoneResponse(status)
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, null, any()) } returns phoneResponse(map, "architecture")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        assertEquals("phone", model.state.value.mapSource)
+        assertEquals(map, model.state.value.visibleMap)
+        assertEquals("On this phone", model.state.value.gatewayName)
+        assertNull(model.state.value.gatewayProfileUid)
+        assertTrue(model.isBoundTo(context))
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "architecture" && it["page_size"] == JsonPrimitive(12) && "limit" !in it }, null, any()) }
+        coVerify(exactly = 2) { graphs.executeForMap(context, match { it.graphText("map_source") == "phone" }, null, any()) }
+        coVerify(exactly = 0) { graphs.executeForMap(context, match { it.graphText("map_source") == "gateway" }, any(), any()) }
+    }
+
+    @Test fun sourceSwitchDropsPhoneCursorsAndRejectsItsLateSearchResult() = runTest {
+        val map = json("""{"nodes":[{"id":"phone-result"}],"has_more":true,"next_cursor":"phone-next"}""")
+        var searches = 0
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "query" }, any(), any()) } coAnswers {
+            if (++searches == 2) withContext(NonCancellable) { delay(100) }
+            phoneResponse(map, "query")
+        }
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context, "gateway")
+        advanceUntilIdle()
+        model.searchMap("first")
+        advanceUntilIdle()
+        assertEquals("phone-next", model.state.value.mapNextCursor)
+        model.searchMap("later")
+        runCurrent()
+        model.selectSource("gateway")
+        assertNull(model.state.value.visibleMap)
+        assertNull(model.state.value.mapNextCursor)
+        advanceUntilIdle()
+        assertEquals("gateway", model.state.value.mapSource)
+        assertNull(model.state.value.visibleMap)
+        assertEquals("", model.state.value.mapQuery)
+        model.nextMapPage()
+        advanceUntilIdle()
+        coVerify(exactly = 0) { graphs.executeForMap(any(), match { it.graphText("result_cursor") == "phone-next" }, any(), any()) }
+        model.selectSource("phone")
+        advanceUntilIdle()
+        assertNull(model.state.value.mapNextCursor)
+    }
+
+    @Test fun retiredPhoneArchitectureCannotPauseTheNewGatewaySource() = runTest {
+        var batches = 0
+        var lastRefreshStarted = false
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } coAnswers {
+            batches++
+            phoneResponse(json("""{"has_more":true,"index_cursor":"batch-$batches","graph":{"processed_files":$batches,"expected_files":100}}"""), "index")
+        }
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } coAnswers {
+            if (batches == RepositoryGraphViewModel.MAX_PHONE_INDEX_PAGES) {
+                lastRefreshStarted = true
+                withContext(NonCancellable) { delay(100) }
+            }
+            phoneResponse(json("""{"nodes":[{"id":"retired-phone-source"}],"has_more":false}"""), "architecture")
+        }
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context, "gateway")
+        advanceUntilIdle()
+        model.request("index")
+        runCurrent()
+        assertEquals(RepositoryGraphViewModel.MAX_PHONE_INDEX_PAGES, batches)
+        assertTrue(lastRefreshStarted)
+        model.selectSource("gateway")
+        runCurrent()
+        assertFalse(model.state.value.indexingPaused)
+        advanceUntilIdle()
+        assertEquals("gateway", model.state.value.mapSource)
+        assertEquals(indexed, model.state.value.result)
+        assertFalse(model.state.value.indexingPaused)
+        assertFalse(model.state.value.busy)
+        assertNull(model.state.value.indexCursor)
+        assertNull(model.state.value.visibleMap)
+    }
+
+    @Test fun phoneIndexingProgressesAcrossBatchesAndPublishesTheirSourceMap() = runTest {
+        val partial = json("""{"has_more":true,"index_cursor":"phone-batch-two","graph":{"commit_sha":"${context.commitSha}","processed_files":24,"expected_files":25}}""")
+        val complete = json("""{"has_more":false,"graph":{"commit_sha":"${context.commitSha}","processed_files":25,"expected_files":25}}""")
+        val map = json("""{"nodes":[{"id":"cached-file","kind":"file"}],"has_more":false}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns phoneResponse(complete)
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } coAnswers {
+            phoneResponse(if (secondArg<JsonObject>().graphText("index_cursor").isEmpty()) partial else complete, "index")
+        }
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns phoneResponse(map, "architecture")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.request("index")
+        advanceUntilIdle()
+        assertEquals(map, model.state.value.visibleMap)
+        assertNull(model.state.value.indexCursor)
+        assertFalse(model.state.value.indexingPaused)
+        assertFalse(model.state.value.busy)
+        coVerify(exactly = 2) { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) }
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "index" && it.graphText("index_cursor") == "phone-batch-two" && it.graphText("map_source") == "phone" && "background" !in it }, any(), any()) }
+    }
+
+    @Test fun phoneIndexingPausesAtItsBoundedSessionLimitAndResumesWithoutRepeatingABatch() = runTest {
+        val map = json("""{"nodes":[{"id":"cached-source"}],"has_more":false}""")
+        var batches = 0
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } coAnswers {
+            batches++
+            phoneResponse(json("""{"has_more":true,"index_cursor":"batch-$batches","graph":{"commit_sha":"${context.commitSha}","processed_files":$batches,"expected_files":100}}"""), "index")
+        }
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns phoneResponse(map, "architecture")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.request("index")
+        advanceUntilIdle()
+        val budget = RepositoryGraphViewModel.MAX_PHONE_INDEX_PAGES
+        assertEquals(budget, batches)
+        assertEquals("batch-$budget", model.state.value.indexCursor)
+        assertTrue(model.state.value.indexingPaused)
+        assertFalse(model.state.value.indexOutcomeUnknown)
+        assertEquals(map, model.state.value.visibleMap)
+        model.request("index")
+        advanceUntilIdle()
+        assertEquals(2 * budget, batches)
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "index" && it.graphText("index_cursor") == "batch-$budget" }, any(), any()) }
+    }
+
+    @Test fun phoneIndexingTimeBudgetPausesNormallyWithItsLastSavedCursor() = runTest {
+        var batches = 0
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } coAnswers {
+            if (++batches == 2) delay(100_000)
+            phoneResponse(json("""{"has_more":true,"index_cursor":"saved-first-batch","graph":{"commit_sha":"${context.commitSha}"}}"""), "index")
+        }
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns phoneResponse(json("""{"nodes":[{"id":"saved-source"}],"has_more":false}"""), "architecture")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.request("index")
+        advanceUntilIdle()
+        assertTrue(model.state.value.indexingPaused)
+        assertFalse(model.state.value.indexOutcomeUnknown)
+        assertNull(model.state.value.error)
+        assertNull(model.state.value.errorCode)
+        assertEquals("saved-first-batch", model.state.value.indexCursor)
+        assertTrue(model.state.value.visibleMap != null)
+    }
+
+    @Test fun stoppingPhoneIndexingNeverCreatesAGatewayReconciliationFence() = runTest {
+        var attempts = 0
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } coAnswers {
+            if (++attempts == 1) awaitCancellation()
+            phoneResponse(json("""{"has_more":false}"""), "index")
+        }
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.request("index")
+        runCurrent()
+        model.stopIndexing()
+        assertFalse(model.state.value.indexOutcomeUnknown)
+        assertNull(model.state.value.repairAction)
+        model.request("index")
+        advanceUntilIdle()
+        assertEquals(2, attempts)
+        assertNull(model.state.value.error)
+        assertFalse(model.state.value.indexOutcomeUnknown)
+    }
+
+    @Test fun phoneRefreshFailureRetainsOnlyItsCurrentSourceMap() = runTest {
+        val map = json("""{"nodes":[{"id":"phone-source"}],"has_more":false}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns phoneResponse(map, "architecture")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.request("architecture")
+        advanceUntilIdle()
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } throws java.io.IOException("GitHub is temporarily unreachable")
+        model.request("status")
+        advanceUntilIdle()
+        assertEquals(map, model.state.value.visibleMap)
+        assertFalse(model.state.value.indexOutcomeUnknown)
+        model.selectSource("gateway")
+        assertNull(model.state.value.visibleMap)
+        advanceUntilIdle()
+    }
+
+    @Test fun indexingInvalidatesOldPhonePagesButRetainsTheLastMapIfItsRefreshFails() = runTest {
+        val map = json("""{"nodes":[{"id":"known-source"}],"has_more":true,"next_cursor":"old-map-cursor"}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns phoneResponse(map, "architecture")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } returns phoneResponse(json("""{"has_more":true,"index_cursor":"next-batch","graph":{"commit_sha":"${context.commitSha}"}}"""), "index")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.request("architecture")
+        advanceUntilIdle()
+        assertEquals("old-map-cursor", model.state.value.mapNextCursor)
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } throws java.io.IOException("Temporary source read failure")
+        model.request("index")
+        assertNull(model.state.value.mapNextCursor)
+        advanceUntilIdle()
+        assertEquals(map, model.state.value.visibleMap)
+        assertEquals("next-batch", model.state.value.indexCursor)
+        assertNull(model.state.value.mapNextCursor)
+        assertFalse(model.state.value.indexOutcomeUnknown)
+        model.nextMapPage()
+        advanceUntilIdle()
+        coVerify(exactly = 0) { graphs.executeForMap(any(), match { it.graphText("result_cursor") == "old-map-cursor" }, any(), any()) }
+    }
+
+    @Test fun privacyRejectionRetainsTheMatchingMapAndItsRepairWithoutChangingSource() = runTest {
+        for (source in listOf("phone", "gateway")) {
+            val status = json("""{"has_more":true,"index_cursor":"saved-$source","graph":{"commit_sha":"${context.commitSha}"}}""")
+            val map = json("""{"nodes":[{"id":"$source-file","path":"src/File.kt"}],"has_more":false}""")
+            fun observed(value: JsonObject, operation: String) = GatewayGraphResponse(value, operation, if (source == "phone") "" else "configured-gateway", source)
+            coEvery { graphs.executeForMap(context, match { it.graphText("map_source") == source && it.graphText("action") == "status" }, "configured-gateway", any()) } returns observed(status, "status")
+            coEvery { graphs.executeForMap(context, match { it.graphText("map_source") == source && it.graphText("action") == "architecture" }, "configured-gateway", any()) } returns observed(map, "architecture")
+            val model = RepositoryGraphViewModel(graphs)
+            model.selectSource(source)
+            model.bind(context, "configured-gateway")
+            advanceUntilIdle()
+            assertEquals(map, model.state.value.visibleMap)
+            val blocked = GatewayGraphOperationException(
+                UnverifiedServiceTransport(),
+                if (source == "phone") "" else "configured-gateway",
+                source,
+                if (source == "phone") "REVIEW_PRIVACY_MODE" else null,
+                false,
+                failureCode = UnverifiedServiceTransport.CODE,
+                targetRevision = context.commitSha
+            )
+            coEvery { graphs.executeForMap(context, match { it.graphText("map_source") == source && it.graphText("action") == "status" }, "configured-gateway", any()) } throws blocked
+            model.request("status")
+            advanceUntilIdle()
+            assertEquals(source, model.state.value.mapSource)
+            assertEquals(map, model.state.value.visibleMap)
+            assertEquals(status, model.state.value.indexStatus)
+            assertEquals("saved-$source", model.state.value.indexCursor)
+            assertEquals("PRIVACY_SERVICE_UNVERIFIED", model.state.value.errorCode)
+            assertEquals(if (source == "phone") "REVIEW_PRIVACY_MODE" else null, model.state.value.repairAction)
+            assertEquals(blocked.message, model.state.value.error)
+            assertEquals("configured-gateway", model.state.value.gatewayProfileUid)
+            assertFalse(model.state.value.indexOutcomeUnknown)
+            assertFalse(model.state.value.busy)
+            coVerify(exactly = 3) { graphs.executeForMap(context, match { it.graphText("map_source") == source }, "configured-gateway", any()) }
+            model.stop()
+        }
+    }
+
+    private fun gatewayModel() = RepositoryGraphViewModel(graphs).apply { selectSource("gateway") }
+
+    private fun phoneResponse(value: JsonObject, operation: String = "status") = GatewayGraphResponse(value, operation, "", "On this phone")
 
     private fun response(value: JsonObject, operation: String = "status", unknown: Boolean = false) = GatewayGraphResponse(value, operation, "gateway", "Selected gateway", unknown)
 

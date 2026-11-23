@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
+import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import java.util.Locale
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -32,22 +34,29 @@ internal class GatewayGraphOperationException(
     val targetRevision: String? = null
 ) : IllegalStateException(cause.message ?: "Repository graph unavailable.", cause)
 
+/** Evidence for this graph POST only; earlier capability or preparation exchanges remain separate. */
+internal class GatewayGraphPrivacyRejected(cause: Exception, val requestUnsent: Boolean) : IllegalStateException(cause.message, cause)
+
 /** Keeps a bad response or rejected identity distinct from a disconnected host. */
 internal class GatewayGraphIntegrityException(val code: String, message: String) : IllegalStateException(message)
 
 internal class GatewayGraphResultException(val code: String, message: String, val repairAction: String) : IllegalStateException(message)
 
-internal fun graphFailureCode(failure: Exception): String = when (failure) {
-    is GatewayGraphIntegrityException -> failure.code
-    is GatewayGraphResultException -> failure.code
-    is GatewayGraphHttpFailure -> failure.code
-    is GatewayGraphAdmissionException -> failure.code
-    is javax.net.ssl.SSLException -> "GRAPH_TLS_REJECTED"
-    is GatewayAdmissionException -> "GRAPH_${failure.reason.name}"
-    is GatewayGraphUnavailableException -> failure.prerequisites.firstOrNull()?.name ?: "GRAPH_UNAVAILABLE"
-    is GatewayEngineeringRequestRejected -> failure.errorCode?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{1,100}")) } ?: "GRAPH_REQUEST_REJECTED"
-    is java.io.IOException -> "GRAPH_TRANSPORT_UNAVAILABLE"
-    else -> "GRAPH_OPERATION_FAILED"
+internal fun graphFailureCode(failure: Exception): String = if (failure.isLocalPrivacyPolicyRejection()) {
+    UnverifiedServiceTransport.CODE
+} else {
+    when (failure) {
+        is GatewayGraphIntegrityException -> failure.code
+        is GatewayGraphResultException -> failure.code
+        is GatewayGraphHttpFailure -> failure.code
+        is GatewayGraphAdmissionException -> failure.code
+        is javax.net.ssl.SSLException -> "GRAPH_TLS_REJECTED"
+        is GatewayAdmissionException -> "GRAPH_${failure.reason.name}"
+        is GatewayGraphUnavailableException -> failure.prerequisites.firstOrNull()?.name ?: "GRAPH_UNAVAILABLE"
+        is GatewayEngineeringRequestRejected -> failure.errorCode?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{1,100}")) } ?: "GRAPH_REQUEST_REJECTED"
+        is java.io.IOException -> "GRAPH_TRANSPORT_UNAVAILABLE"
+        else -> "GRAPH_OPERATION_FAILED"
+    }
 }
 
 /** Source-sharing consent is specific to this account connection, repository, host and inference destination. */

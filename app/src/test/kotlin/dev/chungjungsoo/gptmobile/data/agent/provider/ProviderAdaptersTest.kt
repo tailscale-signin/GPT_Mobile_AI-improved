@@ -292,6 +292,32 @@ class ProviderAdaptersTest {
         assertEquals("low", request.reasoning?.effort)
     }
 
+    @Test fun issuedSourcePageRoundsLowerAdvertisedEffortAndRestoreItAfterTheLastPage() = runBlocking {
+        OpenRouterCatalogLimits.remember(listOf(OpenRouterModelItem("audit/source-cursor", supportedParameters = listOf("reasoning"))))
+        val definition = AgentToolDefinition("github_read", "Read source", buildJsonObject { put("type", "object") })
+        val constraints = RequestConstraints(maximizeReasoning = true, maxOutputTokens = 2048, requestRole = "primary")
+        for (complete in listOf(false, true)) {
+            val call = ProviderEvent.ToolCall("saved-result-consume-test", "github_read", buildJsonObject { put("view_cursor", "view:8388608:1536") })
+            val page = NetworkClient.json.parseToJsonElement("""{"schema":"github.result.v1","local_page_complete":$complete,"continuation_call":{"tool":"github_read","arguments":{"view_cursor":"view:8389000:8192"}}}""")
+            val exchange = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Json(page), false)))
+            val router = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(router, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(ClientType.OPENROUTER).copy(apiUrl = "https://openrouter.ai/api/v1", model = "audit/source-cursor", reasoning = true, maxTokens = 4096), constraints)
+                .streamRound(listOf(definition), listOf(exchange)).toList()
+            assertEquals(if (complete) "high" else "low", router.chatRequests.single().reasoning?.effort)
+            assertEquals(complete, router.configs.single().maximizeReasoning)
+            assertEquals(2048, router.chatRequests.single().maxTokens)
+
+            val responses = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(flowOf<ResponsesStreamEvent>(ResponseCompletedEvent(ResponseObject("response", "completed"))))))
+            OpenAIResponsesAdapter(responses, attachmentEncoder())
+                .openSession(turns(), platform(ClientType.OPENAI).copy(model = "gpt-5.2", reasoning = true, maxTokens = 4096), constraints)
+                .streamRound(listOf(definition), listOf(exchange)).toList()
+            assertEquals(if (complete) "xhigh" else "low", responses.responseRequests.single().reasoning?.effort)
+            assertEquals(complete, responses.configs.single().maximizeReasoning)
+            assertEquals(2048, responses.responseRequests.single().maxOutputTokens)
+        }
+    }
+
     @Test fun benchmarkRawSchemasUseTheSelectedProvidersResponseFormatOnWire() = runBlocking {
         val schema = """{"type":"object","properties":{"status":{"type":"string"}},"required":["status"],"additionalProperties":false}"""
         for (provider in listOf(ClientType.LLAMA, ClientType.OPENROUTER)) {

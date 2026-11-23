@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "task": "release-lint-budget-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "baseTree": "ac439b8dd836adfbb115401e941ea046902e6686",
+  "workingBranch": "work/release-lint-budget-8abda66c",
+  "owner": "root/android_final_gate_monitor",
+  "integrationOwner": "root",
+  "status": "FOCUSED_VALIDATION_PASSED_READY_FOR_INTEGRATION",
+  "intent": "Give release lint the existing debug-lint process budget with current memory admission and retained phase diagnostics, preserving every lint check and the 45-minute outer gate.",
+  "failureEvidence": {
+    "workflowRun": 45143746072,
+    "attempt": 1,
+    "job": 137587934781,
+    "artifact": 14814116075,
+    "artifactSha256": "1e37bf862951e945b6ddf4f40f480e3e75cb73de9e8caf428fa388a7da649757",
+    "phaseLogSha256": "dc0f3e37608bd898762bbd61d142fa993cf94f724f9631042fbacd3f86abe77a",
+    "observation": "The final release-lint process reported heap pressure at its configured 3 GiB heap and 1 GiB metaspace, then Actions terminated the step after 45 minutes. No release-lint verdict was produced. The preceding isolated release compilation completed successfully in 6m57s; its dependencies were UP-TO-DATE during the final lint invocation.",
+    "qualification": "This is not evidence of a thrown Java OutOfMemoryError or an OS kill. The same source tree's PR lint completed despite the same warning. The proposed 4 GiB budget remains a candidate requiring actual exact-source CI. Retained earlier compilation GC logs do not measure the failed lint process."
+  },
+  "candidate": {
+    "heapMiB": 4096,
+    "metaspaceMiB": 1024,
+    "reserveMiB": 2048,
+    "requiredHeadroomBytes": 7516192768,
+    "swapCountsAsHeadroom": false,
+    "outerTimeoutMinutes": 45,
+    "innerTimeoutSeconds": 2640,
+    "workers": 1,
+    "headroomDesign": "A lint-specific adapter re-evaluates complete known numeric observations from the unchanged production observer against its fixed budget. Unknown or insufficient RAM/cgroup headroom refuses launch."
+  },
+  "ownedPaths": [
+    ".github/workflows/release-build.yml",
+    "scripts/check_android_lint_memory.py",
+    "scripts/tests/test_android_lint_memory.py",
+    "scripts/tests/test_release_lint_workflow.py",
+    "docs/repairs/release-lint-budget-2026-11-23-task.json"
+  ],
+  "constraints": [
+    "Keep both release compatibility and lint tasks, lint rules and baselines, one worker, disabled configuration cache, and the existing outer timeout.",
+    "Do not edit application source, dependencies, global Gradle settings, versions, release scope, release notes or generated metadata.",
+    "Do not rerun workflows, dispatch, push, merge or publish from this worker.",
+    "Use host behavior tests and canonical fast validation; actual release-lint qualification remains hosted."
+  ],
+  "plannedValidation": [
+    "Exercise the actual memory parser and adapter at the exact boundary, one byte below it, finite ancestor limits, missing observations and uncounted swap.",
+    "Execute the extracted workflow shell with the real admission and retry code, controlling only resource observations and the Gradle child; prove refusal prevents launch and Gradle failure propagates through tee.",
+    "Demonstrate the launch-blocking regression against the unchanged baseline workflow as a negative control.",
+    "Run the smallest relevant host tests and preserve exact source/result hashes. Root will run canonical fast validation after coordinated version, release-scope and generated-metadata integration."
+  ],
+  "validation": {
+    "focusedHostSuite": {
+      "tests": 33,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 1.276,
+      "result": "PASSED",
+      "scope": "Eleven new admission/workflow tests, seven existing unit-admission tests and fifteen existing retry/deadline tests; no Android lint execution."
+    },
+    "admissionControl": {
+      "proof": "Local admission-control receipt; the committed behavior regressions execute again in canonical and hosted validation.",
+      "proofSha256": "9b1afb1240d61276b1474f8502b10abf2fefb15629a0380f806eb14cf9ceb116",
+      "inputManifestSha256": "35e4912b4798f4fe55c4f6902721849d2cffc15a36b9048d83a9eba6a2c91d5a",
+      "baselineMethodExecutions": 1,
+      "baselineExpectedSubtestFailures": 2,
+      "correctedMethodExecutions": 1,
+      "correctedFailures": 0,
+      "scope": "Exact baseline workflow starts the controlled Gradle child for unknown and insufficient headroom; corrected workflow blocks both. Actual observation/parser/retry code executes, with only host reads and the Gradle child controlled."
+    },
+    "productionObserverRetryAndGlobalSettings": "Byte-identical to 8abda66c; input hashes recorded in the proof manifest.",
+    "ciPolicy": "PASSED",
+    "whitespace": "PASSED",
+    "independentSourceReview": {
+      "reviewer": "root/gateway_final_gate_monitor",
+      "status": "FROZEN_COMPONENT_COMMIT_REVIEW_CLEAR",
+      "finalCommitBinding": "20272c0acdcc9f3993608a108ed19fd4b89c7ea1",
+      "receiptSha256": "de24e512fa3b8c3a194c1ffc33814f34b34b2198fb1d8218267d25633b08b1fb"
+    },
+    "canonicalFast": {
+      "owner": "root",
+      "status": "PENDING_COORDINATED_INTEGRATION"
+    },
+    "hostedReleaseLint": {
+      "status": "REQUIRED_ON_INTEGRATED_SOURCE",
+      "scope": "No claim that the candidate 4 GiB budget completes actual release lint."
+    }
+  },
+  "mutableMainCheckBeforeLocalCommit": {
+    "sha": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+    "observedAt": "2026-11-23T11:33:01.318Z"
+  }
+}

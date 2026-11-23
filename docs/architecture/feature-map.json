@@ -914,9 +914,9 @@
       "sha256": "a9fca5be129d805197175d5091cfb6dec7cd0f3f4c21322a830fda475632026c"
     },
     "docs/architecture/repository-guide.md": {
-      "blob_sha": "3743673e88f4a461c57c8bd927b5b1c8f8bb3453",
+      "blob_sha": "7a3090686e916532ec8ab0a09527c5c37cc16bfb",
       "bytes": 8059,
-      "sha256": "574a1e36179efe2d77641d7459c01ddc816c0b93af2a522690bcb3693209f99f"
+      "sha256": "78e6425e45583f49d9f7f6ec0f761cd666ccb49a52704a6cb73145f720313011"
     },
     "docs/ci-cd/modernization.md": {
       "blob_sha": "b124abc3bdcdbf7e6a7d0d217fdf1cbd105b7b37",

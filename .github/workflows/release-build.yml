@@ -190,7 +190,11 @@ jobs:
           python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileReleaseKotlin :app:compileReleaseJavaWithJavac --no-daemon --max-workers=1 --console=plain "-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/release-production-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee release-production.log
       - name: Verify release compatibility and lint
         timeout-minutes: 45
-        run: python3 scripts/gradle_retry.py -- :app:checkReleaseAarMetadata :app:lintRelease --no-daemon --max-workers=1 --console=plain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/check_android_lint_memory.py | tee release-lint-memory.log
+          python3 scripts/gradle_retry.py --timeout-seconds 2640 -- :app:checkReleaseAarMetadata :app:lintRelease --no-daemon --max-workers=1 --console=plain "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/release-lint-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee release-lint.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -201,6 +205,7 @@ jobs:
             ${{ runner.temp }}/release-validation-production-gc.log*
             ${{ runner.temp }}/release-validation-unit-gc.log*
             ${{ runner.temp }}/release-production-gc.log*
+            ${{ runner.temp }}/release-lint-gc.log*
             app/build/test-results/testDebugUnitTest/
             app/build/reports/tests/
             app/build/reports/lint-results-*

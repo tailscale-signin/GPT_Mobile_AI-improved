@@ -150,7 +150,8 @@
     "Derive context comparison coverage from frozen tasks and repeats, require bound execution and grader identities, and withhold paired estimates for unequal or unknown recorded output allowances; retain accepted profile selection and expose frozen budgets and per-task receipts.",
     "Benchmark complete speech utterances through the production phrase planner, retain exact partial/failure context, and qualify only compatible complete per-fixture results with known cool thermal observations.",
     "Bind speech qualification and Auto ranking to the selected voice and rate, invalidate old broken workloads, validate ordinary startup on the requested phrase, and retain bounded exact-shape caching with real GPU discovery and honest profile/audio evidence.",
-    "Add separate production playback measurements for PCM and presented-audio latency, refills, underruns, audio-stop acknowledgement and complete caption word coverage without inferring acoustic alignment or battery benefits."
+    "Add separate production playback measurements for PCM and presented-audio latency, refills, underruns, audio-stop acknowledgement and complete caption word coverage without inferring acoustic alignment or battery benefits.",
+    "Verify task-context cancellation provenance across coroutine recovery copies, retaining the exact original cause and one native map call with no semantic replay."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -986,6 +987,7 @@
     "docs/repairs/benchmark-backup-ownership-2026-11-22-task.json",
     "docs/repairs/benchmark-comparison-ui-2026-11-22-task.json",
     "docs/repairs/checkpoint-current-timestamps-2026-11-23-task.json",
+    "docs/repairs/context-preparation-cancellation-fixture-2026-11-23-task.json",
     "docs/repairs/diagnostic-review-completion-2026-11-22-task.json",
     "docs/repairs/evidence/kokoro-qnn-graph-2026-11-22/README.md",
     "docs/repairs/evidence/kokoro-qnn-graph-2026-11-22/qualification.json",

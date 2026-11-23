@@ -1,0 +1,87 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2254,
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "672ab1b7b3e3e0afe0b0cdde9d3ec623b0578400",
+  "source_snapshot": "83e7929512444ad60e2586797f87364c743c873f",
+  "working_branch": "work/phone-repository-map-2026-11-22",
+  "intent": "Correct the newly integrated task-context cancellation fixture only after reproducing coroutine recovery identity copying, while preserving original cancellation provenance and exact no-replay invocation bounds.",
+  "status": "FIXTURE_CORRECTION_FOCUSED_AND_CANONICAL_VALIDATION_PASSED",
+  "production_changed": false,
+  "diagnosis": "Actual preparation propagates the original cancellation. Under -ea/default coroutine recovery, its outer exception is a copy with the exact original as cause; with recovery disabled the original is returned directly. The old assertSame incorrectly rejects the former.",
+  "correction": "Require CancellationException, the unchanged message and exact original cancellation within a bounded16 cause chain; assert one native map invocation, one connection lookup and zero semantic calls. Other six test bodies remain unchanged.",
+  "validation": [
+    {
+      "phase": "baseline",
+      "tests_per_mode": 7,
+      "default_recovery_failures": 1,
+      "recovery_disabled_failures": 0,
+      "failed_case": "cancellationStillCancelsTheOriginalTask",
+      "source_test_sha256": "1da79ca1fd1c18cba389e0d86037a92c873477c7aa272b08fed268ac4b5fcaf3"
+    },
+    {
+      "phase": "independent_actual_preparation_cause_probe",
+      "tests_per_mode": 1,
+      "default_recovery": "PASS; original at cause depth1",
+      "recovery_disabled": "PASS; exact original at depth0",
+      "controls": "Same type/message; map1, connection1, semantic0."
+    },
+    {
+      "phase": "corrected_and_cause_loss_control",
+      "result": "PASS",
+      "corrected_tests_per_mode": 7,
+      "corrected_failures_per_mode": 0,
+      "independent_probe_tests_per_mode": 1,
+      "independent_probe_failures_per_mode": 0,
+      "cause_loss_expected_failures_per_mode": 1,
+      "cause_loss_unchanged_controls_per_mode": 6,
+      "cause_loss_independent_probe_expected_failures_per_mode": 1,
+      "modes": [
+        "-ea;default coroutine recovery",
+        "-ea;stacktrace recovery disabled"
+      ],
+      "mutation": "Only an isolated compiler-input copy throws a fresh same-message CancellationException without original cause. Repository production source stays unchanged.",
+      "preservation": "All original baseline evidence, other six test methods and class remainder verified unchanged apart from unused import removal."
+    },
+    {
+      "phase": "changed_kotlin_format",
+      "ktlint_version": "1.3.1",
+      "result": "PASS"
+    },
+    {
+      "phase": "canonical_fast",
+      "result": "PASS",
+      "tests": 635,
+      "seconds": 24.021,
+      "literal_regexes": 2038,
+      "dynamic_regexes_excluded": 100,
+      "xml_resources": 36
+    }
+  ],
+  "focused_evidence": {
+    "directory": "/workspace/scratch/c067b3dc0a58/task-context-cancellation-host",
+    "harness": "run.py",
+    "baseline_manifests": [
+      "manifest.json",
+      "results.json"
+    ],
+    "runtime": "JDK21/Kotlin2.4.20/coroutines1.11.0;512MB/2processors; cached ByteBuddy premain avoids unsupported host self-attachment.",
+    "scope": "Actual preparation, ranking and eligibility plus complete test class; repository/connection/semantic service implementations are explicit MockK signature boundaries. Exact DTO/constant excerpts and real ToolConnection entity. Not full Android or repository-service execution.",
+    "corrected_harness": "verify_corrected.py",
+    "corrected_manifests": [
+      "corrected-qualification.json",
+      "corrected/manifest.json",
+      "corrected/results.json",
+      "cause-loss/manifest.json",
+      "cause-loss/results.json"
+    ]
+  },
+  "source_sha256": {
+    "preparation_unchanged": "4670e84826c1373d9b164612309080604131ea8586d6810cfde42db74debd565",
+    "corrected_test": "48802e9aca8f90f18998efca1667af1b3e24f28fbba052b4dced280e5bcafe9c"
+  },
+  "limits": [
+    "No production source changed. Final exact-head full Android, current-main gates and joint publication remain mandatory.",
+    "No physical device or live-provider performance qualification is inferred from this component test."
+  ]
+}

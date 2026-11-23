@@ -16,7 +16,6 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -58,7 +57,14 @@ class GitHubTaskContextPreparationTest {
         coEvery { connections.getConnection("selected") } returns connection
         val cancelled = CancellationException("task cancelled")
         coEvery { maps.executeForMap(context, any(), true) } throws cancelled
-        assertSame(cancelled, runCatching { preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID) }.exceptionOrNull())
+        val propagated = runCatching { preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID) }.exceptionOrNull()
+        assertTrue(propagated is CancellationException)
+        assertEquals(cancelled.message, propagated?.message)
+        // Coroutine stack-trace recovery may copy the exception while retaining its original cause.
+        assertTrue("The original cancellation must remain in its cause chain", generateSequence(propagated) { it.cause }.take(16).any { it === cancelled })
+        coVerify(exactly = 1) { maps.executeForMap(context, any(), true) }
+        coVerify(exactly = 1) { connections.getConnection("selected") }
+        coVerify(exactly = 0) { semantic.rankEngineering(any(), any(), any()) }
     }
 
     @Test fun semanticScopeReusesUnchangedSourcesAcrossHeadsButSeparatesAccounts() {

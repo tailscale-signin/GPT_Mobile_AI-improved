@@ -686,9 +686,9 @@
       "sha256": "ea718783ce965ce8f0518eef06b1838d26402dc260f2054dc88a03dac8ce83d2"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextPreparationTest.kt": {
-      "blob_sha": "068d134b3b07ad51d8de70a70a6d6eb52d19478e",
-      "bytes": 6902,
-      "sha256": "1da79ca1fd1c18cba389e0d86037a92c873477c7aa272b08fed268ac4b5fcaf3"
+      "blob_sha": "9636ba8930a571fb84ef9d803f6648322e479064",
+      "bytes": 7462,
+      "sha256": "48802e9aca8f90f18998efca1667af1b3e24f28fbba052b4dced280e5bcafe9c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositoryContextPackSelectionTest.kt": {
       "blob_sha": "573aeb26a86441a22f3a7a23a427b20f53985058",

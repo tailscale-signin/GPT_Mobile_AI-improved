@@ -40,7 +40,7 @@
     "admission": "35 current-source JVM admission/policy/qualification tests passed. A manual-admission bypass negative control failed 5 of 11 new admission regressions, including 1075ms versus2450ms. Two additional Robolectric persistence/preparation-timeout tests remain required in CI.",
     "canonicalFast": "687 canonical host tests passed on the integrated ebda voice candidate. Pinned ktlint1.3.1 passed all64 changed Kotlin/Kotlin-script files. The independent TLS append is preserved; final combined-source gates remain required before merge. Full Android/model smoke remains pending normal CI."
   },
-  "latestObservedPublicHead": "8ba187495f467aa17d992fa6a6d753eb89e7db12",
+  "latestObservedPublicHead": "cb79f70224fd9ca45ad53a526c762ab1dbec9a7e",
   "independentReview": {
     "sdkLifecycle": "Resolved cancellation/destructor lock contention and failed-native-retirement lease ownership; blocking-destructor regressions passed.",
     "entryAndPreview": "Resolved native-pack-only entry/saved-message gating and same-frame preview configuration ordering; actual Android tests are committed for CI.",
@@ -72,6 +72,19 @@
       "command": "python3 -m unittest discover -s authentication -t . -p 'test_*.py' -v",
       "logSha256": "e22ba3610a029d4886beb9347f640fd4811f7c854f829d5f819df03c33673b1b",
       "independentReview": "Clear: exact Android/server selected-backend, fallback-source and engine-family parity; effective-provider vocabulary unchanged; active/fallback report serialization and strict unknown/type/area rejection retained."
+    },
+    "boundTransportFixture": {
+      "baselineSource": "6ca4baf43fd6d8035f25ef6fa806d36f2ee8368d",
+      "baselineRun": 45261111673,
+      "baselineJobs": {
+        "api34": 137998088163,
+        "api36": 137998087151
+      },
+      "failure": "Both device lanes fail only the obsolete corrected_arguments owner assertion. Current production and ordinary unit tests deliberately record selected repository binding as canonical_arguments, with no semantic repair.",
+      "change": "Use the actual canonical owner and repo, assert no corrected_arguments, assert the exact normalization kind/status/nonsemantic successful dispatch, and require the exact three GET paths. Preserve existing request count, foreign-target rejection/no-dispatch and complete owned-deletion regression. Production code is unchanged.",
+      "frozenTestSha256": "8124da2a1d1ad0f182ba4b3ca6f103019f60895a66fa07d605006bb2e3af28ef",
+      "validation": "Root and independent peer source traces are clear; pinned ktlint1.3.1 and diff checks pass. No local Android or standalone fixture execution. Both latest-head emulator matrices remain required.",
+      "historicalVoiceExecution": "The older6ca4 API34 lane passed20 selected voice methods with one explicit missing English system-TTS prerequisite skip; API36 passed all21 selected voice methods. That older script did not select the three new VoiceEntry methods, so this is historical diagnostic evidence only."
     }
   }
 }

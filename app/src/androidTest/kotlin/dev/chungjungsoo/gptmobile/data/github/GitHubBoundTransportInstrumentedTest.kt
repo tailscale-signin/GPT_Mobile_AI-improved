@@ -115,8 +115,19 @@ class GitHubBoundTransportInstrumentedTest {
             )
             assertFalse(result.isError)
             assertTrue(result.content.toString().contains(head))
-            assertEquals(JsonPrimitive("test-owner"), result.executionReceipt?.get("corrected_arguments")?.jsonObject?.get("owner"))
+            val receipt = requireNotNull(result.executionReceipt)
+            val canonicalArguments = receipt.getValue("canonical_arguments").jsonObject
+            assertEquals(JsonPrimitive("test-owner"), canonicalArguments["owner"])
+            assertEquals(JsonPrimitive("synthetic-repo"), canonicalArguments["repo"])
+            assertFalse(receipt.containsKey("corrected_arguments"))
+            val normalization = receipt.getValue("argument_normalization").jsonObject
+            assertEquals(JsonPrimitive("REPOSITORY_BINDING"), normalization["kind"])
+            assertEquals(JsonPrimitive("APPLIED_BEFORE_DISPATCH"), normalization["status"])
+            assertEquals(JsonPrimitive(false), normalization["semantic_repair"])
+            assertEquals(JsonPrimitive(true), normalization["dispatched"])
+            assertEquals(JsonPrimitive("SUCCEEDED"), normalization["outcome"])
             assertEquals(JsonPrimitive(3), result.executionReceipt?.get("read_requests"))
+            assertEquals(setOf("$root/branches/main", "$root/branches/main/protection", "$root/rules/branches/main"), requests.toSet())
             val denied = tool.execute(
                 "foreign",
                 buildJsonObject {

@@ -256,7 +256,8 @@
     "Align server voice report vocabularies with the new SDK engine family, selected backends and fallback sources while retaining strict unknown-value rejection and truthful effective-provider semantics.",
     "Mirror closed streaming voice backend report values and require VOICE_STREAMING_BACKEND_EVIDENCE_V1 only when those new values are emitted, preserving ordinary voice V1 reports and bounded plain readiness; qualify deployed receivers through the extended readiness probe.",
     "Classify the exact public CPU-calibration preference declaration with a rule, path and whole-line constraint, retaining actual pinned-scanner negative controls, existing model-pin checks and complete reachable-history scanning.",
-    "Preserve the selected GitHub snapshot timestamp when reopening existing evidence, retain new evidence atomically, and deliver the original database-open failure to the startup owner while respecting cancellation."
+    "Preserve the selected GitHub snapshot timestamp when reopening existing evidence, retain new evidence atomically, and deliver the original database-open failure to the startup owner while respecting cancellation.",
+    "Update the Android bound-transport acceptance fixture to the canonical repository-argument receipt, strengthening exact target and dispatch checks while preserving production behavior and all existing foreign-target and owned-deletion controls."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -314,6 +315,7 @@
     "app/geniex-release.lockfile",
     "app/native-smoke-test-rules.pro",
     "app/release.lockfile",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundTransportInstrumentedTest.kt",
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechNativeSmokeTest.kt",
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceEntryInstrumentedTest.kt",
     "app/src/main/assets/diagnostics/app-code-inventory.json",

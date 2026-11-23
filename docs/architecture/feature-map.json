@@ -36,7 +36,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerSettings.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepository.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadWorkBudget.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRevisionGuard.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRevisionGuard.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundRepositoryTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalization.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContextTest.kt",
@@ -57,7 +59,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryBindingTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphRevisionAuthorityTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRevisionGuardTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRecoveryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRecoveryTest.kt",
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundTransportInstrumentedTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -626,6 +629,11 @@
       "bytes": 1990,
       "sha256": "b8b58f3aa472a1bba9e41427e646ebb7cdd011329d7a3d502503dc461607b529"
     },
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundTransportInstrumentedTest.kt": {
+      "blob_sha": "d32e8d2c6b486e6b4df8afcf7a49974d6dd5de78",
+      "bytes": 16956,
+      "sha256": "8124da2a1d1ad0f182ba4b3ca6f103019f60895a66fa07d605006bb2e3af28ef"
+    },
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechNativeSmokeTest.kt": {
       "blob_sha": "b3c43ec7ca9fe4540337783f8c73631fbb55cd33",
       "bytes": 8166,
@@ -810,6 +818,11 @@
       "blob_sha": "8dfcc4f424780862ffc03201487d739a8704f8b9",
       "bytes": 8116,
       "sha256": "3f3f847b549869fdf88f7a99990b57849ca58c1d2b5e94293ee8a4e0cbcbdb02"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundRepositoryTool.kt": {
+      "blob_sha": "5d3380bb1487fdeb4ccc0344b83413ae91bbb091",
+      "bytes": 8882,
+      "sha256": "1feb5df2a828eae4eeceab9cad0ffd5e2d38d68d9c509e4ab49f76a6dff2cc4b"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContext.kt": {
       "blob_sha": "abf765caeaf2ade796d7894e5d367bbd7aab981b",

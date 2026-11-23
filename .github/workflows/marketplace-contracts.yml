@@ -127,7 +127,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain 2>&1 | tee marketplace-unit-compile.log
+          python3 scripts/check_android_unit_compile_memory.py | tee marketplace-unit-memory.log
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/marketplace-unit-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee marketplace-unit-compile.log
 
       - name: Run focused marketplace contracts
         timeout-minutes: 15
@@ -229,6 +230,7 @@ jobs:
           path: |
             marketplace-*.log
             ${{ runner.temp }}/marketplace-production-gc.log*
+            ${{ runner.temp }}/marketplace-unit-gc.log*
             app/build/test-results/testDebugUnitTest
             app/build/reports/tests/testDebugUnitTest
           if-no-files-found: ignore

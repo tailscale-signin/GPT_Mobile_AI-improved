@@ -203,7 +203,7 @@ class PipelineTest(unittest.TestCase):
                 self.assertTrue(any(f'{prefix}-production-gc.log*' in candidate for candidate in uploads))
                 self.assertTrue(any(f'{prefix}-production-memory.log' in candidate or f'{prefix}-*.log' in candidate for candidate in uploads))
         audit = (root / '.github/workflows/audit-workspace.yml').read_text()
-        self.assertEqual(['4096', '6144', '4096', '4096'], re.findall(r'-Xmx(\d+)m', audit))
+        self.assertEqual(['4096', '6144', '4096', '4096', '4096'], re.findall(r'-Xmx(\d+)m', audit))
         for required in ('timeout-minutes: 135', ':app:compileDebugUnitTestKotlin', ':app:testDebugUnitTest', ':app:assembleDebug', ':app:lintDebug'):
             self.assertIn(required, audit)
 

@@ -132,7 +132,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --console=plain 2>&1 | tee unit-compile.log
+          python3 scripts/check_android_unit_compile_memory.py | tee unit-test-memory.log
+          python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --console=plain "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8 -Xlog:gc:file=${RUNNER_TEMP}/unit-test-gc.log:time,level,tags:filecount=2,filesize=8M" 2>&1 | tee unit-compile.log
 
       - name: Run Unit Tests & JaCoCo Coverage Report
         id: unit_tests
@@ -306,6 +307,8 @@ jobs:
             unit-production-memory.log
             ${{ runner.temp }}/unit-production-gc.log*
             unit-compile.log
+            unit-test-memory.log
+            ${{ runner.temp }}/unit-test-gc.log*
             test.log
             heap.log
             lint.log

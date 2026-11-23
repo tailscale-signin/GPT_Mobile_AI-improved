@@ -115,12 +115,18 @@ internal data class IssueReport(
         /** Shared bounded metadata; never reads exception messages, file names or arbitrary stack text. */
         internal fun exceptionMetadata(error: Throwable?): Pair<String?, List<String>> {
             val type = error?.javaClass?.simpleName?.takeIf(typePattern::matches)
-            val frames = generateSequence(error) { it.cause }.take(4).flatMap { it.stackTrace.asSequence().take(48) }
-                .map { "${it.className}.${it.methodName}:${it.lineNumber.coerceAtLeast(0)}" }
-                .filter(framePattern::matches).distinct().toList()
+            val causeFrames = generateSequence(error) { it.cause }.take(4).map { cause ->
+                cause.stackTrace.asSequence().take(48)
+                    .map { "${it.className}.${it.methodName}:${it.lineNumber.coerceAtLeast(0)}" }
+                    .filter(framePattern::matches).distinct().toList()
+            }.toList()
+            val frames = causeFrames.flatten().distinct()
+            fun isApplication(frame: String) = frame.startsWith("dev.chungjungsoo.gptmobile.") || frame.startsWith("dev.melo.gptmobile.")
+            val causalApplication = causeFrames.mapNotNull { it.firstOrNull(::isApplication) }
             val application = frames.filter { it.startsWith("dev.chungjungsoo.gptmobile.") || it.startsWith("dev.melo.gptmobile.") }
-            // Reserve room for app frames when Android's draw stack is deep.
-            val selected = (frames.take(4) + application).distinct().take(8)
+            // Keep leading framework evidence and one app frame per inspected cause. Recovery
+            // wrappers must not consume every reserved slot before the original failure.
+            val selected = (frames.take(4) + causalApplication + application).distinct().take(8)
             return type to (selected + frames).distinct().take(8)
         }
 

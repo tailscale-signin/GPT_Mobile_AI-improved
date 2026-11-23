@@ -120,6 +120,58 @@ class IssueReportFrameworkFramesTest {
         assertFalse(fields.toString().contains("private conversation"))
     }
 
+    @Test fun crowdedRecoveryWrappersRetainApplicationEvidenceFromEveryInspectedCause() {
+        val leading = (1..4).map { frame("kotlinx.coroutines.Recovery", "resume$it", it) }
+        val wrappers = (1..12).map { frame("dev.chungjungsoo.gptmobile.data.repository.Recovery", "wrapper$it", it) }
+        val original = frame("dev.chungjungsoo.gptmobile.data.repository.ChatRepositoryImpl", "preparedCompleteChat", 1879)
+        val inner = frame("dev.chungjungsoo.gptmobile.data.repository.InnerCause", "prepare", 200)
+        val deepest = frame("dev.melo.gptmobile.repository.DeepCause", "read", 300)
+        val failure = IllegalStateException(
+            "PRIVATE_WRAPPER",
+            IllegalStateException(
+                "PRIVATE_ORIGINAL",
+                IllegalArgumentException(
+                    "PRIVATE_INNER",
+                    IllegalArgumentException("PRIVATE_DEEPEST").apply { stackTrace = arrayOf(deepest) }
+                ).apply { stackTrace = arrayOf(inner) }
+            ).apply { stackTrace = arrayOf(original) }
+        ).apply { stackTrace = (leading + wrappers).toTypedArray() }
+        fun symbol(value: StackTraceElement) = "${value.className}.${value.methodName}:${value.lineNumber}"
+        val expectedApplication = listOf(wrappers.first(), original, inner, deepest).map(::symbol)
+        val retained = IssueReport.exceptionMetadata(failure).second
+        assertEquals(leading.map(::symbol) + expectedApplication, retained)
+        val fields = IssueReportIncidentCapsule.exceptionFields(failure, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_TERMINAL_CATCH)
+        assertEquals(JsonArray(expectedApplication.map(::JsonPrimitive)), fields["exception_application_frames"])
+        val captured = report(emptyList()).withCapturedException(fields)
+        assertEquals(expectedApplication, captured.frames)
+        for (payload in listOf(report(retained).approvedPayload(), captured.approvedPayload())) {
+            assertTrue(payload.contains("preparedCompleteChat:1879"))
+            assertFalse(payload.contains("PRIVATE_"))
+            assertFalse(payload.contains("/private/"))
+            assertTrue(payload.encodeToByteArray().size <= IssueReport.MAX_PAYLOAD_BYTES)
+        }
+    }
+
+    @Test fun causalApplicationReservationCannotBypassCauseOrFrameInspectionLimits() {
+        var cause: Throwable = IllegalStateException("PRIVATE_FIFTH_CAUSE").apply {
+            stackTrace = arrayOf(frame("dev.chungjungsoo.gptmobile.data.repository.ExcludedCause", "read", 5))
+        }
+        for (index in 4 downTo 1) {
+            cause = IllegalStateException("PRIVATE_CAUSE", cause).apply {
+                stackTrace = (
+                    List(48) { frame("androidx.compose.Runtime", "step$index", index) } +
+                        frame("dev.chungjungsoo.gptmobile.data.repository.ExcludedFrame", "read", 49)
+                    ).toTypedArray()
+            }
+        }
+        assertEquals((1..4).map { "androidx.compose.Runtime.step$it:$it" }, IssueReport.exceptionMetadata(cause).second)
+        val fields = IssueReportIncidentCapsule.exceptionFields(cause, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_TERMINAL_CATCH)
+        assertFalse(fields.containsKey("exception_application_frames"))
+        assertTrue(report(emptyList()).withCapturedException(fields).frames.isEmpty())
+        assertFalse(fields.toString().contains("PRIVATE_"))
+        assertFalse(fields.toString().contains("Excluded"))
+    }
+
     @Test fun hostedDeliveryWaitsForFrameworkSupportWithoutRewritingApprovedBytes() {
         val approved = report(frameworkFrames)
         val payload = approved.approvedPayload()

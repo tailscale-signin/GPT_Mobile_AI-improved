@@ -163,7 +163,8 @@
     "Give the independently isolated Android unit-test compiler a fixed4GiB heap after the measured3GiB failure, with a fresh7168MiB observed RAM/cgroup preflight and bounded GC receipts; preserve production compilation, test execution limits, selectors, coverage, timeouts and every release gate.",
     "Stop automatic saved-page retries after a native capacity refusal; retain the incomplete page and exact issued larger recovery across compaction and restart without enlarging the accepted budget or weakening cursor/source authority.",
     "Retain bounded AndroidX and coroutine crash frames, including Kotlin-generated method names, through exact approved reporting with compatible hosted readiness; preserve existing privacy, frame and payload limits without claiming an unresolved original crash is fixed.",
-    "Retain completed phone-index shards after an observed local interruption and settle actual Combined work exactly once across nested budget wrappers, preserving cancellation propagation, selected source/account identity and unrelated unknown remote-operation fences."
+    "Retain completed phone-index shards after an observed local interruption and settle actual Combined work exactly once across nested budget wrappers, preserving cancellation propagation, selected source/account identity and unrelated unknown remote-operation fences.",
+    "Retain one bounded safe application frame from each inspected exception cause so framework and recovery wrappers cannot evict original failure evidence; preserve leading framework frames, privacy boundaries and approved-payload limits."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1247,7 +1248,8 @@
     "docs/repairs/engineering-memory-cancellation-fixture-2026-11-23-task.json",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexWitnessReuseTest.kt",
     "docs/repairs/phone-index-nested-witness-2026-11-23-task.json",
-    "docs/repairs/pr2254-final-integration-fallback-2026-11-23-task.json"
+    "docs/repairs/pr2254-final-integration-fallback-2026-11-23-task.json",
+    "docs/repairs/causal-application-frames-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.13",

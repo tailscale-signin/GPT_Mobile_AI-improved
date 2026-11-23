@@ -221,6 +221,27 @@ class PrivateTextMaskCorpusTest {
     }
 
     @Test
+    fun wholeWordAddressSeparatorsAllowAnOptionalColonWithoutExposingTheValue() {
+        val address = "Willowbank"
+        val labels = listOf("My address is:", "My address is :", "Address at:", "Address at :", "Address:")
+        for (label in labels) {
+            for (spacing in listOf(" ", "")) {
+                val input = "$label$spacing$address; please draft a note."
+                val mask = PrivateTextMask(setOf(PrivacyCategory.LOCATIONS), emptyList())
+                val protected = mask.protectWithReceipt(input)
+                hidden(protected, address)
+                retained(protected, label, "; please draft a note.")
+                val start = input.indexOf(address)
+                assertEquals(listOf(PrivacyProtectedRange(start, start + address.length)), protected.receipt.ranges)
+                assertTrue(protected.receipt.validFor(input))
+                val restored = mask.sealWithReceipts()(protected.text)
+                assertEquals(input, restored.text)
+                assertTrue(restored.receipt.validFor(input))
+            }
+        }
+    }
+
+    @Test
     fun namedArtifactsDoNotBecomePeopleButExplicitPersonNamesDo() {
         listOf("Create a file named Report.", "File name: Report", "A variable named Result stores the total.").forEach { input ->
             assertEquals(input, roundTrip(input).text)

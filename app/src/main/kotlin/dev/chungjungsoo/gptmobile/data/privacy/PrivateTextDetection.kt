@@ -188,7 +188,7 @@ internal class PrivateTextDetector(
         private val network = Regex("""(?:\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}\b|[A-Za-z]:\\[^\n,;]+|/(?:home|Users|data/user)/[^\s,;]+)""")
         private val streetAddress = Regex("""(?i)\b\d{1,6}[ \t]+(?:[\p{L}.'’-]+[ \t]+){0,8}(?:street|avenue|road|drive|lane|boulevard|blvd|st|ave|rd)\b(?:[ \t]+(?:apt|unit|suite)\.?[ \t]*[\w-]+)?""")
         private val coordinates = Regex("""[-+]?\d{1,2}\.\d{3,},[ \t]*[-+]?\d{1,3}\.\d{3,}""")
-        private val addressField = Regex("""(?im)\b(?:registered |postal |billing |home )?address(?:[ \t]*:[ \t]*|[ \t]+(?:is|at)[ \t]+)([^;\n]+)""")
+        private val addressField = Regex("""(?im)\b(?:registered |postal |billing |home )?address(?:[ \t]*:[ \t]*|[ \t]+(?:is|at)(?:[ \t]*:[ \t]*|[ \t]+))([^;\n]+)""")
         private val addressSentenceEnd = Regex("""[.!?](?=[ \t]|$)""")
         private val addressAbbreviations = setOf("st", "ave", "rd", "dr", "blvd", "apt", "ste", "dist", "no")
         private val addressContext = Regex("""(?i)\b(?:address|district|postal|zip|street|avenue|road)\b|\bdist\.""")

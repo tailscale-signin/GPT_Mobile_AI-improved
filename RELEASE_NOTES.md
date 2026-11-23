@@ -45,6 +45,8 @@ Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains 
 
 ## Privacy detection, streaming and exports
 
+- Omit retained source filenames, terminal error detail and free-form persisted continuation text from default diagnostic exports. Preserve typed HTTP methods, record identifiers, source revisions and line spans, with original content available through explicit forensic consent.
+- Recognize explicit address `is:` and `at:` separators while retaining ordinary address-related instructions, exact protected ranges and local restoration.
 - Remove provider and memory free-form failure details from default diagnostic captures, while retaining typed failure evidence and credential-redacted forensic content.
 - Preserve ordinary address task wording and contextual names without hiding unrelated words; retain the supported ordinary modal phrase only with exact request-local copy evidence.
 - Keep useful task wording and document labels visible while masking contextual names, ordinal dates, locale currency amounts, linked domains, private address fragments and sensitive personal clauses. Mask a declared residence while preserving an unrelated search region.

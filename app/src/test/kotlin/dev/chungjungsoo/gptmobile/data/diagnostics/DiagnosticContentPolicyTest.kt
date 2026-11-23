@@ -90,7 +90,8 @@ class DiagnosticContentPolicyTest {
     }
 
     @Test fun providerHttpErrorDetailsArePrivateByDefaultButExplicitForensicPreservesThem() {
-        val line = "eventId=provider-detail · HTTP_ERROR · status=400 · model=model-1 · detail=PRIVATE PROVIDER ORIGINAL synthetic-credential · errorCode=SYNTHETIC_FAILURE"
+        // Actual provider producers put typed metadata before the terminal detail.
+        val line = "eventId=provider-detail · HTTP_ERROR · status=400 · model=model-1 · errorCode=SYNTHETIC_FAILURE · detail=PRIVATE PROVIDER ORIGINAL synthetic-credential"
         val redactor = DiagnosticContentRedactor(credentials = listOf("synthetic-credential"))
         val safe = redactor.logLine(line)
         assertFalse(safe, safe.contains("PRIVATE PROVIDER ORIGINAL"))
@@ -118,6 +119,112 @@ class DiagnosticContentPolicyTest {
         assertEquals(safe, redactor.redact(safe))
         val forensic = DiagnosticContentRedactor(DiagnosticContentMode.FULL_FORENSIC, listOf("synthetic-credential"))
         assertEquals(line.replace("synthetic-credential", "[redacted]"), forensic.logLine(line))
+    }
+
+    @Test fun terminalFailureDetailsCannotIntroduceMetadataAssignments() {
+        val prefixes = listOf(
+            "eventId=provider-terminal · HTTP_ERROR · status=400 · model=model-1 · errorCode=SYNTHETIC_FAILURE · detail=",
+            "eventId=memory-terminal · ENRICHMENT_EXCEPTION · cause=IllegalStateException · detail="
+        )
+        val privateDetails = listOf(
+            "failed beneficiary=PRIVATE_DETAIL_CANARY",
+            "failed beneficiary: PRIVATE_DETAIL_CANARY",
+            "failed status=PRIVATE_DETAIL_CANARY errorCode=PRIVATE_CODE_CANARY",
+            "failed · status=PRIVATE_DETAIL_CANARY · errorCode=PRIVATE_CODE_CANARY",
+            "failed {\"beneficiary\":\"PRIVATE_DETAIL_CANARY\",\"status\":\"PRIVATE_STATUS_CANARY\"}",
+            "failed [redacted] beneficiary=PRIVATE_DETAIL_CANARY",
+            "failed {\"beneficiary\":\"PRIVATE_DETAIL_CANARY\"} · errorCode=PRIVATE_CODE_CANARY",
+            "failed\nstatus=PRIVATE_DETAIL_CANARY"
+        )
+        val redactor = DiagnosticContentRedactor()
+        for (prefix in prefixes) {
+            for (detail in privateDetails) {
+                val safe = redactor.logLine(prefix + detail)
+                assertEquals(prefix + DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED, safe)
+                assertEquals(safe, redactor.logLine(safe))
+            }
+        }
+    }
+
+    @Test fun terminalDetailsStayPrivateWhenFrozenAndForensicKeepsCredentialRedactedOriginals() {
+        val prefix = "eventId=frozen-terminal · HTTP_ERROR · status=400 · errorCode=SYNTHETIC_FAILURE · detail="
+        val line = prefix + "failed beneficiary=PRIVATE_DETAIL_CANARY synthetic-credential · status=PRIVATE_STATUS_CANARY"
+        val redactor = DiagnosticContentRedactor(credentials = listOf("synthetic-credential"))
+        val frozen = redactor.logLine(line)
+        val record = buildJsonObject {
+            put("source", "critical-log")
+            put("line", frozen)
+        }
+        val safe = redactor.redact(record) as JsonObject
+        assertEquals(JsonPrimitive("critical-log"), safe["source"])
+        assertEquals(JsonPrimitive(prefix + DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED), safe["line"])
+        assertEquals(safe, redactor.redact(safe))
+        assertFalse(safe.toString().contains("PRIVATE_"))
+        assertFalse(safe.toString().contains("synthetic-credential"))
+        val forensic = DiagnosticContentRedactor(DiagnosticContentMode.FULL_FORENSIC, listOf("synthetic-credential"))
+        assertEquals(line.replace("synthetic-credential", "[redacted]"), forensic.logLine(line))
+        val originalRecord = buildJsonObject { put("line", line) }
+        assertEquals(JsonPrimitive(line.replace("synthetic-credential", "[redacted]")), (forensic.redact(originalRecord) as JsonObject)["line"])
+    }
+
+    @Test fun terminalDetailRulePreservesStructuredEvidenceAndSimilarFieldNames() {
+        val redactor = DiagnosticContentRedactor()
+        val ordinary = "eventId=typed-control · detailCount=3 · details=available · status=400"
+        assertEquals(ordinary, redactor.logLine(ordinary))
+        val structured = Json.parseToJsonElement("""{"detail":{"status":400,"error_code":"SYNTHETIC_FAILURE"},"details":{"attempts":2,"dispatched":false}}""")
+        assertEquals(structured, redactor.redact(structured))
+        val line = "eventId=json-control · evidence={\"detail\":\"PRIVATE_DETAIL_CANARY\",\"status\":400,\"error_code\":\"SYNTHETIC_FAILURE\"} · outcome=FAILED"
+        val safe = redactor.logLine(line)
+        assertFalse(safe.contains("PRIVATE_DETAIL_CANARY"))
+        for (field in listOf("eventId=json-control", "status", "400", "SYNTHETIC_FAILURE", "outcome=FAILED")) assertTrue(field, safe.contains(field))
+        assertEquals(safe, redactor.logLine(safe))
+    }
+
+    @Test fun splitFailureDetailRecordsKeepOnlyTypedContinuationIdentityByDefault() {
+        val prefix = "eventId=split-detail · "
+        val message = "HTTP_ERROR · status=400 · detail=failed\nbeneficiary=PRIVATE_DETAIL_CANARY\nstatus=PRIVATE_STATUS_CANARY · errorCode=PRIVATE_CODE_CANARY\n{\"beneficiary\":\"PRIVATE_JSON_CANARY\"}\n[redacted] PRIVATE_TAIL_CANARY synthetic-credential"
+        val redactor = DiagnosticContentRedactor(credentials = listOf("synthetic-credential"))
+        val forensic = DiagnosticContentRedactor(DiagnosticContentMode.FULL_FORENSIC, listOf("synthetic-credential"))
+        for (eventId in listOf("split-detail", "synthetic-credential")) {
+            val lines = boundedDiagnosticRecord(prefix, eventId, message).lineSequence().toList()
+            assertEquals(5, lines.size)
+            assertEquals(prefix + "HTTP_ERROR · status=400 · detail=" + DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED, redactor.logLine(lines.first()))
+            lines.drop(1).forEachIndexed { index, line ->
+                val safe = redactor.logLine(line)
+                val safeId = eventId.replace("synthetic-credential", "[redacted]")
+                assertEquals("parentEventId=$safeId · sequence=${index + 1} · " + DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED, safe)
+                assertFalse(safe.contains("PRIVATE_"))
+                assertFalse(safe.contains("synthetic-credential"))
+                assertEquals(safe, redactor.logLine(safe))
+                assertEquals(line.replace("synthetic-credential", "[redacted]"), forensic.logLine(line))
+            }
+        }
+    }
+
+    @Test fun continuationRuleKeepsCompactStructuredEvidenceAndUnrelatedRecords() {
+        val redactor = DiagnosticContentRedactor()
+        val compact = boundedDiagnosticRecord(
+            "eventId=compact-control · ",
+            "compact-control",
+            "HTTP_ERROR · evidence={\"status\":400,\"errorCode\":\"SYNTHETIC_FAILURE\",\"attempts\":2,\"dispatched\":false} · outcome=FAILED"
+        )
+        assertEquals(1, compact.lineSequence().count())
+        assertEquals(compact, redactor.logLine(compact))
+        val ordinary = listOf(
+            "eventId=ordinary · parentEventId=earlier · sequence=1 · status=completed",
+            "parentEventIdentifier=earlier · sequence=1 · status=completed",
+            "parentEventId=earlier · sequence=0 · status=completed",
+            "parentEventId=earlier · sequence=unknown · status=completed"
+        )
+        for (line in ordinary) assertEquals(line, redactor.logLine(line))
+        val continuationPrefix = "parentEventId=typed-method · sequence=1 · "
+        for (method in listOf("GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH")) {
+            val line = continuationPrefix + "METHOD: $method"
+            assertEquals(line, redactor.logLine(line))
+        }
+        for (payload in listOf("METHOD: POST beneficiary=PRIVATE_DETAIL_CANARY", "METHOD: PRIVATE_DETAIL_CANARY", "METHOD: POST · status=PRIVATE_STATUS_CANARY", "STATUS: PRIVATE_STATUS_CANARY", "errorCode=PRIVATE_CODE_CANARY")) {
+            assertEquals(continuationPrefix + DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED, redactor.logLine(continuationPrefix + payload))
+        }
     }
 
     @Test fun jsonDetailStringsArePrivateWithoutDroppingStructuredFailureEvidence() {
@@ -532,6 +639,11 @@ class DiagnosticContentPolicyTest {
         assertTrue(forensic.contains("TOOL_FAILURE"))
     }
 
+    @Test fun unrelatedTypedResourcesRemainStructural() {
+        val metadata = Json.parseToJsonElement("""{"resource":"workflow_run","status":"completed","id":42,"count":7}""")
+        assertEquals(metadata, DiagnosticContentRedactor().redact(metadata))
+    }
+
     private fun toolEventRow(result: JsonElement, type: String): JsonObject = buildJsonObject {
         put("table", "tool_events")
         put("rowId", 7)
@@ -557,7 +669,8 @@ class DiagnosticContentPolicyTest {
     }
 }
 
-internal val retainedTaskPrivateCanaries = listOf("PRIVATE TASK CANARY", "PRIVATE ACCEPTANCE CANARY", "PRIVATE SOURCE CANARY", "PRIVATE FACT CANARY", "PRIVATE UNMEASURED CANARY")
+internal const val RETAINED_TASK_PRIVATE_REPOSITORY_PATH = "clients/PRIVATE_REPOSITORY_CANARY/Source.kt"
+internal val retainedTaskPrivateCanaries = listOf("PRIVATE TASK CANARY", "PRIVATE ACCEPTANCE CANARY", "PRIVATE SOURCE CANARY", "PRIVATE FACT CANARY", "PRIVATE UNMEASURED CANARY", RETAINED_TASK_PRIVATE_REPOSITORY_PATH)
 
 /** Real retained producers, shared with the staged ZIP/resume regression. */
 internal suspend fun retainedTaskDiagnosticRecord(): JsonObject {
@@ -595,7 +708,7 @@ internal suspend fun retainedTaskDiagnosticRecord(): JsonObject {
                     JsonArray(
                         listOf(
                             buildJsonObject {
-                                put("path", "src/Fixture.kt")
+                                put("path", RETAINED_TASK_PRIVATE_REPOSITORY_PATH)
                                 put("sha", "b".repeat(40))
                                 put("content", "PRIVATE SOURCE CANARY private-secret")
                                 put("start_line", 1)

@@ -10,6 +10,7 @@
 - Preserve bounded catalog search queries and offer explicit scalar-name discovery corrections while keeping exact advertised-tool checks and caller choices intact.
 - Improve contextual privacy masking and streamed local restoration; add content-free final-request evidence, redacted diagnostic exports with a separate forensic choice, accurate private-memory readiness and an offline fictional privacy/intent/timing check.
 - Redact retained request and cited-source text in default exports, and recheck inherited authority before each restored fallback stream event.
+- Close source-filename, terminal-detail and continuation-line privacy gaps in default exports, and preserve explicit colon forms for complete address separators.
 
 # 0.9.66.14 — 2026-11-23 (earlier branch candidate)
 

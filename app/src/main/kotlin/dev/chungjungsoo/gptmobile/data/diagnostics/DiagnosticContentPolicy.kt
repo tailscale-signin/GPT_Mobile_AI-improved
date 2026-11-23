@@ -33,8 +33,18 @@ internal class DiagnosticContentRedactor(
     }
 
     fun logLine(value: String): String {
-        val credentialSafe = (credentialsOnly.redact(JsonPrimitive(value)) as JsonPrimitive).content
-        if (mode == DiagnosticContentMode.FULL_FORENSIC) return credentialSafe
+        // A physical continuation retains correlation, not a trusted field schema.
+        // Recognize its producer prefix before a credential may replace the ID.
+        val continuation = if (mode == DiagnosticContentMode.REDACTED) continuationLogPrefix.find(value) else null
+        val exportValue = if (continuation != null) {
+            val payload = value.substring(continuation.value.length)
+            // Ktor's fixed method vocabulary contains no free-form response text.
+            continuation.value + if (safeHttpMethodContinuation.matches(payload)) payload else PRIVATE_CONTENT_OMITTED
+        } else {
+            value
+        }
+        val credentialSafe = (credentialsOnly.redact(JsonPrimitive(exportValue)) as JsonPrimitive).content
+        if (mode == DiagnosticContentMode.FULL_FORENSIC || continuation != null) return credentialSafe
         // Old retained logs can predate recorder redaction. Reapply it to the entire
         // frozen line before saving the resumable snapshot, not only the shared zip.
         return scrubText(redactLogContent(redactLogMessage(credentialSafe)))
@@ -60,7 +70,7 @@ internal class DiagnosticContentRedactor(
                         key == "fields" && toolEventFields != null -> cleanToolEventFields(toolEventFields)
                         surfaceCounts && normalized in privateDispatchSurfaces && child is JsonPrimitive && !child.isString && child.content.toLongOrNull()?.let { it >= 0 } == true -> child
                         normalized in retainedPrivateTextFields -> omitRetainedText(child)
-                        sourceExcerpt && normalized == "value" -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                        sourceExcerpt && normalized in setOf("value", "resource") -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
                         observationPointer != null && normalized in setOf("value", "observed", "valuejson") -> redactObservation(child, observationPointer, encoded = normalized == "valuejson")
                         normalized in setOf("facts", "retainedfacts") && child is JsonObject -> JsonObject(child.mapValues { (pointer, fact) -> redactObservation(fact, pointer) })
                         configuredConnection && normalized in setOf("name", "alias") -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
@@ -175,11 +185,20 @@ internal class DiagnosticContentRedactor(
         var offset = 0
         while (offset < value.length) {
             val start = value.indexOfAny(charArrayOf('{', '['), offset)
-            if (start < 0) {
-                append(scrubLogAssignments(value.substring(offset)))
+            val prefix = value.substring(offset, if (start < 0) value.length else start)
+            // Provider and memory producers append detail last. Its arbitrary
+            // text cannot introduce trusted fields, separators or JSON evidence.
+            val terminalDetail = terminalLogDetail.find(prefix)
+            if (terminalDetail != null) {
+                append(scrubLogAssignments(prefix.substring(0, terminalDetail.range.first)))
+                append(terminalDetail.value)
+                append(PRIVATE_CONTENT_OMITTED)
                 break
             }
-            val prefix = value.substring(offset, start)
+            if (start < 0) {
+                append(scrubLogAssignments(prefix))
+                break
+            }
             val privatePayload = privateLogAssignment.findAll(prefix).lastOrNull()?.let { it.range.last == prefix.lastIndex } == true
             append(scrubLogAssignments(prefix))
             val redactedLabel = redactedLogLabels.firstOrNull { value.startsWith(it, start) }
@@ -275,6 +294,9 @@ internal class DiagnosticContentRedactor(
         // Structured objects take the same recursive policy as archive records.
         // Legacy labelled lines stop at the next diagnostic field or separator.
         private val httpEndpointLabel = Regex("(?i)(\\b(?:REQUEST|FROM|URL|ENDPOINT|LOCATION)[ \\t]*:[ \\t]*)https?://[^\\s\"'<>]+")
+        private val terminalLogDetail = Regex("(?i)(?<![\\w])detail[ \\t]*[:=][ \\t]*")
+        private val continuationLogPrefix = Regex("^parentEventId=(?:[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}|\\[redacted\\]) · sequence=[1-9][0-9]{0,8} · ")
+        private val safeHttpMethodContinuation = Regex("METHOD: (?:GET|HEAD|POST|PUT|DELETE|CONNECT|OPTIONS|TRACE|PATCH)")
         private val logFieldBoundary = Regex("[ \\t]*·|[\\r\\n]|[ \\t]+[A-Za-z][A-Za-z0-9_]*[ \\t]*[:=]")
         private val privateLogAssignment = Regex(
             "(?i)((?<![\\w])(?:" +

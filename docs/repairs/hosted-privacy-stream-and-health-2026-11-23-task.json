@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "task": "hosted-privacy-stream-and-health-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2367,
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "05c4c2db6545ca9c70cbe027e3b0096efaba4827",
+  "intent": "Restore contextual family health masking and keep the private conversation thread context on the producer through streaming, cancellation, and downstream collection.",
+  "evidence": {
+    "failingSource": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+    "geniexUnitJob": 137883525604,
+    "signedValidationUnitJob": 137883693987,
+    "geniexDiagnosticsSha256": "3fcc959d41f6e7f44bbf3cb791e9a347def056c86b59236f1d6ca94f59fe7c59",
+    "observed": "The existing partner/family masking regression fails on both hosted variants. Two real detector/mask tests fail on the starting source and pass after the repair. The 47 focused JVM cases cover detector, masking, receipt ranges and recovery of the original text.",
+    "auditUnitArtifact": 14849927206,
+    "auditUnitSha256": "1f088cd9cec4e68e115b9e3be7d629da09fcd4177fccda95983cabeddda2d1c7",
+    "stream": "Before the correction, cancellation leaves the captured private chat installed on the collecting thread. Two new assertions and the same three downstream PrivateTurnTest methods fail in the observed order. The rendezvous handoff passes all 60 stream/protocol/authority cases, and 5 stream then 10 unmodified private-turn methods on the same thread with zero skips."
+  },
+  "validation": [
+    "Require two protected spans, exact round-trip restoration, readable writing instructions, and unchanged text with HEALTH disabled.",
+    "Keep child-process, delivery, care-instruction, nonhuman-subject and general-teaching controls readable.",
+    "Keep the private chat in the producer. Restore the ordinary or distinct caller chat on streamed output, terminal completion and cancellation during an incomplete marker. Preserve inherited authorization, selected tools, partial-output and no-replay behavior.",
+    "The focused JVM tests execute the real mask, stream wrappers, conversation thread context and physical tool guard with platform/account boundary ports. Require the complete integrated Android workflows including the heap/timeout investigation."
+  ],
+  "integratedParent": "bd503c2de077900150daea8ee63270eb2a472879"
+}

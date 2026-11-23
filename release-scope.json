@@ -214,7 +214,9 @@
     "Retain verification-reserve stops as task-incomplete reports with their precise existing reason and observed remaining allowance, preserving original acceptance criteria and remote uncertainty.",
     "Prevent short-name false refusals by binding exact app-owned public protocol suffixes locally while preserving all original text checks and complete keyed wire fingerprints; keep diagnostic integration fixtures explicit about redacted versus forensic content.",
     "Redact retained task, acceptance and cited-source content before default diagnostic checkpoint/archive serialization while preserving typed evidence, explicit forensic choice and unconditional credential removal.",
-    "Revalidate captured provider and retained-source authority before each masked fallback publication, preserving cancellation, typed partial policy-change failure and no replay."
+    "Revalidate captured provider and retained-source authority before each masked fallback publication, preserving cancellation, typed partial policy-change failure and no replay.",
+    "Protect explicit family pregnancy and care disclosures in private messages while preserving unrelated task text, technical phrases and category selection.",
+    "Keep private stream callbacks in their captured conversation and restore the collecting chat on completion or cancellation."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -368,7 +370,8 @@
     "scripts/gradle_retry.py",
     "scripts/tests/test_android_lint_memory.py",
     "scripts/tests/test_gradle_retry.py",
-    "scripts/tests/test_release_lint_workflow.py"
+    "scripts/tests/test_release_lint_workflow.py",
+    "docs/repairs/hosted-privacy-stream-and-health-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

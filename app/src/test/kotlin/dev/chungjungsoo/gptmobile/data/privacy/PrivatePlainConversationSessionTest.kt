@@ -20,10 +20,12 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -31,6 +33,7 @@ class PrivatePlainConversationSessionTest {
     @Test
     fun noToolConversationStreamsVerifiedTextBeforeCompletionThroughBothPrivateWrappers() = runBlocking {
         val fixture = Fixture()
+        val caller = ConversationPrivacyContext.currentOrNull()
         val seen = CompletableDeferred<Unit>()
         fixture.response = { token ->
             flow {
@@ -42,6 +45,7 @@ class PrivatePlainConversationSessionTest {
         }
         val events = mutableListOf<ProviderEvent>()
         fixture.session().streamRound(emptyList(), emptyList()).collect { event ->
+            assertSame(caller, ConversationPrivacyContext.currentOrNull())
             events += event
             if (event is ProviderEvent.TextDelta) {
                 assertFalse(event.text.contains("[PRIVATE_"))
@@ -51,6 +55,7 @@ class PrivatePlainConversationSessionTest {
         assertEquals("Answer: $SECRET", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
         assertEquals(1, events.count { it == ProviderEvent.Completed })
         assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.ToolResult || it is ProviderEvent.Failed })
+        assertSame(caller, ConversationPrivacyContext.currentOrNull())
     }
 
     @Test
@@ -71,6 +76,7 @@ class PrivatePlainConversationSessionTest {
     @Test
     fun cancellationWhileAMarkerIsIncompleteNeverFlushesItsRawSuffix() = runBlocking {
         val fixture = Fixture()
+        val caller = ConversationPrivacyContext.currentOrNull()
         val waiting = CompletableDeferred<Unit>()
         fixture.response = { token ->
             flow {
@@ -84,6 +90,30 @@ class PrivatePlainConversationSessionTest {
         withTimeout(2_000) { waiting.await() }
         job.cancelAndJoin()
         assertTrue(events.none { it is ProviderEvent.TextDelta || it is ProviderEvent.Completed })
+        assertSame(caller, ConversationPrivacyContext.currentOrNull())
+    }
+
+    @Test
+    fun privateProducerKeepsItsCapturedChatWithoutChangingTheCollectingChat() = runBlocking {
+        val fixture = Fixture()
+        fixture.response = {
+            flow {
+                assertEquals(27, ConversationPrivacyContext.currentOrNull()?.chatId)
+                emit(ProviderEvent.TextDelta("A reply"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val collectingChat = ConversationPrivacyContext(42, false)
+        withContext(collectingChat) {
+            val events = mutableListOf<ProviderEvent>()
+            fixture.session().streamRound(emptyList(), emptyList()).collect { event ->
+                assertSame(collectingChat, ConversationPrivacyContext.currentOrNull())
+                events += event
+            }
+            assertSame(collectingChat, ConversationPrivacyContext.currentOrNull())
+            assertEquals("A reply", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+            assertEquals(1, events.count { it == ProviderEvent.Completed })
+        }
     }
 
     @Test

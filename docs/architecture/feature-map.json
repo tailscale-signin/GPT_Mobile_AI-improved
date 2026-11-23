@@ -757,9 +757,9 @@
       "sha256": "8902acff93bfc4f262455be36ff98ed88c111f2dff3b861c94af1dca6df213dc"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextDetection.kt": {
-      "blob_sha": "c737fcf7fae6150f06f264ef18a1deda899f5fd6",
-      "bytes": 16901,
-      "sha256": "bc93486ab5a74d57723829ddec78efa186288db2995efd038d1bd833db92d015"
+      "blob_sha": "c88b19dafb4d9d4c4ad50005e53cb9d93dfc50a3",
+      "bytes": 17510,
+      "sha256": "12912f07c32f063ed4284b697327b97d045b62b3e0ebbe26a5c6c1acd0c5b4bc"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMask.kt": {
       "blob_sha": "96e8daae1b8ccd836678a09b1e07feb43588f0e5",
@@ -1167,9 +1167,9 @@
       "sha256": "010b0f447db1b704b3328643c2c54c8e21951373a35421c94be116805f5c0841"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt": {
-      "blob_sha": "10fae7fef3536f4dd32c316a8d6247df4c6cf911",
-      "bytes": 48178,
-      "sha256": "91309406a7e651dca485124c655c1b0faf9df00233732ef2490f73461ce70b17"
+      "blob_sha": "6d1f51be45c7b5388781d057a679780ab671d861",
+      "bytes": 49626,
+      "sha256": "c7f033298194487c5bfcf97ad668cfbbd9bb6b6bfc57d26da37518f94a96a820"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProtectionReceiptTest.kt": {
       "blob_sha": "3864806a576e80a999219738feed77fd027f2988",
@@ -1187,9 +1187,9 @@
       "sha256": "5d6c3b7d440d9685b1a841bc3845a8965d9f1ef92ecb0ce58df81dd13db5bd6e"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivatePlainConversationSessionTest.kt": {
-      "blob_sha": "176e5a1ef74a47646b514fc094d34eabaada8c66",
-      "bytes": 6417,
-      "sha256": "7adc0bd998a331359a2a29cd15798eee78916db5de90f1e003998bfebb02fc4b"
+      "blob_sha": "59ecf0ddb6d902f6bc984a130f5af5f715f9c1fe",
+      "bytes": 7905,
+      "sha256": "d16cf56e8bc11f6b7d69edddcbb12d973dfd2f874b54dbb17ace29012a4e46a9"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderStreamTest.kt": {
       "blob_sha": "e757a99876cc7968fda89806c456d0cba1c2947e",

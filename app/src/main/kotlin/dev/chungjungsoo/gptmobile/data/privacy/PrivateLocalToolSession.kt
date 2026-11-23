@@ -21,6 +21,7 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
@@ -55,6 +56,8 @@ internal class PrivateLocalToolSession(
         }
     }
 
+    // The rendezvous boundary keeps the captured thread context on the producer
+    // when a collector shares its dispatcher or cancels an incomplete response.
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
         currentCoroutineContext()[PrivateTurn]?.validate()
         if (store.effectiveSnapshot(privacy.enabled) != policy) {
@@ -165,7 +168,7 @@ internal class PrivateLocalToolSession(
             }
         }
         emit(ProviderEvent.Completed)
-    }.flowOn(privacy)
+    }.flowOn(privacy).buffer(0)
 
     private fun evidence(exchanges: List<AgentToolExchange>): String? = try {
         val data = BoundedPrivateToolData()

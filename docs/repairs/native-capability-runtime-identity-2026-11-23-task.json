@@ -1,0 +1,100 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_commit": "6227953bcd4bc3579466789fc405743fce913837",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "working_branch": "native-capability-identity-20261123",
+  "worktree": "/workspace/scratch/6b5c8b09c56b/native-capability-identity-work",
+  "intent": "Invalidate persisted speech capability success and failure receipts from the native runtime before the first-profile lifecycle repair, while preserving fresh matching receipt reads and the native repair itself.",
+  "authorization": "Root reserved this narrow user-authorized follow-up after verifying the published runtime identity remained unchanged and no other candidate owner existed.",
+  "status": "IMPLEMENTED_BASELINE_REPRODUCED_COMPONENT_GREEN_PEER_REVIEW_CLEAR",
+  "owned_paths": [
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityRuntimeIdentityTest.kt",
+    "docs/repairs/native-capability-runtime-identity-2026-11-23-task.json"
+  ],
+  "constraints": [
+    "Change only the explicit native runtime identity, a focused real capability-store regression, and this checkpoint.",
+    "Preserve native lifecycle, cache eligibility, receipts, failure provenance, workflow and publication behavior.",
+    "Demonstrate the regression on the original runtime identity and the corrected identity using current production scope/hash/store code.",
+    "Bound host compiler/test JVMs to 512 MiB and two active processors; no full Android or native/device execution claim.",
+    "No remote writes or foreign checkout edits; root owns final integration and generated metadata."
+  ],
+  "diagnosis": "Published 672/160/929/622 retained the same native runtime and qualification protocol identities. Production comparisonScope/key therefore continued to match old successful measured rankings and cached failures after the native first-profile lifecycle repair. Successes can remain current for seven days and failures for six hours.",
+  "runtime_identity": {
+    "previous": "ort1.28.2-qnn2.7-qairt2.51-convex2",
+    "current": "ort1.28.2-qnn2.7-qairt2.51-convex2-profile2",
+    "effect": "The existing production comparison scope, backend cache key, warm factory identity and exported runtime evidence now identify the repaired native lifecycle. Historical records are retained but cannot hit active runtime keys; no cache admission or native implementation code changed."
+  },
+  "source_sha256": {
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java": "072edca61278469bc11d554253b515e91fd48c2dc5e7dddef4a0fc913a072ac0",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityRuntimeIdentityTest.kt": "561b2c54e216024bd4c088b9659889a3db1ede4da0e41eeae1ca9fc156fce995"
+  },
+  "peer_review": {
+    "reviewer": "/root/voice_repo_review",
+    "result": "CLEAR",
+    "scope": "Read-only exact production/test source and frozen actual-input, excerpt-origin, receipt, log, artifact and harness hash verification. The sole production delta is the runtime identity. Old receipts remain valid under historical keys but cannot hit current keys; fresh ranking and failure provenance remain intact.",
+    "independent_test_execution": false
+  },
+  "validation": {
+    "proof_directory": "/workspace/scratch/6b5c8b09c56b/native-capability-identity-proof",
+    "baseline": {
+      "tests": 13,
+      "passed": 11,
+      "expected_failures": [
+        "previousRuntimeSuccessReceiptsCannotRankTheRepairedRuntime",
+        "previousRuntimeFailureCannotDisableTheRepairedBackend"
+      ],
+      "finding": "Both old success and old failure receipts were read through the active runtime key; all existing store controls and both fresh-record controls passed.",
+      "input_manifest_sha256": "2c709cfbbea7dfb7147b83925dcef52def89cdb89f3ff0c6f5b8bca3f8cc09c7",
+      "test_log_sha256": "d983750987410943fabbd973cbfb3707479590bf6957d7d877947ae7bcec1f65",
+      "artifact_sha256": "5573b38716d9821d66158de17749a648613fd2dae0582c664a5b03c1a8c97fb4"
+    },
+    "fixed": {
+      "tests": 13,
+      "passed": 13,
+      "failures": 0,
+      "composition": "Four dedicated migration/retention cases and all nine existing VoiceBackendCapabilityStoreTest cases.",
+      "input_manifest_sha256": "10a71fdcc2e83ba61d46887fc8cf18421dc7c7e67f6fddd163e5cf4da5b7a987",
+      "test_log_sha256": "b7fe228abefb37bc50cea31260810bc48a8dfd88c07c34af1d6bf27dfc88ad8f",
+      "artifact_sha256": "3f3f351e53da89dafeae04dc9939ee50291026f2d977f52ceec939366640d608"
+    },
+    "harness_sha256": "2a11c82a3c2d94606919fe09e2672e3949cc1b5a72bf06879abef085cbe36fb7",
+    "actual_source_inputs": 17,
+    "unchanged_excerpt_origins": 2,
+    "unchanged_dependency_inputs": 66,
+    "scope": "Compiled current production capability store, scope/hash computation, selection policy, factory and Java runtime class; real Robolectric SDK34 SharedPreferences. Only KokoroVoice and model-pack constants were extracted from current source to avoid unrelated audio/download owners.",
+    "causal_control": "Frozen baseline and corrected inputs differ only in TimedKokoro.RUNTIME_ID; all test, remaining production, extracted boundary and dependency hashes are identical.",
+    "limits": {
+      "javac_heap_mib": 128,
+      "kotlin_compiler_heap_mib": 512,
+      "test_heap_mib": 384,
+      "active_processors": 2
+    },
+    "ktlint_1_3_1": "PASSED dedicated Kotlin test",
+    "git_diff_check": "PASSED",
+    "integration_gate": "Root owns generated references/scope and canonical validation after integration, followed by applicable exact-head Android/native checks. No full Gradle, JNI, physical device or performance qualification is claimed by this component proof."
+  },
+  "integration": {
+    "base_commit": "60a9997b47b07757e9ba1df242a254cfa6f46f3e",
+    "working_branch": "voice-after-fixtures-20261123",
+    "source_candidate": "c830dbff7f7289c9dddae707add1595dee4d23fa",
+    "intent": "Preserve both published Android fixture corrections and all previous speech work, then regenerate source metadata and run canonical validation before expected-head append.",
+    "canonical_fast": {
+      "result": "PASSED",
+      "tests": 650,
+      "seconds": 24.498,
+      "log_sha256": "c6280b1c58440ff1b95a4a35de9f1863d0ba01b53be71ee527ec60d0c1ecedfa",
+      "scope": "Combined native identity and independently reviewed compiler/security source; generated inventories/references, host contracts and exact scope. Final-head hosted Android/native/matrix, main and publication remain required."
+    },
+    "concurrent_compiler_security_candidate": "abc16b0b264179bf70a9646a31742444cda94c7f",
+    "concurrent_compiler_security_tree": "86c4e3f6178bf866dba39d33451d9910a083ada1",
+    "preservation": "Shared remote60a9997 advanced while native candidate was under validation. Reconcile source and union only changes/allowedPaths in release scope; all other scope fields are identical. Native runtime/test bytes and all incoming compiler/security source bytes remain unchanged.",
+    "native_only_canonical_fast": {
+      "result": "PASSED",
+      "tests": 635,
+      "seconds": 27.71,
+      "log_sha256": "5b6502628bb599c5a1030973ae837027884fb1acc0a3502f1015dd4b179ac47e",
+      "scope": "Canonical host checks, generated source inventories and references, CI contracts and exact release scope. Final-head hosted Android/native/matrix and main/publication gates remain required."
+    }
+  }
+}

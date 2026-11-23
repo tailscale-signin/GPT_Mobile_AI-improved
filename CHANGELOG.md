@@ -7,6 +7,7 @@
 - Plan coordinated Android 0.9.66.15/code 149 and Gateway 18.1.3 publication after actual-main/privacy integration, final-source qualification and published-asset verification.
 
 - Repair multi-name catalog lookup aliases without acquiring extra tools; retain precise verification-reserve stop reasons and the observed remaining allowance in approved reports.
+- Preserve bounded catalog search queries and offer explicit scalar-name discovery corrections while keeping exact advertised-tool checks and caller choices intact.
 - Improve contextual privacy masking and streamed local restoration; add content-free final-request evidence, redacted diagnostic exports with a separate forensic choice, accurate private-memory readiness and an offline fictional privacy/intent/timing check.
 - Redact retained request and cited-source text in default exports, and recheck inherited authority before each restored fallback stream event.
 

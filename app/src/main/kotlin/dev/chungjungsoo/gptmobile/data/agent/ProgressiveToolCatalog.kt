@@ -424,11 +424,23 @@ class ProgressiveToolCatalog(
         ToolCatalogDiagnostics.recordOmissions("catalog", omitted, schemaAllowance.toLong(), inventoryNames = (candidates.keys + allowed.map { it.name }).toSet())
     }
 
-    /** Normalize only unused null selectors and exact names from the current advertised contract. */
+    /** Normalize bounded local discovery aliases, unused nulls and exact currently advertised names. */
     @Synchronized
     internal fun canonicalArguments(arguments: JsonObject): JsonObject {
         if (arguments.keys.any { it !in setOf("query", "names", "action", "repository_hint", "catalog_only") }) return arguments
         val normalized = arguments.filterNot { (key, value) -> key in setOf("query", "names") && value == JsonNull }.toMutableMap()
+        // A query-only search describes local discovery, not a named tool action.
+        // Keep the query unchanged and never turn an explicit acquisition choice into a local one.
+        val discoveryQuery = (normalized["query"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
+        if (normalized["action"] == JsonPrimitive("search") &&
+            "names" !in normalized &&
+            arguments.keys.all { it in setOf("query", "names", "action", "catalog_only") } &&
+            discoveryQuery != null &&
+            normalized["catalog_only"] in setOf(null, JsonPrimitive(true))
+        ) {
+            normalized.remove("action")
+            normalized["catalog_only"] = JsonPrimitive(true)
+        }
         // Providers sometimes put an inventory selector in the action slot.
         // A catalog action with one tool can be a real backend action; preserve it.
         // Multi-name catalog discovery stays local and keeps every requested name.

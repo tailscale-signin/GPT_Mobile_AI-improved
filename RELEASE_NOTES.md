@@ -69,6 +69,7 @@ Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains 
 ## Recovery and request consistency
 
 - Recover multi-tool catalog lookups that use the catalog action alias, preserving all requested tool names and local discovery boundaries.
+- Recover bounded local catalog searches and suggest a new discovery call for a scalar tool name, preserving its literal name and query, explicit catalog choice and exact advertised-tool admission checks.
 - Report a verification-reserve stop with its precise reason and remaining call allowance; keep unmet criteria visible and distinguish it from a generic chat or tool failure.
 
 - Retain completed phone-index shards after local indexing is interrupted. Settle charged Combined work exactly once across nested wrappers, preserve cancellation, and keep unrelated unknown remote operations blocked for reconciliation.

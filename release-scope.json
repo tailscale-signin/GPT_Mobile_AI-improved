@@ -219,7 +219,8 @@
     "Keep private stream callbacks in their captured conversation and restore the collecting chat on completion or cancellation.",
     "Omit repository-relative path string values in actual retained checkpoint and tool-result schemas before default diagnostic snapshots while preserving structural coverage, source identity, hashes and explicitly chosen forensic content.",
     "Treat actual tool-event payload and display as original content regardless JSON hydration or declared type; omit unknown or malformed result content and configured connection labels while preserving typed execution and safe provenance metadata. Add Room-backed latest-state/full-history ZIP and forensic manifest regressions.",
-    "Preserve the shared private-flow rendezvous fix and add repeated cancellation with subsequent ordinary/private caller context checks. Extend only explicit family medical/nursing/personal care predicates while preserving complete-predicate boundaries, task text and exact protected-range restoration."
+    "Preserve the shared private-flow rendezvous fix and add repeated cancellation with subsequent ordinary/private caller context checks. Extend only explicit family medical/nursing/personal care predicates while preserving complete-predicate boundaries, task text and exact protected-range restoration.",
+    "Recover bounded local catalog search queries and offer literal-preserving scalar-name correction calls without widening tool acquisition, overriding explicit caller choices or weakening exact advertised-contract admission."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -267,6 +268,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestDispatchContext.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticContentPolicy.kt",
@@ -345,6 +347,7 @@
     "docs/architecture/repository-index.json",
     "docs/repairs/android-cmake-package-recovery-2026-11-23-task.json",
     "docs/repairs/catalog-alias-issue2378-2026-11-23-task.json",
+    "docs/repairs/catalog-query-issues2380-2381-2026-11-23-task.json",
     "docs/repairs/gateway-producer-fixture-deadline-2026-11-23-task.json",
     "docs/repairs/gateway-version-reservation-2026-11-23-task.json",
     "docs/repairs/github-acceptance-restore-2026-11-23-task.json",

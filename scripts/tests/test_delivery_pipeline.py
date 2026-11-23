@@ -102,6 +102,63 @@ class PipelineTest(unittest.TestCase):
         self.assertLess(package_index, native)
         self.assertLess(native, size)
 
+    def test_native_smoke_releases_generation_heaps_without_bypassing_device_gates(self):
+        workflow, steps, shrink_index = self.assert_android_compile_stages(
+            'native-memory-smoke.yml',
+            [('kspNativeSmokeKotlin',), ('kaptNativeSmokeKotlin',),
+             ('compileNativeSmokeKotlin', 'compileNativeSmokeJavaWithJavac'),
+             ('minifyNativeSmokeWithR8',)],
+            job_timeout=50,
+        )
+        for step in steps:
+            if 'scripts/gradle_retry.py' in step:
+                self.assertIn('-PnativeMemorySmoke=true', step)
+                self.assertNotIn('continue-on-error:', step)
+                self.assertNotIn('|| true', step)
+                self.assertNotRegex(step, r'(?<!\S)-x(?:\s|=)')
+        lint = next(i for i, step in enumerate(steps) if ':app:lintVitalNativeSmoke ' in step)
+        package = next(i for i, step in enumerate(steps) if ':app:assembleNativeSmoke ' in step)
+        test_package = next(i for i, step in enumerate(steps) if ':app:assembleNativeSmokeAndroidTest ' in step)
+        native = next(i for i, step in enumerate(steps) if 'scripts/check_local_runtime_apk.py' in step)
+        emulator = next(i for i, step in enumerate(steps) if 'ReactiveCircus/android-emulator-runner@' in step)
+        evidence = next(i for i, step in enumerate(steps) if 'name: minified-native-memory-evidence' in step)
+        self.assertEqual(
+            sorted([shrink_index, lint, package, test_package, native, emulator, evidence]),
+            [shrink_index, lint, package, test_package, native, emulator, evidence],
+        )
+        for index in (package, test_package):
+            self.assertIn('ForkJoinPool.common.parallelism=1', steps[index])
+        self.assertIn('scripts/check_no_telemetry.py', steps[native])
+        self.assertIn('api-level: 36', steps[emulator])
+        self.assertIn('arch: x86_64', steps[emulator])
+        self.assertIn('bash scripts/run_native_memory_smoke.sh', steps[emulator])
+        self.assertIn('if: always()', steps[evidence])
+        self.assertIn('app/build/native-memory-smoke/', steps[evidence])
+
+    def test_apk_download_contracts_release_generation_heaps_before_selected_tests(self):
+        _, steps, test_index = self.assert_android_compile_stages(
+            'github-build-downloads.yml',
+            [('kspDebugKotlin',), ('kaptDebugKotlin',),
+             ('compileDebugKotlin', 'compileDebugJavaWithJavac'), ('testDebugUnitTest',)],
+            job_timeout=40,
+        )
+        classes = [
+            'dev.chungjungsoo.gptmobile.data.github.GitHubBuildCatalogTest',
+            'dev.chungjungsoo.gptmobile.data.github.GitHubApkFilesTest',
+        ]
+        self.assertEqual(classes, re.findall(r"--tests '([^']+)'", steps[test_index]))
+        self.assertIn('timeout-minutes: 30', steps[test_index])
+        provisioning = next(i for i, step in enumerate(steps) if 'scripts/provision_memory_model.py' in step)
+        generation = next(i for i, step in enumerate(steps) if ':app:kspDebugKotlin' in step)
+        evidence = next(i for i, step in enumerate(steps) if 'name: github-build-downloads-test-report-' in step)
+        self.assertLess(provisioning, generation)
+        self.assertLess(test_index, evidence)
+        self.assertIn('if: always()', steps[evidence])
+        self.assertIn('retention-days: 14', steps[evidence])
+        for name in classes:
+            self.assertIn(f'app/build/test-results/testDebugUnitTest/TEST-{name}.xml', steps[evidence])
+        self.assertIn('app/build/reports/tests/testDebugUnitTest/', steps[evidence])
+
     def test_geniex_packaging_has_bounded_parallelism_and_stall_evidence(self):
         workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/geniex-preview.yml').read_text()
         debug = workflow.split('- name: Build isolated preview APK', 1)[1].split('- name: Validate release shrinker', 1)[0]

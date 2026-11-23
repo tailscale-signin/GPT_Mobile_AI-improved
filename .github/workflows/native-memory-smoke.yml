@@ -70,10 +70,30 @@ jobs:
           python3 scripts/prepare_gguf_smoke.py /tmp/llama /tmp/gguf-fixture
       - name: Enable KVM
         run: sudo chmod 666 /dev/kvm
+      # Kotlin/KSP run in process. Release each generation heap before the
+      # production compiler and R8, as in the other bounded Android builds.
+      - name: Generate native test app sources in a fresh process
+        timeout-minutes: 15
+        run: >-
+          python3 scripts/gradle_retry.py --timeout-seconds 840 -- :app:kspNativeSmokeKotlin
+          -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+      - name: Generate native test app annotations in a fresh process
+        timeout-minutes: 15
+        run: >-
+          python3 scripts/gradle_retry.py --timeout-seconds 840 -- :app:kaptNativeSmokeKotlin
+          -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+      - name: Compile native test app sources in a fresh process
+        timeout-minutes: 25
+        run: >-
+          python3 scripts/gradle_retry.py --timeout-seconds 1440 -- :app:compileNativeSmokeKotlin :app:compileNativeSmokeJavaWithJavac
+          -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
       - name: Shrink the native test app in a separate process
         run: |
-          # In-process Kotlin/KSP and R8 retain their analysis heap until Gradle exits.
-          # Release it before ApkFlinger allocates its packaging buffers.
+          # R8 retains its analysis heap until Gradle exits. Release it before
+          # ApkFlinger allocates its packaging buffers.
           python3 scripts/gradle_retry.py -- :app:minifyNativeSmokeWithR8 -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m'
       - name: Run native release lint before packaging
         run: |

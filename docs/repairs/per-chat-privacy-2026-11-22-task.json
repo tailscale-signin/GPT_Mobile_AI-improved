@@ -473,5 +473,61 @@
     "native_accounting": "Independent source/test review passed: resource outcome needs the trusted start marker and successful grader calibration; unavailable/malformed runtimes remain HARNESS, and cancellation or unknown cleanup prevents grading. Owner39 executor/preparation+20 phone/live and14 native controls remain separately qualified.",
     "ci": "Root reviewed bounded fresh KSP/KAPT/production/instrumentation compilation stages; unchanged mandatory APK, provenance, native, size, device and acceptance gates remain. New source-contract tests check task ordering, bounded memory and no skipped failure gates.",
     "incident_contract": "Root reviewed the exact three new journal mismatch enum values and approved-report roundtrip/invalid-type controls; no arbitrary diagnostic body values are admitted."
+  },
+  "native_smoke_compilation_followup": {
+    "status": "IMPLEMENTED_INDEPENDENTLY_REVIEWED_LOCAL_VALIDATION_PASSED_PENDING_DRAFT_PUSH_AND_HOSTED",
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "source_sha": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+    "intent": "Release annotation-generation and compiler heaps between nativeSmoke Gradle stages while preserving all bounded minified-app and actual JNI gates.",
+    "ownership": "Privacy owns native-memory-smoke.yml, github-build-downloads.yml and delivery-pipeline regressions; all other announced source ownership remains unchanged.",
+    "baseline": {
+      "run": 45092551956,
+      "job": 137425226002,
+      "failed_task": ":app:compileNativeSmokeKotlin",
+      "failure": "java.lang.OutOfMemoryError: Java heap space while reporting FIR diagnostics, after KSP/KAPT in the same minifyNativeSmokeWithR8 invocation",
+      "duration": "15m30s build; Kotlin compilation01:13:23–01:22:11UTC",
+      "compiler_source_diagnostic": false,
+      "runtime_or_JNI_executed": false
+    },
+    "constraints": [
+      "Keep4GiB heap,768MiB metaspace,single-worker and in-process compiler policy",
+      "Retain50-minute job ceiling and finite stage deadlines",
+      "Preserve nativeSmoke variant property, R8, lint, APK native/telemetry validation, Android16 encoder/vector/GGUF execution and strict receipts",
+      "No local full Android build or physical-device qualification is implied"
+    ],
+    "validation": {
+      "baseline_host_contract": "FAIL as expected: unchanged b715 workflow exposes only minifyNativeSmokeWithR8 instead of three separate generation/compilation stages plus minification",
+      "focused_host": "PASS49 delivery-pipeline, native receipt and bounded Gradle retry host tests in1.164s; fixture-generated instrumentation output does not imply actual Android execution",
+      "canonical_host": "PASS626 tests in27.864s; generated architecture/audit/diagnostic/agent metadata unchanged; CI policy/secrets/resources,2024 literal Android patterns,99 dynamic patterns outside literal checking,Room schema history and whitespace passed",
+      "current_head_minified_JNI": "PENDING_HOSTED; the host contract regression and unrelated staged PR production compilation do not qualify the nativeSmoke variant or actual JNI",
+      "combined_host": "PASS50 focused delivery-pipeline/native-receipt/retry host cases in1.114s;627 canonical host tests in22.958s on integratedbcf1c452 plus both workflow corrections, generated metadata/CI policy/resources/regex/Room history/whitespace passed",
+      "gateway_package": "PASS505 exact file hashes; existing acknowledged sourcef261446103518ad9dc97ac239bae5f47a7c4cbb6 is an ancestor. No Gateway source/package file is changed by this workflow repair."
+    },
+    "implementation": [
+      "Separate nativeSmoke KSP, KAPT and Kotlin/Java invocations before the unchanged R8 invocation",
+      "15/15/25-minute stage bounds and840/840/1440-second process deadlines, within original50-minute job",
+      "Preserve original instrumentation fresh process; no new instrumentation split without an observed need"
+    ],
+    "integrated_remote_source": "bcf1c4523f4b615390f3cecdf8ab436ea4023e7d",
+    "independent_native_review": "PASS source review of actual264ac5ca180f5f0cad50be9c4e453433f007ba06 workflow/contract by privacy_navigation; the same bytes are preserved after integration withbcf1c452.",
+    "apk_download_followup": {
+      "baseline_source": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
+      "run": 45092552014,
+      "job": 137425227693,
+      "failed_task": ":app:compileDebugKotlin",
+      "failure": "Compiler Java heap exhaustion after KSP/KAPT in one invocation; no catalog/download test ran",
+      "implementation": "Separate kspDebugKotlin, kaptDebugKotlin and compileDebugKotlin/compileDebugJavaWithJavac before unchanged selected test task",
+      "budgets": "Keep40-minute job/30-minute test and4096MiB/768MiB/single worker; new generation/compile step bounds15/15/25minutes with840/840/1440-second subprocess deadlines",
+      "preserved_test_classes": [
+        "dev.chungjungsoo.gptmobile.data.github.GitHubBuildCatalogTest",
+        "dev.chungjungsoo.gptmobile.data.github.GitHubApkFilesTest"
+      ],
+      "baseline_host_contract": "FAIL as expected: unchanged workflow exposes only testDebugUnitTest rather than three isolated prerequisites and the selected tests",
+      "hosted": "PENDING actual final-head compilation and both selected test suites",
+      "independent_review": "PASS privacy_navigation review of actual workflow and regression; exact filters,40/30-minute bounds,4096/768MiB/single-worker policy, prerequisite ordering and always-upload reports preserved"
+    }
   }
 }

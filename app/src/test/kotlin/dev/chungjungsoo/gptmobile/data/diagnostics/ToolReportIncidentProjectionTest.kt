@@ -11,10 +11,12 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphPrerequisite
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

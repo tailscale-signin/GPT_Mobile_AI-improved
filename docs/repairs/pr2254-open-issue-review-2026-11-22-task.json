@@ -548,7 +548,30 @@
     "limits": [
       "Physical Android GPU/NPU execution, microphone, audio presentation and external provider availability require their respective device or service.",
       "Host Kotlin suites use platform boundaries. The GitHub Actions run is the authority for the integrated Android build."
-    ]
+    ],
+    "integrated_gateway": {
+      "commit": "6f887cc3f4e81deb497879c9f83cf773fc002189",
+      "python_passed": 1709,
+      "platform_skips": 33,
+      "node_passed": 7
+    },
+    "repository_fast_suite": {
+      "passed": 616,
+      "on_repair_tree": true
+    },
+    "concurrent_privacy_integration": {
+      "commit": "3a7563e3cad2707dbe577470811ab05b5d67728b",
+      "workspace_gateway_tests": 116,
+      "android_host_privacy_setup": 20,
+      "android_host_workspace_client_repository_and_command_store": 26
+    },
+    "ci_unit_test_compilation": {
+      "workflow_run": 45085098496,
+      "job": 137401905917,
+      "observed_at_commit": "57ee520c5b4d99947e724c4eff13e413ddc7ce78",
+      "rechecked_on": "5efa5446ddd644c119cbfdf86d77c2e4cf8d157b",
+      "fix": "Import Json and jsonObject at the four graph-result parsing sites and keep one graphAction helper with the same explicit Gateway source. All test cases and their assertions are preserved."
+    }
   },
   "manifest_correction": "The integrated manifest contained both the superseded five-second speech reserve and the active 5.9-second reserve. Removed the superseded entry to agree with the playback implementation and release notes."
 }

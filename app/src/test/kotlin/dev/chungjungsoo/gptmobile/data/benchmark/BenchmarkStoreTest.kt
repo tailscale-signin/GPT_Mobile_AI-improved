@@ -348,11 +348,26 @@ class BenchmarkStoreTest {
             store.load()
             val unreadable = BenchmarkRunRecord("unreadable-owner", 1, "{\"id\":\"unreadable-owner\",\"private\":\"credential-canary\"}")
             writer.dao().insertRuns(listOf(unreadable))
-            assertTrue(runCatching { store.ensureBackupReplacementAllowed() }.exceptionOrNull() is IllegalStateException)
-            val failure = runCatching { store.importBackupJson("[]") }.exceptionOrNull()
-            assertTrue(failure is IllegalStateException)
-            assertEquals("Saved benchmark ownership could not be read. Recover the saved results before replacing them.", failure?.message)
-            assertEquals(null, failure?.cause)
+            val failures = listOf(
+                runCatching { store.ensureBackupReplacementAllowed() }.exceptionOrNull(),
+                runCatching { store.importBackupJson("[]") }.exceptionOrNull()
+            )
+            for (failure in failures) {
+                assertTrue(failure is IllegalStateException)
+                // Coroutine recovery may copy this safe exception and retain the original as its cause.
+                var cause = failure
+                repeat(8) {
+                    cause?.let { current ->
+                        assertEquals(IllegalStateException::class.java, current.javaClass)
+                        assertEquals("Saved benchmark ownership could not be read. Recover the saved results before replacing them.", current.message)
+                        assertTrue("Sanitized failures must not retain suppressed exceptions", current.suppressed.isEmpty())
+                        cause = current.cause
+                    }
+                }
+                assertEquals("Sanitized coroutine copies must form a bounded cause chain", null, cause)
+                val rendered = checkNotNull(failure).stackTraceToString()
+                assertTrue("Unreadable payloads must not leak into exception diagnostics", !rendered.contains(unreadable.payload) && !rendered.contains("credential-canary"))
+            }
             assertEquals(listOf(unreadable), writer.dao().runs())
         } finally {
             store.close()

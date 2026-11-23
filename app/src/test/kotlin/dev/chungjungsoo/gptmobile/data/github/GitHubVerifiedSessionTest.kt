@@ -1545,7 +1545,14 @@ class GitHubVerifiedSessionTest {
 
     @Test fun verificationRechecksTheInputLimitAfterFittingTheExcerpt() = runBlocking {
         val saved = linkedMapOf<String, JsonObject>()
-        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), load = { saved[it] }, save = { id, value -> saved[id] = value })
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), now = { 1000L }, load = { saved[it] }, save = { id, value -> saved[id] = value })
+        // Publication needs a retained tool observation even when extraction is refused by its input limit.
+        book.observe(
+            ProviderEvent.ToolCall("read", "github_context", buildJsonObject { put("action", "status") }),
+            AgentToolResult("read", ToolResultContent.Json(buildJsonObject { put("branch", "main") }), false)
+        )
+        val retained = book.snapshot().first
+        assertEquals(1, retained.size)
         var measurements = 0
         var extractionCalls = 0
         val gate = GitHubVerifiedSession(answer("private".repeat(1000)), book, "task", { if (measurements++ == 0) 512 else 128 }, {
@@ -1557,7 +1564,12 @@ class GitHubVerifiedSessionTest {
         val observation = current.getValue(GitHubAcceptancePublicationEvidence.KEY).jsonObject
         assertEquals(JsonPrimitive("PLAN_LIMIT_CHANGED"), observation["acceptance_extraction_observation"])
         assertEquals(JsonPrimitive(128), observation["acceptance_extraction_input_limit_tokens"])
+        assertTrue((observation.getValue("acceptance_extraction_required_tokens") as JsonPrimitive).content.toInt() in 129..512)
+        assertEquals(JsonPrimitive(1), observation["acceptance_receipt_snapshot_count"])
+        assertEquals(2, measurements)
         assertEquals(0, extractionCalls)
+        assertEquals(retained, book.snapshot().first)
+        assertEquals(JsonPrimitive(false), current["completion_verified"])
         assertTrue(events.last() is ProviderEvent.Failed)
         assertFalse(events.contains(ProviderEvent.Completed))
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().none { it.text.contains("private") })

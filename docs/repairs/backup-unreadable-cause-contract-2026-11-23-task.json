@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
+  "working_branch": "backup-unreadable-20261123",
+  "parent_pr": 2254,
+  "intent": "Reproduce the hosted unreadable canonical backup ownership failure through actual Room, then qualify the sanitization assertion across coroutine exception recovery without changing the production guard or canonical retention.",
+  "status": "FIXTURE_CORRECTED_FOCUSED_ROOM_GREEN_AWAITING_HOSTED_HEAD",
+  "ownership": "Root-assigned isolated fixture repair; no foreign checkout edits or remote mutations.",
+  "hosted_failure": {
+    "run_id": 45098738048,
+    "source_commit": "753d07cde88fd58f8c90ca266c5450c66838a6c6",
+    "test": "BenchmarkStoreTest.backupReplacementCannotSilentlyDiscardUnreadableCanonicalOwnership",
+    "assertion": "A null exception cause was expected, but a same-message sanitized IllegalStateException was observed."
+  },
+  "constraints": [
+    "Keep the production refusal guard and exact safe message unchanged.",
+    "Retain the exact unreadable canonical Room row after rejection.",
+    "Require a finite bounded sanitized cause chain with no raw payload, private canary, parser cause or suppressed exception leakage.",
+    "Record actual-source baseline and corrected results; distinguish Room execution from unrelated harness boundaries."
+  ],
+  "diagnosis": "Coroutine debug stack-trace recovery copies the sanitized IllegalStateException across the actual Room/withContext boundary and retains the original safe exception as its cause. The same original fixture passes with recovery disabled; demanding a null cause is not the sanitization contract.",
+  "change": "The target fixture now checks both preflight and direct import. Every cause-chain node must have the exact safe IllegalStateException type and message, have no suppressed exceptions, and terminate within eight nodes. Rendered diagnostics must exclude the unreadable payload and private canary. Exact canonical Room row equality is retained. No production code changed.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt": "6eaf6f500d0d13cacaae1b6c2a6cab9b61c5a0f7d583c802018d6fafb5fcafb3",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkDatabase.kt": "9a0561b227c65cd44a94db8019727a150274647f43359b6e0829d30db181acf0",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStoreTest.kt": "9722023cf5db8251249eb3c5be2fa424ff45f037ce7a90ab982b39261d3c51f7"
+  },
+  "proof_directory": "/workspace/scratch/6b5c8b09c56b/backup-unreadable-proof",
+  "validation": [
+    {
+      "scope": "Unmodified target method through actual current Store and real Room DAO/database/generated implementations",
+      "receipt": "baseline/receipt.json",
+      "debug_recovery_enabled": "Failed at the original null-cause assertion with the exact hosted same-message IllegalStateException",
+      "debug_recovery_disabled": "Passed",
+      "compiler_heap_mib": 500,
+      "test_heap_mib": 384
+    },
+    {
+      "scope": "Corrected target method through the same actual Store/Room boundary",
+      "receipt": "corrected/receipt.json",
+      "debug_recovery_enabled": "Passed",
+      "debug_recovery_disabled": "Passed",
+      "extracted_method_sha256": "72b23e82baf19d1f0275873770be8431c2cd480384f89ed4d23c1ef2bc28ae38"
+    },
+    {
+      "scope": "Negative admission control: isolated proof copy deliberately retains the real parser exception as a cause",
+      "receipt": "leak-control/receipt.json",
+      "debug_recovery_enabled": "Expected failure: MissingFieldException is not an allowed sanitized cause",
+      "debug_recovery_disabled": "Expected failure: MissingFieldException is not an allowed sanitized cause",
+      "repository_production_edited": false
+    },
+    {
+      "scope": "Canonical host validation",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "Passed",
+      "tests": 635,
+      "seconds": 23.23,
+      "log": "canonical-fast.log",
+      "log_sha256": "055563b1d225556aef58854eeb7c289618bdd8c3842d6dccb0371359d2b6346c"
+    },
+    {
+      "scope": "ktlint 1.3.1 for the changed test and git diff --check",
+      "result": "Passed"
+    }
+  ],
+  "independent_review": "Read-only speech peer cleared the exact test hash: bounded safe coroutine copies are allowed, parser/suppressed causes are refused, canonical row equality remains unchanged, and the production guard is untouched.",
+  "limitations": [
+    "The focused harness compiles the full unchanged current BenchmarkStore and current restore helper against actual Room/DAO/KSP implementations; the database source matches the retained generated classes.",
+    "Existing domain serializers and unrelated scoring/export/audit/native boundaries are retained from the earlier Room component proof. Two newer unexercised task-context symbols fail closed if reached.",
+    "The target repository test method is extracted verbatim with its Robolectric setup. The entire BenchmarkStoreTest class and broader Android/backup-manager suites were not rerun locally.",
+    "The canonical host suite does not establish physical device, Android packaging, or signed publication qualification. Exact final-head hosted checks remain required."
+  ],
+  "integration": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "parent_pr": 2254,
+    "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "base_commit": "6227953bcd4bc3579466789fc405743fce913837",
+    "working_branch": "voice-after-unit-20261122",
+    "intent": "Preserve published speech follow-ups while integrating both actual full-suite fixture corrections; source and test semantics are unchanged from the independently reviewed immutable candidates. Final-head full Android execution remains required.",
+    "canonical_fast": {
+      "result": "PASSED",
+      "tests": 635,
+      "seconds": 26.002,
+      "log_sha256": "4bc76e6a8989ee1dd02a97722a9c8a87f4df6ec01120f036c46b2f4c66f8d614",
+      "scope": "Host validation only; exact final-head hosted Android, applicable checks, main gates and publication remain required."
+    }
+  }
+}

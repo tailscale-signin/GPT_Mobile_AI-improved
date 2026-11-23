@@ -264,7 +264,8 @@
     "Exercise voice-entry opt-in through the existing scrollable setup screen at200percent text size, preserving visibility, enabled-state and exactly-once start checks for both ordinary and installed streaming-engine entry.",
     "Update the isolated Linux speech-model smoke environment to the publisher-verified patched Pillow 13.0.0 wheel while preserving every other dependency pin, hash enforcement, advisory gate and all three real model qualification jobs.",
     "Include the hash-pinned speech-model smoke Python dependencies in both locked advisory inventory modes; retain every existing inventory and scan rule, and verify all declared smoke pins reach the actual query boundary.",
-    "Align the failure-reporting fixture with the exact selected-voice synthesis notice while preserving every timeout, phase, privacy-origin, run-identity, cause-fingerprint and raw-canary assertion; production behavior is unchanged."
+    "Align the failure-reporting fixture with the exact selected-voice synthesis notice while preserving every timeout, phase, privacy-origin, run-identity, cause-fingerprint and raw-canary assertion; production behavior is unchanged.",
+    "Use the publisher-verified patched FontTools4.60.2 wheel in the speech-model smoke environment, preserving all other exact pins, the expanded live advisory inventory, hash enforcement and all three real model qualification jobs."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -645,7 +646,8 @@
     "scripts/tests/test_mediapipe_jni.py",
     "scripts/tests/test_native_memory_smoke.py",
     "scripts/tests/test_prepare_emulator_ui.py",
-    "scripts/tests/test_release_lint_workflow.py"
+    "scripts/tests/test_release_lint_workflow.py",
+    "docs/repairs/fonttools-speech-smoke-security-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

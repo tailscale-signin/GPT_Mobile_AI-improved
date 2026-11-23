@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "task": "fonttools-speech-smoke-security-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2367,
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "9b355e21491225b6e4226d5a3a530d725117f837",
+  "startingTree": "f71db8feff2d773e82af882034cfce2bfedb2ef2",
+  "workingBranch": "audit/fonttools-patch-dc53",
+  "recordedBeforeSourceEdits": true,
+  "status": "SOURCE_IMPLEMENTED_PENDING_COMPOSED_QUALIFICATION",
+  "intent": "Replace only the vulnerable FontTools4.60.1 wheel pin/hash with patched4.60.2 in the speech smoke environment. Preserve Pillow13, all other pins, expanded advisory inventory, hash enforcement and all real model/security gates.",
+  "hostedFinding": {
+    "source": "9b355e21491225b6e4226d5a3a530d725117f837",
+    "mergeCheckout": "dc39578f2e516ef5e246559ff1cd23e180655f19",
+    "run": 45276153057,
+    "job": 138048372033,
+    "step": "Run python3 scripts/audit_locked_dependencies.py",
+    "package": "fonttools",
+    "version": "4.60.1",
+    "queriedPackageVersions": 758,
+    "reportedPackageAdvisoryMatches": 2,
+    "advisoryIds": [
+      "GHSA-768j-98cg-p3fv",
+      "PYSEC-2026-1389"
+    ],
+    "sameVulnerability": "CVE-2025-66034",
+    "publisherSeverity": "Moderate",
+    "affectedRange": ">=4.33.0,<4.60.2",
+    "fixedVersion": "4.60.2"
+  },
+  "primarySources": [
+    "https://github.com/fonttools/fonttools/security/advisories/GHSA-768j-98cg-p3fv",
+    "https://osv.dev/vulnerability/PYSEC-2026-1389",
+    "https://pypi.org/project/fonttools/4.60.2/",
+    "https://matplotlib.org/3.10.7/install/dependencies.html"
+  ],
+  "publisherVerification": {
+    "method": "Official PyPI release HTML file details and its published provenance subject; metadata only, no local wheel download or cryptographic attestation verification.",
+    "filename": "fonttools-4.60.2-cp312-cp312-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl",
+    "sha256": "98d0719f1b11c2817307d2da2e94296a3b2a3503f8d6252a101dca3ee663b917",
+    "publishedOn": "2025-12-09",
+    "pythonMinimum": "3.9",
+    "workflowPython": "3.12",
+    "boundary": "Normal CI must install the exact wheel using unchanged --require-hashes --only-binary=:all: and execute all three real model jobs.",
+    "publisherSourceCommit": "78ba5e8bb4ccf65ef8077d81bc48450ccacf1728",
+    "publisherWorkflow": "https://github.com/fonttools/fonttools/actions/runs/20064658893/attempts/1"
+  },
+  "preserve": [
+    "All18 other exact package pins including patched Pillow13.0.0",
+    "Both expanded locked advisory inventory modes and all query/pagination/failure rules",
+    "The high/critical dependency-review gate and complete history credential scan",
+    "Actual SDK imports and all three Kokoro/Phonon/Pocket model jobs",
+    "All concurrent Android, Gateway, privacy and receiving corrections",
+    "All existing test names, assertions, limits, deadlines and final release gates"
+  ],
+  "qualification": {
+    "sourceReview": {
+      "status": "CLEAR_FOR_NARROW_SOURCE",
+      "receiptSha256": "e8444c87b049b98a572ed3dca90e2668f5c8100f43af04ce66a21baabbcb8698",
+      "scope": "Official publisher wheel/provenance metadata, actual cached Matplotlib3.10.7 and MediaPipe1.2.3 declared dependencies, Python/platform compatibility and exact preservation of18other pins; no local installation, wheel download or model execution."
+    },
+    "canonicalHost": "PENDING_FINAL_COMPOSED_TREE",
+    "exactScopeAndGeneratedReferences": "PENDING_FINAL_COMPOSED_TREE",
+    "liveAdvisoryAudit": "PENDING_CORRECTED_SOURCE_HOSTED",
+    "dependencyReview": "PENDING_CORRECTED_SOURCE_HOSTED",
+    "realModelSmoke": "PENDING_ALL_THREE_CORRECTED_SOURCE_HOSTED",
+    "noLocalRuntimeClaim": true,
+    "sourcePreservation": {
+      "requirementSha256": "11ff8736c9580e3f7e09212f285fd218d211d2656da4921906299ffa982fc66b",
+      "totalPins": 19,
+      "unchangedOtherPins": 18,
+      "proof": "Reversing only the FontTools wheel-comment and exact pin/hash line reproduces the entire9b requirements file byte-for-byte."
+    }
+  },
+  "publication": "Guarded non-forced append preserving all incoming commits; keep draft until all source holds and final-head workflows pass, normally merge, require all ten exact-main gates and fully verify Android15/149 plus Gateway18.1.3 publication.",
+  "compatibility": {
+    "mediapipe1.2.3": "Actual unchanged wheel metadata requires unversioned matplotlib and has no direct FontTools constraint.",
+    "matplotlib3.10.7": "Actual exact locked wheel metadata requires fonttools>=4.22.0 with no upper bound; official versioned documentation agrees.",
+    "fonttools4.60.2": "Requires Python>=3.9; standard-library-only mandatory dependencies; selected CPython3.12 manylinux x86_64 wheel matches existing CI."
+  },
+  "integrationPublicParent": "dc53edfb1748523248383e4ca8bc51d6ce84a8af",
+  "preservedConcurrentChange": "The public selected-voice failure fixture exactly matches the independently reviewed one-literal correction (blobc2c3a290d3437bf37933df51586a3aaf9d344f1f). Its original12methods/assertions/loops/timeouts are preserved. The competing unpublished fixture ledger/commit remains archived; only this FontTools repair is appended."
+}

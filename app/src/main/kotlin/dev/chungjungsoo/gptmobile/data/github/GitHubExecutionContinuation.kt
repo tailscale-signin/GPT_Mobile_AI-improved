@@ -133,22 +133,30 @@ internal object GitHubExecutionContinuation {
     fun requiresExhaustiveSearch(task: String, arguments: JsonObject? = null): Boolean {
         val query = (arguments?.get("query") as? JsonPrimitive)?.content.orEmpty().trim('*', '/')
         val clauses = mutableListOf<String>()
+        val restrictedAuditClauses = mutableSetOf<Int>()
         for (clause in GitHubTaskContinuity.request(task).split(Regex("""[\n;!?]|\.(?:\s|$)|,\s*(?:and\s+)?(?:then\s+)?(?=[a-z])"""))) {
             if (clause.isBlank()) continue
             // Punctuation does not separate an audit from its attached scope restriction.
             // Named samples and independent operations keep their own clauses.
             if (clauses.isNotEmpty() &&
-                standaloneIssueAudit.matches(clauses.last().trim()) &&
+                (
+                    clauses.lastIndex in restrictedAuditClauses ||
+                        standaloneIssueAudit.matches(clauses.last().trim()) ||
+                        repositoryAudit.containsMatchIn(clauses.last())
+                    ) &&
                 (detachedAuditComponent.containsMatchIn(clause.trim()) || detachedAuditSample.matches(clause.trim()))
             ) {
                 clauses[clauses.lastIndex] = "${clauses.last()}; $clause"
+                restrictedAuditClauses += clauses.lastIndex
             } else {
                 clauses += clause
             }
         }
         // An explicit sample of this query stays bounded even alongside a broad audit.
         if (query.isNotBlank() && clauses.any { sampleScope.containsMatchIn(it) && it.contains(query, ignoreCase = true) }) return false
-        return clauses.any { clause ->
+        return clauses.withIndex().any { (index, clause) ->
+            // A broad matcher can still find the audit prefix after its restriction is attached.
+            if (index in restrictedAuditClauses) return@any false
             if (sampleScope.containsMatchIn(clause) || !coverageQualifier.containsMatchIn(clause) || !coverageSubject.containsMatchIn(clause)) return@any false
             val broadAudit = repositoryAudit.containsMatchIn(clause)
             // A denied audit supplies no coverage authority; another explicit clause may still do so.

@@ -19,6 +19,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubRemoteContinuationTest {
+    @Test fun explicitRepositoryAuditsKeepTheirDetachedRestrictions() {
+        val fixture = SearchScopeFixture("TODO", "literal")
+        for (audit in listOf(
+            "Audit all bugs in the repository",
+            "Review the entire codebase",
+            "Perform a comprehensive repository audit"
+        )) {
+            for (restriction in listOf("only within the login component", "take only a sample", "only within the TODO component")) {
+                val task = "$audit; $restriction"
+                assertNull(task, fixture.next(task))
+            }
+        }
+    }
+
+    @Test fun restrictedRepositoryAuditsPreserveIndependentSearchScope() {
+        val requested = SearchScopeFixture("TODO", "literal")
+        val unrelated = SearchScopeFixture("FIXME", "literal")
+        val instructions = SearchScopeFixture("CONTRIBUTING", "paths")
+        for (audit in listOf(
+            "Audit all bugs in the repository",
+            "Review the entire codebase",
+            "Perform a comprehensive repository audit"
+        )) {
+            for (restriction in listOf("only within the login component", "take only a sample")) {
+                val task = "$audit; $restriction; find every TODO"
+                assertEquals(task, requested.nextArguments, requested.next(task)?.arguments)
+                assertNull(task, unrelated.next(task))
+                assertNull(task, instructions.next(task))
+                val independentAudit = "$audit; $restriction; $audit"
+                assertEquals(independentAudit, requested.nextArguments, requested.next(independentAudit)?.arguments)
+            }
+            for (condition in listOf("take a sample of README matches", "in the report, include proposed solutions", "only publish after the tests pass")) {
+                val task = "$audit; $condition"
+                assertEquals(task, requested.nextArguments, requested.next(task)?.arguments)
+            }
+        }
+    }
+
     @Test fun detachedComponentAndUnqualifiedSampleRestrictionsStayWithTheirAudit() {
         val fixture = SearchScopeFixture("TODO", "literal")
         for (task in listOf(

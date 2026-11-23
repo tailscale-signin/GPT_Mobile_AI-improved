@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "41ab2be9845bd634abbbed9af72383e83e52cb04d9bf418be7f32450ac8f01c9",
-  "file_count": 3057,
-  "indexed_line_count": 518100,
+  "source_digest": "884e6303f68a2af6b4961c4e6f15baa685bb78d1d17f56e4f230d611c7230e12",
+  "file_count": 3058,
+  "indexed_line_count": 518172,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -148,8 +148,8 @@
     {
       "id": "voice_and_media",
       "label": "Voice and media",
-      "file_count": 100,
-      "indexed_line_count": 17538
+      "file_count": 101,
+      "indexed_line_count": 17610
     },
     {
       "id": "portable_domain",
@@ -13017,8 +13017,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "73c96062dc3f40bc988e7037b40bc17f5192e240681639501c971eaca1dc101b",
-      "indexed_lines": 1539
+      "sha256": "6837c43d333671fe82979087eaf9bbf855ce60e092e1a8f26c0ef9617717910c",
+      "indexed_lines": 1543
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
@@ -13441,6 +13441,13 @@
       "indexed_lines": 77
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt",
+      "area_id": "voice_and_media",
+      "kind": "source",
+      "sha256": "924f758c222df8ffc5a8da1fbd0e1c1955f250115c04df66fd22a424d72f2eb0",
+      "indexed_lines": 53
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt",
       "area_id": "voice_and_media",
       "kind": "source",
@@ -13465,8 +13472,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "45b1df71bdddd9ced7cc1a438e676bbe6f44ec8d35a74f7caab69503ae224d15",
-      "indexed_lines": 105
+      "sha256": "9013b754e197307e593735f05edbaa408791f84734238180c490694c850edf7c",
+      "indexed_lines": 120
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceTerminalReply.kt",

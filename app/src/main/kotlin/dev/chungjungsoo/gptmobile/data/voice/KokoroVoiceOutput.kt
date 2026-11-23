@@ -939,11 +939,13 @@ internal class KokoroVoiceOutput(
         val started = SystemClock.elapsedRealtime()
         var callbackMs = 0L
         var lastProducedAt = started
+        playback.adaptive.beginStream()
         playback.diagnostics?.synthesisStarted()
         consumeVoiceStream(engine, text, playback.voice.speakerId, speed, { active === playback }) { chunk ->
             val callbackStarted = SystemClock.elapsedRealtime()
             val productionMs = (callbackStarted - lastProducedAt).coerceAtLeast(0)
             val retained = stream.accept(chunk)
+            playback.adaptive.observeStreamDelivery(productionMs, retained.samples.size)
             // Native text projection omits source ranges when captions are disabled. Its
             // expanded speech offsets then belong to the normalized input, not the segment.
             playback.captions.appendStream(segmentIndex, segment, streamStart, if (timedCaptions) retained.cues else emptyList(), retained.samples.size)
@@ -963,7 +965,9 @@ internal class KokoroVoiceOutput(
         }
         if (active !== playback) return false
         stream.finish()
-        val synthesisMs = (SystemClock.elapsedRealtime() - started - callbackMs).coerceAtLeast(1)
+        val finished = SystemClock.elapsedRealtime()
+        playback.adaptive.endStream((finished - lastProducedAt).coerceAtLeast(0))
+        val synthesisMs = (finished - started - callbackMs).coerceAtLeast(1)
         val audioMs = stream.retainedFrames * 1_000 / VOICE_PCM_SAMPLE_RATE
         playback.adaptive.observe(synthesisMs, audioMs, spokenWords = Regex("\\S+").findAll(text).count())
         publishExecution(playback, engine, completedPhrase = true)

@@ -187,7 +187,10 @@
         "gpu speech",
         "npu speech",
         "audible playback",
-        "Kokoro GPU NPU"
+        "Kokoro GPU NPU",
+        "speech stutter",
+        "speech flow",
+        "streaming refill"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
@@ -219,7 +222,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTimingTest.kt",
@@ -245,7 +249,10 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPauseTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceQuietLimiterTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -266,7 +273,8 @@
         "Benchmark and Auto ranking require same-run CPU-reference duration, token timing and signal consistency; numeric consistency does not establish perceptual equivalence.",
         "Retain at most two exact accelerator token shapes under observed memory headroom and a hard estimate ceiling; unknown memory retains only the active shape.",
         "One playback-scoped quiet limiter spans streaming callbacks and phrases; validate raw PCM first and account only retained audio in queued frames and cue positions.",
-        "An observed cue prefix may extend in place; a fully trimmed ending clears only the current presented word during refill, without advancing the caption clock, consuming a later onset or bypassing audio-focus pause."
+        "An observed cue prefix may extend in place; a fully trimmed ending clears only the current presented word during refill, without advancing the caption clock, consuming a later onset or bypassing audio-focus pause.",
+        "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone."
       ]
     },
     {
@@ -344,7 +352,10 @@
         "scripts/tests/test_ci_modernization.py",
         "scripts/tests/test_prepare_emulator_ui.py",
         "scripts/tests/test_native_memory_smoke.py",
-        "authentication/test_incident_report_contract.py"
+        "authentication/test_incident_report_contract.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt",
+        "scripts/tests/test_prepare_emulator_action.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -362,7 +373,8 @@
         "Preserve original source ranges and pronunciation overrides when bounding long streaming replies.",
         "Production accelerator playback requires complete same-run CPU-reference consistency before native open; explicit Recheck publishes its complete requested cohort and cancellation cannot grant partial admission.",
         "Numerical audio consistency and SDK model smoke do not establish perceptual equivalence, arbitrary-utterance correctness or target-phone accelerator performance.",
-        "Gateway response retirement is bound to the exact admitted Work lease; cancellation and a fixed timeout plus validated audio duration bound transport without extending synthesis or retiring a replacement request."
+        "Gateway response retirement is bound to the exact admitted Work lease; cancellation and a fixed timeout plus validated audio duration bound transport without extending synthesis or retiring a replacement request.",
+        "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone."
       ]
     },
     {
@@ -646,6 +658,42 @@
         "Require VOICE_STREAMING_BACKEND_EVIDENCE_V1 only for emitted new streaming voice enum values; retain ordinary voice V1 payloads and the bounded plain readiness response.",
         "Do not combine observations across recording epochs or infer a historical crash cause without evidence."
       ]
+    },
+    {
+      "id": "android-acceptance-readiness",
+      "title": "Android emulator acceptance readiness",
+      "terms": [
+        "Android acceptance",
+        "API 34",
+        "API 36",
+        "Android 16",
+        "emulator launcher ANR",
+        "premature unlock"
+      ],
+      "paths": [
+        ".github/workflows/release-0950-acceptance.yml",
+        "scripts/prepare_emulator_action.py",
+        "scripts/prepare_emulator_ui.py",
+        "scripts/run_release0950_acceptance.sh"
+      ],
+      "tests": [
+        "scripts/tests/test_prepare_emulator_action.py",
+        "scripts/tests/test_prepare_emulator_ui.py",
+        "scripts/tests/test_ci_modernization.py",
+        "scripts/tests/test_delivery_pipeline.py"
+      ],
+      "documents": [
+        "docs/repairs/emulator-early-input-readiness-2026-11-23-task.json",
+        ".github/workflows/README.md"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "python3 -m unittest discover -s scripts/tests -p test_prepare_emulator_action.py"
+      ],
+      "invariants": [
+        "Acceptance uses the same pinned emulator action after exact upstream commit/tree/clean-source and source/runtime digest verification removes only its premature MENU unlock. The real launcher/ANR/foreground readiness predicates, API matrix, memory and time limits remain unchanged.",
+        "An upstream revision, source digest, tracked or untracked mutation, or unexpected patch shape prevents execution before either target is written. Host command-order tests do not replace actual healthy API34/API36 instrumentation."
+      ]
     }
   ],
   "file_blobs": {
@@ -654,10 +702,20 @@
       "bytes": 1661,
       "sha256": "19b30f2c5fb8cc72f6c57e90a97ef043a54611afaa3daff7264c0986cc45dd78"
     },
+    ".github/workflows/README.md": {
+      "blob_sha": "e7de787d4e72ae8422ea8b8b7afc4d3304eb72c4",
+      "bytes": 12520,
+      "sha256": "1b2493e5927036d11b7d1efae66a076f731278bd9046f4cb1b5f075a822ea9c8"
+    },
     ".github/workflows/native-memory-smoke.yml": {
       "blob_sha": "743f6dcc6670815a83e12257573fcbe3c056764a",
       "bytes": 13042,
       "sha256": "f3b4a480ce1ea9fd0001199644fb96af6fd849a4ecc6a9f4caa3fcda6e8e254d"
+    },
+    ".github/workflows/release-0950-acceptance.yml": {
+      "blob_sha": "e014d5d4585a20f7571542da5dcc705f1d7aa411",
+      "bytes": 10474,
+      "sha256": "5a01576356b45ec9a7045502526b8a42c58bda3c7fef69a829dd051e1ea86ca7"
     },
     ".github/workflows/speech-engine-smoke.yml": {
       "blob_sha": "9f33aaafb5f418f785ee2a1679c5ee0cdccb6910",
@@ -1095,9 +1153,9 @@
       "sha256": "9649b628016a8f7a0958aac3c77efc5662de7bc812751841b0eaaeb516e4076e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": {
-      "blob_sha": "65d050140f5ac8090da4a230f369b96e64468f44",
-      "bytes": 81708,
-      "sha256": "73c96062dc3f40bc988e7037b40bc17f5192e240681639501c971eaca1dc101b"
+      "blob_sha": "7cb1329b9a115f6cb95f3f551c6705eee616edd9",
+      "bytes": 81951,
+      "sha256": "6837c43d333671fe82979087eaf9bbf855ce60e092e1a8f26c0ef9617717910c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechCatalog.kt": {
       "blob_sha": "59e71a012380160f964fc05d467081d12b3acad3",
@@ -1239,6 +1297,11 @@
       "bytes": 4415,
       "sha256": "e7443ac135f07d1e38afeb37c387308bc27d6fb6a2af37df0155968db8c2a79f"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt": {
+      "blob_sha": "5bb6da436b54393cfe000453be1091091d2b13bb",
+      "bytes": 1894,
+      "sha256": "924f758c222df8ffc5a8da1fbd0e1c1955f250115c04df66fd22a424d72f2eb0"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt": {
       "blob_sha": "d3e74f9d61ee76f3b97c850d86dac2aa6005e1ae",
       "bytes": 5169,
@@ -1255,9 +1318,9 @@
       "sha256": "cf2bcf65d41bc1fb91a9ce703de990be8c4e3995e7a04f6bfd598aa5b87ec598"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt": {
-      "blob_sha": "38d09b2a5c7a98dce15e4c673e795e2b8e80eed8",
-      "bytes": 5283,
-      "sha256": "45b1df71bdddd9ced7cc1a438e676bbe6f44ec8d35a74f7caab69503ae224d15"
+      "blob_sha": "e00f59c8e3625d841291908e77f59ec397aaafcf",
+      "bytes": 6188,
+      "sha256": "9013b754e197307e593735f05edbaa408791f84734238180c490694c850edf7c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdown.kt": {
       "blob_sha": "38007d6a0233c0cc73078aa7f91be92ef601c473",
@@ -1750,9 +1813,9 @@
       "sha256": "9d131297d7eff24d001a479acd06f175c6d32cc22fe6efd619039ab82c0406e7"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt": {
-      "blob_sha": "92d637a2a5f0655e81b5195aab893d6aa7b018c0",
-      "bytes": 30265,
-      "sha256": "35561ad52b4dd1f15c5374336428f1281e62f6dd1dad1db930de9470967fb888"
+      "blob_sha": "ecc2ec51158dd3ea2e7bfb824daab7069a70c9d1",
+      "bytes": 41364,
+      "sha256": "aaa359cd50af846cc2a48068bbe30853070eb1e1453a3e61b1e74e86302fefd4"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt": {
       "blob_sha": "09f47e755f1367b8930f82c762ebdf32430ebb60",
@@ -1869,6 +1932,11 @@
       "bytes": 20920,
       "sha256": "31018cb15f5ae29a943385d9b8128d7915d56b98a525e5879b2da326a1ff5543"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt": {
+      "blob_sha": "989f38dcc92edff2dd8476a1f25420ba8844d157",
+      "bytes": 4386,
+      "sha256": "7cc498bb2b473b7c2d7083aef66dc226034a3fa5c94794f45641898c0b97d380"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFramesTest.kt": {
       "blob_sha": "0ea5301b5a31c6de7e4517da034922a541e3b032",
       "bytes": 5332,
@@ -1883,6 +1951,11 @@
       "blob_sha": "b31b361ef3cf9cf5eac635bf9db03cfd0e461715",
       "bytes": 2479,
       "sha256": "cfa274c0d5c351032e03566c07406cdceaf5742169b1654e0a17891bab2c6be0"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt": {
+      "blob_sha": "20cc4be4f41100c668a106df7d21f09852044932",
+      "bytes": 15025,
+      "sha256": "07185a45cd6d008fb9c4e4c430fd7a80365c2023cd86ee49d38a123aa5474204"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParserTest.kt": {
       "blob_sha": "f548870ea64093e6a661e559b08ac836e751f92b",
@@ -2018,6 +2091,11 @@
       "blob_sha": "1e7000341c1b42b1cac346b3fe064944419253ae",
       "bytes": 9276,
       "sha256": "aff7a63b0f32528cb78952dae93be63ce7d5577cfa611a4560635cebc6b01bf4"
+    },
+    "docs/repairs/emulator-early-input-readiness-2026-11-23-task.json": {
+      "blob_sha": "e21ef26f1984d33f91238a874d34e8afa0c8511f",
+      "bytes": 5175,
+      "sha256": "6921292b3c1d61d8b2608700eb4dddaea71f4dc611e85074628dd6752dc3010e"
     },
     "docs/repairs/gateway-stream-ownership-2026-11-23-task.json": {
       "blob_sha": "961825824124ab42ded2661d82970177cec70d3c",
@@ -2284,6 +2362,16 @@
       "bytes": 8266,
       "sha256": "2abef420b6bf2001f1b25a4b280ef9d42665a770b958211c1e3d9b3197c52f7f"
     },
+    "scripts/prepare_emulator_action.py": {
+      "blob_sha": "f1155eaa971edeaa273df5826f09b94d983e51d0",
+      "bytes": 4579,
+      "sha256": "29f3c836d444563760a2d713ae6a816383f52ab85348b869287cd38f8fc81e67"
+    },
+    "scripts/prepare_emulator_ui.py": {
+      "blob_sha": "4c72d0a3ab7a129f1d39564b31c909b5c8edd873",
+      "bytes": 17361,
+      "sha256": "5c6bed13b242d65f9ae97c95d0db9ddf44e5d205d3cf9935ac48f9235d2f7071"
+    },
     "scripts/run_mediapipe_android_smoke.sh": {
       "blob_sha": "d65e76a13635e8183d65e80af94b6772ae5beb90",
       "bytes": 3854,
@@ -2300,9 +2388,14 @@
       "sha256": "0acba5ea77c11052c6144b5956942cf4f1c48c8e48319e87f5a39323ebdbbab8"
     },
     "scripts/tests/test_ci_modernization.py": {
-      "blob_sha": "7020df0f2b53960b7ffe42eeeeafeddaac8afc5c",
-      "bytes": 17135,
-      "sha256": "e066dd5cf34d43b05db55830c9152350c33f7df2ddca9fe7244678005edab076"
+      "blob_sha": "800a4bb5177b0b487258aa24fdf0659b36ff1314",
+      "bytes": 17134,
+      "sha256": "04dc2e6488e634c6107830758125fb3eed54834244357fea9e218857513d8fa5"
+    },
+    "scripts/tests/test_delivery_pipeline.py": {
+      "blob_sha": "37a0ff3d953a8e49b0f4120fd93d702e1538fba8",
+      "bytes": 30282,
+      "sha256": "088ae211502b184294522c5d4aa5b9e2441261f4977f36e77050fc03f46b9d57"
     },
     "scripts/tests/test_generate_diagnostic_schema.py": {
       "blob_sha": "b7b17e92eaf94e14a1a5749f64acc3d770b13d9a",
@@ -2328,6 +2421,11 @@
       "blob_sha": "226d88e087726c8d2f41b487eca31e9781ef3ec9",
       "bytes": 17397,
       "sha256": "1c11787b7b61274db01356cae0a65afbbd9fbfa05a4dee901cfa635249cd6b48"
+    },
+    "scripts/tests/test_prepare_emulator_action.py": {
+      "blob_sha": "b0c031ec01f9b67f29a199544a726f81902403f9",
+      "bytes": 14095,
+      "sha256": "214a4d486630d95aa67681525b9a52ce8176c1467a104b7ea441b77525e1fe1d"
     },
     "scripts/tests/test_prepare_emulator_ui.py": {
       "blob_sha": "55d6d8b13e32054de3eb7df9b170f73ea45dd222",

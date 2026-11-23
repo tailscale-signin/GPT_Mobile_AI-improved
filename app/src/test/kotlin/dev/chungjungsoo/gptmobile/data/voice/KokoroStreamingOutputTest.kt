@@ -35,12 +35,37 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.annotation.LooperMode
 import org.robolectric.shadows.ShadowAudioTrack
+import org.robolectric.shadows.ShadowSystemClock
 
 /** Actual output workers with deterministic AudioTrack presentation; no device speed claims. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class, shadows = [KokoroPlaybackObservationTest.ImmediatePcmTrack::class])
 @LooperMode(LooperMode.Mode.PAUSED)
 class KokoroStreamingOutputTest {
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
+    fun gatewayRefillsLearnDeliveryCadenceBeforeTheFirstStreamCompletes() {
+        assertLiveDeliveryReserve(requiresKokoroAssets = true)
+    }
+
+    @Test
+    @Config(shadows = [PausePcmTrack::class])
+    fun mediaPipeRefillsLearnDeliveryCadenceBeforeTheFirstStreamCompletes() {
+        assertLiveDeliveryReserve(requiresKokoroAssets = false)
+    }
+
+    @Test
+    @Config(shadows = [BackpressurePcmTrack::class])
+    fun fullPlaybackQueueWaitDoesNotBecomeProducerDeliveryCost() {
+        assertBackpressuredStream(cancel = false)
+    }
+
+    @Test
+    @Config(shadows = [BackpressurePcmTrack::class])
+    fun cancellationRetiresAStreamBlockedByTheFullPlaybackQueue() {
+        assertBackpressuredStream(cancel = true)
+    }
+
     @Test
     @Config(shadows = [PausePcmTrack::class])
     fun gatewayPauseModesLimitActualQueuedPcmAcrossCallbacksAndSegments() {
@@ -276,6 +301,173 @@ class KokoroStreamingOutputTest {
             output.close()
             output.awaitClosed(1_000)
             gateOwner.shutdownNow()
+        }
+    }
+
+    private fun assertLiveDeliveryReserve(requiresKokoroAssets: Boolean) {
+        val releaseSecond = CountDownLatch(1)
+        val releaseThird = CountDownLatch(1)
+        val releaseFinish = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val returned = AtomicBoolean()
+        val completed = AtomicBoolean()
+        val failures = CopyOnWriteArrayList<VoicePlaybackFailure>()
+        val reserves = CopyOnWriteArrayList<Pair<String, Long>>()
+        val production = CopyOnWriteArrayList<Long>()
+        val engine = object : VoicePhraseEngine {
+            override val supportsStreaming = true
+            override fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                try {
+                    ShadowSystemClock.advanceBy(300, TimeUnit.MILLISECONDS)
+                    emit(VoicePcmChunk(FloatArray(24_000) { .1f }))
+                    check(releaseSecond.await(5, TimeUnit.SECONDS))
+                    ShadowSystemClock.advanceBy(500, TimeUnit.MILLISECONDS)
+                    emit(VoicePcmChunk(FloatArray(24_000) { .1f }))
+                    check(releaseThird.await(5, TimeUnit.SECONDS))
+                    ShadowSystemClock.advanceBy(700, TimeUnit.MILLISECONDS)
+                    emit(VoicePcmChunk(FloatArray(48_000) { .1f }))
+                    check(releaseFinish.await(5, TimeUnit.SECONDS))
+                } finally {
+                    returned.set(true)
+                }
+            }
+            override fun resetCancellation() = Unit
+            override fun cancel() = Unit
+            override fun close() = Unit
+        }
+        val observer = object : VoicePlaybackMeasurementObserver {
+            override fun pcmReady(synthesisMs: Long, audioFrames: Int, sampleRate: Int, evidence: VoiceSpeechExecutionEvidence?) {
+                production += synthesisMs
+            }
+            override fun reserveCompleted(phase: String, elapsedMs: Long, targetMs: Long, acceptedMs: Long, exitReason: String) {
+                reserves += phase to targetMs
+            }
+        }
+        withStreamingOutput(requiresKokoroAssets, VoicePauseDuration.NATURAL, engine, observer) { output ->
+            try {
+                output.speakWithFailure("hello.", KokoroVoice.HEART, {
+                    completed.set(true)
+                    finished.countDown()
+                }, { failure, _ ->
+                    failures += failure
+                    finished.countDown()
+                })
+                assertTrue(awaitMainCondition { output.synthesisFeedback.value.bufferState == "refilling" && PausePcmTrack.writes.sumOf { it.size } == 24_000 })
+                releaseSecond.countDown()
+                assertTrue(awaitMainCondition { output.synthesisFeedback.value.bufferState == "refilling" && PausePcmTrack.writes.sumOf { it.size } == 48_000 })
+                releaseThird.countDown()
+                assertTrue(awaitMainCondition { output.synthesisFeedback.value.bufferState == "refilling" && PausePcmTrack.writes.sumOf { it.size } == 96_000 })
+                assertFalse("The stream must still be open for every observed reserve", returned.get())
+                assertFalse(completed.get())
+                assertTrue(failures.isEmpty())
+                assertEquals(listOf(300L, 500L, 700L), production)
+                assertEquals(listOf("startup" to 315L, "refill" to 725L, "refill" to 1_135L), reserves)
+                assertEquals(4_000L, output.synthesisFeedback.value.generatedAudioMs)
+                assertEquals(null, output.synthesisFeedback.value.productionRatio)
+                assertEquals(null, output.synthesisFeedback.value.predictedNextSynthesisMs)
+            } finally {
+                releaseSecond.countDown()
+                releaseThird.countDown()
+                releaseFinish.countDown()
+            }
+            awaitMain(finished)
+            assertTrue(completed.get())
+            assertTrue(failures.isEmpty())
+        }
+    }
+
+    private fun assertBackpressuredStream(cancel: Boolean) {
+        val secondEntered = CountDownLatch(1)
+        val secondReturned = CountDownLatch(1)
+        val releaseThird = CountDownLatch(1)
+        val releaseFinish = CountDownLatch(1)
+        val retired = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val cancelled = AtomicBoolean()
+        val completed = AtomicBoolean()
+        val failures = CopyOnWriteArrayList<VoicePlaybackFailure>()
+        val production = CopyOnWriteArrayList<Long>()
+        val reserves = CopyOnWriteArrayList<Pair<String, Long>>()
+        val engine = object : VoicePhraseEngine {
+            override val supportsStreaming = true
+            override fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                try {
+                    ShadowSystemClock.advanceBy(50, TimeUnit.MILLISECONDS)
+                    emit(VoicePcmChunk(FloatArray(144_000) { .1f }))
+                    ShadowSystemClock.advanceBy(25, TimeUnit.MILLISECONDS)
+                    secondEntered.countDown()
+                    emit(VoicePcmChunk(FloatArray(24_000) { .1f }))
+                    secondReturned.countDown()
+                    check(releaseThird.await(5, TimeUnit.SECONDS))
+                    ShadowSystemClock.advanceBy(80, TimeUnit.MILLISECONDS)
+                    emit(VoicePcmChunk(FloatArray(24_000) { .1f }))
+                    check(releaseFinish.await(5, TimeUnit.SECONDS))
+                } finally {
+                    retired.countDown()
+                }
+            }
+            override fun resetCancellation() = Unit
+            override fun cancel() {
+                cancelled.set(true)
+            }
+            override fun close() = Unit
+        }
+        val observer = object : VoicePlaybackMeasurementObserver {
+            override fun pcmReady(synthesisMs: Long, audioFrames: Int, sampleRate: Int, evidence: VoiceSpeechExecutionEvidence?) {
+                production += synthesisMs
+            }
+            override fun reserveCompleted(phase: String, elapsedMs: Long, targetMs: Long, acceptedMs: Long, exitReason: String) {
+                reserves += phase to targetMs
+            }
+        }
+        BackpressurePcmTrack.allowWrites.set(false)
+        BackpressurePcmTrack.blockedWrites.set(0)
+        try {
+            withStreamingOutput(false, VoicePauseDuration.NATURAL, engine, observer) { output ->
+                try {
+                    output.speakWithFailure("hello.", KokoroVoice.HEART, {
+                        completed.set(true)
+                        finished.countDown()
+                    }, { failure, _ ->
+                        failures += failure
+                        finished.countDown()
+                    })
+                    assertTrue(awaitMainCondition { secondEntered.count == 0L && production.size == 2 && BackpressurePcmTrack.blockedWrites.get() >= 3 })
+                    assertEquals("The second callback must be blocked by the actual bounded queue", 1L, secondReturned.count)
+                    assertTrue(PausePcmTrack.writes.isEmpty())
+                    if (cancel) {
+                        output.stop("user")
+                        awaitMain(retired)
+                        assertEquals(0L, retired.count)
+                        assertTrue(cancelled.get())
+                        assertFalse(completed.get())
+                        assertTrue(failures.isEmpty())
+                    } else {
+                        ShadowSystemClock.advanceBy(4_000, TimeUnit.MILLISECONDS)
+                        BackpressurePcmTrack.allowWrites.set(true)
+                        assertTrue(awaitMainCondition { secondReturned.count == 0L && output.synthesisFeedback.value.bufferState == "refilling" && PausePcmTrack.writes.sumOf { it.size } == 168_000 })
+                        releaseThird.countDown()
+                        assertTrue(awaitMainCondition { output.synthesisFeedback.value.bufferState == "refilling" && PausePcmTrack.writes.sumOf { it.size } == 192_000 })
+                        assertEquals(1L, retired.count)
+                        assertEquals(listOf(50L, 25L, 80L), production)
+                        assertEquals("Four seconds blocked in the queue must not enlarge the refill reserve", "refill" to 284L, reserves.last())
+                        assertEquals(155L, output.synthesisFeedback.value.synthesisMs)
+                        assertFalse(completed.get())
+                        assertTrue(failures.isEmpty())
+                    }
+                } finally {
+                    releaseThird.countDown()
+                    releaseFinish.countDown()
+                    BackpressurePcmTrack.allowWrites.set(true)
+                }
+                if (!cancel) {
+                    awaitMain(finished)
+                    assertTrue(completed.get())
+                    assertTrue(failures.isEmpty())
+                }
+            }
+        } finally {
+            BackpressurePcmTrack.allowWrites.set(true)
         }
     }
 
@@ -599,6 +791,40 @@ class KokoroStreamingOutputTest {
         companion object {
             val writes = CopyOnWriteArrayList<FloatArray>()
             val headReads = AtomicInteger()
+        }
+    }
+
+    /** A full software queue can block its producer while the actual writer gets zero capacity. */
+    @Implements(AudioTrack::class)
+    class BackpressurePcmTrack : ShadowAudioTrack() {
+        private var frames = 0
+
+        @Implementation fun write(samples: FloatArray, offset: Int, size: Int, mode: Int): Int {
+            require(offset >= 0 && size > 0 && offset <= samples.size - size)
+            if (!allowWrites.get()) {
+                blockedWrites.incrementAndGet()
+                return 0
+            }
+            PausePcmTrack.writes += samples.copyOfRange(offset, offset + size)
+            frames += size
+            return size
+        }
+
+        @Implementation override fun getPlaybackHeadPosition(): Int = frames
+
+        @Implementation fun getBufferCapacityInFrames(): Int = 2_400
+
+        @Implementation fun setBufferSizeInFrames(size: Int): Int = size
+
+        @Implementation fun setStartThresholdInFrames(size: Int): Int = size
+
+        @Implementation fun getUnderrunCount(): Int = 0
+
+        @Implementation fun getTimestamp(timestamp: AudioTimestamp): Boolean = false
+
+        companion object {
+            val allowWrites = AtomicBoolean(true)
+            val blockedWrites = AtomicInteger()
         }
     }
 

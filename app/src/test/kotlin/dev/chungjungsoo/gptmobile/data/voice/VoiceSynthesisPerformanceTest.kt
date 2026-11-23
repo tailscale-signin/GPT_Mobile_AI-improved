@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import java.util.concurrent.ArrayBlockingQueue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -48,6 +50,111 @@ class VoiceSynthesisPerformanceTest {
         assertTrue(policy.bufferMs() >= 2_000)
         assertTrue(policy.bufferMs() < KokoroPcmBatches.QUEUE_LIMIT_MS)
         assertTrue(requireNotNull(policy.ratio()) > 1.0)
+    }
+
+    @Test fun unfinishedStreamReservesItsSlowDeliveryDespiteImmediateSubdivisions() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        policy.beginStream()
+        policy.observeStreamDelivery(1_200, 2_400)
+        repeat(40) { policy.observeStreamDelivery(0, 2_400) }
+        policy.underrun()
+        assertNull("No complete phrase has been observed", policy.predictedSynthesisMs())
+        assertNull(policy.ratio())
+        assertEquals(8, policy.phraseWords(6_000))
+        val queue = ArrayBlockingQueue<VoicePcmSlice>(KokoroPcmBatches.QUEUE_BATCHES)
+        var acceptedFrames = 2_400L
+        var polls = 0
+        val exit = KokoroPcmBatches.awaitReserve(
+            queue,
+            24_000L * policy.bufferMs() / 1_000,
+            acceptedFrames = { acceptedFrames },
+            canWait = { true },
+            producerPending = { true },
+            deadlineReached = { polls > 20 },
+            poll = {
+                polls++
+                acceptedFrames += 2_400
+            }
+        )
+        assertEquals(VoicePcmReserveExit.TARGET, exit)
+        assertEquals("The original 100 ms reserve would release without one poll", 16, polls)
+        assertEquals(1_650L, policy.primeWaitMs())
+        policy.endStream(0)
+    }
+
+    @Test fun completeStreamCostDoesNotReplaceItsLiveDeliveryReserve() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        policy.beginStream()
+        policy.observeStreamDelivery(400, 24_000)
+        repeat(20) { policy.observeStreamDelivery(0, 2_400) }
+        policy.endStream(200)
+        policy.observe(5_000, 5_000, spokenWords = 16)
+        assertEquals(5_000L, policy.predictedSynthesisMs())
+        assertEquals(1.0, requireNotNull(policy.ratio()), 0.0)
+        assertEquals(480, policy.bufferMs())
+        assertEquals(650L, policy.primeWaitMs())
+        policy.beginStream()
+        policy.observeStreamDelivery(300, 24_000)
+        // Retirement after the preceding PCM and the new first delivery form one 500 ms gap.
+        assertEquals(600, policy.bufferMs())
+        assertEquals(750L, policy.primeWaitMs())
+        policy.endStream(0)
+    }
+
+    @Test fun trimmedCallbacksAndRetirementAccumulateUntilTheNextRetainedPcm() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        policy.beginStream()
+        policy.observeStreamDelivery(100, 2_400)
+        policy.observeStreamDelivery(350, 0)
+        policy.observeStreamDelivery(450, 0)
+        policy.endStream(200)
+        policy.beginStream()
+        policy.observeStreamDelivery(250, 2_400)
+        assertEquals(1_500, policy.bufferMs())
+        assertEquals(1_500L, policy.primeWaitMs())
+        assertNull(policy.predictedSynthesisMs())
+        policy.endStream(0)
+    }
+
+    @Test fun deliveryHistoryAgesOnlyWhenActualStreamsComplete() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
+        policy.beginStream()
+        policy.observeStreamDelivery(1_200, 2_400)
+        policy.endStream(0)
+        repeat(7) {
+            policy.beginStream()
+            repeat(40) { policy.observeStreamDelivery(0, 2_400) }
+            assertEquals(1_440, policy.bufferMs())
+            policy.endStream(0)
+        }
+        assertEquals(1_440, policy.bufferMs())
+        policy.beginStream()
+        policy.observeStreamDelivery(0, 2_400)
+        policy.endStream(0)
+        assertEquals(100, policy.bufferMs())
+    }
+
+    @Test fun streamingRefillsLearnBeforeTimingAndStayWithinExistingBounds() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.FAST)
+        policy.beginStream()
+        policy.underrun()
+        assertEquals(245, policy.bufferMs())
+        assertEquals(200L, policy.primeWaitMs())
+        repeat(20) { policy.underrun() }
+        policy.observeStreamDelivery(Long.MAX_VALUE, 0)
+        policy.observeStreamDelivery(Long.MAX_VALUE, 2_400)
+        assertEquals(VoiceAdaptivePlayback.MAX_RESERVE_MS, policy.bufferMs())
+        assertEquals(VoiceAdaptivePlayback.MAX_RESERVE_MS.toLong(), policy.primeWaitMs())
+        policy.endStream(0)
+        val legacy = VoiceAdaptivePlayback(VoicePerformanceMode.FAST)
+        legacy.underrun()
+        assertEquals(45, legacy.bufferMs())
+        assertEquals(0L, legacy.primeWaitMs())
+        legacy.observe(4_000, 5_000, 1_000)
+        assertEquals(1_250, legacy.bufferMs(startup = true))
+        assertEquals(1_250L, legacy.primeWaitMs(startup = true))
+        assertEquals(4_400, legacy.bufferMs())
+        assertEquals(4_250L, legacy.primeWaitMs())
     }
 
     @Test fun explicitPhraseModesKeepTheirLimitsButAllModesProtectMeasuredContinuity() {

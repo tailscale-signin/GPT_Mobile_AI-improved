@@ -109,7 +109,7 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertEqual(sorted(set(positions)), positions)
         package = next(index for index, step in enumerate(steps) if ':app:assembleDebugAndroidTest' in step)
         artifact_check = next(index for index, step in enumerate(steps) if 'select_android_test_apk.py' in step)
-        emulator = next(index for index, step in enumerate(steps) if 'ReactiveCircus/android-emulator-runner@' in step)
+        emulator = next(index for index, step in enumerate(steps) if 'uses: ./build/emulator-action-upstream' in step)
         self.assertLess(positions[-1], package)
         self.assertLess(package, artifact_check)
         self.assertLess(artifact_check, emulator)

@@ -23,6 +23,7 @@ Production accelerator admission establishes numerical consistency on the fixed 
 
 ## Release validation
 
+- Avoid the pinned emulator action's premature MENU unlock before acceptance readiness, using verified upstream source/runtime bytes while retaining the API34/API36 matrix, resource/time limits and all launcher/ANR health checks.
 - Keep the complete benchmark, context, privacy, speech and recovery changes from the prior Android 0.9.66.13 candidate.
 - Run release lint with an explicit bounded memory budget and current-memory admission, retain dedicated diagnostics, and preserve every lint check within the combined 3840-second process deadline and 65-minute outer step. Exact-source validation and both published-package checks remain required.
 
@@ -50,6 +51,7 @@ Production accelerator admission establishes numerical consistency on the fixed 
 
 ### Speech playback and benchmarks
 
+- Learn streaming speech refill reserves from audio delivery while a phrase is still being generated, retaining slow delivery history and excluding time blocked by the existing bounded queue; preserve captions, pause settings and prompt cancellation.
 - Apply Natural, Short and Minimal pause settings consistently to streaming speech across callback and phrase boundaries; keep captions aligned to retained audio and clear a completed word during a refill pause without starting an unplayed word or advancing through lost audio focus.
 - Bind each Gateway PCM response to its exact admitted request, preserve replacement streams during stale cleanup, and retire cancelled or stalled sends within one fixed timeout-plus-audio-duration budget while preserving synthesis limits and exact binary framing. The default maximum transport window is 55 seconds for 30 seconds of validated PCM; it is never renewed by chunk progress.
 - Preserve typed native model-open and playback failures, including their stage, safe code, failed attempt and timeout budget. Local model setup failures remain distinct from invalid fixture text and accelerator failures.
@@ -294,6 +296,7 @@ See the [workspace guide](docs/engineering/github-agent-workspace.md) and [runti
 - The recorded QNN graph qualification used the official x86 HTP emulator and observed 39 QNN kernels per tested token shape with remaining graph work on CPU. It did not run on physical Adreno GPU or Hexagon NPU hardware and does not establish on-device acceleration, speedup, thermal behavior or battery use.
 - Kokoro GPU/NPU execution is partial and device/model/runtime dependent. A registered provider or selected hardware label is not proof of accelerator execution; failed qualification or stale measurements retain CPU until a successful device recheck.
 - Physical audio-route latency, caption alignment, interruption recovery, long-reply continuity and frame/memory behavior still require speaker, wired and Bluetooth replay on the target phone. Bounded buffering cannot guarantee uninterrupted speech when synthesis remains slower than playback.
+- Streaming speech delivery feedback has bounded-state and ordinary-worker regression coverage; those controls do not identify every device-specific cause of audible stutter or establish perceptual playback improvement. Physical voice/route measurements remain separate.
 - Gateway CUDA remains optional and requires a reachable, compatible configured Gateway. Local fixtures do not qualify the selected desktop GPU, account, network or live service.
 - The host QNN probes verify finite nonzero PCM and timing from the same inference, not waveform or perceptual equivalence. The 83-token probe differs from its CPU reference by 50 ms of total predicted duration; the recorded host emulator uses ORT 1.28.0 while native/JNI validation uses the pinned application ORT 1.28.2.
 - The separate native cancellation/failure/reuse regression uses pinned application ORT 1.28.2 with the official QNN 2.7 host emulator, explicit host device/STL ports and a deterministic fault after real kernel execution. It establishes session/profile lifecycle behavior; physical GPU/HTP performance and Android packaging remain separate qualifications.

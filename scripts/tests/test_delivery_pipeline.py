@@ -171,7 +171,7 @@ class PipelineTest(unittest.TestCase):
         )
         self.assertIn('timeout-minutes: 25', steps[package_index])
         verification = next(i for i, step in enumerate(steps) if 'scripts/select_android_test_apk.py' in step)
-        emulator = next(i for i, step in enumerate(steps) if 'ReactiveCircus/android-emulator-runner@' in step)
+        emulator = next(i for i, step in enumerate(steps) if 'uses: ./build/emulator-action-upstream' in step)
         self.assertLess(package_index, verification)
         self.assertLess(verification, emulator)
         self.assertIn('api: 34', workflow)

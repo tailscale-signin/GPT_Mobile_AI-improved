@@ -32,6 +32,7 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     private val recentSynthesisMs = ArrayDeque<Long>()
     private val recentRecurringMs = ArrayDeque<Long>()
     private val recentWordCostMs = ArrayDeque<Double>()
+    private val streamCadence = VoiceStreamDeliveryCadence()
 
     @Synchronized fun observe(synthesisMs: Long, audioMs: Long, recurringMs: Long? = null, spokenWords: Int = 0) {
         if (synthesisMs < 0 || audioMs <= 0) return
@@ -51,14 +52,23 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
         refillPenalty = (refillPenalty + 200).coerceAtMost(1_000)
     }
 
+    /** Delivery gaps, rather than a complete stream's synthesis total, own streaming reserves. */
+    @Synchronized fun beginStream() = streamCadence.begin()
+
+    /** The caller excludes callback work and bounded-queue waits from productionMs. */
+    @Synchronized fun observeStreamDelivery(productionMs: Long, retainedFrames: Int) = streamCadence.observe(productionMs, retainedFrames)
+
+    @Synchronized fun endStream(productionMs: Long) = streamCadence.end(productionMs)
+
     @Synchronized fun bufferMs(startup: Boolean = false): Int {
-        if (observations == 0) return mode.bufferMs
+        if (!streamCadence.started && observations == 0) return mode.bufferMs
         // A 45–300 ms AudioTrack threshold cannot cover seconds of synchronous
         // phrase synthesis. Reserve accepted PCM for the observed slow tail of
         // the next phrase, while retaining a separate small hardware threshold.
-        val tail = predictedSynthesisMs(startup) ?: return mode.bufferMs
+        val tail = reserveCostMs(startup)
         val margin = if (mode == VoicePerformanceMode.FAST) 1.05 else 1.2
-        return maxOf(mode.bufferMs, (tail * margin).toInt() + refillPenalty).coerceAtMost(MAX_RESERVE_MS)
+        val reserve = tail?.let { (it.coerceAtMost(MAX_RESERVE_MS.toLong()) * margin).toInt() } ?: mode.bufferMs
+        return maxOf(mode.bufferMs, reserve + refillPenalty).coerceAtMost(MAX_RESERVE_MS)
     }
 
     @Synchronized fun predictedSynthesisMs(startup: Boolean = false): Long? =
@@ -67,7 +77,12 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     @Synchronized fun ratio(): Double? = productionRatio.takeIf { observations > 0 }
 
     /** Wait only while an actual producer exists; an unsealed quiet stream cannot deadlock priming. */
-    @Synchronized fun primeWaitMs(startup: Boolean = false): Long = (predictedSynthesisMs(startup)?.plus(250) ?: mode.refillWaitMs).coerceIn(0, MAX_RESERVE_MS.toLong())
+    @Synchronized fun primeWaitMs(startup: Boolean = false): Long {
+        val wait = reserveCostMs(startup)?.coerceAtMost(MAX_RESERVE_MS.toLong())?.plus(250) ?: mode.refillWaitMs
+        return (wait + if (streamCadence.started) refillPenalty else 0).coerceIn(0, MAX_RESERVE_MS.toLong())
+    }
+
+    private fun reserveCostMs(startup: Boolean): Long? = if (streamCadence.started) streamCadence.reserveCostMs() else predictedSynthesisMs(startup)
 
     @Synchronized fun phraseWords(bufferedMs: Long): Int {
         if (mode != VoicePerformanceMode.AUTO) return mode.followUpWords

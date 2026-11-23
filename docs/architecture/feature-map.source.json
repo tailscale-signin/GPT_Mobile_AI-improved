@@ -183,7 +183,10 @@
         "gpu speech",
         "npu speech",
         "audible playback",
-        "Kokoro GPU NPU"
+        "Kokoro GPU NPU",
+        "speech stutter",
+        "speech flow",
+        "streaming refill"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
@@ -215,7 +218,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPause.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTimingTest.kt",
@@ -241,7 +245,10 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamPauseTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceQuietLimiterTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -262,7 +269,8 @@
         "Benchmark and Auto ranking require same-run CPU-reference duration, token timing and signal consistency; numeric consistency does not establish perceptual equivalence.",
         "Retain at most two exact accelerator token shapes under observed memory headroom and a hard estimate ceiling; unknown memory retains only the active shape.",
         "One playback-scoped quiet limiter spans streaming callbacks and phrases; validate raw PCM first and account only retained audio in queued frames and cue positions.",
-        "An observed cue prefix may extend in place; a fully trimmed ending clears only the current presented word during refill, without advancing the caption clock, consuming a later onset or bypassing audio-focus pause."
+        "An observed cue prefix may extend in place; a fully trimmed ending clears only the current presented word during refill, without advancing the caption clock, consuming a later onset or bypassing audio-focus pause.",
+        "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone."
       ]
     },
     {
@@ -340,7 +348,10 @@
         "scripts/tests/test_ci_modernization.py",
         "scripts/tests/test_prepare_emulator_ui.py",
         "scripts/tests/test_native_memory_smoke.py",
-        "authentication/test_incident_report_contract.py"
+        "authentication/test_incident_report_contract.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt",
+        "scripts/tests/test_prepare_emulator_action.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -358,7 +369,8 @@
         "Preserve original source ranges and pronunciation overrides when bounding long streaming replies.",
         "Production accelerator playback requires complete same-run CPU-reference consistency before native open; explicit Recheck publishes its complete requested cohort and cancellation cannot grant partial admission.",
         "Numerical audio consistency and SDK model smoke do not establish perceptual equivalence, arbitrary-utterance correctness or target-phone accelerator performance.",
-        "Gateway response retirement is bound to the exact admitted Work lease; cancellation and a fixed timeout plus validated audio duration bound transport without extending synthesis or retiring a replacement request."
+        "Gateway response retirement is bound to the exact admitted Work lease; cancellation and a fixed timeout plus validated audio duration bound transport without extending synthesis or retiring a replacement request.",
+        "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone."
       ]
     },
     {
@@ -641,6 +653,42 @@
         "Negotiate capabilities for newly introduced report fields while retaining compatible legacy payloads.",
         "Require VOICE_STREAMING_BACKEND_EVIDENCE_V1 only for emitted new streaming voice enum values; retain ordinary voice V1 payloads and the bounded plain readiness response.",
         "Do not combine observations across recording epochs or infer a historical crash cause without evidence."
+      ]
+    },
+    {
+      "id": "android-acceptance-readiness",
+      "title": "Android emulator acceptance readiness",
+      "terms": [
+        "Android acceptance",
+        "API 34",
+        "API 36",
+        "Android 16",
+        "emulator launcher ANR",
+        "premature unlock"
+      ],
+      "paths": [
+        ".github/workflows/release-0950-acceptance.yml",
+        "scripts/prepare_emulator_action.py",
+        "scripts/prepare_emulator_ui.py",
+        "scripts/run_release0950_acceptance.sh"
+      ],
+      "tests": [
+        "scripts/tests/test_prepare_emulator_action.py",
+        "scripts/tests/test_prepare_emulator_ui.py",
+        "scripts/tests/test_ci_modernization.py",
+        "scripts/tests/test_delivery_pipeline.py"
+      ],
+      "documents": [
+        "docs/repairs/emulator-early-input-readiness-2026-11-23-task.json",
+        ".github/workflows/README.md"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "python3 -m unittest discover -s scripts/tests -p test_prepare_emulator_action.py"
+      ],
+      "invariants": [
+        "Acceptance uses the same pinned emulator action after exact upstream commit/tree/clean-source and source/runtime digest verification removes only its premature MENU unlock. The real launcher/ANR/foreground readiness predicates, API matrix, memory and time limits remain unchanged.",
+        "An upstream revision, source digest, tracked or untracked mutation, or unexpected patch shape prevents execution before either target is written. Host command-order tests do not replace actual healthy API34/API36 instrumentation."
       ]
     }
   ]

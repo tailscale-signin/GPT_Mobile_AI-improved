@@ -1,5 +1,7 @@
 # 0.9.66.15 — 2026-11-23 (integration candidate)
 
+- Learn streaming speech refill reserves from audio delivery while a phrase is still being generated, retaining slow delivery history and excluding time blocked by the existing bounded queue; preserve captions, pause settings and prompt cancellation.
+- Avoid the pinned emulator action's premature MENU unlock before acceptance readiness, using verified upstream source/runtime bytes while retaining the API34/API36 matrix, resource/time limits and all launcher/ANR health checks.
 - Add verified LiteRT Kokoro, Phonon and Pocket voice packs with real incremental PCM playback, explicit native cancellation, bounded text/cache planning and estimated caption provenance.
 - Apply Natural, Short and Minimal pause settings consistently to streaming speech across callback and phrase boundaries; keep captions aligned to retained audio and clear a completed word during a refill pause without starting an unplayed word or advancing through lost audio focus.
 - Prepare local speech earlier, calibrate the selected native voice/rate across one through four threads, adapt pending phrase size to available audio, and prevent stale voice/rate previews and warmup generations.

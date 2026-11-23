@@ -7,7 +7,9 @@ immutability, Android device, Room processor or hosted Actions claim is inferred
 """
 import base64
 import hashlib
+import inspect
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -332,6 +334,153 @@ def _arguments(image, name, candidate, evaluator):
             '--entrypoint=python3', image, '-I', '-B', '/evaluator/driver.py']
 
 
+def _receipt_contract(task):
+    return {'language': task['language'], 'expected_outputs': len(task['vectors']),
+            'expected_probes': [len(case.get('probes', [])) for case in task['vectors']],
+            'expected_jobs': input_bundle(task)['jobs']}
+
+
+def _native_receipt(raw, language, expected_outputs, expected_probes, expected_jobs):
+    """Only the pinned driver's typed envelope can become grading evidence."""
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate native receipt field')
+            result[key] = value
+        return result
+
+    def invalid_constant(_value):
+        raise ValueError('Non-finite native receipt value')
+
+    def finite_float(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError('Non-finite native receipt value')
+        return number
+
+    def query_rows(value):
+        # SQLite returns null, text, integer and real cells. Blobs cannot be
+        # serialized by the trusted driver into a successful JSON receipt.
+        return isinstance(value, list) and all(
+            isinstance(row, list) and all(cell is None or type(cell) in (str, int, float) for cell in row)
+            for row in value)
+
+    def sqlite_observation(value, probe_count):
+        if (set(value) != {'error', 'schema', 'rows', 'checks', 'version'}
+                or type(value['error']) is not bool or type(value['version']) is not int
+                or not isinstance(value['schema'], dict) or not isinstance(value['rows'], dict)
+                or set(value['schema']) != set(value['rows'])
+                or not isinstance(value['checks'], list) or len(value['checks']) != probe_count):
+            return False
+        for table, schema in value['schema'].items():
+            if (not isinstance(table, str) or not isinstance(schema, dict) or set(schema) != {'columns', 'foreignKeys'}
+                    or not isinstance(schema['columns'], list) or not isinstance(schema['foreignKeys'], list)
+                    or not query_rows(value['rows'][table])):
+                return False
+            for column in schema['columns']:
+                if (not isinstance(column, list) or len(column) != 5
+                        or not isinstance(column[0], str) or not isinstance(column[1], str)
+                        or type(column[2]) is not int or column[2] not in (0, 1)
+                        or column[3] is not None and not isinstance(column[3], str)
+                        or type(column[4]) is not int or column[4] < 0):
+                    return False
+            actions = {'NO ACTION', 'RESTRICT', 'SET NULL', 'SET DEFAULT', 'CASCADE'}
+            for foreign in schema['foreignKeys']:
+                if (not isinstance(foreign, list) or len(foreign) != 6
+                        or not isinstance(foreign[0], str) or not isinstance(foreign[1], str)
+                        or foreign[2] is not None and not isinstance(foreign[2], str)
+                        or not isinstance(foreign[3], str) or foreign[3] not in actions
+                        or not isinstance(foreign[4], str) or foreign[4] not in actions
+                        or not isinstance(foreign[5], str)):
+                    return False
+        for check in value['checks']:
+            if not isinstance(check, dict) or type(check.get('ok')) is not bool:
+                return False
+            if check['ok']:
+                if set(check) != {'ok', 'rows'} or not query_rows(check['rows']):
+                    return False
+            elif set(check) != {'ok'}:
+                return False
+        return True
+
+    def actions_observation(value):
+        if set(value) != set(expected_jobs):
+            return False
+        for job in value.values():
+            if (not isinstance(job, dict) or set(job) != {'result', 'permissions'}
+                    or not isinstance(job['result'], str) or job['result'] not in {'success', 'failure', 'skipped'}
+                    or not isinstance(job['permissions'], dict)):
+                return False
+            if any(not isinstance(key, str) or not isinstance(permission, str) or permission not in {'read', 'write'}
+                   for key, permission in job['permissions'].items()):
+                return False
+        return True
+
+    if (type(expected_outputs) is not int or expected_outputs < 1 or not isinstance(expected_probes, list)
+            or len(expected_probes) != expected_outputs or any(type(count) is not int or count < 0 for count in expected_probes)
+            or not isinstance(expected_jobs, list) or not expected_jobs or any(not isinstance(job, str) for job in expected_jobs)
+            or len(set(expected_jobs)) != len(expected_jobs)):
+        raise ValueError('Invalid native observation contract')
+    payload = json.loads(raw, object_pairs_hook=unique_object, parse_constant=invalid_constant, parse_float=finite_float)
+    if not isinstance(payload, dict) or set(payload) - {'runtime', 'runtimeError', 'candidateError', 'outputs'}:
+        raise ValueError('Invalid native receipt')
+    runtime_fields = {'kotlin': {'kind', 'compiler', 'compiled'}, 'sqlite': {'kind', 'sqliteVersion'},
+                      'actions': {'kind', 'yamlVersion', 'execution'}}
+    runtime = payload.get('runtime')
+    if 'runtime' in payload:
+        fields = runtime_fields.get(language, set())
+        if not isinstance(runtime, dict) or runtime.get('kind') != language or set(runtime) - fields:
+            raise ValueError('Invalid native runtime')
+        for field in ('compiler', 'sqliteVersion', 'yamlVersion'):
+            if field in runtime and (not isinstance(runtime[field], str) or not 1 <= len(runtime[field]) <= 1024):
+                raise ValueError('Invalid native runtime metadata')
+        if 'compiled' in runtime and type(runtime['compiled']) is not bool:
+            raise ValueError('Invalid native compilation observation')
+        if 'execution' in runtime and runtime['execution'] != 'YAML_EXPRESSION_AND_SHELL_SIMULATION':
+            raise ValueError('Invalid native workflow observation')
+    if 'outputs' in payload and not isinstance(payload['outputs'], list):
+        raise ValueError('Invalid native outputs')
+    output_type = str if language == 'kotlin' else dict
+    if any(not isinstance(value, output_type) for value in payload.get('outputs', [])):
+        raise ValueError('Invalid native output observation')
+    if 'runtimeError' in payload:
+        errors = {'KOTLIN_RUNTIME_UNAVAILABLE', 'KOTLIN_COMPILER_UNAVAILABLE', 'YAML_RUNTIME_UNAVAILABLE',
+                  'LANGUAGE_UNAVAILABLE', 'NATIVE_RUNTIME_OBSERVATION_FAILED'}
+        error = payload['runtimeError']
+        if not isinstance(error, str) or error not in errors or set(payload) != {'runtimeError'}:
+            raise ValueError('Invalid native runtime failure')
+    elif 'candidateError' in payload:
+        errors = {'COMPILATION_FAILED': 'kotlin', 'EXECUTION_FAILED': 'kotlin', 'INVALID_OUTPUT_FRAMING': 'kotlin',
+                  'WORKFLOW_CONTRACT_INVALID': 'actions', 'NATIVE_STAGE_DEADLINE': None, 'NATIVE_OUTPUT_LIMIT': None}
+        error = payload['candidateError']
+        if (not isinstance(error, str) or error not in errors or payload.get('outputs') != []
+                or errors[error] not in (None, language)):
+            raise ValueError('Invalid native candidate failure')
+        if errors[error] is None:
+            # The driver's outer deadline/output handlers have no completed
+            # runtime observation; do not invent one or accept extra fields.
+            if set(payload) != {'candidateError', 'outputs'}:
+                raise ValueError('Invalid native resource failure')
+        else:
+            fields = {'kind', 'yamlVersion'} if language == 'actions' else runtime_fields[language]
+            if set(payload) != {'runtime', 'candidateError', 'outputs'} or runtime is None or set(runtime) != fields:
+                raise ValueError('Incomplete native failure observation')
+        if language == 'kotlin' and runtime is not None and runtime['compiled'] != (error != 'COMPILATION_FAILED'):
+            raise ValueError('Contradictory native compilation observation')
+    elif (set(payload) != {'runtime', 'outputs'} or runtime is None or set(runtime) != runtime_fields.get(language)
+          or expected_outputs < 1 or len(payload['outputs']) != expected_outputs
+          or language == 'kotlin' and runtime['compiled'] is not True):
+        raise ValueError('Incomplete native observation')
+    else:
+        for index, value in enumerate(payload['outputs']):
+            if language == 'sqlite' and not sqlite_observation(value, expected_probes[index]):
+                raise ValueError('Incomplete native SQLite observation')
+            if language == 'actions' and not actions_observation(value):
+                raise ValueError('Incomplete native workflow observation')
+    return payload
+
+
 def execute(task, sources, settings, cancel=None, *, retain=None, release=None):
     image = _image(settings)
     docker = sandbox.preflight(dict(settings, sandbox_image=image))
@@ -378,15 +527,12 @@ def execute(task, sources, settings, cancel=None, *, retain=None, release=None):
             observation = {'executed': started, 'outputs': [], 'exitCode': measured['exit_code'],
                            'durationMs': measured['elapsed_ms'], 'outputDigest': measured['output_sha256']}
             if started and successful:
-                payload = json.loads(raw[len(marker):])
-                if not isinstance(payload, dict) or set(payload) - {'runtime', 'runtimeError', 'candidateError', 'outputs'}:
-                    raise ValueError('Invalid runtime receipt')
-                observation.update(payload)
+                observation.update(_native_receipt(raw[len(marker):], **_receipt_contract(task)))
             elif started:
                 observation['candidateError'] = 'NATIVE_PROCESS_FAILED'
             else:
                 observation['runtimeError'] = 'NATIVE_EXECUTION_NOT_CONFIRMED'
-        except (OSError, ValueError, TimeoutError):
+        except (OSError, ValueError, TimeoutError, RecursionError):
             raw = output_path.read_bytes() if output_path.exists() else b''
             observation.update(executed=raw.startswith((START + '\n').encode()), durationMs=round((time.perf_counter() - start) * 1000),
                                error='NATIVE_OBSERVATION_UNAVAILABLE', outputDigest=hashlib.sha256(raw).hexdigest())
@@ -492,9 +638,13 @@ def remote_bundle(task, candidate, image, run_id):
 
 
 def _remote_verifier(image, task):
-    config = repr({'image': image, 'scope': task['executionScope'], 'taskDigest': task['taskDigest'], 'graderDigest': task['graderDigest']})
-    return '''import json, pathlib, subprocess, sys, uuid
+    config = repr({'image': image, 'scope': task['executionScope'], 'taskDigest': task['taskDigest'], 'graderDigest': task['graderDigest'],
+                   'receiptContract': _receipt_contract(task)})
+    # The exported consumer uses the same source-owned protocol as local
+    # execution. The validator depends only on json/math and built-in types.
+    return '''import json, math, pathlib, subprocess, sys, uuid
 CONFIG = ''' + config + '''
+''' + inspect.getsource(_native_receipt) + '''
 root = pathlib.Path(__file__).resolve().parent
 expected = json.loads((root / 'expected.json').read_text())
 def observe(folder):
@@ -510,7 +660,7 @@ def observe(folder):
         marker = b'GATEWAY_REPOSITORY_NATIVE_STARTED_V1\\n'
         if process.returncode or len(process.stdout) > 524288 or not process.stdout.startswith(marker):
             raise RuntimeError('Native process did not return bounded execution evidence')
-        return json.loads(process.stdout[len(marker):])
+        return _native_receipt(process.stdout[len(marker):], **CONFIG['receiptContract'])
     finally:
         subprocess.run(['docker', '--context', 'default', 'rm', '-f', name], capture_output=True, timeout=15)
 def correct(value):
@@ -519,6 +669,8 @@ reference, broken = observe('reference'), observe('broken')
 if not correct(reference) or not isinstance(broken.get('runtime'), dict) or any(broken.get(key) for key in ('runtimeError', 'candidateError')) or correct(broken):
     raise SystemExit('Native verifier calibration failed; result unqualified')
 candidate = observe('candidate')
+if candidate.get('runtimeError'):
+    raise SystemExit('Native runtime observation unavailable; result unqualified')
 passed = correct(candidate)
 print(json.dumps({'qualified': True, 'resolved': passed, 'taskDigest': CONFIG['taskDigest'], 'graderDigest': CONFIG['graderDigest'], 'executionScope': CONFIG['scope']}))
 raise SystemExit(0 if passed else 1)

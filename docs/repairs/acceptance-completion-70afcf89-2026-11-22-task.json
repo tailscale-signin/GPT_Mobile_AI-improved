@@ -9,7 +9,7 @@
   "working_branch": "work/acceptance-published-70afcf89",
   "intent": "Implement all 16 diagnostic review findings, preserve other workers changes, validate the current PR head, merge after required checks pass, validate the exact main commit and publish the scoped release.",
   "authorization": "User explicitly authorized implementation, draft PR push, merge after green, and publication after green on 2026-11-22.",
-  "state": "CURSOR_AND_PROCESS_INTEGRATED_NATIVE_RECEIPT_AND_SHARED_PACKAGES_ACTIVE",
+  "state": "NATIVE_RECEIPT_VERIFIED_SHARED_CONTEXT_BACKUP_AND_ANDROID_INTEGRATION_ACTIVE",
   "guardrails": [
     "Preserve concurrent commits; never force push",
     "Never substitute earlier-head checks for current-head evidence",
@@ -623,9 +623,9 @@
       "state": "PASSED",
       "tests": 625,
       "command": "bash scripts/validate-local.sh fast",
-      "qualification": "Combined published de2f source, final cursor union and process lifecycle repair. All2024 literal regex patterns pass;99 dynamic patterns excluded. Full Android/native/physical gates remain separate.",
-      "source": "df33ad692b650b42dd199cb3f1ed605f862d604c",
-      "seconds": 26.113
+      "qualification": "Integrated b715 backup and final08b native receipt source; all625 canonical cases and2024 literal regex patterns pass,99 dynamic excluded. All source-owned native controls separately pass38/38 without skips. Pending context, backup-manager and Android-failure integrations remain explicit.",
+      "source": "e699f5d1eb591dbc4e1f1d2af293f2b8e6211056",
+      "seconds": 28.928
     },
     {
       "gate": "required_current_pr_head",
@@ -654,7 +654,7 @@
     "release": null,
     "status_receipt": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254"
   },
-  "integrated_remote_head": "e094773cb40c3fbd52a2e0218cb3478145249cee",
+  "integrated_remote_head": "b715797b347cebc835757a06ffe6a8eb2e3996ea",
   "preserved_concurrent_commits": [
     "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
     "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
@@ -686,7 +686,10 @@
     "93b110310b7c479ebfa0be68d38f848bf633edd8",
     "6892a9ffcda8f89adc4c6ef937ac04be3caf942b",
     "de2f1ddaa75c0eea40388f93da4cd476616094f8",
-    "e094773cb40c3fbd52a2e0218cb3478145249cee"
+    "e094773cb40c3fbd52a2e0218cb3478145249cee",
+    "7ede6c33f6dc0da14e354b46dde95bde063e4beb",
+    "087e312de01e2df0d08be71728957d0835bc47fa",
+    "b715797b347cebc835757a06ffe6a8eb2e3996ea"
   ],
   "qualification_limits": [
     "Do not mark all30 scenarios passed: physical audio, frame latency and device export timing remain unmeasured.",
@@ -891,7 +894,7 @@
   },
   "cursor_followup": {
     "source": "6f887cc3f4e81deb497879c9f83cf773fc002189",
-    "state": "INTEGRATED_INDEPENDENTLY_VERIFIED_PENDING_DRAFT_PUSH",
+    "state": "PUSHED_DRAFT_INDEPENDENTLY_VERIFIED_PENDING_HOSTED",
     "new_red_probes": 2,
     "scope": "Rejected altered saved cursors must not consume unread offsets or suppress their exact issued correction; preserve successful-page deduplication and existing recovery budget.",
     "shared_baseline": "5a9302855e1a65f8ac30174fae319c4dd2088370",
@@ -905,7 +908,16 @@
     "qualification": "Actual cursor/native/delivery/compactor sources with the documented frozen journal/platform boundary. Full AgentRunner, Android and wrapper execution remain canonical CI obligations.",
     "canonical_tests": 625,
     "canonical_source": "df33ad692b650b42dd199cb3f1ed605f862d604c",
-    "gateway_manifest": "Combined cursor and lifecycle upload regenerates all505 package hashes, then binds manifest provenance to the acknowledged reachable code commit before the guarded branch update."
+    "gateway_manifest": "Combined cursor and lifecycle upload regenerates all505 package hashes, then binds manifest provenance to the acknowledged reachable code commit before the guarded branch update.",
+    "published_code": "030345b52ca97965d37914859b949e08d7d974a6",
+    "actual_journal_compatibility": {
+      "tests": 55,
+      "source": "c9f43a1d1ba8acde40c4b0230a45aec23dac96d2",
+      "published_bindings_verified": 48,
+      "repository_inputs": 34,
+      "result": "PASS",
+      "scope": "Actual ToolBatchCheckpoint, GitHubToolHandoff and GitHubProviderReplayEvidence compile and execute with cursor proof; platform/transport boundaries remain explicit; no full AgentRunner or Android claim."
+    }
   },
   "benchmark_integration": {
     "source": "b541378f5257c8f21d73fd4a7c0c18e4c7bcf83d",
@@ -933,7 +945,7 @@
     "verified": "Actual branch ref and Git commit readback match the validated local tree and reachable code parent; one expected-head force=false update."
   },
   "process_start_followup": {
-    "state": "INTEGRATED_FOCUSED_TESTS_AND_INDEPENDENT_REVIEW_PASSED",
+    "state": "PUSHED_DRAFT_INDEPENDENTLY_VERIFIED_PENDING_HOSTED",
     "source": "1673ab5880",
     "working_branch": "work/agent-process-lifecycle-70afcf89",
     "scope": "Assist the announced voice-owned startup/cancellation repair, preserving incoming equivalent changes. Prevent actual agent subprocess startup after completed cancellation during source-catalog preparation; retain bounded protocol/cleanup behavior and existing credential/dispatch boundaries.",
@@ -959,7 +971,8 @@
       "tests": 66,
       "seconds": 2.135,
       "result": "PASS"
-    }
+    },
+    "published_code": "030345b52ca97965d37914859b949e08d7d974a6"
   },
   "shared_context_package": {
     "state": "ANNOUNCED_ACTIVE_EXTERNAL_WORKSTREAM",
@@ -979,7 +992,7 @@
     "requirements": "C01-C15 implementation active; C16 integration/qualification/publication pending in the declared workstream."
   },
   "native_receipt_followup": {
-    "state": "REPRODUCED_REPAIR_ACTIVE",
+    "state": "INTEGRATED_INDEPENDENTLY_VERIFIED_PENDING_DRAFT_PUSH",
     "source": "f06624d7a7dcafbf838bc1cd5e1150b39fe641f7",
     "scope": "Strict native execution receipt schema and closed candidate-error reasons after successful independent calibration. Malformed or uncertain runtime evidence must stay unqualified.",
     "evidence": "Two frozen regression methods fail in seven malformed-envelope/arbitrary-error subcases; three positive methods pass. Independently verified enclosing-deadline retention passes on f066 and fails when only its parent executor is substituted.",
@@ -987,12 +1000,90 @@
     "reserved_files": [
       "gateway/benchmarks/repository_sandbox.py"
     ],
-    "remaining": "Immutable repair, unchanged independent probes, integration and current-head qualification."
+    "remaining": "Guarded draft upload, remaining shared integration and exact-head/main/publication gates.",
+    "candidates": [
+      "463c2c25297fd53ef1f173a051962f5f4af318b3",
+      "3d13dae74322e403707d3831486a1a72d951af0a",
+      "08b881449ae7496d12116c58ecd3453f65ea37cb"
+    ],
+    "integrated_candidates": [
+      "e0553902e4",
+      "140b34a36f",
+      "2b9f06e27fd4d37fb0fbad7f562640d6f01b7e2c"
+    ],
+    "repair": "Both local and exported consumers validate the same closed typed runtime/output protocol, including SQLite schema/rows/probes and exactly the declared Actions jobs. Output/probe counts and job names derive from task inputs without oracle values. Missing metadata, malformed nested observations, duplicate/nonfinite JSON and contradictory or unknown error envelopes remain unqualified. Wrong solution schema/data/error/permission values remain qualified model failures after calibration; measured candidate resource failures retain accounting.",
+    "generated_verifier_regression": "Four frozen root probes pass unchanged on final integrated2b9f06e27f, closing the original six false-success subcases. Actual trusted SQLite controls execute; only Docker transport is replaced.",
+    "qualification_limits": "No generated model code executes outside the configured sandbox. Host proof uses only fixed shipped controls; live Docker/hosted/Windows/Android qualification remains separate.",
+    "source_sha256": "46b2a69ecc1d1de1eb262318005089874893667e619ea830edf3c1990b8f6ae0",
+    "independent_review": {
+      "source": "08b881449ae7496d12116c58ecd3453f65ea37cb",
+      "tracked_passed": 36,
+      "tracked_optional_runtime_skips": 2,
+      "unchanged_frozen_probe_methods_passed": 16,
+      "gateway_snapshot_files_verified": 506,
+      "result": "CLEAR_WITHIN_SCOPE"
+    },
+    "root_integrated_validation": {
+      "source": "2b9f06e27fd4d37fb0fbad7f562640d6f01b7e2c",
+      "configured_native_control_tests": 38,
+      "skips": 0,
+      "seconds": 11.147,
+      "frozen_exported_verifier_probes": 4,
+      "result": "PASS",
+      "environment": "Pinned Kotlin/JVM compiler artifacts, Java21, SQLite and PyYAML6.0.3; only fixed source-owned controls execute outside Docker.",
+      "canonical_fast": {
+        "source": "e699f5d1eb591dbc4e1f1d2af293f2b8e6211056",
+        "tests": 625,
+        "seconds": 28.928,
+        "result": "PASS"
+      }
+    }
   },
   "shared_benchmark_followups": {
     "state": "ANNOUNCED_EXTERNAL_WORKSTREAMS_ACTIVE",
-    "legacy_recovery": "Agent-integration workstream owns retained INTERRUPTED/PROCESS_INTERRUPTED GitHub dispatch migration in gateway/benchmarks/store.py.",
+    "legacy_recovery": {
+      "state": "PUSHED_INTEGRATED_INDEPENDENTLY_VERIFIED",
+      "source": "087e312de01e2df0d08be71728957d0835bc47fa",
+      "code": "7ede6c33f6dc0da14e354b46dde95bde063e4beb",
+      "tests": 32,
+      "independent_probes": 4,
+      "baseline_failures": 9,
+      "snapshot_files": 506,
+      "scope": "Legacy interrupted ownership projects through every consumer without rewriting raw completion; cancellation is not replayed and exact append-only settlement releases ownership."
+    },
     "backup_restore": "Benchmark workstream owns pending engineering ownership preservation or refusal through backup replacement, including preflight and canonical atomic guard.",
     "gate": "Preserve and independently review these announced repairs before readiness; do not duplicate their reserved production edits."
-  }
+  },
+  "cursor_process_draft_push": {
+    "code_commit": "030345b52ca97965d37914859b949e08d7d974a6",
+    "manifest_commit": "08be45dc10c742bef0fe2d3550885086a050cea1",
+    "parent": "e094773cb40c3fbd52a2e0218cb3478145249cee",
+    "tree": "da3d9205dd93940bc2ac199fbf414e8e465520b9",
+    "verification": "Single expected-head force=false update; actual ref/commit/tree readback and local merged tree match. All505 package hashes match the reachable source parent."
+  },
+  "benchmark_account_binding_review": {
+    "source": "de2f1ddaa75c0eea40388f93da4cd476616094f8",
+    "code": "6892a9ffcda8f89adc4c6ef937ac04be3caf942b",
+    "state": "INDEPENDENTLY_VERIFIED",
+    "tests": 45,
+    "independent_probes": 4,
+    "snapshot_files": 506,
+    "scope": "Quota and stop after identity, captured credential rotation and owner revocation before dispatch all preserve truthful fences. Canonical Room deletion reviewed; full Android execution pending."
+  },
+  "context_assistance_followup": {
+    "state": "ISOLATED_CANDIDATES_INDEPENDENTLY_VERIFIED_AWAITING_SHARED_CONTEXT_INTEGRATION",
+    "phone_candidate": "a37c13b9e9e0cf5173192ca45b70b929940d2b90",
+    "phone_behavior": "Bind packets to exact selected branch/repository/commit/tree/query/variant/budgets and report reuse only from the successful retained read; unreadable cached data physically refetched is reported fetched.",
+    "phone_validation": "Root immutable archive independently recompiles45 focused tests and3 unchanged probes; all29 compiled inputs,21 dependencies and complete consulted source blobs verified.",
+    "catalog_candidate": "3d974c92aa75b90f0628c2cab6c7b1c1c63bc007",
+    "catalog_behavior": "Validate proposed repository task-context arguments against the current presented schema of an already admitted alias without changing discovery or acquisition.",
+    "catalog_validation": "Independent immutable8-method focused/frozen suite and3 additional contract-replacement/multiple-alias/required-selector probes pass;13 full source/test blobs,20 compiler inputs and20 dependencies verified.",
+    "qualification": "Actual scoped Kotlin components with explicit platform/service boundaries; final integrated full Android/provider/Room execution remains required."
+  },
+  "remaining_shared_holds": [
+    "Repository-context C01-C15 owner integration and independent Gateway/LSP/C14 reviews",
+    "Backup-manager admission, committed recovery and cold-initialization/locked-chat integration owned by map/integration",
+    "Nine actual Android failures from45088632015/ac503 owned by voice-response, with independent privacy cause review",
+    "Every applicable final-head check, expected-head merge, exact-main qualification and signed publication/asset readback"
+  ]
 }

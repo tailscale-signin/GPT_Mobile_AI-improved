@@ -176,7 +176,9 @@ function Get-NetFirewallPortFilter { param([Parameter(ValueFromPipeline=$true)]$
                  (False, '', []), (False, 'private profile name', []), (False, 'Private, private profile name', []))
         for fail, profile, expected_profiles in cases:
             with self.subTest(fail_reads=fail, profile=profile):
-                response = subprocess.run(command + ['-RuleProfile', profile] + (['-FailReads'] if fail else []), capture_output=True, check=True, timeout=15)
+                # Allow shared-runner startup in this semantic fixture; production keeps
+                # its 12s PROBE_TIMEOUT and explicit TIMEOUT classification.
+                response = subprocess.run(command + ['-RuleProfile', profile] + (['-FailReads'] if fail else []), capture_output=True, check=True, timeout=30)
                 value = json.loads(response.stdout.decode('utf-8-sig'))
                 self.assertEqual('UNKNOWN' if fail else 'PRESENT', value['listener_state'])
                 self.assertEqual('UNKNOWN' if fail else 'PRESENT', value['firewall_rule_state'])

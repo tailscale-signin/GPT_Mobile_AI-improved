@@ -311,14 +311,17 @@
         "gateway/v14/jobs.py",
         "gateway/v14/task_context.py",
         "gateway/v14/workspace_process.py",
-        "gateway/desktop/conversation_client.py"
+        "gateway/desktop/conversation_client.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayMenuMonitor.kt"
       ],
       "tests": [
         "gateway/tests/test_gateway_workspace_guidance.py",
         "gateway/tests/test_gateway_graph_effectiveness.py",
         "gateway/tests/test_gateway_agent_adapters.py",
         "gateway/tests/test_gateway_task_context.py",
-        "gateway/tests/test_gateway_desktop_conversations.py"
+        "gateway/tests/test_gateway_desktop_conversations.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt"
       ],
       "commands": [
         "python3 gateway/check_gateway.py"
@@ -605,6 +608,16 @@
       "bytes": 17333,
       "sha256": "9f52b0ea14babce6552c8cab60506622fbb5b89670bf9aab6539fbca73176815"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModel.kt": {
+      "blob_sha": "80441be1d251fa17143a918f0415910a8bed5b1f",
+      "bytes": 24004,
+      "sha256": "c8ba078b3ea6a1c0b4d76731cf743434684d8a5614aa59aed911bfb50e1bc36b"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayMenuMonitor.kt": {
+      "blob_sha": "d3032750d28109fd26bd5eba2c3e45fb91b061c5",
+      "bytes": 2177,
+      "sha256": "9ba42bd7d0b6af64004a15ab97c77c3206dabbc639dc7aa5b7db335de552a6d2"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatProfileScreen.kt": {
       "blob_sha": "96a5ff939652b38f2b3e0d9a8d2e6989d3e769b9",
       "bytes": 35393,
@@ -869,6 +882,11 @@
       "blob_sha": "203016cbefd301477def110619934a9c82bd8a3e",
       "bytes": 9894,
       "sha256": "d451ae86e2430d85d2c6c3137ee1431457399d04701f1060bd30eed46172e1e5"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt": {
+      "blob_sha": "703e24123b51dfb8dee3d54b60407e1612d41637",
+      "bytes": 42425,
+      "sha256": "ec189a13a453c7e05bb7c756a065690b54572355020e46476218127f155c8e1b"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkContextEvidenceTest.kt": {
       "blob_sha": "c84246e18e2cfd5902fef65f5490e311ec6c047a",

@@ -1249,7 +1249,9 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexWitnessReuseTest.kt",
     "docs/repairs/phone-index-nested-witness-2026-11-23-task.json",
     "docs/repairs/pr2254-final-integration-fallback-2026-11-23-task.json",
-    "docs/repairs/causal-application-frames-2026-11-23-task.json"
+    "docs/repairs/causal-application-frames-2026-11-23-task.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt",
+    "docs/repairs/gateway-viewmodel-teardown-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.13",

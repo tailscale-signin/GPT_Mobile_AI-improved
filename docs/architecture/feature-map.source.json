@@ -307,14 +307,17 @@
         "gateway/v14/jobs.py",
         "gateway/v14/task_context.py",
         "gateway/v14/workspace_process.py",
-        "gateway/desktop/conversation_client.py"
+        "gateway/desktop/conversation_client.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayMenuMonitor.kt"
       ],
       "tests": [
         "gateway/tests/test_gateway_workspace_guidance.py",
         "gateway/tests/test_gateway_graph_effectiveness.py",
         "gateway/tests/test_gateway_agent_adapters.py",
         "gateway/tests/test_gateway_task_context.py",
-        "gateway/tests/test_gateway_desktop_conversations.py"
+        "gateway/tests/test_gateway_desktop_conversations.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt"
       ],
       "commands": [
         "python3 gateway/check_gateway.py"

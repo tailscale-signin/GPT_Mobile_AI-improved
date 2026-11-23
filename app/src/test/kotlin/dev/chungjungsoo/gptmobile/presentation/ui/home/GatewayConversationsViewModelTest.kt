@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
@@ -31,14 +33,23 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -46,6 +57,8 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -62,6 +75,24 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 @OptIn(ExperimentalCoroutinesApi::class)
 class GatewayConversationsViewModelTest {
+    private val fixtureJobs = mutableListOf<Job>()
+
+    private fun ownScope(scope: CoroutineScope): CoroutineScope = scope.also {
+        fixtureJobs += it.coroutineContext.job
+    }
+
+    private suspend fun clearFixture(store: ViewModelStore) = withContext(NonCancellable) {
+        val jobs = fixtureJobs.toList()
+        store.clear()
+        jobs.forEach { it.cancel() }
+        // Real Default/IO children can still dispatch cancellation after clear returns.
+        // Use a wall-clock bound for their completion, keeping Main installed throughout.
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) { jobs.joinAll() }
+        }
+        fixtureJobs.clear()
+    }
+
     private val jobs = mockk<GatewayJobRepository>()
     private val conversations = mockk<GatewayConversationRepository>()
     private val row = GatewayConversationSnapshot(gatewayId = "gateway-id", principalId = "network:shared", conversationId = "server-only", title = "Saved on the server")
@@ -103,10 +134,99 @@ class GatewayConversationsViewModelTest {
             GatewayChatAdoption(ChatRoomV2(id = firstArg(), title = "Retained gateway", conversationMode = ConversationMode.GATEWAY))
         }
         coEvery { creator.hasQueueBoundary(any()) } returns false
-        val monitor = GatewayMenuMonitor(flowOf(emptyList()), CoroutineScope(Dispatchers.Main))
+        val monitor = GatewayMenuMonitor(flowOf(emptyList()), ownScope(CoroutineScope(Dispatchers.Main)))
         val completions = mockk<dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore>()
         every { completions.items } returns MutableStateFlow(emptyList())
-        return GatewayConversationsViewModel(SavedStateHandle(), settings, jobs, conversations, scopes, monitor, known, creator, database, queue, completions)
+        return GatewayConversationsViewModel(SavedStateHandle(), settings, jobs, conversations, scopes, monitor, known, creator, database, queue, completions).also { ownScope(it.viewModelScope) }
+    }
+
+    @Test fun fixtureCleanupWaitsForViewModelAndMonitorChildrenBeforeResettingMain() = runTest(timeout = 15.seconds) {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        val model = object : ViewModel() {}
+        val modelScope = ownScope(model.viewModelScope)
+        val monitorScope = ownScope(CoroutineScope(Dispatchers.Main))
+        val jobs = fixtureJobs.toList()
+        store.put("cleanup", model)
+        val modelStarted = CompletableDeferred<Unit>()
+        val monitorStarted = CompletableDeferred<Unit>()
+        val modelStopping = CompletableDeferred<Unit>()
+        val monitorStopping = CompletableDeferred<Unit>()
+        val releaseModel = CompletableDeferred<Unit>()
+        val releaseMonitor = CompletableDeferred<Unit>()
+        val modelStopped = CompletableDeferred<Unit>()
+        val monitorStopped = CompletableDeferred<Unit>()
+        val cleanupFinished = CompletableDeferred<Unit>()
+        var cleanup: Job? = null
+
+        suspend fun waitForCancellation(
+            started: CompletableDeferred<Unit>,
+            stopping: CompletableDeferred<Unit>,
+            release: CompletableDeferred<Unit>,
+            stopped: CompletableDeferred<Unit>
+        ) {
+            try {
+                started.complete(Unit)
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) {
+                    stopping.complete(Unit)
+                    release.await()
+                    stopped.complete(Unit)
+                }
+            }
+        }
+
+        try {
+            modelScope.launch {
+                flow<Unit> {
+                    waitForCancellation(modelStarted, modelStopping, releaseModel, modelStopped)
+                }.flowOn(Dispatchers.Default).collect()
+            }
+            monitorScope.launch(Dispatchers.IO) {
+                waitForCancellation(monitorStarted, monitorStopping, releaseMonitor, monitorStopped)
+            }
+            modelStarted.await()
+            monitorStarted.await()
+            cleanup = launch {
+                clearFixture(store)
+                cleanupFinished.complete(Unit)
+            }
+            modelStopping.await()
+            monitorStopping.await()
+            runCurrent()
+            assertFalse("Cleanup must await both owned dispatcher children", cleanupFinished.isCompleted)
+            assertFalse(modelScope.coroutineContext.job.isCompleted)
+            assertFalse(monitorScope.coroutineContext.job.isCompleted)
+
+            releaseModel.complete(Unit)
+            modelStopped.await()
+            runCurrent()
+            assertFalse("The independently owned monitor must also finish", cleanupFinished.isCompleted)
+            assertFalse(monitorScope.coroutineContext.job.isCompleted)
+
+            releaseMonitor.complete(Unit)
+            cleanup.join()
+            assertTrue(cleanupFinished.isCompleted)
+            assertTrue(modelStopped.isCompleted)
+            assertTrue(monitorStopped.isCompleted)
+            assertTrue(jobs.all { it.isCompleted })
+        } finally {
+            // A failed negative-control assertion must retire the real children too.
+            releaseModel.complete(Unit)
+            releaseMonitor.complete(Unit)
+            withContext(NonCancellable) {
+                store.clear()
+                jobs.forEach { it.cancel() }
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000) {
+                        jobs.joinAll()
+                        cleanup?.join()
+                    }
+                }
+                Dispatchers.resetMain()
+            }
+        }
     }
 
     @Test fun githubChatUsingVerifiedGatewayAppearsBeforeItsFirstAcceptedJobAndKeepsItsMode() = runTest {
@@ -140,7 +260,7 @@ class GatewayConversationsViewModelTest {
             model.state.first { it.localChats.isEmpty() }
             assertTrue(model.state.value.localChats.isEmpty())
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -172,7 +292,7 @@ class GatewayConversationsViewModelTest {
             coVerify(exactly = 0) { creator.hasQueueBoundary(any()) }
             coVerify(exactly = 0) { jobs.listConversations(any(), any()) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -210,7 +330,7 @@ class GatewayConversationsViewModelTest {
             features.value = features.value.copy(githubProfileOverrides = overrides)
             assertEquals(listOf(room), model.state.first { it.localChats.isNotEmpty() }.localChats)
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -236,7 +356,7 @@ class GatewayConversationsViewModelTest {
             features.value = AppFeatureSettings()
             model.state.first { it.localChats.isEmpty() }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -270,7 +390,7 @@ class GatewayConversationsViewModelTest {
             runCurrent()
             assertEquals(2, requests.value)
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -290,7 +410,7 @@ class GatewayConversationsViewModelTest {
             assertEquals(attached.copy(conversationMode = ConversationMode.GATEWAY), opened.await())
             coVerify(exactly = 1) { conversations.openConversation("gateway-profile", "gateway-id", "network:shared", "server-only") }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -311,7 +431,7 @@ class GatewayConversationsViewModelTest {
             assertEquals(synced.lastSyncedAt, failed.lastSyncedAt)
             assertTrue(failed.cachedInventory)
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -341,7 +461,7 @@ class GatewayConversationsViewModelTest {
             assertNull(failed.page)
             assertNull(failed.lastSyncedAt)
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -369,7 +489,7 @@ class GatewayConversationsViewModelTest {
             assertFalse(requireNotNull(refreshed.page).hasMore)
             observer.cancel()
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -387,7 +507,7 @@ class GatewayConversationsViewModelTest {
             assertEquals("canonical-transcript", model.state.first { it.transcriptKey != null && it.openingId == null }.transcriptKey)
             coVerify(exactly = 0) { conversations.openConversation(any(), any(), any(), any()) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -406,7 +526,7 @@ class GatewayConversationsViewModelTest {
             assertTrue(offline.cachedInventory)
             coVerify(exactly = 0) { conversations.openConversation(any(), any(), any(), any()) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -429,7 +549,7 @@ class GatewayConversationsViewModelTest {
             model.open(row) { error("Old account cannot navigate") }
             coVerify(exactly = 0) { conversations.openConversation(any(), any(), any(), any()) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -449,7 +569,7 @@ class GatewayConversationsViewModelTest {
             model.showTranscript(row)
             coVerify(exactly = 0) { conversations.prepareTranscript(any(), any(), any(), any()) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -478,7 +598,7 @@ class GatewayConversationsViewModelTest {
             assertTrue(destinations.isEmpty())
             assertEquals(page, model.state.value.page)
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -500,7 +620,7 @@ class GatewayConversationsViewModelTest {
             coVerify(exactly = 1) { creator.create(any()) }
             coVerify(exactly = 0) { jobs.listConversations(any(), any()) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -524,7 +644,7 @@ class GatewayConversationsViewModelTest {
             assertEquals(room, opened.await())
             coVerify(exactly = 1) { creator.create(GatewayQueuedSelection.capture(profiles[1], profiles[1].model)) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -540,7 +660,7 @@ class GatewayConversationsViewModelTest {
             assertTrue(model.state.value.profileChoices.isEmpty())
             coVerify(exactly = 0) { creator.create(any()) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -563,7 +683,7 @@ class GatewayConversationsViewModelTest {
             assertTrue(model.state.value.profilePickerVisible)
             assertEquals(2, model.state.value.profileChoices.size)
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -591,7 +711,7 @@ class GatewayConversationsViewModelTest {
             assertEquals(room, opened.await())
             coVerify(exactly = 1) { creator.create(any()) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -616,7 +736,7 @@ class GatewayConversationsViewModelTest {
             coVerify(exactly = 0) { conversations.openConversation(any(), any(), any(), any()) }
             coVerify(exactly = 1) { creator.adopt(42, "inference") }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -637,7 +757,7 @@ class GatewayConversationsViewModelTest {
             coVerify(exactly = 0) { jobs.listConversations(any(), any()) }
             coVerify(exactly = 0) { conversations.openConversation(any(), any(), any(), any()) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }
@@ -656,7 +776,7 @@ class GatewayConversationsViewModelTest {
             assertTrue(blocked.creationError.orEmpty().contains("queue boundary could not be saved"))
             coVerify(exactly = 0) { jobs.listConversations(any(), any()) }
         } finally {
-            store.clear()
+            clearFixture(store)
             Dispatchers.resetMain()
         }
     }

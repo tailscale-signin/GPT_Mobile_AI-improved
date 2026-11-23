@@ -41,10 +41,10 @@ import java.io.File
 import java.nio.file.Files
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
@@ -99,10 +99,25 @@ class PhoneIndexCombinedLedgerTest {
                 val inner = ledger.wrapper(60_000).bind(fixture.tool())
                 val tool = if (nested) ledger.wrapper(60_000).bind(inner) else inner
                 val prepared = (tool as PreparableAgentTool).prepareExecution("cancelled", arguments("index"))
-                val running = async { prepared() }
+                val cancellation = CancellationException("Stop this exact phone-index attempt")
+                val observedCancellation = CompletableDeferred<Throwable>()
+                val running = async {
+                    try {
+                        prepared()
+                    } catch (error: CancellationException) {
+                        observedCancellation.complete(error)
+                        throw error
+                    }
+                }
                 withTimeout(5000) { fixture.secondBlobEntered.await() }
-                running.cancelAndJoin()
+                running.cancel(cancellation)
+                running.join()
                 assertTrue(running.isCancelled)
+                val observed = withTimeout(5000) { observedCancellation.await() }
+                assertTrue(
+                    "The original cancellation must survive coroutine recovery",
+                    generateSequence(observed) { it.cause }.take(8).any { it === cancellation }
+                )
                 withTimeout(5000) { fixture.secondBlobStopped.await() }
                 assertTrue(fixture.secondBlobStopped.isCompleted)
                 val snapshot = assertStopped(ledger, "parent-cancel-nested=$nested")

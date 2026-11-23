@@ -204,7 +204,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportFrameworkFramesTest.kt",
         "authentication/test_framework_frames.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexWitnessReuseTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",

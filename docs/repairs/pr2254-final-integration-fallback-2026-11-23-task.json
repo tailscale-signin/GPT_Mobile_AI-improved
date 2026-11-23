@@ -1,0 +1,125 @@
+{
+  "task_id": "pr2254-final-integration-fallback-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "78de5d6614c2ca4104477e2e8bae98c2213a5375",
+  "working_branch": "work/final-regression-78de-20261123",
+  "parent_pr": 2254,
+  "intent": "Preserve the now-public78de complete application union and close only the regression coverage gap: retain original cancellation provenance in its canonical five-case PhoneIndexCombinedLedgerTest, add two distinct witness-reuse guards and historical569 evidence, and refresh required reference/scope metadata. No production, Gateway or workflow changes.",
+  "ownership": "Root-owned fallback only. Acceptance retains shared integration; no foreign checkout, remote or PR mutations. Reconcile if the original owner advances first.",
+  "status": "READY_FOR_INTEGRATION",
+  "inputs": {
+    "acceptance": "90af54f111d5cbe9011034d683821c239bf76a4f",
+    "phone": "5697942239f6e7f95db49d0a4e9966e4cadffbfb",
+    "benchmark_union": "9af9329662abe07793200a5e2642c495253d25a9",
+    "public_union": "78de5d6614c2ca4104477e2e8bae98c2213a5375"
+  },
+  "constraints": [
+    "Preserve source bytes unless conflict resolution is required and reviewed.",
+    "No Gateway source changes; preserve513 manifest entries and source04f ancestry.",
+    "Preserve release versions, request and workflows from current public source.",
+    "Only required generated metadata and exact release-scope paths may be updated.",
+    "Run canonical fast once and pinned lint on actual changed/new Kotlin."
+  ],
+  "validation": [
+    {
+      "kind": "pinned Kotlin lint",
+      "result": "PASS",
+      "files": 2,
+      "log": "/workspace/scratch/6b5c8b09c56b/final-integration-fallback-proof/public78de/kotlin-lint.log",
+      "input_receipt": "/workspace/scratch/6b5c8b09c56b/final-integration-fallback-proof/public78de/kotlin-lint.json"
+    },
+    {
+      "kind": "generated metadata",
+      "result": "Regenerated repository references, architecture index, app audit inventory and build facts. Only feature-map source/output changes;3006production files/26areas and all version facts unchanged.",
+      "log": "/workspace/scratch/6b5c8b09c56b/final-integration-fallback-proof/public78de/metadata-generation.log"
+    },
+    {
+      "kind": "actual-source focused phone regressions",
+      "result": "PASS",
+      "tests": 7,
+      "failures": 0,
+      "seconds": 21.446,
+      "source_commit": "98d59045bbc22fa05a6df566ec93d0efad8d0ca5",
+      "repository_inputs": 66,
+      "compiled_inputs": 93,
+      "dependencies": 60,
+      "hash_mismatches": 0,
+      "compiler_heap_mib": 512,
+      "test_heap_mib": 512,
+      "active_cpus": 2,
+      "receipt": "/workspace/scratch/6b5c8b09c56b/final-integration-fallback-proof/public78de/phone/verification.json",
+      "receipt_sha256": "f0cf9dfd50fcb2dbb273958ce16836b5de383449a5102b7c3f62e88c5cc5c2f8",
+      "log": "/workspace/scratch/6b5c8b09c56b/final-integration-fallback-proof/public78de/phone/run/tests.log",
+      "log_sha256": "dea1d92da42e0181bb1c46adf9de27b732c369c14b88a76df602e4d840bd6e30"
+    },
+    {
+      "kind": "canonical fast",
+      "result": "PASS",
+      "runs": 1,
+      "command": "bash scripts/validate-local.sh fast",
+      "source_commit": "98d59045bbc22fa05a6df566ec93d0efad8d0ca5",
+      "source_tree": "213eda7c1a766cd1c2dac6c070749b06f4f0e2ec",
+      "tests": 658,
+      "unittest_seconds": 23.251,
+      "tracked_inputs": 6826,
+      "clean_before": true,
+      "clean_after": true,
+      "literal_regexes": 2040,
+      "dynamic_regexes_skipped": 100,
+      "xml_files": 36,
+      "inventory_files": 3006,
+      "inventory_areas": 26,
+      "receipt": "/workspace/scratch/6b5c8b09c56b/final-integration-fallback-proof/public78de/canonical-receipt.json",
+      "receipt_sha256": "153673a245af7e3fc2e9774234f6f035784dbb00bba07c16e6696578cc9da9e7",
+      "log": "/workspace/scratch/6b5c8b09c56b/final-integration-fallback-proof/public78de/canonical-fast.log",
+      "log_sha256": "875ebe7408d47f024c0cb5be788d6ab7f61bb1930fea6977ce2ac6750f83d545",
+      "tracked_input_manifest_sha256": "3e9fc45da43f6b1b2f743d0580cefdb6a55256578c8901dd34fd744f7923d5b9"
+    }
+  ],
+  "adopted_base": "78de5d6614c2ca4104477e2e8bae98c2213a5375",
+  "prior_local_fallback": "93f1151159",
+  "reconciliation": "Acceptance published78de while the local adoptable fallback was being assembled. Both earlier private branches remain untouched. This branch starts from exact public78de and applies only the narrow complementary regression append.",
+  "original_public_base": "d5863c2e6a30319c8eda21578f7a4924987287b3",
+  "historical_proof_mapping": {
+    "historical_tip": "5697942239f6e7f95db49d0a4e9966e4cadffbfb",
+    "tested_source": "4212aed028f7cba74bb9607dc58f9546fc9d5355",
+    "replaced_test_class": "PhoneIndexCombinedBudgetTest",
+    "canonical_test_class": "PhoneIndexCombinedLedgerTest",
+    "mapping": "The public canonical Ledger class retains the same five reservation/readback/UNKNOWN controls and adds two bounded Ktor handler-unwind waits. This append transfers the original-cancellation identity assertion into that existing helper and adds only the two distinct reuse guards. The earlier Budget class is not duplicated.",
+    "unchanged_production": "All six phone production files retain the reviewed4212 bytes through public78de. The older eight-file preservation statement describes historical569, not the formatted public tests."
+  },
+  "validation_plan": {
+    "focused_actual_source": "Seven cases: the existing five canonical Ledger controls with original-cancellation provenance and both bounded handler-unwind waits, plus two distinct reuse guards. Compiler/test JVM512MiB and2activeCPUs.",
+    "canonical": "One bash scripts/validate-local.sh fast run on the committed final combined source.",
+    "scope": "Exact committed HEAD via scripts/check_release_scope.py --commit.",
+    "lint": "Pinned ktlint1.3.1 passes both changed/new Kotlin files; source hashes retained in the receipt."
+  },
+  "retained_limits": [
+    "No production, native, Gateway, workflow, release-version or publication-request changes.",
+    "Parent-cancel settlement proof applies to CombinedTurnBudgetStore; durable AgentRunner cancellation/restart may still retain TOOL_OUTCOME_UNKNOWN.",
+    "No full Android, real network, physical-device or original private-report reproduction claim.",
+    "Historical569 checkpoint/proof retains its own source identity; the current canonical regression class and formatting differ as explicitly mapped."
+  ],
+  "updated_at": "2026-11-23T05:40:06.868803+00:00",
+  "tested_source_commit": "98d59045bbc22fa05a6df566ec93d0efad8d0ca5",
+  "tested_source_tree": "213eda7c1a766cd1c2dac6c070749b06f4f0e2ec",
+  "latest_public_readback": {
+    "head": "78de5d6614c2ca4104477e2e8bae98c2213a5375",
+    "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "draft": false,
+    "observed_after_canonical": true,
+    "note": "Read-only PR readback; this workstream did not edit PR state or push."
+  },
+  "preservation": {
+    "receipt": "/workspace/scratch/6b5c8b09c56b/final-integration-fallback-proof/public78de/preservation.json",
+    "sha256": "bd3c3570cbd5de8b83c70dfacf0eebcaa49c57293a664da7b60e97b365c34194",
+    "production_authentication_gateway_workflows_build_notes": "Byte-identical to public78de.",
+    "gateway_manifest_entries": 513,
+    "gateway_manifest_source": "04f518479671a8cd41faaf2fa02ef0f678a5bc31",
+    "gateway_source_reachable": true,
+    "scope": "Only three exact allowed paths added. Changes, limitations, required workflows, versions and publication request unchanged.",
+    "post_validation_change": "Only this task checkpoint records results after the clean98d canonical run; implementation, tests, references and release scope remain byte-identical."
+  },
+  "independent_review": "voice_repo_review cleared public78de preservation and immutable98d narrow source/metadata; final proof binding is read-only, with no additional test request."
+}

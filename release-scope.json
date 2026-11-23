@@ -1244,7 +1244,10 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt",
     "docs/repairs/phone-index-interruption-integration-2026-11-23-task.json",
-    "docs/repairs/engineering-memory-cancellation-fixture-2026-11-23-task.json"
+    "docs/repairs/engineering-memory-cancellation-fixture-2026-11-23-task.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexWitnessReuseTest.kt",
+    "docs/repairs/phone-index-nested-witness-2026-11-23-task.json",
+    "docs/repairs/pr2254-final-integration-fallback-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.13",

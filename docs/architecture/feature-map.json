@@ -208,7 +208,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportFrameworkFramesTest.kt",
         "authentication/test_framework_frames.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexWitnessReuseTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -669,6 +670,11 @@
       "bytes": 6757,
       "sha256": "d975707f393db56f513bc1591efd7cd489ea7b428ab53961bc332828d36ea752"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexWitnessReuseTest.kt": {
+      "blob_sha": "886a5420fcec25044936d46d57ab354f67864ec7",
+      "bytes": 2430,
+      "sha256": "dfd8b9cb406d48b8c8da49a33ff9f73ea6ffc18c1bb061ef5dcb9596d97e0a2f"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt": {
       "blob_sha": "0889c4aca454b935e1889a1c450db1b939c46f9e",
       "bytes": 52815,
@@ -770,9 +776,9 @@
       "sha256": "48802e9aca8f90f18998efca1667af1b3e24f28fbba052b4dced280e5bcafe9c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt": {
-      "blob_sha": "9db89831f1d7033e79718658c77a176cde6e19a1",
-      "bytes": 18765,
-      "sha256": "f3047a753648f957ea4dd50d04ef1a771c1785d19fc808eb9824e1cd243a3d11"
+      "blob_sha": "e804561c5793e9a3e4ba48a2138eb982792dc1f3",
+      "bytes": 19532,
+      "sha256": "5cbd61c9803a350d5067d82c254e815f72b075e0d029cc780ec1b6916100e663"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt": {
       "blob_sha": "918cee63f1a42e18c0f61cd217ebc50edf257daa",

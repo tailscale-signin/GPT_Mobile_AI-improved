@@ -260,7 +260,8 @@
     "Update the Android bound-transport acceptance fixture to the canonical repository-argument receipt, strengthening exact target and dispatch checks while preserving production behavior and all existing foreign-target and owned-deletion controls.",
     "Revalidate captured privacy and inherited request authority after the private stream rendezvous, suppress pending events after revocation and emit one content-free partial failure without replay while preserving producer cleanup and the collecting conversation context.",
     "Preserve complete native saved pages requested by ordinary provider calls, account for app-added instructions within the unchanged replay ceiling and reserve, and retain exact delivery proof and matching-context admission.",
-    "Bind each Gateway PCM response to its exact admitted request, preserve replacement streams during stale cleanup, and retire cancelled or stalled sends within one fixed timeout-plus-audio-duration budget while preserving synthesis limits and exact binary framing."
+    "Bind each Gateway PCM response to its exact admitted request, preserve replacement streams during stale cleanup, and retire cancelled or stalled sends within one fixed timeout-plus-audio-duration budget while preserving synthesis limits and exact binary framing.",
+    "Exercise voice-entry opt-in through the existing scrollable setup screen at200percent text size, preserving visibility, enabled-state and exactly-once start checks for both ordinary and installed streaming-engine entry."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",

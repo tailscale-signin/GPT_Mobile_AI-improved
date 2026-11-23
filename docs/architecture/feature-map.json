@@ -646,9 +646,9 @@
       "sha256": "286a1204295a66461bfc8aa49a2a9bd8e354543b462a7058b531a7d6635ed1df"
     },
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceEntryInstrumentedTest.kt": {
-      "blob_sha": "4d76a8725f03531f167c126c522fde455c687291",
-      "bytes": 4098,
-      "sha256": "c5752afd70ceb1c4a354773750dbfe9cb013b13665ff1b0ae6c4af10504deb77"
+      "blob_sha": "28bd7baffc51943406b510551df66b73ad61380d",
+      "bytes": 4320,
+      "sha256": "20461811081468a681e42d847b09c4bc211dd43b62e1df9504a0bd3513cccd68"
     },
     "app/src/benchmark/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/benchmark/SettledMarkdownBenchmarkFixture.kt": {
       "blob_sha": "edfd29cec00a6369017c4e3bf39906abfcd81aed",

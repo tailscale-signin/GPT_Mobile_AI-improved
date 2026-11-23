@@ -40,7 +40,7 @@
     "admission": "35 current-source JVM admission/policy/qualification tests passed. A manual-admission bypass negative control failed 5 of 11 new admission regressions, including 1075ms versus2450ms. Two additional Robolectric persistence/preparation-timeout tests remain required in CI.",
     "canonicalFast": "687 canonical host tests passed on the integrated ebda voice candidate. Pinned ktlint1.3.1 passed all64 changed Kotlin/Kotlin-script files. The independent TLS append is preserved; final combined-source gates remain required before merge. Full Android/model smoke remains pending normal CI."
   },
-  "latestObservedPublicHead": "cb79f70224fd9ca45ad53a526c762ab1dbec9a7e",
+  "latestObservedPublicHead": "1f84f33c0e00f65f25e2e1879261e868b370c8b0",
   "independentReview": {
     "sdkLifecycle": "Resolved cancellation/destructor lock contention and failed-native-retirement lease ownership; blocking-destructor regressions passed.",
     "entryAndPreview": "Resolved native-pack-only entry/saved-message gating and same-frame preview configuration ordering; actual Android tests are committed for CI.",
@@ -85,6 +85,30 @@
       "frozenTestSha256": "8124da2a1d1ad0f182ba4b3ca6f103019f60895a66fa07d605006bb2e3af28ef",
       "validation": "Root and independent peer source traces are clear; pinned ktlint1.3.1 and diff checks pass. No local Android or standalone fixture execution. Both latest-head emulator matrices remain required.",
       "historicalVoiceExecution": "The older6ca4 API34 lane passed20 selected voice methods with one explicit missing English system-TTS prerequisite skip; API36 passed all21 selected voice methods. That older script did not select the three new VoiceEntry methods, so this is historical diagnostic evidence only."
+    },
+    "voiceEntryLargeTextFixture": {
+      "baselineSource": "577ea512252b89f41fdfd1b90470b250700c0b0a",
+      "actualCheckout": "dc13dda90f05c7c6350340909987c996085ef40c",
+      "base": "8095c1aee67b64584033289944eff1dfac7a7b48",
+      "baselineRun": 45267301497,
+      "baselineJob": 138020522498,
+      "artifact": 14866352358,
+      "artifactSha256": "4093ce44e4589b6e222d2ba9afd5011fd0ccc28f33b61409e84b0459099a667c",
+      "observedDisplay": {
+        "size": "640x1280",
+        "densityDpi": 320,
+        "fontScale": 2.0
+      },
+      "failedMethods": [
+        "disabledPluginWaitsForExplicitOptIn",
+        "selectedStreamingPackCanStartVoiceChatWithoutTheNativeKokoroPack"
+      ],
+      "failure": "Both resolve voice_enable_start but fail assertIsDisplayed before any click. The actual ready screen already has a weighted scrollable content column; its start button can be below the fold at200percent font size. The fixture did not scroll.",
+      "change": "Scroll the real existing container to the start control before asserting visibility and enabled state and clicking. The selected streaming case also verifies zero starts before interaction. Preserve all3methods, explicit opt-in/exactly-one starts, selected installed SDK readiness without native Kokoro, original display/font profile and mandatory acceptance receipts. Production code is unchanged.",
+      "originalTestSha256": "c5752afd70ceb1c4a354773750dbfe9cb013b13665ff1b0ae6c4af10504deb77",
+      "frozenTestSha256": "20461811081468a681e42d847b09c4bc211dd43b62e1df9504a0bd3513cccd68",
+      "validation": "Exact reversal restores every original fixture byte. Root source trace and pinned ktlint1.3.1/diff checks pass. No local Android or standalone fixture execution. Both current-head API34/API36 matrices must execute all3entry methods unskipped.",
+      "baselineOtherCoverage": "The third entry method and all21selected voice methods passed; the third overall failure is the historical bound-receipt assertion separately corrected at858. These are historical diagnostic results, not final-source qualification."
     }
   }
 }

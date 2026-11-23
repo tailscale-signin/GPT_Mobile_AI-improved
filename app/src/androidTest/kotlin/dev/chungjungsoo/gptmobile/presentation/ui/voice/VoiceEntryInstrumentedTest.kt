@@ -4,9 +4,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
@@ -52,7 +54,8 @@ class VoiceEntryInstrumentedTest {
                 )
             }
         }
-        compose.onNodeWithTag("voice_enable_start").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(0, starts) }
+        compose.onNodeWithTag("voice_enable_start").performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, starts) }
     }
 
@@ -89,7 +92,7 @@ class VoiceEntryInstrumentedTest {
         }
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(0, enabled) }
-        compose.onNodeWithTag("voice_enable_start").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("voice_enable_start").performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, enabled) }
     }
 }

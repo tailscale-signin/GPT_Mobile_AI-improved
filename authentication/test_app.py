@@ -584,6 +584,7 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.insert(additions.index("ACCEPTANCE_OBSERVATION_CAUSES_V1") + 1, "ACCEPTANCE_EMPTY_EXPLANATION_V1")
         additions.insert(1, "VOICE_EXECUTION_EVIDENCE_V1")
         additions.extend(["VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1"])
+        additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
                          extended.json()["reportDiagnosticFeatures"])
         for key in ("service", "version", "reportContextVersions"):

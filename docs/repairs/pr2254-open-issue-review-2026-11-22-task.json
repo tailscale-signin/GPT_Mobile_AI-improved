@@ -250,7 +250,7 @@
       "issues": [
         2306
       ],
-      "action": "Surface the selected profile’s tools-disabled readiness and the enable-tools action before searching.",
+      "action": "Surface the selected profile\u2019s tools-disabled readiness and the enable-tools action before searching.",
       "regression_evidence": [
         "AppAssistedSearchTest"
       ]
@@ -321,6 +321,76 @@
         "LocalNativeToolFrameSessionTest",
         "ToolArgumentRepairRunnerTest"
       ]
+    },
+    {
+      "issues": [
+        2334,
+        2335,
+        2343
+      ],
+      "action": "The original reports do not expose the complete protected execution. The public index-action digest and phone default led to an actual-source reproducer: a cancelled phone index persists resumable progress, but both deadline owners currently classify it as an unknown remote outcome. Implement and independently verify an invocation-owned native interruption witness after actual work unwinds; preserve parent cancellation and every Gateway/mutation uncertainty fence. Historical unknowns without a native witness remain fenced.",
+      "disposition": "CONFIRMED_CURRENT_BOUNDARY_GAP_REPAIR_IN_PROGRESS",
+      "regression_evidence": []
+    },
+    {
+      "issues": [
+        2336,
+        2337,
+        2339
+      ],
+      "action": "Preserve the observed external OpenRouter429 failure and original invocation ownership. The reports show retry-after and no remote acceptance, but do not expose why the stage-specific durable wait was ineligible. Use a wait or continuation only when its original authority and no-duplicate predicates are proven; do not replay primary generation after a failure belonging to extraction. No incident recovery or new source defect is established by these capsules alone.",
+      "disposition": "EXTERNAL_PROVIDER_THROTTLING_RECOVERY_UNOBSERVED",
+      "regression_evidence": [
+        "GitHubVerifiedSessionTest.extractionProviderFailureKeepsItsOwnedAttemptWithoutAuthorizingPrimaryReplay"
+      ]
+    },
+    {
+      "issues": [
+        2338
+      ],
+      "action": "The public error-code digest identifies a native saved-page capacity refusal. Independently reproduced a current same-size retry loop with synthetic native views; retain the refusal separately from page consumption and offer only the exact issued larger correction within existing budgets. The private original sequence is unavailable and is not claimed reproduced.",
+      "disposition": "RELATED_CURRENT_CAPACITY_LOOP_REPAIRED_PENDING_INTEGRATED_HOSTED_CHECKS",
+      "regression_evidence": [
+        "GitHubSavedPageCapacityTest",
+        "GitHubSavedCursorContinuationTest",
+        "GitHubResultViewsStressTest"
+      ],
+      "candidate": "5323acee4d9b0a39628db829031a861d75a893fb"
+    },
+    {
+      "issues": [
+        2340,
+        2341,
+        2342
+      ],
+      "action": "Preserve correctly withheld completion and every unverified criterion or unsupported claim. The reports do not include the original task, complete receipts, next proposal or deadline. Remaining call budget alone does not establish that eligible continuation was stopped. Obtain exact missing/fresh evidence through admitted recipes; do not mark criteria complete or attribute these completed extractions to the separate draft-input fitting fix.",
+      "disposition": "GUARDED_INCOMPLETE_ACCEPTANCE_CAUSE_UNRESOLVED",
+      "regression_evidence": []
+    },
+    {
+      "issues": [
+        2344
+      ],
+      "action": "Retain the actual GitHub commit-read422 validation failure as a nonretryable read failure with its selected repository and ref. The approved report omits the ref and server explanation, so it does not identify a missing branch or invalid SHA. Refresh the exact authorized target through observed branch/commit evidence before any user-intended retry; never substitute a branch or repeat unchanged deterministic failures. Existing safe-details and ref-availability behavior is preserved.",
+      "disposition": "DETERMINISTIC_READ_REJECTION_NO_NEW_SOURCE_DEFECT_PROVEN",
+      "regression_evidence": [
+        "GitHubValidationRecoveryTest.deterministicReadFailuresKeepTheirCategoryAndActionableSafeDetailsWithoutRetry",
+        "GitHubRefAvailabilityTest.unavailableRefBlocksDependentReadsWithoutChangingRepositoryOrRefKind",
+        "GitHubToolErrorDiagnosticsTest.rejectedComparisonReadsIdentifyTheRequestWithoutExportingItsTarget"
+      ]
+    },
+    {
+      "issues": [
+        2345
+      ],
+      "action": "The original NoSuchElementException has no app throw site; its cause remains unknown. Reproduced diagnostic loss in unchanged source and retained bounded AndroidX/coroutine and Kotlin-mangled method frames, with matching hosted validation and explicit capability negotiation. Preserve approval bytes, app-only captured provenance and all privacy/count/byte bounds. This improves future evidence and does not claim to fix the original crash.",
+      "disposition": "DIAGNOSTIC_RETENTION_REPAIRED_CRASH_SITE_UNRESOLVED",
+      "regression_evidence": [
+        "IssueReportFrameworkFramesTest",
+        "authentication.test_framework_frames",
+        "scripts.tests.test_issue_reporting_configuration"
+      ],
+      "candidate": "cecf99e76cbf9e1b22b2eeef80110f3c32c3bc9b"
     }
   ],
   "schema_version": 1,
@@ -539,7 +609,7 @@
       ]
     }
   ],
-  "issue_count": 91,
+  "issue_count": 103,
   "validation": {
     "timestamp_regression": "Reproduced the ClassCastException on original production ranking code. Passed after the Long fallback repair. Included absent, malformed, null and populated timestamps and cross-operation priority.",
     "focused_host_suites": {
@@ -629,6 +699,48 @@
       "commit": "ac5030cbf0d82fcc9cc32bc845867befe03dda60",
       "production_compile": "PASSED",
       "unit_test_source_compile": "PASSED"
+    },
+    "latest_reports_2334_2345": {
+      "reports": [
+        2334,
+        2335,
+        2336,
+        2337,
+        2338,
+        2339,
+        2340,
+        2341,
+        2342,
+        2343,
+        2344,
+        2345
+      ],
+      "reported_revision": "b0f78edc8021b3b8c059f81d901c43df50c8fed9",
+      "reported_equivalent_source": "93b110310b7c479ebfa0be68d38f848bf633edd8",
+      "reported_tree": "93fe4b142c4e852ba450f7cb3d7abde1fce80b90",
+      "source_review_base": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+      "shared_ci_parent": "164504b0739a958ae5c29c639c44f011097e118f",
+      "source_note": "GitHub confirms the reported revision is a synthetic merge of mainc023 and93b with the same tree. Report observations, current source reproductions and tested corrections are separate.",
+      "capacity": {
+        "candidate": "5323acee4d9b0a39628db829031a861d75a893fb",
+        "independent_methods": 115,
+        "retained_cursor_probes": 14,
+        "native_checkpoint_restart_controls": 2,
+        "baseline_new_method_failures": 6,
+        "baseline_restart_failures": 2,
+        "limits": "Full Android/wrapper/AgentRunner qualification remains hosted; the original private report sequence is not reproduced."
+      },
+      "framework_frames": {
+        "candidate": "cecf99e76cbf9e1b22b2eeef80110f3c32c3bc9b",
+        "independent_kotlin_methods": 18,
+        "independent_python_methods": 205,
+        "failures": 0,
+        "skips": 0,
+        "kotlin_jar_sha256": "92336012e5828d2a434515cfbea2ab98f8567f962f5ec2061396f2589861a4d8",
+        "limits": "Diagnostic retention only; no original crash reproduction, deployed service update or native GitHub dispatch claim."
+      },
+      "phone_interruption": "IMPLEMENTATION_UNDER_TEST",
+      "publication": "NOT_MERGED_OR_PUBLISHED"
     }
   },
   "manifest_correction": "The integrated manifest contained both the superseded five-second speech reserve and the active 5.9-second reserve. Removed the superseded entry to agree with the playback implementation and release notes.",

@@ -1,0 +1,81 @@
+{
+  "task_id": "issue2345-framework-frames-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "working_branch": "work/issue2345-safe-framework-frames-8318",
+  "parent_pr": 2254,
+  "parent_head": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+  "intent": "Retain bounded AndroidX and kotlinx-coroutines symbol frames through approved issue-report delivery without exposing exception messages or changing crash behavior.",
+  "status": "IMPLEMENTED_PENDING_INDEPENDENT_AND_HOSTED_VERIFICATION",
+  "issue": 2345,
+  "crash_status": "UNRESOLVED_SITE_UNKNOWN",
+  "reported_source": "b0f78edc8021b3b8c059f81d901c43df50c8fed9",
+  "reported_source_equivalent": "93b110310b7c479ebfa0be68d38f848bf633edd8",
+  "confirmed_defect": "The unchanged frame whitelist removes AndroidX and kotlinx-coroutines throw sites before selecting retained frames, and excludes Kotlin-generated hyphenated method names. Actual-source probes reproduce the diagnostic loss without reproducing or attributing the original crash.",
+  "scope": [
+    "App exception filtering admits the explicit framework namespaces and final-method mangled suffixes with unchanged symbol-length, cause, frame-count and approved-byte bounds",
+    "Hosted report validator parity and explicit extended-readiness feature negotiation",
+    "Release readiness requires FRAMEWORK_EXCEPTION_FRAMES_V1 only for a configured hosted route; native-only builds remain supported",
+    "Exact approved bytes and report identity preserved on both hosted and native GitHub routes",
+    "Positive and negative source-executed regressions"
+  ],
+  "privacy_invariants": [
+    "Admit only existing namespaces plus androidx.* and kotlinx.coroutines.*",
+    "Do not read or publish arbitrary exception messages, filenames or payloads",
+    "Preserve app-frame priority, 8-frame output, 4-cause/48-frame inspection and 8192-byte approval limit",
+    "Unapproved neighbors, malformed or overlong symbols and unrelated kotlinx namespaces stay excluded",
+    "Final-method hyphen suffixes are ASCII and share the existing 145-character symbol and 6-digit line bounds; class/package hyphens remain rejected"
+  ],
+  "validation": [
+    {
+      "check": "actual-model Kotlin host regression",
+      "result": "18 methods passed, zero skips",
+      "scope": "Full actual IssueReport serialization, actual fixed-origin IssueReportSubmission with OkHttp, actual exception/capsule helpers; native GitHub render method extracted verbatim. Unrelated platform/provider boundaries remain explicit; no Android or native-dispatch qualification."
+    },
+    {
+      "check": "original 8318 behavior baseline",
+      "result": "17 methods compiled; 5 new methods failed and 12 passed before production changes; separate original hosted parser/readiness tests rejected new frames/feature.",
+      "limits": "The later additional app-only provenance control is not included in the original 17-method baseline."
+    },
+    {
+      "check": "actual hosted parser/FastAPI and release-readiness suites",
+      "result": "205 methods passed, zero skips; includes original payload/privacy/legacy-readiness contracts and new frame negotiation."
+    },
+    {
+      "check": "release-readiness fail-first regression",
+      "result": "New feature requirement failed before the production required-feature addition and passed afterward."
+    },
+    {
+      "check": "pinned ktlint 1.3.1 and git diff --check",
+      "result": "Passed for all scoped Kotlin inputs and source whitespace."
+    },
+    {
+      "check": "canonical fast",
+      "result": "CI policy passed; stopped at stale generated architecture index. Integration owner retains generated-source refresh and complete canonical verification."
+    }
+  ],
+  "limits": [
+    "This is a diagnostic-retention correction, not a claimed JVM crash fix.",
+    "A fresh approved incident or actual reproducer must identify the unresolved crash site.",
+    "Final hosted Android and publication gates remain required on the integrated source.",
+    "Exact immutable-commit recompilation and independent review receipts are recorded by the integration owner.",
+    "No deployed hosted-service update, physical-device crash reproduction, native GitHub authentication/dispatch execution or final Android build is claimed by these focused host checks."
+  ],
+  "compatibility": {
+    "feature": "FRAMEWORK_EXCEPTION_FRAMES_V1",
+    "reporter_protocol_minimum": 2,
+    "legacy_readiness_bytes": 1024,
+    "extended_readiness_bytes": 4096,
+    "schema_version_changed": false,
+    "native_github_renderer_changed": false,
+    "approved_bytes_rewritten": false
+  },
+  "fixture_provenance": {
+    "compose_artifact": "androidx.compose.ui:ui-android:1.12.1",
+    "class": "androidx.compose.ui.input.pointer.SuspendingPointerInputModifierNodeImpl",
+    "method": "onPointerEvent-H0pRuoY",
+    "class_sha256": "c64f0ad6c666e2e6768b4693ab2b3f366a985299a56bf7126187182e0467037f",
+    "line_numbers": "synthetic; no original crash-site assertion"
+  }
+}

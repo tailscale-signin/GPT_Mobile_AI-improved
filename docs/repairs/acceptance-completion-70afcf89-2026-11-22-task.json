@@ -9,7 +9,7 @@
   "working_branch": "work/acceptance-published-70afcf89",
   "intent": "Implement all 16 diagnostic review findings, preserve other workers changes, validate the current PR head, merge after required checks pass, validate the exact main commit and publish the scoped release.",
   "authorization": "User explicitly authorized implementation, draft PR push, merge after green, and publication after green on 2026-11-22.",
-  "state": "SPEECH_SOURCE_QUALIFIED_READY_FOR_GUARDED_DRAFT_PUSH_HOSTED_FOLLOWUPS_ACTIVE",
+  "state": "NEW_REPORT_REPAIRS_INTEGRATED_PENDING_PHONE_AND_HOSTED_GATES",
   "guardrails": [
     "Preserve concurrent commits; never force push",
     "Never substitute earlier-head checks for current-head evidence",
@@ -649,7 +649,7 @@
     }
   ],
   "publication": {
-    "state": "NOT_STARTED",
+    "state": "NOT_MERGED_OR_PUBLISHED",
     "merged_commit": null,
     "release": null,
     "status_receipt": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254"
@@ -695,7 +695,10 @@
     "f9ea57ae5436ee747cadffa01e5cc7f360473c71",
     "2f1afbf3180508b8326a9cc0b1b6c2dd640b34fc",
     "744268da3005cc9cf6813ae6f2ce5ad9740aac6e",
-    "12b34b08ce5a8bb8ff3535b25d2d2b0d730ccd9e"
+    "12b34b08ce5a8bb8ff3535b25d2d2b0d730ccd9e",
+    "04f518479671a8cd41faaf2fa02ef0f678a5bc31",
+    "8318ae1d511672a41156ab92aec0f5e599bae81c",
+    "164504b0739a958ae5c29c639c44f011097e118f"
   ],
   "qualification_limits": [
     "Do not mark all30 scenarios passed: physical audio, frame latency and device export timing remain unmeasured.",
@@ -1158,9 +1161,9 @@
     }
   },
   "remaining_shared_holds": [
-    "Publish reviewed Windows checkout framing correction with refreshed acknowledged-source Gateway manifest.",
-    "Preserve any new worker commit and require every applicable latest final-head workflow/attempt/matrix and current main rules before expected-head merge.",
-    "Require exact-main success and actual Android/Gateway release publication with downloaded asset/provenance readback."
+    "Complete independent source qualification of the phone-index interruption witness and preserve the reviewed Windows outer-job budget correction.",
+    "Every applicable latest final-head workflow, attempt and matrix must pass; no earlier-head or cancelled result qualifies.",
+    "Fresh main rules/head/base and guarded merge, then exact-main green and actual verified Android/Gateway publication."
   ],
   "android_nine_review": {
     "source": "71db6456e094397dc062be8bfcbcdb85778101c9",
@@ -1417,9 +1420,9 @@
     "dependencies": 20,
     "cause_loss_control": "Owner isolated cause-loss mutation has exactly one intended case and one probe failure in each mode; its exact corrected test and unchanged production hashes match the independent public-source replay."
   },
-  "status": "WINDOWS_CHECKOUT_FIXTURE_CORRECTED_FINAL_HOSTED_GATES_PENDING",
-  "latest_integration_source": "5cff7a9fcfd626c49d2a5bef8039eb4357d478d0",
-  "latest_published_shared_source": "719805d847816dbb7f1fda8fb21316ded84b9e09",
+  "status": "NEW_REPORT_REPAIRS_INTEGRATED_PENDING_PHONE_AND_HOSTED_GATES",
+  "latest_integration_source": "22aac36b74dc1701b002b8a5f1f65c0e7dcdac0d",
+  "latest_published_shared_source": "164504b0739a958ae5c29c639c44f011097e118f",
   "final_platform_followups": {
     "windows": {
       "source": "6dd4c63ce9427b36e9204922316a09bfa7f6138c",
@@ -1584,6 +1587,62 @@
         "swap_counts": false
       },
       "qualification": "Actual source-bound compilation/memory receipts, not complete final-head workflow success."
+    },
+    "unit_compiler": {
+      "public_source": "164504b0739a958ae5c29c639c44f011097e118f",
+      "independent_review": "SCOPED_CLEAR_HOSTED_PENDING",
+      "repository_tests": 34,
+      "actual_shell_controls": 20,
+      "workflow_inputs_verified": 32,
+      "unchanged_other_steps": 452,
+      "heap_mib": 4096,
+      "metaspace_mib": 1024,
+      "reserve_mib": 2048,
+      "known_headroom_required_mib": 7168,
+      "limits": "Actual Gradle retry script and unchanged task/flags exercised with a controlled final Gradle sink; this is not full local Android compilation or hosted sufficiency."
     }
+  },
+  "new_report_followups": {
+    "reviewed_reports": [
+      2334,
+      2335,
+      2336,
+      2337,
+      2338,
+      2339,
+      2340,
+      2341,
+      2342,
+      2343,
+      2344,
+      2345
+    ],
+    "reported_source": "b0f78edc8021b3b8c059f81d901c43df50c8fed9",
+    "current_source_base": "8318ae1d511672a41156ab92aec0f5e599bae81c",
+    "disposition_ledger": "docs/repairs/pr2254-open-issue-review-2026-11-22-task.json",
+    "capacity": {
+      "candidate": "5323acee4d9b0a39628db829031a861d75a893fb",
+      "integrated": "a085b699adaa308d91c4b2bb3ab5071344d2d44a",
+      "independent_review": "SCOPED_CLEAR",
+      "methods": 115,
+      "retained_probes": 14,
+      "native_restart_controls": 2,
+      "tests_jar_sha256": "4e562c71d16b8df6d9642e9c30f21dfe57a18913cb0842b3aa22cca9a2f586a8",
+      "limits": "Full Android/wrapper/AgentRunner qualification remains hosted; no original private sequence reconstruction."
+    },
+    "framework_frames": {
+      "candidate": "cecf99e76cbf9e1b22b2eeef80110f3c32c3bc9b",
+      "integrated": "22aac36b74dc1701b002b8a5f1f65c0e7dcdac0d",
+      "independent_review": "SCOPED_CLEAR",
+      "kotlin_methods": 18,
+      "python_methods": 205,
+      "failures": 0,
+      "skips": 0,
+      "tests_jar_sha256": "92336012e5828d2a434515cfbea2ab98f8567f962f5ec2061396f2589861a4d8",
+      "limits": "Diagnostic retention only. Original2345 crash site unknown; no deployed reporter, device, or native GitHub dispatch qualification."
+    },
+    "phone_index": "IMPLEMENTED_UNDER_AUTHOR_TEST_AND_PENDING_INDEPENDENT_REVIEW",
+    "provider_and_evidence_reports": "No unsupported recovery or completed-criteria claims; causal limitations remain explicit in the issue ledger.",
+    "deterministic_read422": "Current failure classification and exact selected-ref authority preserved; no blind retry or branch substitution."
   }
 }

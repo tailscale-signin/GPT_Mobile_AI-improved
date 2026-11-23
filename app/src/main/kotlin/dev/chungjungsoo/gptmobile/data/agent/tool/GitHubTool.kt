@@ -195,6 +195,8 @@ class GitHubTool(
         RepositoryGraphTool(
             "repository_graph$suffix",
             nativeStatus = nativeStatus,
+            repositoryScope = repositoryScope,
+            accountIdentity = if (apiToken.isNotBlank()) durableIdentity else "anonymous:$connectionUid:${apiOrigins.hostIdentity}",
             query = query
         )
     }

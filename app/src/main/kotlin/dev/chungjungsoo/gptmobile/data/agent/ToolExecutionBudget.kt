@@ -305,6 +305,13 @@ class ToolExecutionBudget(
                 var physicalToolStarted = false
                 var assignedWorkId: String? = null
                 var physicalContext = executionContext
+                val interruptionCall = ProviderEvent.ToolCall(callId, tool.definition.name, arguments)
+                val samePhysicalOwner = alreadyBudgeted &&
+                    currentCoroutineContext()[CombinedToolDispatchScope]?.let {
+                        it.identity == physicalIdentity && it.context.rootBudgetId == executionContext?.rootBudgetId
+                    } == true
+                val phoneInterruption = currentCoroutineContext()[PhoneIndexInterruption]
+                    ?.reuseFor(interruptionCall, samePhysicalOwner) ?: PhoneIndexInterruption(interruptionCall)
                 val workUnits = CombinedToolWork.units(arguments)
                 suspend fun invokeObserved(): AgentToolResult {
                     // Admission and semaphore waiting do not count as uses.
@@ -342,7 +349,7 @@ class ToolExecutionBudget(
                     val recorder = statistics
                     val recordedId = statisticsId
                     val sharedContext = physicalContext?.let { CombinedToolDispatchScope(it, physicalIdentity) } ?: kotlin.coroutines.EmptyCoroutineContext
-                    val observed = withContext(sharedContext + ToolBudgetScope(this@ToolExecutionBudget)) {
+                    val observed = withContext(sharedContext + ToolBudgetScope(this@ToolExecutionBudget) + phoneInterruption) {
                         currentCoroutineContext().ensureActive()
                         dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.requireExecution(tool)
                         physicalToolStarted = true
@@ -385,16 +392,16 @@ class ToolExecutionBudget(
                             withContext(ToolOutputAllowance(minOf(16 * 1024, remainingOutputBytes() / 4))) {
                                 withTimeoutOrNull(if (limits.researchAcquisition) dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.operationMillis(tool.definition.name, limits.toolTimeoutMillis) else limits.toolTimeoutMillis) { invokeObserved() }
                             }
-                                ?: if (replayableRead
-                                ) {
-                                    ToolResultEnvelope.error(callId, "READ_DEADLINE", "Read deadline reached; completed evidence is retained. Retry this read with a new call ID or narrow its scope; write actions are never replayed automatically.", dispatched = true)
-                                } else {
-                                    ToolResultEnvelope.error(callId, "TIMEOUT_OUTCOME_UNKNOWN", "Tool timed out after dispatch. Reconcile the outcome before repeating an action.", dispatched = true)
-                                }
+                                ?: phoneInterruption.close() ?: if (replayableRead
+                            ) {
+                                ToolResultEnvelope.error(callId, "READ_DEADLINE", "Read deadline reached; completed evidence is retained. Retry this read with a new call ID or narrow its scope; write actions are never replayed automatically.", dispatched = true)
+                            } else {
+                                ToolResultEnvelope.error(callId, "TIMEOUT_OUTCOME_UNKNOWN", "Tool timed out after dispatch. Reconcile the outcome before repeating an action.", dispatched = true)
+                            }
                         }
                     }
                     if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes) reason = result.errorCode
-                    if (result.errorCode == "READ_DEADLINE") {
+                    if (result.errorCode in setOf("READ_DEADLINE", PhoneIndexInterruption.CODE)) {
                         combinedResult = result
                         reason = result.errorCode
                         executionOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
@@ -439,14 +446,16 @@ class ToolExecutionBudget(
                     success = !normalizedResult.isError
                     return@execution normalizedResult
                 } catch (cancellation: CancellationException) {
-                    if (!replayableRead) unknownOutcomes.putIfAbsent(signature, ToolReconciliationEvidence.observation(ProviderEvent.ToolCall(callId, tool.definition.name, arguments), ToolResultEnvelope.error(callId, "DISPATCH_OUTCOME_UNKNOWN", "Operation interrupted", dispatched = physicalToolStarted)))
+                    val stoppedLocalIndex = phoneInterruption.close()
+                    if (stoppedLocalIndex != null) combinedResult = stoppedLocalIndex
+                    if (!replayableRead && stoppedLocalIndex == null) unknownOutcomes.putIfAbsent(signature, ToolReconciliationEvidence.observation(ProviderEvent.ToolCall(callId, tool.definition.name, arguments), ToolResultEnvelope.error(callId, "DISPATCH_OUTCOME_UNKNOWN", "Operation interrupted", dispatched = physicalToolStarted)))
                     val cancellationContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]
                     val origin = if (cancellation is kotlinx.coroutines.TimeoutCancellationException) "OPERATION_DEADLINE" else cancellationContext?.record?.origin?.name ?: "PARENT_CANCELLED"
                     reason = "CANCELED_$origin"
                     executionOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.CANCELED
                     AppLogRecorder.record(
                         "Tool",
-                        "TOOL_CANCELED · origin=$origin · rootWorkId=${cancellationContext?.rootWorkId ?: "unknown"} · generationId=${cancellationContext?.generationId ?: "unknown"} · completedCalls=${completed.get()} · outcomeKnown=false · tool=${tool.definition.name} · call=$callId",
+                        "TOOL_CANCELED · origin=$origin · rootWorkId=${cancellationContext?.rootWorkId ?: "unknown"} · generationId=${cancellationContext?.generationId ?: "unknown"} · completedCalls=${completed.get()} · outcomeKnown=${stoppedLocalIndex != null} · tool=${tool.definition.name} · call=$callId",
                         "W"
                     )
                     throw cancellation
@@ -510,6 +519,7 @@ class ToolExecutionBudget(
                     success = !boundedResult.isError
                     return@execution boundedResult
                 } finally {
+                    phoneInterruption.close()
                     val receipt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDeliveryReceipt]
                     if (receipt != null && statisticsId != null && statistics != null && deliveryOutcome == dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED) {
                         receipt.pending(statisticsId!!, statistics)

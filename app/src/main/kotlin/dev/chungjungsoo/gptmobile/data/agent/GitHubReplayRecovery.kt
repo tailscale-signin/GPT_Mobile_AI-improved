@@ -13,6 +13,7 @@ import kotlinx.serialization.json.put
 /** Keep executable continuation arguments intact when replaying a large GitHub result. */
 internal object GitHubReplayRecovery {
     private const val OMITTED_SAVED_RESULT = "GitHub result omitted from replay: its continuation exceeds the available replay budget. Do not invent a cursor or repeat a mutation; inspect retained evidence or request a narrower immutable read."
+    private data class CapacityRefusal(val page: String, val bytes: Int, val source: String, val scope: String, val recovery: JsonObject?)
 
     /** Keep the recovery allowance and consumed pages outside the evictable provider replay. */
     class State(calls: Collection<ProviderEvent.ToolCall> = emptyList(), results: Collection<AgentToolResult> = emptyList()) {
@@ -20,6 +21,7 @@ internal object GitHubReplayRecovery {
         private val automaticCalls = mutableSetOf<String>()
         private val readPages = mutableMapOf<String, String>()
         private val verifiedReads = mutableMapOf<String, VerifiedRead>()
+        private val capacityRefusals = mutableMapOf<String, Pair<ProviderEvent.ToolCall, CapacityRefusal>>()
         private val selectedReads = linkedMapOf<String, Pair<String, JsonObject>>()
         private val remoteReads = mutableSetOf<String>()
         private val deliveredReads = GitHubSavedReadProgress()
@@ -34,6 +36,7 @@ internal object GitHubReplayRecovery {
                 if (call.callId.startsWith("saved-result-consume-") || call.callId.startsWith("remote-result-consume-")) automaticCalls += call.callId
                 remoteReads += remoteKey(call.name, call.arguments)
                 if (completed == null) {
+                    if (capacityRefusals[call.callId]?.first?.let { it != call } == true) capacityRefusals.remove(call.callId)
                     if (verifiedReads[call.callId]?.call?.let { it != call } == true) {
                         verifiedReads.remove(call.callId)
                         readPages.remove(call.callId)
@@ -46,6 +49,15 @@ internal object GitHubReplayRecovery {
                 } else {
                     selectedReads.remove(call.callId)
                     val result = completed[call.callId]?.singleOrNull()
+                    val capacity = result?.let { savedPageCapacityRefusal(call, it) }
+                    if (capacity == null) {
+                        capacityRefusals.remove(call.callId)
+                    } else {
+                        val previousCapacity = capacityRefusals[call.callId]?.takeIf {
+                            it.first == call && it.second.copy(recovery = null) == capacity.copy(recovery = null)
+                        }?.second
+                        capacityRefusals[call.callId] = call to capacity.copy(recovery = capacity.recovery ?: previousCapacity?.recovery)
+                    }
                     val page = result?.let { savedPageKey(call, it) }
                     val previous = verifiedReads[call.callId]?.takeIf {
                         result != null && it.call == call && it.resultIdentity == savedResultIdentity(result) && ordinarySavedProjection(call, result)
@@ -70,6 +82,14 @@ internal object GitHubReplayRecovery {
         fun exhausted() = automaticCalls.size >= 32
         fun hasRead(name: String, cursor: String) = pageKey(name, cursor) in readPages.values
         fun hasAttempt(callId: String) = callId in automaticCalls
+        fun capacityRefused(name: String, cursor: String): Boolean {
+            val parsed = GitHubSavedReadProgress.cursor(cursor) ?: return false
+            val page = pageKey(name, cursor)
+            return capacityRefusals.values.any { it.second.page == page && parsed.bytes <= it.second.bytes }
+        }
+        fun capacityRecoveries(): List<Pair<ProviderEvent.ToolCall, JsonObject>> = capacityRefusals.values.mapNotNull { (call, refusal) ->
+            refusal.recovery?.let { call to buildJsonObject { put("recovery_call", it) } }
+        }
         fun select(call: ProviderEvent.ToolCall) {
             selectedReads[call.callId] = call.name to call.arguments
             while (selectedReads.size > 256) selectedReads.remove(selectedReads.keys.first())
@@ -168,6 +188,66 @@ internal object GitHubReplayRecovery {
 
     private fun pageKey(name: String, cursor: String) = "$name:${cursor.split(':').take(2).joinToString(":")}"
 
+    /** A native capacity refusal blocks only equally small automatic reads, never proves consumption. */
+    private fun savedPageCapacityRefusal(call: ProviderEvent.ToolCall, result: AgentToolResult): CapacityRefusal? {
+        val operation = GitHubOperationTool.operationName(call.name) ?: return null
+        val value = (call.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        val cursor = GitHubSavedReadProgress.cursor(value) ?: return null
+        val receipt = result.executionReceipt ?: return null
+        if (!GitHubResultViews.SAVED_CONTEXT_KEYS.containsAll(call.arguments.keys - "view_cursor") ||
+            result.callId != call.callId ||
+            !result.isError ||
+            result.dispatched ||
+            !result.sharedResult ||
+            result.errorCode != "SAVED_VIEW_PAGE_CAPACITY" ||
+            listOf("requires_reconciliation", "requiresReconciliation").any { receipt[it] == JsonPrimitive(true) }
+        ) {
+            return null
+        }
+        fun text(key: String) = (receipt[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        val source = text("saved_view_source_hash") ?: return null
+        if (!source.matches(Regex("[a-f0-9]{64}")) ||
+            text("saved_view_scope_hash")?.matches(Regex("[a-f0-9]{64}")) != true ||
+            receipt["saved_view_cursor_issued"] != JsonPrimitive(true) ||
+            receipt["saved_view_expired"] != JsonPrimitive(false) ||
+            text("saved_view_owner_operation") != operation ||
+            text("saved_view_cursor_hash") != dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("github.saved-view.cursor.v1\u0000${cursor.value}") ||
+            "saved_view_source_sha256" in receipt &&
+            text("saved_view_source_sha256") != source
+        ) {
+            return null
+        }
+        val body = envelope(result.content)
+        if (body == null) {
+            if (!ToolExchangeCompactor.isReplayPlaceholder(result.content) && (result.content as? ToolResultContent.Text)?.text != OMITTED_SAVED_RESULT) return null
+        } else {
+            if (body["schema"] !in setOf(JsonPrimitive("github.operation.v1"), JsonPrimitive("github.evidence-summary.v1"))) return null
+            val compacted = body["replay_compacted"] == JsonPrimitive(true) || body["schema"] == JsonPrimitive("github.evidence-summary.v1")
+            if ((!compacted && (body["schema"] != JsonPrimitive("github.operation.v1") || body["page_capacity_exceeded"] != JsonPrimitive(true))) ||
+                "page_capacity_exceeded" in body &&
+                body["page_capacity_exceeded"] != JsonPrimitive(true) ||
+                "operation" in body &&
+                body["operation"] != JsonPrimitive(operation) ||
+                "source_sha256" in body &&
+                body["source_sha256"] != JsonPrimitive(source) ||
+                "requested_page_bytes" in body &&
+                body["requested_page_bytes"] != JsonPrimitive(cursor.bytes) ||
+                "fragment_offset" in body &&
+                body["fragment_offset"] != JsonPrimitive(cursor.offset)
+            ) {
+                return null
+            }
+        }
+        val compactedRecovery = body?.takeIf {
+            it["replay_compacted"] == JsonPrimitive(true) && it["previously_delivered"] == JsonPrimitive(false) && it["recovery_required"] == JsonPrimitive(true)
+        }?.get("continuation_call") as? JsonObject
+        val recovery = ((body?.get("recovery_call") as? JsonObject) ?: compactedRecovery)?.takeIf { recipe ->
+            val corrected = GitHubSavedReadProgress.recipeCursor(recipe, call.name)
+            corrected != null && corrected.view == cursor.view && corrected.offset == cursor.offset && corrected.bytes > cursor.bytes
+        }
+        return CapacityRefusal(pageKey(call.name, value), cursor.bytes, source, requireNotNull(text("saved_view_scope_hash")), recovery)
+    }
+
     /** Advance only native-issued reads; exhaustive search is an explicit task policy. */
     fun nextRemoteRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, state: State? = null, allowSearchContinuation: Boolean = false): ProviderEvent.ToolCall? {
         if (state?.exhausted() == true) return null
@@ -265,30 +345,50 @@ internal object GitHubReplayRecovery {
             val results = exchange.results.groupBy { it.callId }
             exchange.calls.mapNotNull { call -> results[call.callId]?.singleOrNull()?.let { savedPageKey(call, it) } }
         }.toSet()
+        val capacityRefusals = exchanges.flatMap { exchange ->
+            val results = exchange.results.groupBy { it.callId }
+            exchange.calls.mapNotNull { call -> results[call.callId]?.singleOrNull()?.let { savedPageCapacityRefusal(call, it) } }
+        }
         val recoverySources = exchanges.flatMap { exchange ->
             exchange.results.mapNotNull { result ->
                 val call = exchange.calls.firstOrNull { it.callId == result.callId } ?: return@mapNotNull null
                 // The evidence observer has saved the complete source before this
                 // replay is built. Display fragments are not additional evidence.
                 val source = envelope(result.content) ?: return@mapNotNull null
+                val capacity = savedPageCapacityRefusal(call, result)
+                val capacityRefused = capacity != null
                 val unreadSource = source["source_page"] == JsonPrimitive(true) &&
                     source["recovery_required"] == JsonPrimitive(true) &&
                     source["previously_delivered"] == JsonPrimitive(false)
                 if (result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true) && !unreadSource) return@mapNotNull null
-                if (result.isError ||
+                if (result.isError &&
+                    !capacityRefused ||
+                    !capacityRefused &&
                     source["schema"] != JsonPrimitive("github.repeat.v1") &&
                     !(source["replay_compacted"] == JsonPrimitive(true) && source["recovery_required"] == JsonPrimitive(true)) &&
                     !call.callId.startsWith("saved-result-consume-")
                 ) {
                     return@mapNotNull null
                 }
-                call to source
+                val recoverySource = if (capacity != null) {
+                    val recovery = capacity.recovery ?: return@mapNotNull null
+                    buildJsonObject { put("recovery_call", recovery) }
+                } else {
+                    source
+                }
+                Triple(call, recoverySource, capacityRefused)
             }
-        }
-        for ((issuer, source) in recoverySources.asReversed()) {
+        } + state?.capacityRecoveries().orEmpty().map { (call, source) -> Triple(call, source, true) }
+        for ((issuer, source, capacityRefused) in recoverySources.asReversed()) {
             // A consumed page's recovery handle points back to that same page.
             // Advance its issued continuation directly; never consume every page twice.
-            val fields = if (issuer.callId.startsWith("saved-result-consume-")) listOf("continuation_call") else listOf("recovery_call", "continuation_call")
+            val fields = if (capacityRefused) {
+                listOf("recovery_call")
+            } else if (issuer.callId.startsWith("saved-result-consume-")) {
+                listOf("continuation_call")
+            } else {
+                listOf("recovery_call", "continuation_call")
+            }
             for (field in fields) {
                 val primary = source[field] as? JsonObject ?: continue
                 val primaryCursor = ((primary["arguments"] as? JsonObject)?.get("view_cursor") as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
@@ -306,9 +406,16 @@ internal object GitHubReplayRecovery {
                     val tool = tools.firstOrNull { it.name == name && it.modelVisible } ?: continue
                     val proposed = ProviderEvent.ToolCall("saved-result-consume-planning", name, issuedArguments)
                     val arguments = state?.advanceSavedRead(proposed, tool)?.arguments ?: issuedArguments
-                    val cursor = (arguments["view_cursor"] as JsonPrimitive).content
+                    val selectedCursor = GitHubSavedReadProgress.cursor(arguments) ?: continue
+                    val cursor = selectedCursor.value
+                    if (capacityRefused) {
+                        val refusedCursor = GitHubSavedReadProgress.cursor(issuer.arguments) ?: continue
+                        if (selectedCursor.view != refusedCursor.view || selectedCursor.offset != refusedCursor.offset || selectedCursor.bytes <= refusedCursor.bytes) continue
+                    }
                     if (ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty() ||
                         state?.hasRead(name, cursor) == true ||
+                        state?.capacityRefused(name, cursor) == true ||
+                        capacityRefusals.any { it.page == pageKey(name, cursor) && selectedCursor.bytes <= it.bytes } ||
                         pageKey(name, cursor) in readPages
                     ) {
                         continue

@@ -277,7 +277,8 @@ ERROR_CODES = {
 }
 SAFE_VERSION = re.compile(r"[a-zA-Z0-9._+-]{1,48}")
 SAFE_DEVICE = re.compile(r"[a-zA-Z0-9 ._()+-]{1,80}")
-SAFE_FRAME = re.compile(r"(?:dev\.(?:chungjungsoo|melo)\.gptmobile|android|com\.android|java|kotlin)\.[\w.$<>]{1,145}:[0-9]{1,6}", re.ASCII)
+# Match the app's bounded symbols, including Kotlin's final-method mangled suffix.
+SAFE_FRAME = re.compile(r"(?:dev\.(?:chungjungsoo|melo)\.gptmobile|android|androidx|com\.android|java|kotlin|kotlinx\.coroutines)\.(?=[A-Za-z0-9_.$<>-]{1,145}:[0-9]{1,6}$)[A-Za-z0-9_.$<>]+(?:-[A-Za-z0-9_$-]+)?:[0-9]{1,6}", re.ASCII)
 SAFE_EVENT = re.compile(r"-[0-9]{1,5}ms [DIWEF] (?:app|chat|voice|gateway|local|tools)(?: [A-Z][A-Z0-9_]{0,63})?")
 SAFE_TYPE = re.compile(r"[A-Za-z][A-Za-z0-9_$]{0,63}")
 SAFE_ATTACHMENT_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,100}")

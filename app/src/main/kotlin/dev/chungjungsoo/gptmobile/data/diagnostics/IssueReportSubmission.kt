@@ -53,9 +53,14 @@ internal class IssueReportSubmission(
         }
         val diagnostics = IssueReportDiagnostics.fromJson(context?.get("diagnostics"))
         val diagnosticFeatures = diagnostics?.requiredServiceFeatures().orEmpty()
-        val requiredFeatures = diagnosticFeatures + requiredCodeFeatures(parsed, context, diagnostics)
+        val extendedFrames = (parsed["frames"] as? JsonArray).orEmpty().any { value ->
+            (value as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(IssueReport::requiresExtendedFrameSupport) == true
+        }
+        val requiredFeatures = diagnosticFeatures + requiredCodeFeatures(parsed, context, diagnostics) +
+            if (extendedFrames) setOf(IssueReport.FRAMEWORK_EXCEPTION_FRAMES_FEATURE) else emptySet()
         if (context != null || requiredFeatures.isNotEmpty()) {
-            contextSupport(requiredVersions, requiredFeatures, diagnostics?.requiredReporterVersion() ?: 0)?.let { return it }
+            val minimumReporterVersion = maxOf(diagnostics?.requiredReporterVersion() ?: 0, if (extendedFrames) 2 else 0)
+            contextSupport(requiredVersions, requiredFeatures, minimumReporterVersion)?.let { return it }
         }
         val request = Request.Builder().url("${origin.trimEnd('/')}/v1/issue-reports")
             .post(payload.toRequestBody(JSON_MEDIA_TYPE)).build()
@@ -123,6 +128,7 @@ internal class IssueReportSubmission(
         private const val PROVIDER_TERMINAL_CAUSES_FEATURE = "PROVIDER_TERMINAL_CAUSES_V1"
         private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
+            IssueReport.FRAMEWORK_EXCEPTION_FRAMES_FEATURE,
             ExecutionCompletionDiagnostics.FEATURE,
             ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE,
             IssueReportDiagnostics.COMBINED_SINGLE_PASS_FEATURE,

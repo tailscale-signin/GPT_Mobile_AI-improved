@@ -2439,12 +2439,13 @@ class AgentRunner(
             if (errors.isNotEmpty()) return requireNotNull(kotlinx.coroutines.currentCoroutineContext()[ToolArgumentRepairScope]).budget.rejection(call.callId, tool.definition, call.arguments, errors, searchValidationOwner = tool.searchValidationOwner)
         }
         val replayableRead = replayableRead(call, tool)
+        val phoneInterruption = PhoneIndexInterruption(call)
         var observedReceipt: AgentToolResult? = null
         return try {
             // A delegated child can have different data permissions. Capture only
             // this call's authorized receipt, never its private intermediate calls.
             val result = kotlinx.coroutines.withContext(
-                ToolReceiptObserver { observedCall, receipt ->
+                phoneInterruption + ToolReceiptObserver { observedCall, receipt ->
                     if (observedCall.callId == call.callId && observedCall.name == call.name && observedCall.arguments == call.arguments) {
                         observedReceipt = ToolFailureMetadata.receipt(AgentContractValidation.receipt(call.callId, receipt), call.name, replaySafe = replayableRead)
                         onToolResult?.invoke(call, receipt)
@@ -2454,7 +2455,7 @@ class AgentRunner(
                 if (!tool.managesExecutionBudget && limits.toolTimeoutMillis < Long.MAX_VALUE) {
                     withTimeoutOrNull(limits.toolTimeoutMillis) {
                         tool.execute(call.callId, call.arguments)
-                    } ?: AgentToolResult(
+                    } ?: phoneInterruption.close() ?: AgentToolResult(
                         callId = call.callId,
                         content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
                         isError = true,
@@ -2486,6 +2487,8 @@ class AgentRunner(
             ).let { ToolFailureMetadata.withAuthorityFailure(it, error, "tool_execution") ?: it }
                 .let { ToolFailureMetadata.receipt(it, call.name, diagnosticCode = ToolFailureMetadata.classify(error), replaySafe = replayableRead) }
             ToolObservationRetention.bound(if (tool.managesExecutionBudget) result else result.copy(content = boundContent(result.content)))
+        } finally {
+            phoneInterruption.close()
         }
     }
 

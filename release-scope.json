@@ -95,7 +95,7 @@
     "Separate full agent-system comparisons from model benchmarks, reject comparison of unexecuted checks, and retain optional-runtime and provider qualification limits.",
     "Start speech when all bounded PCM queue slots are occupied even when partial phrase tails leave accepted duration below the measured reserve; retain queue and reserve limits, lifecycle fences and deadline behavior.",
     "Report invalid retained journal projections as typed recovery-integrity failures while omitting unverified observed digests and counts; preserve legacy file decoding and provable recovery, settled-call deduplication and prior budget refusal checks.",
-    "Apply the same evidence requirements to requests beginning with \u201cPlease,\u201d preserving their original wording and source references.",
+    "Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.",
     "Keep automatic phone-map recipes within native capabilities while retaining explicit Gateway analysis and source provenance.",
     "Preserve actual Gateway graph exchange evidence through local privacy rejection and clear only a proven unsent new index attempt.",
     "Propagate wrapped MCP cancellation before reconnect or replay while retaining earlier response and interruption facts.",
@@ -160,7 +160,10 @@
     "Exclude only the exact token-estimate schema label and public model-file SHA256 pin in their exact source files from generic API-key false positives; retain other fields, values, paths, neighboring material and complete history scanning.",
     "Invalidate prior native-runtime capability keys after the first-profile lifecycle repair; retain historical results while requiring fresh matching success and failure receipts for current Auto selection.",
     "Correct two hosted test-fixture calls for the current GitHub planning-context and benchmark callback signatures, retaining every assertion, original default context and production behavior.",
-    "Give the independently isolated Android unit-test compiler a fixed4GiB heap after the measured3GiB failure, with a fresh7168MiB observed RAM/cgroup preflight and bounded GC receipts; preserve production compilation, test execution limits, selectors, coverage, timeouts and every release gate."
+    "Give the independently isolated Android unit-test compiler a fixed4GiB heap after the measured3GiB failure, with a fresh7168MiB observed RAM/cgroup preflight and bounded GC receipts; preserve production compilation, test execution limits, selectors, coverage, timeouts and every release gate.",
+    "Stop automatic saved-page retries after a native capacity refusal; retain the incomplete page and exact issued larger recovery across compaction and restart without enlarging the accepted budget or weakening cursor/source authority.",
+    "Retain bounded AndroidX and coroutine crash frames, including Kotlin-generated method names, through exact approved reporting with compatible hosted readiness; preserve existing privacy, frame and payload limits without claiming an unresolved original crash is fixed.",
+    "Retain completed phone-index shards after an observed local interruption and settle actual Combined work exactly once across nested budget wrappers, preserving cancellation propagation, selected source/account identity and unrelated unknown remote-operation fences."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1229,7 +1232,18 @@
     "scripts/check_android_unit_compile_memory.py",
     "scripts/tests/test_android_unit_compile_memory.py",
     "docs/repairs/isolated-unit-compiler-2026-11-23-task.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageCapacityTest.kt",
+    "docs/repairs/saved-page-capacity-recovery-2026-11-23-task.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportFrameworkFramesTest.kt",
+    "authentication/test_framework_frames.py",
+    "docs/repairs/issue2345-framework-frames-2026-11-23-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReport.kt",
     "docs/repairs/gateway-windows-job-budget-2026-11-23-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt",
+    "docs/repairs/phone-index-interruption-integration-2026-11-23-task.json",
     "docs/repairs/engineering-memory-cancellation-fixture-2026-11-23-task.json"
   ],
   "publicationRequest": {

@@ -53,6 +53,7 @@ class PhoneRepositoryGraphRepository internal constructor(
             val initialToken = token(admitted.connection)
             val identity = identity(admitted.connection)
             verifyAdmission(context, admitted, identity)
+            currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.PhoneIndexInterruption.AttemptKey]?.admit(context, identity, arguments)
             val credentials: suspend () -> String = {
                 verifyAdmission(context, admitted, identity)
                 token(requireNotNull(connections.getConnection(context.connectionUid)))

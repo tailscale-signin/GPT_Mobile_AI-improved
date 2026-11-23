@@ -49,6 +49,7 @@ def create_app(public_url, reporter, rate_key):
         # clients negotiating the bounded extended view receive newer features.
         if capabilities == "extended":
             response["reportDiagnosticFeatures"].extend([
+                "FRAMEWORK_EXCEPTION_FRAMES_V1",
                 "CONVERSATION_RECOVERY_DIAGNOSTICS_V1",
                 "VOICE_EXECUTION_EVIDENCE_V1",
                 "REQUEST_BYTE_BUDGET_V1",

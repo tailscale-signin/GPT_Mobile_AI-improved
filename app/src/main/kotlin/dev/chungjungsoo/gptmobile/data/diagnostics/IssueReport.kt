@@ -80,13 +80,20 @@ internal data class IssueReport(
         const val TITLE_LIMIT = 120
         const val DESCRIPTION_LIMIT = 1200
         const val EVENT_LIMIT = 16
+        internal const val FRAMEWORK_EXCEPTION_FRAMES_FEATURE = "FRAMEWORK_EXCEPTION_FRAMES_V1"
         private val versionCharacters = Regex("[^A-Za-z0-9._+\\-]")
         private val deviceCharacters = Regex("[^A-Za-z0-9 ._()+\\-]")
         private val commitPattern = Regex("[a-f0-9]{7,40}")
-        private val framePattern = Regex("(?:dev\\.(?:chungjungsoo|melo)\\.gptmobile|android|com\\.android|java|kotlin)\\.[A-Za-z0-9_.$<>]{1,145}:[0-9]{1,6}")
+
+        // Kotlin value-class methods have mangled hyphen suffixes. Keep the total symbol bound,
+        // and permit those suffixes only in the final method segment, never in a class/package.
+        private val framePattern = Regex("(?:dev\\.(?:chungjungsoo|melo)\\.gptmobile|android|androidx|com\\.android|java|kotlin|kotlinx\\.coroutines)\\.(?=[A-Za-z0-9_.$<>-]{1,145}:[0-9]{1,6}$)[A-Za-z0-9_.$<>]+(?:-[A-Za-z0-9_$-]+)?:[0-9]{1,6}")
         private val typePattern = Regex("[A-Za-z][A-Za-z0-9_$]{0,63}")
         private val eventPattern = Regex("-[0-9]{1,5}ms [DIWEF] (?:app|chat|voice|gateway|local|tools)(?: [A-Z][A-Z0-9_]{0,63})?")
         internal val json = Json { ignoreUnknownKeys = true }
+
+        internal fun requiresExtendedFrameSupport(frame: String): Boolean = framePattern.matches(frame) &&
+            (frame.startsWith("androidx.") || frame.startsWith("kotlinx.coroutines.") || '-' in frame)
 
         fun manual(title: String, description: String, events: List<String>): IssueReport = base("manual", events).copy(
             title = diagnosticMessageForStorage(title.trim()).issueReportPrefix(TITLE_LIMIT),

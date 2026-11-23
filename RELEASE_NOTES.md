@@ -15,6 +15,9 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 
 ## Recovery and request consistency
 
+- Retain completed phone-index shards after local indexing is interrupted. Settle charged Combined work exactly once across nested wrappers, preserve cancellation, and keep unrelated unknown remote operations blocked for reconciliation.
+- Retain bounded AndroidX and coroutine crash frames, including Kotlin-generated method names. Keep approved report bytes and privacy limits intact, and require compatible hosted reporting support before delivery. This improves crash evidence; it does not establish the cause of a previously unresolved crash.
+- Stop automatic saved-page retries after a native capacity refusal. Retain the incomplete page and its exact issued larger recovery across compaction and restart, within the existing budget and attempt limit.
 - Prevent an unusable encrypted-cache key file after secure entropy fails, preserving existing protected keys and refusing lost-key access.
 - Avoid redundant GitHub checkpoint writes caused by copied observation times, while retaining meaningful evidence and recovery-state changes. Legacy backup samples and events keep their original pending attempt identities even when an older backup lacks separate attempt rows.
 - Shorten optional verification draft excerpts to fit the available input budget while preserving the full task, all acceptance criteria and Unicode characters. Requests still stop when required content cannot fit or the budget shrinks before dispatch.

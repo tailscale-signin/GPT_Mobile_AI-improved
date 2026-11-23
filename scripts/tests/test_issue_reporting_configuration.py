@@ -8,6 +8,17 @@ from scripts.check_issue_reporting_configuration import MAX_READINESS_BYTES, REQ
 
 
 class IssueReportingConfigurationTest(unittest.TestCase):
+    def test_framework_frames_require_the_extended_reporter_contract(self):
+        feature = "FRAMEWORK_EXCEPTION_FRAMES_V1"
+        self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {feature})}
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+        readiness["reportDiagnosticFeatures"].append(feature)
+        check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+
     def test_native_route_supports_builds_without_an_invented_service(self):
         self.assertEqual({"nativeGitHub": True, "reportingService": False}, validate("", "true"))
 

@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "f0d0a7257966a43d6b61bf0a937e355ca1fa9bab",
+  "parent_pr": 2254,
+  "parent_candidate": "90af54f111d5cbe9011034d683821c239bf76a4f",
+  "working_branch": "work/benchmark-final-integration-2026-11-23",
+  "intent": "Prepare an isolated integration of the existing phone-index deadline correction and the independently reproduced nested Combined cancellation repair, retaining the Acceptance saved-page/framework-frame integration and every public commit.",
+  "status": "IMPLEMENTED_COMPONENT_VERIFIED_PENDING_FINAL_HOSTED_QUALIFICATION",
+  "ownership": "Prepared in an isolated worktree from Acceptance90af, preserved publicd586 and all preceding commits, and coordinated one guarded shared-draft append. No other worker worktree was edited.",
+  "reviewed_patch_sha256": "20947b0388da6b7ef528ed4960bbdb9c4f7c4c13b723049b229fb554dabac1dc",
+  "validation": {
+    "independent_baseline": "Five actual durable-ledger controls fail on the previous ToolExecutionBudget.",
+    "original_candidate": "Four of five pass; nested parent cancellation records UNKNOWN.",
+    "proposed_correction": "Five actual-ledger and six witness controls pass; same dependencies and unchanged five-case probe.",
+    "limits": "Host ports cover Android services and remote GET transport; no live GitHub or full Android qualification claimed.",
+    "formatting": "Pinned ktlint 1.3.1 passed for all ten changed/new Kotlin files, including generated inventory; final ledger test and inventory rechecked after bounded-wait correction.",
+    "integration_host_tests": {
+      "tests": 15,
+      "passed": 15,
+      "seconds": 32.007,
+      "groups": {
+        "actual_durable_ledger": 5,
+        "witness_boundaries": 6,
+        "deadline_recovery": 4
+      },
+      "repository_inputs": 65,
+      "compiled_inputs": 92,
+      "receipt_sha256": "4d60075ecdcad937460a21715d14be94a6b7a5b5bffbb1082014ed713d26b218",
+      "test_jar_sha256": "7bf732beec359aadc8f77fbf03e3a1448f38a6a302c18e5a1cf954f244241cab"
+    },
+    "canonical_fast": {
+      "tests": 658,
+      "passed": 658,
+      "seconds": 23.8,
+      "literal_regexes": 2040,
+      "dynamic_regexes_not_executed": 100,
+      "xml_resources": 36,
+      "result": "PASS",
+      "log_sha256": "5779d5b1f3943cbf5660f027c378ac8fcad3c226610b9561a35feb500375eefd"
+    },
+    "canonical_fast_initial": {
+      "tests": 658,
+      "seconds": 25.682,
+      "result": "PASS",
+      "boundary": "Before final explicit test import and bounded asynchronous cleanup waits; final source run follows."
+    },
+    "test_integration_corrections": [
+      "Added the explicit PreparableAgentTool import after replacing the isolated probe wildcard import.",
+      "Retained an initial14/15 run whose only failure was an immediate MockEngine handler-stopped assertion before ledger checks.",
+      "Pinned Ktor3.6.0 call-job cancellation forwards cancellation without joining the handler. Two deterministic cleanup-barrier controls passed: caller cancelAndJoin returned before handler completion; bounded await then completed and every actual ledger assertion passed.",
+      "Added exactly two bounded stopped.await calls before existing assertions; no production or ledger-assertion change."
+    ],
+    "cleanup_boundary": {
+      "controls": 2,
+      "passed": 2,
+      "patch_sha256": "3ca3a2288c8bba3ebf778624b7788b327c508cc386eee9df42cb28a2dd8aa29c",
+      "original_failed_run_sha256": "1c39ead7b6a9d19a331bd75e7e28ace878c3da94db25edcbe5f7fca67ae68265"
+    },
+    "reconciled_remote_fast": {
+      "remote_head": "d5863c2e6a30319c8eda21578f7a4924987287b3",
+      "tests": 658,
+      "passed": 658,
+      "seconds": 22.989,
+      "literal_regexes": 2040,
+      "dynamic_regexes_not_executed": 100,
+      "xml_resources": 36,
+      "result": "PASS",
+      "log_sha256": "05b7e0401c82dfbfb51d4746173c34262f48d466518f440236a8d227ba3fed5d"
+    }
+  },
+  "integration_policy": {
+    "preserve_concurrent_commits": true,
+    "force_push": false,
+    "required_before_merge": [
+      "All source holds closed",
+      "Every applicable latest final-head workflow and attempt successful",
+      "Current main rules and revisions re-read",
+      "Expected-head merge"
+    ],
+    "required_before_completion": [
+      "All applicable exact-main gates successful",
+      "Actual Android and Gateway publication and source/asset verification"
+    ],
+    "scope_conflict_resolution": "Retained every phone/capacity/frame release change and path, and added the one incoming engineering-memory-cancellation fixture ledger path; no existing path or change was removed."
+  },
+  "changes": [
+    "Bind interruption witnesses to the exact local index invocation, account and selected repository revision.",
+    "Record stopped local work only after the native repository has admitted the call and its request callbacks have unwound with zero observed GitHub mutations.",
+    "Reuse one witness across only the same already-budgeted physical call so nested parent cancellation settles the actual durable reservation once.",
+    "Preserve unknown Gateway writes, cancellation propagation, blocked duplicate dispatch, complete prior shards and authorized readback/resume."
+  ],
+  "original_owner_inputs": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "e197ff4343e12fafde0e0be82c00067c5f7f0a55c8bc1fa7ea77db66380a3673",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": "3e67f5ff4905103bc72e719f9d8a1ce93b6dea2d87c29051dd33e6f8bfd052d9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt": "a66d9bdaa40655f0fa7ada9be304e8fabc458fd307a6bec171007ac1fc02bee9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt": "017756406c5b964d45eeacca2ae85237b1dc8fdffdfabfedc6fa28c7a19d6285",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepository.kt": "6a0aeb4384dcc2f197fd2dd22ce658cac6fcd77f86dc41ac688b6955b068e2df",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt": "4c7a4cbf36e9b24038177d4d71c4fd7b1a19420f4813826561a12449f8a796a7",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt": "01f50ae4665069e86c19c853261350ef8cbc736c9e310e380b5d8650287522f2",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt": "26428427a81dd279dbef7ab9ef555245b3f24103715f38bfb68a5cd4ed6315e6"
+  },
+  "integrated_source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "e197ff4343e12fafde0e0be82c00067c5f7f0a55c8bc1fa7ea77db66380a3673",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": "8c2d405d0aa868e86d39bbdac14aea49a49918b6ec57d16b43ac216738b55b93",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt": "a66d9bdaa40655f0fa7ada9be304e8fabc458fd307a6bec171007ac1fc02bee9",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt": "017756406c5b964d45eeacca2ae85237b1dc8fdffdfabfedc6fa28c7a19d6285",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepository.kt": "6a0aeb4384dcc2f197fd2dd22ce658cac6fcd77f86dc41ac688b6955b068e2df",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt": "ecefe6d1be56afc1b7f0be8960adc40bb7b734170f502adc581a89f364b0091c",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt": "d975707f393db56f513bc1591efd7cd489ea7b428ab53961bc332828d36ea752",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt": "4607196cffabcf48f2e8360e7c0441448d5ac1bbc6f1bd84e5ed1353d657fd1e",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt": "f3047a753648f957ea4dd50d04ef1a771c1785d19fc808eb9824e1cd243a3d11"
+  },
+  "remaining_source_coordination": "Preserved the separately owned public d586 cancellation-cause fixture correction. The phone-index candidate changes no production authorization or optional-memory timeout. Independent source review and all latest combined-head hosted gates remain required.",
+  "last_reconciled_remote_head": "d5863c2e6a30319c8eda21578f7a4924987287b3",
+  "reviewed_local_integration": {
+    "commit": "6e39980b1964018bbb55fa07140f0db3b57b15bd",
+    "tree": "d59bde71ee191201db672aa73ee618e5e9456b11",
+    "phone_source_commit": "9af9329662abe07793200a5e2642c495253d25a9",
+    "source_status": "All recorded phone source/test bytes are unchanged; this final record changes only publication checkpoint metadata."
+  }
+}

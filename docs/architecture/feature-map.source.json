@@ -29,7 +29,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositoryTaskContextReceipt.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositoryContextPackSelection.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/RepositoryToolHint.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerSettings.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerSettings.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepository.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContextTest.kt",
@@ -41,7 +42,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceStorageTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubContextVariantWireTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositoryTaskContextReceiptTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositoryContextPackSelectionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositoryContextPackSelectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -170,7 +173,9 @@
         "tool recovery",
         "commit changes",
         "pr checks",
-        "fix issues"
+        "fix issues",
+        "diagnostic report",
+        "crash frames"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
@@ -180,7 +185,13 @@
         "gateway/v14/engineering_backend.py",
         "gateway/v14/engineering_workspace.py",
         "gateway/v14/workspace_guidance.py",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatch.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatch.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "authentication/issue_reports.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
@@ -188,7 +199,12 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringPublicationTest.kt",
         "gateway/tests/test_gateway_workspace_guidance.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageCapacityTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportFrameworkFramesTest.kt",
+        "authentication/test_framework_frames.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexCombinedLedgerTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -202,7 +218,8 @@
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
         "Publication requires current source and applicable verification.",
-        "Workers cannot grant controller or mutation authority."
+        "Workers cannot grant controller or mutation authority.",
+        "Settle interrupted phone-index work only after exact local ownership and unwind evidence; preserve unrelated unknown remote operations."
       ]
     },
     {

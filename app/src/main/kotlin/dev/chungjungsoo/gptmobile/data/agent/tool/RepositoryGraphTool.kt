@@ -36,6 +36,8 @@ import kotlinx.serialization.json.put
 internal class RepositoryGraphTool(
     name: String,
     private val nativeStatus: (suspend (String) -> AgentToolResult)? = null,
+    private val repositoryScope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
+    private val accountIdentity: String? = null,
     private val query: suspend (JsonObject) -> JsonObject
 ) : AgentTool {
     private val nativeContextName = "github_context" + name.removePrefix("repository_graph")
@@ -57,11 +59,12 @@ internal class RepositoryGraphTool(
         val mapSource = arguments["map_source"] ?: JsonPrimitive("phone")
         val phone = mapSource == JsonPrimitive("phone")
         val phoneAccounting = if (phone) GitHubDispatchAccounting() else null
+        val phoneInterruption = if (phone) currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.PhoneIndexInterruption]?.begin(callId, definition.name, arguments, repositoryScope, accountIdentity) else null
         val gatewayObservation = if (phone) null else MetadataResponseObservation(currentCoroutineContext()[MetadataResponseObservation])
         val started = System.nanoTime()
         val result = try {
             val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000), "map_source" to mapSource))
-            val observed = if (phoneAccounting != null) withContext(phoneAccounting) { query(payload) } else withContext(requireNotNull(gatewayObservation)) { query(payload) }
+            val observed = if (phoneAccounting != null) withContext(phoneAccounting + (phoneInterruption ?: kotlin.coroutines.EmptyCoroutineContext)) { query(payload) } else withContext(requireNotNull(gatewayObservation)) { query(payload) }
             // GatewayGraphRepository replaces this object with its typed local observation.
             // Remote graph results cannot author checkpoint join or confirmation evidence.
             val checkpoint = (observed["index_checkpoint"] as? JsonObject)?.takeUnless { phone }
@@ -96,6 +99,7 @@ internal class RepositoryGraphTool(
             )
         } catch (cancelled: CancellationException) {
             phoneAccounting?.cancelled()
+            if (phoneAccounting != null) phoneInterruption?.cancelledAfterUnwind(phoneAccounting)
             throw cancelled
         } catch (failure: Exception) {
             val elapsedMillis = (System.nanoTime() - started) / 1_000_000

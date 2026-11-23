@@ -111,7 +111,12 @@ internal object GitHubAcceptanceContract {
         val accepted = contract["acceptance_criteria"] as? JsonArray
         if (accepted != null && accepted.all { it is JsonPrimitive && it.isString }) {
             val old = accepted.map { (it as JsonPrimitive).content }
-            val retained = old.filterNot { GitHubRequestCompletion.sectionTitle(it) != null }
+            val standaloneHeadings = GitHubTaskContinuity.request(request).lineSequence().map(String::trim)
+                .filter { GitHubRequestCompletion.sectionTitle(it) != null }.toSet()
+            val requested = GitHubRequestCompletion.requirements(request).toSet()
+            // A bullet can name an actual deliverable with the same text as a
+            // heading. Only remove a legacy heading that has no substantive use.
+            val retained = old.filterNot { it in standaloneHeadings && it !in requested }
             if (retained.isNotEmpty() && retained.size < old.size && (compiled == null || compiled == json(request, old))) {
                 return JsonObject(contract + mapOf("acceptance_criteria" to JsonArray(retained.map(::JsonPrimitive)), "acceptance_contract" to json(request, retained)))
             }

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "task": "github-acceptance-restore-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "5c976b57c13046bf6892a235ff6af99e2822ae56",
+  "pullRequest": 2367,
+  "intent": "Preserve substantive accepted bullet deliverables when refining a restored GitHub task contract, while removing only legacy standalone section headings.",
+  "acceptance": [
+    "Retain bullet deliverables named Acceptance criteria or Request details, including when an identical standalone heading also appears in the accepted request.",
+    "Remove legacy standalone headings only when the original accepted request contains that heading and current extraction does not retain it as a substantive requirement.",
+    "Preserve the original request, digest, binding, source message identity, call allowance and deadline; refinement remains idempotent.",
+    "Keep existing heading-removal controls and add direct behavior regressions for compiled and legacy contracts. Hosted execution on the final shared revision remains required."
+  ],
+  "qualification": {
+    "status": "IMPLEMENTED_AND_SOURCE_REVIEWED",
+    "incidentCause": "Not established; this correction addresses a source-provable restored-contract inconsistency.",
+    "kotlinExecution": "Not run locally; final-head hosted unit execution is required."
+  }
+}

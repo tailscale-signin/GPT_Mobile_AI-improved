@@ -112,6 +112,9 @@ internal object GitHubExecutionContinuation {
     private val sampleScope = Regex("""(?i)\b(?:sample|spot.check|not exhaustive|non.exhaustive|quick look)\b""")
     private val instructionName = Regex("""(?i)(?:^|/)(?:agents|contributing|readme|copilot-instructions|claude|gemini)(?:\.md)?$""")
     private val instructionScope = Regex("""(?i)\b(?:instructions?|guidelines?|contributing|agents\.md)\b""")
+    private val repositoryAudit = Regex(
+        """(?i)\b(?:all|every)\s+(?:(?:known|current|remaining)\s+)*(?:issues?|bugs?)(?:\s+and\s+(?:issues?|bugs?))?\s+(?:in|across|throughout)\s+(?:(?:the|this|our|selected|entire|whole)\s+)*(?:repo(?:sitory)?|codebase)\b|\b(?:review|audit|examine|inspect|check|scan)\s+(?:(?:the|this|our|selected)\s+)*(?:whole|entire)\s+(?:repo(?:sitory)?|codebase)\b|\b(?:exhaustive|comprehensive|complete)\s+(?:repository|codebase)\s+(?:audit|review|check|scan)\b"""
+    )
 
     fun instructionLookup(arguments: JsonObject): Boolean =
         arguments["mode"] == JsonPrimitive("paths") &&
@@ -119,7 +122,10 @@ internal object GitHubExecutionContinuation {
 
     fun requiresExhaustiveSearch(task: String, arguments: JsonObject? = null): Boolean {
         val query = (arguments?.get("query") as? JsonPrimitive)?.content.orEmpty().trim('*', '/')
-        return GitHubTaskContinuity.request(task).split(Regex("""[\n;!?]|\.(?:\s|$)|,\s*(?:and\s+)?(?:then\s+)?(?=[a-z])""")).any { clause ->
+        val clauses = GitHubTaskContinuity.request(task).split(Regex("""[\n;!?]|\.(?:\s|$)|,\s*(?:and\s+)?(?:then\s+)?(?=[a-z])"""))
+        // An explicit sample of this query stays bounded even alongside a broad audit.
+        if (query.isNotBlank() && clauses.any { sampleScope.containsMatchIn(it) && it.contains(query, ignoreCase = true) }) return false
+        return clauses.any { clause ->
             if (sampleScope.containsMatchIn(clause) || !coverageQualifier.containsMatchIn(clause) || !coverageSubject.containsMatchIn(clause)) return@any false
             if (arguments == null) return@any true
             // A request to fix all issues does not ask for every path matching
@@ -128,10 +134,13 @@ internal object GitHubExecutionContinuation {
             if (instructionLookup(arguments)) {
                 val target = "(?:instruction(?:s| files)?|guidelines?|(?:repository |project )?guides?|" + Regex.escape(query) + ")"
                 return@any Regex("""(?i)\b(?:all|every|each)\s+(?:(?:matching|nested|repository|project|applicable)\s+)*$target\b""").containsMatchIn(clause) ||
+                    Regex("""(?i)\b(?:exhaustive(?:ly)?|comprehensive(?:ly)?|complete)\s+(?:search|scan|review|audit|check|read)(?:\s+(?:for|of))?\s+(?:(?:the|all|every|matching|nested|repository|project|applicable)\s+)*$target\b""").containsMatchIn(clause) ||
                     namedQuery &&
                     Regex("""(?i)\b(?:whole|entire)\s+(?:repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)
             }
-            namedQuery || query.isBlank() && Regex("""(?i)\b(?:files?|paths?|tree|repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)
+            // Repository-wide audits may derive source queries that are absent from the request.
+            namedQuery || repositoryAudit.containsMatchIn(clause) ||
+                query.isBlank() && Regex("""(?i)\b(?:files?|paths?|tree|repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)
         }
     }
 

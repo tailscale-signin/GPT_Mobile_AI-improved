@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation
+import dev.chungjungsoo.gptmobile.data.github.GitHubSearchFrontier
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -17,6 +19,139 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubRemoteContinuationTest {
+    @Test fun explicitlyExhaustiveInstructionSearchUsesItsIssuedFrontier() {
+        val fixture = SearchScopeFixture("CONTRIBUTING", "paths")
+        for (task in listOf(
+            "Perform an exhaustive search for CONTRIBUTING",
+            "Perform a comprehensive search for CONTRIBUTING",
+            "Comprehensively search for CONTRIBUTING",
+            "Find every CONTRIBUTING.md in this repository",
+            "Read all repository instructions"
+        )) {
+            assertEquals(task, fixture.nextArguments, fixture.next(task)?.arguments)
+        }
+    }
+
+    @Test fun repositoryWideAuditPagesDerivedQueriesWithoutChangingTheirIncompleteEvidence() {
+        val fixture = SearchScopeFixture("TODO", "literal")
+        val originalReceipt = fixture.exchange.results.single().executionReceipt
+        for (task in listOf(
+            "Audit all bugs in the repository",
+            "Examine all issues and bugs across the codebase",
+            "Review the entire codebase",
+            "Perform a comprehensive repository audit",
+            "Audit all bugs in the repository; take a sample of README matches"
+        )) {
+            val continuation = requireNotNull(fixture.next(task)) { task }
+            assertEquals(fixture.tool.name, continuation.name)
+            assertEquals(task, fixture.nextArguments, continuation.arguments)
+        }
+        assertEquals(originalReceipt, fixture.exchange.results.single().executionReceipt)
+        assertEquals(JsonPrimitive(false), originalReceipt?.get("search_frontier")?.jsonObject?.get("complete"))
+    }
+
+    @Test fun incidentalInstructionsSamplesAndUnrelatedNarrowQueriesRemainBounded() {
+        val named = SearchScopeFixture("TODO", "literal")
+        assertEquals(named.nextArguments, named.next("Find every TODO in the repository")?.arguments)
+        for ((task, query, mode) in listOf(
+            Triple("Inspect the repository instructions and relevant tests. Implement its complete fix.\nAcceptance criteria\n- Fix all issues", "CONTRIBUTING", "paths"),
+            Triple("Audit all bugs in the repository, then read CONTRIBUTING", "CONTRIBUTING", "paths"),
+            Triple("Perform a non-exhaustive search for CONTRIBUTING", "CONTRIBUTING", "paths"),
+            Triple("Audit a sample of all bugs in the repository", "TODO", "literal"),
+            Triple("Audit all bugs in the repository; take a sample of TODO matches", "TODO", "literal"),
+            Triple("Find every FIXME in the repository", "TODO", "literal"),
+            Triple("Find every FIXME across the entire repository", "TODO", "literal")
+        )) {
+            assertNull(task, SearchScopeFixture(query, mode).next(task))
+        }
+    }
+
+    @Test fun taskScopedPagingKeepsExactAuthorityDuplicateAndAttemptFences() {
+        val fixture = SearchScopeFixture("TODO", "literal")
+        val task = "Audit all bugs in the repository"
+        val state = GitHubReplayRecovery.State(listOf(fixture.exchange.calls.single()))
+        val continuation = requireNotNull(fixture.next(task, state))
+        state.record(listOf(continuation))
+        assertNull(fixture.next(task, state))
+        val exhausted = GitHubReplayRecovery.State((1..32).map { ProviderEvent.ToolCall("remote-result-consume-$it", fixture.tool.name, buildJsonObject { put("index_cursor", it) }) })
+        assertNull(fixture.next(task, exhausted))
+        val original = fixture.exchange.calls.single()
+        for ((key, value) in listOf(
+            "query" to JsonPrimitive("FIXME"),
+            "repo" to JsonPrimitive("other"),
+            "commit_sha" to JsonPrimitive("c".repeat(40)),
+            "index_cursor" to JsonPrimitive(1)
+        )) {
+            val changed = fixture.exchange.copy(calls = listOf(original.copy(arguments = JsonObject(original.arguments + (key to value)))))
+            assertNull(key, fixture.next(task, exchange = changed))
+        }
+        val result = fixture.exchange.results.single()
+        val unbound = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) - "resource_context"))
+        assertNull(fixture.next(task, exchange = fixture.exchange.copy(results = listOf(unbound))))
+    }
+
+    private class SearchScopeFixture(query: String, mode: String) {
+        val tool = GitHubOperationTool.definition("github_search", "github_search__native")
+        private val arguments = buildJsonObject {
+            put("query", query)
+            put("mode", mode)
+            put("owner", "owner")
+            put("repo", "repo")
+        }
+        private val data = buildJsonObject {
+            put("search_id", "b".repeat(64))
+            put("commit_sha", "a".repeat(40))
+            put("interval_start", 0)
+            put("interval_end", 4)
+            put("total_candidate_files", 10)
+            put("returned", 0)
+            put("complete", false)
+            put("has_more", true)
+        }
+        val nextArguments = JsonObject(arguments + mapOf("index_cursor" to JsonPrimitive(4), "search_id" to data.getValue("search_id"), "commit_sha" to data.getValue("commit_sha")))
+        private val recipe = buildJsonObject {
+            put("tool", tool.name)
+            put("arguments", nextArguments)
+        }
+        private val frontier = requireNotNull(GitHubSearchFrontier.capture(tool.name, arguments, data, listOf(recipe)))
+        private val source = buildJsonObject {
+            put("schema", "github.result.v1")
+            put("operation", "github_search")
+            put("data", data)
+            put("continuation_call", recipe)
+        }
+        val exchange = AgentToolExchange(
+            listOf(ProviderEvent.ToolCall("scope-search", tool.name, arguments)),
+            listOf(
+                AgentToolResult(
+                    "scope-search",
+                    requireNotNull(GitHubReplayRecovery.compact(ToolResultContent.Json(source), 4096, consumed = true)),
+                    false,
+                    executionReceipt = buildJsonObject {
+                        put("schema", "github.dispatch.v1")
+                        put("resolved_arguments", JsonObject(arguments + ("action" to JsonPrimitive("search_repository"))))
+                        put(
+                            "resource_context",
+                            buildJsonObject {
+                                put("owner", "owner")
+                                put("repo", "repo")
+                            }
+                        )
+                        put("search_frontier", frontier)
+                    }
+                )
+            )
+        )
+
+        fun next(task: String, state: GitHubReplayRecovery.State? = null, exchange: AgentToolExchange = this.exchange) = GitHubReplayRecovery.nextRemoteRead(
+            listOf(exchange),
+            listOf(tool),
+            state,
+            allowSearchContinuation = GitHubExecutionContinuation.requiresExhaustiveSearch(task),
+            searchTask = task
+        )
+    }
+
     @Test fun exhaustiveSearchUsesOnlyAnIssuedNativeFrontierAfterCompactionAndNeverRepeatsIt() {
         val tool = GitHubOperationTool.definition("github_search", "github_search__native")
         val arguments = buildJsonObject {

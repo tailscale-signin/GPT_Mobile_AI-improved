@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "429179b70e83dca8856612db0c1feaf49ed30d920b7c8045c0836324b7c85329"
+    val sourceDigest: String = "395dc84e234ec4db311efd056153ed5ebb8e2de6c0b3ac8ff95a3ca4b5b9b24a"
     val fileCount: Int = 3006
-    val lineCount: Int = 507760
+    val lineCount: Int = 507774
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -36,7 +36,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14881),
         AppAuditSourceArea("gateway_client", "Android gateway client", 39, 6999),
         AppAuditSourceArea("network", "Networking and readiness", 111, 11242),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 280, 50909),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 280, 50923),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14068),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 46, 5055),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 111, 15091),

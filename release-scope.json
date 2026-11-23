@@ -1264,7 +1264,9 @@
     "scripts/scan_secret_history.sh",
     "docs/repairs/gateway-producer-fixture-deadline-2026-11-23-task.json",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogSelectorRecoveryTest.kt",
-    "docs/repairs/github-ordinary-continuation-2026-11-23-task.json"
+    "docs/repairs/github-ordinary-continuation-2026-11-23-task.json",
+    "docs/repairs/github-acceptance-restore-2026-11-23-task.json",
+    "docs/repairs/github-search-coverage-followup-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.14",

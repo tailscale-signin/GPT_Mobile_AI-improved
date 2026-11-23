@@ -124,7 +124,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderCallTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderStreamAuthorityTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateModalDispatchTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateModalDispatchTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateComposedStreamBackpressureTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -1183,6 +1184,11 @@
       "blob_sha": "3864806a576e80a999219738feed77fd027f2988",
       "bytes": 9291,
       "sha256": "3762cccfa313e5b08af60a92214c6c6b9d36ed8cee62b4a1e83896057d232dcb"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateComposedStreamBackpressureTest.kt": {
+      "blob_sha": "031a9b9a36c6f5cfd20fe261034c9fdf95debfcc",
+      "bytes": 8542,
+      "sha256": "5550592b3fe87da2c1394855adf67799813cad234b2d07b3d17cdcc4cb6fbc49"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateDispatchContextTest.kt": {
       "blob_sha": "0c295dac84c80637751fd0ded2e228ae9f650f77",

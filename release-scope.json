@@ -152,7 +152,8 @@
     "Bind speech qualification and Auto ranking to the selected voice and rate, invalidate old broken workloads, validate ordinary startup on the requested phrase, and retain bounded exact-shape caching with real GPU discovery and honest profile/audio evidence.",
     "Add separate production playback measurements for PCM and presented-audio latency, refills, underruns, audio-stop acknowledgement and complete caption word coverage without inferring acoustic alignment or battery benefits.",
     "Verify task-context cancellation provenance across coroutine recovery copies, retaining the exact original cause and one native map call with no semantic replay.",
-    "Retain nullable preparation thermal evidence and interrupted speech-benchmark cost, preserve unknown playback observations and retire unfinished native profiles before reuse while keeping successfully qualified cached sessions."
+    "Retain nullable preparation thermal evidence and interrupted speech-benchmark cost, preserve unknown playback observations and retire unfinished native profiles before reuse while keeping successfully qualified cached sessions.",
+    "Keep completed speech playback receipts immutable when cancellation arrives after terminal, retaining unknown cancellation latency and any earlier measured cancellation latency."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",

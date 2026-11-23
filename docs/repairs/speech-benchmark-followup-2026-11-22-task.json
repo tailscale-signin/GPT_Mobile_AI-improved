@@ -8,7 +8,7 @@
   "parent_pr": 2254,
   "intent": "Implement all reviewed speech benchmark, native qualification, diagnostics, shape reuse, statistics/history, settings and production playback measurement changes; integrate concurrent work and complete exact-head/main validation and signed publication.",
   "authorization": "User explicitly authorized every proposed feature, draft push, green-check merge, exact-main verification and publication; preserve concurrent commits.",
-  "status": "IMPLEMENTED_INTEGRATED_LOCAL_GREEN_AWAITING_FINAL_HEAD_CI",
+  "status": "IMPLEMENTED_REVIEW_FOLLOWUPS_INTEGRATED_AWAITING_EXACT_HEAD_CI",
   "requirements": [
     "S01 Shared native-bounded production phrase workload with complete long utterance coverage",
     "S02 Versioned qualification with invalid-input isolation and obsolete failure invalidation",
@@ -185,5 +185,45 @@
     "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeIntegration.java": "3bce4d3ff67b7f40a1db4359d5615b62523fb1bd022e9d31d64cf572e4a8ee17"
   },
   "prepared_speech_commit": "7daf0a2d275e298c5fe5fcfbc133bf85d0a9dc54",
-  "concurrent_publication_reconciliation": "Expected-head update encountered concurrent83e792. Read back branch/parents before retry; merge both histories and regenerate union metadata. No force push."
+  "concurrent_publication_reconciliation": "Expected-head update encountered concurrent83e792. Read back branch/parents before retry; merge both histories and regenerate union metadata. No force push.",
+  "implementation_snapshot_commit": "7daf0a2d275e298c5fe5fcfbc133bf85d0a9dc54",
+  "late_terminal_cancellation_followup": {
+    "base_commit": "9298610bab2e4cb90ef7d38d9c95753689a5acdc",
+    "change": "A stopped playback measurement ignores subsequent cancellation requests; unknown cancellation latency remains null and an observed pre-stop cancellation latency is unchanged.",
+    "production_scope": "One stoppedAt guard in cancelRequested; no route/clock/native/thermal changes.",
+    "regression_before": {
+      "base_commit": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
+      "tests": 43,
+      "passed": 42,
+      "expected_failures": 1,
+      "finding": "Late first cancellation after terminal changed cancellationMs from null to zero."
+    },
+    "focused_after": {
+      "base_commit": "160d54fcde1821b1d7c82f74d5672ce7c90fe7fc",
+      "tests": 43,
+      "passed": 43,
+      "scope": "Actual-source benchmark/workload/playback-measurement/live-export helper with explicit boundary contracts."
+    },
+    "integrated_validation": {
+      "result": "PASSED",
+      "tests": 59,
+      "base_commit": "9298610bab2e4cb90ef7d38d9c95753689a5acdc",
+      "scope": "Actual-source benchmark including cancellation-accounting, workload, playback-measurement and live export tests; full Gradle and device CI remain required.",
+      "log": "/workspace/scratch/da4162210969/benchmark-core-tests/late-cancel-on929.log",
+      "canonical_fast": {
+        "result": "PASSED",
+        "tests": 635,
+        "seconds": 22.473,
+        "scope": "Generated references and audit inventory, CI policy, host contracts, dependency/secret patterns, resources, regex, icons and QNN provenance; not hosted Android or reachable-history credential qualification."
+      },
+      "ktlint_1_3_1": "PASSED: collector, focused regression and generated Kotlin inventory",
+      "whitespace": "PASSED"
+    },
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt": "ed27bf62bfc528e98ea417cd2ca3e5ab7f2deb3543528c7d35f40696debb5e90",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackMeasurementTest.kt": "62070cc1c879d5610bfb6043be53991a078df1b7a5f27a7d3e6b236e2d34342d"
+    },
+    "preserved_concurrent_source": "9298610 contains independently reviewed preparation-thermal, silent cancellation-cost, playback observation and native first-profile retirement repairs.",
+    "remaining_completion": "Preserve later concurrent commits, close existing CI/platform/fixture/security findings, require every applicable exact-final-head check, expected-head merge, exact-main green checks, and verified Android/Gateway publication."
+  }
 }

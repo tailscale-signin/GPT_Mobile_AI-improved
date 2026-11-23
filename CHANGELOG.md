@@ -1,5 +1,6 @@
 # 0.9.66.13 — 2026-11-22
 
+- Preserve completed speech playback measurements when a cancellation request arrives after audio has already stopped.
 - Retain preparation thermal evidence and interrupted speech-benchmark cost, keep unobserved playback routes and clocks unknown, and retire unfinished accelerator profiles before session reuse while preserving successfully qualified cached sessions.
 - Run complete long speech benchmarks through bounded production phrases, retain exact failed-chunk context, and distinguish completed execution from a qualified comparison. Add separate native-phrase and changing-shape workloads with per-fixture statistics and versioned history.
 - Bind Auto comparison receipts to the selected voice and rate, invalidate old broken workloads, and validate ordinary accelerator startup on its first requested phrase. Reuse a bounded exact-shape cache, require real GPU discovery, and report current preparation, available profiles and non-silent audio evidence.

@@ -49,6 +49,7 @@ class VoiceSpeechPlaybackMeasurementTest {
         receipt.terminal(null, 0, 0, "playback_head", "bluetooth")
         val before = receipt.result(VoiceSpeechPlaybackState.CANCELLED, null)
         now = 100_000_000L
+        receipt.cancelRequested()
         receipt.pcmReady(100, 48_000, 24_000, evidence("cpu"))
         receipt.caption(timing(0))
         receipt.firstPresented("audio_timestamp", "speaker")
@@ -59,6 +60,26 @@ class VoiceSpeechPlaybackMeasurementTest {
         assertNull(before.underruns)
         assertNull(before.thermalBefore)
         assertTrue(before.acceleratorExecutionObserved)
+    }
+
+    @Test fun cancellationAfterTerminalCannotInventACancellationMeasurement() {
+        var now = 0L
+        val receipt = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.CPU, 0) { now }
+        now = 10_000_000L
+        receipt.firstPresented("audio_timestamp", "speaker")
+        now = 27_000_000L
+        receipt.terminal(0, 0, 0, "audio_timestamp", "speaker")
+        val before = receipt.result(VoiceSpeechPlaybackState.COMPLETE, 0)
+        assertNull(before.cancellationMs)
+
+        now = 100_000_000L
+        receipt.cancelRequested()
+        now = 200_000_000L
+        receipt.cancelRequested()
+
+        val after = receipt.result(VoiceSpeechPlaybackState.COMPLETE, 0)
+        assertNull(after.cancellationMs)
+        assertEquals(before, after)
     }
 
     @Test fun captionsMeasureRegressionsAndAcceptedBufferViolationsWithoutRetainingText() {

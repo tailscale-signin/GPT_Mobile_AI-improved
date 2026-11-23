@@ -542,9 +542,9 @@
       "sha256": "784f3b1a6ff7a43085ba7638ca86a08a6d3f41342a127e15bd1ec1ab0486b731"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt": {
-      "blob_sha": "e0b664d7454d186f83905f350cf954ebb4cf321e",
-      "bytes": 7890,
-      "sha256": "9b27f02f5763a7015bb5c126c681c8222a3d33f2ea2c4fff5a8cb329ce586768"
+      "blob_sha": "54092ae62c44f1f3cd624573434e83071ef8b7c4",
+      "bytes": 7928,
+      "sha256": "ed27bf62bfc528e98ea417cd2ca3e5ab7f2deb3543528c7d35f40696debb5e90"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkload.kt": {
       "blob_sha": "b660ff0d6e427ad7b4d313873d88fcc322b33580",
@@ -772,9 +772,9 @@
       "sha256": "e8816a8adafe102a81f76585ae62c63c16c9c4c9ef8f93f4a15e31ff9094fb71"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackMeasurementTest.kt": {
-      "blob_sha": "f4761e27c32602d626bd3e64e246b64f02f5cbce",
-      "bytes": 7763,
-      "sha256": "2036365835ce3b845dce80deb11d0d71c9236d1b96fc764ff84bc73ddcdf579d"
+      "blob_sha": "2a512f54a06631ad098bcb669798771c5f427aa8",
+      "bytes": 8560,
+      "sha256": "62070cc1c879d5610bfb6043be53991a078df1b7a5f27a7d3e6b236e2d34342d"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkloadTest.kt": {
       "blob_sha": "8658e23a32499b45eba36923f0957115e21bb70e",

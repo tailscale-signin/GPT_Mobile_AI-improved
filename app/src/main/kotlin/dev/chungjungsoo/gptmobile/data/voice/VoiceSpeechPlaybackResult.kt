@@ -126,6 +126,7 @@ internal class VoiceSpeechPlaybackMeasurement(
     }
 
     @Synchronized fun cancelRequested() {
+        if (stoppedAt != null) return
         if (cancellationRequested == null) cancellationRequested = elapsed()
     }
 

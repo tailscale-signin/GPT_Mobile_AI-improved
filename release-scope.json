@@ -262,7 +262,8 @@
     "Preserve complete native saved pages requested by ordinary provider calls, account for app-added instructions within the unchanged replay ceiling and reserve, and retain exact delivery proof and matching-context admission.",
     "Bind each Gateway PCM response to its exact admitted request, preserve replacement streams during stale cleanup, and retire cancelled or stalled sends within one fixed timeout-plus-audio-duration budget while preserving synthesis limits and exact binary framing.",
     "Exercise voice-entry opt-in through the existing scrollable setup screen at200percent text size, preserving visibility, enabled-state and exactly-once start checks for both ordinary and installed streaming-engine entry.",
-    "Update the isolated Linux speech-model smoke environment to the publisher-verified patched Pillow 13.0.0 wheel while preserving every other dependency pin, hash enforcement, advisory gate and all three real model qualification jobs."
+    "Update the isolated Linux speech-model smoke environment to the publisher-verified patched Pillow 13.0.0 wheel while preserving every other dependency pin, hash enforcement, advisory gate and all three real model qualification jobs.",
+    "Include the hash-pinned speech-model smoke Python dependencies in both locked advisory inventory modes; retain every existing inventory and scan rule, and verify all declared smoke pins reach the actual query boundary."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -639,7 +640,10 @@
     "scripts/tests/test_mediapipe_jni.py",
     "scripts/tests/test_native_memory_smoke.py",
     "scripts/tests/test_prepare_emulator_ui.py",
-    "scripts/tests/test_release_lint_workflow.py"
+    "scripts/tests/test_release_lint_workflow.py",
+    "scripts/audit_locked_dependencies.py",
+    "scripts/tests/test_locked_dependency_audit.py",
+    "docs/repairs/locked-speech-dependency-coverage-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

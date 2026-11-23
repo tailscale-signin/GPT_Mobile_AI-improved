@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parentPr": 2367,
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSha": "8ba187495f467aa17d992fa6a6d753eb89e7db12",
+  "baseTree": "81cd935398c5b3c4ed533a3a00e8ed1b1e868b33",
+  "workingBranch": "task/gateway-stream-lease-8ba",
+  "recordedBeforeSourceEdits": true,
+  "intent": "Bind Gateway streaming cleanup and cancellation to the exact admitted Work lease; preserve replacement streams and bound response-send cancellation/teardown.",
+  "owner": "root coordinator; isolated source/test implementation delegated to saved_page_completion",
+  "allowedSourcePaths": [
+    "gateway/v14/voice.py",
+    "gateway/tests/test_gateway_voice.py"
+  ],
+  "observations": [
+    {
+      "kind": "SOURCE_DERIVED",
+      "finding": "Generator finally and delayed BackgroundTask call unconditional release_stream; a stale second cleanup can delete a newer stream admitted with the same principal and request ID."
+    },
+    {
+      "kind": "SOURCE_DERIVED_SEND_BOUNDARY_CONCERN",
+      "finding": "Completed synthesis Work retains PCM/admission while an ASGI send is blocked; cancellation checks between yields cannot run until send returns."
+    }
+  ],
+  "invariants": [
+    "Preserve exact identity, principal, scope and CSRF authorization.",
+    "Preserve global/per-principal admission, synthesis timeout, binary framing/PCM bounds and no model execution in tests.",
+    "Repeated cleanup must be idempotent and may remove only the lease owned by that response.",
+    "Finalizers must release ownership even when send, receive, disconnect or cancellation fails.",
+    "Do not substitute unpinned Starlette runtime evidence for pinned1.7.0 qualification."
+  ],
+  "changes": [
+    "Retain the principal/request key on Work after mutable synthesis payload retirement; release and cancellation observations require the exact stored Work object.",
+    "Run normal background cleanup asynchronously on the event loop, and make repeated stale callbacks harmless after request-ID reuse.",
+    "Own the complete Starlette response lifetime, including blocked send, start, receive, disconnect, timeout and outer cancellation paths.",
+    "Cancel and await the response task before closing its iterator, shield AnyIO retirement, preserve the original failure or CancelledError when close also fails, and synchronously release the exact lease in finally."
+  ],
+  "deadlinePolicy": {
+    "nativeSynthesis": "Original Work.deadline and service.timeout remain unchanged.",
+    "transport": "One separate window equal to service.timeout plus the validated PCM duration, capped at MAX_AUDIO_FRAMES / SAMPLE_RATE. It is latched at response construction and never renewed by chunk progress; the default maximum is 25 + 30 = 55 seconds. This preserves playback-paced delivery of a valid maximum-duration phrase without extending native synthesis admission.",
+    "cancellationObservationSeconds": 0.1,
+    "boundary": "Interruption closes the transport without fabricating a successful PCM terminator."
+  },
+  "pinnedTestEnvironment": {
+    "python": "3.12.14",
+    "fastapi": "0.142.2",
+    "starlette": "1.7.0",
+    "anyio": "4.15.1",
+    "httpx": "0.28.1",
+    "pydantic": "2.13.5",
+    "numpy": "2.3.5",
+    "integrity": "Isolated environment installed only needed test dependencies using unchanged repository version/hash entries with --require-hashes --only-binary=:all:. pip check passed. No model or ONNX/CUDA runtime was installed or executed."
+  },
+  "validation": {
+    "sourceReview": "Independent source review found no additional production defect at final voice.py SHA-256 44904146d0eb714929de3ae9ee6411a5403802d223ffde31f033b4d62d4cda40, against the installed pinned Starlette1.7.0 ASGI2.0/2.4 implementation. The final bounded-duration policy was reviewed. Its scheduler-sensitivity advisory was addressed with a controlled service clock in the lifetime regressions.",
+    "ordinaryRegressionTests": {
+      "command": "PYTHONPATH=gateway:gateway/tests python -m unittest -v test_gateway_voice",
+      "tests": 37,
+      "passed": 37,
+      "skipped": 0,
+      "seconds": 4.671,
+      "scope": "Actual service and ASGI response orchestration, exact authorization/framing and isolated synthetic sidecar tests. The two NumPy boundary cases mock ORT; no neural model, GPU, network delivery or acoustic performance is qualified.",
+      "newCoverage": "Seven new methods cover stale cleanup and old Work cancellation, blocked ASGI2.0/2.4 sends, foreign-principal cancellation, fixed lifetime expiry despite progress, the bounded actual-duration allowance through its 55-second maximum, pre-body start/receive failures, close failures preserving outer CancelledError, and outer AnyIO cancellation. The existing disconnect case now drives the real response/send boundary."
+    },
+    "baselineRegression": "Before production edits, stale-background replacement and the initial fixed-window regression both failed against unchanged8ba source using the pinned runtime (2 tests, 2 expected failures, 0.506 seconds). The deadline fixture was subsequently changed from wall-clock sleeps to a controlled service clock to remove scheduler sensitivity; the final corrected suite passed.",
+    "whitespace": "git diff --check passed.",
+    "canonicalHost": "PENDING_FINAL_COMPOSED_SOURCE",
+    "gatewayManifest": "ROOT_REGENERATES_ON_PUBLIC_ANCESTOR",
+    "finalProjectCI": "REQUIRED"
+  },
+  "sourceHashes": {
+    "gateway/v14/voice.py": "44904146d0eb714929de3ae9ee6411a5403802d223ffde31f033b4d62d4cda40",
+    "gateway/tests/test_gateway_voice.py": "6236987d302f2998936c1099b1478596a14a06543531108847533dff0144bbb3"
+  },
+  "status": "SOURCE_REVIEWED_PINNED_FOCUSED_TESTS_PASSED_PENDING_FINAL_CI",
+  "integration": {
+    "workingBranch": "task/root-integrated-boundaries-cb79",
+    "recordedBeforeSourceCopyAt": "2026-11-23T21:23:13.207912+00:00",
+    "parents": [
+      "cb79f70224fd9ca45ad53a526c762ab1dbec9a7e",
+      "76566161a431a78a4c3948056374bf6aaae353fa"
+    ],
+    "gatewayParentTreeIdenticalToFocusedTestBase": true,
+    "gatewayManifestSourceAnchor": "cb79f70224fd9ca45ad53a526c762ab1dbec9a7e",
+    "rootReview": "CLEAR exact-Work cleanup, response-task retirement order, cancellation/failure preservation and latched actual-duration allowance; pinned37-test result is source-bound. Final composed-project CI remains required."
+  },
+  "latestPublicComposition": {
+    "recordedAt": "2026-11-23T21:29:53.617938+00:00",
+    "head": "858c17e871a920b7575e44aede7e10e0edc4b561",
+    "retainedRootHistory": "76566161a431a78a4c3948056374bf6aaae353fa",
+    "retainedPrivateGatewayCandidate": "a7c5c86f33f88c058690a0cc759b4faa824197cf",
+    "gatewaySourceAnchor": "cb79f70224fd9ca45ad53a526c762ab1dbec9a7e",
+    "invariant": "Preserve incoming Android bound-transport assertions and both full public histories. Root production/test bytes and37-test pinned Gateway qualification remain unchanged. Revalidate the frozen composed source before a guarded non-forced append."
+  }
+}

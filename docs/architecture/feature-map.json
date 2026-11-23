@@ -109,7 +109,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderResponse.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderSession.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateIdentityDetector.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateIdentityDetector.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSession.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt",
@@ -131,7 +132,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderStreamAuthorityTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExportTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateModalDispatchTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateComposedStreamBackpressureTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateComposedStreamBackpressureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateReceiverGuardContractTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -148,7 +150,8 @@
         "Diagnostic content defaults to redacted; full forensic consent and resume identity are separate.",
         "Synthetic local checks report measured privacy, intent and timing scope without claiming cloud quality or accelerator execution.",
         "Masked fallback publication revalidates captured provider and retained-source authority before each output; revoked authority preserves partial failure and never replays output.",
-        "Ordinary modal collisions require positive detector classification and exact request-local copied-span provenance; protected overlaps and all other known-value checks remain authoritative."
+        "Ordinary modal collisions require positive detector classification and exact request-local copied-span provenance; protected overlaps and all other known-value checks remain authoritative.",
+        "Private stream events are revalidated after the channel handoff under captured conversation authority; denial stops upstream before one content-free partial failure, preserves cancellation and caller context, and never grants an error-code bypass."
       ]
     },
     {
@@ -320,7 +323,8 @@
       ],
       "documents": [
         "docs/architecture/voice-streaming.md",
-        "docs/architecture/repository-guide.md"
+        "docs/architecture/repository-guide.md",
+        "docs/repairs/gateway-stream-ownership-2026-11-23-task.json"
       ],
       "invariants": [
         "Stream PCM with bounded backpressure and retire native handles before releasing model leases.",
@@ -328,7 +332,8 @@
         "Only explicit model installation may download a speech pack; private conversations cannot send speech to Gateway.",
         "Preserve original source ranges and pronunciation overrides when bounding long streaming replies.",
         "Production accelerator playback requires complete same-run CPU-reference consistency before native open; explicit Recheck publishes its complete requested cohort and cancellation cannot grant partial admission.",
-        "Numerical audio consistency and SDK model smoke do not establish perceptual equivalence, arbitrary-utterance correctness or target-phone accelerator performance."
+        "Numerical audio consistency and SDK model smoke do not establish perceptual equivalence, arbitrary-utterance correctness or target-phone accelerator performance.",
+        "Gateway response retirement is bound to the exact admitted Work lease; cancellation and a fixed timeout plus validated audio duration bound transport without extending synthesis or retiring a replacement request."
       ]
     },
     {
@@ -408,7 +413,8 @@
         "Settle interrupted phone-index work only after exact local ownership and unwind evidence; preserve unrelated unknown remote operations.",
         "Argument canonicalization is separate from semantic repair and its observed execution outcome.",
         "A native saved-page read and proven provider delivery are separate facts; continuation retains original context, output and attempt limits.",
-        "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it."
+        "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it.",
+        "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery."
       ]
     },
     {
@@ -665,9 +671,9 @@
       "sha256": "cd05544c6d072e0da405d88519f55c82ed157936a01bcf4ec83bd638c6477d08"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt": {
-      "blob_sha": "fde3277b0e7adc9d28311196135412bece2cb72f",
-      "bytes": 46914,
-      "sha256": "285253396d673c3e1b92dc503ef25b56dcc03ab1485d4e7eed1bcaa095cda8b1"
+      "blob_sha": "eefe1686d45ab73da3d2b71b7cba1b96f7fc857d",
+      "bytes": 47642,
+      "sha256": "76c519a624a92cec5ef5931120da08258cd2fc7c03c484495f234414434919c9"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatch.kt": {
       "blob_sha": "2289f7afa7bc31c3f5977f44bbc40ecac547618d",
@@ -963,6 +969,11 @@
       "blob_sha": "6a34da5b4f3698427dcaddd00611bf596c8863a9",
       "bytes": 22458,
       "sha256": "37885b54fd7348a2b8b788fb4254821ed343fa4fd9aec979053a9bf90695f4c6"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSession.kt": {
+      "blob_sha": "df8f8e826e2c93f10b487e9c2bd4947f77307a33",
+      "bytes": 19955,
+      "sha256": "0b72ea28d288b747bcc3c7a5e6d7f98206adb7b1a9d776968daf3d556c1b0ddb"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateMarkerProtocol.kt": {
       "blob_sha": "6879829cca24aae9d8eeaba2e5b2fe555fcbff0a",
@@ -1290,14 +1301,14 @@
       "sha256": "fac70ab00894f0c81ef5a9858f1cf1a7c00135ff5548c0f3eb40edb039bc1a6c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageAdmissionRunnerTest.kt": {
-      "blob_sha": "de2340c96839a54c28c038ebca737a88e4280d79",
-      "bytes": 9256,
-      "sha256": "bc88c3f99aac584bc2c7626c5722e23b7752313459e1815a49fbcea019c87aca"
+      "blob_sha": "e69be648cade2cbe042c8f41aa7dfe9d6351beb3",
+      "bytes": 22997,
+      "sha256": "857dd9dd98f0b78a9feeae219c53cc6f7378d34ae41d93abb30d70bdbf3dd13b"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageCapacityTest.kt": {
-      "blob_sha": "7402cd54be9a063d38ef4024eef6ce972996381c",
-      "bytes": 20816,
-      "sha256": "1c953d8598afacbe93b764d10c0cec67cd5b684ec33a93da5a052e9ba27893c1"
+      "blob_sha": "4338c2dc0b64aef1cd363a349b9f536ff0cc9cb7",
+      "bytes": 25362,
+      "sha256": "bab27305547d69ea751d925e8c714406f05d2840ea86dce9ffbb422e5c0a423c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt": {
       "blob_sha": "b994cdb7f6485b04c374f1d16648d913dd8ff703",
@@ -1599,6 +1610,11 @@
       "bytes": 15057,
       "sha256": "76080ea78074d4e4b45d5b39a3f43ce54297e8a8d2d010c63dc4964186d1030a"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateReceiverGuardContractTest.kt": {
+      "blob_sha": "4a46e438dbdea6c6e43d3244dcaf4e8971f6be93",
+      "bytes": 18694,
+      "sha256": "53edacf14a9f00a170cd00dcc859fb12ce3b896b30d3b265f58713642d0fd55c"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateStreamingRestorerTest.kt": {
       "blob_sha": "6a4a362f0af9b4ee644a5af369c78490d131b124",
       "bytes": 8096,
@@ -1884,6 +1900,11 @@
       "bytes": 9276,
       "sha256": "aff7a63b0f32528cb78952dae93be63ce7d5577cfa611a4560635cebc6b01bf4"
     },
+    "docs/repairs/gateway-stream-ownership-2026-11-23-task.json": {
+      "blob_sha": "961825824124ab42ded2661d82970177cec70d3c",
+      "bytes": 7057,
+      "sha256": "8e838c0da6b74e39b2fc6a52026438852771f4401096b4b80048b21079341763"
+    },
     "docs/repairs/github-context-benchmark-2026-11-23.md": {
       "blob_sha": "0d7d8c29bf11173c0ea7f005ace5de037eea8cee",
       "bytes": 10021,
@@ -1985,9 +2006,9 @@
       "sha256": "8d8c70f554e3d829a069dc866cb664ab9f6f39385254be306bb7c349ba77093f"
     },
     "gateway/tests/test_gateway_voice.py": {
-      "blob_sha": "f0ac328af646a1a306c430381fc865b30878b12b",
-      "bytes": 40433,
-      "sha256": "04888289ecda77909e55fe83f251dae4afa2f674fd25a88a4254858ab90f43c0"
+      "blob_sha": "87c7ed3b51b2dba603b8ac43ea0a5248518162c6",
+      "bytes": 55135,
+      "sha256": "6236987d302f2998936c1099b1478596a14a06543531108847533dff0144bbb3"
     },
     "gateway/tests/test_gateway_workspace_guidance.py": {
       "blob_sha": "5f3aeff3cbd486d9309ee2bd810dc9c054919407",
@@ -2025,9 +2046,9 @@
       "sha256": "6c0728990b0d789960c9b9a2ed4633fda80bba2f73d72de388762883d8c4f87a"
     },
     "gateway/v14/voice.py": {
-      "blob_sha": "63626ec4f0df6015ff4227281fec900c193024e8",
-      "bytes": 29116,
-      "sha256": "e6846937db3a4f4cae7a5647f40e0e65a9df198651af387ab3b62cc1ef880527"
+      "blob_sha": "e5b58b0463d0e65ab780f6d1b68e4c070854c2d0",
+      "bytes": 31276,
+      "sha256": "44904146d0eb714929de3ae9ee6411a5403802d223ffde31f033b4d62d4cda40"
     },
     "gateway/v14/voice_process.py": {
       "blob_sha": "ea4d8996570d9c682c4c61e6b74c9e754e53e2ec",

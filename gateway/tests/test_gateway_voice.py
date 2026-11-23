@@ -22,8 +22,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from anyio import CancelScope
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect
 from gateway_security import DeviceStore
 from v14.config import Config
 from v14.identity import Admission
@@ -198,6 +200,27 @@ class VoiceQueueTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(.002)
         self.fail('Synthetic worker never started')
 
+    async def binary_response(self, request_payload):
+        app = FastAPI()
+        install_voice_routes(app, self.service)
+        endpoint = next(route.endpoint for route in app.routes if route.path == BASE + '/synthesize/stream')
+        class Request:
+            state = SimpleNamespace(principal=SimpleNamespace(id='owner', scopes={'chat'}))
+            async def stream(self):
+                yield json.dumps(request_payload).encode()
+            async def is_disconnected(self):
+                return False
+        return await endpoint(Request())
+
+    async def drain_response(self, response):
+        messages = []
+        async def receive():
+            await asyncio.Future()
+        async def send(message):
+            messages.append(message)
+        await response({'type': 'http', 'asgi': {'spec_version': '2.4'}}, receive, send)
+        return b''.join(message.get('body', b'') for message in messages)
+
     async def test_queue_bound_and_fair_share_keep_other_principal_capacity(self):
         first = asyncio.create_task(self.service.synthesize('owner', payload()))
         await self.started()
@@ -317,16 +340,17 @@ class VoiceQueueTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(VoiceError) as full:
             await self.service.synthesize('owner', payload(), binary=True)
         self.assertEqual(full.exception.code, 'VOICE_QUEUE_FULL')
+        first_work = self.service.streams['owner', first['request_id']]
         self.service.cancel('other', first['request_id'])
-        self.assertFalse(self.service.stream_cancelled('owner', first['request_id']))
+        self.assertFalse(self.service.stream_cancelled(first_work))
         self.service.cancel('owner', first['request_id'])
-        self.assertTrue(self.service.stream_cancelled('owner', first['request_id']))
-        self.service.release_stream('owner', first['request_id'])
+        self.assertTrue(self.service.stream_cancelled(first_work))
+        self.service.release_stream(first_work)
         third = payload()
         await self.service.synthesize('owner', third, binary=True)
         self.assertEqual(len(self.service.streams), 2)
-        self.service.release_stream('owner', second['request_id'])
-        self.service.release_stream('owner', third['request_id'])
+        self.service.release_stream(self.service.streams['owner', second['request_id']])
+        self.service.release_stream(self.service.streams['owner', third['request_id']])
 
     async def test_binary_native_cancellation_retires_admission_without_delivering_pcm(self):
         request = payload()
@@ -342,30 +366,289 @@ class VoiceQueueTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_route_disconnect_or_cancellation_stops_pcm_and_releases_stream_admission(self):
         self.backend.release.set()
-        app = FastAPI()
-        install_voice_routes(app, self.service)
-        endpoint = next(route.endpoint for route in app.routes if route.path == BASE + '/synthesize/stream')
         for cancel in (False, True):
             request_payload = payload()
-            class Request:
-                state = SimpleNamespace(principal=SimpleNamespace(id='owner', scopes={'chat'}))
-                async def stream(self):
-                    yield json.dumps(request_payload).encode()
-                async def is_disconnected(self):
-                    return False
-            response = await endpoint(Request())
-            iterator = response.body_iterator
-            header = await anext(iterator)
-            self.assertTrue(header.startswith(PCM_STREAM_MAGIC))
-            self.assertEqual(len(self.service.streams), 1)
-            if cancel:
-                self.service.cancel('owner', request_payload['request_id'])
+            response = await self.binary_response(request_payload)
+            entered, disconnect = asyncio.Event(), asyncio.Event()
+            headers = []
+            async def receive():
+                await disconnect.wait()
+                return {'type': 'http.disconnect'}
+            async def send(message):
+                if message.get('body'):
+                    headers.append(message['body'])
+                    entered.set()
+                    await asyncio.Future()
+            call = asyncio.create_task(response({'type': 'http', 'asgi': {'spec_version': '2.0'}}, receive, send))
+            try:
+                await asyncio.wait_for(entered.wait(), 1)
+                self.assertTrue(headers[0].startswith(PCM_STREAM_MAGIC))
+                self.assertEqual(len(self.service.streams), 1)
+                if cancel:
+                    self.service.cancel('owner', request_payload['request_id'])
+                    with self.assertRaises(ClientDisconnect):
+                        await asyncio.wait_for(call, 1)
+                else:
+                    disconnect.set()
+                    await asyncio.wait_for(call, 1)
+                self.assertFalse(self.service.streams)
+                self.assertEqual(len(headers), 1)
                 with self.assertRaises(StopAsyncIteration):
-                    await anext(iterator)
-            else:
-                # StreamingResponse closes its iterator when the client drops.
-                await iterator.aclose()
+                    await anext(response.body_iterator)
+            finally:
+                call.cancel()
+                await asyncio.gather(call, return_exceptions=True)
+
+    async def test_stale_background_cleanup_and_cancel_cannot_retire_a_replacement_stream(self):
+        self.backend.release.set()
+        request = payload()
+        key = 'owner', request['request_id']
+        first = await self.binary_response(request)
+        first_work = self.service.streams[key]
+        _, first_pcm = decode_pcm_stream(await self.drain_response(first))
+        self.assertFalse(self.service.streams)
+
+        replacement = await self.binary_response(request)
+        replacement_work = self.service.streams[key]
+        self.assertIsNot(first_work, replacement_work)
+        # Repeat the actual old callback after its request ID has been reused.
+        # It must remain harmless even after the old lease is cancelled.
+        await first.background()
+        self.assertIs(self.service.streams.get(key), replacement_work)
+        first_work.cancel()
+        await first.background()
+        self.assertIs(self.service.streams.get(key), replacement_work)
+        _, replacement_pcm = decode_pcm_stream(await self.drain_response(replacement))
+        self.assertEqual(first_pcm, replacement_pcm)
+        self.assertFalse(self.service.streams)
+
+    async def test_blocked_asgi_send_is_retired_on_cancel_timeout_outer_cancel_or_send_failure(self):
+        self.backend.release.set()
+        for spec in ('2.0', '2.4'):
+            for outcome in ('cancel', 'timeout', 'outer_cancel', 'send_failure'):
+                with self.subTest(spec=spec, outcome=outcome):
+                    self.service.timeout = .25 if outcome == 'timeout' else 25
+                    request = payload()
+                    response = await self.binary_response(request)
+                    entered, retired, unblock = asyncio.Event(), asyncio.Event(), asyncio.Event()
+                    receive_retired = asyncio.Event()
+                    delivered = []
+                    async def receive():
+                        try:
+                            await asyncio.Future()
+                        finally:
+                            receive_retired.set()
+                    async def send(message):
+                        body = message.get('body', b'')
+                        if body and not body.startswith(PCM_STREAM_MAGIC):
+                            entered.set()
+                            try:
+                                await unblock.wait()
+                                raise OSError('Controlled ASGI send failure')
+                            finally:
+                                retired.set()
+                        if body:
+                            delivered.append(body)
+                    call = asyncio.create_task(response({'type': 'http', 'asgi': {'spec_version': spec}}, receive, send))
+                    try:
+                        await asyncio.wait_for(entered.wait(), 1)
+                        self.assertEqual(len(self.service.streams), 1)
+                        self.assertTrue(delivered[0].startswith(PCM_STREAM_MAGIC))
+                        self.service.cancel('other', request['request_id'])
+                        await asyncio.sleep(.01)
+                        self.assertFalse(call.done(), 'A foreign principal cannot cancel this send')
+                        if outcome == 'cancel':
+                            self.service.cancel('owner', request['request_id'])
+                        elif outcome == 'outer_cancel':
+                            call.cancel('original outer cancellation')
+                        elif outcome == 'send_failure':
+                            unblock.set()
+                        expected = asyncio.CancelledError if outcome == 'outer_cancel' else (ClientDisconnect, OSError)
+                        with self.assertRaises(expected) as failure:
+                            await asyncio.wait_for(call, 1.5)
+                        if outcome == 'outer_cancel':
+                            self.assertEqual(failure.exception.args, ('original outer cancellation',))
+                        self.assertTrue(retired.is_set(), 'The blocked send must retire before response completion')
+                        if spec == '2.0':
+                            self.assertTrue(receive_retired.is_set())
+                        self.assertFalse(self.service.streams)
+                        self.assertEqual(len(delivered), 1, 'No PCM or terminal frame was accepted after interruption')
+                        with self.assertRaises(StopAsyncIteration):
+                            await anext(response.body_iterator)
+                    finally:
+                        call.cancel()
+                        await asyncio.gather(call, return_exceptions=True)
+                        self.service.timeout = 25
+
+    async def test_asgi_start_and_receive_failures_release_even_before_pcm_iteration(self):
+        self.backend.release.set()
+        for failure_at in ('start', 'receive'):
+            with self.subTest(failure_at=failure_at):
+                response = await self.binary_response(payload())
+                entered, retired = asyncio.Event(), asyncio.Event()
+                async def send(message):
+                    self.assertEqual(message['type'], 'http.response.start')
+                    entered.set()
+                    try:
+                        if failure_at == 'start':
+                            raise OSError('Controlled start failure')
+                        await asyncio.Future()
+                    finally:
+                        retired.set()
+                async def receive():
+                    await entered.wait()
+                    raise RuntimeError('Controlled receive failure')
+                spec = '2.4' if failure_at == 'start' else '2.0'
+                with self.assertRaises((ClientDisconnect, RuntimeError)):
+                    await response({'type': 'http', 'asgi': {'spec_version': spec}}, receive, send)
+                self.assertTrue(retired.is_set())
+                self.assertFalse(self.service.streams)
+
+    async def test_transport_deadline_is_not_renewed_by_successful_chunk_sends(self):
+        self.backend.release.set()
+        self.service.timeout = .25
+        clock, accepted = [0.], []
+        # Advance only the service clock after accepted frames. Real scheduler
+        # delays cannot consume the setup window or make this a timing race.
+        with patch('v14.voice.time', SimpleNamespace(monotonic=lambda: clock[0])):
+            response = await self.binary_response(payload())
+            async def receive():
+                await asyncio.Future()
+            async def send(message):
+                body = message.get('body', b'')
+                if body == struct.pack('<I', 0):
+                    await asyncio.Future()
+                if body:
+                    accepted.append(body)
+                    clock[0] += .2
+            with self.assertRaises(ClientDisconnect):
+                await asyncio.wait_for(response({'type': 'http', 'asgi': {'spec_version': '2.4'}}, receive, send), 1.5)
+        self.assertTrue(accepted[0].startswith(PCM_STREAM_MAGIC))
+        self.assertEqual(len(accepted), 2)
+        self.assertEqual(len(accepted[1]), 4 + 2400 * 4)
+        self.assertFalse(self.service.streams)
+
+    async def test_maximum_valid_audio_gets_its_playback_window_but_cannot_hold_a_stalled_send(self):
+        self.backend.release.set()
+        original = self.backend.synthesize_binary
+        def maximum_phrase(request, work):
+            speech = original(request, work)
+            return BinarySpeech(dict(speech.metadata, durations=[300] * 4), struct.pack('<f', .25) * (24_000 * 30))
+        clock, accepted = [0.], []
+        with patch.object(self.backend, 'synthesize_binary', maximum_phrase), \
+                patch('v14.voice.time', SimpleNamespace(monotonic=lambda: clock[0])):
+            response = await self.binary_response(payload())
+            clock[0] = 25.1  # Synthesis has finished; its old deadline cannot truncate a valid drain.
+            retired = asyncio.Event()
+            async def receive():
+                await asyncio.Future()
+            async def send(message):
+                body = message.get('body', b'')
+                if not body:
+                    return
+                if len(accepted) == 2:
+                    try:
+                        await asyncio.Future()
+                    finally:
+                        retired.set()
+                accepted.append(body)
+                clock[0] = 54.9 if len(accepted) == 1 else 55.1
+                if len(accepted) == 1:
+                    # Let the owner observe 54.9 before accepting PCM. The
+                    # controlled clock cannot expire because CI is delayed.
+                    await asyncio.sleep(.12)
+            with self.assertRaises(ClientDisconnect):
+                await asyncio.wait_for(response({'type': 'http', 'asgi': {'spec_version': '2.4'}}, receive, send), 1.5)
+            self.assertTrue(retired.is_set())
+        self.assertTrue(accepted[0].startswith(PCM_STREAM_MAGIC))
+        self.assertEqual(len(accepted), 2)
+        self.assertEqual(len(accepted[1]), 4 + PCM_CHUNK_FRAMES * 4)
+        self.assertFalse(self.service.streams)
+
+    async def test_response_close_failure_releases_ownership_and_preserves_outer_cancellation(self):
+        self.backend.release.set()
+        for cancel_before_body in (False, True):
+            with self.subTest(cancel_before_body=cancel_before_body):
+                response = await self.binary_response(payload())
+                original = response.body_iterator
+                entered, retired = asyncio.Event(), asyncio.Event()
+                closed = []
+                class FailingClose:
+                    def __aiter__(self):
+                        return self
+                    async def __anext__(self):
+                        return await anext(original)
+                    async def aclose(self):
+                        self_test.assertTrue(retired.is_set(), 'Await the response task before closing its iterator')
+                        await original.aclose()
+                        closed.append(True)
+                        raise RuntimeError('Controlled iterator close failure')
+                self_test = self
+                response.body_iterator = FailingClose()
+                async def receive():
+                    await asyncio.Future()
+                async def send(message):
+                    if cancel_before_body:
+                        self.assertEqual(message['type'], 'http.response.start')
+                        entered.set()
+                        try:
+                            await asyncio.Future()
+                        finally:
+                            retired.set()
+                    elif message.get('more_body') is False:
+                        retired.set()
+                call = asyncio.create_task(response({'type': 'http', 'asgi': {'spec_version': '2.4'}}, receive, send))
+                try:
+                    if cancel_before_body:
+                        await asyncio.wait_for(entered.wait(), 1)
+                        call.cancel('preserve this cancellation')
+                        with self.assertRaises(asyncio.CancelledError) as failure:
+                            await asyncio.wait_for(call, 1)
+                        self.assertEqual(failure.exception.args, ('preserve this cancellation',))
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, 'Controlled iterator close failure'):
+                            await asyncio.wait_for(call, 1)
+                    self.assertEqual(closed, [True])
+                    self.assertFalse(self.service.streams)
+                finally:
+                    call.cancel()
+                    await asyncio.gather(call, return_exceptions=True)
+
+    async def test_outer_anyio_cancel_scope_retires_response_before_body_iteration(self):
+        self.backend.release.set()
+        response = await self.binary_response(payload())
+        entered, retired = asyncio.Event(), asyncio.Event()
+        owners, cancellations = [], []
+        async def receive():
+            await asyncio.Future()
+        async def send(message):
+            self.assertEqual(message['type'], 'http.response.start')
+            entered.set()
+            try:
+                await asyncio.Future()
+            finally:
+                retired.set()
+        async def outer():
+            with CancelScope() as owner:
+                owners.append(owner)
+                try:
+                    await response({'type': 'http', 'asgi': {'spec_version': '2.0'}}, receive, send)
+                except asyncio.CancelledError as failure:
+                    cancellations.append(failure)
+                    raise
+        call = asyncio.create_task(outer())
+        try:
+            await asyncio.wait_for(entered.wait(), 1)
+            owners[0].cancel()
+            await asyncio.wait_for(call, 1)
+            self.assertEqual(len(cancellations), 1)
+            self.assertTrue(retired.is_set())
             self.assertFalse(self.service.streams)
+            with self.assertRaises(StopAsyncIteration):
+                await anext(response.body_iterator)
+        finally:
+            call.cancel()
+            await asyncio.gather(call, return_exceptions=True)
 
 
 class VoiceAdmissionTests(unittest.TestCase):

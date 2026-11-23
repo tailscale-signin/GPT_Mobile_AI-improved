@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSHA": "0aef39b01bfc565083899dd7aebecd1981b9150b",
+  "baseTree": "7ed88da17637200b5d3fd726d15a4b0a167cb54a",
+  "workingBranch": "task/privacy-receiving-authority-0aef",
+  "parentPR": 2367,
+  "actualMainAtPreparation": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "recordedBeforeSourceEditAt": "2026-11-23T19:40:26.427139+00:00",
+  "intent": "Prepare an isolated receiving-side authorization correction after the existing private-session rendezvous, preserving producer validation and context/cancellation isolation. Publish only after source review and appropriate normal project-CI evidence.",
+  "status": "IMPLEMENTED_PENDING_FINAL_COMBINED_SOURCE_PROJECT_CI",
+  "evidence": {
+    "sourceReview": "A producer-authorized event can wait at the outer channel after validation; no receiving check exists at this base.",
+    "committedRegression": "PrivateComposedStreamBackpressureTest.revocationWhileTheCollectorIsPausedSuppressesThePendingRestoredEvent",
+    "rootNormalProjectExecution": "BASELINE_FAILURE_CONFIRMED_IN_FINALIZED_ORDINARY_PROJECT_CI",
+    "secondaryOwnerReport": "PR privacy-ci-regression-repairs records a limited local first-subcase failure at0aef; root has read the report but not its raw closure/log. This is not Android/Gradle/hosted qualification.",
+    "firstSubcaseFailurePreventsSecond": true,
+    "normalProjectBaseline": {
+      "sourceCommit": "0aef39b01bfc565083899dd7aebecd1981b9150b",
+      "actualCheckout": "6ef0f15d57438436a7dc29b28bb06cc9cfd59ee7",
+      "parents": [
+        "8095c1aee67b64584033289944eff1dfac7a7b48",
+        "0aef39b01bfc565083899dd7aebecd1981b9150b"
+      ],
+      "tree": "7ed88da17637200b5d3fd726d15a4b0a167cb54a",
+      "run": 45249791855,
+      "attempt": 1,
+      "job": 137960273286,
+      "artifact": 14858952114,
+      "artifactBytes": 1963588,
+      "artifactSHA256": "c89dbd40fda43812485a636b1972195ca03ba130ce4a121b5ea25cadbb8d8869",
+      "receiptSHA256": "8a7605b4a71561675af9820f630657f45230a6b5cb1d9e87d3037b5b74363ab7",
+      "totals": {
+        "errors": 0,
+        "failures": 1,
+        "passed": 13748,
+        "skipped": 5,
+        "tests": 13754
+      },
+      "expectedNamedMethods": 479,
+      "expectedOutcomes": {
+        "passed": 478,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0,
+        "missing": 0
+      },
+      "failure": "PrivateComposedStreamBackpressureTest line81 final collected-text assertion fails after all setup and prior typed-failure/no-replay/no-completion assertions. Pending fictional restored text was delivered after inherited-authority revocation. The second privacy-revision subcase and final caller-context assertion were not reached.",
+      "scope": "Baseline failure only; corrected production and nine additional tests require their own final-source project execution."
+    }
+  },
+  "constraints": [
+    "No further standalone harness, local regression execution or live service exercise after documented automated stop",
+    "Existing normal project CI is the runtime qualification route",
+    "Preserve existing rendezvous producer and all earlier test bytes",
+    "Use captured session conversation/policy and existing admitted PrivateTurn; never capture new authority from the receiver",
+    "Check policy/turn/cancellation around inherited suspension; emit only after returning to caller context",
+    "Only a local validation decision may generate canonical content-free partial/no-replay denial; upstream error codes cannot bypass checks",
+    "Preserve cancellation and downstream exceptions; stop upstream before synthetic failure; no duplicate terminal events",
+    "No workflow, dependency, heap, fork, timeout, release identity or gate relaxation"
+  ],
+  "validation": {
+    "sourceReview": {
+      "production": "CLEAR independent benchmark_code_review",
+      "productionSHA256": "0b72ea28d288b747bcc3c7a5e6d7f98206adb7b1a9d776968daf3d556c1b0ddb",
+      "unchangedProducerBodySHA256": "d5bc86620839dd7a86e54a127ac30782cd86ceb80210f482db1238bebfd5781f",
+      "proposedNineTestSource": "CLEAR independent author and reviewer; root adds two agreed producer-completion assertions and updates nonbehavioral class comment",
+      "proposedTestSHA256": "57e39af1c2de1ada1c4187a76a0aeaf80953ff9885bad3892308f7cad14b7a6f",
+      "includedTestSHA256": "53edacf14a9f00a170cd00dcc859fb12ce3b896b30d3b265f58713642d0fd55c"
+    },
+    "formatting": {
+      "status": "REQUIRED_ON_FINAL_COMPOSED_SOURCE",
+      "previousFrozenQualification": {
+        "status": "PASS",
+        "exitCode": 0,
+        "command": [
+          "python3",
+          "scripts/check_changed_kotlin.py",
+          "--base",
+          "8095c1aee67b64584033289944eff1dfac7a7b48",
+          "--ktlint",
+          "/workspace/scratch/da4162210969/continuation-format-tooling/ktlint-1.3.1"
+        ],
+        "formatterSHA256": "a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1",
+        "reconciledParent": "2630db65b9df55143f2fd61b1cd16dc9c60d2254",
+        "inputCount": 166,
+        "inputsUnchanged": true,
+        "formatterReceiptSHA256": "6eb8540a444deb1bc4fc8898590876155ad23afd5ef22046885d95c0e96b943b"
+      },
+      "reconciledParent": "8ba187495f467aa17d992fa6a6d753eb89e7db12"
+    },
+    "canonicalHost": "PENDING_FROZEN_COMMIT; exact result retained in external proof receipt",
+    "actualJUnit": "NOT_RUN_LOCALLY. Normal project baseline failure is verified above; all corrected-source methods must pass in final hosted qualification."
+  },
+  "publication": "Authorized guarded draft append after exact-source qualification; all current shared-head/main/Android/Gateway gates and predecessor publication priority remain required.",
+  "integratedParent": "8ba187495f467aa17d992fa6a6d753eb89e7db12",
+  "integration": "Preserve all concurrent source through8ba, including both histories of c2d streaming integration,6ca native smoke path repair,764f ordinary acceptance and CI context gates, and8ba observed-cause retry callback ordering. Regenerate inventory and references from composed source; retain every public release field, ordered disclosure, all ten workflows and Gateway source anchor. Add only this receiving correction and its exact path union. Bounded-chain TLS completeness, Gateway stream ownership and other active source reservations remain open.",
+  "integrationHistory": [
+    "0aef39b01bfc565083899dd7aebecd1981b9150b",
+    "be2f918d3138b6ee84473d392846d83ff8d606e4",
+    "4ae154853a772dd2edfa5b878d33a9faa5959845",
+    "e056d1378836ffc4eed08e879a71aac44b3fc10b",
+    "ebda7b8b6612a1a556d72e69c716e63e5303b85f",
+    "2630db65b9df55143f2fd61b1cd16dc9c60d2254",
+    "c2d24b795656ccc3ee430b12107abf5f2104a727",
+    "6ca4baf43fd6d8035f25ef6fa806d36f2ee8368d",
+    "764f0b8f34854d6eb63fdfc4cac91cce8b236c10",
+    "8ba187495f467aa17d992fa6a6d753eb89e7db12"
+  ],
+  "previousPrivateQualification": {
+    "commit": "25391b4949f71f00e1cbdfe83ad0b797b4e246f9",
+    "tree": "fe604efbf536ef3d703434800b4a92527d69a0d2",
+    "hostTests": 673,
+    "unchangedTrackedInputs": 6962,
+    "formatterInputCount": 164,
+    "receiptSHA256": "926fd813c67c5b2b51d05b29fd88f233f901f3f2f936873d216fc532fc95c650",
+    "sourceMetadataReview": "CLEAR independent native_speech_review",
+    "scope": "Earlier private candidate before incoming2630; does not qualify later source"
+  },
+  "previousPrivatePreparation": {
+    "commit": "abb290b90d693a8debd2121d2f23cce672725c58",
+    "tree": "13f2c7cf860a22aac2ee22ccc9e1f3da4b74729d",
+    "formatterInputCount": 166,
+    "canonicalHost": "NOT_RUN; superseded by incoming streaming source before qualification",
+    "scope": "Prepared only; not public and not final qualification"
+  },
+  "composition": {
+    "workingBranch": "task/root-integrated-boundaries-cb79",
+    "recordedAt": "2026-11-23T21:23:13.223304+00:00",
+    "parents": [
+      "cb79f70224fd9ca45ad53a526c762ab1dbec9a7e",
+      "76566161a431a78a4c3948056374bf6aaae353fa"
+    ],
+    "sourcePolicy": "Preserve both complete histories and unchanged reviewed root production/tests; retain incoming enum/capability/scanner, complete TLS-chain and idempotent-read/startup-source fixes. Compose the independently reviewed37-test Gateway response ownership correction. Streaming pause and Android bound-transport fixture remain independently owned.",
+    "qualification": "REQUIRED_ON_FINAL_FROZEN_COMPOSITION; earlier qualified receipts remain source-specific."
+  },
+  "latestPublicComposition": {
+    "recordedAt": "2026-11-23T21:29:53.616604+00:00",
+    "head": "858c17e871a920b7575e44aede7e10e0edc4b561",
+    "retainedRootHistory": "76566161a431a78a4c3948056374bf6aaae353fa",
+    "retainedPrivateGatewayCandidate": "a7c5c86f33f88c058690a0cc759b4faa824197cf",
+    "gatewaySourceAnchor": "cb79f70224fd9ca45ad53a526c762ab1dbec9a7e",
+    "invariant": "Preserve incoming Android bound-transport assertions and both full public histories. Root production/test bytes and37-test pinned Gateway qualification remain unchanged. Revalidate the frozen composed source before a guarded non-forced append."
+  }
+}

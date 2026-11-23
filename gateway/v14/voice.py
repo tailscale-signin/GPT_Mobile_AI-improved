@@ -209,6 +209,7 @@ class Work:
     """Cancellation can race queue admission, native Run, or transport teardown."""
     def __init__(self, principal, payload, completion, deadline, binary=False):
         self.principal, self.payload, self.completion, self.deadline = principal, payload, completion, deadline
+        self.key = principal, payload['request_id']
         self.binary = binary
         self.cancelled = threading.Event()
         self._lock, self._options = threading.Lock(), None
@@ -407,12 +408,12 @@ class VoiceService:
         # A different principal cannot infer whether an ID is in flight.
         return dict(protocol=PROTOCOL, frontend_id=FRONTEND, request_id=identifier, cancelled=True)
 
-    def release_stream(self, principal, identifier):
-        self.streams.pop((principal, identifier), None)
+    def release_stream(self, work):
+        if self.streams.get(work.key) is work:
+            self.streams.pop(work.key)
 
-    def stream_cancelled(self, principal, identifier):
-        work = self.streams.get((principal, identifier))
-        return self.closed or work is None or work.cancelled.is_set()
+    def stream_cancelled(self, work):
+        return self.closed or self.streams.get(work.key) is not work or work.cancelled.is_set()
 
     async def synthesize(self, principal, payload, disconnected=None, binary=False):
         if self.backend is None or self.closed or not getattr(self.backend, 'ready', True):
@@ -525,9 +526,56 @@ class VoiceService:
 
 def install_voice_routes(app, service):
     # The private GPU worker imports this module without HTTP dependencies.
+    from anyio import CancelScope
     from fastapi import Request
     from fastapi.responses import JSONResponse, StreamingResponse
     from starlette.background import BackgroundTask
+    from starlette.requests import ClientDisconnect
+
+    class VoiceStreamingResponse(StreamingResponse):
+        def __init__(self, packets, work, audio_frames):
+            self.work = work
+            # Synthesis keeps its original Work.deadline. Completed PCM gets one
+            # fixed transport window: its validated playback duration plus the
+            # existing timeout (at most 55 seconds by default), never renewed.
+            duration = min(audio_frames, MAX_AUDIO_FRAMES) / SAMPLE_RATE
+            self.deadline = time.monotonic() + service.timeout + duration
+            async def retire():
+                # Keep ownership mutations on the event loop, including the
+                # normal Starlette background callback and repeated cleanup.
+                service.release_stream(work)
+            super().__init__(packets, media_type=PCM_STREAM_TYPE,
+                             headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'},
+                             background=BackgroundTask(retire))
+
+        async def __call__(self, scope, receive, send):
+            response = asyncio.create_task(super().__call__(scope, receive, send))
+            failure = None
+            try:
+                while not response.done():
+                    remaining = self.deadline - time.monotonic()
+                    if service.stream_cancelled(self.work) or remaining <= 0:
+                        self.work.cancel()
+                        raise ClientDisconnect()
+                    await asyncio.wait((response,), timeout=min(.1, remaining))
+                await response
+            except BaseException as error:
+                failure = error
+            finally:
+                response.cancel()
+                try:
+                    # Starlette 1.7 skips background cleanup on send failures.
+                    # Retire its task before closing the possibly active iterator.
+                    with CancelScope(shield=True):
+                        await asyncio.gather(response, return_exceptions=True)
+                        await self.body_iterator.aclose()
+                except BaseException as error:
+                    if failure is None:
+                        failure = error
+                finally:
+                    service.release_stream(self.work)
+            if failure is not None:
+                raise failure
 
     def owner(request):
         principal = getattr(request.state, 'principal', None)
@@ -559,31 +607,29 @@ def install_voice_routes(app, service):
 
     @app.post(BASE + '/synthesize/stream')
     async def synthesize_stream(request: Request):
-        principal = identifier = None
+        work = None
         try:
             principal = owner(request)
             payload = await bounded_json(request)
             result = await service.synthesize(principal, payload, request.is_disconnected, binary=True)
             identifier = result.metadata['request_id']
+            work = service.streams.get((principal, identifier))
+            if work is None:
+                raise VoiceError('VOICE_CANCELLED', 409)
             header = result.header()
 
             async def packets():
-                try:
-                    if not service.stream_cancelled(principal, identifier):
-                        yield header
-                    for chunk in result.chunks():
-                        if service.stream_cancelled(principal, identifier):
-                            return  # Missing terminal frame is cancellation, never a complete utterance.
-                        yield chunk
-                finally:
-                    service.release_stream(principal, identifier)
+                if not service.stream_cancelled(work):
+                    yield header
+                for chunk in result.chunks():
+                    if service.stream_cancelled(work):
+                        return  # Missing terminal frame is cancellation, never a complete utterance.
+                    yield chunk
 
-            return StreamingResponse(packets(), media_type=PCM_STREAM_TYPE,
-                                     headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'},
-                                     background=BackgroundTask(service.release_stream, principal, identifier))
+            return VoiceStreamingResponse(packets(), work, len(result.pcm) // 4)
         except VoiceError as error:
-            if identifier is not None:
-                service.release_stream(principal, identifier)
+            if work is not None:
+                service.release_stream(work)
             return failure(error)
 
     @app.post(BASE + '/cancel')

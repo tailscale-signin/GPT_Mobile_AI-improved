@@ -3,6 +3,7 @@
 - Add verified LiteRT Kokoro, Phonon and Pocket voice packs with real incremental PCM playback, explicit native cancellation, bounded text/cache planning and estimated caption provenance.
 - Prepare local speech earlier, calibrate the selected native voice/rate across one through four threads, adapt pending phrase size to available audio, and prevent stale voice/rate previews and warmup generations.
 - Add compatible binary Gateway speech transport and bounded native profile parsing; enforce TTS JNI retention and keep unverified processor requests separate from observed execution.
+- Bind each Gateway PCM response to its exact admitted request, preserve replacement streams during stale cleanup, and retire cancelled or stalled sends within one fixed timeout-plus-audio-duration budget while preserving synthesis limits and exact binary framing.
 
 - Combine the retained continuation, source-evidence and runtime-reporting repairs with the repository-recovery and speech-playback work from the preceding candidate.
 - Preserve completed baseline decisions and required review questions while filtering unsupported answer-derived runtime claims; retain source-review, authorization and finite-budget controls.
@@ -15,8 +16,10 @@
 - Improve contextual privacy masking and streamed local restoration; add content-free final-request evidence, redacted diagnostic exports with a separate forensic choice, accurate private-memory readiness and an offline fictional privacy/intent/timing check.
 - Redact retained request and cited-source text in default exports, and recheck inherited authority before each restored fallback stream event.
 - Close source-filename, terminal-detail and continuation-line privacy gaps in default exports, and preserve explicit colon forms for complete address separators.
+- Recheck privacy and inherited request authority at the receiving side of the private stream handoff, stopping revoked pending events without changing producer completion evidence or replaying output.
 
 - Add explicit revision recovery and truthful normalization receipts, prioritize pinned source/test context, continue bounded review waves, and deliver admitted saved pages before further automatic reads.
+- Preserve complete native saved pages requested by ordinary provider calls, account for app-added instructions within the unchanged replay ceiling and reserve, and retain exact delivery proof and matching-context admission.
 - Clarify fixture-specific approval with an existing-repository read-only mode. Retain precise TLS phase/cause, memory-trim and startup evidence and bounded capture-local redaction reuse.
 - Require CPU-reference audio consistency for speech ranking, fix exact-shape cache accounting and memory admission, and expose retained sample coverage and unmeasured voice evidence.
 

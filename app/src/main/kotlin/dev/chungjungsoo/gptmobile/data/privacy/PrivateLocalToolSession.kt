@@ -20,10 +20,14 @@ import java.util.UUID
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -56,9 +60,48 @@ internal class PrivateLocalToolSession(
         }
     }
 
+    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        val context = currentCoroutineContext()
+        val turn = context[PrivateTurn]
+        val inherited = context[RequestAuthorizationGuard]
+        var denied = false
+        streamPrivateRound(tools, exchanges).transformWhile { event ->
+            val allowed = try {
+                // A producer check can precede a suspended channel send. Validate
+                // the received event under this session's captured conversation,
+                // then return to the caller's context before publishing it.
+                withContext(privacy) {
+                    currentCoroutineContext().ensureActive()
+                    turn?.validate()
+                    check(store.effectiveSnapshot(privacy.enabled) == policy)
+                    inherited?.validate?.invoke()
+                    // The inherited authority may itself suspend.
+                    turn?.validate()
+                    check(store.effectiveSnapshot(privacy.enabled) == policy)
+                    currentCoroutineContext().ensureActive()
+                }
+                true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            }
+            if (!allowed) {
+                denied = true
+                return@transformWhile false
+            }
+            currentCoroutineContext().ensureActive()
+            emit(event)
+            event != ProviderEvent.Completed && event !is ProviderEvent.Failed
+        }.collect { emit(it) }
+        // The terminating collector has unwound the producer before this local
+        // denial is published. An upstream error code never grants a bypass.
+        if (denied) emit(publicationDenied())
+    }
+
     // The rendezvous boundary keeps the captured thread context on the producer
     // when a collector shares its dispatcher or cancels an incomplete response.
-    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+    private fun streamPrivateRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         currentCoroutineContext()[PrivateTurn]?.validate()
         if (store.effectiveSnapshot(privacy.enabled) != policy) {
             emit(rejected("DISPATCH_POLICY_CHANGED", "Privacy settings changed. Resend with the current settings."))
@@ -169,6 +212,17 @@ internal class PrivateLocalToolSession(
         }
         emit(ProviderEvent.Completed)
     }.flowOn(privacy).buffer(0)
+
+    private fun publicationDenied() = ProviderEvent.Failed(
+        "Privacy settings or request permissions changed. The response was stopped; resend with the current settings.",
+        errorCode = "DISPATCH_POLICY_CHANGED",
+        taskOutcome = "PARTIAL",
+        failureDetails = buildJsonObject {
+            put("failed_stage", "generation_permission")
+            put("request_replay_allowed", false)
+            put("logical_continuation_allowed", false)
+        }
+    )
 
     private fun evidence(exchanges: List<AgentToolExchange>): String? = try {
         val data = BoundedPrivateToolData()

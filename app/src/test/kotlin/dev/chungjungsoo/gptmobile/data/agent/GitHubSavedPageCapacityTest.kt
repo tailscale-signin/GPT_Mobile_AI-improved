@@ -197,6 +197,60 @@ class GitHubSavedPageCapacityTest {
         assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(call), listOf(refusal))), emptySet(), 4000, 512).isEmpty())
     }
 
+    @Test fun ordinaryCallIdsNeedTheSameNativeProofAndUnconsumedBudgetAsAutomaticPages() {
+        val fixture = Fixture()
+        val call = requireNotNull(fixture.next(tokens = 3000)).copy(callId = "provider-issued-page")
+        val result = fixture.read(call)
+        assertFalse(result.isError)
+        assertFalse(result.dispatched)
+        val exchange = AgentToolExchange(listOf(call), listOf(result))
+        val required = (requireNotNull(GitHubSavedReadProgress.cursor(call.arguments)).bytes + 2) / 3
+        assertTrue(required > 512 && required <= 4000 - 512)
+        assertEquals(mapOf(call.callId to required), GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), emptySet(), 4000, 512))
+        assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), setOf(call.callId), 4000, 512).isEmpty())
+        assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange), emptySet(), required + 511, 512).isEmpty())
+        val receipt = requireNotNull(result.executionReceipt)
+        val body = (result.content as ToolResultContent.Json).value.jsonObject
+        val rejected = listOf(
+            result.copy(isError = true),
+            result.copy(dispatched = true),
+            result.copy(errorCode = "TOOL_OUTCOME_UNKNOWN"),
+            result.copy(callId = "unrelated-call"),
+            result.copy(executionReceipt = null),
+            result.copy(executionReceipt = JsonObject(receipt + ("saved_view_cursor_issued" to JsonPrimitive(false)))),
+            result.copy(executionReceipt = JsonObject(receipt + ("saved_view_expired" to JsonPrimitive(true)))),
+            result.copy(executionReceipt = JsonObject(receipt + ("saved_view_cursor_hash" to JsonPrimitive("0".repeat(64))))),
+            result.copy(executionReceipt = JsonObject(receipt + ("saved_view_source_sha256" to JsonPrimitive("invalid")))),
+            result.copy(executionReceipt = JsonObject(receipt + ("saved_view_owner_operation" to JsonPrimitive("github_ci")))),
+            result.copy(executionReceipt = JsonObject(receipt + ("requires_reconciliation" to JsonPrimitive(true)))),
+            result.copy(content = requireNotNull(GitHubReplayRecovery.compact(result.content, 512))),
+            result.copy(content = ToolResultContent.Json(JsonObject(body + ("replay_compacted" to JsonPrimitive(true))))),
+            result.copy(content = ToolResultContent.Json(JsonObject(body + ("observationTruncated" to JsonPrimitive(true))))),
+            result.copy(content = ToolResultContent.Json(JsonObject(body + ("schema" to JsonPrimitive("github.evidence-summary.v1"))))),
+            result.copy(content = ToolResultContent.Text("Original page body unavailable.")),
+            fixture.refused.copy(callId = call.callId)
+        )
+        for (invalid in rejected) {
+            assertTrue(
+                "An ordinary ID cannot replace native saved-page admission",
+                GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(call), listOf(invalid))), emptySet(), 4000, 512).isEmpty()
+            )
+        }
+        assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(exchange.copy(results = listOf(result, result))), emptySet(), 4000, 512).isEmpty())
+        val matchingCall = call.copy(
+            callId = "provider-matching-context",
+            arguments = JsonObject(call.arguments + mapOf("owner" to JsonPrimitive("o".repeat(39)), "repo" to JsonPrimitive("r".repeat(100)), "action" to JsonPrimitive("commits")))
+        )
+        val matching = fixture.read(matchingCall, JsonObject(matchingCall.arguments - "view_cursor"))
+        assertFalse(matching.isError)
+        assertEquals(mapOf(matchingCall.callId to required), GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(matchingCall), listOf(matching))), emptySet(), 4000, 512))
+        val conflictingCall = matchingCall.copy(callId = "provider-conflicting-context", arguments = JsonObject(matchingCall.arguments + ("owner" to JsonPrimitive("other"))))
+        val conflicting = fixture.read(conflictingCall, JsonObject(conflictingCall.arguments - "view_cursor"))
+        assertTrue(conflicting.isError)
+        assertEquals(JsonPrimitive("SAVED_VIEW_CONTEXT_MISMATCH"), requireNotNull(conflicting.executionReceipt)["reason_code"])
+        assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(conflictingCall), listOf(conflicting))), emptySet(), 4000, 512).isEmpty())
+    }
+
     @Test fun multipleAdmittedPagesWaitForExactSuccessfulDeliveryBeforeFurtherAutomaticWork() {
         val fixtures = List(6) { Fixture("source-$it") }
         val history = fixtures.mapIndexed { index, fixture ->
@@ -334,7 +388,7 @@ class GitHubSavedPageCapacityTest {
             check(::refused.isInitialized)
         }
 
-        fun read(call: ProviderEvent.ToolCall) = views.read("scope", "github_context", route, call.arguments.getValue("view_cursor").jsonPrimitive.content, call.callId)
+        fun read(call: ProviderEvent.ToolCall, context: JsonObject = JsonObject(emptyMap())) = views.read("scope", "github_context", route, call.arguments.getValue("view_cursor").jsonPrimitive.content, call.callId, context)
         fun next(tokens: Int = 512, state: GitHubReplayRecovery.State? = this.state, exchanges: List<AgentToolExchange> = history) = GitHubReplayRecovery.nextSavedRead(exchanges, tools, tokens, state)
     }
 }

@@ -50,6 +50,7 @@ Production accelerator admission establishes numerical consistency on the fixed 
 
 ### Speech playback and benchmarks
 
+- Bind each Gateway PCM response to its exact admitted request, preserve replacement streams during stale cleanup, and retire cancelled or stalled sends within one fixed timeout-plus-audio-duration budget while preserving synthesis limits and exact binary framing. The default maximum transport window is 55 seconds for 30 seconds of validated PCM; it is never renewed by chunk progress.
 - Preserve typed native model-open and playback failures, including their stage, safe code, failed attempt and timeout budget. Local model setup failures remain distinct from invalid fixture text and accelerator failures.
 - Expose safely polled native attempt progress and bounded phase deadlines. Retain per-chunk frontend, preparation, synthesis, profile-finalization, validation, cache and actual CPU/accelerator evidence.
 - Measure first PCM, queueing, AudioTrack write, play request and presented audio separately. Distinguish startup reserves, refills and terminal drain; use verified recurring costs for startup while retaining complete generation costs.
@@ -64,6 +65,7 @@ Production accelerator admission establishes numerical consistency on the fixed 
 
 ## Privacy detection, streaming and exports
 
+- Revalidate captured privacy and inherited request authority after the private stream rendezvous, suppress pending events after revocation and emit one content-free partial failure without replay while preserving producer cleanup and the collecting conversation context.
 - Omit retained source filenames, terminal error detail and free-form persisted continuation text from default diagnostic exports. Preserve typed HTTP methods, record identifiers, source revisions and line spans, with original content available through explicit forensic consent.
 - Recognize explicit address `is:` and `at:` separators while retaining ordinary address-related instructions, exact protected ranges and local restoration.
 - Remove provider and memory free-form failure details from default diagnostic captures, while retaining typed failure evidence and credential-redacted forensic content.
@@ -91,6 +93,7 @@ Production accelerator admission establishes numerical consistency on the fixed 
 
 ## Recovery and request consistency
 
+- Preserve complete native saved pages requested by ordinary provider calls, account for app-added instructions within the unchanged replay ceiling and reserve, and retain exact delivery proof and matching-context admission.
 - Recover multi-tool catalog lookups that use the catalog action alias, preserving all requested tool names and local discovery boundaries.
 - Recover bounded local catalog searches and suggest a new discovery call for a scalar tool name, preserving its literal name and query, explicit catalog choice and exact advertised-tool admission checks.
 - Report a verification-reserve stop with its precise reason and remaining call allowance; keep unmet criteria visible and distinguish it from a generic chat or tool failure.

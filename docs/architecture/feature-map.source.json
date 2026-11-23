@@ -105,7 +105,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProviderResponse.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderSession.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateIdentityDetector.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateIdentityDetector.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSession.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt",
@@ -127,7 +128,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderStreamAuthorityTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExportTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateModalDispatchTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateComposedStreamBackpressureTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateComposedStreamBackpressureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateReceiverGuardContractTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -144,7 +146,8 @@
         "Diagnostic content defaults to redacted; full forensic consent and resume identity are separate.",
         "Synthetic local checks report measured privacy, intent and timing scope without claiming cloud quality or accelerator execution.",
         "Masked fallback publication revalidates captured provider and retained-source authority before each output; revoked authority preserves partial failure and never replays output.",
-        "Ordinary modal collisions require positive detector classification and exact request-local copied-span provenance; protected overlaps and all other known-value checks remain authoritative."
+        "Ordinary modal collisions require positive detector classification and exact request-local copied-span provenance; protected overlaps and all other known-value checks remain authoritative.",
+        "Private stream events are revalidated after the channel handoff under captured conversation authority; denial stops upstream before one content-free partial failure, preserves cancellation and caller context, and never grants an error-code bypass."
       ]
     },
     {
@@ -316,7 +319,8 @@
       ],
       "documents": [
         "docs/architecture/voice-streaming.md",
-        "docs/architecture/repository-guide.md"
+        "docs/architecture/repository-guide.md",
+        "docs/repairs/gateway-stream-ownership-2026-11-23-task.json"
       ],
       "invariants": [
         "Stream PCM with bounded backpressure and retire native handles before releasing model leases.",
@@ -324,7 +328,8 @@
         "Only explicit model installation may download a speech pack; private conversations cannot send speech to Gateway.",
         "Preserve original source ranges and pronunciation overrides when bounding long streaming replies.",
         "Production accelerator playback requires complete same-run CPU-reference consistency before native open; explicit Recheck publishes its complete requested cohort and cancellation cannot grant partial admission.",
-        "Numerical audio consistency and SDK model smoke do not establish perceptual equivalence, arbitrary-utterance correctness or target-phone accelerator performance."
+        "Numerical audio consistency and SDK model smoke do not establish perceptual equivalence, arbitrary-utterance correctness or target-phone accelerator performance.",
+        "Gateway response retirement is bound to the exact admitted Work lease; cancellation and a fixed timeout plus validated audio duration bound transport without extending synthesis or retiring a replacement request."
       ]
     },
     {
@@ -404,7 +409,8 @@
         "Settle interrupted phone-index work only after exact local ownership and unwind evidence; preserve unrelated unknown remote operations.",
         "Argument canonicalization is separate from semantic repair and its observed execution outcome.",
         "A native saved-page read and proven provider delivery are separate facts; continuation retains original context, output and attempt limits.",
-        "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it."
+        "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it.",
+        "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery."
       ]
     },
     {

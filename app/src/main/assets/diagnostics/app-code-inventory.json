@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "e8946c7e2fac61a8db277273965e5a129078ca59ef9d922450ab22f3de62badc",
+  "source_digest": "582cdf8f366a12a5a3413012ffdbc9ff63f4e6db022e95999911dc1a1051f43c",
   "file_count": 3049,
-  "indexed_line_count": 516333,
+  "indexed_line_count": 516443,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 249,
-      "indexed_line_count": 44350
+      "indexed_line_count": 44360
     },
     {
       "id": "agent_tools",
@@ -143,7 +143,7 @@
       "id": "auth_and_security",
       "label": "Permissions, privacy and credentials",
       "file_count": 50,
-      "indexed_line_count": 7242
+      "indexed_line_count": 7296
     },
     {
       "id": "voice_and_media",
@@ -167,7 +167,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 275,
-      "indexed_line_count": 101422
+      "indexed_line_count": 101468
     },
     {
       "id": "authentication_service",
@@ -1670,8 +1670,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "285253396d673c3e1b92dc503ef25b56dcc03ab1485d4e7eed1bcaa095cda8b1",
-      "indexed_lines": 684
+      "sha256": "76c519a624a92cec5ef5931120da08258cd2fc7c03c484495f234414434919c9",
+      "indexed_lines": 694
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRequirementToolFocus.kt",
@@ -11400,8 +11400,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSession.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "3d98e1228ebd7b8e25134c14d840fc04a1ae035e10e057b334a96170bd89f950",
-      "indexed_lines": 355
+      "sha256": "0b72ea28d288b747bcc3c7a5e6d7f98206adb7b1a9d776968daf3d556c1b0ddb",
+      "indexed_lines": 409
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateMarkerProtocol.kt",
@@ -21004,8 +21004,8 @@
       "path": "gateway/v14/voice.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "e6846937db3a4f4cae7a5647f40e0e65a9df198651af387ab3b62cc1ef880527",
-      "indexed_lines": 599
+      "sha256": "44904146d0eb714929de3ae9ee6411a5403802d223ffde31f033b4d62d4cda40",
+      "indexed_lines": 645
     },
     {
       "path": "gateway/v14/voice_process.py",

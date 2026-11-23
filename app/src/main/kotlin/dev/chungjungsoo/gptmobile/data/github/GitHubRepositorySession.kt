@@ -1715,7 +1715,8 @@ internal class GitHubRepositorySession(
         store.write(scope, "evidence:$evidenceId", evidence)
         retainSourceDescriptor(evidenceId, evidence)
         updateSnapshot { pinned ->
-            pinned.copy(evidenceHandles = (pinned.evidenceHandles + evidenceId).distinct().takeLast(128), updatedAt = System.currentTimeMillis())
+            val handles = (pinned.evidenceHandles + evidenceId).distinct().takeLast(128)
+            if (handles == pinned.evidenceHandles) pinned else pinned.copy(evidenceHandles = handles, updatedAt = System.currentTimeMillis())
         }
         val coverage = results.groupBy { it.s("path") }.map { (path, items) ->
             val identity = buildJsonObject {

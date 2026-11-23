@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "1d7775a2a6f34e0ca19a71e22949c1dba5044e73662b0f3d63bcaa4b89aebf53"
+    val sourceDigest: String = "e8946c7e2fac61a8db277273965e5a129078ca59ef9d922450ab22f3de62badc"
     val fileCount: Int = 3049
-    val lineCount: Int = 516319
+    val lineCount: Int = 516333
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -36,13 +36,13 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14881),
         AppAuditSourceArea("gateway_client", "Android gateway client", 39, 6999),
         AppAuditSourceArea("network", "Networking and readiness", 112, 11388),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 284, 51898),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 284, 51899),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14068),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 47, 5091),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 111, 15091),
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 105, 16562),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 147, 24606),
-        AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 50, 7229),
+        AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 50, 7242),
         AppAuditSourceArea("voice_and_media", "Voice and media", 99, 17389),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4095),

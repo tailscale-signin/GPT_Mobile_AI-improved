@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "1d7775a2a6f34e0ca19a71e22949c1dba5044e73662b0f3d63bcaa4b89aebf53",
+  "source_digest": "e8946c7e2fac61a8db277273965e5a129078ca59ef9d922450ab22f3de62badc",
   "file_count": 3049,
-  "indexed_line_count": 516319,
+  "indexed_line_count": 516333,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 284,
-      "indexed_line_count": 51898
+      "indexed_line_count": 51899
     },
     {
       "id": "research",
@@ -143,7 +143,7 @@
       "id": "auth_and_security",
       "label": "Permissions, privacy and credentials",
       "file_count": 50,
-      "indexed_line_count": 7229
+      "indexed_line_count": 7242
     },
     {
       "id": "voice_and_media",
@@ -7970,8 +7970,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "023ef0747dfdcfc9b78b502a295725705274af7deecc556b2556024561192adf",
-      "indexed_lines": 2036
+      "sha256": "8e0106b4ad81014722c563bf08a6219b93db64381cae7c6a86c10574e9b6a421",
+      "indexed_lines": 2037
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryStateStore.kt",
@@ -12779,8 +12779,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparation.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "ea3315bfa5aefd52f35ee08990fd4d3ef226b25a6a5605377996c910b8f5685a",
-      "indexed_lines": 11
+      "sha256": "e830444335fa51b6392bf71644844ff9fb9c733a0af52ab27670ceb1c126ee29",
+      "indexed_lines": 24
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/service/GptTileService.kt",

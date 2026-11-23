@@ -1,7 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.security
 
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -31,5 +37,27 @@ class StartupDatabasePreparationTest {
         var opened = 0
         prepareStartupConversationDatabase { opened++ }
         assertEquals(1, opened)
+    }
+
+    @Test fun cancellingStartupDuringOpenCannotStartDependentObservers() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val finishOpen = CountDownLatch(1)
+        var observerStarted = false
+        val startup = launch {
+            prepareStartupConversationDatabase {
+                entered.complete(Unit)
+                check(finishOpen.await(10, TimeUnit.SECONDS))
+            }
+            observerStarted = true
+        }
+        try {
+            withTimeout(10_000) { entered.await() }
+            startup.cancel()
+        } finally {
+            finishOpen.countDown()
+        }
+        startup.join()
+        assertTrue(startup.isCancelled)
+        assertFalse(observerStarted)
     }
 }

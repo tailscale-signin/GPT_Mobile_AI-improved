@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "task": "github-read-startup-ci-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2367,
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "d3daaf6c1bb909cd320d86d09763d6d12ecc6fa4",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "hostedFinding": {
+    "source": "2630db65b9df55143f2fd61b1cd16dc9c60d2254",
+    "workflow": 45259468634,
+    "job": 137991933720,
+    "artifact": 14862947074,
+    "artifactSha256": "34de4f0395d895d0b7eead1cf0a1efefe21613ffbfd9874b2afe78ebc9f48554",
+    "tests": 13827,
+    "failures": 3,
+    "errors": 0,
+    "skipped": 5
+  },
+  "repairs": [
+    {
+      "test": "GitHubReadRecoveryTest.retainedRevisionMismatchDoesNotReadOrMoveTheSelectedBranch",
+      "cause": "Revision rejection preserved the selected snapshot. Reopening the issued historical handle then advanced updatedAt despite retaining identical evidence handles.",
+      "change": "Compare the bounded, deduplicated handles with the current snapshot inside the existing atomic update. Advance the timestamp only when the list changes.",
+      "coverage": "The project test seeds a known stored timestamp, reopens the exact receipt, checks snapshot and blob-read counts, then reads another path and verifies both handles and the new timestamp."
+    },
+    {
+      "test": "StartupDatabasePreparationTest.keyOrOpenFailuresBlockObserversAndRemainRetryableByStartupOwner",
+      "cause": "Coroutine stack-trace recovery can copy exceptions that cross from the IO dispatcher to the startup owner.",
+      "change": "Return ordinary open failures through the context switch and rethrow the original exception on the caller. Cancellation and fatal errors continue through the coroutine machinery.",
+      "coverage": "The original key/open failure and retry test remains intact. A new test cancels the caller while an IO open is in progress and checks that dependent observers never start."
+    }
+  ],
+  "localQualification": [
+    "With Kotlin 2.4.20 and coroutines 1.11.0, the original startup identity assertion failed with stack-trace recovery enabled. All three committed startup tests passed on the fix with coroutine debugging both enabled and disabled. The host fixture provides the tracing boundary and does not open an Android Room database.",
+    "Two focused Kotlin checks exercised the verbatim snapshot retention transition. The prior transition changed a seeded timestamp on replay. The corrected transition passed replay and new-handle retention at the 128-entry limit."
+  ],
+  "hostedQualification": "Requires final-source ordinary Android unit results for both original methods, both new behavior tests and the separately owned composed privacy handoff. Publication follows the normal source-qualified workflow."
+}

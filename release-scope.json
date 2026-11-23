@@ -255,7 +255,8 @@
     "Reject typed TLS and cancellation before retry callbacks can clear dispatch uncertainty, preserving ordinary DNS recovery ordering and every existing retry/ownership fence.",
     "Align server voice report vocabularies with the new SDK engine family, selected backends and fallback sources while retaining strict unknown-value rejection and truthful effective-provider semantics.",
     "Mirror closed streaming voice backend report values and require VOICE_STREAMING_BACKEND_EVIDENCE_V1 only when those new values are emitted, preserving ordinary voice V1 reports and bounded plain readiness; qualify deployed receivers through the extended readiness probe.",
-    "Classify the exact public CPU-calibration preference declaration with a rule, path and whole-line constraint, retaining actual pinned-scanner negative controls, existing model-pin checks and complete reachable-history scanning."
+    "Classify the exact public CPU-calibration preference declaration with a rule, path and whole-line constraint, retaining actual pinned-scanner negative controls, existing model-pin checks and complete reachable-history scanning.",
+    "Preserve the selected GitHub snapshot timestamp when reopening existing evidence, retain new evidence atomically, and deliver the original database-open failure to the startup owner while respecting cancellation."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -560,6 +561,7 @@
     "docs/repairs/github-explicit-audit-restrictions-2026-11-23-task.json",
     "docs/repairs/github-negated-audit-scope-2026-11-23-task.json",
     "docs/repairs/github-ordinary-continuation-2026-11-23-task.json",
+    "docs/repairs/github-read-startup-ci-2026-11-23-task.json",
     "docs/repairs/github-runtime-claim-scope-2026-11-23-task.json",
     "docs/repairs/github-search-coverage-followup-2026-11-23-task.json",
     "docs/repairs/gitleaks-model-pin-2026-11-23-task.json",

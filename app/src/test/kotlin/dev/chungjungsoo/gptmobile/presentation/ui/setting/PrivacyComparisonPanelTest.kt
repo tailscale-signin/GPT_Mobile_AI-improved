@@ -166,7 +166,7 @@ class PrivacyComparisonPanelTest {
         compose.onAllNodesWithText("Fixture criteria met: 1/1.").assertCountEquals(2)
         compose.onNodeWithText("Comparison incomplete").assertExists()
         compose.onNodeWithText("Comparison finished").assertDoesNotExist()
-        compose.onNodeWithText("Reported backend and output limit match.").assertDoesNotExist()
+        compose.onNodeWithText("Reported runtime label and output limit match.").assertDoesNotExist()
         compose.onNodeWithText("No eligible pairs for timing summaries yet.").assertExists()
     }
 

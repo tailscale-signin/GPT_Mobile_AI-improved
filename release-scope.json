@@ -271,7 +271,8 @@
     "Add an explicitly started, bounded privacy-off/on provider comparison over four closed fictional tasks with separate warmups, counterbalanced order, current frozen-profile/policy guards, actual private dispatch and completion accounting, independently reported detection/task/usage observations, and grouped sample-counted p50/p95 timings.",
     "Learn streaming speech refill reserves from audio delivery while a phrase is still being generated, retaining slow delivery history and excluding time blocked by the existing bounded queue; preserve captions, pause settings and prompt cancellation.",
     "Avoid the pinned emulator action's premature MENU unlock before acceptance readiness, using verified upstream source/runtime bytes while retaining the API34/API36 matrix, resource/time limits and all launcher/ANR health checks.",
-    "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming."
+    "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming.",
+    "Describe paired privacy results by their actual checks: three bounded distinct text entries, literal anxiety omission and reported runtime-label/output-limit equality, without changing scoring, dispatch or lifecycle."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -692,7 +693,8 @@
     "scripts/tests/test_prepare_emulator_action.py",
     "scripts/tests/test_prepare_emulator_ui.py",
     "scripts/tests/test_release_lint_workflow.py",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt",
+    "docs/repairs/privacy-comparison-labels-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

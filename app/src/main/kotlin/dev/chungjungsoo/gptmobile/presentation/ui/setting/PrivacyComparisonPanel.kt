@@ -230,7 +230,7 @@ private fun ComparisonPair(result: PrivacyComparisonResult, case: PrivacyCompari
             Text(case.title, style = MaterialTheme.typography.titleSmall)
             Text(
                 when (result.pairStatus(case)) {
-                    "OBSERVED_CONFIGURATION_MATCHES" -> "Reported backend and output limit match."
+                    "OBSERVED_CONFIGURATION_MATCHES" -> "Reported runtime label and output limit match."
                     "REQUESTED_CONFIGURATION_MATCHES_OBSERVATION_INCOMPLETE" -> "Same requested configuration; actual backend evidence is incomplete."
                     "OBSERVED_CONFIGURATION_DIFFERS" -> "Observed configuration differs. Treat these as separate results."
                     "CONFIGURATION_NOT_COMPARABLE" -> "The protected route uses different or unverified settings. Treat these as separate results."

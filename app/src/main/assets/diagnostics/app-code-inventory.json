@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b44d2718bf4d8af28a9ac6601e16e333dfe372a63507b2e143f813490a7fb0aa",
+  "source_digest": "6982fd49dd19cd97e07040216873989a129ba11dd48007a6a2697046c047b212",
   "file_count": 3058,
   "indexed_line_count": 518183,
   "line_coverage_available": false,
@@ -11344,7 +11344,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonCorpus.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "533702e28ab2f6970e356f32d9e15ebdbcb21504016c7ceb1b29ca44ebeae1ca",
+      "sha256": "54e2191bafa02c54c52dec22a8732f8ddfc92c3501cffcb055124a4b239dba3f",
       "indexed_lines": 167
     },
     {
@@ -16958,7 +16958,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "1f41a87fc698f37d3db9256482db5f28e2eb3b176d212e214a069f7e7eb4574c",
+      "sha256": "6b8cef51c2b1b8b4f77a9a3040e726b52db7e5c808fa662279057a96e9a10045",
       "indexed_lines": 351
     },
     {

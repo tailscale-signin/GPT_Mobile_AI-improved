@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSha": "1a74d7a4f0c2479c5bf88b807a1bde2e193174a5",
+  "baseTree": "8d75eed317669b73213b9a49bb7b1b064fba91dc",
+  "mainSha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "work/root-privacy-comparison-labels-fa123",
+  "parentPullRequest": 2367,
+  "owner": "phone-map-publication root",
+  "recordedBeforeSourceEdit": true,
+  "status": "IMPLEMENTED_SOURCE_REVIEWED_FINAL_VALIDATION_REQUIRED",
+  "intent": "Make three comparison result labels describe their actual literal, structural and runtime-label checks without changing scoring, request execution, authority or lifecycle.",
+  "findings": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonCorpus.kt",
+      "before": "Three distinct activity suggestions",
+      "after": "Three distinct text entries (4–500 characters each)",
+      "basis": "The existing predicate checks exactly three distinct strings, each 4..500 UTF-16 code units; it does not judge whether they are activity suggestions."
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonCorpus.kt",
+      "before": "Family condition not repeated",
+      "after": "Reply does not contain the text “anxiety”",
+      "basis": "The existing predicate checks only case-insensitive absence of anxiety, not paraphrased family or health circumstances."
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanel.kt",
+      "before": "Reported backend and output limit match.",
+      "after": "Reported runtime label and output limit match.",
+      "basis": "The comparator checks a reported runtime label and output ceiling. Accelerator, physical backend, model/cache identity and full settings parity are not established."
+    }
+  ],
+  "plannedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonCorpus.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanel.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt",
+    "docs/repairs/privacy-comparison-labels-2026-11-23-task.json",
+    "app/src/main/assets/diagnostics/app-code-inventory.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt",
+    "docs/architecture/feature-map.json",
+    "release-scope.json"
+  ],
+  "preservation": [
+    "Change only the three display strings and the existing negative UI assertion's matching literal.",
+    "Preserve every score predicate, criterion ID, fixture, provider constraint, authority, cancellation and lifecycle path.",
+    "Preserve every existing test method and assertion, apart from updating the one existing label expectation.",
+    "Keep the privacy owner's ON_STOP lifecycle correction/regression and diagnostic buffering/emulator/native-benchmark ownership separate and blocked until reviewed.",
+    "Reconcile any concurrent public append before one expected-parent, non-force ref update."
+  ],
+  "qualification": {
+    "newTests": "No new tests for literal wording changes; existing behavioral panel/data tests remain required on final hosted source.",
+    "localRuntime": "NOT_RUN; no standalone privacy/provider/Android harness.",
+    "canonicalHost": "REQUIRED_ON_FINAL_COMMITTED_CANDIDATE; result recorded separately to avoid changing the qualified tree.",
+    "pinnedKtlint": "REQUIRED_ON_FINAL_COMMITTED_CANDIDATE; result recorded separately.",
+    "independentSourceReview": "Four literal replacements clear at1a74/807: receipt SHA-256 8e9639d0ca7cb6b806b49a1ba361c438160819b09821469cf4122c5414bce0fe. Exact fa123 lifecycle preservation rebind required before publication.",
+    "finalSourceCI": "REQUIRED"
+  },
+  "sourceReviewInputs": {
+    "core": "2724c05db0d84c1033750a8336e54dfd391025b06467f74f47009104cbbb87fb",
+    "ui": "8af2c3861e6533bf8b0a85812978d4a63a5c4c015f43c9f977f1338381ecb356",
+    "lifecycleHold": "e3493f212fcafe05388af9e2c4b16020b522fe8d7729e42e2f520667827b65ee"
+  },
+  "integratedParent": "fa1230722f7c247e4ca1b8b04ccd1a4ae7811b72",
+  "integratedParentTree": "7be36b25423009b343b7506ba2db56e50d3dc105",
+  "preservedConcurrentAppend": "Preserve all807 cadence/emulator changes and allfa123 lifecycle imports, ON_STOP/disposal bridge, complete held-provider regression, feature-map declarations and release notes. Apply only the same reviewed four literals; regenerate metadata from this combined tree.",
+  "previousCandidateQualification": {
+    "commit": "b1d91e79f67ea4eea87648f30205eaa3270bbacc",
+    "parent": "80794bd5827d176c002ef2b71293be8731342ce6",
+    "tree": "8a721ae57afaf8ea8fc42c431c1bc5e118d78ff5",
+    "receiptSha256": "bb84f7bcd2b83432666754039501a86a1275af0fb7c7a5ea1361625a25ab4f7b",
+    "hostTests": 708,
+    "changedKotlinFiles": 244,
+    "status": "HISTORICAL_AFTER_FA123; fresh final candidate qualification required"
+  }
+}

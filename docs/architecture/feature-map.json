@@ -1040,9 +1040,9 @@
       "sha256": "a33a59238a9808b842b0979d1546f8bf4372fdcfe3b5d7ee316252acaa481a5f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonCorpus.kt": {
-      "blob_sha": "3486b3037c030fcb76b77a11ac32c85afeb0141a",
-      "bytes": 9582,
-      "sha256": "533702e28ab2f6970e356f32d9e15ebdbcb21504016c7ceb1b29ca44ebeae1ca"
+      "blob_sha": "264055bdd035f0953eaaaf863b696358f5bdd2be",
+      "bytes": 9616,
+      "sha256": "54e2191bafa02c54c52dec22a8732f8ddfc92c3501cffcb055124a4b239dba3f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonModels.kt": {
       "blob_sha": "a0d2ba7a805a4dcfc602d5bd727e161cbc5d8bde",
@@ -1390,9 +1390,9 @@
       "sha256": "8dce034237b3b07ff148d8886561996a9e05155a20f54427de725e43c093068e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanel.kt": {
-      "blob_sha": "6881a73a02f82a78da7d4900c6a99b13bece982d",
-      "bytes": 22094,
-      "sha256": "1f41a87fc698f37d3db9256482db5f28e2eb3b176d212e214a069f7e7eb4574c"
+      "blob_sha": "f65d72128582575d5c5c2884063ec373f3ce2402",
+      "bytes": 22100,
+      "sha256": "6b8cef51c2b1b8b4f77a9a3040e726b52db7e5c808fa662279057a96e9a10045"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModel.kt": {
       "blob_sha": "b40cb63b1c57413d1075d62f38383d61133b00d8",
@@ -2005,9 +2005,9 @@
       "sha256": "f0996ee3832c7a3a188b46501dc7bf38769a641bae89ca9951c167126e8b103d"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt": {
-      "blob_sha": "2f1363609d8b1360f22188fdd884b3ca858ab933",
-      "bytes": 11839,
-      "sha256": "70cc4a77a5bd094a4a9746db2f910e2eac438401aced141abc0f94cc61e30aa1"
+      "blob_sha": "4bc6d3c241664eaf845e2eefd3b1a7841f9bfa02",
+      "bytes": 11845,
+      "sha256": "105c924177c2b7160f2736e79acbd40104ab48dadbfdd9a07ff9d77a72f1bd26"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModelTest.kt": {
       "blob_sha": "9e3e25865327c5ca2a103dc4976fafa29066142f",

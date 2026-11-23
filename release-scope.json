@@ -95,7 +95,7 @@
     "Separate full agent-system comparisons from model benchmarks, reject comparison of unexecuted checks, and retain optional-runtime and provider qualification limits.",
     "Start speech when all bounded PCM queue slots are occupied even when partial phrase tails leave accepted duration below the measured reserve; retain queue and reserve limits, lifecycle fences and deadline behavior.",
     "Report invalid retained journal projections as typed recovery-integrity failures while omitting unverified observed digests and counts; preserve legacy file decoding and provable recovery, settled-call deduplication and prior budget refusal checks.",
-    "Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.",
+    "Apply the same evidence requirements to requests beginning with \u201cPlease,\u201d preserving their original wording and source references.",
     "Keep automatic phone-map recipes within native capabilities while retaining explicit Gateway analysis and source provenance.",
     "Preserve actual Gateway graph exchange evidence through local privacy rejection and clear only a proven unsent new index attempt.",
     "Propagate wrapped MCP cancellation before reconnect or replay while retaining earlier response and interruption facts.",
@@ -228,7 +228,8 @@
     "Bound privacy export-consent UI test scrolling with the Compose v1 default test dispatcher, an explicit phone viewport, a finite real scroll-action budget, positive progress and full target visibility while retaining all redacted/default, forensic-preview/confirm and backing-out assertions. Production behavior and resource/qualification gates remain unchanged.",
     "Omit source-excerpt resource filenames in default diagnostic captures and extend the real retained-producer and staged checkpoint/resume canary coverage without changing forensic credential rules.",
     "Keep terminal free-form diagnostic detail and recognized continuation payload opaque in default export, preserving typed prefix evidence and explicit forensic content consent.",
-    "Protect explicit whole-word is/at address colon forms while preserving ordinary-language exclusions, complete masking ranges and exact local restoration."
+    "Protect explicit whole-word is/at address colon forms while preserving ordinary-language exclusions, complete masking ranges and exact local restoration.",
+    "Use the supported Compose v2 rule for asynchronous assistant debug-visibility tests, preserving real background preparation and all five visibility, fallback, fragment and stable-node assertions."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -399,7 +400,9 @@
     "scripts/tests/test_android_lint_memory.py",
     "scripts/tests/test_gradle_retry.py",
     "scripts/tests/test_release_lint_workflow.py",
-    "docs/repairs/privacy-review-followup-2026-11-23-task.json"
+    "docs/repairs/privacy-review-followup-2026-11-23-task.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantDebugVisibilityTest.kt",
+    "docs/repairs/assistant-debug-visibility-dispatcher-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

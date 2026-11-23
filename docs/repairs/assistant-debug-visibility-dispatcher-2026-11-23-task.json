@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "task": "assistant-debug-visibility-dispatcher-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "be2f918d3138b6ee84473d392846d83ff8d606e4",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "pullRequest": 2367,
+  "status": "IMPLEMENTED_PENDING_FINAL_COMBINED_HEAD_HOSTED_QUALIFICATION",
+  "intent": "Use the pinned Compose v2 test rule for asynchronous assistant debug-visibility tests, retaining the real background markdown preparation and every behavioral assertion.",
+  "observedFailure": {
+    "sourceHead": "989d6007fd7acb54e2c6d48c0f8bdcda5a3f070c",
+    "actualCheckout": "c3511052ab9bdc5ed580db1061589661c35d1b08",
+    "actualTree": "657bc552d6e0464f1e7cbdab289749c35d011944",
+    "workflowRun": 45241965636,
+    "job": 137929367265,
+    "artifact": 14856376760,
+    "artifactSha256": "33cb0f31b70a6631c88d42f9276a441ab110ac35947e289d1b42039f2312992b",
+    "method": "AssistantDebugVisibilityTest.diagnosticOnlyTimelineKeepsTheFallbackAnswerAndProcessVisibilityAcrossDebugChanges",
+    "exception": "android.view.ViewRootImpl.CalledFromWrongThreadException",
+    "expectedThread": "SDK 34 Main Thread",
+    "observedThread": "DefaultDispatcher-worker-4",
+    "classResult": "One failed method and four passing methods. The separate older export-dialog OOM/partial class is not this failure.",
+    "sourceContinuity": "The test and AssistantChronologicalContent, ChatMarkdown and ConflatedRenderPreparation are unchanged between the failing checkout and the current public source."
+  },
+  "correction": {
+    "sourceChange": "Only replace the createComposeRule import with androidx.compose.ui.test.junit4.v2.createComposeRule.",
+    "pinnedRuntime": "androidx.compose.ui:ui-test-junit4-android:1.12.1",
+    "evidence": "The failure stack resumes Recomposer/applyChanges through TestMonotonicFrameClock and ApplyingContinuationInterceptor on a background parser worker. Verified pinned-library bytecode shows v1 disables the Standard composition mode, while the public v2 factory enables the Standard dispatcher and matching UI-thread idling/scheduler path.",
+    "preserved": [
+      "All five test methods and every original assertion",
+      "Real Dispatchers.Default markdown preparation",
+      "Existing waitUntil bounds and runOnIdle debug changes",
+      "Prepared answer node identity, exactly-once answer fragments, fallback answer and process visibility",
+      "Production behavior, dependency versions, worker heap/forks and workflow limits"
+    ]
+  },
+  "validation": {
+    "sourceReview": "Independent XML/source/pinned-bytecode review supports the narrow fixture correction.",
+    "apiCompilation": "The actual pinned Compose1.12.1 v2 factory compiles with Kotlin2.4.20 against the cached project dependencies; no UI behavior is inferred from this compile-only API check.",
+    "canonicalHost": "Required on the frozen composed candidate, with unchanged tracked inputs.",
+    "hostedAndroid": "All five exact methods must complete successfully and unskipped on the final combined source. Current-head full Android/Room/privacy/UI qualification remains required."
+  },
+  "concurrency": "Preserve every concurrent append through a guarded non-forced update. Existing stream-authority and diagnostic/voice owners retain their scopes.",
+  "publication": "Keep draft until all active reservations and applicable final-head gates close, finish both predecessor publications/readbacks, then normal merge, exact-main gates and joint successor publication."
+}

@@ -644,7 +644,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticRedactionReuseTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportPrecheckTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/HttpAttemptEvidenceTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparationTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -652,13 +653,15 @@
       "documents": [
         "docs/contracts/repository-operation-report-v1.json",
         "docs/repairs/voice-streaming-report-compatibility-2026-11-23-task.json",
-        "docs/repairs/github-evidence-progress-2026-11-23-task.json"
+        "docs/repairs/github-evidence-progress-2026-11-23-task.json",
+        "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
         "Negotiate capabilities for newly introduced report fields while retaining compatible legacy payloads.",
         "Require VOICE_STREAMING_BACKEND_EVIDENCE_V1 only for emitted new streaming voice enum values; retain ordinary voice V1 payloads and the bounded plain readiness response.",
-        "Do not combine observations across recording epochs or infer a historical crash cause without evidence."
+        "Do not combine observations across recording epochs or infer a historical crash cause without evidence.",
+        "Keep one valid aligned unmet-criterion sample and observed total/omission counts ahead of other summaries inside the unchanged diagnostic byte bound; malformed or unknown evidence gains no authority."
       ]
     },
     {
@@ -880,9 +883,9 @@
       "sha256": "d03b0d900d206aa16daff91a4c3fdd280dd497b1d49788c1fe32084b27490af8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt": {
-      "blob_sha": "6aff7f9bb2380c8bfd6f30a825091f0c5d3dc899",
-      "bytes": 83334,
-      "sha256": "4fcad2987816075e61eb10d600c0b911f511ff15c09534aabf19d2c761992e08"
+      "blob_sha": "abb8572f6d1a93ed14ac19dac16bb4f6bc3eccc8",
+      "bytes": 84067,
+      "sha256": "d6f01ff9751c43de3474e235b843b21726be7ac773e6dac4fda0197c56d78e37"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": {
       "blob_sha": "bc6e8e693f5c39e8a668eaa60be75e9b59441af0",
@@ -1559,6 +1562,11 @@
       "bytes": 2521,
       "sha256": "b6fa68d0e3f799c5dce335700493f29c6ec0b506d79e50e0997de99340a1fe4e"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt": {
+      "blob_sha": "e03382d6d055b7c4ba65ddfebf6ac6f92927bad8",
+      "bytes": 6862,
+      "sha256": "231f37398d375043e68763836adf6d0940770815fa32c3bb9b7f3ab158d32a3f"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnosticsTest.kt": {
       "blob_sha": "b4c0d66be6a80752c086e582f54a8822bb5c8deb",
       "bytes": 51129,
@@ -2098,6 +2106,11 @@
       "blob_sha": "1e7000341c1b42b1cac346b3fe064944419253ae",
       "bytes": 9276,
       "sha256": "aff7a63b0f32528cb78952dae93be63ce7d5577cfa611a4560635cebc6b01bf4"
+    },
+    "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json": {
+      "blob_sha": "7542abe8d3c245b97aff21f27a73612b5b5217ad",
+      "bytes": 5776,
+      "sha256": "c6287c7c0c0c841ea424e2d11332005a890c84d77179afad02acca47b1d884c0"
     },
     "docs/repairs/emulator-early-input-readiness-2026-11-23-task.json": {
       "blob_sha": "e21ef26f1984d33f91238a874d34e8afa0c8511f",

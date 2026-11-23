@@ -640,7 +640,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticRedactionReuseTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportPrecheckTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/HttpAttemptEvidenceTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparationTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -648,13 +649,15 @@
       "documents": [
         "docs/contracts/repository-operation-report-v1.json",
         "docs/repairs/voice-streaming-report-compatibility-2026-11-23-task.json",
-        "docs/repairs/github-evidence-progress-2026-11-23-task.json"
+        "docs/repairs/github-evidence-progress-2026-11-23-task.json",
+        "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
         "Negotiate capabilities for newly introduced report fields while retaining compatible legacy payloads.",
         "Require VOICE_STREAMING_BACKEND_EVIDENCE_V1 only for emitted new streaming voice enum values; retain ordinary voice V1 payloads and the bounded plain readiness response.",
-        "Do not combine observations across recording epochs or infer a historical crash cause without evidence."
+        "Do not combine observations across recording epochs or infer a historical crash cause without evidence.",
+        "Keep one valid aligned unmet-criterion sample and observed total/omission counts ahead of other summaries inside the unchanged diagnostic byte bound; malformed or unknown evidence gains no authority."
       ]
     },
     {

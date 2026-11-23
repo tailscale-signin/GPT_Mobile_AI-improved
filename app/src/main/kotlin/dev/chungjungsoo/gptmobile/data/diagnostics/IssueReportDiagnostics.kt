@@ -651,8 +651,18 @@ internal data class IssueReportDiagnostics(
             var result = snapshot()
             // Bound before preview/approval, and say exactly which otherwise valid fields did not fit.
             while (IssueReport.json.encodeToString(serializer(), result).encodeToByteArray().size > MAX_BYTES && values.isNotEmpty()) {
-                val optional = if (version == 3) values.filterKeys { it !in IssueReportIncidentCapsule.priorityFields && it !in incidentDetailFields && it !in replayBudgetFields && it !in searchFailureFields && it !in readerRunFields && it !in acceptanceScopeFields && it !in githubPrerequisiteFields && it !in GitHubAcceptanceRecoveryEvidence.fields && it !in voiceCapturePlaybackFields && it !in githubSchemaBudgetFields && it !in profileSelectionFields && it !in githubCooldownFields && it !in PrivacyFailureEvidence.fields } else values
-                val key = (optional.ifEmpty { values }).maxBy { it.key.length + it.value.toString().length }.key
+                val retainedCriteria = criterionFields.firstNotNullOfOrNull { (values[it] as? JsonArray)?.size } ?: 0
+                val criterionFloor = if (version == 3 && retainedCriteria > 0) {
+                    setOf("unmet_criterion_count", "unmet_criterion_omitted_count") + if (retainedCriteria == 1) criterionFields else emptySet()
+                } else {
+                    emptySet()
+                }
+                // Keep the last valid row and observed counts even when all ordinary
+                // optional fields are gone. An impossible envelope still fails validation.
+                val candidates = values.filterKeys { it !in criterionFloor }
+                if (candidates.isEmpty()) break
+                val optional = if (version == 3) candidates.filterKeys { it !in IssueReportIncidentCapsule.priorityFields && it !in incidentDetailFields && it !in replayBudgetFields && it !in searchFailureFields && it !in readerRunFields && it !in acceptanceScopeFields && it !in githubPrerequisiteFields && it !in GitHubAcceptanceRecoveryEvidence.fields && it !in voiceCapturePlaybackFields && it !in githubSchemaBudgetFields && it !in profileSelectionFields && it !in githubCooldownFields && it !in PrivacyFailureEvidence.fields } else candidates
+                val key = (optional.ifEmpty { candidates }).maxBy { it.key.length + it.value.toString().length }.key
                 val criterionSize = (values[key] as? JsonArray)?.size ?: 0
                 if (version == 3 && key in criterionFields && criterionSize > 1) {
                     // Keep a useful aligned sample when the capsule consumes space;

@@ -2,6 +2,7 @@
 #define MELO_KOKORO_EXECUTION_PROVIDER_H_
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <memory>
@@ -23,6 +24,7 @@ struct Qualification {
   KokoroProfileStats cpu;
 };
 inline Qualification &LastQualification() { static thread_local Qualification value; return value; }
+inline int64_t &LastProfileFinalizeMs() { static thread_local int64_t value = 0; return value; }
 struct SelectedDevice { int type = -1; uint32_t vendor = 0; uint32_t id = 0; };
 inline SelectedDevice &LastSelectedDevice() { static thread_local SelectedDevice value; return value; }
 inline std::string &LastDiscovery() { static thread_local std::string value{"stage=not_started"}; return value; }
@@ -118,6 +120,13 @@ inline Ort::SessionOptions Options(Ort::Env &env, int threads,
 // Qualification is based on a completed inference's kernel events, not the list
 // of installed providers. Profiles contain operator metadata, never phrase text.
 inline int FinishQualification(Ort::Session &session) {
+  struct Timing {
+    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+    ~Timing() {
+      LastProfileFinalizeMs() = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - started).count();
+    }
+  } timing;
   Ort::AllocatorWithDefaultOptions allocator;
   const auto filename = session.EndProfilingAllocated(allocator);
   const std::string path(filename.get());

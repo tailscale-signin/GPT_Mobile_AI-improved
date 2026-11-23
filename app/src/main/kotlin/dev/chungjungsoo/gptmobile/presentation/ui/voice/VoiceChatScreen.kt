@@ -861,6 +861,7 @@ private fun VoiceChatSessionScreen(
                             localRecognition.releaseWarmModel()
                             kokoroOutput?.releaseWarmModel()
                         },
+                        captionOffsetMs = tuning.captionOffsetMs,
                         viewModel = benchmarkOwner
                     )
                     if (!benchmarkRunning) {

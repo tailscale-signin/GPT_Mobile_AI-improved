@@ -6,115 +6,249 @@
   "base_sha": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
   "working_branch": "fix/github-evidence-progress-2026-11-23",
   "intent": "Implement the complete reviewed diagnostic repair set, preserve concurrent work, qualify the exact final PR and merged main, and verify signed publication.",
-  "state": "IMPLEMENTING",
+  "state": "IMPLEMENTED_AWAITING_EXACT_REVISION_QUALIFICATION",
   "authorization": "User requested all reviewed repairs, draft PR, merge after green checks, and verified publication.",
   "acceptance": [
     {
       "id": "R01",
       "requirement": "One selected immutable revision across native reads and repository maps",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubGraphRevisionAuthorityTest",
+        "GitHubRepositoryBindingTest"
+      ]
     },
     {
       "id": "R02",
       "requirement": "Immutable exact-SHA comparison evidence survives mutable freshness limits",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubReviewProgressTest",
+        "GitHubEvidenceRetentionTest",
+        "GitHubEvidencePolicyTest"
+      ]
     },
     {
       "id": "R03",
       "requirement": "Mandatory baseline, decisions and manifest facts survive bounded verification",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubReviewProgressTest",
+        "GitHubVerificationCatalogTest",
+        "GitHubVerifiedSessionTest"
+      ]
     },
     {
       "id": "R04",
       "requirement": "Recover explicit schema-budget exclusions with bounded compatible discovery",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubChecklistScheduleTest"
+      ]
     },
     {
       "id": "R05",
       "requirement": "Schedule concrete changed-source reads and preserve issued cursor recovery",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubReviewProgressTest",
+        "GitHubVerifiedSessionTest"
+      ]
     },
     {
       "id": "R06",
       "requirement": "Preserve valid source ranges when a batch contains a nonregular path",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubReadRecoveryTest",
+        "PhoneRepositoryGraphSessionTest"
+      ]
     },
     {
       "id": "R07",
       "requirement": "Bound phone-index work and checkpoint useful progress before outer deadlines",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "PhoneRepositoryGraphSessionTest",
+        "GitHubReadWorkBudgetTest",
+        "PhoneRepositoryProgressBudgetTest",
+        "PhoneIndexReadDeadlineTest"
+      ]
     },
     {
       "id": "R08",
       "requirement": "Bound complete search work and retain narrowed resumable recovery",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "PhoneRepositoryProgressBudgetTest",
+        "GitHubReadWorkBudgetTest"
+      ]
     },
     {
       "id": "R09",
       "requirement": "Count semantic task progress instead of equivalent repeated resolution",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubInvestigationProgressTest"
+      ]
     },
     {
       "id": "R10",
       "requirement": "Represent exact-SHA running CI without requiring absent-log probes",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubCiObservationReportTest"
+      ]
     },
     {
       "id": "R11",
       "requirement": "Preserve typed original failures through approved public report contracts",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "ToolReportIncidentProjectionTest",
+        "IssueReportSubmissionTest",
+        "authentication.test_app",
+        "authentication.test_failure_details",
+        "scripts.tests.test_generate_diagnostic_schema"
+      ]
     },
     {
       "id": "R12",
       "requirement": "Preserve typed provider waits or explicit owning extraction recovery",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubClaimExtractionTest",
+        "GitHubVerifiedSessionTest",
+        "ProfileFailureRecordTest",
+        "ProviderFailureReportTest"
+      ]
     },
     {
       "id": "R13",
       "requirement": "Preserve bounded settled Markdown preparation and measure relevant UI behavior",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "SettledMarkdownRendererTest",
+        "ChatMarkdownParserTest",
+        "AppPerformanceBenchmark.settledMarkdownRevisitWithFontAndThemeChanges"
+      ],
+      "qualification": "Deterministic cache/layout behavior and a device fixture; physical speedup remains unmeasured."
     },
     {
       "id": "R14",
       "requirement": "Coordinate frame flush deadlines and isolate recording epochs",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "FrameTimingWindowTest"
+      ]
     },
     {
       "id": "R15",
       "requirement": "Retain evidence for older unproven crash/validation reports without inventing causes",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubToolTest",
+        "GitHubToolErrorDiagnosticsTest",
+        "IssueReportFrameworkFramesTest"
+      ],
+      "qualification": "Bounded diagnostic capture and regression coverage; original historical crash/422 causes remain unproven."
     },
     {
       "id": "R16",
       "requirement": "All applicable current-head and current-main gates plus signed release readback",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "PENDING_HOSTED_QUALIFICATION_AND_PUBLICATION",
+      "evidence": [
+        "PR Validation",
+        "Build Android APK",
+        "CodeQL Advanced",
+        "Post-merge correctness",
+        "v0.9.50 Android acceptance",
+        "Gateway stability",
+        "Gateway Windows installer",
+        "Development environments",
+        "Publish Signed Release"
+      ]
     }
   ],
   "constraints": [
     "Preserve authorization, privacy, cursor ownership and uncertain-write reconciliation.",
     "Do not weaken tests or bypass branch/release checks.",
     "Monitor remote head, integrate concurrent commits, and reject stale merge evidence.",
-    "Device speed and root causes require actual evidence; no simulated performance qualification."
+    "Device speed and root causes require actual evidence; no simulated performance qualification.",
+    "Keep PR #2363 as draft until both the GitHub repair and concurrent speech repair scopes are complete; release intent is Android 0.9.66.14 / Gateway 18.1.2."
   ],
   "validation": {
-    "local": [],
+    "local": [
+      {
+        "suite": "authentication unittest discovery",
+        "passed": 213,
+        "scope": "working tree before final integration"
+      },
+      {
+        "suite": "focused planner and runtime host harnesses",
+        "scope": "Production logic with explicit platform/transport boundaries; does not replace canonical Android CI."
+      },
+      {
+        "suite": "focused root diagnostics host",
+        "passed": 8,
+        "scope": "Actual report projection, submission capability negotiation and serialized checkpoint failure record; platform/transport ports isolated."
+      },
+      {
+        "suite": "focused runtime, Markdown and phone-boundary host harnesses",
+        "passed": 121,
+        "scope": "Actual bounded runtime/parser/cache/receipt behavior with explicit platform boundaries; full Android and Compose integration remains canonical CI."
+      },
+      {
+        "suite": "focused workflow and control host harnesses",
+        "passed": 150,
+        "scope": "62 workflow and 88 control behavior tests with actual production reducers and bounded extracted methods; full Session persistence remains canonical CI."
+      },
+      {
+        "suite": "independent frontier and source-window review follow-up",
+        "passed": 64,
+        "scope": "Actual bounded session/planner behavior with documented platform boundaries."
+      },
+      {
+        "suite": "legacy report compatibility review follow-up",
+        "passed": 10,
+        "scope": "Actual report submission and diagnostic serialization; controlled old-implementation negative case also verified."
+      }
+    ],
     "hosted": [],
-    "publication": []
-  }
+    "publication": [],
+    "publication_requirement": "Read back exact published tags, asset inventory and verified source revision after all merged-main required workflows pass."
+  },
+  "pull_request": 2363,
+  "release_target": {
+    "android": "0.9.66.14",
+    "version_code": 148,
+    "gateway": "18.1.2"
+  },
+  "integrated_concurrent_commits": [
+    "c86f987714329ce6eff4f11aea68af259bfd52f8"
+  ],
+  "concurrent_tasks": [
+    {
+      "task_id": "speech-playback-reliability-2026-11-23",
+      "record": "docs/repairs/speech-playback-reliability-2026-11-23-task.json",
+      "gate": "Integrate the concurrent implementation and rerun all exact combined-head checks before merge/publication."
+    }
+  ],
+  "integration_review_followups": [
+    {
+      "finding": "A supplied future phone index cursor could skip unread files.",
+      "repair": "Reject positions beyond the retained frontier; preserve older checkpoints and explicit retry_failed.",
+      "tests": "PhoneRepositoryGraphSessionTest"
+    },
+    {
+      "finding": "A prior header read could suppress a planned changed-source hunk.",
+      "repair": "Bind an acquisition attempt to a containing line interval and zero offset.",
+      "tests": "GitHubReviewProgressTest"
+    },
+    {
+      "finding": "An existing top-level READ_DEADLINE code incorrectly required the new report capability.",
+      "repair": "Preserve legacy code-only compatibility and retain stricter gates for newly introduced fields.",
+      "tests": "IssueReportSubmissionTest"
+    }
+  ]
 }

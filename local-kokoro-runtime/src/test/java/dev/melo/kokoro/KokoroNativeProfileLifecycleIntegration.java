@@ -45,6 +45,14 @@ public final class KokoroNativeProfileLifecycleIntegration {
             TimedKokoro.Failure failure = null;
             try {
                 require(awaitFault(), "Actual ORT run did not reach the post-kernel barrier");
+                TimedKokoro.Progress running = model.progress();
+                require(running != null && running.active && "synthesis".equals(running.stage) && running.attemptId > 0,
+                        "Native progress blocked or confused compilation and active inference");
+                for (int i = 0; i < 100; ++i) {
+                    TimedKokoro.Progress polled = model.progress();
+                    require(polled != null && polled.active && polled.attemptId == running.attemptId && polled.stageSequence == running.stageSequence,
+                            "Polling reset or changed the native attempt");
+                }
                 if (cancel) model.cancel();
                 releaseFault();
                 try {
@@ -65,6 +73,9 @@ public final class KokoroNativeProfileLifecycleIntegration {
                 releaseFault();
             }
             TimedKokoro.Evidence interrupted = model.evidence();
+            TimedKokoro.Progress stopped = model.progress();
+            require(stopped != null && !stopped.active && stopped.cancellationRequested == cancel, "Native failed attempt remained active");
+            require(stopped.attemptElapsedMs == model.progress().attemptElapsedMs, "Retired attempt timing was not frozen");
             require(!interrupted.validatedAudio, "Failed inference borrowed valid audio");
             model.resetCancellation();
             model.generate(phrase, 0, 1f);
@@ -88,6 +99,7 @@ public final class KokoroNativeProfileLifecycleIntegration {
                         "Previously qualified session was unnecessarily retired");
                 require(resumed.profileId == original.profileId && resumed.acceleratorKernels == original.acceleratorKernels &&
                         resumed.cpuKernels == original.cpuKernels, "Previously completed profile changed after cancellation");
+                verifyConcurrentClose(model, worker, phrase);
             } else {
                 require(!resumed.cacheHit && !resumed.profileReused && resumed.graphPreparedThisCall,
                         "Interrupted first profile was reused instead of rebuilt");
@@ -107,6 +119,37 @@ public final class KokoroNativeProfileLifecycleIntegration {
         try (var files = Files.list(libraries)) {
             require(files.noneMatch(p -> p.getFileName().toString().startsWith("lifecycle-profile")),
                     "Closing retired/current sessions left a profiling file behind");
+        }
+    }
+
+    private static void verifyConcurrentClose(TimedKokoro model, ExecutorService worker, String phrase) throws Exception {
+        ExecutorService cancellation = Executors.newSingleThreadExecutor();
+        Thread closer = new Thread(model::close, "KokoroCloseRegression");
+        armFault();
+        Future<TimedKokoro.Audio> pending = worker.submit(() -> model.generate(phrase, 0, 1f));
+        try {
+            require(awaitFault(), "Close regression did not enter actual ORT inference");
+            closer.start();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (closer.getState() != Thread.State.WAITING && System.nanoTime() < deadline) Thread.yield();
+            require(closer.getState() == Thread.State.WAITING, "Close did not wait for its native owner");
+            cancellation.submit(model::cancel).get(2, TimeUnit.SECONDS);
+            TimedKokoro.Progress current = model.progress();
+            require(current != null && current.active && current.cancellationRequested, "Queued close blocked cancellation or progress");
+            releaseFault();
+            try {
+                pending.get(120, TimeUnit.SECONDS);
+                throw new AssertionError("Close/cancel returned audio");
+            } catch (ExecutionException expected) {
+                require(expected.getCause() instanceof CancellationException, "Close/cancel lost native cancellation");
+            }
+            closer.join(10_000);
+            require(!closer.isAlive() && model.progress() == null, "Native handle was observed after close");
+        } finally {
+            releaseFault();
+            closer.join(10_000);
+            cancellation.shutdownNow();
+            require(cancellation.awaitTermination(10, TimeUnit.SECONDS), "Cancellation worker did not retire");
         }
     }
 }

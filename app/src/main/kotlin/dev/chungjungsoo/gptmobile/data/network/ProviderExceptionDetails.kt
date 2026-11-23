@@ -420,6 +420,9 @@ internal fun providerExceptionDetails(
         type = if (http != null) "http_error" else category?.name,
         code = code,
         retryable = retryable,
+        providerLimit = free?.providerLimit?.takeIf { category in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED, FreeFailureCategory.PROVIDER_RATE_LIMITED) }?.let { decision ->
+            if (partialOutput) decision.copy(knownNotAccepted = false, checkpointContinuationAllowed = false, gitHubCheckpoint = null, continuationPrefixDigest = null) else decision
+        },
         failureDetails = buildJsonObject {
             put("code", code)
             put(

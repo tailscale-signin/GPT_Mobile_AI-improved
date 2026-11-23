@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
 import dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
 import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
 import dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy
+import dev.chungjungsoo.gptmobile.data.github.GitHubReadValidation
 import dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected
 import dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
@@ -109,12 +110,18 @@ internal class RepositoryGraphTool(
             val admission = cause as? GatewayGraphAdmissionException
             val prerequisite = cause as? GatewayGraphUnavailableException
             val phoneRejection = (cause as? GitHubRequestRejected)?.takeIf { phone }
+            val phoneValidation = (cause as? GitHubReadValidation)?.takeIf { phone }
+            val phoneDeadline = phone && (phoneValidation?.code == "READ_DEADLINE" || (cause as? dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException)?.code == "READ_DEADLINE")
+            if (phoneDeadline) {
+                phoneAccounting?.cancelled()
+                if (phoneAccounting != null) phoneInterruption?.cancelledAfterUnwind(phoneAccounting)
+            }
             val phoneCooldown = if (phone) {
                 cause as? GitHubCooldownActive ?: phoneRejection?.takeIf { it.status == 0 }?.cause as? GitHubCooldownActive
             } else {
                 null
             }
-            val phoneCode = phoneCooldown?.errorCode ?: phoneRejection?.let {
+            val phoneCode = phoneValidation?.code ?: phoneCooldown?.errorCode ?: phoneRejection?.let {
                 it.message.orEmpty().substringBefore(" · ").takeIf(GitHubFailurePolicy.codes::contains) ?: GitHubFailurePolicy.classify(it.status)
             }
             val phoneRateLimit = phoneRejection?.let { phoneRateLimitEvidence(it, requireNotNull(phoneCode)) }
@@ -191,6 +198,8 @@ internal class RepositoryGraphTool(
                                     "RECONCILIATION_REQUIRED"
                                 } else if (privacyDenied) {
                                     "LOCAL_POLICY_OR_CONFIGURATION"
+                                } else if (phoneDeadline) {
+                                    "LOCAL_READ_DEADLINE"
                                 } else if (phoneCooldown != null) {
                                     "LOCAL_RATE_LIMIT"
                                 } else if (phoneRejection != null) {
@@ -210,6 +219,8 @@ internal class RepositoryGraphTool(
                             "state",
                             if (privacyDenied) {
                                 "POLICY_BLOCKED"
+                            } else if (phoneDeadline) {
+                                "INTERRUPTED"
                             } else if (phoneCooldown != null) {
                                 "WAITING"
                             } else if (localRejection) {
@@ -230,6 +241,8 @@ internal class RepositoryGraphTool(
                                 "WAIT_FOR_REPORTED_RATE_LIMIT"
                             } else if (admission != null) {
                                 "RESTORE_SELECTED_CONFIGURATION_OR_GRANTS"
+                            } else if (phoneDeadline) {
+                                "READ_SAVED_PHONE_STATUS"
                             } else if (phone) {
                                 "RESTORE_PHONE_REPOSITORY_ACCESS"
                             } else if (unavailable) {
@@ -245,6 +258,8 @@ internal class RepositoryGraphTool(
                                 "The earlier index request remains unconfirmed. Wait for the reported retry delay if present, then read status on this same gateway and revision to reconcile its saved checkpoint; do not repeat indexing until the checkpoint is acknowledged."
                             } else if (privacyDenied) {
                                 "Review Privacy Mode for the selected connection, then resume this repository map under the current settings. Completed reads remain recorded."
+                            } else if (phoneDeadline) {
+                                "The bounded phone read stopped. Completed source remains local. Read status on this same phone repository under normal authorization, then continue only the exact issued index_cursor; coverage is incomplete and no index replay was authorized."
                             } else if (phoneCooldown != null) {
                                 "Wait until the recorded GitHub cooldown deadline before another phone map read. This HTTP request was blocked locally; retained dispatch counts describe any earlier reads in this operation. Keep the selected GitHub connection and revision."
                             } else if (phoneRejection != null) {
@@ -267,7 +282,33 @@ internal class RepositoryGraphTool(
                         retryAfterMillis?.takeIf { it in 0..86_400_000 }?.let { put("retry_after_ms", it) }
                         if (unresolved) savedIndexRecovery(mapSource).forEach { (key, value) -> put(key, value) }
                         put("graph_complete", false)
-                        put("message", if (unavailable && readAction) "Repository graph evidence is unavailable. Authorized native repository reads remain independent of the graph connection. Resolve the selected revision, inspect branches, commits, source paths, PRs and checks as needed; their receipts do not establish graph coverage or executed tests." else "Repository graph access failed. Resolve the reported admission, validation or transport problem for this operation; no graph write or policy rejection was retried through another provider.")
+                        if (phoneDeadline) {
+                            put("local_work_stopped", true)
+                            put("requires_reconciliation", false)
+                            put(
+                                "recovery_call",
+                                buildJsonObject {
+                                    put("tool", definition.name)
+                                    put(
+                                        "arguments",
+                                        buildJsonObject {
+                                            put("action", "status")
+                                            put("map_source", "phone")
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                        put(
+                            "message",
+                            if (phoneDeadline) {
+                                "The foreground phone read reached its deadline. Completed immutable source and local progress remain available through an authorized status read; complete graph coverage was not observed."
+                            } else if (unavailable && readAction) {
+                                "Repository graph evidence is unavailable. Authorized native repository reads remain independent of the graph connection. Resolve the selected revision, inspect branches, commits, source paths, PRs and checks as needed; their receipts do not establish graph coverage or executed tests."
+                            } else {
+                                "Repository graph access failed. Resolve the reported admission, validation or transport problem for this operation; no graph write or policy rejection was retried through another provider."
+                            }
+                        )
                         put("failure_type", cause.javaClass.simpleName)
                         if (!phone && unavailable && readAction && nativeStatus != null) {
                             if (!unresolved) put("recovery_call", nativeCall("github_context", "status"))
@@ -315,6 +356,13 @@ internal class RepositoryGraphTool(
                     put("failed_stage", if (localRejection) "tool_precheck" else "tool_execution")
                     put("dispatched", !localRejection)
                     put("retryable", false)
+                    if (phoneDeadline) {
+                        put("local_work_stopped", true)
+                        put("replay_safe", false)
+                        put("request_replay_allowed", false)
+                        put("authorization_recheck_required", true)
+                        put("reason_code", "READ_DEADLINE")
+                    }
                     put("requires_reconciliation", unresolved)
                     put("index_outcome_unknown", unresolved)
                     put("current_index_outcome_unknown", currentIndexUnknown)
@@ -353,6 +401,7 @@ internal class RepositoryGraphTool(
         // the unavailable callback counts as zero requests to that response.
         val observed = if (result.isError && (result.executionReceipt?.get("http_status") as? JsonPrimitive)?.intOrNull in 100..599 && !measured.dispatched) result else measured
         val privacyDenied = result.errorCode == UnverifiedServiceTransport.CODE
+        val localDeadline = result.errorCode == "READ_DEADLINE" && result.executionReceipt?.get("local_work_stopped") == JsonPrimitive(true)
         val failedStage = if (observed.dispatched) "tool_execution" else "tool_precheck"
         val content = (result.content as? ToolResultContent.Json)?.value as? JsonObject
         return observed.copy(
@@ -360,6 +409,7 @@ internal class RepositoryGraphTool(
                 ToolResultContent.Json(
                     JsonObject(
                         content + when {
+                            localDeadline -> mapOf("state" to JsonPrimitive("INTERRUPTED"))
                             content["state"] == JsonPrimitive("WAITING") -> emptyMap()
                             !observed.dispatched -> mapOf("state" to JsonPrimitive("PRECHECK_REJECTED"))
                             privacyDenied || content["state"] == JsonPrimitive("PRECHECK_REJECTED") -> mapOf("state" to JsonPrimitive("POLICY_BLOCKED"))
@@ -381,6 +431,8 @@ internal class RepositoryGraphTool(
                     "phase",
                     if (!result.isError) {
                         "COMPLETED"
+                    } else if (localDeadline) {
+                        "CANCELLED_LOCALLY"
                     } else if (observed.dispatched) {
                         "FAILED"
                     } else {
@@ -389,6 +441,7 @@ internal class RepositoryGraphTool(
                 )
                 put("dispatched", observed.dispatched)
                 if (result.isError) put("failed_stage", failedStage)
+                if (localDeadline) put("failed_stage", "phone_read_deadline")
                 put("requires_reconciliation", false)
                 put("index_outcome_unknown", false)
                 put("current_index_outcome_unknown", false)

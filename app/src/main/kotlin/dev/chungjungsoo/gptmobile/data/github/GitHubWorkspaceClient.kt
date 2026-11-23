@@ -74,7 +74,8 @@ class GitHubWorkspaceClient(
     private val repositoryGateway: (suspend (JsonObject) -> JsonObject)? = null,
     private val sharedCredentialAdmission: Boolean = client === sharedClient,
     private val copilotWriteAdmission: (suspend () -> Unit)? = null,
-    private val copilotConsentAdmission: (suspend () -> Unit)? = null
+    private val copilotConsentAdmission: (suspend () -> Unit)? = null,
+    private val initialRepositoryContext: GitHubConversationContext? = null
 ) {
     private val responseCache = responseCache ?: if (client === sharedClient) GitHubSessionCaches.forCredential(token, apiOrigins.hostIdentity) else GitHubResponseCache()
     private val rateLimits = rateLimits ?: if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token, apiOrigins.hostIdentity) else GitHubRateLimitManager()
@@ -142,7 +143,8 @@ class GitHubWorkspaceClient(
             repositoryState,
             { request(it) },
             { root, args -> commitFiles(root, args) },
-            { root, args -> reconcileCommit(root, args) }
+            { root, args -> reconcileCommit(root, args) },
+            initialRepositoryContext = initialRepositoryContext
         )
     }
     private val executionScope = listOf(durableIdentity, connectionUid, conversationId, taskId).joinToString(":")

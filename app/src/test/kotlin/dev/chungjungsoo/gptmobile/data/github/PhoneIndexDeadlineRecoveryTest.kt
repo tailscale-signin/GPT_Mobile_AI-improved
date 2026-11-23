@@ -263,7 +263,7 @@ class PhoneIndexDeadlineRecoveryTest {
                     repositoryScope = context,
                     connectionUid = context.connectionUid,
                     durableIdentity = "verified-account",
-                    graphQuery = { payload -> repository.executeForMap(context, JsonObject(payload - "map_source"), forModel = true).result }
+                    graphQuery = { scope, payload -> repository.executeForMap(scope, JsonObject(payload - "map_source"), forModel = true).result }
                 ).graphTool()
             )
         }

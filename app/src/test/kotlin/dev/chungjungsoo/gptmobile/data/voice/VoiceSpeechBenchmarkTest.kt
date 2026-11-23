@@ -90,7 +90,7 @@ class VoiceSpeechBenchmarkTest {
         assertEquals(110L, cpu.samples.first().prepareToFirstPcmMs)
         val fixtureCosts = VoiceSpeechBenchmarkFixture.entries.flatMap { fixture -> List(2) { VoiceSpeechWorkload.phrases(fixture).size * 100.0 } }
         assertEquals(VoiceSpeechBenchmarkBackendResult.median(fixtureCosts), cpu.medianMs)
-        assertEquals(fixtureCosts.max().toLong(), cpu.p95Ms)
+        assertNull("Six mixed-fixture samples cannot establish p95", cpu.p95Ms)
         assertEquals(75.0, cpu.samples.first().audioMs, .001)
         assertEquals(100.0 / 75, cpu.medianRtf!!, .001)
         assertEquals(6, cpu.warmSamples.size)

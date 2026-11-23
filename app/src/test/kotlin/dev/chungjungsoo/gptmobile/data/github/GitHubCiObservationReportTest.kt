@@ -132,12 +132,98 @@ class GitHubCiObservationReportTest {
         val ids = report["evidence_receipt_ids"] as JsonArray
         assertTrue(listOf("attempt", "snapshot", "logs").all { JsonPrimitive(it) in ids })
         receipts["logs"] = JsonObject(receipts.getValue("logs") + ("trusted" to JsonPrimitive(false)))
-        assertNull(GitHubCiObservationReport.render(task, receipts, now, 2))
+        val withoutLogs = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2))
+        assertEquals(JsonPrimitive("WAITING_FOR_CI"), withoutLogs.second["observation_state"])
+        assertFalse(withoutLogs.first.contains("Logs for job"))
+        assertFalse(withoutLogs.second.containsKey("logs_available"))
         val (partialText, partial) = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2, checkSnapshotOnly = true))
         assertTrue(partialText.contains("24"))
         assertEquals(JsonPrimitive("CHECK_SNAPSHOT_ONLY"), partial["observation_state"])
         assertEquals(JsonPrimitive(false), partial["completion_verified"])
         assertEquals(JsonArray(listOf(JsonPrimitive("snapshot"))), partial["evidence_receipt_ids"])
+    }
+
+    private fun runningSnapshot(operation: String = "github_context_inspect", sha: String = head): JsonObject {
+        val args = buildJsonObject {
+            put("action", if (operation == "github_ci") "status" else "checks")
+            put("commit_sha", sha)
+        }
+        val raw = buildJsonObject {
+            put("commit_sha", sha)
+            put("state", "RUNNING")
+            put(
+                "check_details",
+                buildJsonObject {
+                    put("total_count", 3)
+                    put("check_runs", JsonArray(listOf(run(1, "skipped", sha = sha), run(2, "", "in_progress", sha = sha), run(3, sha = sha))))
+                }
+            )
+            put(
+                "status_details",
+                buildJsonObject {
+                    put("total_count", 0)
+                    put("statuses", JsonArray(emptyList()))
+                }
+            )
+        }
+        return JsonObject(
+            receipt("snapshot", "checks", buildJsonObject { put("observationTruncated", true) }, sha) + mapOf(
+                "tool" to JsonPrimitive(operation),
+                "arguments" to args,
+                "semantic_summary" to GitHubSemanticSummary.from(operation, args, raw)
+            )
+        )
+    }
+
+    @Test fun exactRevisionRunningChecksDoNotRequireAnAbsentLogProbe() {
+        val receipts = evidence(listOf(run(17, "skipped"), run(18, "", "queued", attempt = 2), run(19)))
+        receipts["snapshot"] = runningSnapshot()
+        receipts["failure"] = receipt(
+            "failure",
+            "failure",
+            buildJsonObject {
+                put("status", "no_failed_run")
+                put("head_sha", head)
+                put("commit_checks_state", "RUNNING")
+            },
+            head
+        )
+        val (text, report) = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2))
+        assertEquals(JsonPrimitive("WAITING_FOR_CI"), report["observation_state"])
+        assertEquals(JsonPrimitive(18), report["run_id"])
+        assertEquals(JsonPrimitive(2), report["run_attempt"])
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        assertEquals(JsonPrimitive(false), report["build_health_verified"])
+        assertEquals(JsonPrimitive(false), report["new_test_execution_verified"])
+        assertFalse(report.containsKey("pending_job_id"))
+        assertFalse(report.containsKey("logs_available"))
+        assertTrue(text.contains("workflow outcome remains open"))
+        assertFalse(text.contains("Logs for job"))
+        assertEquals(3, (report["remaining_requirements"] as JsonArray).size)
+    }
+
+    @Test fun runningSnapshotCanRemainPendingWithoutInventingAWorkflowIdentifier() {
+        val receipts = evidence(emptyList()).apply { put("snapshot", runningSnapshot()) }
+        val report = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2)).second
+        assertEquals(JsonPrimitive("WAITING_FOR_CI"), report["observation_state"])
+        assertFalse(report.containsKey("run_id"))
+        assertFalse(report.containsKey("watch_tool"))
+        assertEquals(4, (report["remaining_requirements"] as JsonArray).size)
+        val simple = requireNotNull(GitHubCiObservationReport.render("Diagnose CI failures", receipts, now, 2)).second
+        assertEquals(1, (simple["remaining_requirements"] as JsonArray).size)
+    }
+
+    @Test fun wrongRevisionStaleIncompleteAndFailedObservationsNeverBecomePendingSuccess() {
+        val base = evidence(listOf(run(17, "", "in_progress")))
+        for (snapshot in listOf(
+            runningSnapshot(sha = "b".repeat(40)),
+            JsonObject(runningSnapshot() + ("trusted" to JsonPrimitive(false))),
+            JsonObject(runningSnapshot() + ("epoch" to JsonPrimitive(1))),
+            JsonObject(runningSnapshot() + ("semantic_summary" to JsonObject((runningSnapshot().getValue("semantic_summary") as JsonObject) + ("check_inventory_complete" to JsonPrimitive(false)))))
+        )) {
+            assertNull(GitHubCiObservationReport.render(task, base + ("snapshot" to snapshot), now, 2))
+        }
+        assertNull(GitHubCiObservationReport.render(task, evidence(listOf(run(17, "failure"))) + ("snapshot" to runningSnapshot()), now, 2))
     }
 
     @Test fun sevenSuccessfulAndElevenSkippedRunsFinishOnlyTheBoundedDiagnosis() {

@@ -15,6 +15,19 @@ SPEC.loader.exec_module(GENERATOR)
 
 
 class DiagnosticSchemaGenerationTest(unittest.TestCase):
+    def test_repository_operation_vocabulary_is_generated_for_client_and_service(self):
+        outputs = GENERATOR.repository_operation_generated()
+        namespace = {}
+        exec(outputs[ROOT / 'authentication/repository_operation_report_contract.py'], namespace)
+        kotlin = outputs[ROOT / 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RepositoryOperationReportContract.kt']
+        schema = json.loads(GENERATOR.REPOSITORY_SOURCE.read_text())
+        self.assertEqual(set(schema['error_codes']), namespace['ERROR_CODES'])
+        for field in ('error_codes', 'tool_actions', 'tool_reason_codes', 'tool_dispatch_phases'):
+            for value in schema[field]:
+                self.assertIn(json.dumps(value), kotlin)
+        self.assertIn('PHONE_INDEX_INTERRUPTED', namespace['ERROR_CODES'])
+        self.assertNotIn('private/path', namespace['ERROR_CODES'])
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

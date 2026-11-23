@@ -3,11 +3,14 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision
+import dev.chungjungsoo.gptmobile.data.network.ProviderRetryPolicy
 import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails
 import dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -20,7 +23,36 @@ import kotlinx.serialization.json.put
 /** Provider attempts finish before a malformed or length-limited claim batch can be retried. */
 internal object GitHubClaimExtraction {
     /** Provider error names alone never grant another attempt. */
-    class Failure(val code: String, val providerFailure: ProviderEvent.Failed? = null, val repairAllowed: Boolean = false, val observations: JsonObject? = null) : IllegalStateException(code)
+    class Failure(
+        val code: String,
+        val providerFailure: ProviderEvent.Failed? = null,
+        val repairAllowed: Boolean = false,
+        val observations: JsonObject? = null,
+        val rejectionRecoveryAllowed: Boolean = false
+    ) : IllegalStateException(code)
+
+    /** One short wait belongs to this saved, tool-free batch, never to primary generation. */
+    class RejectionRecovery {
+        private var used = false
+
+        suspend fun retry(
+            failure: Failure,
+            now: () -> Long,
+            validate: suspend () -> Unit,
+            pause: suspend (Long) -> Unit = { delay(it) }
+        ): Boolean {
+            val decision = rejectedDecision(failure) ?: return false
+            val remaining = ProviderRetryPolicy.remainingMillis(decision.retryAt, now())
+            if (used || remaining > MAX_REJECTION_WAIT_MS) return false
+            used = true
+            validate()
+            pause(remaining)
+            validate()
+            return true
+        }
+    }
+
+    fun rejectedDecision(failure: Failure): ProviderLimitDecision? = failure.providerFailure?.providerLimit?.takeIf { failure.rejectionRecoveryAllowed }
 
     /** A deadline may interrupt a provider attempt or later local checkpoint/rendering work. */
     class Attempt {
@@ -44,14 +76,16 @@ internal object GitHubClaimExtraction {
         var finishReason: String? = null
         var failure: ProviderEvent.Failed? = null
         var repairProhibited = false
-        fun interrupted(event: ProviderEvent.Failed) = Failure(
-            event.errorCode ?: "GITHUB_EXTRACTION_FAILED",
+        var rejectionProhibited = false
+        fun interrupted(event: ProviderEvent.Failed, allowRejection: Boolean = true, code: String = event.errorCode ?: "GITHUB_EXTRACTION_FAILED") = Failure(
+            code,
             event,
             observations = buildJsonObject {
                 put("claim_extraction_response_characters", response.length)
                 put("claim_extraction_max_claims", request.maxClaims)
                 put("claim_extraction_completed", complete)
-            }
+            },
+            rejectionRecoveryAllowed = allowRejection && !receivedProviderOutput && !unexpectedOperation && !rejectionProhibited && rejectedLimit(event) != null
         )
         try {
             attempt.awaitingTerminal = true
@@ -76,6 +110,7 @@ internal object GitHubClaimExtraction {
                         // Later frames may tighten safety without taking ownership
                         // from the first failed attempt.
                         repairProhibited = repairProhibited || !completedLimitAllowsRepair(event)
+                        rejectionProhibited = rejectionProhibited || rejectedLimit(event) == null
                         // Preserve the first failure. A later limit/Completed frame
                         // cannot replace a 429 or another failed attempt. Explicit
                         // uncertainty may only tighten that original disposition.
@@ -98,14 +133,15 @@ internal object GitHubClaimExtraction {
                     it is dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure
             }
             if (policy != null) throw policy
-            failure?.let { throw interrupted(it) }
-            val provider = providerExceptionDetails(error, partialOutput = response.isNotEmpty())
+            failure?.let { throw interrupted(it, allowRejection = false) }
+            val provider = providerExceptionDetails(error, partialOutput = receivedProviderOutput)
             val transport = networkFailureKind(error)
             val unknown = provider == null && transport == NetworkFailureKind.UNKNOWN
             val code = provider?.code ?: transport.code.takeUnless { transport == NetworkFailureKind.UNKNOWN } ?: "GITHUB_EXTRACTION_FAILED"
             val original = ProviderEvent.Failed(
                 provider?.message ?: "Claim extraction did not complete. Saved evidence remains available; inspect the retained provider failure before resuming.",
                 errorCode = if (unknown) "PROVIDER_INVOCATION_FAILED" else code,
+                providerLimit = provider?.providerLimit,
                 failureDetails = JsonObject(
                     provider?.failureDetails.orEmpty() + buildJsonObject {
                         if (provider?.failureDetails?.get("failed_stage") == null) put("failed_stage", "claim_extraction")
@@ -125,7 +161,9 @@ internal object GitHubClaimExtraction {
                     }
                 )
             )
-            throw Failure(code, original)
+            attempt.awaitingTerminal = false
+            attempt.terminalFailure = original
+            throw interrupted(original, code = code)
         }
 
         val terminalFailure = failure
@@ -216,6 +254,17 @@ internal object GitHubClaimExtraction {
             (failure.transportComplete || failure.failureDetails?.get("generation_completed") == JsonPrimitive(true)) &&
             failure.errorCode in setOf("OUTPUT_LIMIT", "COMPLETION_REPAIR_BUDGET_EXHAUSTED", "GITHUB_EXTRACTION_OUTPUT_LIMIT")
 
+    private fun rejectedLimit(failure: ProviderEvent.Failed): ProviderLimitDecision? = failure.providerLimit?.takeIf { limit ->
+        limit.knownNotAccepted &&
+            !outcomeUnknown(failure) &&
+            failure.errorCode?.uppercase(java.util.Locale.ROOT).let { it == null || it in setOf("429", "RATE_LIMIT", "RATE_LIMIT_EXCEEDED", "PROVIDER_RATE_LIMITED", "LOCAL_COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_EXHAUSTED") } &&
+            failure.failureDetails?.get("remote_acceptance") !in setOf(JsonPrimitive("YES"), JsonPrimitive("ACCEPTED")) &&
+            failure.failureDetails?.get("generation_completed") != JsonPrimitive(true) &&
+            failure.failureDetails?.get("job_id") == null &&
+            listOf("retryable", "request_replay_allowed", "logical_continuation_allowed", "automatic_retry_allowed").none { failure.failureDetails?.get(it) == JsonPrimitive(false) } &&
+            (limit.httpStatus == 429 || failure.errorCode == "429" || limit.category in setOf("RATE_LIMIT", "PROVIDER_RATE_LIMITED", "LOCAL_COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_EXHAUSTED"))
+    }
+
     private fun outcomeUnknown(failure: ProviderEvent.Failed?): Boolean = failure != null &&
         (
             failure.failureDetails?.get("requires_reconciliation") == JsonPrimitive(true) ||
@@ -224,4 +273,5 @@ internal object GitHubClaimExtraction {
             )
 
     private const val MAX_OUTPUT_CHARACTERS = 32_768
+    private const val MAX_REJECTION_WAIT_MS = 10_000L
 }

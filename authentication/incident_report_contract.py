@@ -7,6 +7,7 @@ replay authority. Earlier approved context versions remain unchanged.
 from __future__ import annotations
 
 import re
+from . import repository_operation_report_contract as repository_operations
 
 
 ACTIONS = {
@@ -754,7 +755,7 @@ EXECUTION_COMPLETION_ENUMS = {
         'AUTHORITY_CHANGED', 'PROFILE_UNAVAILABLE', 'INPUT_UNAVAILABLE', 'TASK_SOURCE_UNAVAILABLE', 'TASK_SOURCE_INVALID',
         'DEADLINE_EXPIRED', 'PERSISTENCE_REJECTED', 'PERSISTENCE_FAILED', 'PERSISTENCE_OUTCOME_UNKNOWN',
         'WAIT_STORE_UNAVAILABLE', 'MESSAGE_CHECKPOINT_FAILED', 'WAIT_PREPARATION_FAILED',
-    },
+    } | repository_operations.PROVIDER_WAIT_NO_WAIT_REASONS,
 }
 RECONCILIATION_IDENTITY_FIELDS = {'reconciliation_identity_state', 'reconciliation_tracked_operation_count', 'reconciliation_original_call_hash', 'reconciliation_original_tool_hash', 'reconciliation_original_arguments_hash', 'reconciliation_original_code', 'reconciliation_original_dispatched'}
 EXECUTION_COMPLETION_FIELDS = EXECUTION_COMPLETION_HASHES | EXECUTION_COMPLETION_COUNTS | set(EXECUTION_COMPLETION_ENUMS) | RECONCILIATION_IDENTITY_FIELDS | {'provider_semantic_status', 'no_output_repair_scheduled', 'provider_wait_state', 'provider_wait_persisted', 'ownership_fence'}

@@ -80,6 +80,62 @@ class GitHubChecklistScheduleTest {
         }
     }
 
+    @Test fun budgetExcludedSchemaGetsOneExactActionRetryAndThenExecutes() {
+        val actionDiscovery = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}},"action":{"type":"string"}},"additionalProperties":false}"""))
+        val receipts = linkedMapOf("batch" to json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_ci","github_context"]},"result":{"schema_budget_excluded":["github_context"]}}"""))
+        val retry = select(advertised = listOf(actionDiscovery), receipts = receipts)
+        assertEquals(json("""{"names":["github_context"],"action":"repository"}"""), retry.next?.arguments)
+        assertEquals(JsonPrimitive("SCHEMA_BUDGET_RECOVERY_REQUIRED"), retry.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+        receipts["scoped"] = json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":${retry.next!!.arguments},"result":{"schema_budget_excluded":[]}}""")
+        assertEquals(call(), select(advertised = listOf(actionDiscovery, context), receipts = receipts).next)
+        assertNull(select(advertised = listOf(actionDiscovery), receipts = receipts).next)
+    }
+
+    @Test fun repeatedBudgetExclusionExhaustsItsRecoveryWithoutLooping() {
+        val receipts = linkedMapOf("batch" to json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_ci","github_context"]},"result":{"schema_budget_excluded":["github_context"]}}"""))
+        val retry = requireNotNull(select(receipts = receipts).next)
+        assertEquals(json("""{"names":["github_context"]}"""), retry.arguments)
+        receipts["scoped"] = json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":${retry.arguments},"result":{"schema_budget_excluded":["github_context"]}}""")
+        val exhausted = select(receipts = receipts)
+        assertNull(exhausted.next)
+        assertEquals(JsonPrimitive("SCHEMA_BUDGET_RECOVERY_EXHAUSTED"), exhausted.snapshot.getValue("candidates").jsonArray.single().jsonObject["admission"])
+        assertNull(select(receipts = receipts, acquire = false).next)
+    }
+
+    @Test fun anotherProjectedActionCanAcquireItsOwnSchemaOnlyOnce() {
+        val actionDiscovery = discovery.copy(inputSchema = json("""{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}},"action":{"type":"string"}},"additionalProperties":false}"""))
+        val receipts = linkedMapOf("resolve" to json("""{"trusted":true,"success":true,"tool":"discover_available_tools","arguments":{"names":["github_context"],"action":"resolve"},"result":{}}"""))
+        val retry = select(advertised = listOf(actionDiscovery), receipts = receipts)
+        assertEquals(json("""{"names":["github_context"],"action":"repository"}"""), retry.next?.arguments)
+        receipts["repository"] = json("""{"trusted":true,"success":false,"tool":"discover_available_tools","arguments":${retry.next!!.arguments},"error_code":"TOOL_NOT_AUTHORIZED"}""")
+        assertNull(select(advertised = listOf(actionDiscovery), receipts = receipts).next)
+    }
+
+    @Test fun authorizedAdvertisedFacadeIsPreferredOnlyWithinTheSelectedConnection() {
+        val full = GitHubOperationTool.definition("github_context", "github_context__github_api")
+        val inspect = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__github_api")
+        val other = inspect.copy(name = "github_context_inspect__other")
+        val request = call(full.name)
+        val tools = listOf(discovery, full, inspect, other)
+        val admitted = select(listOf(request), listOf(discovery, other, inspect), tools)
+        assertEquals(inspect.name, admitted.next?.name)
+        assertEquals(request.arguments, admitted.next?.arguments)
+        assertEquals(inspect.name, select(listOf(request), listOf(inspect), tools, planned = request, acquire = false).next?.name)
+        assertEquals(discovery.name, select(listOf(request), listOf(discovery, other), tools).next?.name)
+        assertEquals(discovery.name, select(listOf(request), listOf(discovery, inspect), listOf(discovery, full)).next?.name)
+        assertNull(select(listOf(request), listOf(inspect), listOf(inspect)).next)
+    }
+
+    @Test fun completedFacadeReadDoesNotReappearAsAFullToolCandidate() {
+        val full = GitHubOperationTool.definition("github_context", "github_context__github_api")
+        val inspect = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__github_api")
+        val receipt = json("""{"trusted":true,"success":true,"tool":"${inspect.name}","arguments":{"action":"repository"},"result":{}}""")
+        val remaining = GitHubSelfTestReads.available(listOf(full, inspect), listOf(receipt))
+        assertFalse(remaining.any { it.arguments["action"] == JsonPrimitive("repository") })
+        val otherConnection = JsonObject(receipt + ("tool" to JsonPrimitive("github_context_inspect__other")))
+        assertTrue(GitHubSelfTestReads.available(listOf(full, inspect), listOf(otherConnection)).any { it.arguments["action"] == JsonPrimitive("repository") })
+    }
+
     @Test fun unavailableDiscoveryAndInvalidActionContractsNeverDispatchOrVanish() {
         val absent = select(advertised = emptyList())
         assertNull(absent.next)

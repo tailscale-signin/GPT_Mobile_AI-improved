@@ -5,7 +5,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /** One synthesis worker owns this model and closes it after its final phrase. */
 public final class TimedKokoro implements AutoCloseable {
     public static final int SAMPLE_RATE = 24000;
-    public static final String RUNTIME_ID = "ort1.28.2-qnn2.7-qairt2.51-convex2-profile2";
+    public static final String RUNTIME_ID = "ort1.28.2-qnn2.7-qairt2.51-convex2-profile3-progress1";
     public static final int MAX_INPUT_BYTES = 128;
     static { System.loadLibrary("timed_kokoro"); }
 
@@ -60,9 +60,13 @@ public final class TimedKokoro implements AutoCloseable {
         public final int cachedShapeCount, cacheLimit;
         public final double audioRms, audioPeak;
         public final String discoverySummary;
+        /** Current-call phase costs; null when reading the historical v2 snapshot. */
+        public final Long frontendMs, validationMs, profileFinalizeMs;
+        public final Integer cacheEvictions;
 
         private Evidence(long[] data, String discoverySummary) {
-            if (data == null || data.length != 25 || data[0] != 2) throw new IllegalStateException("Invalid speech execution evidence");
+            if (data == null || !((data.length == 25 && data[0] == 2) || (data.length == 29 && data[0] == 3)))
+                throw new IllegalStateException("Invalid speech execution evidence");
             acceleratorKernels = (int) data[1];
             cpuKernels = (int) data[2];
             acceleratorMicros = data[3];
@@ -88,6 +92,29 @@ public final class TimedKokoro implements AutoCloseable {
             profileReused = data[23] == 1;
             graphPreparedThisCall = data[24] == 1;
             this.discoverySummary = discoverySummary;
+            frontendMs = data.length == 29 ? data[25] : null;
+            validationMs = data.length == 29 ? data[26] : null;
+            cacheEvictions = data.length == 29 ? (int) data[27] : null;
+            profileFinalizeMs = data.length == 29 ? data[28] : null;
+        }
+    }
+
+    /** Atomic current-attempt progress; contains no text, paths or mutable session evidence. */
+    public static final class Progress {
+        public final String stage;
+        public final long attemptId, stageSequence, stageElapsedMs, attemptElapsedMs;
+        public final boolean cancellationRequested, active;
+
+        private Progress(long[] data) {
+            if (data.length != 8 || data[0] != 1 || data[2] < 0 || data[2] > 4)
+                throw new IllegalStateException("Invalid speech execution progress");
+            stage = new String[] {"frontend", "preparing", "synthesis", "validating", "ready"}[(int) data[2]];
+            attemptId = data[1];
+            stageSequence = data[3];
+            stageElapsedMs = data[4];
+            attemptElapsedMs = data[5];
+            cancellationRequested = data[6] == 1;
+            active = data[7] == 1;
         }
     }
 
@@ -125,8 +152,20 @@ public final class TimedKokoro implements AutoCloseable {
         } finally { lifetime.readLock().unlock(); }
     }
 
+    /** Never blocks the watchdog behind close; the native read only accesses atomics. */
+    public Progress progress() {
+        if (!lifetime.readLock().tryLock()) return null;
+        try {
+            if (handle == 0) return null;
+            long[] snapshot = executionProgress(handle);
+            return snapshot == null ? null : new Progress(snapshot);
+        } finally { lifetime.readLock().unlock(); }
+    }
+
     public void cancel() {
-        lifetime.readLock().lock();
+        // A waiting close writer must not prevent cancellation of the reader
+        // it is waiting for. If close already owns the handle, it is retiring.
+        if (!lifetime.readLock().tryLock()) return;
         try { if (handle != 0) cancelGeneration(handle); }
         finally { lifetime.readLock().unlock(); }
     }
@@ -151,6 +190,7 @@ public final class TimedKokoro implements AutoCloseable {
             String provider, String libraryDirectory, String profilePrefix);
     private static native int executedAcceleratorNodes(long handle);
     private static native long[] executionEvidence(long handle);
+    private static native long[] executionProgress(long handle);
     private static native String executionDiscovery(long handle);
     private static native Audio generatePhrase(long handle, String phrase, int speaker, float speed);
     private static native void cancelGeneration(long handle);

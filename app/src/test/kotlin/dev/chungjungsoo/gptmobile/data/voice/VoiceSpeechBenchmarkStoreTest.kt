@@ -58,10 +58,63 @@ class VoiceSpeechBenchmarkStoreTest {
         file.writeText("not a report")
         val store = VoiceSpeechBenchmarkStore(directory)
         assertTrue(store.read().isEmpty())
-        file.writeBytes(ByteArray(2 * 1024 * 1024 + 1))
+        file.writeBytes(ByteArray(4 * 1024 * 1024 + 1))
         assertTrue(store.read().isEmpty())
         assertTrue(store.save(report(10)))
         assertEquals(10L, store.read().single().startedAtMillis)
+    }
+
+    @Test fun fullCurrentProtocolEvidenceAboveTwoMiBSurvivesWhileOlderRunsAreEvicted() {
+        // Exercise the allowed trace envelope, not a claim that this schedule occurred on hardware.
+        val config = report(1).configuration.copy(
+            mode = VoiceSpeechBenchmarkMode.FULL,
+            backends = VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS,
+            playback = true,
+            playbackScenarios = VoiceSpeechPlaybackScenario.entries
+        )
+        val rows = config.backends.flatMap { backend ->
+            VoiceSpeechPlaybackProtocol.plans(config).map { plan ->
+                val provider = VoiceSpeechBenchmarkBackendResult.provider(backend)
+                val phrases = plan.segments.flatMap { checkNotNull(KokoroSpeechText.timed(it) { true }.phrases) }
+                val chunks = phrases.mapIndexed { index, phrase ->
+                    VoiceSpeechPlaybackChunk(
+                        index, (index + 1L) * 100, 100, 1_000, phrase.speech.toByteArray().size,
+                        VoiceSpeechWorkload.digest(phrase.speech), provider, true, null, null, null
+                    )
+                }
+                VoiceSpeechPlaybackResult(
+                    backend, VoiceSpeechPlaybackState.COMPLETE, elapsedMs = 179_000,
+                    totalSynthesisMs = chunks.sumOf { it.generationMs }, totalAudioMs = chunks.sumOf { it.audioMs }, chunks = chunks.size, validatedChunks = chunks.size,
+                    protocolVersion = VoiceSpeechPlaybackProtocol.VERSION, scenario = plan.scenario, repeat = plan.repeat,
+                    warmup = plan.warmup, expectedResident = plan.expectedResident, fixtureHash = plan.manifest.hash,
+                    manifestWordsExpected = plan.manifest.spans.size, chunkRecords = chunks, cancellationTarget = plan.cancellationTarget,
+                    arrivalIntervalMs = plan.arrivalIntervalMs, cleanupState = "RETIRED",
+                    progress = List(128) { VoiceSpeechProgressObservation(VoiceSpeechStage.PREPARING, 10, it + 1L, 89_000, 119_999, false) },
+                    reserves = List(128) { VoiceSpeechReserveObservation("refill", 100, 5900, 5999, "producer_idle", it * 1_000L, it * 1_000L + 100) },
+                    calibrations = List(32) { VoiceSpeechCalibrationObservation("bluetooth", 0, it.toLong()) }
+                )
+            }
+        }
+        val large = VoiceSpeechBenchmarkReport(
+            1,
+            config,
+            VoiceSpeechBenchmarkRunState.COMPLETE,
+            results = config.backends.map { VoiceSpeechBenchmarkBackendResult(it, VoiceSpeechBenchmarkBackendState.COMPLETE) },
+            playbackResults = rows
+        )
+        val bytes = Json.encodeToString(JsonArray.serializer(), JsonArray(listOf(speechBenchmarkJson(large, local = true)))).toByteArray().size
+        assertTrue("The regression must exercise the previous capacity limit", bytes > 2 * 1024 * 1024)
+        assertTrue(bytes < 4 * 1024 * 1024)
+        val directory = temporary.newFolder()
+        val store = VoiceSpeechBenchmarkStore(directory)
+        assertTrue(store.save(large))
+        assertTrue(store.save(report(2)))
+        val newest = large.copy(startedAtMillis = 3)
+        assertTrue(store.save(newest))
+        val restored = VoiceSpeechBenchmarkStore(directory).read()
+        assertEquals(listOf(3L, 2L), restored.map { it.startedAtMillis })
+        assertEquals(newest, restored.first())
+        assertTrue(File(directory, "results-v1.json").length() <= 4 * 1024 * 1024)
     }
 
     @Test fun interruptedUtteranceKeepsItsCompletedChunksAndOriginalOrderPlan() {

@@ -22,6 +22,17 @@ class IssueReportingConfigurationTest(unittest.TestCase):
     def test_native_route_supports_builds_without_an_invented_service(self):
         self.assertEqual({"nativeGitHub": True, "reportingService": False}, validate("", "true"))
 
+    def test_repository_progress_reports_require_the_shared_service_vocabulary(self):
+        from authentication.repository_operation_report_contract import FEATURE
+        self.assertIn(FEATURE, REQUIRED_DIAGNOSTIC_FEATURES)
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {FEATURE})}
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: json.dumps(readiness).encode())
+        readiness["reportDiagnosticFeatures"].append(FEATURE)
+        check_readiness("https://reports.project.org", lambda _: json.dumps(readiness).encode())
+
     def test_native_only_probe_does_not_require_a_hosted_service(self):
         output = StringIO()
         with patch("sys.argv", ["check_issue_reporting_configuration.py", "--origin", "", "--github-enabled", "true", "--probe-service"]), \

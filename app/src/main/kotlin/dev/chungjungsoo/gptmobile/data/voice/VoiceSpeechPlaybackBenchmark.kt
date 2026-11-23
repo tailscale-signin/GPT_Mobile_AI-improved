@@ -11,26 +11,29 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.yield
 
-/** Exercises the actual speech planner, bounded PCM queue, AudioTrack and presented-audio caption clock. */
+/** Exercises production queueing with independently fixed inputs, including actual same-owner warm replies. */
 internal class VoiceSpeechPlaybackBenchmark(
     private val context: Context,
     private val models: LocalVoiceModelStore,
     private val configuration: VoiceSpeechBenchmarkConfiguration,
     private val thermalStatus: () -> Int?
 ) {
-    private data class Active(
-        val output: KokoroVoiceOutput,
-        val measurement: VoiceSpeechPlaybackMeasurement,
-        val completion: CompletableDeferred<VoiceSpeechPlaybackResult>
-    )
-
+    private data class Active(val output: KokoroVoiceOutput, val measurement: VoiceSpeechPlaybackMeasurement, val completion: CompletableDeferred<VoiceSpeechPlaybackResult>)
     private val cancelled = AtomicBoolean(false)
     private val active = AtomicReference<Active?>(null)
     private val main = Handler(Looper.getMainLooper())
+    private val retirements = mutableListOf<VoiceNativeRetirement>()
+    val pendingRetirements: List<VoiceNativeRetirement> get() = synchronized(retirements) { retirements.filter { it.state.value != VoiceNativeRetirementState.RETIRED } }
+
+    suspend fun awaitRetired() {
+        synchronized(retirements) { retirements.toList() }.forEach { it.awaitRetired() }
+    }
 
     fun cancel() {
         cancelled.set(true)
@@ -45,77 +48,170 @@ internal class VoiceSpeechPlaybackBenchmark(
         }
     }
 
-    suspend fun measure(backend: VoiceSpeechBackend): VoiceSpeechPlaybackResult = withContext(Dispatchers.Main.immediate) {
-        val measurement = VoiceSpeechPlaybackMeasurement(backend, thermalStatus())
-        val completion = CompletableDeferred<VoiceSpeechPlaybackResult>()
-        val native = QualcommVoicePhraseEngineFactory(context, backend, {}, voice = configuration.voice, speechRate = configuration.speechRate)
-        val strictFactory = object : VoicePhraseEngineFactory {
-            override val selectedBackend = backend
-            override val identity = "playback-benchmark-${native.identity}-${configuration.startedIdentity()}"
-            override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine = native.createBenchmarkEngine(directory, lexicon, threads)
-            override fun cancelPending() = native.cancelPending()
+    /** Compatibility entry point for a single fresh-session playback smoke test. */
+    suspend fun measure(backend: VoiceSpeechBackend): VoiceSpeechPlaybackResult = measureSeries(backend).first()
+
+    suspend fun measureSeries(backend: VoiceSpeechBackend, publish: (List<VoiceSpeechPlaybackResult>) -> Unit = {}): List<VoiceSpeechPlaybackResult> = withContext(Dispatchers.Main.immediate) {
+        check(pendingRetirements.isEmpty()) { "Previous native speech session is still retiring" }
+        val results = mutableListOf<VoiceSpeechPlaybackResult>()
+        suspend fun publishSnapshot(duringCleanup: Boolean = false) {
+            val snapshot = results.toList()
+            withContext(if (duringCleanup) NonCancellable + Dispatchers.IO else Dispatchers.IO) { publish(snapshot) }
         }
-        val output = KokoroVoiceOutput(
-            context,
-            models,
-            { AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build() },
-            { configuration.speechRate },
-            measurements = measurement
-        )
+        val plans = VoiceSpeechPlaybackProtocol.plans(configuration)
+        for ((scenario, selected) in plans.groupBy { it.scenario }) {
+            if (cancelled.get()) break
+            // A cold or cancellation sample gets a fresh engine. Other scenarios reuse the exact owner.
+            val sessions = if (scenario in setOf(VoiceSpeechPlaybackScenario.COLD_START, VoiceSpeechPlaybackScenario.CANCELLATION)) selected.map(::listOf) else listOf(selected)
+            for (session in sessions) {
+                if (cancelled.get() || pendingRetirements.isNotEmpty()) break
+                val relay = VoiceSpeechPlaybackMeasurementRelay()
+                val nativeOwner = AtomicReference<VoicePhraseEngine?>(null)
+                val native = QualcommVoicePhraseEngineFactory(context, backend, {}, voice = configuration.voice, speechRate = configuration.speechRate)
+                val strictFactory = object : VoicePhraseEngineFactory {
+                    override val selectedBackend = backend
+                    override val preparationTimeoutMs get() = native.preparationTimeoutMs
+                    override val identity = "playback-benchmark-${native.identity}-${configuration.startedIdentity()}"
+                    override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+                        val preparationMeasurement = relay.current
+                        preparationMeasurement?.preparationStarted()
+                        val created = try {
+                            native.createBenchmarkEngine(directory, lexicon, threads)
+                        } catch (failure: Throwable) {
+                            preparationMeasurement?.nativeFailure(failure, configuration.deviceKey)
+                            throw failure
+                        }
+                        nativeOwner.set(created)
+                        return object : VoicePhraseEngine by created {
+                            override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+                                val attemptMeasurement = relay.current
+                                attemptMeasurement?.attemptStarted(text)
+                                return try {
+                                    created.generate(text, speaker, speed)
+                                } catch (failure: Throwable) {
+                                    attemptMeasurement?.nativeFailure(failure, configuration.deviceKey)
+                                    throw failure
+                                }
+                            }
+                        }
+                    }
+                    override fun cancelPending() = native.cancelPending()
+                }
+                val output = KokoroVoiceOutput(
+                    context,
+                    models,
+                    { AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build() },
+                    { configuration.speechRate },
+                    measurements = relay
+                )
+                val startIndex = results.size
+                var retirement: VoiceNativeRetirement? = null
+                try {
+                    output.configureEngine(strictFactory)
+                    output.configureThreads(configuration.threads)
+                    output.configurePacing(VoicePauseDuration.NATURAL, VoicePerformanceMode.BALANCED)
+                    when (configuration.calibrationPolicy) {
+                        VoiceSpeechCalibrationPolicy.CONTROLLED_ZERO -> output.configureFixedCaptionOffset(0)
+                        VoiceSpeechCalibrationPolicy.CURRENT_SETTINGS -> output.configureSavedRouteCaptionOffset(configuration.captionOffsetMs)
+                    }
+                    for (plan in session) {
+                        if (cancelled.get()) break
+                        val result = measureSample(output, relay, backend, plan, onInterrupted = { interrupted ->
+                            results += interrupted
+                            publishSnapshot(duringCleanup = true)
+                        }) { nativeOwner.get()?.executionProgress }
+                        results += result
+                        publishSnapshot()
+                        if (result.state in setOf(VoiceSpeechPlaybackState.FAILED, VoiceSpeechPlaybackState.UNSUPPORTED) || result.state == VoiceSpeechPlaybackState.CANCELLED && plan.cancellationTarget == null) break
+                    }
+                } finally {
+                    relay.current = null
+                    withContext(NonCancellable + Dispatchers.Main.immediate) { output.close() }
+                    val closing = VoiceNativeRetirement(output::awaitClosed).also { synchronized(retirements) { retirements += it } }
+                    retirement = closing
+                    val cleanup = withContext(NonCancellable) { closing.awaitWithinBudget() }
+                    for (index in startIndex until results.size) results[index] = results[index].copy(cleanupState = cleanup.name)
+                    publishSnapshot(duringCleanup = true)
+                }
+                if (retirement?.state?.value != VoiceNativeRetirementState.RETIRED) return@withContext results.toList()
+                if (results.lastOrNull()?.state in setOf(VoiceSpeechPlaybackState.FAILED, VoiceSpeechPlaybackState.UNSUPPORTED)) return@withContext results.toList()
+            }
+        }
+        results.toList()
+    }
+
+    private suspend fun measureSample(output: KokoroVoiceOutput, relay: VoiceSpeechPlaybackMeasurementRelay, backend: VoiceSpeechBackend, plan: VoiceSpeechPlaybackPlan, onInterrupted: suspend (VoiceSpeechPlaybackResult) -> Unit, currentProgress: () -> VoiceSpeechProgress?): VoiceSpeechPlaybackResult = coroutineScope {
+        val measurement = VoiceSpeechPlaybackMeasurement(backend, thermalStatus(), plan = plan)
+        relay.current = measurement
+        output.bindTimedSpokenRange { segment, _, range, timing -> measurement.caption(timing, segment, range) }
+        val completion = CompletableDeferred<VoiceSpeechPlaybackResult>()
         val owned = Active(output, measurement, completion)
         check(active.compareAndSet(null, owned))
+        var targetJob: kotlinx.coroutines.Job? = null
+        var inputJob: kotlinx.coroutines.Job? = null
         try {
-            output.configureEngine(strictFactory)
-            output.configureThreads(configuration.threads)
-            output.configurePacing(VoicePauseDuration.NATURAL, VoicePerformanceMode.BALANCED)
-            output.configureCaptionOffset(0)
-            output.bindTimedSpokenRange { segment, _, range, timing -> measurement.caption(timing, segment, range) }
             if (cancelled.get()) {
                 measurement.cancelRequested()
-                completion.complete(measurement.result(VoiceSpeechPlaybackState.CANCELLED, thermalStatus()))
-            } else {
-                output.speakProjectedWithFailure(
-                    VoiceSpeechBenchmarkFixture.LONG.text,
-                    configuration.voice,
-                    complete = {
-                        val result = measurement.result(VoiceSpeechPlaybackState.COMPLETE, thermalStatus())
-                        val valid = result.firstPresentedAudioMs != null &&
-                            result.chunks > 0 &&
-                            result.validatedChunks == result.chunks &&
-                            result.totalAudioMs > 0 &&
-                            result.captionObservations > 0 &&
-                            result.captionClockRegressions == 0 &&
-                            result.captionTimingViolations == 0 &&
-                            result.captionWordsExpected > 0 &&
-                            result.captionWordsObserved == result.captionWordsExpected &&
-                            result.effectiveProvider == VoiceSpeechBenchmarkBackendResult.provider(backend) &&
-                            (backend == VoiceSpeechBackend.CPU || result.acceleratorExecutionObserved)
-                        completion.complete(if (valid) result else result.copy(state = VoiceSpeechPlaybackState.FAILED, failure = VoiceSpeechFailureCode.OUTPUT_INVALID))
-                    },
-                    error = { failure, _ ->
-                        val cause = generateSequence(failure.cause) { it.cause }.take(8).filterIsInstance<dev.melo.kokoro.TimedKokoro.Failure>().firstOrNull()
-                        val classified = speechBenchmarkFailure(cause ?: (failure.cause as? Exception) ?: IllegalStateException("EXECUTION_FAILED"))
-                        val state = if (classified.state == VoiceSpeechBenchmarkBackendState.UNSUPPORTED) VoiceSpeechPlaybackState.UNSUPPORTED else VoiceSpeechPlaybackState.FAILED
-                        completion.complete(measurement.result(state, thermalStatus(), classified.code, classified.stage))
-                    }
-                )
+                return@coroutineScope measurement.result(VoiceSpeechPlaybackState.CANCELLED, thermalStatus())
             }
-            withTimeoutOrNull(180_000L) { completion.await() } ?: run {
+            val reply = output.openReplyWithFailure(
+                configuration.voice,
+                complete = {
+                    val result = measurement.result(VoiceSpeechPlaybackState.COMPLETE, thermalStatus())
+                    val valid = result.executionVerified && result.captionManifestValid && result.firstPresentedAudioMs != null && result.totalAudioMs > 0
+                    completion.complete(if (valid || plan.cancellationTarget != null) result else result.copy(state = VoiceSpeechPlaybackState.FAILED, failure = VoiceSpeechFailureCode.OUTPUT_INVALID, pipelineFailureCode = "FIXTURE_VALIDATION_FAILED"))
+                },
+                error = { failure, _ ->
+                    val evidence = speechPlaybackFailureEvidence(failure.cause, backend, configuration.deviceKey)
+                    val state = if (evidence?.classification?.state == VoiceSpeechBenchmarkBackendState.UNSUPPORTED) VoiceSpeechPlaybackState.UNSUPPORTED else VoiceSpeechPlaybackState.FAILED
+                    completion.complete(measurement.result(state, thermalStatus(), evidence?.classification?.code ?: VoiceSpeechFailureCode.EXECUTION_FAILED, evidence?.classification?.stage, failure.code, evidence))
+                }
+            )
+            if (reply == null) {
+                completion.complete(measurement.result(VoiceSpeechPlaybackState.FAILED, thermalStatus(), VoiceSpeechFailureCode.EXECUTION_FAILED, pipelineFailureCode = "OUTPUT_UNAVAILABLE"))
+            } else {
+                inputJob = launch {
+                    plan.segments.forEachIndexed { index, segment ->
+                        if (index > 0 && plan.arrivalIntervalMs > 0) delay(plan.arrivalIntervalMs)
+                        if (completion.isCompleted) return@launch
+                        reply.enqueue(segment)
+                    }
+                    reply.finish()
+                }
+                plan.cancellationTarget?.let { target ->
+                    targetJob = launch {
+                        val reached = withTimeoutOrNull(VoiceSpeechPlaybackProtocol.MAX_CANCEL_TARGET_WAIT_MS) {
+                            while (!completion.isCompleted) {
+                                currentProgress()?.let(measurement::executionProgress)
+                                if (measurement.reached(target)) return@withTimeoutOrNull true
+                                delay(20)
+                            }
+                            false
+                        } == true
+                        if (!completion.isCompleted) {
+                            currentProgress()?.let(measurement::executionProgress)
+                            measurement.cancelRequested(reached && measurement.reached(target))
+                            output.stop("speech_benchmark_cancel_probe")
+                            completion.complete(measurement.result(VoiceSpeechPlaybackState.CANCELLED, thermalStatus()))
+                        }
+                    }
+                }
+            }
+            val deadline = if (plan.scenario == VoiceSpeechPlaybackScenario.SUSTAINED) 600_000L else 180_000L
+            withTimeoutOrNull(deadline) { completion.await() } ?: run {
                 measurement.cancelRequested()
-                output.stop("speech_benchmark_timeout")
-                measurement.result(VoiceSpeechPlaybackState.FAILED, thermalStatus(), VoiceSpeechFailureCode.EXECUTION_FAILED)
+                output.stop("speech_benchmark_deadline")
+                measurement.result(VoiceSpeechPlaybackState.FAILED, thermalStatus(), VoiceSpeechFailureCode.EXECUTION_FAILED, pipelineFailureCode = "BENCHMARK_DEADLINE")
+                    .copy(timeoutLimitMs = deadline, timeoutElapsedMs = deadline, timeoutScope = "BENCHMARK_SAMPLE")
             }
         } catch (cancelled: CancellationException) {
             measurement.cancelRequested()
             output.stop("speech_benchmark_cancelled")
+            onInterrupted(measurement.result(VoiceSpeechPlaybackState.CANCELLED, thermalStatus()))
             throw cancelled
         } finally {
-            withContext(NonCancellable + Dispatchers.Main.immediate) { output.close() }
-            // Closing schedules native cleanup behind the synthesis owner. Do not release
-            // benchmark ownership while that old worker can still hold a model or audio.
-            withContext(NonCancellable + Dispatchers.IO) {
-                while (!output.awaitClosed(250)) yield()
-            }
+            targetJob?.cancel()
+            inputJob?.cancel()
             active.compareAndSet(owned, null)
         }
     }

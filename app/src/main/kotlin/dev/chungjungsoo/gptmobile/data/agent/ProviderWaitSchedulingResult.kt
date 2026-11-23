@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -14,6 +15,7 @@ internal data class ProviderWaitSchedulingResult private constructor(
 ) {
     enum class NoWaitReason {
         DECISION_UNAVAILABLE,
+        CLAIM_EXTRACTION_CHECKPOINT_REQUIRED,
         REJECTION_NOT_REPLAY_SAFE,
         RETRY_LIMIT_REACHED,
         CONNECTIVITY_RESUME_UNSAFE,
@@ -83,6 +85,16 @@ internal data class ProviderWaitSchedulingResult private constructor(
         val decisionStates = setOf("ELIGIBLE", "INELIGIBLE", "ROUTE_MISMATCH", "DURABLE_WAIT", "NOT_SCHEDULED", "PERSISTENCE_UNCERTAIN")
         val schedulerStates = setOf("ENQUEUED", "PENDING_RECONCILIATION", "NOT_SCHEDULED")
         val noWaitReasons = NoWaitReason.entries.mapTo(linkedSetOf()) { it.name }
+
+        /** Only the owning verification stage can declare its separate resume checkpoint. */
+        fun claimExtractionCheckpoint(details: JsonObject?): Boolean = details != null &&
+            details["failed_stage"] == JsonPrimitive("claim_extraction") &&
+            details["review_stage"] == JsonPrimitive("claim_extraction") &&
+            details["recovery_action"] == JsonPrimitive("RESUME_UNFINISHED_EXTRACTION_BATCHES_AFTER_RETRY_AT") &&
+            details["provider_wait_no_wait_reason"] == JsonPrimitive(NoWaitReason.CLAIM_EXTRACTION_CHECKPOINT_REQUIRED.name) &&
+            details["provider_wait_decision_state"] == JsonPrimitive("NOT_SCHEDULED") &&
+            details["provider_wait_scheduler_state"] == JsonPrimitive("NOT_SCHEDULED") &&
+            details["provider_wait_persisted"] == JsonPrimitive(false)
 
         fun refused(reason: NoWaitReason, failure: Exception? = null) = ProviderWaitSchedulingResult(false, "NOT_SCHEDULED", reason, failure)
         fun durable(enqueued: Boolean) = ProviderWaitSchedulingResult(true, if (enqueued) "ENQUEUED" else "PENDING_RECONCILIATION")

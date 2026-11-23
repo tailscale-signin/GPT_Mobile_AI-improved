@@ -1,0 +1,21 @@
+{
+  "actual_2MiB_legitimate_completed_run_overflow_proven": false,
+  "canonical_full_rows": 72,
+  "canonical_max_chunks_per_sample": 24,
+  "completed_chunk_records": 294,
+  "existing_store_cap": 2097152,
+  "independent_trace_cap_envelope_bytes": 2897883,
+  "parser_max_chunks_per_sample": 128,
+  "parser_max_rows": 96,
+  "recommended_bounded_cap": 4194304,
+  "scope": "serialization capacity envelope using actual protocol/export/parser and canonical BALANCED production planner with pinned real lexicon; synthetic timing/event values are independent per-field sizing cases, not a hardware run or proof all maxima can coincide",
+  "slow_progress_chunk_reserves_bytes": 1830834,
+  "source_and_artifact_sha256": {
+    "local-validation/native-validation/storage-probe/StorageProbe.kt": "7d7c2c985ec6c574e848e4b88d9fbb2bd70d93581245a61d394e4f952f6984b3",
+    "local-validation/native-validation/storage-probe/benchmark-tests.jar": "d3d162d1a001ef88ee1cbcacb59a474bd71b4f2e74d36753ce0ca5c014f35c13",
+    "local-validation/native-validation/storage-probe/bounded_trace_upper.json": "d9f66f5194c75697da5404ee9096cbb4017d3a1478935bf46f18559692352e7c",
+    "local-validation/native-validation/storage-probe/probe.jar": "433626491dfb52a2866c7d0c5873efb4047926d06a54ff4c94dee87e1f535123",
+    "local-validation/native-validation/storage-probe/probe.log": "adca62e485a410bf685ebcd9d63f692507138b94765f2a486ece5eac2de73c04",
+    "local-validation/native-validation/storage-probe/slow_progress_real_chunks.json": "a7ec55edf210bb47b17fc33f467c9c66d6a4da8f1b9cb983e2b5812276180648"
+  }
+}

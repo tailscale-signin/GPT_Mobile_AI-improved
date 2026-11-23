@@ -25,6 +25,7 @@ internal class VoiceFailoverPhraseEngine(
     private var canFallback = allowFallback
     override val executionProvider: String get() = active.executionProvider
     override val executionEvidence: VoiceSpeechExecutionEvidence? get() = active.executionEvidence
+    override val executionProgress: VoiceSpeechProgress? get() = if (closed) null else active.executionProgress
 
     override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
         checkActive()

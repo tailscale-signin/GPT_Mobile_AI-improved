@@ -1,0 +1,28 @@
+{
+  "boundaries": [
+    "Native value data contracts extracted verbatim from peer worktree; full JNI and provider sources not exercised.",
+    "Speech chunks extracted verbatim from VoiceSession to omit unrelated Android orchestration."
+  ],
+  "changed_during_validation": [],
+  "exit_code": 0,
+  "passed_tests": 53,
+  "scope": "Focused production helper and buffer behavior with explicit extracted contract boundaries.",
+  "sources": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt": "a3d325aed2be7802e298ace6359fccc89e1470403bedf4ac46a072cb4ab08f91",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt": "e45e77b074d856a9e0b238c3d0eac66cafce69c86caf2d2b0bee54c8d22553c5",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/ReasoningTagScanner.kt": "c4e398159fbe183935089dc7b82ac3ded7db1c71c72cd9a92147f94de47f8c12",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackClock.kt": "b7482ab8c96f5423f61eec663c360dd8c7ac8e74a3a4b4ee2fe5ebcfeaf7c660",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackControl.kt": "17026a8f15cd71342a6f3d24bdb01704080c7c8dcda7850c5fc732de7cf4530f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt": "cfec58c3a8ee28420a42916264253d40c85469a88bd764e866d22767d1536891",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": "cf00a24658d8f86185ac29a003d0d80ad8652323357000f9218e171dc6d9779e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt": "4f73d30005ed949193a5280fa7e1806afc92fc39b49ffa5da9a5149cdc27c9b8",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt": "92b0959d0cb0df19a94f6915476864079a4da77995fa69e9eab6c63471d83a29",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt": "0d24bf0004cf5fe60954818f34ac31e67786e8b1941576b10ff2322f4564d2d5",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatchesTest.kt": "5308679cd508d52842590852eafd7754093084761167809af686797e2b1cb23c",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackControlTest.kt": "0815bfc06c14f74fcf4cd52ee919e1cd98dba142f235b59a0113331d806951ba",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBufferTest.kt": "0d23c6534bc68dc7a91f24ee449905b0519c0aa0bb58d386ee3b1c4476ae2d62",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt": "6a85fe5db2662f43b7fba31b039285bfa945a036db2fa6af0c29f9923bf2dd24",
+    "local-validation/playback-validation/NativeValueContracts.kt": "3b5e75e329a17f6c322842442be972c48c360a24d8d1ede0a4103e1d68c003a2",
+    "local-validation/playback-validation/SpeechChunks.kt": "c8f85e7a74efc9ee064d233aeea3cb4a1f383e86c98d1a2df935c63055510578"
+  }
+}

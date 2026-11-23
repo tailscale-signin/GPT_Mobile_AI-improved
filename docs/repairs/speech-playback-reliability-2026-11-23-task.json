@@ -8,7 +8,7 @@
   "working_branch": "fix/github-evidence-progress-2026-11-23",
   "pr_number": 2363,
   "intent": "Implement every speech-benchmark review repair, integrate concurrent GitHub repairs, and complete verified publication.",
-  "state": "IMPLEMENTING",
+  "state": "IMPLEMENTED_AWAITING_EXACT_COMBINED_HEAD_QUALIFICATION",
   "source_capture": {
     "file": "speech-benchmark-1795428543371.json",
     "source_commit": "18b53c98ea2018fcd23cac933a0cbf10069cd2ae",
@@ -24,79 +24,117 @@
     {
       "id": "S01",
       "requirement": "Preserve outer playback and typed native failure reasons, stages and elapsed attempts",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "VoiceSpeechFailureEvidenceTest",
+        "VoiceSpeechPlaybackProtocolTest"
+      ]
     },
     {
       "id": "S02",
       "requirement": "Expose safe live native progress and use bounded phase-aware deadlines",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "kokoro_progress_test.cpp",
+        "KokoroNativeIntegration.java",
+        "VoicePlaybackControlTest"
+      ]
     },
     {
       "id": "S03",
       "requirement": "Retain per-chunk preparation, inference, cache and hybrid execution evidence",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "KokoroNativeProfileLifecycleIntegration.java",
+        "VoiceSpeechPlaybackProtocolTest"
+      ]
     },
     {
       "id": "S04",
       "requirement": "Measure queue, reserve, first write/play and presentation; separate startup/refill policy",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "VoicePlaybackControlTest",
+        "KokoroPlaybackObservationTest",
+        "KokoroPcmBatchesTest"
+      ]
     },
     {
       "id": "S05",
       "requirement": "Use mode-correct benchmark exports and preserve history without false zero measurements",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "VoiceSpeechBenchmarkTest",
+        "VoiceSpeechPlaybackProtocolTest",
+        "VoiceSpeechBenchmarkStoreTest"
+      ]
     },
     {
       "id": "S06",
       "requirement": "Freeze or disclose effective route calibration and execution settings",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "KokoroPlaybackObservationTest",
+        "VoicePlaybackControlTest"
+      ]
     },
     {
       "id": "S07",
       "requirement": "Separate execution completion, backend verification and playback quality",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "VoiceSpeechPlaybackProtocolTest"
+      ]
     },
     {
       "id": "S08",
       "requirement": "Implement cold, resident warm, streaming, changing-shape, sustained and cancellation workloads",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "VoiceSpeechPlaybackProtocolTest",
+        "KokoroPlaybackObservationTest"
+      ]
     },
     {
       "id": "S09",
       "requirement": "Validate captions against independent fixture coverage; disclose acoustic/visual/energy availability",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "VoiceSpeechPlaybackProtocolTest",
+        "VoiceSpeechBenchmarkExport.kt"
+      ]
     },
     {
       "id": "S10",
       "requirement": "Bound foreground cleanup while quarantining active native ownership until retirement",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "VoiceNativeRetirementTest",
+        "VoiceSpeechBenchmarkViewModel.kt",
+        "VoiceSpeechPlaybackBenchmark.kt"
+      ]
     },
     {
       "id": "S11",
       "requirement": "Preserve concurrent GitHub repair scope and verify current issue-family recovery",
-      "status": "IN_PROGRESS",
-      "evidence": []
+      "status": "IMPLEMENTED_PENDING_CANONICAL_CI",
+      "evidence": [
+        "GitHubReviewProgressTest",
+        "PhoneRepositoryGraphSessionTest",
+        "docs/repairs/github-evidence-progress-2026-11-23-task.json",
+        "IssueReportSubmissionTest"
+      ]
     },
     {
       "id": "S12",
       "requirement": "Run meaningful behavioral/native regressions, canonical checks and current-head hosted gates",
-      "status": "IN_PROGRESS",
+      "status": "PENDING_COMBINED_HEAD_CI",
       "evidence": []
     },
     {
       "id": "S13",
       "requirement": "Merge expected shared head, qualify exact main and verify signed publication",
-      "status": "IN_PROGRESS",
+      "status": "PENDING_MERGE_AND_PUBLICATION",
       "evidence": []
     }
   ],
@@ -107,8 +145,99 @@
     "Merge/publication remain held until this speech task and the concurrent github-evidence-progress task are implemented and all applicable exact-head gates pass."
   ],
   "validation": {
-    "local": [],
+    "local": [
+      {
+        "suite": "native CPU/JNI and atomic progress",
+        "ctest_passed": 6,
+        "stress_attempts": 1250000,
+        "real_model_jni_exit": 0,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-cpu.json"
+      },
+      {
+        "suite": "native QNN host lifecycle",
+        "passed": 3,
+        "physical_device_qualified": false,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-qnn.json"
+      },
+      {
+        "suite": "native focused Kotlin",
+        "passed": 17,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-kotlin.json"
+      },
+      {
+        "suite": "playback helper and buffer behavior",
+        "passed": 53,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/playback-pure.json"
+      },
+      {
+        "suite": "actual output workers with deterministic AudioTrack",
+        "passed": 3,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/playback-output.json"
+      },
+      {
+        "suite": "benchmark protocol/export/parser/runner/planner",
+        "passed": 67,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/benchmark-behavior.json"
+      },
+      {
+        "suite": "Robolectric benchmark history store",
+        "passed": 6,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/benchmark-api-and-store.json"
+      },
+      {
+        "suite": "native retirement ownership",
+        "passed": 4,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/retirement.json"
+      },
+      {
+        "suite": "GitHub frontier/index/session follow-up",
+        "passed": 24,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/github-frontier.json"
+      },
+      {
+        "suite": "GitHub changed-source/planner follow-up",
+        "passed": 40,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/github-source-windows.json"
+      },
+      {
+        "suite": "legacy report capability compatibility",
+        "passed": 10,
+        "receipt": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/report-compatibility.json"
+      },
+      {
+        "suite": "canonical fast validation and all changed Kotlin formatting",
+        "command": "bash scripts/validate-local.sh fast; python scripts/check_changed_kotlin.py --base 8abda66c9040d2c679cee8fe84452d67125a3fd7 --ktlint verified-1.3.1",
+        "status": "PASS",
+        "fast_log_sha256": "37a068289fa095ec6aff516a34d0edf21392f2d799f4e0c0b0176131cf34f796",
+        "qualification": "Combined implementation source; full hosted Android/Compose compilation and exact-main publication gates remain pending."
+      }
+    ],
     "hosted": [],
-    "publication": []
+    "publication": [],
+    "local_production_build": {
+      "status": "NOT_STARTED_RESOURCE_PREFLIGHT_REFUSED",
+      "required_headroom_mib": 8960,
+      "observed_available_bytes": 3881668608,
+      "cgroup_status": "UNKNOWN",
+      "qualification": "Full production Android compilation remains required in hosted CI; fixed memory gates are unchanged."
+    }
+  },
+  "release_target": {
+    "android": "0.9.66.14",
+    "version_code": 148,
+    "gateway": "18.1.2"
+  },
+  "integration": {
+    "remote_parent_observed": "c86f987714329ce6eff4f11aea68af259bfd52f8",
+    "github_workstream_snapshot_files": 100,
+    "github_workstream_snapshot_matches_current_owner_files": true,
+    "incoming_commits_must_be_reconciled_before_publication": true
+  },
+  "independent_review": {
+    "native_lifetime_and_atomic_progress": "Resolved writer-fence ordering follow-up; final CPU/JNI and stress receipts retained.",
+    "benchmark_qualification": "Canonical warm metadata and fresh cancellation-phase observations bound to actual execution.",
+    "repository_recovery": "Future index frontier and partial header-read suppression repaired.",
+    "diagnostic_compatibility": "Legacy READ_DEADLINE remains compatible; expanded fields still negotiate their capability.",
+    "storage_capacity": "4 MiB bounded history covers the tested canonical trace envelope; it is sizing evidence, not a physical performance result."
   }
 }

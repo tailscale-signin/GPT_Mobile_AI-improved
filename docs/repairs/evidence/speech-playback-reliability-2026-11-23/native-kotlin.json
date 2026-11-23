@@ -1,0 +1,20 @@
+{
+  "exit": 0,
+  "passed_tests": 17,
+  "scope": "selected_actual_Kotlin_sources_real_TimedKokoro_Java_API_unexercised_workload_and_pack_boundaries",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailoverPhraseEngine.kt": "8173212608f3bf758e3efc3ccdd9cf8fe2a040dba83f2b7a665c4b9ed410a337",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt": "00db16145cf44251105bb82a7f881ca72ed29abcc48a4ab69c1bfadf1c0a04b1",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt": "cf00a24658d8f86185ac29a003d0d80ad8652323357000f9218e171dc6d9779e",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt": "198f0cc7e7ea78dc009ee401b440500c498f7cb55e9f6cf2248cbf5d0187da18",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailoverPhraseEngineTest.kt": "989584a7efc888879167e931b15f59aa351ff510cfad14d610b717973e4a68c6",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt": "440ec30bc23d3dfeb4f35b456b2f6b6bdaa665e48848d8e74f054bac75a86a76",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPreparationFailureTest.kt": "98222d703d54e0b2b46f55d7c8f527bd45ec7c81032183bcb228483a370f4ef1"
+  },
+  "support_sha256": "6f89e192ee825466a03777f22b2d03cc762c26c2397fccfb078179798bf842d8",
+  "tests": [
+    "VoiceFailoverPhraseEngineTest",
+    "VoiceSpeechFailureEvidenceTest",
+    "VoiceSpeechPreparationFailureTest"
+  ]
+}

@@ -27,7 +27,7 @@ internal class QualcommVoicePhraseEngineFactory(
     override val selectedBackend: VoiceSpeechBackend get() = backend
 
     // Recheck visits fourteen production chunks per backend, including changed-shape graph compilation.
-    // Its explicit six-minute bound preserves complete measurements while ordinary speech stays at thirty seconds.
+    // Its explicit six-minute bound preserves complete measurements; normal model open keeps its separate thirty-second limit.
     override val preparationTimeoutMs: Long get() = if (backend == VoiceSpeechBackend.AUTO && calibrateAll) 360_000 else 30_000
     private val pending = AtomicReference<TimedKokoro?>(null)
     private val generation = AtomicLong()
@@ -55,6 +55,7 @@ internal class QualcommVoicePhraseEngineFactory(
             return object : VoicePhraseEngine {
                 override val executionProvider: String get() = provider(backend)
                 override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed
+                override val executionProgress: VoiceSpeechProgress? get() = native.speechProgress()
                 override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
                     val audio = try {
                         native.generate(text, speaker, speed)
@@ -96,7 +97,7 @@ internal class QualcommVoicePhraseEngineFactory(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    if (inputFailure(error)) throw error
+                    if (inputOrSetupFailure(error)) throw error
                     reject(candidate, lexicon, threads, classify(error), error)
                 } catch (_: LinkageError) {
                     reject(candidate, lexicon, threads, VoiceSpeechFailureCode.PROVIDER_LOAD)
@@ -134,7 +135,7 @@ internal class QualcommVoicePhraseEngineFactory(
         } catch (error: Exception) {
             runCatching { engine?.close() }
             checkTicket(ticket)
-            if (selected == VoiceSpeechBackend.CPU || inputFailure(error)) throw error
+            if (selected == VoiceSpeechBackend.CPU || inputOrSetupFailure(error)) throw error
             failure = classify(error)
             failed = reject(selected, lexicon, threads, failure, error)
             selected = VoiceSpeechBackend.CPU
@@ -177,6 +178,7 @@ internal class QualcommVoicePhraseEngineFactory(
         fun wrap(native: TimedKokoro, selected: VoiceSpeechBackend): VoicePhraseEngine = object : VoicePhraseEngine {
             override val executionProvider: String get() = provider(selected)
             override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed
+            override val executionProgress: VoiceSpeechProgress? get() = native.speechProgress()
             override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
                 val audio = try {
                     native.generate(text, speaker, speed)
@@ -214,7 +216,7 @@ internal class QualcommVoicePhraseEngineFactory(
             override fun cancel() = native.cancel()
             override fun close() = native.close()
         }
-        return VoiceFailoverPhraseEngine(wrap(initial, initialBackend), initialBackend != VoiceSpeechBackend.CPU, canRecover = { !inputFailure(it) }) { error ->
+        return VoiceFailoverPhraseEngine(wrap(initial, initialBackend), initialBackend != VoiceSpeechBackend.CPU, canRecover = { !inputOrSetupFailure(it) }) { error ->
             failure = reject(initialBackend, lexicon, threads, classify(error), error)
             observed = failureEvidence(checkNotNull(failure))
             val cpu = VoiceNativeEngineGate.exclusive { openCpu(directory, lexicon, threads, failure, error) }
@@ -341,7 +343,11 @@ internal class QualcommVoicePhraseEngineFactory(
         failedInputBytes = failure?.inputBytes,
         failedInputByteLimit = failure?.inputByteLimit,
         failedTokenLimit = failure?.tokenLimit,
-        failedDiscoverySummary = safeSpeechDiscoverySummary(failure?.discoverySummary)
+        failedDiscoverySummary = safeSpeechDiscoverySummary(failure?.discoverySummary),
+        frontendMs = native.frontendMs,
+        validationMs = native.validationMs,
+        cacheEvictions = native.cacheEvictions,
+        profileFinalizeMs = native.profileFinalizeMs
     )
 
     private fun failureEvidence(failure: VoiceBackendCapability) = VoiceSpeechExecutionEvidence(
@@ -366,8 +372,8 @@ internal class QualcommVoicePhraseEngineFactory(
             val code = (error as? TimedKokoro.Failure)?.code ?: error.message
             return VoiceSpeechFailureCode.entries.firstOrNull { it.name == code } ?: VoiceSpeechFailureCode.EXECUTION_FAILED
         }
-        private fun inputFailure(error: Exception): Boolean =
-            (error as? TimedKokoro.Failure)?.stage.equals("frontend", ignoreCase = true) || classify(error).isInputFailure
+        private fun inputOrSetupFailure(error: Exception): Boolean =
+            (error as? TimedKokoro.Failure)?.stage.equals("frontend", ignoreCase = true) || classify(error).let { it.isInputFailure || it.isSetupFailure }
         fun requestRetest(context: Context, backend: VoiceSpeechBackend) {
             if (backend == VoiceSpeechBackend.AUTO || backend in LOCAL_BACKENDS) {
                 runCatching { VoiceBackendCapabilityStore(context).retest(backend) }

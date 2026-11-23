@@ -1,0 +1,10 @@
+{
+  "exit_code": 0,
+  "log_sha256": "4278c9603bf8915bc803e70887265eaa261d7fe974b7d9c598702daa225f44a7",
+  "passed_tests": 4,
+  "scope": "Real executor termination and independently cancelled observation with Kotlin 2.4.20 and JDK 21",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativeRetirement.kt": "05f3fd6b62c19cf1bf9d484dca7a4a000d6779b9f7c9addec91371a4bb3e8af3",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativeRetirementTest.kt": "60faaa7a6be7b2e139be1ce587065c80947478981cdc4b4c5404f00f7e6c99bd"
+  }
+}

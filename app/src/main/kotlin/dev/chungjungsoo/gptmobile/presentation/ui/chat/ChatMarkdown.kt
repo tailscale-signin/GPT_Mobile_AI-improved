@@ -119,11 +119,17 @@ private val codeHighlightCache = object : LruCache<String, AnnotatedString>(2 * 
     override fun sizeOf(key: String, value: AnnotatedString): Int =
         (key.length.toLong() * 2 + value.length.toLong() * 2 + value.spanStyles.size * 64L).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
 }
+private val codeHighlightCacheLock = Any()
+private var codeHighlightGeneration = 0L
 
 /** Drop derived rendering data under Android memory pressure; saved messages remain intact. */
 internal fun clearChatRenderingCaches() {
-    codeHighlightCache.evictAll()
+    synchronized(codeHighlightCacheLock) {
+        codeHighlightGeneration++
+        codeHighlightCache.evictAll()
+    }
     clearChatMarkdownParseCache()
+    settledMarkdownRendererCache.clear()
 }
 
 private data class MarkdownRenderRequest(
@@ -133,7 +139,8 @@ private data class MarkdownRenderRequest(
     val provenance: MarkdownProvenancePresentation?,
     val wording: CombinedWordingPresentation?,
     val outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner?,
-    val githubReferences: GitHubAssistantReferenceContext?
+    val githubReferences: GitHubAssistantReferenceContext?,
+    val sharedCacheAllowed: Boolean
 )
 
 private data class PreparedChatMarkdown(
@@ -143,7 +150,9 @@ private data class PreparedChatMarkdown(
     val profileIndex: ProfileSpanIndex = ProfileSpanIndex(emptyList()),
     val contentDigest: String? = null,
     val sourceLinkRanges: List<IntRange> = emptyList(),
-    val outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null
+    val outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null,
+    val renderer: SettledMarkdownRenderer? = null,
+    val rendererMayBeShared: Boolean = false
 )
 
 @Composable
@@ -230,8 +239,11 @@ private fun ChatMarkdownContent(
     var formattingFailed by remember(contentIdentity) { mutableStateOf(false) }
     var formattingAttempt by remember(contentIdentity) { mutableIntStateOf(0) }
     var lastTraceAt by remember(contentIdentity) { mutableLongStateOf(0L) }
+    val privatePresentation = LocalPrivacyProtectedValues.current.isNotEmpty()
+    val privateSession by dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents.privateSession.collectAsStateWithLifecycle()
+    val sharedCacheAllowed = !privatePresentation && !privateSession && !dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.privateSessionActive
     val latestRequest = rememberUpdatedState(
-        MarkdownRenderRequest(content, streaming, memoryValues, provenance, wording, outputTrace, LocalGitHubAssistantReferences.current)
+        MarkdownRenderRequest(content, streaming, memoryValues, provenance, wording, outputTrace, LocalGitHubAssistantReferences.current, sharedCacheAllowed)
     )
     LaunchedEffect(contentIdentity, formattingAttempt) {
         // Finish each in-flight render and retain only the latest pending delta.
@@ -259,7 +271,7 @@ private fun ChatMarkdownContent(
                             ?.let { linkifyGitHubAssistantReferences(sourceWithoutMetadata, it) }
                             ?: sourceWithoutMetadata
                         val renderContext = currentCoroutineContext()
-                        val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming, checkActive = { renderContext.ensureActive() })
+                        val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming && request.sharedCacheAllowed, checkActive = { renderContext.ensureActive() })
                         // Rendering is sampled above; completed passage mappings can colour live output.
                         // Shared, invalid and unknown source declarations remain neutral.
                         val wordingCandidate = request.wording != null && !request.streaming && request.content.isNotBlank()
@@ -289,7 +301,10 @@ private fun ChatMarkdownContent(
                             }
                             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_SPAN_MAPPING · run=${request.outputTrace?.runId ?: "unavailable"} · part=${request.outputTrace?.partId ?: "unavailable"} · contentIdentityDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(contentIdentity.toString())} · bodyDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(request.content)} · parser=$ATTRIBUTION_MARKDOWN_PARSER_VERSION · zeroLinkReason=$zeroReason · uniqueSpans=${profileSpans.count { it.profileUids.size == 1 }} · sharedSpans=${profileSpans.count { it.profileUids.size > 1 }} · linkedCharacters=${profileSpans.sumOf { it.end - it.start }} · represented=${profileSpans.flatMap { it.profileUids }.distinct().take(32)} · palette=PERSISTED_PROFILE_HUE · factualVerification=false")
                         }
-                        PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans), dev.chungjungsoo.gptmobile.data.research.researchHash(request.content), Regex("""\[[^\]\n]*]\([^)\n]+\)|https?://[^\s<>]+""").findAll(combined).map { it.range }.toList())
+                        // Settled pages enter composition with their renderer syntax ready.
+                        // Theme/font/width and protected annotations are still applied by Compose.
+                        val renderer = if (request.streaming) null else checkNotNull(settledMarkdownRendererCache.prepare(combined, cacheable = request.sharedCacheAllowed) { renderContext.ensureActive() }) { "Markdown renderer preparation failed." }
+                        PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans), dev.chungjungsoo.gptmobile.data.research.researchHash(request.content), Regex("""\[[^\]\n]*]\([^)\n]+\)|https?://[^\s<>]+""").findAll(combined).map { it.range }.toList()).copy(renderer = renderer, rendererMayBeShared = request.sharedCacheAllowed)
                     }
                 }
             }
@@ -375,7 +390,6 @@ private fun ChatMarkdownContent(
     val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
     val targetBg = SuggestionHighlightManager.HIGHLIGHT_TRANSLUCENT_BG
 
-    val privatePresentation = LocalPrivacyProtectedValues.current.isNotEmpty()
     val sourceLinkRanges = rendered.sourceLinkRanges
     val annotator = remember(privatePresentation, sourceLinkRanges, memoryRanges, rendered.profileIndex, provenance, wording, answerForeground, gatewaySource, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, interactionOwner, renderedDigest) {
         markdownAnnotator { source, child ->
@@ -692,7 +706,7 @@ private fun ChatMarkdownContent(
     }
     androidx.compose.runtime.CompositionLocalProvider(LocalUriHandler provides sourceHandler) {
         key(contentIdentity, formattingAttempt) {
-            val markdownState = rememberMarkdownState(
+            val markdownState = rendered.renderer?.takeIf { sharedCacheAllowed || !rendered.rendererMayBeShared } ?: rememberMarkdownState(
                 content = combinedMarkdown,
                 retainState = true
             )
@@ -901,23 +915,29 @@ private fun HighlightedCodeContent(
     sourceOffset: Int
 ) {
     val cacheKey = remember(isDarkTheme, language, code) { "$isDarkTheme:$language:$code" }
-    val cached = codeHighlightCache.get(cacheKey)
+    val cacheAllowed = LocalPrivacyProtectedValues.current.isEmpty() && chatRenderCacheRetentionAllowed()
+    val (cached, generation) = synchronized(codeHighlightCacheLock) {
+        (if (cacheAllowed) codeHighlightCache.get(cacheKey) else null) to codeHighlightGeneration
+    }
 
-    val highlightedCode by produceState(
-        initialValue = cached ?: AnnotatedString(code),
-        key1 = cacheKey
-    ) {
-        if (cached == null) {
-            val result = withContext(Dispatchers.Default) {
-                // Builders are mutable: never share one across parallel code blocks.
-                if (code.length > 128 * 1024) {
-                    AnnotatedString(code)
-                } else {
-                    buildHighlightedAnnotatedString(code, language, Highlights.Builder().theme(SyntaxThemes.atom(isDarkTheme)))
+    val highlightedCode by key(cacheKey, cacheAllowed) {
+        produceState(initialValue = cached ?: AnnotatedString(code), key1 = cacheKey) {
+            if (cached == null) {
+                val result = withContext(Dispatchers.Default) {
+                    // Builders are mutable: never share one across parallel code blocks.
+                    if (code.length > 128 * 1024) {
+                        AnnotatedString(code)
+                    } else {
+                        buildHighlightedAnnotatedString(code, language, Highlights.Builder().theme(SyntaxThemes.atom(isDarkTheme)))
+                    }
                 }
+                if (cacheAllowed && code.length <= 128 * 1024) {
+                    synchronized(codeHighlightCacheLock) {
+                        if (generation == codeHighlightGeneration && chatRenderCacheRetentionAllowed()) codeHighlightCache.put(cacheKey, result)
+                    }
+                }
+                value = result
             }
-            if (code.length <= 128 * 1024) codeHighlightCache.put(cacheKey, result)
-            value = result
         }
     }
 

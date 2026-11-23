@@ -26,6 +26,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun rejectedCommitLookupRetainsSafeValidationFieldsThroughTheNativeToolReceipt() = runTest {
+        var requests = 0
+        HttpClient(
+            MockEngine { request ->
+                requests++
+                assertEquals(HttpMethod.Get, request.method)
+                assertEquals("/repos/owner/repo/commits/private-ref", request.url.encodedPath)
+                respond(
+                    """{"message":"private branch detail","errors":[{"resource":"Commit","field":"sha","code":"invalid","value":"private-ref"}]}""",
+                    HttpStatusCode.UnprocessableEntity,
+                    headersOf("Content-Type" to listOf("application/json"), "X-GitHub-Request-Id" to listOf("private-request"))
+                )
+            }
+        ).use { http ->
+            val tool = GitHubTool("token", http, repositoryContext = GitHubRepositoryContext("owner", "repo", "private-ref"))
+                .operations().single { it.definition.name == "github_context" }
+            val arguments = buildJsonObject {
+                put("action", "resolve")
+                put("ref", "private-ref")
+            }
+            val result = tool.execute("lookup", arguments)
+            assertTrue(result.toString(), result.isError)
+            assertEquals("GITHUB_VALIDATION_FAILED", result.errorCode)
+            assertEquals(1, requests)
+            val receipt = requireNotNull(result.executionReceipt)
+            assertEquals(JsonPrimitive("COMMIT_LOOKUP"), receipt["github_validation_endpoint"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("sha"))), receipt["github_error_fields"])
+            val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "run", 0, result.callId, null, null, "github_context", tool.definition.name, arguments.toString(), null, null, "FAILED")
+            val fields = dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(event, result)
+            val captured = requireNotNull(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+            assertEquals(JsonPrimitive("COMMIT_LOOKUP"), captured.values["github_validation_endpoint"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("sha"))), captured.values["github_error_fields"])
+            assertFalse(captured.toString().contains("private"))
+        }
+    }
+
     @Test fun pullRequestFiltersReachTheHttpQueryAndRemainBoundToEveryRemotePage() = runTest {
         var requests = 0
         HttpClient(

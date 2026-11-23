@@ -16,6 +16,7 @@ import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -81,6 +82,24 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
             val legacy = directory?.let { File(it, digest(identity) + ".record") }
             if (legacy?.isFile == true && legacy.length() in 1..MAX_RECORD_BYTES.toLong()) return@withLock true
             claimCheckpoint(identity, key) != null
+        }
+    }
+
+    /** Inventory checks share one dispatcher hop and lock; no source body is decoded. */
+    internal suspend fun presentKeys(scope: String, keys: Collection<String>): Set<String> = withContext(Dispatchers.IO) {
+        val active = kotlinx.coroutines.currentCoroutineContext()
+        mutex.withLock {
+            keys.filterTo(linkedSetOf()) { key ->
+                active.ensureActive()
+                val identity = "$scope:$key"
+                values.containsKey(identity) ||
+                    protectedValues.containsKey(identity) ||
+                    protectedFile(identity)?.isFile == true ||
+                    savedViewFile(identity, key)?.isFile == true ||
+                    sourceFile(identity, key)?.isFile == true ||
+                    directory?.let { File(it, digest(identity) + ".record").let { file -> file.isFile && file.length() in 1..MAX_RECORD_BYTES.toLong() } } == true ||
+                    claimCheckpoint(identity, key) != null
+            }
         }
     }
 

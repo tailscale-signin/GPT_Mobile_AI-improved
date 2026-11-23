@@ -258,8 +258,13 @@ internal class GitHubEvidenceBook(
         val repo = (effectiveArguments["repo"] as? JsonPrimitive)?.contentOrNull
         val selected = owner == null && repo == null || "$owner/$repo".equals(repository, true)
         val targetBranch = (effectiveArguments["ref"] as? JsonPrimitive)?.contentOrNull ?: (effectiveArguments["branch"] as? JsonPrimitive)?.contentOrNull ?: branch
-        val immutable = savedSource?.get("immutable")?.let { it == JsonPrimitive(true) }
-            ?: GitHubOperationTool.immutableRead(call.name, effectiveArguments)
+        val immutable = if (savedSource == null) {
+            GitHubOperationTool.immutableRead(call.name, effectiveArguments)
+        } else {
+            // A restored pre-classification comparison still has its original
+            // pinned arguments; saved fragments inherit that source's identity.
+            GitHubEvidencePolicy.immutable(savedSource, records)
+        }
         val native = if (operation == "github") effectiveArguments else GitHubOperationTool.nativeArguments(call.name, effectiveArguments)
         val action = (native?.get("action") as? JsonPrimitive)?.contentOrNull.orEmpty()
         val mutation = action in GitHubWorkspaceClient.writeActions - "stage_patch" ||

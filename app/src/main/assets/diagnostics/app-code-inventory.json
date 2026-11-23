@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "884e6303f68a2af6b4961c4e6f15baa685bb78d1d17f56e4f230d611c7230e12",
+  "source_digest": "b44d2718bf4d8af28a9ac6601e16e333dfe372a63507b2e143f813490a7fb0aa",
   "file_count": 3058,
-  "indexed_line_count": 518172,
+  "indexed_line_count": 518183,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -41,7 +41,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 603,
-      "indexed_line_count": 106640
+      "indexed_line_count": 106651
     },
     {
       "id": "accessibility_and_localization",
@@ -16958,8 +16958,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "3a7577c2e6005d973d3ce98346e6e7c2f25147d594c3443369d8b11d2de0b7e3",
-      "indexed_lines": 340
+      "sha256": "1f41a87fc698f37d3db9256482db5f28e2eb3b176d212e214a069f7e7eb4574c",
+      "indexed_lines": 351
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModel.kt",

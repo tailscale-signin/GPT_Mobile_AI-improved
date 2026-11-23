@@ -18,6 +18,7 @@
 - Preserve bounded catalog search queries and offer explicit scalar-name discovery corrections while keeping exact advertised-tool checks and caller choices intact.
 - Improve contextual privacy masking and streamed local restoration; add content-free final-request evidence, redacted diagnostic exports with a separate forensic choice, accurate private-memory readiness and an offline fictional privacy/intent/timing check.
 - Add an explicit paired provider comparison using four fixed fictional tasks, separate unscored warmups, counterbalanced privacy-off/on requests and the real private dispatch/restoration path. Keep detector misses, public-phrase preservation, exact task criteria, observed usage and grouped p50/p95 timings separate; retain incomplete evidence and exclude unverified or mismatched configurations from timing summaries.
+- Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming.
 - Redact retained request and cited-source text in default exports, and recheck inherited authority before each restored fallback stream event.
 - Close source-filename, terminal-detail and continuation-line privacy gaps in default exports, and preserve explicit colon forms for complete address separators.
 - Recheck privacy and inherited request authority at the receiving side of the private stream handoff, stopping revoked pending events without changing producer completion evidence or replaying output.

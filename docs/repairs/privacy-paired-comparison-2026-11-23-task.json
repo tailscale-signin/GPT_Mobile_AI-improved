@@ -18,7 +18,8 @@
     "Report actual known detector misses, altered public phrases, explicit task criteria, first-text/completion timings and actual optional usage separately; make no universal privacy or general semantic-quality claim.",
     "Show nearest-rank p50/p95 with actual sample counts only for complete observed-runtime/output-ceiling matched pairs; group different configurations separately, use equal paired populations per answer-time metric, include completed rubric failures, and exclude warmups and unverified strict-route parity.",
     "Both warmups are excluded from scored cases. Four cases use counterbalanced arm order; requests, output size and total run time are bounded.",
-    "Retain all shared-branch changes, run canonical checks and exact final-source ordinary project tests, merge only green and fully verify both successor publications."
+    "Retain all shared-branch changes, run canonical checks and exact final-source ordinary project tests, merge only green and fully verify both successor publications.",
+    "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming."
   ],
   "qualification": {
     "sourceReview": {
@@ -38,7 +39,17 @@
     "providerBindingMethods": 18,
     "composeMethods": 4,
     "viewModelMethods": 6,
-    "totalMethods": 51,
-    "status": "WRITTEN; FINAL_SOURCE_PROJECT_EXECUTION_REQUIRED"
+    "totalMethods": 52,
+    "status": "WRITTEN; FINAL_SOURCE_PROJECT_EXECUTION_REQUIRED",
+    "lifecycleMethods": 1
+  },
+  "lifecycleFollowup": {
+    "startingHead": "80794bd5827d176c002ef2b71293be8731342ce6",
+    "reviewReference": "PR2367 issuecomment7116104077",
+    "finding": "A stopped screen can retain its composition and ViewModel; lifecycle-aware state observation alone does not cancel provider work.",
+    "implementation": "Actual current-owner ON_STOP observation plus existing disposal cancellation; remove observer on disposal or owner change; no automatic resume action.",
+    "ordinaryRegression": "PrivacyComparisonLifecycleTest.stoppingRetainedScreenCancelsTheHeldRunAndResumeDoesNotRestart",
+    "evidence": "Actual panel and runner with held provider flow, completed and partial rows, stop without disposal, cleanup, no later leg or resume dispatch, explicit new Run and disposal cleanup.",
+    "runtime": "NOT_RUN_LOCALLY; FINAL_COMMITTED_ORDINARY_PROJECT_CI_REQUIRED"
   }
 }

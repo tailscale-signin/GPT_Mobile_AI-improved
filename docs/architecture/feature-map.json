@@ -149,7 +149,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonProviderBindingTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonRunnerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModelTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModelTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -171,7 +172,8 @@
         "Ordinary modal collisions require positive detector classification and exact request-local copied-span provenance; protected overlaps and all other known-value checks remain authoritative.",
         "Private stream events are revalidated after the channel handoff under captured conversation authority; denial stops upstream before one content-free partial failure, preserves cancellation and caller context, and never grants an error-code bypass.",
         "A receiving-side denial carries generation_completed only from an actual observed Completed event; final accounting retains that content-free fact separately from failed delivery, transport completion and replay permission, never from upstream failure metadata.",
-        "An explicit provider comparison accepts only closed fictional fixtures, preserves the actual private dispatch/restoration and live authority checks, excludes saved personal text and tools, and keeps observed detection, task criteria, usage and timing separate. Only completed pairs with matching observed runtime/output ceilings enter grouped nearest-rank sample percentiles; warmups, incomplete or mismatched pairs and unverified strict-route settings are excluded."
+        "An explicit provider comparison accepts only closed fictional fixtures, preserves the actual private dispatch/restoration and live authority checks, excludes saved personal text and tools, and keeps observed detection, task criteria, usage and timing separate. Only completed pairs with matching observed runtime/output ceilings enter grouped nearest-rank sample percentiles; warmups, incomplete or mismatched pairs and unverified strict-route settings are excluded.",
+        "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming."
       ]
     },
     {
@@ -1388,9 +1390,9 @@
       "sha256": "8dce034237b3b07ff148d8886561996a9e05155a20f54427de725e43c093068e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanel.kt": {
-      "blob_sha": "653ad5d0a1ece5f40a78ae69a4be8ce5cacac628",
-      "bytes": 21610,
-      "sha256": "3a7577c2e6005d973d3ce98346e6e7c2f25147d594c3443369d8b11d2de0b7e3"
+      "blob_sha": "6881a73a02f82a78da7d4900c6a99b13bece982d",
+      "bytes": 22094,
+      "sha256": "1f41a87fc698f37d3db9256482db5f28e2eb3b176d212e214a069f7e7eb4574c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModel.kt": {
       "blob_sha": "b40cb63b1c57413d1075d62f38383d61133b00d8",
@@ -1997,6 +1999,11 @@
       "bytes": 7345,
       "sha256": "71bf0e75057d6efc72bec92773b527640ec18b68b45259324e903dc0cd00de99"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt": {
+      "blob_sha": "c37996731d26dfbe31e6bb7a4ddfb32de07b2037",
+      "bytes": 9697,
+      "sha256": "f0996ee3832c7a3a188b46501dc7bf38769a641bae89ca9951c167126e8b103d"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt": {
       "blob_sha": "2f1363609d8b1360f22188fdd884b3ca858ab933",
       "bytes": 11839,
@@ -2118,9 +2125,9 @@
       "sha256": "407c31ecf1d058064c91c24067ed8103a9e2c8034acd42df5b447c6bfbe7f5fc"
     },
     "docs/repairs/privacy-paired-comparison-2026-11-23-task.json": {
-      "blob_sha": "d033b19f420d9c009379536ffaea3c41a2bbf302",
-      "bytes": 3478,
-      "sha256": "9fba6cefe501f6b2d175ec6573d7505c720693305daea4ee294427af67a84d54"
+      "blob_sha": "663cdee6876c8bb5788555f35dba8ac91ee3077a",
+      "bytes": 4605,
+      "sha256": "a273faa83844f7798eeb3fb9699704491f76355d9ccc6248312bc57323129c53"
     },
     "docs/repairs/privacy-receiving-accounting-2026-11-23-task.json": {
       "blob_sha": "8984542e211d46d6732302cab919755dd5b0a0f0",

@@ -22,6 +22,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyComparisonArm
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyComparisonCase
@@ -36,9 +39,17 @@ import java.util.Locale
 
 @Composable
 internal fun PrivacyComparisonPanel(viewModel: PrivacyComparisonViewModel = hiltViewModel()) {
+    val lifecycleOwner = LocalLifecycleOwner.current
     val state by viewModel.state.collectAsStateWithLifecycle()
-    DisposableEffect(viewModel) {
-        onDispose { viewModel.cancel() }
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) viewModel.cancel()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.cancel()
+        }
     }
     PrivacyComparisonContent(state, viewModel::selectProfile, viewModel::runComparison, viewModel::cancel)
 }

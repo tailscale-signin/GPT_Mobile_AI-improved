@@ -261,7 +261,8 @@
     "Revalidate captured privacy and inherited request authority after the private stream rendezvous, suppress pending events after revocation and emit one content-free partial failure without replay while preserving producer cleanup and the collecting conversation context.",
     "Preserve complete native saved pages requested by ordinary provider calls, account for app-added instructions within the unchanged replay ceiling and reserve, and retain exact delivery proof and matching-context admission.",
     "Bind each Gateway PCM response to its exact admitted request, preserve replacement streams during stale cleanup, and retire cancelled or stalled sends within one fixed timeout-plus-audio-duration budget while preserving synthesis limits and exact binary framing.",
-    "Exercise voice-entry opt-in through the existing scrollable setup screen at200percent text size, preserving visibility, enabled-state and exactly-once start checks for both ordinary and installed streaming-engine entry."
+    "Exercise voice-entry opt-in through the existing scrollable setup screen at200percent text size, preserving visibility, enabled-state and exactly-once start checks for both ordinary and installed streaming-engine entry.",
+    "Update the isolated Linux speech-model smoke environment to the publisher-verified patched Pillow 13.0.0 wheel while preserving every other dependency pin, hash enforcement, advisory gate and all three real model qualification jobs."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -577,6 +578,7 @@
     "docs/repairs/hosted-privacy-stream-and-health-2026-11-23-task.json",
     "docs/repairs/native-speech-smoke-paths-2026-11-23-task.json",
     "docs/repairs/open-pr-issue-remediation-2026-11-23-task.json",
+    "docs/repairs/pillow-speech-smoke-security-2026-11-23-task.json",
     "docs/repairs/privacy-address-context-review-2026-11-23-task.json",
     "docs/repairs/privacy-cancellation-health-controls-2026-11-23-task.json",
     "docs/repairs/privacy-export-ui-scroll-2026-11-23-task.json",

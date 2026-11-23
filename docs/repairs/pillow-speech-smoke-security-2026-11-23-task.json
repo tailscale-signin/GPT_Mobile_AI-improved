@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "task": "pillow-speech-smoke-security-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2367,
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "1f84f33c0e00f65f25e2e1879261e868b370c8b0",
+  "workingBranch": "audit/pillow-13-speech-smoke-1f84",
+  "recordedBeforeSourceEdits": true,
+  "status": "SOURCE_IMPLEMENTED_HOST_QUALIFIED_PENDING_FINAL_HOSTED_GATES",
+  "intent": "Replace the vulnerable Pillow12.0.0 pin in the speech-model smoke environment with the official patched13.0.0 wheel, preserving hash enforcement, all other dependency pins, security gates and real model qualification.",
+  "hostedFinding": {
+    "source": "858c17e871a920b7575e44aede7e10e0edc4b561",
+    "run": 45269820235,
+    "job": 138028915335,
+    "artifact": 14864499163,
+    "artifactBytes": 1020,
+    "artifactSha256": "ed9eaf37b0da746321df55aa72bdc586f18786fc4dd1457bea76dceda9962241",
+    "reportedHighOrCritical": 42,
+    "package": "pillow",
+    "version": "12.0.0",
+    "manifest": "scripts/requirements-voice-mediapipe-smoke.txt"
+  },
+  "primarySources": [
+    "https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html",
+    "https://github.com/advisories/GHSA-5x8w-8jj5-q52h",
+    "https://github.com/advisories/GHSA-w889-685w-c8fh",
+    "https://github.com/advisories/GHSA-8g5g-8vmr-9782",
+    "https://pypi.org/project/pillow/13.0.0/"
+  ],
+  "compatibility": {
+    "workflowPython": "3.12",
+    "pillowMinimumPython": "3.11",
+    "mediapipe": "1.2.3",
+    "exactWheel": "pillow-13.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+    "declaredDependencies": {
+      "mediapipe1.2.3": "Actual official wheel metadata has unversioned matplotlib and no Pillow constraint. Its bytes match the unchanged locked MediaPipe SHA-256.",
+      "matplotlib3.10.7": "Exact locked wheel metadata requires pillow>=8, without an upper bound; official versioned installation documentation agrees.",
+      "documentation": "https://matplotlib.org/3.10.7/install/dependencies.html",
+      "boundary": "Declared dependencies and platform compatibility only; actual SDK/model execution remains required in corrected-source CI."
+    }
+  },
+  "validation": {
+    "dependencyReview": "PENDING_FINAL_SOURCE_HOSTED",
+    "realModelSmoke": "PENDING_ALL_THREE_AT_CORRECTED_SOURCE",
+    "local": {
+      "canonicalHostTests": 692,
+      "canonicalSeconds": 34.778,
+      "canonicalLogSha256": "eb07f12146bfb8cf3cdd7d68c309f3560f5db74d90c35d71549b675a3bec8495",
+      "generatedReferences": "PASS",
+      "appAuditInventory": "PASS",
+      "diffWhitespace": "PASS",
+      "requirementSha256": "690a8f3d4386908473032bc2a30c4d18ce5637bf43f8c95e195bbaacf5b82b63",
+      "totalPinnedRequirements": 19,
+      "unchangedOtherPins": 18,
+      "minimalChangeProof": "Reversing only the Pillow wheel-comment and version/hash line reproduces the entire original requirements file byte-for-byte.",
+      "runtimeExecution": "NOT_RUN_LOCALLY; all three ordinary real model workflows remain required at corrected source."
+    },
+    "independentReview": {
+      "status": "CLEAR_FOR_NARROW_SOURCE",
+      "receiptSha256": "cfe23b759c63997b4e90ce95088c2df3439a30851d648a345e2b24d2482a4a9e",
+      "scope": "Official PyPI wheel/provenance metadata, actual cached locked MediaPipe and Matplotlib metadata, Python/platform compatibility and byte-for-byte preservation of all18 other pins; no install/download/model execution claimed."
+    }
+  },
+  "preserve": [
+    "All other pinned requirement lines",
+    "--require-hashes and --only-binary=:all:",
+    "Existing high/critical advisory gate",
+    "All three real Kokoro/Phonon/Pocket model jobs",
+    "No Android runtime dependency changes or model-performance claim"
+  ],
+  "publisherVerification": {
+    "source": "https://pypi.org/project/pillow/13.0.0/",
+    "method": "Accessible official release HTML file-details and its published provenance subject; the unavailable JSON endpoint was not rerouted.",
+    "filename": "pillow-13.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+    "sha256": "42d63be3af4f9b951b199b0a9d23365d37ab14687e6d77b74940432c8515c4ca",
+    "publishedOn": "2026-10-16",
+    "publisherSourceCommit": "293218ad059d994baf1777d882911bed6a49704a",
+    "publisherWorkflow": "https://github.com/python-pillow/Pillow/actions/runs/38960170632/attempts/2",
+    "boundary": "Publisher metadata was verified before changing the lock. No local wheel-byte or cryptographic attestation verification is claimed; normal CI must install the exact artifact with the unchanged hash-enforcement flags and execute all three real model smokes."
+  },
+  "integrationPublicParent": "dab2d2308ae3d26a8b5614a7733107a20a6b9a14",
+  "preservedConcurrentChange": "The public large-text voice-entry fixture keeps all methods and adds real scrolling/visibility/enabled/exactly-once controls. All incoming source and metadata are retained."
+}

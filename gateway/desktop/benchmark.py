@@ -190,9 +190,14 @@ def service_request(root, path='', *, method='GET', payload=None, binding=None):
             return value
 
 
-def start_run(root, model, suite='quick_check', preset='quick', *, request_id=None, seed=17, concurrency=2, binding=None):
-    return service_request(root, method='POST', binding=binding, payload={'request_id': request_id or 'benchmark-' + uuid.uuid4().hex,
-                           'model': model, 'suite': suite, 'preset': preset, 'seed': seed, 'concurrency': concurrency})
+def start_run(root, model, suite='quick_check', preset='quick', *, request_id=None, seed=17, concurrency=2, binding=None, comparison_context=None, task_pack='python'):
+    payload = {'request_id': request_id or 'benchmark-' + uuid.uuid4().hex,
+               'model': model, 'suite': suite, 'preset': preset, 'seed': seed, 'concurrency': concurrency}
+    if comparison_context is not None:
+        payload['comparison_context'] = comparison_context
+    if task_pack != 'python':
+        payload['task_pack'] = task_pack
+    return service_request(root, method='POST', binding=binding, payload=payload)
 
 
 def reconcile_run(root, request_id, binding):

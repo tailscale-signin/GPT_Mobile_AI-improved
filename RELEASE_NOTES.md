@@ -54,6 +54,17 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Apply built-in tool changes atomically across settings and imports. Consolidate duplicate built-in grants within selected restore data while preserving other profiles, tools and connection-backed bindings.
 - Retain saved Gateway transcripts when a linked local room is deleted. Reopening stops before network access while the original conversation's privacy policy is unavailable; a missing room cannot be assumed ordinary or silently assigned to a new conversation.
 
+## GitHub and coding model comparisons
+
+- Choose **Tool contracts**, **Workflow simulation**, **Executable coding** or **Live GitHub**. Each lane keeps its own task manifest, outcome denominator and evidence requirements; an offline tool score cannot become a coding or live-service score.
+- Compare two saved profiles with the same frozen task and grader versions, source and environment identity, budgets and fresh episodes. Choose counterbalanced order, inspect requested and confirmed settings, and retain infrastructure failures and incomplete observations beside model outcomes.
+- Run Python Quick/Standard/Deep packs of **12/36/100** tasks. The Deep pack contains 96 distinct source defects grouped into 12 families plus four capstones. Hidden behavioral checks and independently owned input snapshots decide primary correctness; diagnosis wording and the secondary rubric do not determine a code pass.
+- Run repository-native Quick/Standard/Deep packs of **4/8/12** distinct defects spanning Kotlin state, SQLite migrations and CI gates. The checks execute the declared language/runtime; required native controls cannot silently pass by being skipped.
+- Inspect paired family uncertainty, the practical improvement margin, first-attempt, delivered-final and best-within-budget outcomes. Repeats and related variants do not inflate independent family counts. A single model or an incomplete comparison cannot establish a winner.
+- Select the Gateway evaluator or **Direct GitHub Actions** for live disposable tasks. Direct Actions keeps generation on the selected phone profile, uses the exact saved GitHub connection, and verifies the immutable trusted workflow, tested commit, required job/steps and digest-bound result artifact. See the [fixture provisioning guide](gateway/benchmarks/PHONE_ACTIONS.md).
+- Keep durable original request identities through interruption. Lost branch or evaluation responses are read back, not resubmitted; unknown shutdown pauses the queue until reconciliation. Recovery retains candidate and usage evidence and continues only unattempted tasks.
+- Include setup, unsuccessful work, repairs and verification in effort reporting. Sum separately identified physical request usage and retain unknown totals for ambiguous retries or missing prices. Use **Overview**, **Compare**, **Tasks**, **Evidence** and **History** to inspect the result and export its evidence.
+
 ## Task efficiency and provider consistency
 
 - Expanded benchmark evidence keeps one copy of each summary and reveals the supporting measurements below the disclosure control.
@@ -128,6 +139,10 @@ See the [workspace guide](docs/engineering/github-agent-workspace.md) and [runti
 
 ## Qualification and limitations
 
+- Generation identity is an authenticated client observation, not independent proof of the provider's internal model identity. Missing or ambiguous token usage, price, retry or settings evidence remains unknown; external CI and service charges are not inferred.
+- Live GitHub benchmarking requires an explicitly authorized disposable repository, immutable fixture base, appropriate account permissions and the declared runtime. Direct phone execution needs a provisioned Actions fixture bank; repository-native Actions additionally needs the prepared self-hosted runner and pinned image.
+- The Python coding pack uses a bounded Python interpreter. Repository-native fixtures execute Kotlin/JVM, SQLite and declared workflow semantics; they do not claim Android Compose instrumentation, Room processor coverage or arbitrary production-repository correctness.
+- Engineering comparisons apply only to their frozen suite, evidence lane, task families, budgets and selected profile settings. Incomplete, incomparable or statistically inconclusive results do not establish a universally superior model.
 - Optional coding agents require installed pinned runtimes, explicit host configuration and compatible provider accounts. Protocol fixtures and host builds do not qualify paid provider execution, installed SDK compatibility, model quality or remote cancellation when the provider does not support it.
 - Phone repository relationships are bounded lexical candidates, not compiler-resolved references or executed-test evidence. Unscanned, unsupported, generated and dynamic code can leave relationships unknown; current GitHub authorization and connectivity are required, and physical-phone performance remains unqualified.
 - Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.

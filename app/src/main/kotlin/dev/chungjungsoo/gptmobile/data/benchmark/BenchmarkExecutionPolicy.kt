@@ -48,6 +48,13 @@ data class BenchmarkProfileSettings(
 )
 
 @Serializable
+data class BenchmarkSettingsEvidence(
+    val source: String,
+    val fields: Map<String, String>,
+    val scope: String
+)
+
+@Serializable
 data class BenchmarkSettingsReceipt(
     val executionPolicy: BenchmarkExecutionPolicy,
     val profile: BenchmarkProfileSettings,
@@ -60,7 +67,12 @@ data class BenchmarkSettingsReceipt(
     val appAppliedInstrumentationOverrides: Map<String, String> = emptyMap(),
     val acknowledgedGenerationIds: Set<String> = emptySet(),
     val acknowledgedFields: Set<String> = emptySet(),
-    val acknowledgementScope: String = "per-generation native receipts; requested settings alone are not confirmation"
+    val acknowledgementScope: String = "per-generation native receipts; requested settings alone are not confirmation",
+    val sent: BenchmarkSettingsEvidence? = null,
+    val acknowledged: BenchmarkSettingsEvidence? = null,
+    val observed: BenchmarkSettingsEvidence? = null,
+    val configuredProviderOverrides: Map<String, String> = emptyMap(),
+    val budgetOverrides: Map<String, String> = emptyMap()
 )
 
 internal fun benchmarkProfileSettings(profile: PlatformV2) = BenchmarkProfileSettings(
@@ -99,7 +111,27 @@ internal fun benchmarkSettingsReceipt(profile: PlatformV2, test: BenchmarkCase, 
             if (local) put("nativeMetricsEnabled", "true")
             if (original.batchMode != sent.batchMode) put("batchMode", sent.batchMode.toString())
         },
-        acknowledgedGenerationIds = configurations.map { it.generationId }.toSet(), acknowledgedFields = configurations.flatMap { it.nativeAcknowledgedFields }.toSet()
+        acknowledgedGenerationIds = configurations.map { it.generationId }.toSet(), acknowledgedFields = configurations.flatMap { it.nativeAcknowledgedFields }.toSet(),
+        sent = sample.adapterRequestSettings.takeIf { it.isNotEmpty() }?.let {
+            BenchmarkSettingsEvidence("ADAPTER_REQUEST_CONFIGURED", it, "Last recorded adapter request; absent fields, earlier request settings and provider acceptance remain unknown unless per-generation receipts confirm them.")
+        },
+        acknowledged = configurations.takeIf { it.isNotEmpty() }?.let {
+            BenchmarkSettingsEvidence("NATIVE_CONFIGURATION_RECEIPTS", mapOf("generationReceiptCount" to it.size.toString()), "Acknowledged field names and exact values remain in per-generation native configuration receipts.")
+        },
+        observed = BenchmarkSettingsEvidence(
+            "MEASURED_RESPONSE",
+            buildMap {
+                put("deliveryMode", sample.deliveryMode)
+                put("chunks", sample.chunks.toString())
+                put("settingsConfirmed", sample.effectiveSettingsConfirmed.toString())
+                put("cacheRegime", sample.cacheRegime)
+                sample.providerHttpStatus?.let { put("httpStatus", it.toString()) }
+                sample.reasoningTokens?.let { put("reportedReasoningTokens", it.toString()) }
+            },
+            "Observed delivery and provider usage do not establish hidden sampling settings or a provider model revision."
+        ),
+        configuredProviderOverrides = benchmarkProviderSettingOverrides(requested),
+        budgetOverrides = test.engineeringBudget?.let { mapOf("outputTokensPerGeneration" to it.outputTokensPerGeneration.toString(), "maxModelRounds" to it.maxModelRounds.toString(), "maxToolCalls" to it.maxToolCalls.toString(), "taskDeadlineMs" to it.taskDeadlineMs.toString(), "maxRepairAttempts" to it.maxRepairAttempts.toString()) }.orEmpty()
     )
 }
 
@@ -164,4 +196,16 @@ internal fun benchmarkReadinessExclusion(run: BenchmarkRun): String? = when {
     run.readiness?.nativePrimaryFailureRetained == true -> "PRIMARY_STRUCTURED_FAILURE_RETAINED"
     run.suiteVersion >= 10 && run.mode !in setOf(BenchmarkMode.QUICK, BenchmarkMode.DELEGATION) && run.readiness?.ready != true -> "FINISHED_POSITIVE_READINESS_NOT_RECORDED"
     else -> null
+}
+
+/** Bounded public generation fields only; endpoints, account options and credentials are not exported. */
+internal fun benchmarkProviderSettingOverrides(profile: PlatformV2): Map<String, String> {
+    val raw = when (profile.compatibleType) {
+        dev.chungjungsoo.gptmobile.data.model.ClientType.OPENROUTER -> profile.openRouterRouting
+        dev.chungjungsoo.gptmobile.data.model.ClientType.OLLAMA -> profile.ollamaOptions
+        else -> null
+    } ?: return emptyMap()
+    val values = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonObject }.getOrNull() ?: return emptyMap()
+    return values.filterKeys { it in setOf("stream", "temperature", "top_p", "top_k", "max_tokens", "num_predict", "seed") }
+        .mapNotNull { (key, value) -> (value as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.length <= 64 }?.let { key to it } }.toMap()
 }

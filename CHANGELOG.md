@@ -1,5 +1,8 @@
 # 0.9.66.13 — 2026-11-22
 
+- Add four distinct engineering benchmark lanes, frozen two-profile comparisons, conservative family-based uncertainty and five-view Android/Gateway comparison workspaces.
+- Add independent Python behavioral and input-preservation grading, distinct Kotlin/SQLite/CI defects, mandatory native controls and exact-revision disposable GitHub verification through Gateway or direct phone-to-Actions execution.
+- Preserve original request and cancellation identities across interruptions; retain all failed and repaired attempts, physical-request usage ownership, immutable evidence and unknown costs.
 - Check conversation privacy and exact integration permissions before discovering or calling optional workspace tools.
 - Add a source-bound Android/Windows agent workspace with actual optional SDK/API/ACP coding runtimes, scoped workers, dependency-ready task evidence, graph-ranked context, private review drafts, local next-edit validation and configured documentation/browser tools. Keep agent comparisons separate from model benchmarks and preserve unknown-command/cancellation evidence.
 

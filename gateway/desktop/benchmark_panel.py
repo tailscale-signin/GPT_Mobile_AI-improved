@@ -11,17 +11,22 @@ import uuid
 
 import requests
 
-from desktop import benchmark, theme
+from desktop import benchmark, benchmark_comparison, benchmark_qualification, theme
 from benchmarks.contracts import TERMINAL
 from benchmarks.settings import (load_settings, save_settings, prepare_sandbox,
                                  smoke_sandbox_image, verify_submission)
 
-SUITES = {'Quick check': 'quick_check', 'Batch comparison': 'batch_comparison', 'GitHub coding': 'coding'}
+SUITES = {'Quick check': 'quick_check', 'Batch comparison': 'batch_comparison', 'GitHub coding': 'coding', 'Repository native': 'coding'}
 PRESETS = {'Quick': 'quick', 'Standard': 'standard', 'Deep': 'deep'}
 
 
 def pretty(value, suffix='', digits=1):
     return f'{value:,.{digits}f}' + suffix if type(value) in (int, float) else 'Not measured'
+
+
+def refreshed_model_selection(previous, advertised, index=0):
+    """Only an empty initial selection receives a default; refresh never substitutes a model."""
+    return previous if previous else advertised[min(index, len(advertised) - 1)] if advertised else ''
 
 
 class Bars(tk.Canvas):
@@ -43,7 +48,7 @@ class Bars(tk.Canvas):
             return
         rows = self.rows[:12]
         left, right = min(205, width * .34), max(min(205, width * .34) + 30, width - 125)
-        maximum = max([value for _, value, _ in rows if type(value) in (int, float)] + [1])
+        maximum = 100 if self.unit.startswith('%') else max([value for _, value, _ in rows if type(value) in (int, float)] + [1])
         spacing = min(32, (height - 30) / len(rows))
         for index, (label, value, color) in enumerate(rows):
             y = 16 + index * spacing
@@ -59,6 +64,7 @@ class BenchmarkPanel(tk.Frame):
         super().__init__(parent, bg=theme.BG)
         self.root, self.events = root, queue.Queue(maxsize=64)
         self.results, self.selected = [], None
+        self.comparison, self.comparison_history = None, []
         self.busy, self.discovered, self.alive = False, False, True
         self.next_cursor, self.pending_start = None, benchmark.load_pending(root)
         self.last_refresh, self.after_id = 0.0, None
@@ -78,12 +84,12 @@ class BenchmarkPanel(tk.Frame):
         self.preset.set('Quick')
         if self.pending_start:
             self.model.set(self.pending_start['model'])
-            self.suite.set(next(key for key, value in SUITES.items() if value == self.pending_start['suite']))
+            self.suite.set('Repository native' if self.pending_start.get('task_pack') == 'repository' else next(key for key, value in SUITES.items() if value == self.pending_start['suite']))
             self.preset.set(next(key for key, value in PRESETS.items() if value == self.pending_start.get('preset', 'quick')))
         self.preset.grid(row=0, column=2, padx=(0, 8))
         self.start = ttk.Button(controls, text='Run benchmark', style='Accent.TButton', command=self.run)
         self.start.grid(row=0, column=3)
-        ttk.Button(controls, text='Production tasks…', command=self.production_tasks).grid(row=1, column=0, columnspan=2, sticky='w', pady=6)
+        ttk.Button(controls, text='Live qualification…', command=self.production_tasks).grid(row=1, column=0, columnspan=2, sticky='w', pady=6)
         ttk.Button(controls, text='Setup coding sandbox…', command=lambda: open_benchmark_settings(self, self.root)).grid(row=1, column=2, columnspan=2, sticky='e', pady=6)
         self.model.bind('<<ComboboxSelected>>', lambda _: self.update_controls())
         self.suite.bind('<<ComboboxSelected>>', lambda _: self.explain())
@@ -104,10 +110,12 @@ class BenchmarkPanel(tk.Frame):
         self.tabs = ttk.Notebook(self)
         self.tabs.pack(fill='both', expand=True)
         self.pages = {}
-        for title in ('Overview', 'Breakdown', 'Evidence', 'History'):
+        for title in ('Overview', 'Compare', 'Tasks', 'Evidence', 'History'):
             page = tk.Frame(self.tabs, bg=theme.BG)
             self.tabs.add(page, text=title)
             self.pages[title] = page
+        self.pages['Breakdown'] = self.pages['Tasks']
+        self.build_comparison()
         self.summary_text = theme.label(self.pages['Overview'], 'Closing the window keeps admitted work running on Gateway.', color=theme.MUTED,
                                         anchor='nw', justify='left', wraplength=700)
         self.summary_text.pack(side='bottom', fill='x', pady=(0, 10))
@@ -162,27 +170,200 @@ class BenchmarkPanel(tk.Frame):
         if event.widget is self:
             self.status.configure(wraplength=max(250, event.width - 12))
             self.summary_text.configure(wraplength=max(250, event.width - 24))
+            self.compare_summary.configure(wraplength=max(250, event.width - 28))
+
+    def build_comparison(self):
+        viewport = tk.Canvas(self.pages['Compare'], bg=theme.BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.pages['Compare'], orient='vertical', command=viewport.yview)
+        scrollbar.pack(side='right', fill='y')
+        viewport.pack(side='left', fill='both', expand=True)
+        viewport.configure(yscrollcommand=scrollbar.set)
+        page = tk.Frame(viewport, bg=theme.BG)
+        item = viewport.create_window((0, 0), window=page, anchor='nw')
+        page.bind('<Configure>', lambda _: viewport.configure(scrollregion=viewport.bbox('all')))
+        viewport.bind('<Configure>', lambda event: viewport.itemconfigure(item, width=event.width))
+        self.compare_viewport = viewport
+        theme.label(page, 'Compare verified engineering outcomes', size=16, bold=True).pack(anchor='w', pady=(12, 4))
+        theme.label(page, 'Evidence lanes: Tool contracts · Simulated workflows · Executable coding · Live GitHub',
+                    color=theme.CYAN, anchor='w', justify='left', wraplength=700).pack(fill='x', pady=(0, 8))
+        theme.label(page, 'This Gateway pair runs executable coding or the quick contract check. Simulated workflow pairs run from the phone; Production tasks opens live qualification evidence.',
+                    color=theme.MUTED, anchor='w', justify='left', wraplength=700).pack(fill='x', pady=(0, 10))
+        fields = tk.Frame(page, bg=theme.BG)
+        fields.pack(fill='x')
+        for index in range(2):
+            fields.columnconfigure(index, weight=1)
+        theme.label(fields, 'Model A · exact Gateway model').grid(row=0, column=0, sticky='w')
+        theme.label(fields, 'Model B · exact Gateway model').grid(row=0, column=1, sticky='w')
+        self.compare_a, self.compare_b = ttk.Combobox(fields, state='readonly'), ttk.Combobox(fields, state='readonly')
+        self.compare_a.grid(row=1, column=0, sticky='ew', padx=(0, 8), pady=(3, 10))
+        self.compare_b.grid(row=1, column=1, sticky='ew', pady=(3, 10))
+        for control in (self.compare_a, self.compare_b):
+            control.bind('<<ComboboxSelected>>', lambda _: self.update_controls())
+        options = tk.Frame(page, bg=theme.BG)
+        options.pack(fill='x')
+        self.compare_preset = ttk.Combobox(options, state='readonly', values=('Coding Quick · 12', 'Coding Standard · 36', 'Coding Deep · 100', 'Native Quick · 4', 'Native Standard · 8', 'Native Deep · 12', 'Contract Quick · 5'), width=24)
+        self.compare_preset.current(0)
+        self.compare_preset.pack(side='left', padx=(0, 8))
+        theme.label(options, 'Fresh episodes').pack(side='left')
+        self.compare_repeats = ttk.Combobox(options, state='readonly', values=('1', '3', '5', '10'), width=4)
+        self.compare_repeats.set('3')
+        self.compare_repeats.pack(side='left', padx=8)
+        self.compare_order = tk.BooleanVar(value=False)
+        ttk.Checkbutton(page, text='Counterbalance model order (otherwise use A then B)', variable=self.compare_order).pack(anchor='w', pady=(8, 0))
+        actions = tk.Frame(page, bg=theme.BG)
+        actions.pack(fill='x', pady=8)
+        self.compare_start = ttk.Button(actions, text='Start matched comparison', style='Accent.TButton', command=self.start_comparison)
+        self.compare_start.pack(side='left')
+        ttk.Button(actions, text='Check / resume', command=self.resume_comparison).pack(side='left', padx=8)
+        ttk.Button(actions, text='Stop comparison', command=self.stop_comparison).pack(side='left')
+        self.compare_summary = theme.label(page, 'No matched comparison yet. One model, unverified grading or insufficient repeated evidence produces an inconclusive result.',
+            color=theme.MUTED, anchor='nw', justify='left', wraplength=700)
+        self.compare_summary.pack(fill='x', pady=(6, 12))
+        self.compare_chart = Bars(page)
+        self.compare_chart.configure(height=110)
+        self.compare_chart.pack(fill='both', expand=True)
+        saved = tk.Frame(page, bg=theme.BG)
+        saved.pack(fill='x', pady=8)
+        self.compare_saved = ttk.Combobox(saved, state='readonly')
+        self.compare_saved.pack(side='left', fill='x', expand=True, padx=(0, 8))
+        ttk.Button(saved, text='Open saved pair', command=self.open_comparison).pack(side='left')
+        ttk.Button(saved, text='Export pair', command=self.export_comparison).pack(side='left', padx=8)
+        def reveal(event):
+            if not viewport.winfo_viewable():
+                return
+            top = event.widget.winfo_rooty() - page.winfo_rooty()
+            visible_top = viewport.canvasy(0)
+            visible_bottom = visible_top + viewport.winfo_height()
+            if top < visible_top or top + event.widget.winfo_height() > visible_bottom:
+                viewport.yview_moveto(max(0, top - 16) / max(1, page.winfo_height()))
+        def bind_children(widget):
+            widget.bind('<FocusIn>', reveal, add='+')
+            widget.bind('<MouseWheel>', lambda event: viewport.yview_scroll(-1 if event.delta > 0 else 1, 'units'), add='+')
+            widget.bind('<Button-4>', lambda _: viewport.yview_scroll(-1, 'units'), add='+')
+            widget.bind('<Button-5>', lambda _: viewport.yview_scroll(1, 'units'), add='+')
+            for child in widget.winfo_children():
+                bind_children(child)
+        bind_children(page)
+
+    def start_comparison(self):
+        if self.busy:
+            return
+        index = self.compare_preset.current()
+        models = [self.compare_a.get(), self.compare_b.get()]
+        repeats = int(self.compare_repeats.get())
+        ordering = 'COUNTERBALANCED' if self.compare_order.get() else 'SELECTED_ORDER'
+        self.launch('comparison', lambda: benchmark_comparison.create(self.root, models,
+            suite='quick_check' if index == 6 else 'coding', preset=('quick', 'standard', 'deep', 'quick', 'standard', 'deep', 'quick')[index],
+            repeats=repeats, ordering=ordering, task_pack='repository' if index in (3, 4, 5) else 'python'),
+            'Freezing tasks, route, settings and comparison budget…')
+
+    def show_comparison(self, session):
+        self.comparison = session
+        summary = session.get('summary') or benchmark_comparison.summarize(session)
+        models = summary['models']
+        lines = [session['state'].replace('_', ' ').title(),
+                 ('Superior on this matched suite: ' + summary['winner']) if summary.get('winner') else 'Inconclusive · no qualified winner',
+                 f"{summary['pairedTasks']} matched task variants · {summary['independentTaskGroups']} task families · {session['manifest']['repeats']} fresh episodes per model"]
+        for row in models:
+            timing = row['measurements']
+            lines.append(f"{row['model']}: {pretty(row['resolved'], digits=0)}/{row['planned']} final resolutions · first {pretty(row['initialResolved'], digits=0)} · best {pretty(row['bestResolved'], digits=0)} · {row['completedEpisodes']}/{row['plannedEpisodes']} episodes · all-in wall time {pretty(timing['endToEndMs'], ' ms')} · model-request time {pretty(timing['totalMs'], ' ms')} · input/output tokens {pretty(timing['inputTokens'], digits=0)}/{pretty(timing['outputTokens'], digits=0)} · cost unknown")
+        if summary.get('confidenceInterval95'):
+            low, high = summary['confidenceInterval95']
+            lines.append(f"Family-weighted difference {100 * summary['difference']:+.1f} percentage points · 95% interval {100 * low:+.1f} to {100 * high:+.1f} · required practical margin {100 * summary['practicalMargin']:.1f}")
+        lines.extend(summary['reasons'])
+        if session.get('recovery'):
+            lines.append(session['recovery'])
+        lines.append(session['manifest']['queueLifecycle'])
+        self.compare_summary.configure(text='\n'.join(lines))
+        self.compare_chart.set([(row['model'], 100 * row['resolved'] / row['planned'] if row['planned'] and type(row['resolved']) is int else None, theme.CYAN if index == 0 else theme.PURPLE) for index, row in enumerate(models)], '% observed')
+        self.write_evidence(benchmark_comparison.public_snapshot(session))
+        self.update_controls()
+
+    def open_comparison(self):
+        index = self.compare_saved.current()
+        if index >= 0 and not self.busy:
+            ident = self.comparison_history[index]['id']
+            self.launch('comparison', lambda: benchmark_comparison.read(self.root, ident))
+
+    def resume_comparison(self):
+        if self.comparison and not self.busy:
+            ident = self.comparison['id']
+            self.launch('comparison', lambda: benchmark_comparison.advance(self.root, ident), 'Reconciling retained paired work…')
+
+    def stop_comparison(self):
+        if self.comparison and not self.busy:
+            ident = self.comparison['id']
+            self.launch('comparison', lambda: benchmark_comparison.stop(self.root, ident), 'Stopping admitted work and remaining episodes…')
+
+    def export_comparison(self):
+        if not self.comparison:
+            return
+        path = filedialog.asksaveasfilename(parent=self, title='Export matched comparison', defaultextension='.json', initialfile='engineering-comparison.json', filetypes=[('JSON evidence', '*.json')])
+        if path:
+            ident = self.comparison['id']
+            self.launch('exported', lambda: benchmark_comparison.export(self.root, ident, path))
 
     def production_tasks(self):
         if self.busy:
             return
-        path = filedialog.askopenfilename(parent=self, title='Open ten-scenario qualification manifest', filetypes=[('JSON', '*.json')])
-        if not path:
-            return
-        def inspect():
-            from desktop.conversation_client import Client
-            from desktop.configuration import atomic_json
-            from benchmarks.engineering_qualification import run_manifest
-            source = Path(path)
-            if source.stat().st_size > 1024 * 1024:
-                raise ValueError('Qualification manifest exceeds 1 MiB')
-            manifest = json.loads(source.read_text())
-            client = Client(self.root)
-            client.identity()
-            result = run_manifest(client, manifest)
-            atomic_json(source.with_suffix('.results.json'), result)
-            return result
-        self.launch('production-qualification', inspect, 'Reading exact production-job evidence…')
+        dialog = tk.Toplevel(self)
+        dialog.title('Live GitHub qualification')
+        dialog.configure(bg=theme.BG)
+        dialog.transient(self.winfo_toplevel())
+        content = tk.Frame(dialog, bg=theme.BG, padx=20, pady=20)
+        content.pack(fill='both', expand=True)
+        theme.label(content, 'Use a frozen disposable-fixture manifest', size=16, bold=True).pack(anchor='w')
+        theme.label(content, 'The manifest fixes repository, benchmark branches, base SHA, exact profile, model, route and settings. Read evidence submits no jobs. Execute admits only the fixed requests in this disposable cohort.',
+                    wraplength=570, justify='left', color=theme.MUTED).pack(fill='x', pady=12)
+        selected = tk.StringVar()
+        field = ttk.Entry(content, textvariable=selected, width=60)
+        field.pack(fill='x')
+        def choose():
+            path = filedialog.askopenfilename(parent=dialog, title='Choose frozen qualification manifest', filetypes=[('JSON', '*.json')])
+            if path:
+                selected.set(path)
+        ttk.Button(content, text='Choose manifest…', command=choose).pack(anchor='w', pady=8)
+        def start(execute):
+            path = selected.get()
+            if not path:
+                return
+            dialog.destroy()
+            self.launch('qualification-receipt', lambda: benchmark_qualification.start(self.root, path, execute=execute),
+                        'Admitting frozen disposable work…' if execute else 'Reading fixed qualification evidence…')
+        actions = tk.Frame(content, bg=theme.BG)
+        actions.pack(fill='x')
+        ttk.Button(actions, text='Read evidence only', command=lambda: start(False)).pack(side='left')
+        ttk.Button(actions, text='Execute frozen manifest', command=lambda: start(True)).pack(side='left', padx=8)
+        theme.label(content, 'Saved submissions survive a closed desktop. Checking is read-only; Resume dispatches only fixed missing jobs originally authorized for execution.',
+                    wraplength=570, justify='left', color=theme.MUTED).pack(fill='x', pady=12)
+        saved = benchmark_qualification.history(self.root)
+        selector = ttk.Combobox(content, state='readonly', width=65,
+            values=[f"{row['localId'][-8:]} · {row['state']} · {(row.get('route') or {}).get('model', 'Exact manifest route')}" for row in saved])
+        selector.pack(fill='x')
+        if saved:
+            selector.current(0)
+        def refresh(execute):
+            index = selector.current()
+            if index < 0:
+                return
+            ident = saved[index]['localId']
+            dialog.destroy()
+            self.launch('qualification-receipt', lambda: benchmark_qualification.refresh(self.root, ident, execute=execute),
+                        'Resuming authorized fixed jobs…' if execute else 'Reconciling the original qualification…')
+        saved_actions = tk.Frame(content, bg=theme.BG)
+        saved_actions.pack(fill='x', pady=(8, 0))
+        ttk.Button(saved_actions, text='Check saved submission', command=lambda: refresh(False)).pack(side='left')
+        ttk.Button(saved_actions, text='Resume authorized jobs', command=lambda: refresh(True)).pack(side='left', padx=8)
+
+    def show_qualification_receipt(self, receipt):
+        run = receipt.get('run') or {}
+        report = run.get('result')
+        if isinstance(report, dict):
+            self.show_qualification(report)
+        self.write_evidence(receipt)
+        self.status.configure(text=receipt.get('recovery') or
+            f"Live qualification: {receipt['state']}. Use Live qualification to check the same saved submission or resume its authorized jobs.")
+        self.tabs.select(self.pages['Evidence'])
 
     def show_qualification(self, report):
         self.selected = None
@@ -216,7 +397,7 @@ class BenchmarkPanel(tk.Frame):
             'quick_check': 'Five short answer fixtures. Scores apply to this check only.',
             'batch_comparison': {'quick': '3', 'standard': '10', 'deep': '30'}[preset] + ' matched pairs: serial versus two concurrent HTTP requests. Native inference batching is not inferred.',
             'coding': {'quick': '12 trials across 12 repair problems.', 'standard': '36 seeded trials across 12 repair problems.', 'deep': '96 seeded repair trials and 4 integration capstones: 16 problems, 100 trials.'}[preset] + ' Requires prepared Python sandbox; choose Setup coding sandbox. No production GitHub writes.'}
-        self.status.configure(text=descriptions[suite])
+        self.status.configure(text=(f"{ {'quick': 4, 'standard': 8, 'deep': 12}[preset]} distinct repository defects: compiled Kotlin, SQLite migrations and parsed workflow gates. Requires an operator-prepared native image." if self.suite.get() == 'Repository native' else descriptions[suite]))
 
     def update_controls(self):
         frozen = self.busy or self.pending_start is not None
@@ -229,6 +410,16 @@ class BenchmarkPanel(tk.Frame):
         self.export.configure(state='normal' if self.selected and not self.busy else 'disabled')
         self.remove.configure(state='normal' if self.selected and not active and not self.busy else 'disabled')
         self.more.configure(state='normal' if self.next_cursor and not self.busy else 'disabled')
+        comparison_active = self.comparison and self.comparison.get('state') not in {'COMPLETED', 'CANCELLED'}
+        selected = [self.compare_a.get(), self.compare_b.get()]
+        advertised = set(self.compare_a.cget('values'))
+        available = all(model in advertised for model in selected)
+        distinct = selected[0] != selected[1]
+        self.compare_start.configure(
+            state='disabled' if self.busy or comparison_active or not available or not distinct else 'normal',
+            text='Reselect unavailable model' if any(selected) and not available else 'Choose two different models' if all(selected) and not distinct else 'Start matched comparison')
+        for control in (self.compare_a, self.compare_b, self.compare_preset, self.compare_repeats):
+            control.configure(state='disabled' if self.busy or comparison_active else 'readonly')
 
     def launch(self, operation, action, status=None):
         if self.busy or not self.alive:
@@ -257,7 +448,7 @@ class BenchmarkPanel(tk.Frame):
 
     def refresh_history(self, more=False):
         cursor = self.next_cursor if more else None
-        self.launch('more_history' if more else 'history', lambda: benchmark.history(self.root, cursor))
+        self.launch('more_history' if more else 'history', lambda: dict(benchmark.history(self.root, cursor), comparisons=benchmark_comparison.history(self.root)))
 
     def run(self):
         if self.pending_start is not None:
@@ -270,10 +461,12 @@ class BenchmarkPanel(tk.Frame):
             return
         if not self.pending_start:
             self.pending_start = {'model': self.model.get(), 'suite': SUITES[self.suite.get()], 'preset': PRESETS[self.preset.get()], 'request_id': 'desktop-' + uuid.uuid4().hex}
+            if self.suite.get() == 'Repository native':
+                self.pending_start['task_pack'] = 'repository'
         pending = self.pending_start
         def submit():
             # Offline verification happens before any request or idempotency receipt is sent.
-            verify_submission(self.root, pending['suite'])
+            verify_submission(self.root, pending['suite'], task_pack=pending.get('task_pack', 'python'))
             if '_binding' not in pending:
                 pending['_binding'] = benchmark.execution_binding(self.root)
             benchmark.save_pending(self.root, pending)
@@ -293,13 +486,21 @@ class BenchmarkPanel(tk.Frame):
             if event == 'models':
                 old = self.model.get()
                 self.model.configure(values=value)
-                self.model.set(old if old in value else value[0] if value else '')
+                self.model.set(refreshed_model_selection(old, value))
                 self.discovered = bool(value)
+                for index, control in enumerate((self.compare_a, self.compare_b)):
+                    previous = control.get()
+                    control.configure(values=value)
+                    control.set(refreshed_model_selection(previous, value, index))
                 self.explain()
                 self.refresh_history()
             elif event in {'history', 'more_history'}:
                 self.results = (self.results if event == 'more_history' else []) + value.get('runs', [])
                 self.next_cursor = value.get('next')
+                self.comparison_history = value.get('comparisons', [])
+                self.compare_saved.configure(values=[f"{' vs '.join(row['manifest']['models'])} · {row['state']}" for row in self.comparison_history])
+                if self.comparison_history and self.compare_saved.current() < 0:
+                    self.compare_saved.current(0)
                 self.render_history()
                 if self.results and self.selected is None:
                     ident = self.results[0]['id']
@@ -324,6 +525,10 @@ class BenchmarkPanel(tk.Frame):
                     self.status.configure(text='No original request receipt is visible. No new work was sent. Restore the original connection and check again.')
             elif event == 'production-qualification':
                 self.show_qualification(value)
+            elif event == 'qualification-receipt':
+                self.show_qualification_receipt(value)
+            elif event == 'comparison':
+                self.show_comparison(value)
             elif event == 'exported':
                 self.status.configure(text='Results exported with retained measurements and provenance.')
             elif event == 'removed':
@@ -344,7 +549,11 @@ class BenchmarkPanel(tk.Frame):
                         self.pending_start['_uncertain'] = True
                 self.status.configure(text=value + (' Use Check submission to reconcile the same request.' if self.pending_start else ''))
             self.update_controls()
-        if self.selected and self.selected.get('state') not in TERMINAL and not self.busy and time.monotonic() - self.last_refresh >= 1:
+        if self.comparison and self.comparison.get('state') in {'READY', 'RUNNING', 'STOPPING'} and not self.busy and time.monotonic() - self.last_refresh >= 2:
+            self.last_refresh = time.monotonic()
+            ident = self.comparison['id']
+            self.launch('comparison', lambda: benchmark_comparison.advance(self.root, ident))
+        elif self.selected and self.selected.get('state') not in TERMINAL and not self.busy and time.monotonic() - self.last_refresh >= 1:
             self.last_refresh = time.monotonic()
             ident = self.selected['id']
             self.launch('snapshot', lambda: benchmark.run_snapshot(self.root, ident))
@@ -379,9 +588,14 @@ class BenchmarkPanel(tk.Frame):
         self.status.configure(text=run.get('progress', ''))
         suite = run['request']['suite']
         if suite == 'coding':
+            self.metrics['score'].configure(text=f"{summary.get('finalResolved', summary.get('resolved', 0))} resolved" if summary.get('qualified') else 'Unqualified')
             self.chart.set([(name.title(), item.get('value'), theme.CYAN) for name, item in summary.get('dimensions', {}).items()], ' pts')
-            detail = f'{16 if run["request"]["preset"] == "deep" else 12} distinct fixture problems · {run.get("planned", 0)} trials · {summary.get("resolved", 0)} resolved. '
+            native = run['request'].get('task_pack') == 'repository'
+            problems = {'quick': 4, 'standard': 8, 'deep': 12}[run['request']['preset']] if native else 100 if run['request']['preset'] == 'deep' else 36 if run['request']['preset'] == 'standard' else 12
+            detail = f'{problems} distinct fixture problems · {run.get("planned", 0)} trials · {summary.get("resolved", 0)} resolved. '
             detail += 'The 1000-point result covers declared isolated fixture criteria. Live GitHub, GPU and general intelligence are not measured.'
+            if native:
+                detail = f'{problems} repository defects · {run.get("planned", 0)} tasks. Kotlin is compiled, SQLite migrations execute, and parsed workflow gates run shell steps. This does not certify Android instrumentation, Room code generation or hosted Actions. Unmeasured rubric criteria remain unavailable.'
             if score is None:
                 detail += ' Overall score unavailable pending complete verification.'
                 provisional = summary.get('provisionalEarned', summary.get('earned'))
@@ -404,7 +618,7 @@ class BenchmarkPanel(tk.Frame):
         for index, case in enumerate(cases):
             timing = case.get('timing', case)
             self.case_table.insert('', 'end', iid=str(index), values=(case.get('title', case.get('name', case['id'])), case.get('status'), pretty(case.get('score'), '', 0), pretty(timing.get('firstMs'), ' ms', 0), pretty(timing.get('totalMs', case.get('validationMs')), ' ms', 0)))
-        self.write_evidence({'request': run['request'], 'provenance': run.get('provenance'), 'summary': summary, 'failure': run.get('failure'), 'completionReceipt': run.get('completionReceipt'), 'pendingCaseIds': run.get('pendingCaseIds'), 'detail': 'Select a Breakdown row for case-level receipts.'})
+        self.write_evidence({'request': run['request'], 'provenance': run.get('provenance'), 'summary': summary, 'failure': run.get('failure'), 'completionReceipt': run.get('completionReceipt'), 'pendingCaseIds': run.get('pendingCaseIds'), 'detail': 'Select a Tasks row for case-level receipts. First, final and best attempts remain separate; the point rubric is secondary.'})
         self.update_controls()
 
     def write_evidence(self, value):
@@ -444,7 +658,7 @@ def open_benchmark_settings(parent, root):
     window = tk.Toplevel(parent)
     theme.apply(window)
     window.title('Coding benchmark sandbox')
-    window.geometry('710x460')
+    window.geometry('710x610')
     content = tk.Frame(window, bg=theme.BG, padx=24, pady=20)
     content.pack(fill='both', expand=True)
     theme.label(content, 'Coding benchmark sandbox', size=18, bold=True).pack(anchor='w')
@@ -465,6 +679,12 @@ def open_benchmark_settings(parent, root):
     theme.label(content, 'Approved local image @sha256 digest (advanced/manual)').pack(anchor='w')
     image_field = ttk.Entry(content, textvariable=image)
     image_field.pack(fill='x', pady=(4, 12))
+    native_image = tk.StringVar(master=window, value=settings.get('repository_image', ''))
+    theme.label(content, 'Repository native image @sha256 digest (operator prepared)').pack(anchor='w')
+    native_field = ttk.Entry(content, textvariable=native_image)
+    native_field.pack(fill='x', pady=(4, 4))
+    theme.label(content, 'This optional image needs Kotlin/JVM and Python with SQLite and PyYAML. It must already be installed locally; this view does not download a compiler image.',
+                color=theme.MUTED, wraplength=635, justify='left').pack(anchor='w', pady=(0, 12))
     repairs = tk.StringVar(master=window, value=str(settings['repair_attempts']))
     row = tk.Frame(content, bg=theme.BG)
     row.pack(fill='x')
@@ -488,7 +708,7 @@ def open_benchmark_settings(parent, root):
             return
         try:
             settings = save_settings(
-                root, dict(settings, sandbox_image=image.get().strip(),
+                root, dict(settings, sandbox_image=image.get().strip(), repository_image=native_image.get().strip(),
                            repair_attempts=int(repairs.get())), expected=settings)
         except (ValueError, OSError, RuntimeError) as error:
             messagebox.showerror('Benchmark settings', str(error), parent=window)
@@ -507,7 +727,7 @@ def open_benchmark_settings(parent, root):
             return
         busy = True
         cancel_event.clear()
-        for widget in (image_field, repairs_field, prepare_button, check_button, save_button):
+        for widget in (image_field, native_field, repairs_field, prepare_button, check_button, save_button):
             widget.configure(state='disabled')
         stop_button.configure(state='normal')
         progress.start(12)
@@ -545,7 +765,7 @@ def open_benchmark_settings(parent, root):
                 continue
             busy = False
             progress.stop()
-            for widget in (image_field, prepare_button, check_button, save_button):
+            for widget in (image_field, native_field, prepare_button, check_button, save_button):
                 widget.configure(state='normal')
             repairs_field.configure(state='readonly')
             stop_button.configure(state='disabled')

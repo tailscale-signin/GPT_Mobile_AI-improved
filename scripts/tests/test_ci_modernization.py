@@ -74,6 +74,55 @@ class DiagnosticsTest(unittest.TestCase):
 
 
 class WorkflowPolicyTest(unittest.TestCase):
+    def test_device_acceptance_releases_codegen_heaps_before_each_compile_phase(self):
+        import re
+
+        workflow = (SCRIPTS.parent / '.github/workflows/release-0950-acceptance.yml').read_text()
+        steps = re.split(r'(?m)^      - ', workflow.split('\n    steps:\n', 1)[1])[1:]
+        expected = (
+            (':app:kspDebugKotlin',),
+            (':app:kaptDebugKotlin',),
+            (':app:compileDebugKotlin', ':app:compileDebugJavaWithJavac'),
+            (':app:compileDebugAndroidTestKotlin', ':app:compileDebugAndroidTestJavaWithJavac'),
+        )
+        positions = []
+        for tasks in expected:
+            matches = [
+                (index, step) for index, step in enumerate(steps)
+                if tasks[0] in re.findall(r':app:[A-Za-z]+', step)
+            ]
+            self.assertEqual(1, len(matches), tasks)
+            index, step = matches[0]
+            positions.append(index)
+            self.assertEqual(list(tasks), re.findall(r':app:[A-Za-z]+', step))
+            self.assertEqual(1, step.count('python3 scripts/gradle_retry.py'))
+            for required in ('--no-daemon', '--max-workers=1', '-Xmx4096m',
+                             '-XX:MaxMetaspaceSize=768m', '-Pandroid.injected.build.abi=x86_64',
+                             'set -o pipefail', '2>&1 | tee acceptance-'):
+                self.assertIn(required, step)
+            minutes = int(re.search(r'(?m)^        timeout-minutes: (\d+)$', step)[1])
+            seconds = int(re.search(r'--timeout-seconds (\d+)', step)[1])
+            self.assertGreater(seconds, 0)
+            self.assertLessEqual(seconds, minutes * 60 - 60)
+            self.assertNotIn('continue-on-error:', step)
+        self.assertEqual(sorted(set(positions)), positions)
+        package = next(index for index, step in enumerate(steps) if ':app:assembleDebugAndroidTest' in step)
+        artifact_check = next(index for index, step in enumerate(steps) if 'select_android_test_apk.py' in step)
+        emulator = next(index for index, step in enumerate(steps) if 'ReactiveCircus/android-emulator-runner@' in step)
+        self.assertLess(positions[-1], package)
+        self.assertLess(package, artifact_check)
+        self.assertLess(artifact_check, emulator)
+        self.assertIn('    timeout-minutes: 60\n', workflow)
+        self.assertIn('          - api: 34\n', workflow)
+        self.assertIn('          - api: 36\n', workflow)
+        self.assertIn(':app:assembleDebug :app:assembleDebugAndroidTest', steps[package])
+        self.assertIn('-Djava.util.concurrent.ForkJoinPool.common.parallelism=1', steps[package])
+        self.assertIn('--application-id dev.melo.gptmobile.improved --abi x86_64', steps[artifact_check])
+        self.assertIn('--application-id dev.melo.gptmobile.improved.test', steps[artifact_check])
+        self.assertIn('bash scripts/run_release0950_acceptance.sh', steps[emulator])
+        self.assertIn('            app/build/acceptance-0950/\n', workflow)
+        self.assertIn('            acceptance-*.log\n', workflow)
+
     def test_floating_action_rejected_and_sha_accepted(self):
         policy = module('check_ci_policy')
         self.assertTrue(policy.check_text('uses: example/action@v4', '.github/actions/example/action.yml'))

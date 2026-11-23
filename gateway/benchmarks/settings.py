@@ -6,7 +6,7 @@ import re
 from desktop.configuration import atomic_json
 from v14.state_lock import StateDirectoryLock
 
-DEFAULTS = {'schema': 1, 'sandbox_image': '', 'sandbox_seconds': 30, 'repair_attempts': 1}
+DEFAULTS = {'schema': 1, 'sandbox_image': '', 'repository_image': '', 'sandbox_seconds': 30, 'repair_attempts': 1}
 
 
 def validate(value):
@@ -18,6 +18,9 @@ def validate(value):
     image = result['sandbox_image']
     if not isinstance(image, str) or image and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9./:_-]{0,180}@sha256:[a-f0-9]{64}', image):
         raise ValueError('Use a local Python image pinned as name@sha256:<64 hexadecimal characters>')
+    repository_image = result['repository_image']
+    if not isinstance(repository_image, str) or repository_image and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9./:_-]{0,180}@sha256:[a-f0-9]{64}', repository_image):
+        raise ValueError('Use an immutable local repository runtime image')
     if type(result['sandbox_seconds']) is not int or not 5 <= result['sandbox_seconds'] <= 120:
         raise ValueError('Sandbox timeout must be between 5 and 120 seconds')
     if type(result['repair_attempts']) is not int or not 0 <= result['repair_attempts'] <= 2:
@@ -88,9 +91,12 @@ def prepare_sandbox(root, *, expected=None, cancel=None, progress=lambda message
     save_settings(root, dict(original, sandbox_image=image), expected=original)
     return image
 
-def verify_submission(root, suite):
+def verify_submission(root, suite, task_pack='python'):
     """Fail fast for a coding run, without downloading or preparing any image."""
     if suite == 'coding':
         from benchmarks.sandbox import preflight
-        return preflight(load_settings(root))
+        settings = load_settings(root)
+        if task_pack == 'repository':
+            settings = dict(settings, sandbox_image=settings['repository_image'])
+        return preflight(settings)
     return None

@@ -103,9 +103,87 @@ class RobolectricProvisioningTest(unittest.TestCase):
         sdk.download(self.target, canonical, self.digest, 100, opener, delays.append,
                      lambda: 0, lambda _low, _high: 0, lambda: 0)
         self.assertEqual([canonical, sdk.MAVEN_CENTRAL_ALTERNATE_BASE + '/sample/runtime.jar'], calls)
-        self.assertEqual([15], delays)
+        self.assertEqual([], delays)
         self.assertEqual(self.body, self.target.read_bytes())
         self.assertFalse(list(self.target.parent.glob('*.part')))
+
+    def test_long_primary_retry_after_does_not_block_independent_verified_mirror(self):
+        calls, delays = [], []
+        canonical = f"{sdk.BASE}/sample/runtime.jar"
+
+        def opener(url, timeout):
+            calls.append(url)
+            if url == canonical:
+                raise urllib.error.HTTPError(url, 429, 'host throttled', {'Retry-After': '3600'}, None)
+            return io.BytesIO(self.body)
+
+        sdk.download(self.target, canonical, self.digest, 100, opener, delays.append,
+                     lambda: 0, lambda _low, _high: 0, lambda: 0)
+        self.assertEqual([canonical, sdk.MAVEN_CENTRAL_ALTERNATE_BASE + '/sample/runtime.jar'], calls)
+        self.assertEqual([], delays)
+        self.assertEqual(self.body, self.target.read_bytes())
+
+    def test_all_hosts_blocked_beyond_deadline_each_try_once_without_hot_loop(self):
+        calls, delays = [], []
+        canonical = f"{sdk.BASE}/sample/runtime.jar"
+
+        def opener(url, timeout):
+            calls.append(url)
+            raise urllib.error.HTTPError(url, 429, 'host throttled', {'Retry-After': '3600'}, None)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            sdk.download(self.target, canonical, self.digest, 100, opener, delays.append,
+                         lambda: 0, lambda _low, _high: 0, lambda: 0)
+        self.assertEqual([
+            canonical,
+            sdk.MAVEN_CENTRAL_ALTERNATE_BASE + '/sample/runtime.jar',
+            sdk.GOOGLE_MAVEN_CENTRAL_BASE + '/sample/runtime.jar',
+        ], calls)
+        self.assertEqual([], delays)
+        self.assertFalse(self.target.exists())
+
+    def test_host_retry_after_is_honored_before_that_host_is_reused(self):
+        calls, delays, now = [], [], [0]
+        canonical = f"{sdk.BASE}/sample/runtime.jar"
+        alternate = sdk.MAVEN_CENTRAL_ALTERNATE_BASE + '/sample/runtime.jar'
+
+        def opener(url, timeout):
+            calls.append((url, now[0]))
+            if url == alternate and now[0] >= 30:
+                return io.BytesIO(self.body)
+            delay = 120 if url == canonical else 30 if url == alternate else 60
+            raise urllib.error.HTTPError(url, 429, 'host throttled', {'Retry-After': str(delay)}, None)
+
+        def wait(seconds):
+            delays.append(seconds)
+            now[0] += seconds
+
+        sdk.download(self.target, canonical, self.digest, 100, opener, wait,
+                     lambda: now[0], lambda _low, _high: 0, lambda: 0)
+        self.assertEqual([(canonical, 0), (alternate, 0),
+                          (sdk.GOOGLE_MAVEN_CENTRAL_BASE + '/sample/runtime.jar', 0), (alternate, 30)], calls)
+        self.assertEqual([30], delays)
+        self.assertEqual(self.body, self.target.read_bytes())
+
+    def test_provision_preserves_host_cooldown_across_artifacts(self):
+        calls = []
+        spec = {'sample': {'jar': self.digest, 'pom': self.digest}}
+        suffix = '/sample/android-all-instrumented-sample.'
+
+        def opener(url, timeout):
+            calls.append(url)
+            if url.startswith(sdk.BASE + '/'):
+                raise urllib.error.HTTPError(url, 429, 'host throttled', {'Retry-After': '3600'}, None)
+            return io.BytesIO(self.body)
+
+        sdk.provision(self.target.parent, spec, opener,
+                      lambda _: self.fail('ready mirror must not inherit a different host cooldown'), lambda: 0)
+        self.assertEqual([sdk.BASE + suffix + 'jar', sdk.MAVEN_CENTRAL_ALTERNATE_BASE + suffix + 'jar',
+                          sdk.MAVEN_CENTRAL_ALTERNATE_BASE + suffix + 'pom'], calls)
+        for extension in ('jar', 'pom'):
+            target = self.target.parent / 'org/robolectric/android-all-instrumented/sample' / f'android-all-instrumented-sample.{extension}'
+            self.assertEqual(self.body, target.read_bytes())
+            self.assertEqual(self.digest, target.with_suffix(target.suffix + '.sha512').read_text().strip())
 
 
     def test_google_maven_mirror_recovers_after_both_central_hosts_429(self):
@@ -125,7 +203,7 @@ class RobolectricProvisioningTest(unittest.TestCase):
             sdk.MAVEN_CENTRAL_ALTERNATE_BASE + '/sample/runtime.jar',
             sdk.GOOGLE_MAVEN_CENTRAL_BASE + '/sample/runtime.jar'
         ], calls)
-        self.assertEqual([15, 30], delays)
+        self.assertEqual([], delays)
         self.assertEqual(self.body, self.target.read_bytes())
         self.assertFalse(list(self.target.parent.glob('*.part')))
 
@@ -150,7 +228,7 @@ class RobolectricProvisioningTest(unittest.TestCase):
             sdk.GOOGLE_MAVEN_CENTRAL_BASE + '/sample/runtime.jar',
             canonical,
         ], calls)
-        self.assertEqual([15, 30, 20], delays)
+        self.assertEqual([15], delays)
         self.assertEqual(self.body, self.target.read_bytes())
         self.assertFalse(list(self.target.parent.glob('*.part')))
 

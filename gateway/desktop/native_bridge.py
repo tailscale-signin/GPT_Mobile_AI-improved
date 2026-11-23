@@ -498,6 +498,36 @@ def dispatch(root, action, args, output):
         return {'requested': True}
     if action.startswith('benchmark-'):
         from desktop import benchmark
+        if action.startswith('benchmark-qualification-'):
+            from desktop import benchmark_qualification as qualification
+            if action == 'benchmark-qualification-history':
+                return {'qualifications': qualification.history(root)}
+            if action == 'benchmark-qualification-start':
+                return qualification.start(root, bound_text(args.get('path'), 4096), execute=args.get('execute', False))
+            if action == 'benchmark-qualification-read':
+                return qualification.refresh(root, args.get('id'))
+            if action == 'benchmark-qualification-resume':
+                return qualification.refresh(root, args.get('id'), execute=True)
+            raise ValueError('Unsupported qualification action.')
+        if action.startswith('benchmark-compare-'):
+            from desktop import benchmark_comparison as comparison
+            if action == 'benchmark-compare-history':
+                return {'comparisons': comparison.history(root)}
+            if action == 'benchmark-compare-export':
+                return comparison.export(root, args.get('id'), bound_text(args.get('path'), 4096))
+            if action == 'benchmark-compare-create':
+                result = comparison.create(root, args.get('models'), preset=args.get('preset', 'quick'),
+                    suite=args.get('suite', 'coding'), repeats=args.get('repeats', 3),
+                    ordering=args.get('ordering', 'SELECTED_ORDER'), seed=args.get('seed', 17), task_pack=args.get('task_pack', 'python'))
+            elif action == 'benchmark-compare-read':
+                result = comparison.read(root, args.get('id'))
+            elif action == 'benchmark-compare-advance':
+                result = comparison.advance(root, args.get('id'))
+            elif action == 'benchmark-compare-stop':
+                result = comparison.stop(root, args.get('id'))
+            else:
+                raise ValueError('Unsupported comparison action.')
+            return comparison.public_snapshot(result)
         if action == 'benchmark-history':
             return benchmark.history(root, args.get('before'))
         if action == 'benchmark-read':
@@ -512,6 +542,8 @@ def dispatch(root, action, args, output):
             payload = {'request_id': command, 'model': bound_text(args.get('model'), 512),
                        'suite': args.get('suite', 'quick_check'), 'preset': args.get('preset', 'quick'),
                        'seed': 17, 'concurrency': 2}
+            if args.get('task_pack', 'python') != 'python':
+                payload['task_pack'] = args['task_pack']
             from benchmarks.contracts import validate_request
             validate_request(payload)
             benchmark.save_pending(root, dict(payload, _binding=binding))

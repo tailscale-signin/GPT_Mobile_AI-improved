@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Assessment
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -43,7 +44,7 @@ internal const val APP_AUDIT_TAB = 8
 internal fun BenchmarkNavigation(selected: Int, debugMode: Boolean = false, onSelect: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(Triple(APP_AUDIT_TAB, "App audit", Icons.Rounded.Science), Triple(0, "Queue", Icons.Rounded.PlayArrow), Triple(5, "Results", Icons.Rounded.BarChart), Triple(3, "History", Icons.Rounded.History)).forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
+            listOf(Triple(ENGINEERING_BENCHMARK_TAB, "Engineering", Icons.Rounded.Assessment), Triple(APP_AUDIT_TAB, "App audit", Icons.Rounded.Science), Triple(0, "Queue", Icons.Rounded.PlayArrow), Triple(5, "Results", Icons.Rounded.BarChart), Triple(3, "History", Icons.Rounded.History)).forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
         }
         dev.chungjungsoo.gptmobile.presentation.common.DetailsSection {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

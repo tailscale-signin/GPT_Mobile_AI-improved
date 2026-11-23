@@ -260,6 +260,26 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 } else {
                     batch
                 }
+                if (saved?.engineeringPlan != null) {
+                    val before = saved.engineeringPlan
+                    val after = requireNotNull(accepted.engineeringPlan) { "The accepted engineering plan cannot be removed." }
+                    val firstPreparation = before.externalFixtureDigests.isEmpty() && event == "ENGINEERING_MANIFEST_VERIFIED"
+                    val sameIdentity = if (firstPreparation) {
+                        after.copy(
+                            externalFixtureDigests = before.externalFixtureDigests,
+                            graderDigest = before.graderDigest,
+                            externalRouteDigests = before.externalRouteDigests,
+                            externalAuthorityDigests = before.externalAuthorityDigests,
+                            externalSetupMs = before.externalSetupMs,
+                            externalSetupRequestCount = before.externalSetupRequestCount,
+                            cohortId = before.cohortId
+                        ) == before
+                    } else {
+                        before.identityDigest() == after.identityDigest()
+                    }
+                    require(sameIdentity && before.valid() && after.valid() && saved.caseManifest == accepted.caseManifest) { "The accepted engineering cohort and task manifest cannot change." }
+                    require(saved.items.map { listOf(it.ordinal, it.profile, it.runId, it.configKey, it.engineeringRepeatIndex) } == accepted.items.map { listOf(it.ordinal, it.profile, it.runId, it.configKey, it.engineeringRepeatIndex) }) { "Accepted engineering profile snapshots, order and repeat membership cannot change." }
+                }
                 if (saved?.audit != null) {
                     val before = saved.audit
                     val after = requireNotNull(accepted.audit) { "The accepted app audit manifest cannot be removed." }
@@ -402,6 +422,18 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
             val savedAttempts = dao.attempts(old.id).map { json.decodeFromString<BenchmarkAttempt>(it.payload) }
             val active = old.items.firstOrNull { it.state == BenchmarkQueueState.RUNNING }
             val savedRun = active?.let { item -> history.value.firstOrNull { it.id == item.runId } }
+            if (old.engineeringPlan != null) {
+                val retained = savedRun?.let { benchmarkEngineeringInterruptedRun(it, savedAttempts) }
+                val reason = if (retained?.samples?.any { it.engineeringCleanupPending() } == true) ENGINEERING_RECONCILIATION_MESSAGE else "Execution was interrupted. Committed candidates are retained; only unattempted tasks may resume."
+                val recovered = benchmarkEngineeringPausedBatch(old, retained, reason).copy(
+                    stopOrigin = old.stopOrigin ?: BenchmarkStopOrigin.PROCESS_INTERRUPTION,
+                    items = old.items.map { item ->
+                        if (item.state == BenchmarkQueueState.RUNNING) item.copy(state = BenchmarkQueueState.QUEUED, endedAt = null, activeCaseId = null) else item
+                    }
+                )
+                checkpoint(recovered, retained, savedAttempts.filter { it.state == "STARTED" }.map { it.copy(state = "INTERRUPTED", dispatchUncertain = true) }, "ENGINEERING_RECOVERED")
+                return@forEach
+            }
             // A crash after the final case transaction must not turn a fully recorded profile into a replay.
             val allCasesCommitted = savedRun != null &&
                 savedRun.plannedTrials > 0 &&
@@ -440,7 +472,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         mutex.withLock {
             loadLocked()
             val recovered = mutableHistory.value.map { run ->
-                if (run.finished) {
+                if (run.finished || run.engineeringPlan != null) {
                     run
                 } else {
                     run.copy(

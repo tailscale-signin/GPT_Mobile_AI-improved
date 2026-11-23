@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 
-from benchmarks.contracts import SCHEMA, TERMINAL, coverage, digest, validate_request
+from benchmarks.contracts import SCHEMA, TERMINAL, content_digest, coverage, digest, validate_request
 
 
 class BenchmarkConflict(ValueError):
@@ -32,46 +32,65 @@ class BenchmarkStore:
                 db.execute('CREATE TABLE IF NOT EXISTS benchmark_cases (run_id TEXT NOT NULL REFERENCES benchmark_runs(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(run_id,ordinal))')
                 db.execute('CREATE TABLE IF NOT EXISTS benchmark_request_tombstones (request_key TEXT PRIMARY KEY, removed REAL NOT NULL)')
                 db.execute('CREATE TABLE IF NOT EXISTS benchmark_sandboxes (run_id TEXT PRIMARY KEY REFERENCES benchmark_runs(id), container TEXT NOT NULL UNIQUE)')
+                db.execute('CREATE TABLE IF NOT EXISTS benchmark_private_submissions (run_id TEXT PRIMARY KEY REFERENCES benchmark_runs(id) ON DELETE CASCADE, proposal TEXT NOT NULL)')
+                db.execute('CREATE TABLE IF NOT EXISTS benchmark_cleanup_readbacks (run_id TEXT NOT NULL REFERENCES benchmark_runs(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, observed REAL NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(run_id,ordinal))')
                 with db:
                     yield db
             finally:
                 db.close()
 
-    def create(self, principal, request, provenance):
+    def create(self, principal, request, provenance, *, submission=None):
         request = validate_request(request)
         fingerprint = digest(request)
+        if request['suite'] == 'coding_submission' and (not isinstance(submission, str) or content_digest(submission) != request.get('proposal_digest')):
+            raise ValueError('Private proposal identity is required')
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
+            if db.execute('SELECT 1 FROM benchmark_request_tombstones WHERE request_key=?',
+                          (digest([principal, request['request_id']]),)).fetchone():
+                raise BenchmarkConflict('This request belongs to a removed result. Start a new benchmark with a new request identity.')
             old = db.execute('SELECT payload,fingerprint FROM benchmark_runs WHERE principal=? AND request_id=?', (principal, request['request_id'])).fetchone()
             if old:
                 if old[1] != fingerprint:
                     raise BenchmarkConflict('The request identity already belongs to a different benchmark')
                 return json.loads(old[0]), False
-            if db.execute('SELECT 1 FROM benchmark_request_tombstones WHERE request_key=?',
-                          (digest([principal, request['request_id']]),)).fetchone():
-                raise BenchmarkConflict('This request belongs to a removed result. Start a new benchmark with a new request identity.')
             if db.execute("SELECT COUNT(*) FROM benchmark_runs WHERE state NOT IN ('COMPLETED','FAILED','BLOCKED','CANCELLED','INTERRUPTED')").fetchone()[0] >= 4:
                 raise BenchmarkConflict('Four benchmark runs are already queued; wait or cancel one')
             count = db.execute('SELECT COUNT(*) FROM benchmark_runs').fetchone()[0]
-            if count >= 500:
+            if count >= 10000:
                 raise BenchmarkConflict('Benchmark history is full; export and remove old results in Benchmark History')
             now = self.now()
             run = dict(schema=SCHEMA, id='bench_' + uuid.uuid4().hex, request=request,
                        provenance=provenance, state='QUEUED', createdAt=now, updatedAt=now,
                        startedAt=None, endedAt=None, planned=0, completed=0, progress='Queued',
                        cancellationRequested=False, summary=None, executionOwner='GATEWAY', detachSafe=True)
+            if request['suite'] == 'coding_submission':
+                run.update(proposalDigest=request['proposal_digest'], fixtureDigest=request['fixture_digest'],
+                           taskDigest=request['fixture_digest'], graderDigest=request['grader_digest'],
+                           environmentDigest=request.get('environment_digest'))
             db.execute('INSERT INTO benchmark_runs VALUES(?,?,?,?,?,?,?)',
                        (run['id'], principal, request['request_id'], fingerprint, run['state'], now, json.dumps(run, allow_nan=False)))
+            if submission is not None:
+                db.execute('INSERT INTO benchmark_private_submissions VALUES(?,?)', (run['id'], submission))
             return run, True
+
+    def private_submission(self, ident):
+        """Internal evaluator access; never included in list or result responses."""
+        with self.db() as db:
+            row = db.execute('SELECT proposal FROM benchmark_private_submissions WHERE run_id=?', (ident,)).fetchone()
+            if row is None:
+                raise ValueError('Private candidate proposal is unavailable')
+            return row[0]
 
     def get(self, ident, principal=None, cases=True):
         with self.db() as db:
             row = db.execute('SELECT payload,principal FROM benchmark_runs WHERE id=?', (ident,)).fetchone()
             if not row or principal is not None and row[1] != principal:
                 return None
-            run = json.loads(row[0])
+            run = self.project_cleanup(db, json.loads(row[0]))
             if cases:
                 run['cases'] = self.read_cases(db, ident)
+                run['caseEvidence'] = {'complete': True, 'recordedTotal': len(run['cases']), 'next': None}
                 if 'casePlan' in run:
                     observed = {case['id'] for case in run['cases']}
                     run['pendingCaseIds'] = [case for case in run['casePlan'] if case not in observed]
@@ -80,6 +99,25 @@ class BenchmarkStore:
                     if run['state'] not in TERMINAL:
                         run['summary'] = dict(run.get('summary') or {}, coverage=coverage(run['cases'], run['planned']))
             return run
+
+    def case_page(self, ident, principal, *, after=-1, limit=25, through=None):
+        if type(after) is not int or after < -1 or type(limit) is not int or not 1 <= limit <= 100 or through is not None and (type(through) is not int or through < -1):
+            raise ValueError('Invalid benchmark case page')
+        with self.db() as db:
+            if not db.execute('SELECT 1 FROM benchmark_runs WHERE id=? AND principal=?', (ident, principal)).fetchone():
+                raise KeyError(ident)
+            latest = db.execute('SELECT COALESCE(MAX(ordinal),-1) FROM benchmark_cases WHERE run_id=?', (ident,)).fetchone()[0]
+            upper = latest if through is None else through
+            if upper > latest:
+                raise ValueError('Case boundary has not been observed')
+            total = db.execute('SELECT COUNT(*) FROM benchmark_cases WHERE run_id=? AND ordinal<=?', (ident, upper)).fetchone()[0]
+            rows = db.execute('SELECT ordinal,payload FROM benchmark_cases WHERE run_id=? AND ordinal>? AND ordinal<=? ORDER BY ordinal LIMIT ?',
+                              (ident, after, upper, limit + 1)).fetchall()
+            more = len(rows) > limit
+            selected = rows[:limit]
+            return {'runId': ident, 'cases': [json.loads(row[1]) for row in selected],
+                    'next': selected[-1][0] if more else None, 'complete': not more,
+                    'recordedTotal': total, 'throughOrdinal': upper}
 
     @staticmethod
     def read_cases(db, ident):
@@ -92,15 +130,77 @@ class BenchmarkStore:
             return row[0] if row else None
 
     def submission(self, principal, request_id):
-        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128 or request_id != request_id.strip() or any(ord(c) < 32 for c in request_id):
-            raise ValueError('Invalid benchmark request identity')
+        self.validate_request_id(request_id)
         with self.db() as db:
             row = db.execute('SELECT payload FROM benchmark_runs WHERE principal=? AND request_id=?', (principal, request_id)).fetchone()
-            if row:
-                return {'submissionState': 'OBSERVED', 'run': json.loads(row[0])}
             removed = db.execute('SELECT 1 FROM benchmark_request_tombstones WHERE request_key=?',
                                  (digest([principal, request_id]),)).fetchone()
-            return {'submissionState': 'REMOVED' if removed else 'NOT_OBSERVED', 'run': None}
+            if row:
+                run = self.project_cleanup(db, json.loads(row[0]))
+                settled = self.settled(db, run)
+                return {'submissionState': 'REMOVED' if removed and settled else 'OBSERVED', 'run': run,
+                        'retired': bool(removed), 'terminal': settled}
+            return {'submissionState': 'REMOVED' if removed else 'NOT_OBSERVED', 'run': None,
+                    'retired': bool(removed), 'terminal': bool(removed),
+                    'dispatchState': 'NOT_DISPATCHED' if removed else 'NOT_OBSERVED'}
+
+    @staticmethod
+    def validate_request_id(request_id):
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128 or request_id != request_id.strip() or any(ord(c) < 32 for c in request_id):
+            raise ValueError('Invalid benchmark request identity')
+
+    @staticmethod
+    def settled(db, run):
+        if run['state'] not in TERMINAL:
+            return False
+        if db.execute('SELECT 1 FROM benchmark_sandboxes WHERE run_id=?', (run['id'],)).fetchone():
+            return False
+        receipts = (run.get('failure') or {}).get('cancellationReceipts', [])
+        # Sandbox ownership is reconciled by its durable ledger. HTTP jobs with
+        # an unknown physical cancellation remain observable until separately settled.
+        return not any(row.get('kind') != 'sandbox' and not row.get('container')
+                       and row.get('outcome') not in {'confirmed', 'terminal', 'not_canceled'} for row in receipts)
+
+    def retire_request(self, principal, request_id):
+        """Fence a delayed admission atomically, retaining any already admitted job."""
+        self.validate_request_id(request_id)
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('INSERT OR IGNORE INTO benchmark_request_tombstones(request_key,removed) VALUES(?,?)',
+                       (digest([principal, request_id]), self.now()))
+            row = db.execute('SELECT payload FROM benchmark_runs WHERE principal=? AND request_id=?', (principal, request_id)).fetchone()
+            return self.project_cleanup(db, json.loads(row[0])) if row else None
+
+    @staticmethod
+    def project_cleanup(db, run):
+        latest = db.execute('SELECT payload,observed FROM benchmark_cleanup_readbacks WHERE run_id=? ORDER BY ordinal DESC LIMIT 1', (run['id'],)).fetchone()
+        if latest:
+            receipt = json.loads(latest[0])
+            run['liveGitHubReceipt'] = receipt
+            run['cleanupReadbackAt'] = latest[1]
+            cleanup = receipt.get('cleanup')
+            failure = dict(run.get('failure') or {})
+            original = failure.get('cancellationReceipts', [])
+            if isinstance(cleanup, dict):
+                run['recordedFailure'] = dict(failure)
+                key = lambda row: tuple(row.get(field) for field in ('kind', 'repository', 'revision', 'workflowPath'))
+                failure['initialCancellationReceipts'] = original
+                failure['cancellationReceipts'] = [cleanup if key(row) == key(cleanup) else row for row in original]
+                if failure.get('code') == 'CANCELLATION_UNCONFIRMED' and all(row.get('outcome') in {'confirmed', 'terminal', 'not_canceled'} for row in failure['cancellationReceipts']):
+                    failure.update(code='BENCHMARK_STOPPED', initialCode='CANCELLATION_UNCONFIRMED')
+                run['failure'] = failure
+        return run
+
+    def pending_external_cleanups(self):
+        with self.db() as db:
+            rows = db.execute("SELECT payload,principal FROM benchmark_runs WHERE state='INTERRUPTED' AND payload LIKE '%CANCELLATION_UNCONFIRMED%'").fetchall()
+            pending = []
+            for payload, principal in rows:
+                run = self.project_cleanup(db, json.loads(payload))
+                receipts = (run.get('failure') or {}).get('cancellationReceipts', [])
+                if any(row.get('kind') == 'github_actions' and row.get('outcome') not in {'confirmed', 'terminal', 'not_canceled'} for row in receipts):
+                    pending.append({'run_id': run['id'], 'principal': principal})
+            return pending
 
     def history(self, principal, limit=50, before=None):
         if type(limit) is not int or not 1 <= limit <= 100:
@@ -112,10 +212,10 @@ class BenchmarkStore:
                 if type(before) is not int or before < 1:
                     raise ValueError('Invalid history cursor')
                 rows = db.execute('SELECT rowid,payload FROM benchmark_runs WHERE principal=? AND rowid<? ORDER BY rowid DESC LIMIT ?', (principal, before, limit + 1)).fetchall()
-            return {'runs': [json.loads(x[1]) for x in rows[:limit]], 'next': rows[limit - 1][0] if len(rows) > limit else None}
+            return {'runs': [self.project_cleanup(db, json.loads(x[1])) for x in rows[:limit]], 'next': rows[limit - 1][0] if len(rows) > limit else None}
 
     def update(self, ident, **fields):
-        if set(fields) - {'state', 'progress', 'planned', 'completed', 'startedAt', 'endedAt', 'summary', 'cancellationRequested', 'failure', 'casePlan'}:
+        if set(fields) - {'state', 'progress', 'planned', 'completed', 'startedAt', 'endedAt', 'summary', 'cancellationRequested', 'failure', 'casePlan', 'liveGitHubReceipt'}:
             raise ValueError('Unsupported benchmark checkpoint')
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -124,6 +224,25 @@ class BenchmarkStore:
                 raise ValueError('Benchmark is unavailable')
             run = json.loads(row[0])
             if run['state'] in TERMINAL:
+                if set(fields) == {'liveGitHubReceipt'}:
+                    current = self.project_cleanup(db, run).get('liveGitHubReceipt') or {}
+                    receipt = fields['liveGitHubReceipt']
+                    mutable = {'cleanup', 'cancellationMutation'}
+                    cleanup = receipt.get('cleanup') if isinstance(receipt, dict) else None
+                    if (not isinstance(receipt, dict) or not current
+                            or {key: value for key, value in receipt.items() if key not in mutable} != {key: value for key, value in current.items() if key not in mutable}
+                            or current.get('cancellationMutation') is not None and receipt.get('cancellationMutation') != current['cancellationMutation']
+                            or not isinstance(cleanup, dict) or cleanup.get('kind') != 'github_actions'
+                            or cleanup.get('outcome') not in {'unknown', 'confirmed', 'terminal'}
+                            or any(cleanup.get(key) != current.get(field) for key, field in (
+                                ('repository', 'repository'), ('revision', 'publishedRevision'), ('workflowPath', 'workflowPath')))
+                            or len(json.dumps(receipt).encode()) > 131072):
+                        raise BenchmarkConflict('Cleanup readback changed the immutable live execution identity')
+                    if receipt == current:
+                        return self.project_cleanup(db, run)
+                    ordinal = db.execute('SELECT COALESCE(MAX(ordinal),-1)+1 FROM benchmark_cleanup_readbacks WHERE run_id=?', (ident,)).fetchone()[0]
+                    db.execute('INSERT INTO benchmark_cleanup_readbacks VALUES(?,?,?,?)', (ident, ordinal, self.now(), json.dumps(receipt, allow_nan=False)))
+                    return self.project_cleanup(db, run)
                 if any(run.get(key) != value for key, value in fields.items()):
                     raise BenchmarkConflict('A terminal benchmark is immutable; create a new run')
                 return run
@@ -227,19 +346,21 @@ class BenchmarkStore:
     def remove(self, ident, principal):
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute('SELECT state,request_id FROM benchmark_runs WHERE id=? AND principal=?', (ident, principal)).fetchone()
+            row = db.execute('SELECT state,request_id,payload FROM benchmark_runs WHERE id=? AND principal=?', (ident, principal)).fetchone()
             if not row:
                 return False
             if row[0] not in TERMINAL:
                 raise BenchmarkConflict('Stop the benchmark before removing its saved result')
             if db.execute('SELECT 1 FROM benchmark_sandboxes WHERE run_id=?', (ident,)).fetchone():
                 raise BenchmarkConflict('Sandbox cleanup must be confirmed before removing its saved result')
+            if not self.settled(db, self.project_cleanup(db, json.loads(row[2]))):
+                raise BenchmarkConflict('Physical execution cleanup must be confirmed before removing its saved result')
             # Removing presentation/history must never make an uncertain retry
             # admissible again. Tombstones contain only a hash and timestamp.
             # At the finite bound, refuse deletion instead of forgetting identity.
             if db.execute('SELECT COUNT(*) FROM benchmark_request_tombstones').fetchone()[0] >= 10000:
                 raise BenchmarkConflict('The removed-request identity journal is full; history removal is unavailable')
-            db.execute('INSERT INTO benchmark_request_tombstones VALUES(?,?)',
+            db.execute('INSERT OR IGNORE INTO benchmark_request_tombstones VALUES(?,?)',
                        (digest([principal, row[1]]), self.now()))
             db.execute('DELETE FROM benchmark_runs WHERE id=? AND principal=?', (ident, principal))
             return True

@@ -28,9 +28,15 @@ data class BenchmarkCase(
     val fixtureRotationSeed: Long? = null,
     val intelligenceQuestions: List<BenchmarkIntelligenceQuestion> = emptyList(),
     val responseSchemaJson: String? = null,
-    val performanceTrial: BenchmarkPerformanceTrial? = null
+    val performanceTrial: BenchmarkPerformanceTrial? = null,
+    val engineeringLane: BenchmarkEngineeringLane? = null,
+    val engineeringTaskId: String? = null,
+    val engineeringFamilyId: String? = null,
+    val engineeringBudget: BenchmarkEngineeringBudget? = null
 ) {
-    val requestCategory: String get() = if (performanceTrial != null) {
+    val requestCategory: String get() = if (engineeringBudget != null) {
+        "engineering_tools_output_${engineeringBudget.outputTokensPerGeneration}"
+    } else if (performanceTrial != null) {
         "performance_${performanceTrial.dimension.name.lowercase()}"
     } else if (category == IntelligenceBenchmark.CATEGORY && !id.startsWith("intelligence-batch-")) {
         "intelligence_individual"

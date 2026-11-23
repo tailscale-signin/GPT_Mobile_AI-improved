@@ -801,7 +801,8 @@ class ChatRepositoryImpl(
             else -> null
         }
         val defaultBudget = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCompletionBudget(platform, benchmarkCategory)
-        val outputBudget = if (requested.executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) platform.maxTokens else defaultBudget
+        val outputBudget = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkEngineeringOutputBudget(benchmarkCategory)
+            ?: if (requested.executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) platform.maxTokens else defaultBudget
         dev.chungjungsoo.gptmobile.data.benchmark.requireBenchmarkOutputContract(platform, benchmarkCategory, outputBudget)
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty(), benchmarkCategory, requested.executionPolicy)
         val local = target.compatibleType == ClientType.LITERT_LM

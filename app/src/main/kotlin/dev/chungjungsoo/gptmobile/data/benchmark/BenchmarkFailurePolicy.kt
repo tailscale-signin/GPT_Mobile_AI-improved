@@ -106,6 +106,7 @@ internal fun BenchmarkSample.executionFailure(): Boolean = outcome in setOf(Benc
 
 /** Case scheduling depends on positive cleanup facts, not on a model-quality grade. */
 internal fun BenchmarkSample.recoveryAction(allowConfirmedRecovery: Boolean = true): BenchmarkRecoveryAction {
+    if (engineeringCleanupPending()) return BenchmarkRecoveryAction.STOP_BATCH
     if (runtimeCleanup?.safeForSuccessor == false || cleanupReceipt == "cleanup_unconfirmed_local_blocked") return BenchmarkRecoveryAction.QUARANTINE_RUNTIME
     if (outcome == BenchmarkOutcome.CANCELED || failure?.owner == "user") return BenchmarkRecoveryAction.HONOR_USER_STOP
     if (failureCategory?.startsWith("AUDIT_MODEL_") == true || failure?.code?.startsWith("AUDIT_MODEL_") == true) return BenchmarkRecoveryAction.STOP_PROFILE

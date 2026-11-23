@@ -230,4 +230,49 @@ class BenchmarkTaskEfficiencyTest {
         assertNull(result.retryMs)
         assertNull(result.apiCostEstimateMicros)
     }
+
+    @Test fun allInEffortCountsReadinessWarmupsAndFailedAttemptsOnce() {
+        val setup = sample("readiness", duration = 30).copy(attemptId = "setup", physicalRequestIds = listOf("setup-request"))
+        val pass = sample("pass", duration = 100).copy(attemptId = "pass", physicalRequestIds = listOf("pass-request"))
+        val warmup = sample("warmup", duration = 50).copy(attemptId = "warmup", warmup = true, physicalRequestIds = listOf("warmup-request"))
+        val failed = sample("failed", BenchmarkOutcome.FAILED, 70).copy(attemptId = "failed", physicalRequestIds = listOf("failed-request"))
+        val original = run(pass, warmup, failed).copy(
+            endedAt = now + 400,
+            preflightDurationMs = 20,
+            readiness = BenchmarkReadinessReceipt(
+                now + 20,
+                now + 50,
+                listOf(BenchmarkReadinessCheck("check", BenchmarkReadinessStatus.PASSED, sample = setup)),
+                setOf("check"),
+                probes = listOf(BenchmarkReadinessProbe("probe", BenchmarkStructuredOutputMode.NATIVE_JSON_SAFE_V1, setup, null, true))
+            )
+        )
+        val result = benchmarkTaskEfficiency(original)
+        assertEquals(170L, result.elapsedMs)
+        assertEquals(50L, result.setupElapsedMs)
+        assertEquals(1, result.setupPhysicalRequests)
+        assertEquals(10L, result.setupInputTokens)
+        assertEquals(400L, result.allInElapsedMs)
+        assertEquals(4, result.allInPhysicalRequests)
+        assertEquals(40L, result.allInInputTokens)
+        assertEquals(80L, result.allInOutputTokens)
+        assertEquals(200L, result.allInApiCostEstimateMicros)
+    }
+
+    @Test fun unknownReadinessUsageMakesAllInCostUnknownWithoutErasingTaskEvidence() {
+        val setup = sample("readiness").copy(inputTokenConfidence = "unknown")
+        val original = run(sample("pass")).copy(
+            readiness = BenchmarkReadinessReceipt(
+                now,
+                now + 100,
+                listOf(BenchmarkReadinessCheck("check", BenchmarkReadinessStatus.PASSED, sample = setup)),
+                setOf("check")
+            )
+        )
+        val result = benchmarkTaskEfficiency(original)
+        assertEquals(50L, result.apiCostEstimateMicros)
+        assertNull(result.allInApiCostEstimateMicros)
+        assertNull(result.allInInputTokens)
+        assertEquals(1, result.allInCostExclusions["final_usage_missing"])
+    }
 }

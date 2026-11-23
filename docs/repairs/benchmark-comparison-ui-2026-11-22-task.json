@@ -1,0 +1,55 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSha": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+  "workingBranch": "work/benchmark-ui",
+  "parentPr": 2254,
+  "intent": "Add five-destination evidence-scoped comparison workspaces, native repository task packs, explicit paired budgets and Gateway/direct GitHub Actions route selection while preserving existing benchmark flows. Persist desktop episodes and live receipts, reconciling uncertain submissions before advancing.",
+  "state": "IMPLEMENTED_AWAITING_INTEGRATION",
+  "ownership": [
+    "Android benchmark presentation except ProfileBenchmarkViewModel",
+    "gateway/desktop comparison orchestration and benchmark views",
+    "native desktop benchmark view",
+    "Native repository fixtures and calibrated container verifier"
+  ],
+  "validation": [
+    {
+      "check": "Desktop paired persistence and comparison behavior",
+      "result": "15 tests passed, including complete episode-file evidence and immutable native pack dispatch"
+    },
+    {
+      "check": "Existing desktop benchmark behavior",
+      "result": "4 tests passed"
+    },
+    {
+      "check": "Existing native bridge behavior",
+      "result": "22 tests passed"
+    },
+    {
+      "check": "New Android workspace real Android37/Compose compiler",
+      "result": "Passed with actual new value declarations and explicit VM/domain execution stubs; full application compile remains required"
+    },
+    {
+      "check": "ktlint and whitespace",
+      "result": "Passed for three changed Kotlin files"
+    },
+    {
+      "check": "Comparison display/export boundary",
+      "result": "Display summaries omit repeated case bodies; explicit file exports retain all attempts without sending oversized native UI frames."
+    },
+    {
+      "check": "Desktop durable live qualification",
+      "result": "3 tests passed; read-only reconciliation and explicitly authorized resume are distinct"
+    },
+    {
+      "check": "Native repository control suite",
+      "result": "10 tests passed with actual Kotlin2.4.20/JVM compilation, SQLite migrations, parsed YAML and shell execution; model-code Docker execution remains a runtime gate"
+    }
+  ],
+  "limitations": [
+    "Full Android and Windows hosted validation are required after integration.",
+    "No local display or dotnet runtime; native WPF compile and rendered layout are not claimed.",
+    "Desktop paired queue resumes unsubmitted episodes when the workspace reopens; admitted Gateway runs continue without the desktop.",
+    "No local Docker daemon: prepared immutable native image and exact self-hosted remote CI remain qualification prerequisites."
+  ]
+}

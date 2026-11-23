@@ -170,6 +170,10 @@ class BenchmarkCleanupOwnershipTest(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         self.principal = Principal('owner', frozenset(), True)
+        # Admission and execution must use the same frozen runtime settings.
+        settings = patch('benchmarks.service.load_settings', return_value=SETTINGS)
+        settings.start()
+        self.addCleanup(settings.stop)
 
     def service(self, durable=True):
         state = ServiceState()

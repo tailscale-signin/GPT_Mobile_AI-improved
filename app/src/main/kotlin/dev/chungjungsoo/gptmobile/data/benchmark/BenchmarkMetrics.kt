@@ -41,7 +41,7 @@ internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContext
     fun ratio(id: String, numerator: Int, denominator: Int, source: List<BenchmarkSample>): BenchmarkMetricResult = BenchmarkMetricResult(
         id, if (denominator == 0) null else 100.0 * numerator / denominator, "%", numerator, denominator,
         planned, runIds, source.mapNotNull { it.attemptId },
-        samples.filterNot { it in source }.groupingBy { it.failure?.code ?: it.failureCategory ?: it.outcome.name }.eachCount(),
+        samples.filterNot { it in source }.groupingBy { benchmarkMetricExclusion(id, it) }.eachCount(),
         policyVersion = if (runs.all { it.measurementVersion >= 4 }) "benchmark-metrics-v4" else "benchmark-metrics-v3",
         comparisonContextId = if (operationalContexts) "operational:" + domains.keys.firstOrNull().orEmpty() else cohorts.singleOrNull().orEmpty(),
         timestamp = runs.maxOfOrNull { it.endedAt ?: it.startedAt } ?: 0,
@@ -115,7 +115,7 @@ internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContext
         reportedNativeRate("raw_reported_native_prefill_rate", true),
         reportedNativeRate("raw_reported_native_decode_rate", false),
         ratio("raw_native_decode_rate", rawNative.size, rawNative.size, rawNative.map { it.first }.distinct()).copy(policyVersion = "benchmark-raw-timing-v1", value = if (nativeDuration > 0) nativeTokens * 1000.0 / nativeDuration else null, unit = "native tokens/s", aggregation = "sum of segment tokens / sum of measured decode durations", population = "captured non-warmup native timing segments, including failed validation; model tokenizer dependent and not a normalized model score")
-    )
+    ) + benchmarkEngineeringMetricResults(runs)
 }
 
 internal fun benchmarkResultId(run: BenchmarkRun): String = benchmarkHash(listOf(run.profileUid, run.configKey, run.model, run.runtimeVersion, run.backend, run.accelerator, DynamicScoreEngine.cohort(run), run.scoringVersion, run.fixtureManifestHash).joinToString("|"))

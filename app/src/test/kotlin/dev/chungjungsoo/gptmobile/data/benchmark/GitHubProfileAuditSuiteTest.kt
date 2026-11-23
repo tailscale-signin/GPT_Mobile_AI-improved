@@ -164,9 +164,9 @@ class GitHubProfileAuditSuiteTest {
             val calls = when (kind) {
                 "release-gate", "security-review" -> {
                     val patch = if (kind == "release-gate") {
-                        "ciGreen && approved"
+                        "fun releaseAllowed(ciGreen: Boolean, approved: Boolean) = ciGreen && approved"
                     } else {
-                        "role == \"admin\" && tokenValid"
+                        "fun elevated(role: String, tokenValid: Boolean) = role == \"admin\" && tokenValid"
                     }
                     listOf(
                         engineeringArgs("read"),

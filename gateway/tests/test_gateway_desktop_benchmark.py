@@ -12,6 +12,13 @@ from desktop.configuration import atomic_json, DEFAULTS
 
 
 class DesktopBenchmarkTest(unittest.TestCase):
+    def test_catalog_refresh_preserves_an_explicit_unavailable_model(self):
+        from desktop.benchmark_panel import refreshed_model_selection
+        self.assertEqual('missing-model', refreshed_model_selection('missing-model', ['a', 'b']))
+        self.assertEqual('missing-model', refreshed_model_selection('missing-model', []))
+        self.assertEqual('a', refreshed_model_selection('', ['a', 'b']))
+        self.assertEqual('b', refreshed_model_selection('', ['a', 'b'], 1))
+
     def test_fixture_score_uses_exact_model_and_replaces_only_its_result(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

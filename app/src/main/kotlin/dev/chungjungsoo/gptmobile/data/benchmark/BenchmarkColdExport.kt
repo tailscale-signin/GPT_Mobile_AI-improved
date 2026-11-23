@@ -13,12 +13,12 @@ internal fun benchmarkExportComparisonRun(run: BenchmarkRun): BenchmarkRun =
         run.samples.map { sample ->
             sample.copy(canonicalAnswer = null, finalAnswer = null, preview = "", outputParts = emptyList())
         },
-        caseManifest = null,
+        caseManifest = run.caseManifest.takeIf { run.engineeringPlan != null },
         readiness =
         run.readiness?.let { readiness ->
             readiness.copy(
-                checks = readiness.checks.map { it.copy(sample = null) },
-                probes = readiness.probes.map { it.copy(sample = null) }
+                checks = readiness.checks.map { it.copy(sample = it.sample?.takeIf { run.engineeringPlan != null }?.copy(canonicalAnswer = null, finalAnswer = null, preview = "", outputParts = emptyList())) },
+                probes = readiness.probes.map { it.copy(sample = it.sample?.takeIf { run.engineeringPlan != null }?.copy(canonicalAnswer = null, finalAnswer = null, preview = "", outputParts = emptyList())) }
             )
         }
     )

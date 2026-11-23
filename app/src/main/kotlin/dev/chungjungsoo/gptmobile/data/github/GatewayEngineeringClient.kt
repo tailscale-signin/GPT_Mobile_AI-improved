@@ -68,13 +68,14 @@ class GatewayEngineeringClient internal constructor(
 
     private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false, root: String = "gateway/engineering", operationId: String? = null, userAction: String? = null): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
-        val endpoint = config.buildEndpoint("$root/$path")
+        val requestPath = if (path.isEmpty() || path.startsWith('?')) "$root$path" else "$root/$path"
+        val endpoint = config.buildEndpoint(requestPath)
         val bindingRead = body == null && path.startsWith("bindings/") && path.endsWith("/capabilities")
         val exchange: suspend () -> String = {
             gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST", operationId = operationId) { headers ->
                 // A safe GET retry gets a fresh nonce. Writes are never automatically replayed.
                 val paired = try {
-                    pairedRequests?.prepare(config, if (body == null) "GET" else "POST", "/$root/$path", body.orEmpty())
+                    pairedRequests?.prepare(config, if (body == null) "GET" else "POST", "/$requestPath", body.orEmpty())
                 } catch (failure: Exception) {
                     generateSequence<Throwable>(failure) { it.cause }.take(16).filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
                     // Preparation can exchange metadata, but the following graph POST
@@ -443,6 +444,14 @@ class GatewayEngineeringClient internal constructor(
     internal suspend fun diagnostic(config: ProviderRequestConfig, path: String, body: JsonObject? = null): JsonObject =
         json.parseToJsonElement(request(config, "diagnostics/$path", body?.toString())) as? JsonObject
             ?: error("Invalid gateway diagnostic response.")
+
+    /** Durable benchmark commands use the same paired identity fence and never replay a POST automatically. */
+    internal suspend fun benchmark(config: ProviderRequestConfig, path: String, body: JsonObject? = null): JsonObject {
+        require(path.isEmpty() || path.matches(Regex("[A-Za-z0-9_/?=&.%-]{1,400}")))
+        return json.parseToJsonElement(
+            request(config, path, body?.toString(), root = "gateway/benchmarks", operationId = body?.get("request_id")?.jsonPrimitive?.contentOrNull)
+        ) as? JsonObject ?: error("The benchmark service returned an invalid durable receipt.")
+    }
 
     suspend fun create(config: ProviderRequestConfig, payload: GatewayEngineeringRequest): GatewayEngineeringJob {
         val response = if (payload.conversationId == null) {

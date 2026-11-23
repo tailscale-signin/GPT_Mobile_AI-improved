@@ -1,0 +1,302 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_pr": 2254,
+  "parent_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "parent_head_at_start": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+  "working_branch": "work/github-coding-benchmark-2026-11-22",
+  "intent": "Implement the complete GitHub and coding model benchmark audit design, preserve concurrent changes, qualify the current PR and main commits, and publish the signed application and scoped Gateway release.",
+  "authorization": "User explicitly requested every feature, a draft PR, merge after green checks, and publication after green main checks.",
+  "status": "READY_FOR_EXACT_HEAD_HOSTED_VERIFICATION",
+  "requirements": [
+    {
+      "id": "B01",
+      "name": "Typed evidence suites and identical preview, launcher, registry and saved scope",
+      "owner": "benchmark-domain",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlan.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkSuiteRegistry.kt"
+      ]
+    },
+    {
+      "id": "B02",
+      "name": "Independent executable grading, explicit preservation contract and negative controls",
+      "owner": "benchmark-grader",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "gateway/benchmarks/verified_python.py",
+        "gateway/benchmarks/calibration.py",
+        "gateway/tests/test_gateway_benchmark_independent_grader.py"
+      ]
+    },
+    {
+      "id": "B03",
+      "name": "Behavioral verification and truthful simulation evidence",
+      "owner": "benchmark-domain + benchmark-grader",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "gateway/benchmarks/coding.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkGuardVerifier.kt"
+      ]
+    },
+    {
+      "id": "B04",
+      "name": "Immutable task, oracle, grader, schema and materialized test identities",
+      "owner": "benchmark-grader",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "gateway/benchmarks/grader_manifest.py",
+        "gateway/benchmarks/phone_provision.py"
+      ]
+    },
+    {
+      "id": "B05",
+      "name": "Current audit regression verification with privacy enabled and disabled",
+      "owner": "integration",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditBehaviorProbeSourceTest.kt"
+      ],
+      "verification": "Actual production-path regression is included for both conversation privacy modes; awaits full hosted Android unit gate."
+    },
+    {
+      "id": "B06",
+      "name": "Suite-specific qualification and explicit timing exclusions",
+      "owner": "benchmark-domain",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringMetrics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkMeasurement.kt"
+      ]
+    },
+    {
+      "id": "B07",
+      "name": "Paired model orchestration with frozen tasks, budgets, policy and repeats",
+      "owner": "benchmark-domain",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt",
+        "gateway/desktop/benchmark_comparison.py"
+      ]
+    },
+    {
+      "id": "B08",
+      "name": "Requested, dispatched, acknowledged and observed settings",
+      "owner": "benchmark-domain",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringGeneration.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExecutionPolicy.kt"
+      ]
+    },
+    {
+      "id": "B09",
+      "name": "Exact production model, profile, route and repository revision binding",
+      "owner": "benchmark-grader",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "gateway/benchmarks/engineering_qualification.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkPhoneGitHubContract.kt"
+      ]
+    },
+    {
+      "id": "B10",
+      "name": "Disposable live GitHub qualification, fault recovery and readback",
+      "owner": "benchmark-grader + integration",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "gateway/benchmarks/live_github.py",
+        "gateway/benchmarks/phone_ci.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkPhoneGitHubTransport.kt"
+      ]
+    },
+    {
+      "id": "B11",
+      "name": "Distinct held-out problem mechanisms and truthful unique task coverage",
+      "owner": "benchmark-grader + integration",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "gateway/benchmarks/variants.py",
+        "gateway/benchmarks/repository_tasks.py",
+        "gateway/benchmarks/repository_sandbox.py"
+      ]
+    },
+    {
+      "id": "B12",
+      "name": "Paired statistical comparisons with practical margins and inconclusive results",
+      "owner": "benchmark-domain",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringComparison.kt",
+        "gateway/desktop/benchmark_comparison.py"
+      ]
+    },
+    {
+      "id": "B13",
+      "name": "All-in setup, failed attempt and repair cost and time accounting",
+      "owner": "benchmark-domain + benchmark-grader",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringGeneration.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkTaskEfficiency.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPreparation.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPreparationTest.kt"
+      ],
+      "verification": "Observed setup time and request totals survive failure/cancellation and resume; direct preparation is bounded by the frozen workload and only identical authority/route manifests are reused."
+    },
+    {
+      "id": "B14",
+      "name": "Actionable audit recovery and separate dispatch attempt and confirmation counts",
+      "owner": "integration + benchmark-ui",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringRecovery.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt"
+      ]
+    },
+    {
+      "id": "B15",
+      "name": "Overview, Compare, Tasks, Evidence and History workspaces",
+      "owner": "benchmark-ui",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkEngineeringWorkspace.kt",
+        "gateway/desktop/benchmark_panel.py",
+        "gateway/desktop/native/MainWindow.Benchmarks.cs"
+      ]
+    },
+    {
+      "id": "B16",
+      "name": "Complete paginated qualification accounting beyond 512 records",
+      "owner": "benchmark-grader",
+      "status": "IMPLEMENTED",
+      "evidence": [
+        "gateway/benchmarks/engineering_qualification.py",
+        "gateway/benchmarks/qualification_service.py"
+      ]
+    }
+  ],
+  "integration_policy": {
+    "remote_push_owner": "integration",
+    "force_push": false,
+    "preserve_concurrent_commits": true,
+    "require_exact_current_pr_head_checks": true,
+    "require_exact_merged_main_checks": true,
+    "require_published_asset_verification": true
+  },
+  "validation": [
+    {
+      "check": "Focused domain, plan, comparison, phone publication/recovery and artifact contracts",
+      "result": "PASS",
+      "tests": 90,
+      "scope": "Actual domain/transport source with explicit platform/HTTP boundary substitutes, including cancellation accounting and bounded setup/manifest reuse"
+    },
+    {
+      "check": "Focused selected-provider generation and external orchestration",
+      "result": "PASS",
+      "tests": 38,
+      "scope": "Actual serialized domain/generation/external/preparation source; Android/HTTP boundaries substituted; final authority-only cleanup, failed setup and proportional deadline follow-ups included"
+    },
+    {
+      "check": "Gateway desktop benchmark/comparison/qualification/native bridge",
+      "result": "PASS",
+      "tests": 50
+    },
+    {
+      "check": "Standalone phone provisioner/evaluator",
+      "result": "PASS",
+      "tests": 11,
+      "scope": "Real temporary Git histories and isolated interpreter/CLI; no live Actions execution claimed"
+    },
+    {
+      "check": "Mandatory native controls via scripts/run_benchmark_native_controls.py --offline",
+      "result": "PASS",
+      "tests": 10,
+      "skipped": 0,
+      "scope": "Actual Kotlin compiler/JVM, SQLite and YAML/shell controls; no Docker"
+    },
+    {
+      "check": "Actual Android 37/Compose UI compilation",
+      "result": "PASS",
+      "scope": "Kotlin/Compose2.4.20 + real serialization1.11.0; VM/backend boundaries substituted; no rendered device claim"
+    },
+    {
+      "check": "Canonical fast validation",
+      "result": "PASS",
+      "tests": 623,
+      "android_literal_regex_patterns": 2023,
+      "android_dynamic_regex_patterns_explicitly_skipped": 99,
+      "regex_errors": 0,
+      "resources_xml": 36
+    },
+    {
+      "check": "Complete Gateway/authentication validation",
+      "result": "PASS",
+      "gateway_suites": 141,
+      "gateway_reported_tests": 1824,
+      "gateway_skipped": 32,
+      "gateway_failed_suites": 0,
+      "browser_tests": 7,
+      "authentication_tests": 206,
+      "scope": "Combined benchmark and incoming agent workspace source through shared6f887cc3; native Windows follow-up is qualified separately",
+      "latest_incoming_guard_regression_tests": 34,
+      "latest_incoming_guard_result": "PASS"
+    },
+    {
+      "check": "CI provisioning and acceptance process regressions",
+      "result": "PASS",
+      "robolectric_tests": 31,
+      "workflow_policy_tests": 5,
+      "acceptance_support_tests": 77,
+      "scope": "Pinned mirror cooldown behavior and preserved workflow/receipt contracts; no full Android/device execution inferred"
+    },
+    {
+      "check": "Changed Kotlin formatting",
+      "result": "PASS",
+      "files": 53
+    },
+    {
+      "check": "Final Windows comparison presentation follow-up",
+      "result": "HOST_BOUNDARY_PASS_NATIVE_PENDING",
+      "python_comparison_tests": 21,
+      "native_bridge_tests": 22,
+      "native_contract_assertions_added": 8,
+      "scope": "Unqualified or null winners remain inconclusive; actual native contract execution remains hosted"
+    },
+    {
+      "check": "Full local Android Gradle",
+      "result": "UNAVAILABLE",
+      "detail": "Two bounded attempts lost the daemon at KSP before source diagnostics; focused compilation is not a full Android pass"
+    },
+    {
+      "check": "Exact scoped release manifest and generated package inventory",
+      "result": "PASS",
+      "scope": "All current source paths are explicitly allowed; all retained limitations are disclosed; current package file hashes validate"
+    },
+    {
+      "check": "Exact final PR head and main hosted checks",
+      "result": "PENDING"
+    },
+    {
+      "check": "Signed Android and Gateway publication/readback",
+      "result": "PENDING"
+    }
+  ],
+  "publication": {
+    "android": "0.9.66.13",
+    "version_code": 147,
+    "gateway": "18.1.1",
+    "status": "PENDING_EXACT_HEAD_AND_MAIN_GATES"
+  },
+  "last_reconciled_remote_head": "e0915300b1f5413d105203da7abf28fc6c6b196e",
+  "qualification_limits": [
+    "No claim of physical-phone, real selected-provider or live disposable GitHub execution from host fixtures.",
+    "Python language support is the bounded interpreter; native fixtures do not claim Compose instrumentation or Room annotation-processing coverage.",
+    "Authenticated client generation observations do not independently identify the provider internal model.",
+    "Incomplete usage, settings, infrastructure and remote settlement remain explicit; no guessed cost or winner.",
+    "Unified Reliability v2 remains incomplete; existing scoped release gates and disclosures remain mandatory."
+  ]
+}

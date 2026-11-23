@@ -80,7 +80,19 @@ data class BenchmarkTaskEfficiency(
     val costExclusions: Map<String, Int>,
     val provisional: Boolean,
     val policyVersion: String = "benchmark-task-efficiency-v1",
-    val scope: String = "recorded_non_warmup_fixtures_including_failed_attempts"
+    val scope: String = "recorded_non_warmup_fixtures_including_failed_attempts",
+    val setupElapsedMs: Long? = null,
+    val setupPhysicalRequests: Int = 0,
+    val setupInputTokens: Long? = null,
+    val setupOutputTokens: Long? = null,
+    val allInElapsedMs: Long? = null,
+    val allInElapsedMsPerSuccessfulTask: Double? = null,
+    val allInPhysicalRequests: Int = 0,
+    val allInInputTokens: Long? = null,
+    val allInOutputTokens: Long? = null,
+    val allInApiCostEstimateMicros: Long? = null,
+    val allInCostExclusions: Map<String, Int> = emptyMap(),
+    val allInScope: String = "one profile run including preparation, readiness, warmups, failures, retries and cleanup; shared experiment preparation is reported once separately"
 )
 
 fun benchmarkTaskEfficiency(run: BenchmarkRun): BenchmarkTaskEfficiency {
@@ -97,6 +109,15 @@ fun benchmarkTaskEfficiency(run: BenchmarkRun): BenchmarkTaskEfficiency {
     val retries = if (samples.isEmpty()) null else exactNonnegativeSum(samples.map { it.retryDurationMs.takeIf { duration -> duration >= 0 } })
     val costs = samples.map { benchmarkSampleApiCost(run, it) }
     val cost = if (samples.isEmpty()) null else exactNonnegativeSum(costs.map { it.first })
+    val setup = benchmarkReadinessSamples(run)
+    val allIn = (setup + run.samples).distinctBy { it.attemptId ?: it.logicalRequestId ?: "${it.testId}:${it.physicalRequestIds}" }
+    val allInCosts = allIn.map { benchmarkSampleApiCost(run, it) }
+    val allInElapsed = run.endedAt?.takeIf { run.finished && it >= run.startedAt }?.minus(run.startedAt)
+    val readinessDuration = run.readiness?.let { it.finishedAt?.takeIf { end -> end >= it.startedAt }?.minus(it.startedAt) }
+    val setupElapsed = when {
+        run.preflightDurationMs == null && readinessDuration == null -> null
+        else -> exactNonnegativeSum(listOf(run.preflightDurationMs ?: 0L, readinessDuration ?: 0L))
+    }
     return BenchmarkTaskEfficiency(
         recordedTasks = samples.size,
         successfulTasks = passed,
@@ -112,7 +133,18 @@ fun benchmarkTaskEfficiency(run: BenchmarkRun): BenchmarkTaskEfficiency {
         pricedTasks = costs.count { it.first != null },
         missingTimingTasks = durations.count { it == null },
         costExclusions = costs.mapNotNull { it.second }.groupingBy { it }.eachCount(),
-        provisional = !run.finished || run.canceled || run.stoppedReason != null
+        provisional = !run.finished || run.canceled || run.stoppedReason != null,
+        setupElapsedMs = setupElapsed,
+        setupPhysicalRequests = setup.flatMap { it.physicalRequestIds }.distinct().size,
+        setupInputTokens = benchmarkMeasuredTokenTotal(setup, input = true),
+        setupOutputTokens = benchmarkMeasuredTokenTotal(setup, input = false),
+        allInElapsedMs = allInElapsed,
+        allInElapsedMsPerSuccessfulTask = allInElapsed?.takeIf { passed > 0 }?.toDouble()?.div(passed),
+        allInPhysicalRequests = allIn.flatMap { it.physicalRequestIds }.distinct().size,
+        allInInputTokens = benchmarkMeasuredTokenTotal(allIn, input = true),
+        allInOutputTokens = benchmarkMeasuredTokenTotal(allIn, input = false),
+        allInApiCostEstimateMicros = allIn.takeIf { it.isNotEmpty() }?.let { exactNonnegativeSum(allInCosts.map { value -> value.first }) },
+        allInCostExclusions = allInCosts.mapNotNull { it.second }.groupingBy { it }.eachCount()
     )
 }
 
@@ -159,4 +191,44 @@ private fun exactNonnegativeSum(values: List<Long?>): Long? {
         total += value
     }
     return total
+}
+
+internal fun benchmarkReadinessSamples(run: BenchmarkRun): List<BenchmarkSample> =
+    (run.readiness?.checks.orEmpty().mapNotNull { it.sample } + run.readiness?.probes.orEmpty().mapNotNull { it.sample })
+        .distinctBy { it.attemptId ?: it.logicalRequestId ?: "${it.testId}:${it.physicalRequestIds}" }
+
+internal fun benchmarkMeasuredTokenTotal(samples: List<BenchmarkSample>, input: Boolean): Long? = exactNonnegativeSum(
+    samples.map { sample ->
+        val count = if (input) sample.inputTokens else sample.outputTokens
+        val confidence = if (input) sample.inputTokenConfidence else sample.outputTokenConfidence
+        if (sample.requestDispatched == false && !sample.hasTaskDispatchEvidence()) 0L else count.toLong().takeIf { count >= 0 && confidence == "final_reported" }
+    }
+)
+
+@Serializable
+data class BenchmarkEngineeringExperimentEffort(
+    val experimentId: String,
+    val cohortId: String,
+    val sharedSetupElapsedMs: Long?,
+    val sharedSetupRequests: Int?,
+    val wallElapsedMs: Long?,
+    val inputTokens: Long?,
+    val outputTokens: Long?,
+    val physicalGenerationRequests: Int,
+    val runIds: List<String>,
+    val complete: Boolean,
+    val scope: String = "entire paired experiment; shared fixture preparation counted once; failed and canceled model work retained"
+)
+
+fun benchmarkEngineeringExperimentEffort(batch: BenchmarkBatch, runs: List<BenchmarkRun>): BenchmarkEngineeringExperimentEffort? {
+    val plan = batch.engineeringPlan ?: return null
+    val selected = runs.filter { it.batchId == batch.id }
+    val complete = batch.items.all { it.terminal } && batch.endedAt != null && selected.map { it.id }.toSet() == batch.items.map { it.runId }.toSet()
+    val samples = selected.flatMap { benchmarkReadinessSamples(it) + it.samples }
+    return BenchmarkEngineeringExperimentEffort(
+        plan.id, plan.cohortId, plan.externalSetupMs, plan.externalSetupRequestCount,
+        batch.endedAt?.takeIf { complete && it >= batch.createdAt }?.minus(batch.createdAt),
+        benchmarkMeasuredTokenTotal(samples, input = true), benchmarkMeasuredTokenTotal(samples, input = false),
+        samples.flatMap { it.physicalRequestIds }.distinct().size, selected.map { it.id }, complete
+    )
 }

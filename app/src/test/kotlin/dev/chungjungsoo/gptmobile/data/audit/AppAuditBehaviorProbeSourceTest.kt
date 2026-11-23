@@ -1,11 +1,36 @@
 package dev.chungjungsoo.gptmobile.data.audit
 
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAuditBehaviorProbeSourceTest {
+    @Test fun benchmarkAuditRegressionsPassInBothConversationPrivacyModesWithoutChangingPolicy() = runBlocking {
+        val failuresFromExport = setOf("budget_precheck_v1", "unknown_receipt_v1", "runner_isolation_v1")
+        for (enabled in listOf(false, true)) {
+            val privacy = ConversationPrivacyContext(chatId = 319, enabled = enabled)
+            withContext(privacy) {
+                val source = AppAuditBehaviorProbeSource()
+                val entries = source.plan(AppAuditOptions()).filter { it.probeId in failuresFromExport }
+                assertEquals(3, entries.size)
+                for (entry in entries) {
+                    val observed = source.execute(entry, AppAuditProbeContext(AppAuditLimits()) { error("Local behavior fixtures must never use network admission") })
+                    assertEquals("${entry.id}; privacy=$enabled", AppAuditOutcome.PASS, observed.outcome)
+                    assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, observed.dispatchEvidence)
+                    val assertions = checkNotNull(observed.fixtureEvidence)
+                    assertTrue(assertions.attempted > 0)
+                    assertEquals(assertions.attempted, assertions.passed)
+                    assertTrue(assertions.assertions.all { it.passed && !it.blocked })
+                    assertEquals(privacy, ConversationPrivacyContext.currentOrNull())
+                    assertEquals(enabled, ConversationPrivacyContext.currentOrNull()?.enabled)
+                }
+            }
+        }
+    }
+
     @Test fun actualBudgetAuthorityReceiptAndRunnerContractsPassWithoutExternalDispatch() = runBlocking {
         val source = AppAuditBehaviorProbeSource()
         val plan = source.plan(AppAuditOptions())

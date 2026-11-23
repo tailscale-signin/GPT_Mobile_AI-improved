@@ -162,6 +162,36 @@ class GitHubWorkspaceClient(
             repositorySession.repositoryMap(owner, repo, arguments)
         }
     }
+
+    /** Narrow native transport for the explicitly reviewed disposable benchmark repository. */
+    internal suspend fun phoneBenchmarkRequest(repository: String, path: String, body: JsonObject? = null): JsonObject {
+        val method = if (body == null) HttpMethod.Get else HttpMethod.Post
+        GitHubPhoneBenchmarkApi.validate(repository, path, method, body)
+        refreshCredential()
+        val attempts = GitHubMutationAttempts(currentCoroutineContext()[GitHubMutationAttempts])
+        return withContext(Invocation(GitHubRepositoryStateStore.digest("phone-benchmark|$repository|$path|${body?.let { GitHubExecutionJournal.canonical(it) }}")) + attempts) {
+            if (method == HttpMethod.Get) {
+                val ownedRef = path.contains("/git/ref/heads/")
+                try {
+                    requestUntracked(path, method, null, authenticated = true, forceLiveRead = true, expectedOwnedRefAbsence = ownedRef).jsonObject
+                } catch (rejected: GitHubRequestRejected) {
+                    if (!ownedRef || rejected.status != 404) throw rejected
+                    // This result is an observed endpoint response, never an exception-message guess.
+                    buildJsonObject { put("owned_ref_absent", true) }
+                }
+            } else {
+                request(path, method, body, authenticated = true).jsonObject
+            }
+        }
+    }
+
+    internal suspend fun phoneBenchmarkArtifact(repository: String, artifactId: Long, digest: String): String {
+        require(repository.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) && artifactId > 0 && digest.matches(Regex("[a-f0-9]{64}")))
+        refreshCredential()
+        val credential = requestCredential()
+        return GitHubCiLogReader(client, credential.token, scheduler, responseCache, requestPriority, credential.authenticationRejected, apiOrigins)
+            .read("/repos/$repository/actions/artifacts/$artifactId/zip", immutable = true, archiveEntry = "result.json", archiveDigest = digest).text
+    }
     internal fun transportRetryAfterMillis(): Long = scheduler.transportRetryAfterMillis()
     internal suspend fun prepareFixtureCreation(arguments: JsonObject) =
         ownedFixtures.prepareCreation("/repos/${segment(arguments.getValue("owner").jsonPrimitive.content)}/${segment(arguments.getValue("repo").jsonPrimitive.content)}", arguments)

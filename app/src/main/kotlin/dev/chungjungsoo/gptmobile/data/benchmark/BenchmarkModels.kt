@@ -200,7 +200,10 @@ data class BenchmarkSample(
     val deadlineReceipt: BenchmarkDeadlineReceipt? = null,
     val auditModelConfiguration: dev.chungjungsoo.gptmobile.data.audit.AppAuditModelConfigurationReceipt? = null,
     /** Synthetic, simulated and live evidence are never interchangeable. */
-    val evidenceScope: String = "LEGACY_UNCLASSIFIED"
+    val evidenceScope: String = "LEGACY_UNCLASSIFIED",
+    val engineeringVerification: BenchmarkEngineeringVerification? = null,
+    val engineeringAttempts: List<BenchmarkEngineeringAttemptReceipt> = emptyList(),
+    val adapterRequestSettings: Map<String, String> = emptyMap()
 ) {
     val runtimeExecution: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? get() = runtimeExecutions.lastOrNull()
     val rawReferenceSpeed: Double? get() = firstTextMs?.let { first ->
@@ -317,7 +320,9 @@ data class BenchmarkRun(
     val structuredOutputMode: BenchmarkStructuredOutputMode? = null,
     val structuredSchemaModes: Map<String, BenchmarkStructuredOutputMode> = emptyMap(),
     val verifiedStructuredCompatibilityKeys: Map<String, String> = emptyMap(),
-    val pricingSnapshot: BenchmarkPricingSnapshot? = null
+    val pricingSnapshot: BenchmarkPricingSnapshot? = null,
+    val engineeringPlan: BenchmarkEngineeringPlan? = null,
+    val engineeringRepeatIndex: Int? = null
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)

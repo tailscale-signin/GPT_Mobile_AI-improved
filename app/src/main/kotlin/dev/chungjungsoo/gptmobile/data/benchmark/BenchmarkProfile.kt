@@ -10,7 +10,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Apply bounded fixture settings to a copy, including provider-specific overrides. */
+internal fun benchmarkEngineeringOutputBudget(category: String): Int? = category.takeIf { it.startsWith("engineering_tools_output_") }
+    ?.removePrefix("engineering_tools_output_")?.toIntOrNull()?.takeIf { it in 256..32_768 }
+
 internal fun benchmarkCompletionBudget(profile: PlatformV2, category: String): Int = when {
+    benchmarkEngineeringOutputBudget(category) != null -> requireNotNull(benchmarkEngineeringOutputBudget(category))
     category == "performance_sustained_throughput" -> 2048
     category == "performance_decode" -> 768
     category.startsWith("performance_") -> 64
@@ -36,7 +40,17 @@ internal fun requireBenchmarkOutputContract(profile: PlatformV2, category: Strin
 }
 
 internal fun benchmarkProfile(profile: PlatformV2, allowTools: Boolean, category: String = "speed", executionPolicy: BenchmarkExecutionPolicy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1): PlatformV2 {
-    if (executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) return profile.copy(batchMode = false)
+    if (executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) {
+        val engineeringBudget = benchmarkEngineeringOutputBudget(category)
+        val routing = if (engineeringBudget != null && profile.compatibleType == ClientType.OPENROUTER) {
+            val options = profile.openRouterRouting?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }.orEmpty()
+            val legacy = options.isNotEmpty() && options.keys.none { it in setOf("provider", "stream", "max_tokens", "temperature", "top_p", "top_k", "seed", "repetition_penalty", "frequency_penalty", "presence_penalty") }
+            JsonObject((if (legacy) mapOf("provider" to JsonObject(options)) else options) + ("max_tokens" to JsonPrimitive(engineeringBudget))).toString()
+        } else {
+            profile.openRouterRouting
+        }
+        return profile.copy(batchMode = false, maxTokens = engineeringBudget ?: profile.maxTokens, openRouterRouting = routing)
+    }
     val outputBudget = benchmarkCompletionBudget(profile, category)
     fun objectOrNull(value: String?): JsonObject? = value?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
     val openRouter = if (profile.compatibleType == ClientType.OPENROUTER) {

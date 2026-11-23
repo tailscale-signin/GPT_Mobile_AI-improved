@@ -88,7 +88,7 @@ internal object DynamicScoreEngine {
         "deadline-policy:${run.deadlinePolicy ?: "legacy_unknown"}",
         "structured-policy:${run.structuredOutputMode}|schemas:${run.structuredSchemaModes.toSortedMap()}",
         "instrumentation:${if (run.suiteVersion >= 10) "native-metrics-requested-v1" else "historical"}"
-    ).let { fields -> if (run.local && run.measurementVersion >= 4) fields + "observed-execution:${benchmarkTimingRuntimeContexts(run).joinToString(",")}" else fields }.joinToString("|")
+    ).let { fields -> run.engineeringPlan?.let { fields + "engineering:${it.cohortId}" } ?: fields }.let { fields -> if (run.local && run.measurementVersion >= 4) fields + "observed-execution:${benchmarkTimingRuntimeContexts(run).joinToString(",")}" else fields }.joinToString("|")
 
     fun snapshot(history: List<BenchmarkRun>, generation: Long, now: Long, activeRevisions: Map<String, String>? = null): BenchmarkScoreSnapshot {
         val fresh = history.filter { it.suiteVersion in 3..BenchmarkSuiteRegistry.VERSION && it.measurementVersion in setOf(2, 3, 4) && it.mode !in setOf(BenchmarkMode.DELEGATION, BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE, BenchmarkMode.APP_AUDIT) && now - it.startedAt in 0..FRESHNESS_MS }
@@ -170,7 +170,15 @@ internal object DynamicScoreEngine {
         }
         val timingCoverage = listOf("short", "medium", "long").joinToString { band -> "$band ${run.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED }}/5" }
         return BenchmarkScoreRow(
-            run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified timing for ${run.loadRegime}/${run.cacheRegime}; median of ${timingEligibleBlocks.size} eligible complete blocks. Availability includes all applicable attempts; latest status is shown." else "Provisional timing: ${benchmarkTimingExecutionExclusion(run)?.let { "$it; " }.orEmpty()}$timingCoverage successful timed trials; each band requires five eligible trials in one complete Full block; ${run.samples.filter { it.failureCategory == "INSUFFICIENT_TIMING_SAMPLE" || it.timingExclusionReason != null }.mapNotNull { it.timingExclusionReason ?: it.error }.distinct().joinToString("; ")}", speedByBand, latencyByBand, accuracy, unsupported, intelligence,
+            run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size,
+            if (run.mode == BenchmarkMode.GITHUB_INTEGRATION) {
+                benchmarkGitHubScoreExplanation(run)
+            } else if (verified) {
+                "Verified timing for ${run.loadRegime}/${run.cacheRegime}; median of ${timingEligibleBlocks.size} eligible complete blocks. Availability includes all applicable attempts; latest status is shown."
+            } else {
+                "Provisional timing: ${benchmarkTimingExecutionExclusion(run)?.let { "$it; " }.orEmpty()}$timingCoverage successful timed trials; each band requires five eligible trials in one complete Full block; ${run.samples.filter { it.failureCategory == "INSUFFICIENT_TIMING_SAMPLE" || it.timingExclusionReason != null }.mapNotNull { it.timingExclusionReason ?: it.error }.distinct().joinToString("; ")}"
+            },
+            speedByBand, latencyByBand, accuracy, unsupported, intelligence,
             resultId = benchmarkResultId(run), backend = run.backend, accelerator = run.accelerator,
             latestAttemptStatus = operational.maxBy { it.startedAt }.let {
                 it.state.takeUnless { state -> state == "LEGACY_IMPORTED" } ?: if (!it.finished) {
@@ -207,7 +215,13 @@ internal object DynamicScoreEngine {
             speedScore = speedScore,
             latencyScore = latencyScore,
             overall = overall,
-            explanation = row.explanation + if (anchor != null) "; speed = equal mean of 100 × band rate / verified band leader; ${anchors?.count ?: 0} eligible profiles" else "; no verified cohort anchor"
+            explanation = row.explanation + if (row.cohort.startsWith("GITHUB_INTEGRATION|")) {
+                ""
+            } else if (anchor != null) {
+                "; speed = equal mean of 100 × band rate / verified band leader; ${anchors?.count ?: 0} eligible profiles"
+            } else {
+                "; no verified cohort anchor"
+            }
         )
     }
 }

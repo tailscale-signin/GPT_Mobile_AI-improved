@@ -34,7 +34,7 @@ internal val benchmarkExportJson = Json {
     encodeDefaults = true
 }
 
-internal val benchmarkExportMetadata = setOf("format", "schemaVersion", "storageSchemaVersion", "detail", "exportedAt", "snapshotState", "measurementPolicy", "measurementPolicies", "scoringPolicy", "units", "perRunMetrics", "perRunScores", "scoringNotes", "scoreSelection", "policyDomains", "coverage", "nativeSegmentMeasurements", "runtimeEvidenceScope", "performanceComparisonMatrix", "intelligenceFixtureScope", "auditModelQualificationEvidence")
+internal val benchmarkExportMetadata = setOf("format", "schemaVersion", "storageSchemaVersion", "detail", "exportedAt", "snapshotState", "measurementPolicy", "measurementPolicies", "scoringPolicy", "units", "perRunMetrics", "perRunScores", "scoringNotes", "scoreSelection", "policyDomains", "coverage", "nativeSegmentMeasurements", "runtimeEvidenceScope", "performanceComparisonMatrix", "intelligenceFixtureScope", "auditModelQualificationEvidence", "engineeringComparisons", "engineeringExperimentEffort")
 
 /** Compatibility helper for retained JSON callers; app exports use the streaming store API. */
 internal fun benchmarkExport(raw: String, detailed: Boolean): String {
@@ -189,7 +189,7 @@ internal fun writeBenchmarkExport(output: BenchmarkExportOutput, source: Benchma
                 put("nativeIdentity", "Worker/session and lease identities join the attempt. Null actual engine/driver/offload fields are unknown; configured settings are not actual execution evidence.")
                 put("runtimeCleanup", "Independent positive evidence of native/conversation closure or confirmed worker exit. Termination intent and answer completion do not prove safe handoff.")
                 put("resourceScope", "Execution observations and before/after cleanup are distinct; stored peaks are derived from the same retained observations. PSS, allocation bytes and GPU estimates must not be summed as disjoint memory.")
-                put("taskEfficiency", "Per-run non-warmup fixture effort divided by PASSED cases; failed attempts and retries remain in elapsed time. Setup, downloads and demonstrably unattempted skipped/unsupported cases are excluded. This is not real-world task quality or a cross-cohort ranking.")
+                put("taskEfficiency", "Legacy task-only fields retain their population. Separate setup and allIn fields include readiness, warmups, failures, retries and cleanup. Shared fixture setup is counted once in engineeringExperimentEffort. Efficiency never substitutes for verified task completion.")
                 put("apiCostEstimate", "Eligible stored account/provider token rates frozen for the exact configured route at run start, using final reported usage. Missing route-bound prices, unconfirmed conditional rates, retry usage or participant attribution leave the whole cost unknown. Price sources retain their kind and digest; private source notes are omitted from standard exports. Estimates exclude discounts, cache pricing, tools, subscriptions, hardware and energy; they are not provider invoices.")
                 put("nativeSegmentMeasurements", "Canonical nullable view of legacy timing aliases; original fields remain unchanged in runs for round-trip compatibility. Native rates are per measured segment and model tokenizer dependent.")
             }
@@ -240,6 +240,8 @@ internal fun writeBenchmarkExport(output: BenchmarkExportOutput, source: Benchma
         )
         put("performanceComparisonMatrix", benchmarkExportRecords(benchmarkComparisonMatrix(runs).asSequence().map { json.encodeToJsonElement(BenchmarkComparisonRow.serializer(), it) }))
         put("intelligenceFixtureScope", BenchmarkIntelligenceFixtures.LIMITATION)
+        put("engineeringComparisons", benchmarkExportRecords(benchmarkEngineeringComparisons(runs).asSequence().map { json.encodeToJsonElement(BenchmarkEngineeringComparison.serializer(), it) }))
+        put("engineeringExperimentEffort", benchmarkExportRecords(batches.asSequence().mapNotNull { benchmarkEngineeringExperimentEffort(it, runs) }.map { json.encodeToJsonElement(BenchmarkEngineeringExperimentEffort.serializer(), it) }))
         put(
             "perRunMetrics",
             benchmarkExportRecords {

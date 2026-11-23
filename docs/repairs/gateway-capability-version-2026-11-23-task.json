@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "task": "Refresh current Gateway18 capability fixtures for the actual18.1.2 response",
+  "state": "FIXTURES_RECAPTURED_BASELINE_REPRODUCED_PENDING_PACKAGE_AND_CORRECTED_PROOF",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/github-evidence-progress-2026-11-23",
+  "parent_pr": 2363,
+  "public_base_commit": "3f05e97d910520b122e85c30f711a9053ab3601f",
+  "local_equivalent_base_commit": "32ccb04f8961c911e9c23fbdcef5c16e1df9f203",
+  "base_tree": "74d1baa338157d02dd4cc2cac23b951bdfaadc47",
+  "work_branch": "work/gateway-capability-version-20261123",
+  "worktree": "/workspace/scratch/6b5c8b09c56b/gateway-capability-version-work",
+  "intent": "Recapture the complete current v18 capability response through the existing real HTTP helper, keep all non-version fields, synchronize its Android resource, correct the current short contract version and regenerate only the necessary Gateway package manifest.",
+  "owned_paths": [
+    "gateway/contracts/v18/capabilities.json",
+    "gateway/contracts/v18/gateway-v18-capabilities-full.json",
+    "app/src/test/resources/gateway-v18-capabilities-full.json",
+    "gateway/manifest-v14.json",
+    "docs/repairs/gateway-capability-version-2026-11-23-task.json"
+  ],
+  "failure_evidence": {
+    "run_id": 45176683747,
+    "attempt": 1,
+    "pr_head": "3f05e97d910520b122e85c30f711a9053ab3601f",
+    "actual_checkout_merge_commit": "76e36be9c013baa81d3b9bd267cf73aa3400bd66",
+    "checkout_tree": "74d1baa338157d02dd4cc2cac23b951bdfaadc47",
+    "jobs": [
+      137699631513,
+      137699631668
+    ],
+    "methods": [
+      "test_gateway_capabilities.GatewayCapabilitiesContractTests.test_full_shared_fixture_matches_the_actual_http_response",
+      "test_gateway_v14.RuntimeTests.test_actual_capabilities_ready_and_facade"
+    ],
+    "cause": "Runtime VERSION and validated manifest are18.1.2; three current v18 fixture files still retain18.1.1. Both Linux3.12/3.13 jobs fail the same two strict version assertions.",
+    "proof_directory": "/workspace/scratch/6b5c8b09c56b/gateway-capability-version-proof",
+    "logs": {
+      "job-137699631513.log": "4581bca6d9892b17bc18751b78a7db5f53b5b6ec2c1fd51fd7af2474ce22997e",
+      "job-137699631668.log": "e50382698b1724d657f31dc7ef174da750106f413bb6cc2f69b5016d30c28c3b",
+      "hosted-metadata.json": "7728c3a1b434300283b3f1477a877ed438beeb5c6c66085d8c8c348d4d28748d"
+    }
+  },
+  "constraints": [
+    "Keep production capability construction, strict full-response comparison, identity normalization, package integrity and zero-inference assertions unchanged.",
+    "Preserve all historical v14-v17 and legacy-mixed fixtures.",
+    "Use official manifest-only builder against a committed fixture-source ancestor; retain all other513-entry package identities.",
+    "Do not update whole app inventory, feature references, release scope or foreign checkouts. Root owns final integration/canonical/hosted gates.",
+    "No full Gradle, public mutations, retries or cancellations."
+  ],
+  "validation": {
+    "baseline": {
+      "path": "/workspace/scratch/6b5c8b09c56b/gateway-capability-version-proof/baseline/receipt.json",
+      "sha256": "155af52f71c45ad064af2ca8a3504ee3c38e5d204cd8b98b1929e1287d226b89",
+      "tests": 31,
+      "expected_failures": 2,
+      "errors": 0,
+      "actual_http_capture_sha256": "35924ec944d031062cc4fa3c19d014813f360101fa6bc571c2eea4e6f428d27f",
+      "changed_full_response_fields": [
+        "gatewayVersion",
+        "gateway_version",
+        "version"
+      ],
+      "model_inference_requests": 0
+    },
+    "corrected": [],
+    "canonical": "Root-owned after integration",
+    "hosted": "Final-head matrix and complete Android qualification pending",
+    "bootstrap_note": "The first local capability suite reproduced its expected assertion failure; a scratch log parser incorrectly required both full version strings despite unittest truncating the dictionary diff. Its evidence is retained in baseline-bootstrap-log-assertion. The corrected harness checks the exact failing method and the complete real HTTP body; no repository test assertion changed."
+  },
+  "android_consumer_review": {
+    "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayV14CapabilitiesTest.kt",
+    "current_full_fixture_consumer": "completeServerRouteFixturesAcceptLegacyMetadataWithoutEnablingIt",
+    "version_acceptance": "acceptsGateway14Through18AndRejectsUnknownOrMalformedContracts already explicitly includes18.1.2",
+    "historical_fixture_versions_unchanged": true,
+    "exact_android_mirror_test": "scripts/tests/test_gateway_capability_fixtures.py passed across all five full/legacy pairs",
+    "actual_jvm_execution": "Not run by this component; final hosted Android remains required."
+  }
+}

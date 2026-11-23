@@ -1,5 +1,5 @@
 {
-  "gatewayVersion": "18.1.1",
+  "gatewayVersion": "18.1.2",
   "contractVersion": 1,
   "auth": {
     "mode": "loopback",

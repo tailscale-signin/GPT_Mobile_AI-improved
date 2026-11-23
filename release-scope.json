@@ -1256,11 +1256,12 @@
     "docs/repairs/release-lint-budget-2026-11-23-task.json",
     "scripts/check_android_lint_memory.py",
     "scripts/tests/test_android_lint_memory.py",
-    "scripts/tests/test_release_lint_workflow.py"
+    "scripts/tests/test_release_lint_workflow.py",
+    "docs/repairs/gateway-version-reservation-2026-11-23-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.14",
     "versionCode": 148,
-    "gateway": "18.1.1"
+    "gateway": "18.1.2"
   }
 }

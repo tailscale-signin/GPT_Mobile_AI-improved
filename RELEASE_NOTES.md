@@ -1,10 +1,10 @@
 # Android 0.9.66.14 — smoother voice chat and reliable execution
 
-Version code: **148**. Coordinated publication with Gateway **18.1.1**; retains the Gateway 18 contract.
+Version code: **148**. Coordinated publication with Gateway **18.1.2**; retains the Gateway 18 contract.
 
 ## Release validation
 
-- Keep the complete benchmark, context, privacy, speech and recovery changes from the unpublished Android 0.9.66.13 candidate.
+- Keep the complete benchmark, context, privacy, speech and recovery changes from the prior Android 0.9.66.13 candidate.
 - Run release lint with an explicit bounded memory budget and current-memory admission, retain dedicated diagnostics, and preserve every lint check and the existing outer time limit. Exact-source validation and both published-package checks remain required.
 
 ## Repository references and automatic task context

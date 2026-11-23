@@ -1,10 +1,10 @@
 # 0.9.66.14 — 2026-11-23
 
-- Retain all benchmark, GitHub integration, context, speech, privacy and recovery changes from the unpublished 0.9.66.13 candidate.
+- Retain all benchmark, GitHub integration, context, speech, privacy and recovery changes from the prior 0.9.66.13 candidate.
 - Give release lint the fixed 4 GiB heap/1 GiB metaspace profile already used by debug lint, require current-memory admission including a 2 GiB native reserve, and retain dedicated process/GC diagnostics. Preserve every release check and the 45-minute outer gate.
-- Request coordinated publication of Android 0.9.66.14 (version code 148) and Gateway 18.1.1 after current-head and main qualification.
+- Request coordinated publication of Android 0.9.66.14 (version code 148) and Gateway 18.1.2 after current-head and main qualification.
 
-# 0.9.66.13 — 2026-11-22 (unpublished candidate)
+# 0.9.66.13 — 2026-11-22 (prior candidate)
 
 - Requalify speech acceleration after the native profile-lifecycle update; older capability results stay in history and cannot rank or disable the updated runtime.
 - Preserve completed speech playback measurements when a cancellation request arrives after audio has already stopped.

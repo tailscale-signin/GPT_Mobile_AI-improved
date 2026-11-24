@@ -689,7 +689,8 @@
         "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json",
         "docs/repairs/diagnostic-93d824fd-implementation-2026-11-23-task.json",
         "docs/repairs/diagnostic-deployment-probe-2026-11-24-task.json",
-        "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json"
+        "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json",
+        "docs/repairs/diagnostic-readiness-selection-2026-11-24-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
@@ -700,7 +701,8 @@
         "Protected payload reuse requires fresh row authority before and after redaction, complete digest/UTF-8 validation and unchanged privacy context.",
         "Memory-pressure recovery preserves all source limits and headroom guards; complete export needs every bounded continuation part.",
         "Require the shipped saved-page replay, local graph failure and provider-limit capabilities in hosted readiness probes, retaining the4096-byte bound and native-only no-probe routing.",
-        "Public final-request privacy evidence requires the exact typed code, admission/domain tuple, closed four-outcome vocabulary and negotiated capability. Keep raw private receipts out of approved reports, preserve prior unknown/accepted work against a later negative observation, and never infer an omitted historical reason."
+        "Public final-request privacy evidence requires the exact typed code, admission/domain tuple, closed four-outcome vocabulary and negotiated capability. Keep raw private receipts out of approved reports, preserve prior unknown/accepted work against a later negative observation, and never infer an omitted historical reason.",
+        "Select the bounded extended readiness catalogue for saved-page replay, graph-local, provider-limit, replay-budget, graph-transport, task/tool and reader/run failure evidence before posting the exact approved report bytes; missing support never authorizes dispatch."
       ]
     },
     {

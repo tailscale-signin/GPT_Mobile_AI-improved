@@ -693,7 +693,8 @@
         "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json",
         "docs/repairs/diagnostic-93d824fd-implementation-2026-11-23-task.json",
         "docs/repairs/diagnostic-deployment-probe-2026-11-24-task.json",
-        "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json"
+        "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json",
+        "docs/repairs/diagnostic-readiness-selection-2026-11-24-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
@@ -704,7 +705,8 @@
         "Protected payload reuse requires fresh row authority before and after redaction, complete digest/UTF-8 validation and unchanged privacy context.",
         "Memory-pressure recovery preserves all source limits and headroom guards; complete export needs every bounded continuation part.",
         "Require the shipped saved-page replay, local graph failure and provider-limit capabilities in hosted readiness probes, retaining the4096-byte bound and native-only no-probe routing.",
-        "Public final-request privacy evidence requires the exact typed code, admission/domain tuple, closed four-outcome vocabulary and negotiated capability. Keep raw private receipts out of approved reports, preserve prior unknown/accepted work against a later negative observation, and never infer an omitted historical reason."
+        "Public final-request privacy evidence requires the exact typed code, admission/domain tuple, closed four-outcome vocabulary and negotiated capability. Keep raw private receipts out of approved reports, preserve prior unknown/accepted work against a later negative observation, and never infer an omitted historical reason.",
+        "Select the bounded extended readiness catalogue for saved-page replay, graph-local, provider-limit, replay-budget, graph-transport, task/tool and reader/run failure evidence before posting the exact approved report bytes; missing support never authorizes dispatch."
       ]
     },
     {
@@ -1155,9 +1157,9 @@
       "sha256": "fe82d3fb494d3e1d15eae0e149aa554261bd91cd7c65b66c9957fc362f1de9cf"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": {
-      "blob_sha": "0185348150afde1702b3639aed1d5c4fdf071480",
-      "bytes": 19462,
-      "sha256": "b3b0812246996d17e5f66432e6f985455bcad3880a1ff84d7aed94ccc87181af"
+      "blob_sha": "50a19f1fbaccb24fe76d3c4a00c4aa9e8cd6379c",
+      "bytes": 19824,
+      "sha256": "97ad48bee00b9c6d0d27dddd6203d1ae12ed1554f8f6c75379f2aa33cb2a67a3"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt": {
       "blob_sha": "12a70f54a8c7e1bff666735d9b4df2e6099ec1a9",
@@ -2075,9 +2077,9 @@
       "sha256": "cffc1e45ea7a94b4c3e3e0d084a28ac961e3836b2311967c25c042a416695238"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt": {
-      "blob_sha": "1611113ffa7c91523e1b466f3c50b7d46a6155ab",
-      "bytes": 164038,
-      "sha256": "0fc8390368f062c456f8afa5380f09948199f7b95dd35f880ec6de95c0e8be60"
+      "blob_sha": "c9b16c5e94df2973770f63a4fdb93c61dd23d6a5",
+      "bytes": 171380,
+      "sha256": "14b172fb5a84dc433d3fe1d31c5c7f6ad5e7b9a687af18007c035e605dc940db"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt": {
       "blob_sha": "6f0ad3c7bba0c4b7354217b98cce11060b413354",
@@ -2778,6 +2780,11 @@
       "blob_sha": "f4d3f21a236d3b4d637b55effb606dbbef8dc56e",
       "bytes": 1836,
       "sha256": "e505c0b4b144954577a06ede0ef87acaed7f10baa8c4131d00287a05a6037402"
+    },
+    "docs/repairs/diagnostic-readiness-selection-2026-11-24-task.json": {
+      "blob_sha": "704a753e846c4c962479513fa5456f2c8837b72d",
+      "bytes": 7304,
+      "sha256": "f63121c66244d8306199ec4eb05249a1207a27fb167f231b4f9222873ec7d68c"
     },
     "docs/repairs/emulator-early-input-readiness-2026-11-23-task.json": {
       "blob_sha": "e21ef26f1984d33f91238a874d34e8afa0c8511f",

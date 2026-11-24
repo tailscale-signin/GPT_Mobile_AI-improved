@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptancePublicationEvidence
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence
 import java.io.IOException
@@ -38,13 +41,17 @@ class IssueReportSubmissionTest {
         val approved = report.copy(feature = "chat", errorCode = "REPLAY_EVIDENCE_REQUIRED", context = context)
         val payload = approved.approvedPayload()
         var supported = false
+        var dispatched = 0
         val methods = mutableListOf<String>()
         val posted = mutableListOf<String>()
         val client = OkHttpClient.Builder().addInterceptor { chain ->
             val request = chain.request()
             methods += request.method
             if (request.method == "GET") {
-                val features = JsonArray(needed.filter { supported || it != feature }.map(::JsonPrimitive))
+                val extended = request.url.queryParameter("capabilities") == "extended"
+                assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                val advertised = legacyReadyFeatures + if (extended) needed.filter { supported || it != feature } else emptyList()
+                val features = JsonArray(advertised.distinct().map(::JsonPrimitive))
                 response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
             } else {
                 posted += body(request)
@@ -52,16 +59,122 @@ class IssueReportSubmissionTest {
             }
         }.build()
         val submission = IssueReportSubmission(origin, client)
-        val blocked = submission.send(approved.reportId, payload) as IssueReportSubmission.Failure
+        val blocked = submission.send(approved.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
         assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
         assertFalse(blocked.automaticRetry)
         assertEquals(listOf("GET"), methods)
+        assertEquals(0, dispatched)
         assertTrue(posted.isEmpty())
         supported = true
-        assertEquals(IssueReportSubmission.Confirmed(941), submission.send(approved.reportId, payload))
+        assertEquals(IssueReportSubmission.Confirmed(941), submission.send(approved.reportId, payload) { dispatched++ })
         assertEquals(listOf("GET", "GET", "POST"), methods)
+        assertEquals(1, dispatched)
         assertEquals(listOf(payload), posted)
         assertEquals(payload, approved.approvedPayload())
+    }
+
+    @Test fun replayGraphAndProviderReportsNegotiateExtendedReadinessFromRestoredApprovedBytes() {
+        fun captured(area: String, vararg fields: Pair<String, String>): IssueReport {
+            val diagnostics = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to area) + fields, 1_000L))
+            assertTrue(diagnostics.isValid())
+            return report.copy(context = IssueReportContext.fromFields("CHAT_FAILURE", occurredAtMillis = 1_000L).withDiagnostics(diagnostics))
+        }
+        fun toolFailure(toolName: String, arguments: String, errorCode: String, receipt: JsonObject): IssueReport {
+            val call = ToolEvent("readiness-private-event", "readiness-private-run", 1, "readiness-private-call", null, null, toolName, toolName, arguments, null, null, "FAILED")
+            val result = AgentToolResult(call.callId, ToolResultContent.Text("readiness-private-response"), true, errorCode = errorCode, executionReceipt = receipt)
+            val code = requireNotNull(ToolReportDiagnostics.reportCode(call, result))
+            assertEquals("SOURCE_UNAVAILABLE", code)
+            val context = IssueReportContext.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(call, result), 1_000L)
+            val approved = report.copy(errorCode = code, context = context)
+            assertFalse(approved.approvedPayload().contains("readiness-private"))
+            return approved
+        }
+        val cases = listOf(
+            "REPLAY_BUDGET_EVIDENCE_V1" to report.copy(errorCode = "REPLAY_EVIDENCE_REQUIRED"),
+            "REPLAY_BUDGET_EVIDENCE_V1" to captured("INCIDENT", "replay_budget_state" to "NO_CONTINUATION_ALLOWANCE"),
+            "GRAPH_TRANSPORT_EVIDENCE_V1" to captured("TOOL", "graph_transport_kind" to "DNS"),
+            "GRAPH_LOCAL_CONTEXT_FAILURE_V1" to captured("TOOL", "graph_local_phase" to "SOURCE_GRAPH", "graph_local_reason" to "LOCAL_INVARIANT_REJECTED"),
+            ExecutionCompletionDiagnostics.PROVIDER_LIMIT_CAUSE_FEATURE to captured("PROVIDER", "provider_failure_kind" to "BUDGET", "provider_budget_kind" to "IN_FLIGHT_BUDGET"),
+            "TASK_AND_TOOL_FAILURE_DETAILS_V1" to toolFailure(
+                "web_search",
+                """{"query":"readiness-private-query"}""",
+                "SEARCH_PROVIDERS_UNAVAILABLE",
+                buildJsonObject {
+                    put("schema", "gptmobile.search-operation.v1")
+                    put("callId", "readiness-private-call")
+                    put("errorCode", "SEARCH_PROVIDERS_UNAVAILABLE")
+                    put("phase", "SEARCH_AGGREGATION")
+                    put("provider", "selected_search_engines")
+                    put("state", "FAILED")
+                    put("completedProviders", 0)
+                    put("attemptCount", 3)
+                    put("dispatchedAttemptCount", 1)
+                    put("budgetRejectedAttemptCount", 1)
+                }
+            ),
+            "READER_AND_RUN_FAILURE_DETAILS_V1" to toolFailure(
+                "read_url",
+                """{"url":"https://readiness-private.example/hidden"}""",
+                "REDIRECT_FAILED",
+                buildJsonObject {
+                    put("schema", "gptmobile.search-operation.v1")
+                    put("provider", "read_url")
+                    put("callId", "readiness-private-call")
+                    put("errorCode", "REDIRECT_FAILED")
+                    put("phase", "RETRIEVAL")
+                    put("state", "FAILED")
+                    put("requestSent", true)
+                    put("reader_refusal", "LOCATION_MISSING")
+                }
+            )
+        )
+        for ((feature, candidate) in cases) {
+            val payload = candidate.approvedPayload()
+            val restored = IssueReport.json.decodeFromString(IssueReport.serializer(), payload)
+            assertEquals(payload, restored.approvedPayload())
+            val needed = restored.context?.diagnostics?.requiredServiceFeatures().orEmpty() + feature
+            if (restored.context != null) assertTrue(feature in requireNotNull(restored.context.diagnostics).requiredServiceFeatures())
+            var supported = false
+            var dispatched = 0
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    val extended = request.url.queryParameter("capabilities") == "extended"
+                    assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                    // Match the receiver's bounded views: plain readiness never advertises these families.
+                    val advertised = legacyReadyFeatures + if (extended) needed.filter { supported || it != feature } else emptyList()
+                    val readiness = buildJsonObject {
+                        put("service", "gpt-mobile-issue-reporter")
+                        put("version", 2)
+                        put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                        put("reportDiagnosticFeatures", JsonArray(advertised.distinct().map(::JsonPrimitive)))
+                    }.toString()
+                    assertTrue(readiness.encodeToByteArray().size <= if (extended) 4096 else 1024)
+                    if (supported) assertTrue(readiness.encodeToByteArray().size > 1024)
+                    response(request, 200, readiness)
+                } else {
+                    assertEquals("$origin/v1/issue-reports", request.url.toString())
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${restored.reportId}","number":941}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(restored.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+            assertFalse(blocked.automaticRetry)
+            assertEquals(listOf("GET"), methods)
+            assertEquals(0, dispatched)
+            assertTrue(posted.isEmpty())
+            supported = true
+            assertEquals(IssueReportSubmission.Confirmed(941), submission.send(restored.reportId, payload) { dispatched++ })
+            assertEquals(listOf("GET", "GET", "POST"), methods)
+            assertEquals(1, dispatched)
+            assertEquals(listOf(payload), posted)
+            assertEquals(payload, restored.approvedPayload())
+        }
     }
 
     @Test fun streamingVoiceValuesRequireTheirOwnCapabilityBeforePostingRestoredApprovedBytes() {

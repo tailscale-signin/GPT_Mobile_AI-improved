@@ -88,6 +88,12 @@ def _features(value, tree):
                             'VERIFIED_REFERENCES' if observed and len(observed) == len(references) else 'REFERENCES_NOT_DECLARED')
         if row['freshness'] == 'STALE_REFERENCES':
             row['invariants'] = []
+        route = item.get('routing')
+        if (row['freshness'] == 'VERIFIED_REFERENCES' and isinstance(route, dict)
+                and route.get('entry') in row['paths'] and
+                all(isinstance(route.get(k), str) and 0 < len(route[k]) <= 200 for k in ('role', 'proof', 'admission', 'decline'))):
+            row['routing'] = {k: route[k] for k in ('role', 'entry', 'proof', 'admission', 'decline')}
+            row['routing']['execution_authority'] = False
         # Commands intentionally do not enter execution or readiness authority.
         rows.append(row)
     return rows
@@ -225,6 +231,9 @@ def build_bundle(*, repository, source_sha, tree, load_source, query, variant='T
         for score, feature in sorted(matches, key=lambda row: (-row[0], row[1]['id']))[:4]:
             result['features'].append({'id': feature['id'], 'title': feature['title'], 'invariants': feature['invariants'][:4],
                                        'freshness': feature['freshness']})
+            if 'routing' in feature:
+                result['features'][-1]['routing'] = feature['routing']
+                offer(feature['routing']['entry'], 75 + score, 'feature_entry')
             for field, boost, reason in (('paths', 55, 'feature_source'), ('tests', 50, 'feature_test'),
                                          ('documents', 65, 'feature_document')):
                 for path in feature[field]:

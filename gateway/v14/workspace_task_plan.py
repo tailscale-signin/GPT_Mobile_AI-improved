@@ -21,16 +21,97 @@ def status(job):
     if not plan:
         return {'state': 'NOT_PLANNED', 'items': [], 'completed': 0, 'total': 0, 'completion_authority': False}
     current = plan['binding'] == identity(job)
-    rows = []
+    active_patch = None
+    if data.get('changes'):
+        from v14.engineering_validation import patch_identity
+        active_patch = patch_identity(data['head_sha'], data['changes'])
+    rows, observed = [], set()
     for item in plan['items']:
-        dependencies = [row for row in plan['items'] if row['id'] in item['depends_on']]
-        state = 'STALE' if not current else item['state']
-        rows.append(dict(item, state=state, ready=current and state == 'PENDING' and
-                         all(row['state'] == 'EVIDENCE_OBSERVED' for row in dependencies)))
+        state = item['state'] if current else 'STALE'
+        dependencies_observed = observed.issuperset(item['depends_on'])
+        if state == 'EVIDENCE_OBSERVED' and (not dependencies_observed or
+                active_patch is not None and item.get('observed_patch_identity') != active_patch):
+            state = 'PENDING'
+        if state == 'EVIDENCE_OBSERVED':
+            observed.add(item['id'])
+        rows.append(dict(item, state=state, ready=state == 'PENDING' and dependencies_observed))
     return {'state': 'CURRENT' if current else 'STALE', 'head_sha': plan['head_sha'],
             'items': rows, 'completed': sum(row['state'] == 'EVIDENCE_OBSERVED' for row in rows),
             'total': len(rows), 'completion_authority': False,
             'coverage': 'Observed mapped behavior cases; final exact-patch and publication gates remain required'}
+
+
+def observed_check(data, receipt):
+    if not receipt or receipt.get('head_sha') != data['head_sha']:
+        return None
+    check = data.get('workspace_checks', {}).get(receipt.get('check_id'))
+    policy = data.get('admission', {}).get('policy_sha256')
+    if (not check or not policy or check.get('source_sha') != data['head_sha'] or check.get('status') != 'PASSED'
+            or check.get('policy_sha256') != policy or not check.get('patch_identity')
+            or check['patch_identity'] != receipt.get('patch_identity')):
+        return None
+    cases = {case['name'] for case in check.get('case_results', [])
+             if case.get('status') == 'PASSED' and isinstance(case.get('report_sha256'), str)
+             and re.fullmatch('[a-f0-9]{64}', case['report_sha256'])}
+    return check['patch_identity'], cases
+
+
+def required_cases(accepted, row):
+    expected = set()
+    for key in row['requirement_ids']:
+        specs = accepted[key].get('evidence', [])
+        if not specs or any(spec.get('kind') != 'behavior_test' for spec in specs):
+            return set()
+        expected.update(spec['name'] for spec in specs)
+    return expected
+
+
+def next_work(job):
+    """Choose a ready package from the accepted plan without giving the model additional operations."""
+    plan = status(job)
+    ready = [item for item in plan['items'] if item['ready']]
+    if not ready:
+        return None
+    accepted = {row['id']: row for row in job['request']['acceptance']}
+    data = job['data']
+    observations = {}
+    for receipt in data.get('workspace_receipts', []):
+        observation = observed_check(data, receipt)
+        reference = receipt.get('receipt_sha256')
+        if observation and reference:
+            patch, cases = observation
+            observations.setdefault(patch, []).append((reference, cases))
+    if data.get('changes'):
+        from v14.engineering_validation import patch_identity
+        patch = patch_identity(data['head_sha'], data['changes'])
+        observations = {patch: observations.get(patch, [])}
+    children = {item['id']: 0 for item in ready}
+    for item in plan['items']:
+        for dependency in item['depends_on']:
+            if dependency in children:
+                children[dependency] += 1
+    decisions = []
+    for item in ready:
+        expected = required_cases(accepted, item)
+        shortest = None
+        for evidence in observations.values():
+            remaining, references = expected.copy(), []
+            for reference, cases in reversed(evidence):
+                if remaining.intersection(cases):
+                    remaining.difference_update(cases)
+                    references.append(reference)
+            if expected and not remaining and len(references) <= 16 and (shortest is None or len(references) < len(shortest)):
+                shortest = references
+        decision = {'id': item['id'], 'requirement_ids': item['requirement_ids'],
+                    'head_sha': data['head_sha'], 'completion_authority': False}
+        if shortest is not None:
+            decision.update(reason='RETAINED_BEHAVIOR_EVIDENCE', action='task_plan_complete', receipt_sha256=shortest)
+        else:
+            decision.update(reason='READY_DEPENDENCIES', role=item['role'], paths=item['paths'][:4],
+                            evidence_cases=sorted(expected)[:8])
+        priority = (shortest is None, -children[item['id']], -len(item['requirement_ids']), len(item['paths']), item['id'])
+        decisions.append((priority, decision))
+    return min(decisions, key=lambda candidate: candidate[0])[1]
 
 
 def act(job, action):
@@ -77,34 +158,32 @@ def act(job, action):
         references = action.get('receipt_sha256')
         if not row or not isinstance(references, list) or not 1 <= len(references) <= 16 or any(not isinstance(ref, str) for ref in references):
             raise ValueError('Name a task and one to sixteen exact current workspace check receipts')
-        if row['state'] == 'EVIDENCE_OBSERVED':
+        effective = next(item for item in status(job)['items'] if item['id'] == row['id'])
+        if effective['state'] == 'EVIDENCE_OBSERVED':
             if references != row['receipt_ids']:
                 raise ValueError('This task already has different observed evidence')
             return status(job)
-        if any(item['state'] != 'EVIDENCE_OBSERVED' for item in plan['items'] if item['id'] in row['depends_on']):
+        if not effective['ready']:
             raise ValueError('Observe the dependency evidence before completing this work package')
         receipts = {item.get('receipt_sha256'): item for item in data.get('workspace_receipts', [])}
         named_cases, patches = set(), set()
         for reference in references:
             receipt = receipts.get(reference)
-            check = data.get('workspace_checks', {}).get(receipt.get('check_id')) if receipt else None
-            if (not receipt or receipt.get('head_sha') != data['head_sha'] or not check or
-                    check.get('source_sha') != data['head_sha'] or check.get('status') != 'PASSED' or
-                    check.get('policy_sha256') != data.get('admission', {}).get('policy_sha256') or
-                    check.get('patch_identity') != receipt.get('patch_identity')):
+            observation = observed_check(data, receipt)
+            if observation is None:
                 raise ValueError('Completion requires an actual passing check on the exact source, patch and policy')
-            patches.add(check['patch_identity'])
-            named_cases.update(case['name'] for case in check.get('case_results', [])
-                               if case.get('status') == 'PASSED' and isinstance(case.get('report_sha256'), str)
-                               and re.fullmatch('[a-f0-9]{64}', case['report_sha256']))
+            patch, cases = observation
+            patches.add(patch)
+            named_cases.update(cases)
         if len(patches) != 1:
             raise ValueError('All task evidence must describe one exact candidate patch')
-        expected = set()
-        for key in row['requirement_ids']:
-            specs = accepted[key].get('evidence', [])
-            if not specs or any(spec.get('kind') != 'behavior_test' for spec in specs):
-                raise ValueError('This requirement has no supported executable behavior evidence mapping')
-            expected.update(spec['name'] for spec in specs)
+        if data.get('changes'):
+            from v14.engineering_validation import patch_identity
+            if patch_identity(data['head_sha'], data['changes']) not in patches:
+                raise ValueError('Task evidence belongs to an earlier candidate patch')
+        expected = required_cases(accepted, row)
+        if not expected:
+            raise ValueError('This requirement has no supported executable behavior evidence mapping')
         if not expected <= named_cases:
             raise ValueError('The retained check receipts do not cover every mapped behavior case')
         row.update(state='EVIDENCE_OBSERVED', receipt_ids=copy.deepcopy(references), observed_cases=sorted(expected), observed_patch_identity=next(iter(patches)))

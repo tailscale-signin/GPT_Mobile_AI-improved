@@ -78,7 +78,7 @@ def principal_authorized(config, principal, devices):
 
 
 def validate_request(request):
-    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'context_variant', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'adopt_pr', 'sampling_policy', 'execution_mode', 'batch_policy_version', 'batch_preferences', 'specialist_roles'}
+    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'context_variant', 'next_action_policy', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'adopt_pr', 'sampling_policy', 'execution_mode', 'batch_policy_version', 'batch_preferences', 'specialist_roles'}
     if not isinstance(request, dict) or set(request) - allowed:
         raise ValueError('Unsupported engineering request fields')
     result = dict(request)
@@ -115,6 +115,8 @@ def validate_request(request):
             raise ValueError('Invalid engineering budget')
     if result.get('memory_mode', 'HYBRID') not in {'SESSION_ONLY', 'PERSISTENT', 'HYBRID'}:
         raise ValueError('Invalid engineering memory mode')
+    if result.get('next_action_policy', 'LEGACY') not in ('LEGACY', 'SHADOW', 'ACTIVE'):
+        raise ValueError('Invalid next action policy')
     if 'context_variant' in result:
         from v14.task_context import variant as context_variant
         result['context_variant'] = context_variant(result['context_variant'])
@@ -393,7 +395,8 @@ class EngineeringStore:
             conversation_binding = {key: request.get(key) for key in ('profile_id', 'profile_name', 'model', 'repository', 'branch', 'base', 'source_sha')}
             conversation_binding.update(source_branch=request.get('source_branch', request['branch']), working_branch=request['branch'],
                                         execution_binding=binding, execution_mode=request.get('execution_mode', 'standard'),
-                                        context_variant=request.get('context_variant', 'TASK'))
+                                        context_variant=request.get('context_variant', 'TASK'),
+                                        next_action_policy=request.get('next_action_policy', 'LEGACY'))
             receipt = self.conversations.admission(db, principal, request.get('command_id', request['request_id']), 'engineering', job['id'], request,
                 conversation_binding, request['objective'], now=now, replace_paused=replace_paused)
             previous = self.get_in_transaction(db, receipt.get('previous_job_id'), principal)
@@ -1395,8 +1398,18 @@ class EngineeringService:
                 job['data']['readiness'] = output
                 if output.get('head_sha') != job['data'].get('head_sha'):
                     job['approval'] = None
-                    job['message'] = 'The working branch changed outside this job. Review the new head before continuing.'
-                    phase = 'NEEDS_INPUT'
+                    reconcile = getattr(self.backend, 'reconcile_ci_head', None)
+                    advance = reconcile(job, output) if callable(reconcile) else None
+                    if advance:
+                        for key in ('ci', 'readiness', 'completion_verification', 'criterion_receipts', 'local_validation',
+                                    'workspace_checks', 'workspace_check_executions', 'review', 'requirement_evidence_refs'):
+                            job['data'].pop(key, None)
+                        job['data'].update(head_sha=advance['head_sha'], branch_reconciliation=advance)
+                        self.evidence.append(job, 'branch_reconciliation', advance)
+                        job['message'] = 'An independent change advanced this PR. Rechecking CI and acceptance at the new head.'
+                    else:
+                        job['message'] = 'The working branch changed outside this job. Review the new head before continuing.'
+                        phase = 'NEEDS_INPUT'
                 elif output.get('checks_blocked'):
                     job['data']['ci'] = output
                     job['message'] = output.get('message', 'A completed CI check needs attention')
@@ -1405,6 +1418,9 @@ class EngineeringService:
                     fingerprint = output['failure_fingerprint']
                     job['data']['ci'] = output
                     phase = 'READ' if EngineeringSupervisor.repair(job, fingerprint) else 'NEEDS_INPUT'
+                    if phase == 'READ':
+                        job['data']['ci_repair_observation'] = {'job_id': job['id'], 'pr': output.get('pr'),
+                            'failed_head': output['head_sha'], 'failure_fingerprint': fingerprint}
                     if phase == 'NEEDS_INPUT':
                         job['message'] = 'CI repair budget exhausted; failure logs and attempted patches are retained'
                 elif output.get('checks_passed') and output.get('draft') is True:
@@ -1839,6 +1855,7 @@ def public_job(job):
             'retry': retry_summary(job), 'continuous_progress': continuous_progress(job),
             'execution_mode': job['request'].get('execution_mode', 'standard'),
             'context_variant': job['request'].get('context_variant', 'TASK'),
+            'next_action_policy': job['request'].get('next_action_policy', 'LEGACY'),
             'batch_progress': batch_summary(data.get('integration_batch')),
             'cancellation_requested': bool(job.get('cancellation_requested')), 'cancellation_outcome': job.get('cancellation_outcome'),
             'id': job['id'], 'job_id': job['id'], 'repository': job['request']['repository'], 'branch': job['request']['branch'],
@@ -1852,6 +1869,8 @@ def public_job(job):
             'repair_attempts': sum(job['repairs'].values()), 'pr': data.get('pr'), 'pr_url': data.get('pr_url'),
             'head_sha': data.get('head_sha'), 'changed_files': readiness.get('changed_files', data.get('changed_paths', [change['path'] for change in data.get('changes', [])])),
             'tests': readiness.get('checks', []), 'checks_passed': readiness.get('checks_passed', False),
+            'ci_observation': {'revision': readiness.get('head_sha'), 'verdict': readiness.get('ci_verdict'),
+                               'pr': readiness.get('pr')} if readiness.get('checks') else None,
             'merge_ready': state == 'MERGE_READY' and bool(EngineeringSupervisor.readiness(readiness)),
             'approval_expires_at': (job.get('approval') or {}).get('expires_at'),
             'merge_sha': data.get('merge_sha'), 'review': data.get('review', {}),
@@ -1869,7 +1888,7 @@ def public_job(job):
                                   for cmd in (data.get('local_validation') or {}).get('commands', []) for item in cmd.get('build_outputs', [])][:96],
             'workspace_workers': [{'id': name, 'role': value['role'], 'state': value['state'],
                                    'calls': value['calls'], 'budget': value['budget']} for name, value in (data.get('workspace_workers') or {}).items()],
-            'workspace_tests': [{'name': str(value.get('check_id', ''))[:12], 'status': value.get('status'),
+            'workspace_tests': [{'name': str(value.get('check_id', ''))[:12], 'check_id': value.get('check_id'), 'status': value.get('status'),
                                  'revision': value.get('source_sha'), 'exit_code': value.get('exit_code')} for value in (data.get('workspace_checks') or {}).values()],
             'workspace_steps': [{'name': step, 'done': i < len((data.get('workflow') or {}).get('completed', []))}
                                 for i, step in enumerate((data.get('workflow') or {}).get('steps', []))],

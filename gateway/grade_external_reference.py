@@ -13,7 +13,7 @@ from desktop.conversation_client import Client, ClientError, scope_key
 
 API = '/gateway/benchmarks'
 TASK_KEYS = ('id', 'seed', 'taskPack', 'prompt', 'outputSchema', 'taskDigest', 'graderDigest', 'environmentDigest')
-LABELS = ('ChatGPT', 'Codex')
+LABELS = ('ChatGPT', 'Codex', 'Claude Code', 'GPT Mobile AI')
 
 
 def public_task(client, task_id, seed, pack):
@@ -134,9 +134,13 @@ def main():
         command.add_argument('--trial', type=Path, required=True)
         if name == 'submit':
             command.add_argument('--candidate', type=Path, required=True)
+    from benchmarks import product_cli
+    product_cli.configure(commands)
     args = parser.parse_args()
     try:
-        if args.command == 'task':
+        if args.command in product_cli.COMMANDS:
+            print(json.dumps(product_cli.execute(args, Client, grade, read_file), indent=2))
+        elif args.command == 'task':
             client = Client(args.root)
             owner = digest(scope_key(client.identity()))
             value = public_task(client, args.id, args.seed, args.pack)

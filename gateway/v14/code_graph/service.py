@@ -100,17 +100,24 @@ class GraphService:
         return graph, hit
 
     def reuse_fragments(self, namespace, snapshot):
-        if len(snapshot['fragments']) == len(snapshot['manifest']):
+        missing = set(snapshot['manifest']).difference(snapshot['fragments'])
+        if not missing:
             return snapshot
-        prior = self.store.load(namespace, exclude_sha=snapshot['sha'])
         reused = 0
-        if prior:
-            for path, fragment in prior['fragments'].items():
-                if (path not in snapshot['fragments'] and path in snapshot['manifest'] and
-                        prior['manifest'][path]['sha'] == snapshot['manifest'][path]['sha'] and
-                        fragment.get('version') == EXTRACTOR_VERSION and fragment['status'] not in {'failed', 'unsupported'}):
+        for sha in self.store.prior_revisions(namespace, snapshot['sha']):
+            prior = self.store.load(namespace, sha)
+            if not prior:
+                continue
+            for path in missing.intersection(prior['fragments']):
+                fragment = prior['fragments'][path]
+                if (prior['manifest'][path]['sha'] == snapshot['manifest'][path]['sha'] and
+                        fragment.get('version') == EXTRACTOR_VERSION and fragment['status'] not in {'failed', 'unsupported'}
+                        and not fragment.get('retryable')):
                     snapshot['fragments'][path] = fragment
                     reused += 1
+                    missing.remove(path)
+            if not missing:
+                break
         if reused and 'index_metrics' in snapshot:
             snapshot['index_metrics']['cache_hits'] = snapshot['index_metrics'].get('cache_hits', 0) + reused
         return snapshot
@@ -145,16 +152,11 @@ class GraphService:
                     if item.get('type') == 'blob' and item.get('mode') in {'100644', '100755'} and permitted(item['path'])}
         if len(manifest) > 8000:
             raise ValueError('Repository exceeds the 8000-file graph limit')
-        prior = self.store.load(namespace, exclude_sha=request['commit_sha'])
-        fragments = {}
-        if prior:
-            fragments = {p: f for p, f in prior['fragments'].items() if p in manifest and
-                         prior['manifest'][p]['sha'] == manifest[p]['sha'] and f.get('version') == EXTRACTOR_VERSION and
-                         f.get('status') not in {'failed', 'unsupported'}}
-        return {'schema_version': SCHEMA_VERSION, 'repository': request['repository'], 'branch': request['branch'],
-                'sha': request['commit_sha'], 'manifest': manifest, 'fragments': fragments,
-                'excluded_files': sum(i.get('type') == 'blob' for i in tree['tree']) - len(manifest),
-                'index_metrics': {'cache_hits': len(fragments), 'parsed_files': 0, 'read_bytes': 0, 'index_ms': 0.0}}
+        snapshot = {'schema_version': SCHEMA_VERSION, 'repository': request['repository'], 'branch': request['branch'],
+                    'sha': request['commit_sha'], 'manifest': manifest, 'fragments': {},
+                    'excluded_files': sum(i.get('type') == 'blob' for i in tree['tree']) - len(manifest),
+                    'index_metrics': {'cache_hits': 0, 'parsed_files': 0, 'read_bytes': 0, 'index_ms': 0.0}}
+        return self.reuse_fragments(namespace, snapshot)
 
     def index(self, namespace, request, root):
         snapshot = self.snapshot(namespace, request, root)

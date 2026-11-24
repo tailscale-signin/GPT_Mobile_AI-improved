@@ -114,6 +114,10 @@ class EngineeringForm(_ThemedForm):
             ttk.Label(frame, text='Repository context').grid(row=12, column=0, sticky='w', pady=3)
             ttk.Combobox(frame, textvariable=self.context_choice, values=tuple(self.context_choices), state='readonly').grid(row=12, column=1, sticky='ew', pady=3)
             ttk.Label(frame, text='Task context selects source ranges, repository guidance and test candidates.', wraplength=450).grid(row=13, column=0, columnspan=2, sticky='w', pady=3)
+            self.action_choices = {'Evidence-guided selection': 'ACTIVE', 'Compare decisions': 'SHADOW', 'Original selection': 'LEGACY'}
+            self.action_choice = tk.StringVar(master=frame, value='Evidence-guided selection')
+            ttk.Label(frame, text='Next action selection').grid(row=14, column=0, sticky='w', pady=3)
+            ttk.Combobox(frame, textvariable=self.action_choice, values=tuple(self.action_choices), state='readonly').grid(row=14, column=1, sticky='ew', pady=3)
         return self.objective
 
     def validate(self):
@@ -139,6 +143,7 @@ class EngineeringForm(_ThemedForm):
             values['adopt_pr'] = {'number': pr_number, 'head_sha': values['source_sha'], 'base_sha': base_sha}
         if not self.conversation:
             values['context_variant'] = self.context_choices[self.context_choice.get()]
+            values['next_action_policy'] = self.action_choices[self.action_choice.get()]
         self.result = dict({'provider': None}, **values, objective=prompt, task_scope=self.scope.get())
         return True
 

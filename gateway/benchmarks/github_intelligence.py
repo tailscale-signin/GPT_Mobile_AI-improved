@@ -7,7 +7,7 @@ from v14.batch import digest as workspace_digest
 from v14.engineering_defaults import effective_execution_budget
 
 VERSION = 'gateway.github-intelligence.v1'
-CASE_CONTRACT_SCHEMA = 'gateway.github-intelligence-case.v2'
+CASE_CONTRACT_SCHEMA = 'gateway.github-intelligence-case.v3'
 CONVERSATION_CONTEXT_SCHEMA = 'gateway.engineering-conversation-context.v1'
 USER_INSTRUCTIONS_SCHEMA = 'gateway.engineering-user-instructions.v1'
 # Each dimension identifies the real jobs on which its observation is meaningful.
@@ -22,6 +22,25 @@ RUBRIC = {
     'evidence_accuracy': (5, ('terminal_ci_blocker', 'post_merge_failure')),
     'response_quality': (5, ('terminal_ci_blocker', 'post_merge_failure')),
 }
+
+
+def public_failure_matches(scenario, data, report):
+    """Grade the displayed claim independently of the text producer."""
+    text = report.get('summary')
+    if (not isinstance(text, str) or report.get('benchmark_status') != 'NOT_MEASURED'
+            or report.get('device_performance') != 'NOT_MEASURED'):
+        return False
+    if scenario == 'post_merge_failure':
+        match = re.fullmatch(r'Post-merge verification failed at ([0-9a-f]{12})\. Review the checks and release evidence for this merge\.', text)
+        merge = data.get('merge_sha')
+        return bool(match and isinstance(merge, str) and match[1] == merge[:12])
+    ci = data.get('ci') or {}
+    match = re.fullmatch(r'CI (failed|is blocked) on PR #(\d+) at ([0-9a-f]{12})\. Review the check results for this revision\.', text)
+    head = data.get('head_sha')
+    return bool(match and isinstance(head, str) and match[3] == head[:12] and ci.get('head_sha') == head
+                and type(data.get('pr')) is int and str(data['pr']) == match[2] and ci.get('pr') == data['pr']
+                and ci.get('ci_verdict') == {'failed': 'FAILED', 'is blocked': 'BLOCKED'}[match[1]]
+                and ci.get('checks_failed' if match[1] == 'failed' else 'checks_blocked') is True and ci.get('checks'))
 
 
 def case_observations(job, scenario, signal, completed):
@@ -94,8 +113,13 @@ def case_observations(job, scenario, signal, completed):
                 acquired = initial_paths.union(reads['paths'])
                 measures['repository_understanding'] = len(required_paths.intersection(acquired)) / len(required_paths)
             total = data.get('initial_source_acquisitions', 0) + reads['total']
-            if total > 0:
-                measures['tool_efficiency'] = (len(initial_paths) + len(reads['ranges'])) / total
+            later = set(reads['ranges'])
+            initial_ranges = data.get('initial_source_ranges')
+            if total > 0 and isinstance(initial_ranges, list):
+                measures['tool_efficiency'] = len(set(initial_ranges).union(later)) / total
+            elif total > 0 and initial_paths.isdisjoint(reads['paths']):
+                # Legacy path-only receipts prove distinctness when initial and subsequent files do not overlap.
+                measures['tool_efficiency'] = (len(initial_paths) + len(later)) / total
     if scenario in RUBRIC['error_recovery'][1]:
         measures['error_recovery'] = int(completed and bool(signal))
     if scenario == 'context_rotation' and data.get('context_compaction'):
@@ -111,11 +135,15 @@ def case_observations(job, scenario, signal, completed):
                 matches_failure = verdict in {'FAILED', 'BLOCKED'} and report.get('ci_verdict') == verdict
             else:
                 matches_failure = (bool(data.get('merge_sha')) and report.get('merge_sha') == data['merge_sha']
-                                   and (report.get('post_merge') or {}).get('status') == 'FAILED')
+                                   and (report.get('post_merge') or {}) == data.get('post_merge')
+                                   and (data.get('post_merge') or {}).get('status') == 'FAILED'
+                                   and data['post_merge'].get('merge_sha') == data['merge_sha'])
             accurate = bool(signal and matches_failure and report.get('head_sha') == head and receipt.get('acceptance_verified') is False
                             and receipt.get('status') in {'FAILED', 'BLOCKED'} and report.get('status') == 'PARTIAL_UNVERIFIED')
+            # A correct structured status cannot rescue a fabricated or stale public sentence.
+            accurate = accurate and receipt.get('checkpoint_revision') == job.get('revision') and public_failure_matches(scenario, data, report)
             measures['evidence_accuracy'] = int(accurate)
-            actionable = receipt.get('next_action') not in (None, '', 'none') and bool(report.get('summary'))
+            actionable = receipt.get('next_action') not in (None, '', 'none')
             specific = bool(report.get('blocked_steps') or (report.get('post_merge') or {}).get('status') == 'FAILED')
             measures['response_quality'] = int(accurate and actionable and specific)
     return {'caseContractSchema': CASE_CONTRACT_SCHEMA, 'caseContract': contract, 'measures': measures}

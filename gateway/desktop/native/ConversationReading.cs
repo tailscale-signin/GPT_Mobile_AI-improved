@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -74,6 +75,10 @@ internal sealed class ActivityText : TextBlock
     }
     public void Present(string value)
     {
+        if(latest!=value && AutomationPeer.ListenerExists(AutomationEvents.LiveRegionChanged)){
+            System.Windows.Automation.AutomationProperties.SetName(this,value);
+            UIElementAutomationPeer.CreatePeerForElement(this)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+        }
         latest=value;
         if(reduced()){BeginAnimation(OpacityProperty,null);Text=latest;Opacity=1;busy=false;initial=false;return;}
         if(busy || Text==value)return;

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "3e8e86dcb61f6fbf2735a1f6296f11385ec239622fd0afa033dd03f517b3166f",
+  "source_digest": "2b4081c204a201c6570f6c778029f7cfa656eb6ee0c5e2d979bc7669f0a97845",
   "file_count": 3125,
-  "indexed_line_count": 531440,
+  "indexed_line_count": 531460,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,13 +53,13 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 255,
-      "indexed_line_count": 45439
+      "indexed_line_count": 45449
     },
     {
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 104,
-      "indexed_line_count": 24451
+      "indexed_line_count": 24460
     },
     {
       "id": "mcp_plugins",
@@ -77,7 +77,7 @@
       "id": "model_providers",
       "label": "Model providers and adapters",
       "file_count": 66,
-      "indexed_line_count": 9678
+      "indexed_line_count": 9679
     },
     {
       "id": "models_and_profiles",
@@ -823,8 +823,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "977d8d29bab4237a9ac29dde47ddd4ac9fec01e073a8eb9f0568935c6aa5fc46",
-      "indexed_lines": 2754
+      "sha256": "2b41ea31da0a9af79179edd0a909ede7795d97e325224c07b7c699ab66d0c6a1",
+      "indexed_lines": 2750
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",
@@ -1684,8 +1684,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "b2da59377d8610c5f5411ea2e941c592ab01254114935f5970085765ad9ccb55",
-      "indexed_lines": 730
+      "sha256": "55d821b073e64805e8b43c8abcbe0be5cbdadb93318c9279dfd5f86dbf1281d3",
+      "indexed_lines": 741
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRequirementToolFocus.kt",
@@ -2223,8 +2223,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "eb47f4eacdbaf1b5d3bfafdcc7dc7d54545cc21c4f44d582c0d70d76fe802304",
-      "indexed_lines": 801
+      "sha256": "def37c10b0e95e8e03f613e215b9298ac390ec6b85eccd73bab2de8a70ca5f11",
+      "indexed_lines": 804
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolFailureMetadata.kt",
@@ -2419,8 +2419,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "0c014bcce87823d655302f7290c3540dff108530ffb70459d12c3109f147c5ed",
-      "indexed_lines": 2074
+      "sha256": "021337638edfdc2532f17fd67af1f605f99e18e6b13e0bf2860c624c99f9a7d1",
+      "indexed_lines": 2075
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAttachmentEncoder.kt",
@@ -2874,8 +2874,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "f18fe12d87f4ef12be9f0d37b0ac00e952efcff63770f8c9a86a82c9c0e54c93",
-      "indexed_lines": 1035
+      "sha256": "72eb966210a3f3d1127ec35be3a625f371117437b5bab3d1409130ae722e1cd1",
+      "indexed_lines": 1044
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSavedFragments.kt",
@@ -7340,7 +7340,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReport.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "82040526fc1b261cadd70a9b30e81303aa2069348e80dfe7a5b9e77e86524e8c",
+      "sha256": "41080111ebf9370011c0ec58c67166c63d7c9fce6e9230f51ac770a9236b514a",
       "indexed_lines": 344
     },
     {

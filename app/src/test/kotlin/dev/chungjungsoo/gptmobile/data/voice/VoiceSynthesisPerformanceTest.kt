@@ -60,7 +60,7 @@ class VoiceSynthesisPerformanceTest {
         policy.underrun()
         assertNull("No complete phrase has been observed", policy.predictedSynthesisMs())
         assertNull(policy.ratio())
-        assertEquals(8, policy.phraseWords(6_000))
+        assertEquals("An unfinished stream still uses the six-word opening", 6, policy.phraseWords(6_000))
         val queue = ArrayBlockingQueue<VoicePcmSlice>(KokoroPcmBatches.QUEUE_BATCHES)
         var acceptedFrames = 2_400L
         var polls = 0
@@ -288,11 +288,13 @@ class VoiceSynthesisPerformanceTest {
     }
 
     @Test fun adaptiveChunksStartEarlyAndUseCurrentPlaybackFeedback() {
-        val buffer = VoiceSpeechBuffer()
-        val text = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
-        val parts = requireNotNull(buffer.append(text, false, true, feedback = VoiceSynthesisFeedback(suggestedFollowUpWords = 6), adaptive = true))
-        assertEquals(listOf("one two three four five six seven eight ", "nine ten eleven twelve thirteen fourteen "), parts)
-        val tail = requireNotNull(buffer.append(text, true, true, feedback = VoiceSynthesisFeedback(suggestedFollowUpWords = 6), adaptive = true))
+        val buffer = VoiceSpeechBuffer { 0L }
+        val text = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
+        val feedback = VoiceSynthesisFeedback(suggestedFollowUpWords = 8)
+        val parts = requireNotNull(buffer.append(text, final = false, earlyStart = true, feedback = feedback, adaptive = true))
+        assertEquals(listOf("one two three four five six ", "seven eight nine ten eleven twelve thirteen fourteen "), parts)
+        val tail = requireNotNull(buffer.append(text, final = true, earlyStart = true, feedback = feedback, adaptive = true))
+        assertEquals(listOf("fifteen sixteen "), tail)
         assertEquals(text, (parts + tail).joinToString(""))
     }
 

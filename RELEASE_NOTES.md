@@ -6,6 +6,8 @@ Application native-library stripping uses the same pinned NDK as the native modu
 
 ## Evidence-guided engineering and progress
 
+- Restore saved GitHub pages through their public cursor when the recorded lookup selectors match the original authorized result.
+- Preserve the original provider failure when a stream closes. A GitHub tool-name error can recover through the authorized catalog, and short excerpts remain readable when a tool has little output space.
 - Choose the next GitHub action from unmet requirements, their dependencies, scoped evidence and retry budgets. Each Android GitHub profile can use the original policy, record a shadow choice, or enable evidence-guided selection independently of progress elaboration.
 - Use a bounded, authorized source range on small context windows when it is available. Keep cloud recall, private chat state and the reusable repository graph within their existing access boundaries.
 - Connect 44 reviewed feature routes to their normal entry points, proof requirements and positive and negative fixtures. Use the local route catalog to rank eligible tools and verify revision-bound source guidance before presenting it.

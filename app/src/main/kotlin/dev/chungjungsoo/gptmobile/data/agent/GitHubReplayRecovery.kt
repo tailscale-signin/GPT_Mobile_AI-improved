@@ -145,9 +145,17 @@ internal object GitHubReplayRecovery {
                 val retryId = "saved-result-consume-restore-" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(identity.joinToString("|")).take(24)
                 if (hasAttempt(retryId) || exhausted()) continue
                 val tool = tools.singleOrNull { it.modelVisible && it.name == read.call.name } ?: continue
-                val args = read.call.arguments
-                if (ToolArgumentValidator.errors(args, tool.inputSchema).isEmpty()) {
-                    return ProviderEvent.ToolCall(retryId, tool.name, args)
+                val original = read.call.arguments
+                if (ToolArgumentValidator.errors(original, tool.inputSchema).isEmpty()) {
+                    return ProviderEvent.ToolCall(retryId, tool.name, original)
+                }
+                // The public saved-page contract accepts only the cursor. Normalize a legacy
+                // mixed request only when its exact selectors were admitted by this native read.
+                val receipt = read.resultIdentity["execution_receipt"] as? JsonObject ?: continue
+                if (original.size == 1 || "saved_view_selectors_hash" !in receipt) continue
+                val cursorOnly = buildJsonObject { put("view_cursor", identity[1]) }
+                if (ToolArgumentValidator.errors(cursorOnly, tool.inputSchema).isEmpty()) {
+                    return ProviderEvent.ToolCall(retryId, tool.name, cursorOnly)
                 }
             }
             return null
@@ -216,6 +224,9 @@ internal object GitHubReplayRecovery {
             listOf("requires_reconciliation", "requiresReconciliation").any { receipt[it] == JsonPrimitive(true) }
         ) {
             return null
+        }
+        receipt["saved_view_selectors_hash"]?.let { proof ->
+            if (proof != JsonPrimitive(GitHubResultViews.selectorsHash(value, JsonObject(call.arguments - "view_cursor")))) return null
         }
         fun text(key: String) = (receipt[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val source = text("saved_view_source_sha256") ?: text("saved_view_source_hash") ?: return null

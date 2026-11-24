@@ -47,6 +47,7 @@ class PhoneBenchmarkTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.directory = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.directory.cleanup)
         cls.base = Path(cls.directory.name) / 'trusted'
         cls.base.mkdir()
         command(cls.base, 'init')
@@ -57,23 +58,23 @@ class PhoneBenchmarkTests(unittest.TestCase):
         command(cls.base, 'add', '.benchmark-phone')
         command(cls.base, 'commit', '-m', 'Provision immutable test fixtures')
         cls.base_sha = command(cls.base, 'rev-parse', 'HEAD')
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.directory.cleanup()
+        cls.submitted = Path(cls.directory.name) / 'submitted'
+        # Configure before checkout; a later change cannot undo CRLF bundle rewrites.
+        subprocess.run(['git', 'clone', '--config', 'core.autocrlf=false', '--config', 'core.eol=lf',
+                       '--local', '--no-hardlinks', str(cls.base), str(cls.submitted)], check=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        configure(cls.submitted)
+        cls.ident = 'phone_' + 'c' * 32
+        cls.branch = branch_name(cls.ident, 'cohort0001')
+        command(cls.submitted, 'checkout', '-b', cls.branch)
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.submitted = Path(self.directory.name) / 'submitted'
-        # Configure before checkout; a later change cannot undo CRLF bundle rewrites.
-        subprocess.run(['git', 'clone', '--config', 'core.autocrlf=false', '--config', 'core.eol=lf',
-                       '--local', '--no-hardlinks', str(self.base), str(self.submitted)], check=True,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        configure(self.submitted)
-        self.ident = 'phone_' + 'c' * 32
-        self.branch = branch_name(self.ident, 'cohort0001')
-        command(self.submitted, 'checkout', '-b', self.branch)
+        # Reset only the suite's disposable clone. The trusted checkout remains
+        # independent and each candidate commit starts at the exact base revision.
+        command(self.submitted, 'reset', '--hard', self.base_sha)
+        command(self.submitted, 'clean', '-fdx')
 
     def candidate(self, text=None, *, pack='python', task_id='pagination-1'):
         from benchmarks.external import select_task

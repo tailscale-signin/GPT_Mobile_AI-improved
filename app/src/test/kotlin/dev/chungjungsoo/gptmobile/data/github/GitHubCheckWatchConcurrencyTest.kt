@@ -22,9 +22,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
-import io.mockk.mockkStatic
 import io.mockk.unmockkObject
-import io.mockk.unmockkStatic
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
@@ -284,8 +282,7 @@ class GitHubCheckWatchConcurrencyTest {
     }
 
     @Test fun stopWinsWhileTerminalTaskHeadReadIsSuspended() = runBlocking {
-        mockkStatic(WorkManager::class)
-        mockkObject(GitHubWatchNotifications)
+        mockkObject(WorkManager.Companion, GitHubWatchNotifications)
         try {
             val manager = mockk<WorkManager>(relaxed = true)
             every { WorkManager.getInstance(any()) } returns manager
@@ -316,8 +313,7 @@ class GitHubCheckWatchConcurrencyTest {
                 coVerify(exactly = 0) { queue.enqueue(any(), any(), any(), any()) }
             }
         } finally {
-            unmockkObject(GitHubWatchNotifications)
-            unmockkStatic(WorkManager::class)
+            unmockkObject(WorkManager.Companion, GitHubWatchNotifications)
         }
     }
 

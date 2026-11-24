@@ -1164,8 +1164,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     // A provider error *value* has no caught throwable. Record its original
                                     // code availability and observation site instead of losing it at
                                     // the chat repository's generic CHAT_FAILED boundary.
-                                    failureDetails = streamErrorDetails(error, observedVisible, lastFinishReason == "stop")
                                     val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
+                                    failureDetails = error.failureDetails?.takeIf { it.isNotEmpty() && contract != null }
+                                        ?: streamErrorDetails(error, observedVisible, lastFinishReason == "stop")
                                     protocolErrorCode = contract?.code ?: error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                                         ?: error.code?.takeIf(String::isNotBlank) ?: error.type?.takeIf(String::isNotBlank) ?: protocolErrorCode ?: "PROVIDER_INVOCATION_FAILED"
                                     if (error.failureDetails?.containsKey("failed_stage") == true) protocolErrorCode = contract?.code ?: error.code ?: protocolErrorCode

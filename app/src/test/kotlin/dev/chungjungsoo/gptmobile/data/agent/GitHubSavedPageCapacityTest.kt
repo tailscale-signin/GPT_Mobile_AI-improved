@@ -333,7 +333,17 @@ class GitHubSavedPageCapacityTest {
         val pending = state.pendingSavedPageDeliveries(listOf(exchange), emptyMap())
         val restore = requireNotNull(state.restoreMissingPage(pending, listOf(exchange), fixture.tools))
         assertEquals(call.name, restore.name)
-        assertEquals(call.arguments, restore.arguments)
+        assertEquals(issued.arguments, restore.arguments)
+        assertTrue(ToolArgumentValidator.errors(restore.arguments, fixture.tools.single().inputSchema).isEmpty())
+        val reread = fixture.read(restore)
+        assertFalse(reread.dispatched)
+        assertEquals(original.content, reread.content)
+        val mismatchedCall = call.copy(arguments = JsonObject(call.arguments + ("owner" to JsonPrimitive("different"))))
+        val mismatchedExchange = AgentToolExchange(listOf(mismatchedCall), listOf(projected))
+        val mismatchedState = GitHubReplayRecovery.State(mismatchedExchange.calls, mismatchedExchange.results)
+        assertFalse(mismatchedState.hasRead(call.name, issued.arguments.getValue("view_cursor").jsonPrimitive.content))
+        val mismatchedPending = mismatchedState.pendingSavedPageDeliveries(listOf(mismatchedExchange), emptyMap())
+        assertTrue(mismatchedPending.isEmpty())
     }
 
     @Test fun exactDeliveredRereadResolvesAnOldUnknownPageWithoutInventingItsBodyProof() {

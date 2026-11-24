@@ -208,10 +208,14 @@ class GitHubCiObservationReportTest {
         assertEquals(JsonPrimitive("WAITING_FOR_CI"), report["observation_state"])
         assertFalse(report.containsKey("run_id"))
         assertFalse(report.containsKey("watch_tool"))
-        assertTrue((report["run_lookup_tool"] as? JsonPrimitive)?.content?.startsWith("github_ci") == true)
+        assertEquals(JsonPrimitive("github_ci"), report["run_lookup_tool"])
         assertEquals(4, (report["remaining_requirements"] as JsonArray).size)
         val simple = requireNotNull(GitHubCiObservationReport.render("Diagnose CI failures", receipts, now, 2)).second
         assertEquals(1, (simple["remaining_requirements"] as JsonArray).size)
+        receipts["snapshot"] = runningSnapshot("github_context_inspect__native")
+        val scoped = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2)).second
+        assertEquals(JsonPrimitive("github_ci__native"), scoped["run_lookup_tool"])
+        assertFalse(scoped.containsKey("run_id"))
     }
 
     @Test fun wrongRevisionStaleIncompleteAndFailedObservationsNeverBecomePendingSuccess() {

@@ -1556,7 +1556,8 @@
         "docs/repairs/github-comparison-context-2026-11-24-task.json",
         "docs/repairs/github-chat-continuation-intent-checkpoint.json",
         "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json",
-        "docs/repairs/voice-ci-fixtures-litert-closure-2026-11-24-task.json"
+        "docs/repairs/voice-ci-fixtures-litert-closure-2026-11-24-task.json",
+        "docs/repairs/github-selected-read-report-finality-2026-11-24-task.json"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1567,7 +1568,7 @@
         "A recoverable rejection can shrink the next request only within its original permissions and resource budget.",
         "Score comparisons require independently measured work under matching task, policy, environment and budget identities.",
         "Production score comparisons require explicit SESSION_ONLY memory and versioned digests of the exact admitted conversation and follow-up instruction values; unbound historical memory remains unknown, and raw private inputs are not exported.",
-        "Explicit read-only questions about the selected repository retain its target context, and a prose-only GitHub answer receives at most one evidence-acquisition retry before terminating.",
+        "Leading unquoted read requests retain the selected repository target; quoted or creative task material does not activate that heuristic. The bounded prose evidence correction preserves application-report finality, session-owned recovery and earlier failed-round corrections.",
         "A LiteRT-LM primary cannot execute a helper-selected recovery read; saved execution consent stays inactive without falling through to an advice choice, while existing advice eligibility and internal-tools ownership remain unchanged."
       ]
     },
@@ -1682,9 +1683,9 @@
       "sha256": "1c0e6725bea8a27085878c091362e96c23bc983e2e510ab7dedcfd8d2f58fc7c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": {
-      "blob_sha": "0a25570f4f87940555220987f81bb51bfad559c8",
-      "bytes": 170591,
-      "sha256": "1dd2adc0c866f5c0d5c5b621d9364a12a29193781842a7530464abd8fead555a"
+      "blob_sha": "973c351f95998fb89e7f3e32b311ad2be4970f9f",
+      "bytes": 171716,
+      "sha256": "0619fd1e3492b40449cfe6c91459240bf43ca3afc30f1823f6f636d5b73a1c2b"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt": {
       "blob_sha": "389dff549bb22a0118306daa203c529b28c02d95",
@@ -2017,9 +2018,9 @@
       "sha256": "9e510363c4a64baa9b235f2c21011fcc747eee8b385f279982a3858dc08d42e9"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningContext.kt": {
-      "blob_sha": "e9826a49fb9029db1a34788ffcce978fcaa073e8",
-      "bytes": 4473,
-      "sha256": "05ef80eef60300fe944129d14bb061a5517db3b9e06391056d90bbdc8893987c"
+      "blob_sha": "c3b1cf5b0007d64ce7eb7961611074d3dc83c618",
+      "bytes": 6349,
+      "sha256": "7e70bedb18ee53f60cbcae2f25961e754e284c0619800e288b4480e7df12b161"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressPresentation.kt": {
       "blob_sha": "0abca42926a80f2c63ab70c6d0f0fce07613a11d",
@@ -2907,9 +2908,9 @@
       "sha256": "2ef2f9f370173b9fa65259015156a37ee035385a2b633e9e5b10601cfabf4950"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerEmptyAnswerTest.kt": {
-      "blob_sha": "f405384aa8644163882608a92273623eedf3410b",
-      "bytes": 9299,
-      "sha256": "ac74e96b1304c8e4dec0661f0a4f9a0b1f87748afebd6006a6fc1f7f7a0ca1c4"
+      "blob_sha": "eecdc22333ea0942b6dfd4b7f93570990d4a0b8e",
+      "bytes": 17897,
+      "sha256": "20d97e2f44f27e960f6426cac1e492c3039be023d252e909d008b335680deede"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt": {
       "blob_sha": "5f252acf59abc75b822081603bebdd45e776bb10",
@@ -3232,9 +3233,9 @@
       "sha256": "043253035b865580a421e8df0e4f7a6eb1d83360993c581f3def6e38aec3f623"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningPolicyTest.kt": {
-      "blob_sha": "04b43f2465ea70cb8cec8d90f03d0c864dd67fb4",
-      "bytes": 7002,
-      "sha256": "190edb5488e102513037959fb08e7fb9eb160a7aecdfb261dd31706a3aa45657"
+      "blob_sha": "75420c37039dec328742d1666ec9d9d3444ee0ea",
+      "bytes": 9718,
+      "sha256": "6734131979bef4c554447ef3bad85206f15ab8c453cd18df819a82780f3f63d2"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressNarratorTest.kt": {
       "blob_sha": "8c9c5fbfd0c5e38a9e9dc288e23f327995bdf708",
@@ -4200,6 +4201,11 @@
       "blob_sha": "416586638daafdfd3d121ca7920598d545479a5c",
       "bytes": 6557,
       "sha256": "a4098ea8ffe2e46ceda70086c086b5bd20065638a3ce1a247f32fc2d1e98fbfd"
+    },
+    "docs/repairs/github-selected-read-report-finality-2026-11-24-task.json": {
+      "blob_sha": "372127959cd3f0f352677f967c69e8d00c88557c",
+      "bytes": 3694,
+      "sha256": "b9bb00e95f8df68fafb9918ca92f6ade9ce82e59cbbc0453380143c25493eaaa"
     },
     "docs/repairs/github-unheaded-context-recovery-2026-11-24-task.json": {
       "blob_sha": "cfd5f93c8aa984b196a527ccb6c59b7d3b135e65",

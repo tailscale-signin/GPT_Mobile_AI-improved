@@ -1552,7 +1552,8 @@
         "docs/repairs/github-comparison-context-2026-11-24-task.json",
         "docs/repairs/github-chat-continuation-intent-checkpoint.json",
         "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json",
-        "docs/repairs/voice-ci-fixtures-litert-closure-2026-11-24-task.json"
+        "docs/repairs/voice-ci-fixtures-litert-closure-2026-11-24-task.json",
+        "docs/repairs/github-selected-read-report-finality-2026-11-24-task.json"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1563,7 +1564,7 @@
         "A recoverable rejection can shrink the next request only within its original permissions and resource budget.",
         "Score comparisons require independently measured work under matching task, policy, environment and budget identities.",
         "Production score comparisons require explicit SESSION_ONLY memory and versioned digests of the exact admitted conversation and follow-up instruction values; unbound historical memory remains unknown, and raw private inputs are not exported.",
-        "Explicit read-only questions about the selected repository retain its target context, and a prose-only GitHub answer receives at most one evidence-acquisition retry before terminating.",
+        "Leading unquoted read requests retain the selected repository target; quoted or creative task material does not activate that heuristic. The bounded prose evidence correction preserves application-report finality, session-owned recovery and earlier failed-round corrections.",
         "A LiteRT-LM primary cannot execute a helper-selected recovery read; saved execution consent stays inactive without falling through to an advice choice, while existing advice eligibility and internal-tools ownership remain unchanged."
       ]
     },

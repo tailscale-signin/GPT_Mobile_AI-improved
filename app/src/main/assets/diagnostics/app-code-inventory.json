@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "9ad7c324f7748f50f002cc16b2fefe1490e5708b2d36ef6cbbd31b088b867eb8",
+  "source_digest": "87af264bcd75ec0c1349d4ac484179c2604ed81ee8d8f8aa0f566e98fe9e3b4b",
   "file_count": 3110,
-  "indexed_line_count": 527604,
+  "indexed_line_count": 527644,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 250,
-      "indexed_line_count": 44743
+      "indexed_line_count": 44761
     },
     {
       "id": "agent_tools",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 293,
-      "indexed_line_count": 53319
+      "indexed_line_count": 53341
     },
     {
       "id": "research",
@@ -823,8 +823,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "1dd2adc0c866f5c0d5c5b621d9364a12a29193781842a7530464abd8fead555a",
-      "indexed_lines": 2670
+      "sha256": "0619fd1e3492b40449cfe6c91459240bf43ca3afc30f1823f6f636d5b73a1c2b",
+      "indexed_lines": 2688
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",
@@ -7851,8 +7851,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningContext.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "05ef80eef60300fe944129d14bb061a5517db3b9e06391056d90bbdc8893987c",
-      "indexed_lines": 59
+      "sha256": "7e70bedb18ee53f60cbcae2f25961e754e284c0619800e288b4480e7df12b161",
+      "indexed_lines": 81
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPolicyReadRecovery.kt",

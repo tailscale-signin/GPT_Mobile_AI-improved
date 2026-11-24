@@ -32,12 +32,34 @@ data class GitHubPlanningContext(
     }
 
     companion object {
+        private val quotedReadMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*(?:`|\\z)|\"(?:\\\\(?:.|\\z)|[^\"\\\\])*(?:\"|\\z)|“[^”]*(?:”|\\z)|‘[^’]*(?:’|\\z)|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*(?:'|\\z)")
+        private val textReadObjectNames = "(?:sentences?|phrases?|quotes?|quotations?|questions?|prompts?|examples?|poems?|stor(?:y|ies)|lyrics|fiction)"
+        private val textReadObject = Regex("(?i)^(?:(?:me|us|the|this|that|a|an|these|those|following)\\s+){0,3}$textReadObjectNames\\b")
+        private val namedReadObject = Regex("(?i)\\b$textReadObjectNames\\b")
+
         private fun selectedRepositoryReadIntent(request: String): Boolean {
+            // Quoted examples are data. Only the leading prose request can add
+            // selected context; a later mention cannot promote a translation or poem.
+            val plain = request.replace(quotedReadMaterial, " ").lineSequence()
+                .filterNot { it.trimStart().startsWith(">") || it.startsWith("    ") || it.startsWith('\t') }
+                .joinToString("\n").trim()
             val target = "(?:repository|repo|project|codebase|source(?:\\s+tree)?|implementation|files?)"
-            val selection = "(?:this|the|selected|current|these)\\s+$target"
+            val selection = "(?:(?:this|the|these)(?:\\s+(?:selected|current))?|selected|current)\\s+$target"
             val read = "(?:what|which|where|why|how|show|list|inspect|review|explain|summari[sz]e|describe|compare|find|locate|does|do|is|are)"
-            return Regex("(?i)\\b$read\\b[^\\n]{0,160}\\b$selection\\b").containsMatchIn(request) ||
-                Regex("(?i)\\b$selection\\b[^\\n]{0,160}\\b$read\\b").containsMatchIn(request)
+            val polite = "(?:please\\s+)?(?:(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?)?"
+            val direct = Regex("(?i)^$polite$read\\b\\s*").find(plain)
+            if (direct != null) {
+                val objectText = plain.substring(direct.range.last + 1)
+                val selectedTarget = Regex("(?i)^([^\\r\\n.!?;:]{0,160})\\b$selection\\b").find(objectText) ?: return false
+                val objectPrefix = selectedTarget.groupValues[1]
+                // Modifiers do not turn a creative object into a repository read.
+                // Material after the selected target does not change its read intent.
+                return !textReadObject.containsMatchIn(objectText) &&
+                    !namedReadObject.containsMatchIn(objectPrefix)
+            }
+            val scoped = Regex("(?i)^$polite(?:in|within)\\s+$selection\\s*,\\s*(?:please\\s+)?$read\\b\\s*").find(plain)
+                ?: return false
+            return !textReadObject.containsMatchIn(plain.substring(scoped.range.last + 1))
         }
 
         /** Repository selection is data, not permission or proof of a fresh head/access check. */

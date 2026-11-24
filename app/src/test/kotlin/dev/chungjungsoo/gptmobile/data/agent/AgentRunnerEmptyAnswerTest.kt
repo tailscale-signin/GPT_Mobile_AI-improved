@@ -1,6 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
+import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
+import dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity
+import dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSession
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -12,6 +18,175 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerEmptyAnswerTest {
+    @Test
+    fun ownedTextCannotBecomeAnEvidenceDraftAfterMorePlainText() = runBlocking {
+        for (origin in listOf(OutputOrigin.APPLICATION_REPORT, OutputOrigin.RETAINED_CONTENT, OutputOrigin.SYSTEM_ERROR, OutputOrigin.PROGRESS_NOTICE)) {
+            var rounds = 0
+            var executions = 0
+            val published = listOf(
+                ProviderEvent.TextDelta("A model draft. ", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ProviderEvent.TextDelta("The owned result. ", OutputLineage(origin)),
+                ProviderEvent.TextDelta("Later unlabelled prose.")
+            )
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    rounds++
+                    published.forEach { emit(it) }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val tool = unusedRepositoryRead { executions++ }
+
+            val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(tool)).toList()
+
+            assertEquals(origin.name, 1, rounds)
+            assertEquals(0, executions)
+            assertEquals(published + ProviderEvent.Completed, events.filterIsInstance<AgentRunEvent.Provider>().map { it.event })
+            assertFalse(events.any { it is AgentRunEvent.Notice && it.message.contains("no repository evidence") })
+        }
+    }
+
+    @Test
+    fun combinedFinalAnswerDoesNotAcquireRepositoryEvidenceWithToolsAvailable() = runBlocking {
+        val text = "The final answer retains the saved contributions."
+        val report = CombinedQualityReport(
+            version = 6,
+            answerDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(text),
+            revisionId = "github-atomic-final",
+            complete = true,
+            status = "COMPLETED_UNVERIFIED",
+            deliveredScopeStatus = "COMPLETED",
+            protocolComplete = true,
+            finalAssessment = true,
+            assessmentStage = "FINAL_DISPLAY",
+            semanticCoverageVerified = true,
+            wordCount = visibleWordCount(text),
+            displayedCharacters = text.length
+        )
+        for (progressive in listOf(false, true)) {
+            var rounds = 0
+            var executions = 0
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    rounds++
+                    if (progressive) emit(ProviderEvent.TextDelta(text.take(12)))
+                    emit(ProviderEvent.CombinedAnswer(text, report))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+
+            val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(unusedRepositoryRead { executions++ })).toList()
+            val provider = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+
+            assertEquals(1, rounds)
+            assertEquals(0, executions)
+            assertEquals(listOf(ProviderEvent.CombinedAnswer(text, report)), provider.filterIsInstance<ProviderEvent.CombinedAnswer>())
+            assertEquals(1, provider.count { it is ProviderEvent.Completed })
+            assertEquals(ProviderEvent.Completed, provider.last())
+            assertFalse(provider.any { it is ProviderEvent.Failed })
+            assertFalse(events.any { it is AgentRunEvent.Notice && it.message.contains("no repository evidence") })
+        }
+    }
+
+    @Test
+    fun sessionOwnedRecoveryDoesNotReceiveAnotherPlainTextEvidenceRound() = runBlocking {
+        var rounds = 0
+        var executions = 0
+        val answer = ProviderEvent.TextDelta("The recovery owner completed the answer.")
+        val session = object : AgentProviderSession {
+            override val handlesToolResultRecovery = true
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                rounds++
+                emit(answer)
+                emit(ProviderEvent.Completed)
+            }
+        }
+
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(unusedRepositoryRead { executions++ })).toList()
+
+        assertEquals(1, rounds)
+        assertEquals(0, executions)
+        assertEquals(listOf(answer, ProviderEvent.Completed), events.filterIsInstance<AgentRunEvent.Provider>().map { it.event })
+        assertFalse(events.any { it is AgentRunEvent.Notice && it.message.contains("no repository evidence") })
+    }
+
+    @Test
+    fun verifiedDiagnosticPublishesOnceWithToolsAndOnlyRetainedReceipts() = runBlocking {
+        val book = GitHubEvidenceBook("saved-task", "owner/repository", "main", setOf("github_context"), now = { 1000L })
+        book.observe(
+            ProviderEvent.ToolCall("previous-read", "github_context", buildJsonObject {}),
+            AgentToolResult("previous-read", ToolResultContent.Text("{\"checks\":3}"), false)
+        )
+        val retained = book.snapshot()
+        assertEquals(1, retained.first.size)
+        var providerRounds = 0
+        var verificationRequests = 0
+        var continuationRequests = 0
+        var publicationChecks = 0
+        var rounds = 0
+        var executions = 0
+        val tool = unusedRepositoryRead { executions++ }
+        val verified = GitHubVerifiedSession(
+            delegate = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                    providerRounds++
+                    error("A retained diagnostic cannot start provider generation")
+                }
+            },
+            evidence = book,
+            task = "Inspect the repository",
+            inputLimit = { 8192 },
+            openVerifier = {
+                verificationRequests++
+                error("A retained diagnostic cannot start claim extraction")
+            },
+            validatePublication = { publicationChecks++ },
+            progress = {},
+            authorizedTools = listOf(tool.definition),
+            currentRequest = "Why did you stop?",
+            openExecutionContinuation = {
+                continuationRequests++
+                error("A retained diagnostic cannot resume repository work")
+            }
+        )
+        val session = object : AgentProviderSession by verified {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                rounds++
+                assertEquals(listOf(tool.definition), tools)
+                assertTrue(exchanges.isEmpty())
+                emitAll(verified.streamRound(tools, exchanges))
+            }
+        }
+
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(tool)).toList()
+        val provider = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+
+        assertEquals(1, rounds)
+        assertEquals(1, publicationChecks)
+        assertEquals(0, providerRounds)
+        assertEquals(0, verificationRequests)
+        assertEquals(0, continuationRequests)
+        assertEquals(0, executions)
+        assertEquals(retained, book.snapshot())
+        assertEquals(
+            listOf(
+                ProviderEvent.TextDelta(GitHubTaskContinuity.explain(null, retained.first), OutputLineage(OutputOrigin.APPLICATION_REPORT)),
+                ProviderEvent.Completed
+            ),
+            provider
+        )
+        assertFalse(events.any { it is AgentRunEvent.ToolStarted || it is AgentRunEvent.ToolFinished })
+        assertFalse(events.any { it is AgentRunEvent.Notice && it.message.contains("no repository evidence") })
+    }
+
+    private fun unusedRepositoryRead(executed: () -> Unit) = object : AgentTool {
+        override val definition = AgentToolDefinition("repository_read", "Read repository evidence", buildJsonObject {})
+        override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+            executed()
+            error("Published output must not dispatch a repository read")
+        }
+    }
+
     @Test
     fun `github prose without receipts gets one bounded evidence acquisition round`() = runBlocking {
         var round = 0

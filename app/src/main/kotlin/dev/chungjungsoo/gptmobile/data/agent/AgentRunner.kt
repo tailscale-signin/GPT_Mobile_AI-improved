@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
+import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits
 import dev.chungjungsoo.gptmobile.data.network.RequestByteBudget
 import dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope
@@ -457,7 +458,7 @@ class AgentRunner(
                     ) {
                         continue
                     }
-                    val recovery = recoverRoundWithoutCalls(session, round, exchanges, consumedCallIds, exposedDefinitions, emptyAnswerRecoveryAttempted, finalResponseRequested) ?: return
+                    val recovery = recoverRoundWithoutCalls(session, round, exchanges, consumedCallIds, exposedDefinitions, recoveryState, emptyAnswerRecoveryAttempted, finalResponseRequested) ?: return
                     exposedDefinitions = recovery.definitions
                     emptyAnswerRecoveryAttempted = recovery.emptyAnswerRecoveryAttempted
                     finalResponseRequested = recovery.finalResponseRequested
@@ -930,17 +931,23 @@ class AgentRunner(
         exchanges: MutableList<AgentToolExchange>,
         consumedCallIds: MutableSet<String>,
         definitions: List<AgentToolDefinition>,
+        recoveryState: RoundRecoveryState,
         emptyAnswerRecoveryAttempted: Boolean,
         finalResponseRequested: Boolean
     ): EmptyRoundRecovery? {
+        // An admitted response repair must not stack another evidence-only correction.
         if (round.completed &&
             round.textEmitted &&
+            round.evidenceCorrectionEligible &&
             limits.githubTask &&
             exchanges.isEmpty() &&
             definitions.isNotEmpty() &&
             limits.combined?.requested?.singlePass != true &&
+            !recoveryState.protocolRecoveryAttempted &&
+            !recoveryState.githubOutputRepairAttempted &&
             !emptyAnswerRecoveryAttempted &&
             !session.handlesToolsInternally &&
+            !session.handlesToolResultRecovery &&
             !finalResponseRequested
         ) {
             val continued = definitions.map {
@@ -1889,7 +1896,8 @@ class AgentRunner(
         val taskOutcome: String? = null,
         val failureDetails: JsonObject? = null,
         val invocationId: String? = null,
-        val applicationReportEmitted: Boolean = false
+        val applicationReportEmitted: Boolean = false,
+        val evidenceCorrectionEligible: Boolean = false
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -1940,6 +1948,7 @@ class AgentRunner(
         var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         var textEmitted = false
         var applicationReportEmitted = false
+        var evidenceCorrectionEligible = true
         var providerPayloadObserved = false
         val answerCandidate = StringBuilder()
         var toolDefinitionsRejected = false
@@ -2249,6 +2258,15 @@ class AgentRunner(
                 ProviderEvent.Completed -> completed = true
 
                 else -> {
+                    // Legacy bare text has UNKNOWN lineage. Explicitly owned output
+                    // or an atomic final answer cannot become a draft again later.
+                    if (event is ProviderEvent.CombinedAnswer ||
+                        event is ProviderEvent.TextDelta &&
+                        event.lineage.origin != OutputOrigin.MODEL_TEXT &&
+                        event.lineage.origin != OutputOrigin.UNKNOWN
+                    ) {
+                        evidenceCorrectionEligible = false
+                    }
                     if (event is ProviderEvent.CombinedAnswer) {
                         // This is the whole delivered body, including finalization
                         // paths that emitted no provisional deltas. Treating it as
@@ -2279,7 +2297,7 @@ class AgentRunner(
             deliveredResultDigests.putAll(deliveredBodies)
             while (deliveredResultDigests.size > ToolResultDeliveryProof.MAX_RESULTS) deliveredResultDigests.remove(deliveredResultDigests.keys.first())
         }
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId, applicationReportEmitted)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId, applicationReportEmitted, evidenceCorrectionEligible = evidenceCorrectionEligible)
     }
 
     private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {

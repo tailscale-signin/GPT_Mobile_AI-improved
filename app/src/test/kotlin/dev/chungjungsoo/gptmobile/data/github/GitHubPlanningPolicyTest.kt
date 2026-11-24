@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -110,5 +111,55 @@ class GitHubPlanningPolicyTest {
         assertEquals("fresh page", pages.read("owner", "repo", 1, 30, false)?.payload)
         clock = 300_001
         assertNull(pages.read("owner", "repo", 1, 30, false))
+    }
+
+    @Test fun quotedAndFormattedQuestionsDoNotAddSelectedContextThroughTheReadHeuristic() {
+        val context = GitHubPlanningContext("connection", "__selected", selected)
+        for (request in listOf(
+            "Translate \"What does this project do?\" into French",
+            "\"What does this project do?\"",
+            "`What does this project do?`",
+            "```text\nWhat does this project do?\n```",
+            "> What does this project do?",
+            "    What does this project do?",
+            "What does \"this project do?",
+            "What does \"this project\\"
+        )) {
+            assertTrue(request, GitHubOperationTool.taskTools(request).isEmpty())
+            assertEquals(request, "", GitHubPlanningContext.forRequest(request, listOf(context)))
+        }
+    }
+
+    @Test fun transformationAndCreativeRequestsDoNotBecomeRepositoryReadsFromTheirExamples() {
+        val context = GitHubPlanningContext("connection", "__selected", selected)
+        for (request in listOf(
+            "Write a poem about this project that is wonderful",
+            "Translate the following question into French:\nWhat does this project do?",
+            "Explain the sentence: What does this project do?",
+            "Show me a poem about this project that is wonderful",
+            "Show me a short poem about this project",
+            "Describe a story in which this project is wonderful"
+        )) {
+            assertTrue(request, GitHubOperationTool.taskTools(request).isEmpty())
+            assertEquals(request, "", GitHubPlanningContext.forRequest(request, listOf(context)))
+        }
+    }
+
+    @Test fun directReadQuestionsKeepSelectedContextWithPolitenessAndQuotedSymbols() {
+        val context = GitHubPlanningContext("connection", "__selected", selected)
+        for (request in listOf(
+            "Please explain what this project does.",
+            "Could you show me what this project does?",
+            "How does this project handle `authentication`?",
+            "Explain how `authentication` works in this project.",
+            "In this project, where is authentication handled?",
+            "What does this project do? Answer as a short poem."
+        )) {
+            assertTrue(request, GitHubOperationTool.taskTools(request).isEmpty())
+            val prompt = GitHubPlanningContext.forRequest(request, listOf(context))
+            assertTrue(request, prompt.contains("\"owner\":\"actual-owner\""))
+            assertTrue(request, prompt.contains("\"ref\":\"working\""))
+            assertTrue(request, prompt.contains("\"access_verified_for_current_request\":false"))
+        }
     }
 }

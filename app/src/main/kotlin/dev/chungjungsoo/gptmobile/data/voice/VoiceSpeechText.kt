@@ -5,9 +5,16 @@ internal object VoiceSpeechText {
     const val LIMIT_NOTICE = "The rest of this response is available in the chat."
 
     /** Incomplete words and markup stay pending, so later snapshots cannot expose a URL fragment. */
-    fun project(input: String, final: Boolean = true, includeDetails: Boolean = false): String {
+    fun project(input: String, final: Boolean = true, includeDetails: Boolean = false): String =
+        projectBounded(input, final, includeDetails, preserveLiteralTerms = false)
+
+    /** Engines match saved literal terms after safety filtering and before default identifier rendering. */
+    fun forPlayback(input: String, final: Boolean = true, includeDetails: Boolean = false): String =
+        projectBounded(input, final, includeDetails, preserveLiteralTerms = true)
+
+    private fun projectBounded(input: String, final: Boolean, includeDetails: Boolean, preserveLiteralTerms: Boolean): String {
         val end = minOf(input.length, 12000).let { if (it > 0 && input[it - 1].isHighSurrogate()) it - 1 else it }
-        val spoken = project(input.substring(0, end), final && input.length <= 12000, 0, Notices(), completed = final, includeDetails)
+        val spoken = project(input.substring(0, end), final && input.length <= 12000, 0, Notices(preserveLiteralTerms = preserveLiteralTerms), completed = final, includeDetails)
         return if (final && input.length > 12000) {
             spoken + (if (spoken.isNotEmpty() && !spoken.last().isWhitespace()) " " else "") + LIMIT_NOTICE
         } else {
@@ -126,7 +133,7 @@ internal object VoiceSpeechText {
     private fun isQuoteStart(text: String, index: Int): Boolean =
         text[index] in "\"“" || text[index] in "'‘" && text.getOrNull(index - 1)?.isLetterOrDigit() != true
 
-    private class Notices(var codeAnnounced: Boolean = false)
+    private class Notices(var codeAnnounced: Boolean = false, val preserveLiteralTerms: Boolean = false)
 
     private fun project(text: String, final: Boolean, depth: Int, notices: Notices, completed: Boolean = final, includeDetails: Boolean = false, literalTags: Boolean = false): String {
         if (depth > 4) return ""
@@ -199,6 +206,7 @@ internal object VoiceSpeechText {
                 if (index >= stableEnd) break
             }
             val character = text[index]
+            val literalTerm = if (notices.preserveLiteralTerms) safeLiteralTermAt(text, index, final, literalTags) else null
             when {
                 !literalTags && isQuoteStart(text, index) -> {
                     val close = quotedEnd(text, index, final && completed)
@@ -337,6 +345,10 @@ internal object VoiceSpeechText {
                         index = end
                     }
                 }
+                literalTerm != null -> {
+                    spoken.append(text, literalTerm.first, literalTerm.last + 1)
+                    index = literalTerm.last + 1
+                }
                 character == '&' -> {
                     val entity = entity.matchAt(text, index)
                     if (entity != null) {
@@ -404,6 +416,20 @@ internal object VoiceSpeechText {
             }
         }
         return spoken.toString()
+    }
+
+    private fun safeLiteralTermAt(text: String, index: Int, final: Boolean, literalTags: Boolean): IntRange? {
+        val term = VoicePronunciationOverrides.literalTermAt(text, index) ?: return null
+        // A spelling span must never jump over a safety decision in the normal character walk.
+        // For example, x_https://... contains a source address beginning after its underscore.
+        for (cursor in term.first + 1..term.last) {
+            if (!literalTags && isQuoteStart(text, cursor) || rawLinkAt(text, cursor)) return null
+            if (!text[cursor - 1].isLetterOrDigit() && text[cursor].isLetterOrDigit()) {
+                val referenceEnd = reference.matchAt(text, cursor)?.range?.last?.plus(1)
+                if (referenceEnd != null && (referenceEnd == text.length && !final || text.getOrNull(referenceEnd)?.isLetterOrDigit() != true)) return null
+            }
+        }
+        return term
     }
 
     private data class Table(val end: Int, val speech: String = "", val pending: Boolean = false)

@@ -953,6 +953,7 @@
     "docs/repairs/evidence/voice-literal-pronunciation-order/interior-before-receipt.json",
     "docs/repairs/evidence/voice-literal-pronunciation-order/ktlint-receipt.json",
     "docs/repairs/evidence/voice-literal-pronunciation-order/ktlint.log",
+    "docs/repairs/evidence/voice-literal-pronunciation-order/log-normalization.json",
     "docs/repairs/evidence/voice-literal-pronunciation-order/prechange-junit.log",
     "docs/repairs/evidence/voice-literal-pronunciation-order/prechange-receipt.json",
     "docs/repairs/evidence/voice-literal-pronunciation-order/prior-66-focused-compile.log",

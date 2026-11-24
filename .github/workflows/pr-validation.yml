@@ -221,12 +221,12 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon \
+          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon --info \
             --tests '*ResearchSessionStoreHeapTest' --tests '*StreamingDebugBundleTest' \
             --tests '*BenchmarkStreamingExportHeapTest' \
             --tests '*BenchmarkColdStreamingExportHeapTest' \
             --tests '*WorkspaceDiagnosticCaptureHeapTest' 2>&1 | tee heap.log
-          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon \
+          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon --info \
             -Pgptmobile.diagnosticHeapStress=true --tests '*StagedDiagnosticCaptureHeapTest' 2>&1 | tee -a heap.log
 
       - name: Publish Test Results

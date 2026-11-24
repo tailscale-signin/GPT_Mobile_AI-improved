@@ -485,7 +485,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt",
         "scripts/scan_secret_history.sh",
-        ".github/workflows/pr-validation.yml"
+        ".github/workflows/pr-validation.yml",
+        "scripts/report_secret_history.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
@@ -507,7 +508,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt",
         "scripts/test_secret_history_integrity.py",
-        "scripts/test_gitleaks_model_pin.py"
+        "scripts/test_gitleaks_model_pin.py",
+        "scripts/tests/test_secret_history_reporting.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -519,7 +521,8 @@
         ".github/instructions/ai-engineering.md",
         "docs/ci-cd/modernization.md",
         "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json",
-        "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json"
+        "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
+        "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -531,7 +534,8 @@
         "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it.",
         "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery.",
         "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority.",
-        "The mandatory PR/main credential-history gate runs the same pinned scanner against intact, missing-object and restored synthetic histories before the unchanged real reachable-history scan; a missing Git object, failed control or malformed mode cannot produce successful qualification."
+        "The mandatory PR/main credential-history gate runs the same pinned scanner against intact, missing-object and restored synthetic histories before the unchanged real reachable-history scan; a missing Git object, failed control or malformed mode cannot produce successful qualification.",
+        "Credential-history findings retain only bounded validated rule, commit, path and line identities; scanner detection or invalid/missing report evidence cannot qualify a clean history, and raw match/secret/commit-author content is never published by the identity reporter."
       ]
     },
     {
@@ -1167,6 +1171,37 @@
         "Routine summaries retain the existing 45-second first and 135-second follow-up cadence.",
         "Only a bounded, call-bound immutable source capture can refresh preview repetition after a commit or result change; saved, negative, malformed or mismatched receipts do not gain current-source or completion authority."
       ]
+    },
+    {
+      "id": "qnn-runtime-candidate",
+      "title": "QNN candidate downloads and source build",
+      "terms": [
+        "QNN candidate",
+        "QAIRT dispatch",
+        "publisher checksum",
+        "HTTP429",
+        "Retry-After"
+      ],
+      "paths": [
+        "scripts/build_qualcomm_dispatch_candidate.py",
+        "scripts/rebuild_qualcomm_dispatch.py",
+        "scripts/check_local_runtime_apk.py",
+        ".github/workflows/qnn-runtime-candidate.yml"
+      ],
+      "tests": [
+        "scripts/tests/test_qualcomm_candidate_download.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/audits/qnn-runtime-candidate.json",
+        "docs/repairs/qnn-candidate-rate-limit-2026-11-24-task.json"
+      ],
+      "invariants": [
+        "Candidate artifact downloads retry only an opening HTTP429 within three attempts and two bounded waits; unusable server cooldowns retain the failure, and every publisher checksum and native qualification gate remains required.",
+        "The isolated candidate retains publisher pins and structural native verification; it does not establish production promotion or physical-device performance."
+      ]
     }
   ],
   "file_blobs": {
@@ -1189,6 +1224,11 @@
       "blob_sha": "ef0903725c1161bf5e3a4989cb2bdd0b02149c69",
       "bytes": 26600,
       "sha256": "65cb38c06ce0da976030445eac84b4a74ff092d2097346af7092bdc947150d8e"
+    },
+    ".github/workflows/qnn-runtime-candidate.yml": {
+      "blob_sha": "444146fd056b8793e4ba9cc9d7f231064d2718a1",
+      "bytes": 2130,
+      "sha256": "3c71529a79e5f54d58f13afd86b86466d8ede5e6e504216feed9ec1437c04cfb"
     },
     ".github/workflows/release-0950-acceptance.yml": {
       "blob_sha": "e014d5d4585a20f7571542da5dcc705f1d7aa411",
@@ -3205,6 +3245,11 @@
       "bytes": 9085,
       "sha256": "87e64d50ee1b3927465bc1f95b905e4ab0e339c3054815515b08642f745a5e03"
     },
+    "docs/audits/qnn-runtime-candidate.json": {
+      "blob_sha": "1cb435321c87c042d42bdd7daea80f179bab7b4e",
+      "bytes": 3491,
+      "sha256": "e0f67f4f046942015c1a59c7faed517c7f18ba9cb836322388026bb4e5c85e05"
+    },
     "docs/ci-cd/modernization.md": {
       "blob_sha": "b124abc3bdcdbf7e6a7d0d217fdf1cbd105b7b37",
       "bytes": 9146,
@@ -3400,6 +3445,11 @@
       "bytes": 4834,
       "sha256": "d1ccfb7daacbfdd582a6ca976c4ba3a42d1e3e8232c0f4c7f768df6ee0e1129a"
     },
+    "docs/repairs/qnn-candidate-rate-limit-2026-11-24-task.json": {
+      "blob_sha": "5a3df874bcd6116e26873300606b15e87f6ffe09",
+      "bytes": 3770,
+      "sha256": "0de42848bc8ad9c655abeeb8a11ae946934570a82246219a60e9874f964cfd7b"
+    },
     "docs/repairs/responses-retained-backend-work-2026-11-24-task.json": {
       "blob_sha": "061586632166d8217898012bdfd55ff9cdf931a9",
       "bytes": 13811,
@@ -3414,6 +3464,11 @@
       "blob_sha": "6228fb12e000574ae4f7a49d6b97d2ed6ee6d0d6",
       "bytes": 7987,
       "sha256": "39a7cd691d7e64a0eb4e5215398172c6cd9cd06361ff4d9d9085e1c275d8c073"
+    },
+    "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json": {
+      "blob_sha": "5053dc7f45cd533ee794213309105d65052d7c67",
+      "bytes": 8750,
+      "sha256": "46f6264a5f553793e921406e7544f02af563bcab1f0224065f6539d468c818da"
     },
     "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json": {
       "blob_sha": "3094eb314e67b0f8dd3f946b89cfc66a02e0d051",
@@ -3725,6 +3780,11 @@
       "bytes": 13659,
       "sha256": "42f372fc249dd6893f121ad6e41ab9ce624dbb7afd2cb6c0f3ab7d163fa49a32"
     },
+    "scripts/build_qualcomm_dispatch_candidate.py": {
+      "blob_sha": "3a402571cdd3eb3c8e93f6e51de1079213cdbfe2",
+      "bytes": 12440,
+      "sha256": "5e63e5821952b53a82d3a5f7c8a95d0b9051815a91e4190aef0988d78d75252e"
+    },
     "scripts/check_chat_method_size.py": {
       "blob_sha": "376aeaf1f5050330761319bb7c4143ff120e0101",
       "bytes": 14250,
@@ -3739,6 +3799,11 @@
       "blob_sha": "4ef65566fd4ffb507479248ba84f33208f3035b2",
       "bytes": 6003,
       "sha256": "a77475920890858d1a85eae27739563acdbd86bac26cf9cff2ddcfd018addbca"
+    },
+    "scripts/check_local_runtime_apk.py": {
+      "blob_sha": "337c23c32e98e57e5bec152470d4995f3aa8c929",
+      "bytes": 10022,
+      "sha256": "57240bce511daff5e8bfc3c780aabba081a5ead6eb141b87d7704833947c3d4b"
     },
     "scripts/check_mediapipe_android_smoke.py": {
       "blob_sha": "ecca2617b4d68afb8f18dd1498cf477528591958",
@@ -3760,6 +3825,16 @@
       "bytes": 17361,
       "sha256": "5c6bed13b242d65f9ae97c95d0db9ddf44e5d205d3cf9935ac48f9235d2f7071"
     },
+    "scripts/rebuild_qualcomm_dispatch.py": {
+      "blob_sha": "9ebf8a70f1787597aa9b070d47003346054c83b7",
+      "bytes": 5502,
+      "sha256": "c993b80b44cb5cccc7d1879d54c33fff72065712d7c91b322f72bbd2b2c5fa80"
+    },
+    "scripts/report_secret_history.py": {
+      "blob_sha": "b7e02308af60fc4febb99a0d3fa1ee376e1feba2",
+      "bytes": 4781,
+      "sha256": "4bae92d11ea7f1fc7bc86d4eeb0bb344b364a70659f55046702f33c6210e9fb8"
+    },
     "scripts/run_mediapipe_android_smoke.sh": {
       "blob_sha": "d65e76a13635e8183d65e80af94b6772ae5beb90",
       "bytes": 3854,
@@ -3771,9 +3846,9 @@
       "sha256": "e4a1adeb060551172c077dd332e8356875a3c82de20a3c6bf07d20bcf312f5ac"
     },
     "scripts/scan_secret_history.sh": {
-      "blob_sha": "793de6820819a2384d033ce87b976c9e66adb658",
-      "bytes": 1887,
-      "sha256": "b3f807b708d932b6f0d2015afe69ee1ff5ec192a6086afbb9bc4f5e4f88b7f63"
+      "blob_sha": "0dcaffafc85068fdf79a73098df186da3e46c724",
+      "bytes": 1828,
+      "sha256": "d3c62151d7cf40467999121e949ab5bdaf9195635b075b8d6b4d97b4f5744074"
     },
     "scripts/smoke_mediapipe_speech.py": {
       "blob_sha": "df8da254108fc944924a5254902ec8d7b56a398e",
@@ -3786,9 +3861,9 @@
       "sha256": "b92492068aeca25c8a29d9b8a22547eb7943bab97cd9ba13caaf24b0a2a7321f"
     },
     "scripts/test_secret_history_integrity.py": {
-      "blob_sha": "381e8b5011712ff91268d1a2fe35d35451bb39c5",
-      "bytes": 6303,
-      "sha256": "ca60ef98bfc2c453fadaf7e37fbf1bd433d78afc32b688fce93f270cf5639ef5"
+      "blob_sha": "5efc23e4f52fe764f23c1ee06b4f485b81dcc619",
+      "bytes": 6343,
+      "sha256": "70e3f474e88eadbef748e5cba4743a9ddffa0eccb5cc78d27eace362eaafbedd"
     },
     "scripts/tests/test_chat_method_size.py": {
       "blob_sha": "cdbd92587cd05e8b5ceeda8425d87d81191c85a0",
@@ -3839,6 +3914,16 @@
       "blob_sha": "55d6d8b13e32054de3eb7df9b170f73ea45dd222",
       "bytes": 49130,
       "sha256": "4eb7b7b2e2ecb35b64f5cdcd7fe00c57db1de6db522b22485036499b13148bd4"
+    },
+    "scripts/tests/test_qualcomm_candidate_download.py": {
+      "blob_sha": "9ef660a70d48644a39c4672f8b5380660e95692c",
+      "bytes": 10217,
+      "sha256": "86cc7e5945c825f1af9688a2e128631e367cd6954f96f5158256d2d98054fea6"
+    },
+    "scripts/tests/test_secret_history_reporting.py": {
+      "blob_sha": "9bd1164a6d6ae6e765cefa69271e94a9ddd0714d",
+      "bytes": 10031,
+      "sha256": "e34128069269eba2fd4940076c302e3748347278977d6f822f5f6c0a5031878a"
     }
   }
 }

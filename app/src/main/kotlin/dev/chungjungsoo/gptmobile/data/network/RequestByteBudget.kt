@@ -44,6 +44,26 @@ internal object RequestByteBudget {
     fun schemaTarget(details: JsonObject?, currentSchemaTokens: Long): Int? =
         componentTarget(details, "request_tool_schema_bytes", currentSchemaTokens)
 
+    data class JointTarget(val replayTokens: Int, val schemaTokens: Int)
+
+    /** Share a measured byte deficit when removing either component alone could never fit the request. */
+    fun jointTarget(details: JsonObject, replay: Long, schemas: Long): JointTarget? {
+        if (details["payload_replan_allowed"] != JsonPrimitive(true) || replay !in 2..Int.MAX_VALUE.toLong() || schemas !in 2..Int.MAX_VALUE.toLong()) return null
+        fun count(key: String) = (details[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it in 1..Int.MAX_VALUE }
+        val bytes = count("request_serialized_bytes") ?: return null
+        val limit = count("provider_request_byte_limit") ?: return null
+        val evidence = count("request_evidence_bytes") ?: return null
+        val tools = count("request_tool_schema_bytes") ?: return null
+        val adjustable = evidence + tools
+        val reduction = bytes - limit + (limit / 50).coerceIn(1, 1024)
+        if (adjustable > bytes || reduction < maxOf(evidence, tools) || reduction >= adjustable) return null
+        val remaining = adjustable - reduction
+        val replayTarget = replay * remaining / adjustable
+        val schemaTarget = schemas * remaining / adjustable
+        if (replayTarget !in 1 until replay || schemaTarget !in 1 until schemas) return null
+        return JointTarget(replayTarget.toInt(), schemaTarget.toInt())
+    }
+
     private fun componentTarget(details: JsonObject?, component: String, current: Long): Int? {
         if (current !in 2..Int.MAX_VALUE.toLong()) return null
         if (details?.get("payload_replan_allowed")?.let { (it as? JsonPrimitive)?.booleanOrNull } != true) return null

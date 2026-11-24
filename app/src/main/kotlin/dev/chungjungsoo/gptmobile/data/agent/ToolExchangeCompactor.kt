@@ -22,7 +22,7 @@ internal object ToolExchangeCompactor {
     private const val CHARS_PER_TOKEN = 3
     private const val OMITTED_RESULT = "[Tool result omitted from primary replay to fit its budget.]"
     private const val CONSUMED_RESULT = "[Earlier tool result already consumed by the model; durable evidence retained.]"
-    private const val DUPLICATE_RESULT = "[Earlier duplicate tool result omitted; newest identical result retained.]"
+    private const val DUPLICATE_RESULT = "[Duplicate tool result omitted; identical observation retained.]"
 
     internal fun isReplayPlaceholder(content: ToolResultContent): Boolean = (content as? ToolResultContent.Text)?.text in setOf(OMITTED_RESULT, CONSUMED_RESULT, DUPLICATE_RESULT)
 
@@ -99,7 +99,8 @@ internal object ToolExchangeCompactor {
         consumedCallIds: Set<String> = emptySet(),
         renderCache: RenderCache? = null,
         resultTokenAllowances: Map<String, Int> = emptyMap(),
-        taskRequest: String? = null
+        taskRequest: String? = null,
+        priorityCallIds: Set<String> = emptySet()
     ): List<AgentToolExchange> {
         if (exchanges.isEmpty() || maxReplayTokens == Int.MAX_VALUE) return exchanges
 
@@ -127,12 +128,27 @@ internal object ToolExchangeCompactor {
                     val summary = (result.executionReceipt?.get("semantic_summary") ?: projected?.get("semantic_summary")) as? JsonObject
                     scores[result.callId] = relevance.score(call?.arguments, summary)
                 }
+                if (result.callId in priorityCallIds) scores[result.callId] = Int.MAX_VALUE - 1
                 if (result.callId in resultTokenAllowances) scores[result.callId] = Int.MAX_VALUE
                 // A missing call is never deduplicated with an unrelated result.
                 fingerprint("${call?.name ?: result.callId}|${call?.arguments}|${result.isError}|${result.errorCode}|${measurements[fingerprintIndex++].digest}")
             }
         }
-        val lastOccurrence = fingerprints.withIndex().associate { (index, value) -> value to index }
+        // Prefer the pending handoff, a reserved saved page, or a specifically cited original.
+        // Otherwise retain the most recent identical call as before.
+        fun retentionPriority(id: String) = when (id) {
+            in pendingIds -> 3
+            in resultTokenAllowances -> 2
+            in priorityCallIds -> 1
+            else -> 0
+        }
+        val retainedOccurrence = mutableMapOf<String, Int>()
+        for ((index, key) in fingerprints.withIndex()) {
+            val previous = retainedOccurrence[key]
+            if (previous == null || retentionPriority(flattenedResults[index].callId) >= retentionPriority(flattenedResults[previous].callId)) {
+                retainedOccurrence[key] = index
+            }
+        }
         // A completed provider round proves that these exact bodies were already
         // delivered. Keep their call/result boundary, error metadata, and any
         // bounded semantic summary, but do not keep paying for a large raw body on
@@ -140,7 +156,7 @@ internal object ToolExchangeCompactor {
         // replay allowance so follow-up rounds can use their exact evidence.
         val consumedPayloads = BooleanArray(flattenedResults.size) { index ->
             val result = flattenedResults[index]
-            result.callId in consumedCallIds &&
+            result.callId in consumedCallIds && result.callId !in priorityCallIds &&
                 measurements[index].tokens > MIN_RESULT_TOKENS &&
                 GitHubReplayRecovery.envelope(result.content)?.get("local_page_complete") != JsonPrimitive(true)
         }
@@ -158,7 +174,7 @@ internal object ToolExchangeCompactor {
         // observations, spend the same fixed budget on task matches, with recency breaking ties.
         val resultBudgets = IntArray(fingerprints.size)
         val newestFirst = fingerprints.indices.reversed()
-        val order = if (relevance == null && resultTokenAllowances.isEmpty()) {
+        val order = if (relevance == null && resultTokenAllowances.isEmpty() && priorityCallIds.isEmpty()) {
             newestFirst.toList()
         } else {
             newestFirst.sortedWith(
@@ -168,7 +184,7 @@ internal object ToolExchangeCompactor {
             )
         }
         for (index in order) {
-            val duplicate = lastOccurrence[fingerprints[index]] != index
+            val duplicate = retainedOccurrence[fingerprints[index]] != index
             if (duplicate || consumedPayloads[index] || remaining < MIN_RESULT_TOKENS) continue
             val actualCost = measurements[index].tokens.coerceAtLeast(1)
             val admittedResult = resultTokenAllowances[flattenedResults[index].callId]?.coerceIn(0, hardBudget) ?: perResultBudget
@@ -181,7 +197,7 @@ internal object ToolExchangeCompactor {
         val compacted = exchanges.mapIndexed { exchangeIndex, exchange ->
             val compactedResults = exchange.results.map { result ->
                 val index = resultIndex++
-                val duplicate = lastOccurrence[fingerprints[index]] != index
+                val duplicate = retainedOccurrence[fingerprints[index]] != index
                 val maxChars = resultBudgets[index] * CHARS_PER_TOKEN
                 val raw by lazy(LazyThreadSafetyMode.NONE) { renderCache?.render(result.content) ?: render(result.content) }
                 val semantic by lazy(LazyThreadSafetyMode.NONE) { semanticContent(result, result.callId in consumedCallIds) }

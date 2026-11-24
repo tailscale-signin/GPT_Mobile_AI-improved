@@ -5298,6 +5298,7 @@ class ChatRepositoryImpl(
         verificationOnlyRequested: Boolean
     ): dev.chungjungsoo.gptmobile.data.agent.AgentRunner {
         val githubTask = verifiedEvidence != null || chatToolConfig?.github != null
+        var replayPriority = emptySet<String>()
         val acceptedObjective = verifiedEvidence?.acceptedTaskRequest() ?: githubEffectiveTask
         val inferredTarget = effectiveTools.filter { it.nativeGitHub }.mapNotNull { it.gitHubPlanningContext }
             .filter { it.repository != null }.distinctBy { it.connectionUid to it.repository }.singleOrNull()
@@ -5370,14 +5371,14 @@ class ChatRepositoryImpl(
             remainingTaskMillis = verifiedEvidence?.let { it::remainingTaskMillis },
             taskAdmissionFailure = verifiedEvidence?.let { it::taskAdmissionFailure },
             diagnosticRunId = dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionHistory.runIdWithoutPriorEvents(runId, agentPersistenceDao::rawMaxToolEventSequence),
-            prepareToolSelection = if (catalog != null && verifiedEvidence != null) {
+            prepareToolSelection = verifiedEvidence?.let { book ->
                 {
-                    catalog.focusRequirement(verifiedEvidence.diagnostic())
-                    Unit
+                    val report = book.diagnostic()
+                    catalog?.focusRequirement(report)
+                    replayPriority = book.replayCallIds(report)
                 }
-            } else {
-                null
-            }
+            },
+            replayPriorityCallIds = { replayPriority }
         )
     }
 
@@ -6280,7 +6281,7 @@ class ChatRepositoryImpl(
                     val adaptiveCreativity = requestConstraints.githubSampling?.mode == dev.chungjungsoo.gptmobile.data.github.GitHubCreativityMode.ADAPTIVE
                     dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringStrategy.predict(level, githubEffectiveTask).explorationRole(githubEffectiveTask, adaptiveCreativity)
                         ?: dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSession.INTENT_ROLE.takeIf {
-                            adaptiveCreativity && dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSession.needsIntentPlan(githubEffectiveTask, contextPlan.turns.any { !it.isCurrentTurn })
+                            dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSession.needsIntentPlan(githubEffectiveTask, contextPlan.turns.any { !it.isCurrentTurn })
                         }
                 }
             val adaptiveSession = if (explorationRole != null && verifiedEvidence != null && latestUser != null) {
@@ -6296,7 +6297,7 @@ class ChatRepositoryImpl(
                     adaptiveBinding,
                     open = { role, instruction ->
                         val interpret = role == dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSession.INTENT_ROLE
-                        val turns = if (interpret) contextPlan.turns else listOf(ConversationTurn(latestUser.copy(content = githubEffectiveTask, attachments = emptyList()), null, true))
+                        val turns = if (interpret || dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSession.needsIntentPlan(githubEffectiveTask, contextPlan.turns.any { !it.isCurrentTurn })) contextPlan.turns else listOf(ConversationTurn(latestUser.copy(content = githubEffectiveTask, attachments = emptyList()), null, true))
                         openPrimarySession(turns, role, textOnly = true, passOutputTokens = if (interpret) 1024 else 3072, extraInstruction = instruction)
                     },
                     continueWith = { instruction ->

@@ -36,6 +36,19 @@ class GitHubAcceptanceWorkTest {
         assertTrue(GitHubAcceptanceWork.step(denied)?.tools?.isEmpty() == true)
     }
 
+    @Test fun replayIncludesOnlyActionableCriteriaAndTheirTransitiveDependencies() {
+        fun rowWithLinks(id: String, state: String, vararg prerequisites: String) = JsonObject(
+            row(id, state) + mapOf(
+                "receipt_ids" to JsonArray(listOf(JsonPrimitive("evidence-$id"))),
+                "criterion_contract" to buildJsonObject { put("depends_on", JsonArray(prerequisites.map(::JsonPrimitive))) }
+            )
+        )
+        val denied = JsonObject(rowWithLinks("denied", "BLOCKED", "private") + ("blocker_code" to JsonPrimitive("APPROVAL_REQUIRED")))
+        val rows = listOf(rowWithLinks("release", "FAIL", "test"), rowWithLinks("test", "PASS", "source"), rowWithLinks("source", "PASS", "test"), denied, rowWithLinks("private", "PASS"), rowWithLinks("other", "PASS"))
+        val report = buildJsonObject { put("acceptance_ledger", buildJsonObject { put("requirements", JsonArray(rows)) }) }
+        assertEquals(setOf("evidence-release", "evidence-test", "evidence-source"), GitHubAcceptanceWork.replayReceiptIds(report))
+    }
+
     @Test fun existingProofIsRemappedBeforeAcquiringMoreEvidence() {
         val uncovered = JsonObject(row("test") + ("acceptance_mismatch" to JsonPrimitive("NO_MATCHING_CLAIMS")))
         val observed = JsonObject(uncovered + ("eligible_receipt_count" to JsonPrimitive(1)))

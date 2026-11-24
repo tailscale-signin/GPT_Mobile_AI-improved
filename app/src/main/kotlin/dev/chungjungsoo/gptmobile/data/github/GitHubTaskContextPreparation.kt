@@ -28,10 +28,34 @@ class GitHubTaskContextPreparation @Inject constructor(
         tools: List<ResolvedAgentTool>,
         memoryMode: GitHubEngineeringMemoryMode
     ): String {
-        if (variant == GitHubContextVariant.CURRENT || contextTokens < 8192 || !GitHubEngineeringMemoryPreparation.eligible(context, tools)) {
+        if (variant == GitHubContextVariant.CURRENT || contextTokens < 2048 || contextTokens < 8192 && variant == GitHubContextVariant.REFERENCE || !GitHubEngineeringMemoryPreparation.eligible(context, tools)) {
             return ""
         }
         val connection = connections.getConnection(context.connectionUid) ?: return ""
+        if (contextTokens < 8192) {
+            val hints = try {
+                withTimeoutOrNull(1500) {
+                    maps.executeForMap(
+                        context,
+                        buildJsonObject {
+                            put("action", "cached_path_hints")
+                            put("query", query.take(2048))
+                        },
+                        forModel = true
+                    ).result
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: GatewayGraphOperationException) {
+                null
+            } ?: return ""
+            if ((hints["source_read_candidates"] as? JsonArray).isNullOrEmpty() || connections.getConnection(context.connectionUid) != connection) return ""
+            val paths = buildJsonObject {
+                put("source_sha", hints.getValue("source_sha"))
+                put("unread_paths", hints.getValue("source_read_candidates"))
+            }
+            return "Pinned unread repository paths. Retrieve relevant source through the authorized reader.\n$paths"
+        }
         val ranker = GitHubTaskContextRanking(fallbackReason = "SESSION_ONLY_MEMORY_POLICY".takeIf { memoryMode == GitHubEngineeringMemoryMode.SESSION_ONLY }) { task, records, account ->
             if (memoryMode == GitHubEngineeringMemoryMode.SESSION_ONLY) {
                 null

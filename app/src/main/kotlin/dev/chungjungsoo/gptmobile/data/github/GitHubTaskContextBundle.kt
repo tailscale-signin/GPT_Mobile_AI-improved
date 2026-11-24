@@ -32,6 +32,34 @@ object GitHubTaskContextBundle {
     private val camelBoundary = Regex("([a-z0-9])([A-Z])")
     private val ignoredTerms = setOf("the", "this", "that", "with", "from", "and", "for", "please", "fix", "improve", "implement", "feature", "code", "file", "files", "github", "repo", "repository", "all", "can", "how", "what", "does", "should", "would")
 
+    /** Small profiles receive ranked path pointers only. Source still requires an authorized read. */
+    internal fun cachedPathHints(repository: String, ref: String, commit: String, tree: JsonObject?, query: String): JsonObject {
+        val candidates = mutableListOf<JsonPrimitive>()
+        fun packet() = buildJsonObject {
+            put("repository", repository)
+            put("branch", ref)
+            put("commit_sha", commit)
+            put("source_sha", commit)
+            put("source_read_candidates", JsonArray(candidates.toList()))
+        }
+        val queryTerms = terms(query.take(2048), 32)
+        if (tree == null || queryTerms.isEmpty()) return packet()
+        val ranked = (tree["tree"] as? JsonArray).orEmpty().asSequence().filterIsInstance<JsonObject>()
+            .filter { it["type"] == JsonPrimitive("blob") && it["mode"] !in setOf(JsonPrimitive("120000"), JsonPrimitive("160000")) }
+            .mapNotNull { entry ->
+                val path = (entry["path"] as? JsonPrimitive)?.contentOrNull?.takeIf(::validPath) ?: return@mapNotNull null
+                val matches = terms(path).intersect(queryTerms).size
+                val score = matches + if (query.contains(path, ignoreCase = true)) 100 else 0
+                (path to score).takeIf { score > 0 }
+            }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+        for ((path) in ranked) {
+            candidates.add(JsonPrimitive(path))
+            if (packet().toString().toByteArray(Charsets.UTF_8).size > 640) candidates.removeAt(candidates.lastIndex)
+            if (candidates.size == 4) break
+        }
+        return packet()
+    }
+
     suspend fun build(
         repository: String,
         sourceSha: String,

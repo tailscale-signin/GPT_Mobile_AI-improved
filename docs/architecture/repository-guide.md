@@ -93,6 +93,19 @@ under its remaining tool budget and records the result for the primary model.
 The advisor and the recovery profile share one reservation per task. Private
 chats retain their existing routing restrictions.
 
+Fixed sampling preserves semantic intent planning. When a plan is malformed the
+primary can continue from the admitted request. Compaction prioritizes the
+pending handoff and named proof for outstanding criteria and their prerequisites.
+A profile with 2,048–8,191 context tokens can receive up to four ranked unread
+paths from a previously retained, authorized tree. It can then request the
+specific source it needs.
+
+The phone shares immutable tree data and paged relationship records across
+chats. A new source tree, parser version, focus set or set of indexed blobs
+changes the lookup key. Results and cursors stay bound to each request and
+revision. The phone reconstructs missing pages from its content-addressed
+source shards.
+
 The phone and Gateway can search repository symbols, related tests, architecture
 documents and historical repair records. Source references carry revision identity.
 A previous repair provides a lead to inspect at the current revision. Gateway

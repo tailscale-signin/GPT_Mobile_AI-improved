@@ -359,7 +359,8 @@
     "Bound the first adaptive speech phrase to six words and permit silent first inference when Auto selects the admitted local CPU. Preserve caption source spans, cancellation and refill pacing.",
     "Alternate short, medium and long benchmark fixtures across repetitions. Show rejected tensor measurements against the matched CPU input and count each recorded first-inference profile once.",
     "Report HTP cache admission causes and verified disk reuse from an earlier process. Provide duration-path tensor tracing and operator-level kernel timing for same-model GPU and calibrated HTP diagnosis.",
-    "Require declared read capabilities before replaying a missing tool call and retain pending, incomplete and duplicate commit-status contexts during CI diagnosis."
+    "Require declared read capabilities before replaying a missing tool call and retain pending, incomplete and duplicate commit-status contexts during CI diagnosis.",
+    "Use conversation-aware planning independently of sampling, prioritize proof for unresolved criteria, share revision-bound phone topology across chats, and recover jointly from measured tool-schema and replay byte deficits."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1261,7 +1262,9 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkloadTest.kt",
     "docs/repairs/kokoro-benchmark-99ad5781-task.json",
     "scripts/generate_app_audit_inventory.py",
-    "scripts/tests/test_app_audit_inventory.py"
+    "scripts/tests/test_app_audit_inventory.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapTopology.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/groq/response/GroqErrorDetail.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

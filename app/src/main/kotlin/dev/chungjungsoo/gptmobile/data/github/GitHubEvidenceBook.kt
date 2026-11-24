@@ -742,6 +742,17 @@ internal class GitHubEvidenceBook(
 
     suspend fun diagnostic(): JsonObject? = latestVerdict()?.takeIf { it["binding"] == JsonPrimitive(binding) }
 
+    suspend fun replayCallIds(report: JsonObject?): Set<String> = mutex.withLock {
+        if (report?.get("binding") != JsonPrimitive(binding)) return@withLock emptySet()
+        GitHubAcceptanceWork.replayReceiptIds(report).mapNotNullTo(mutableSetOf()) { id ->
+            val receipt = records[id] ?: return@mapNotNullTo null
+            if (receipt["binding"] != JsonPrimitive(binding) || receipt["trusted"] != JsonPrimitive(true) ||
+                receipt["verification_eligible"] != JsonPrimitive(true) || receipt["success"] != JsonPrimitive(true)
+            ) return@mapNotNullTo null
+            (receipt["call_id"] as? JsonPrimitive)?.contentOrNull
+        }
+    }
+
     /** Freeze task identity and ceilings before the first provider round, in either chat surface. */
     suspend fun retainTaskContract(task: String, sourceMessageId: Int, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, callLimit: Int, executionCallLimit: Int = callLimit) = mutex.withLock {
         val key = "task_contract"

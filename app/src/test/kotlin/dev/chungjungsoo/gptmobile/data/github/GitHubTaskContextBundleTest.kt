@@ -23,6 +23,25 @@ class GitHubTaskContextBundleTest {
     private val guide = "docs/architecture/repository-guide.md"
     private val code = "package sample\n\nclass RepairStore {\n    fun repairReceipt() = true\n}\n"
 
+    @Test fun smallProfileReceivesOnlyRankedUnreadPathsWithinItsUtf8Budget() {
+        val tree = buildJsonObject {
+            put("tree", JsonArray((listOf("README.md", "src/Other.kt", "src/RepairStore.kt", "../RepairStore", "docs/RepairStore.md") + (1..8).map { "src/RepairStore$it.kt" }).map { path ->
+                buildJsonObject {
+                    put("type", "blob")
+                    put("mode", if (path.startsWith("docs/")) "120000" else "100644")
+                    put("path", path)
+                }
+            }))
+        }
+        val hints = GitHubTaskContextBundle.cachedPathHints("owner/repo", "main", commit, tree, "Inspect src/RepairStore.kt")
+        val paths = hints.getValue("source_read_candidates") as JsonArray
+        assertEquals(JsonPrimitive("src/RepairStore.kt"), paths.first())
+        assertTrue(paths.size <= 4)
+        assertFalse(paths.any { ".." in it.toString() || "docs/" in it.toString() })
+        assertTrue(hints.toString().toByteArray().size <= 640)
+        assertTrue((GitHubTaskContextBundle.cachedPathHints("owner/repo", "main", commit, null, "Repair")["source_read_candidates"] as JsonArray).isEmpty())
+    }
+
     @Test fun currentArmDoesNotReadSourceOrReferences() = runBlocking {
         val result = build(GitHubContextVariant.CURRENT) { error("CURRENT must not fetch context") }
         assertEquals(JsonArray(emptyList()), result["selected_ranges"])

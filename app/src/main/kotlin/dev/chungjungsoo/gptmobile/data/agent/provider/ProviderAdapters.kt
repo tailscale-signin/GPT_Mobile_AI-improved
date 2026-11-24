@@ -1336,7 +1336,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 chunk.error?.let { error ->
                     roundFailed = true
                     lastFailedMessage = error.message
-                    caughtEvidence = streamErrorDetails(error.code, error.type, visibleText, finishedText)
+                    caughtEvidence = streamErrorDetails(error.code, error.type, visibleText, finishedText, details = error.failureDetails)
                     protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                         ?: error.code ?: error.type ?: protocolErrorCode
                     canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)

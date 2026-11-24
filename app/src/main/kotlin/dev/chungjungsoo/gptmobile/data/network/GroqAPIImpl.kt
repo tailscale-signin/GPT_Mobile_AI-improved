@@ -58,7 +58,12 @@ class GroqAPIImpl @Inject constructor(
                             )
                         }
                         val errorBody = readProviderErrorBody(response, 256 * 1024)
-                        throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
+                        val sizeEvidence = if (response.status.value == 413) {
+                            requestPayloadRejection(413, admittedPayload, config, request.model, receivedPayload) { response.headers[it] }
+                        } else {
+                            throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
+                            null
+                        }
                         val errorMessage = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
 
                         emit(
@@ -66,7 +71,8 @@ class GroqAPIImpl @Inject constructor(
                                 error = GroqErrorDetail(
                                     message = errorMessage,
                                     type = "http_error",
-                                    code = response.status.value.toString()
+                                    code = response.status.value.toString(),
+                                    failureDetails = sizeEvidence
                                 )
                             )
                         )
@@ -128,6 +134,11 @@ class GroqAPIImpl @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException || e is ProviderHttpFailure || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException || e is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw e
+            if (e is RequestByteLimitException) {
+                val failure = requireNotNull(providerExceptionDetails(e, receivedPayload))
+                emit(GroqChatCompletionChunk(error = GroqErrorDetail(failure.message, code = failure.code, failureDetails = failure.failureDetails)))
+                return@flow
+            }
             if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e)) {
                 return@flow
             }

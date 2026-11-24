@@ -32,6 +32,16 @@ class RequestByteBudgetTest {
         assertEquals(JsonPrimitive("UNREPORTED"), fields["provider_request_limit_source"])
     }
 
+    @Test fun jointProjectionFitsARejectionThatNeitherComponentCanResolveAlone() {
+        val fields = Json.parseToJsonElement("""{"payload_replan_allowed":true,"request_serialized_bytes":10000,"provider_request_byte_limit":5200,"request_tool_schema_bytes":4000,"request_evidence_bytes":4000}""") as JsonObject
+        assertNull(RequestByteBudget.replayTarget(fields, 1000, 1000))
+        assertNull(RequestByteBudget.schemaTarget(fields, 1000))
+        val joint = requireNotNull(RequestByteBudget.jointTarget(fields, 1000, 1000))
+        assertTrue(2000 + 4 * (joint.replayTokens + joint.schemaTokens) <= 5200)
+        assertNull(RequestByteBudget.jointTarget(JsonObject(fields + ("payload_replan_allowed" to JsonPrimitive(false))), 1000, 1000))
+        assertNull(RequestByteBudget.jointTarget(JsonObject(fields + ("provider_request_byte_limit" to JsonPrimitive(1000))), 1000, 1000))
+    }
+
     @Test fun responseLengthAndMalformedHeadersNeverCreateRequestCapacity() {
         assertNull(RequestByteBudget.responseLimit { if (it == "Content-Length") "1000" else null })
         for (invalid in listOf("0", "-1", "1e6", "Infinity", "2147483648", "2000, 3000")) {

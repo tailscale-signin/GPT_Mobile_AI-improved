@@ -4896,9 +4896,9 @@
       "sha256": "04dc2e6488e634c6107830758125fb3eed54834244357fea9e218857513d8fa5"
     },
     "scripts/tests/test_delivery_pipeline.py": {
-      "blob_sha": "37a0ff3d953a8e49b0f4120fd93d702e1538fba8",
-      "bytes": 30282,
-      "sha256": "088ae211502b184294522c5d4aa5b9e2441261f4977f36e77050fc03f46b9d57"
+      "blob_sha": "68f1fc1fe926a4811f6db8f4693b34680138870a",
+      "bytes": 33939,
+      "sha256": "d05b1eed98a06c93548646a0d99768dcf47c985fdc59f6a877073802e6b31e96"
     },
     "scripts/tests/test_generate_diagnostic_schema.py": {
       "blob_sha": "b7b17e92eaf94e14a1a5749f64acc3d770b13d9a",

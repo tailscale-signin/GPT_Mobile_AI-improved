@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2367,
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "sourceParent": "604213e88fc79af697b3875b08b176f07c7dc797",
+  "intent": "Restore separate R8, release-lint and APK packaging processes with identical GenieX variant/signing inputs while preserving native payloads and verification.",
+  "originalFailure": {
+    "run": 45349412552,
+    "attempt": 1,
+    "job": 138291928142,
+    "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45349412552/job/138291928142",
+    "checkout": "9f9e41a748eaa895317544af803d475ec46b1fb2",
+    "tree": "4465854119d642b054ea0e98e9ea4191ff1a33d5",
+    "failedTask": ":app:packageNativeSmoke",
+    "exception": "java.lang.OutOfMemoryError: Java heap space",
+    "allocationPath": [
+      "NoCopyByteArrayOutputStream",
+      "Compressor.deflate",
+      "BytesSource.build",
+      "ApkFlinger.writeFile"
+    ],
+    "actualDaemonHeapMiB": 6144,
+    "actualDaemonMetaspaceMiB": 768,
+    "elapsedSeconds": 791.892,
+    "deadlineSeconds": 5160,
+    "fullCompletedLogSha256": "6762a3263a516096624c1a88217f1fcae73459ec9946bcc910e8f673f53f45da",
+    "diagnosticsArtifact": 14904023929,
+    "diagnosticsZipSha256": "7a787529bfb42762f5f4b537c02fd987aa04911a067740472116aa3a421324df",
+    "qualificationSha256": "bcd2cc54554ba3325d6c056056e3c1a870b5e067adb54cdca35bb8d70974f0d1"
+  },
+  "observedIsolationDefects": [
+    "The R8 invocation did not select geniexSeparateSigning=true, while the final packaging invocation did. The package log explicitly reran R8 after both resourceShrinkingParams.multiOutputHandler.variantOutputs outputFileName inputs changed.",
+    "The package invocation executed app lintVitalAnalyzeNativeSmoke and both native-library lintVitalAnalyzeRelease tasks before compression. UAST disposal occurred after packaging failed."
+  ],
+  "correction": [
+    "Give the existing R8 phase the same GenieX/nativeSmoke/separate-signing properties as final packaging.",
+    "Run lintVitalNativeSmoke in a separate bounded process with the same three properties, after R8 and before packaging. Keep its existing mandatory dependencies and abort behavior.",
+    "Retain lint command metrics and complete log in the existing always-uploaded diagnostics directory.",
+    "Add a host regression for variant/signing consistency, separate mandatory phases, unchanged package bounds and signing/audit order."
+  ],
+  "preserved": [
+    "Every application and native payload, ABI selection and compression rule.",
+    "Existing 6GiB package heap, 768MiB metaspace, one Gradle worker, requested common-pool parallelism of two, 5160-second inner and 90-minute outer packaging bounds.",
+    "Existing R8 and release lint rules, separate cryptographic signing and all native, telemetry, Maven and candidate-index audits.",
+    "Existing 210-minute total job budget, watchdog, always-retained diagnostics and all previous host-test method bodies.",
+    "Shared source ancestry and Android0.9.66.15/code149 plus Gateway18.1.3 publication request."
+  ],
+  "newLintBounds": {
+    "heapMiB": 4096,
+    "metaspaceMiB": 768,
+    "workers": 1,
+    "innerSeconds": 1380,
+    "outerMinutes": 25
+  },
+  "validationRequired": [
+    "Canonical bash scripts/validate-local.sh fast and exact-source release-scope/reference validation.",
+    "Successor hosted GenieX log must show successful separate R8 and lint processes, reuse of those analysis tasks in the final packaging process, successful packaging at the existing bound, and all subsequent signing/audit/index stages.",
+    "Every applicable successor PR gate, all actual merged-main gates and complete joint publication verification remain required."
+  ],
+  "limits": [
+    "The OOM stack does not identify the failing input file or relative retained R8/lint/compression allocation sizes. No heap profile establishes those contributions.",
+    "The workflow requests common-pool parallelism two; its effective runtime pool size was not measured.",
+    "Source review and host contracts do not establish actual Android packaging success; successor hosted evidence is required.",
+    "The externally started same-source retry is separate from this correction; the original failed attempt remains failed."
+  ]
+}

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "5a91ff254885d182ec20fb1c3ce9f5427be1f423ed1d4e24e7170a02e0536b07",
+  "source_digest": "e002b89c38b23f399f65b580c475b4dde21322a93320280362d78fb6f7f94852",
   "file_count": 3110,
-  "indexed_line_count": 527671,
+  "indexed_line_count": 527726,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 250,
-      "indexed_line_count": 44761
+      "indexed_line_count": 44767
     },
     {
       "id": "agent_tools",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 293,
-      "indexed_line_count": 53368
+      "indexed_line_count": 53417
     },
     {
       "id": "research",
@@ -823,8 +823,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "0619fd1e3492b40449cfe6c91459240bf43ca3afc30f1823f6f636d5b73a1c2b",
-      "indexed_lines": 2688
+      "sha256": "996b446ea0d1372a70b160b4b51b398c19e44c56bf30824dadc0d77cbd8a466f",
+      "indexed_lines": 2694
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",
@@ -7851,8 +7851,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningContext.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "b5d3e4c3f868036251075a135f355dd269f0fa9f15b3ed3c80205959bd9559e8",
-      "indexed_lines": 108
+      "sha256": "6381579ed2b852739536cb8aa9a11b4a1bff1efad8f1a2d2e9b67e3e41f53ca1",
+      "indexed_lines": 157
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPolicyReadRecovery.kt",

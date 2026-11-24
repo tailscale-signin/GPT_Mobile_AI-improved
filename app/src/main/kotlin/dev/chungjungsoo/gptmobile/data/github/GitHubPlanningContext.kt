@@ -32,7 +32,7 @@ data class GitHubPlanningContext(
     }
 
     companion object {
-        private val quotedReadMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|(`+)|\"(?:\\\\(?:.|\\z)|[^\"\\\\])*(?:\"|\\z)|“[^”]*(?:”|\\z)|‘[^’]*(?:’|\\z)|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*(?:'|\\z)")
+        private val quotedReadMaterial = Regex("`+|~{3,}|\"|“|‘|(?<![\\p{L}\\p{N}])'")
         private val textReadObjectNames = "(?:sentences?|phrases?|quotes?|quotations?|questions?|examples?|poems?|stor(?:y|ies)|lyrics|fiction)"
         private val textReadObject = Regex("(?i)^(?:(?:me|us|the|this|that|a|an|these|those|following)\\s+){0,3}$textReadObjectNames\\b")
         private val namedReadObject = Regex("(?i)\\b$textReadObjectNames\\b")
@@ -46,22 +46,71 @@ data class GitHubPlanningContext(
                     break
                 }
                 append(request, cursor, quoted.range.first).append(' ')
-                cursor = quoted.range.last + 1
-                val delimiterLength = quoted.groups[1]?.value?.length ?: continue
-                // Inline code may span lines; only a complete matching tick run
-                // closes it. An unmatched opening run consumes the remaining data.
-                while (cursor < request.length) {
-                    val start = request.indexOf('`', cursor)
-                    if (start < 0) {
-                        cursor = request.length
-                        break
-                    }
-                    var end = start + 1
-                    while (end < request.length && request[end] == '`') end++
-                    cursor = end
-                    if (end - start == delimiterLength) break
-                }
+                cursor = quotedReadEnd(request, quoted.range.first, quoted.range.last + 1)
             }
+        }
+
+        private fun quotedReadEnd(request: String, start: Int, contentStart: Int): Int {
+            val opening = request[start]
+            var cursor = contentStart
+            if (opening == '`' || opening == '~') {
+                val delimiterLength = contentStart - start
+                val fence = delimiterLength >= 3 && startsCodeFenceLine(request, start)
+                while (cursor < request.length) {
+                    val runStart = request.indexOf(opening, cursor)
+                    if (runStart < 0) return request.length
+                    var end = runStart + 1
+                    while (end < request.length && request[end] == opening) end++
+                    cursor = end
+                    val lengthMatches = if (fence) end - runStart >= delimiterLength else end - runStart == delimiterLength
+                    if (lengthMatches && (!fence || (startsCodeFenceLine(request, runStart) && endsCodeFenceLine(request, end)))) return end
+                }
+                return request.length
+            }
+
+            val closing = when (opening) {
+                '“' -> '”'
+                '‘' -> '’'
+                else -> opening
+            }
+            while (cursor < request.length) {
+                if (request[cursor] == '\\') {
+                    cursor += if (cursor + 1 < request.length) 2 else 1
+                    continue
+                }
+                if (request[cursor] == closing) {
+                    val apostrophe = (closing == '\'' || closing == '’') &&
+                        cursor > 0 &&
+                        cursor + 1 < request.length &&
+                        isQuoteWordCharacter(Character.codePointBefore(request, cursor)) &&
+                        isQuoteWordCharacter(Character.codePointAt(request, cursor + 1))
+                    if (!apostrophe) return cursor + 1
+                }
+                cursor++
+            }
+            // A missing closer keeps the rest of the input inside quoted data.
+            return request.length
+        }
+
+        private fun isQuoteWordCharacter(codePoint: Int): Boolean = when (Character.getType(codePoint)) {
+            Character.LETTER_NUMBER.toInt(), Character.OTHER_NUMBER.toInt() -> true
+            else -> Character.isLetterOrDigit(codePoint)
+        }
+
+        private fun startsCodeFenceLine(request: String, offset: Int): Boolean {
+            var prior = offset - 1
+            var spaces = 0
+            while (prior >= 0 && request[prior] == ' ' && spaces < 4) {
+                prior--
+                spaces++
+            }
+            return spaces <= 3 && (prior < 0 || request[prior] == '\r' || request[prior] == '\n')
+        }
+
+        private fun endsCodeFenceLine(request: String, offset: Int): Boolean {
+            var following = offset
+            while (following < request.length && (request[following] == ' ' || request[following] == '\t')) following++
+            return following == request.length || request[following] == '\r' || request[following] == '\n'
         }
 
         private fun selectedRepositoryReadIntent(request: String): Boolean {

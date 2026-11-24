@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -2101,7 +2102,21 @@ class AgentRunner(
             } else {
                 invocationStage = "model_invocation"
                 invocationStarted = true
-                emitAll(session.streamRound(exposedDefinitions, preparedExchanges).withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText))
+                emitAll(
+                    session.streamRound(exposedDefinitions, preparedExchanges)
+                        .onEach { event ->
+                            // Observe ownership before buffering can make mixed lineage UNKNOWN.
+                            // Legacy bare text remains eligible; owned output cannot become a draft again.
+                            if (event is ProviderEvent.CombinedAnswer ||
+                                event is ProviderEvent.TextDelta &&
+                                event.lineage.origin != OutputOrigin.MODEL_TEXT &&
+                                event.lineage.origin != OutputOrigin.UNKNOWN
+                            ) {
+                                evidenceCorrectionEligible = false
+                            }
+                        }
+                        .withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText)
+                )
             }
         }.catch { error ->
             if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath) throw error
@@ -2258,15 +2273,6 @@ class AgentRunner(
                 ProviderEvent.Completed -> completed = true
 
                 else -> {
-                    // Legacy bare text has UNKNOWN lineage. Explicitly owned output
-                    // or an atomic final answer cannot become a draft again later.
-                    if (event is ProviderEvent.CombinedAnswer ||
-                        event is ProviderEvent.TextDelta &&
-                        event.lineage.origin != OutputOrigin.MODEL_TEXT &&
-                        event.lineage.origin != OutputOrigin.UNKNOWN
-                    ) {
-                        evidenceCorrectionEligible = false
-                    }
                     if (event is ProviderEvent.CombinedAnswer) {
                         // This is the whole delivered body, including finalization
                         // paths that emitted no provisional deltas. Treating it as

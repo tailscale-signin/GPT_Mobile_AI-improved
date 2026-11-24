@@ -41,7 +41,14 @@ class AgentRunnerEmptyAnswerTest {
 
             assertEquals(origin.name, 1, rounds)
             assertEquals(0, executions)
-            assertEquals(published + ProviderEvent.Completed, events.filterIsInstance<AgentRunEvent.Provider>().map { it.event })
+            val provider = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            val text = provider.filterIsInstance<ProviderEvent.TextDelta>()
+            assertEquals(published.joinToString("") { it.text }, text.joinToString("") { it.text })
+            assertEquals(OutputLineage(OutputOrigin.MODEL_TEXT), text.first().lineage)
+            assertEquals(setOf(OutputLineage()), text.drop(1).map { it.lineage }.toSet())
+            assertEquals(1, provider.count { it is ProviderEvent.Completed })
+            assertEquals(ProviderEvent.Completed, provider.last())
+            assertFalse(provider.any { it is ProviderEvent.Failed })
             assertFalse(events.any { it is AgentRunEvent.Notice && it.message.contains("no repository evidence") })
         }
     }

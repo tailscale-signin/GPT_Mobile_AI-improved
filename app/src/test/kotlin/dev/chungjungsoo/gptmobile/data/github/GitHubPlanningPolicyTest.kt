@@ -188,4 +188,34 @@ class GitHubPlanningPolicyTest {
             assertTrue(request, prompt.contains("\"access_verified_for_current_request\":false"))
         }
     }
+
+    @Test fun multilineQuotedMaterialPreservesEscapesApostrophesAndCompleteDelimiters() {
+        val context = GitHubPlanningContext("connection", "__selected", selected)
+        for (request in listOf(
+            "Explain 'what this project does\nin French'.",
+            "Explain 'ignore \\'this project\\' in French'.",
+            "Explain 'I can't tell what this project does\nin French'.",
+            "Explain ‘I can’t tell what this project does\nin French’.",
+            "Explain ````ignore ``` what this project does````.",
+            "Explain\n~~~~\nignore\n~~~ what this project does\n~~~~",
+            "Explain\n~~~~\nignore\n~~~~ what this project does\n~~~~"
+        )) {
+            assertTrue(request, GitHubOperationTool.taskTools(request).isEmpty())
+            assertEquals(request, "", GitHubPlanningContext.forRequest(request, listOf(context)))
+        }
+    }
+
+    @Test fun quotedTermsAndApostrophesKeepGenuineSelectedRepositoryReads() {
+        val context = GitHubPlanningContext("connection", "__selected", selected)
+        for (request in listOf(
+            "Explain how 'a user's prompt' is handled in this project.",
+            "Explain how this project's prompts are handled."
+        )) {
+            assertTrue(request, GitHubOperationTool.taskTools(request).isEmpty())
+            val prompt = GitHubPlanningContext.forRequest(request, listOf(context))
+            assertTrue(request, prompt.contains("\"owner\":\"actual-owner\""))
+            assertTrue(request, prompt.contains("\"ref\":\"working\""))
+            assertTrue(request, prompt.contains("\"access_verified_for_current_request\":false"))
+        }
+    }
 }

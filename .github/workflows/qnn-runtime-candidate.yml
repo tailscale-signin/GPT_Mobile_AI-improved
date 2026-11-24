@@ -14,7 +14,6 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # Shared-branch updates must not repeatedly kill this expensive immutable-input build.
   cancel-in-progress: false
 
 jobs:
@@ -28,9 +27,14 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Validate immutable candidate inputs
-        run: python3 scripts/build_qualcomm_dispatch_candidate.py --check-inputs-only
+        run: |
+          mkdir -p artifacts
+          python3 scripts/build_qualcomm_dispatch_candidate.py --check-inputs-only | tee artifacts/candidate-inputs.log
       - name: Install the pinned Android target compiler
-        run: sdkmanager --install 'ndk;29.0.14206865'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;29.0.14206865' 2>&1 | tee artifacts/ndk-install.log
       - name: Build and structurally verify the isolated candidate
         shell: bash
         run: |

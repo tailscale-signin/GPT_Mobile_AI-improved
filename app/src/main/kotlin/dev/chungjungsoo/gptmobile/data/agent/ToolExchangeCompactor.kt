@@ -134,6 +134,7 @@ internal object ToolExchangeCompactor {
                 fingerprint("${call?.name ?: result.callId}|${call?.arguments}|${result.isError}|${result.errorCode}|${measurements[fingerprintIndex++].digest}")
             }
         }
+
         // Prefer the pending handoff, a reserved saved page, or a specifically cited original.
         // Otherwise retain the most recent identical call as before.
         fun retentionPriority(id: String) = when (id) {
@@ -156,7 +157,8 @@ internal object ToolExchangeCompactor {
         // replay allowance so follow-up rounds can use their exact evidence.
         val consumedPayloads = BooleanArray(flattenedResults.size) { index ->
             val result = flattenedResults[index]
-            result.callId in consumedCallIds && result.callId !in priorityCallIds &&
+            result.callId in consumedCallIds &&
+                result.callId !in priorityCallIds &&
                 measurements[index].tokens > MIN_RESULT_TOKENS &&
                 GitHubReplayRecovery.envelope(result.content)?.get("local_page_complete") != JsonPrimitive(true)
         }

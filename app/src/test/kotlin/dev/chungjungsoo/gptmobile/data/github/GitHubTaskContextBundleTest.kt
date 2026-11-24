@@ -25,13 +25,18 @@ class GitHubTaskContextBundleTest {
 
     @Test fun smallProfileReceivesOnlyRankedUnreadPathsWithinItsUtf8Budget() {
         val tree = buildJsonObject {
-            put("tree", JsonArray((listOf("README.md", "src/Other.kt", "src/RepairStore.kt", "../RepairStore", "docs/RepairStore.md") + (1..8).map { "src/RepairStore$it.kt" }).map { path ->
-                buildJsonObject {
-                    put("type", "blob")
-                    put("mode", if (path.startsWith("docs/")) "120000" else "100644")
-                    put("path", path)
-                }
-            }))
+            put(
+                "tree",
+                JsonArray(
+                    (listOf("README.md", "src/Other.kt", "src/RepairStore.kt", "../RepairStore", "docs/RepairStore.md") + (1..8).map { "src/RepairStore$it.kt" }).map { path ->
+                        buildJsonObject {
+                            put("type", "blob")
+                            put("mode", if (path.startsWith("docs/")) "120000" else "100644")
+                            put("path", path)
+                        }
+                    }
+                )
+            )
         }
         val hints = GitHubTaskContextBundle.cachedPathHints("owner/repo", "main", commit, tree, "Inspect src/RepairStore.kt")
         val paths = hints.getValue("source_read_candidates") as JsonArray

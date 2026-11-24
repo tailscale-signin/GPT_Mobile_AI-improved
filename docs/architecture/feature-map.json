@@ -1758,9 +1758,9 @@
       "sha256": "c1a999db8c8894bc7cae8b44aed5d20173ae425671da8b390c5c82c1a6499e64"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt": {
-      "blob_sha": "1d92a6a6ad9c7d6b675c9b93c20e24f933e49206",
-      "bytes": 22479,
-      "sha256": "44ae3e5793052e461641a408502312369f726c98f5f44db6ff16d00db9bb5ae2"
+      "blob_sha": "35d2ff3b89cf9a49c31c9d39226ffae5ae94274e",
+      "bytes": 22496,
+      "sha256": "8d89c3a0aaa1bffba803689b8b3a46bc76159e86f7cd9c919f4eaaea3bd1bc73"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": {
       "blob_sha": "18d4942021a4f94f433da01a0267f41467a2007b",
@@ -1993,9 +1993,9 @@
       "sha256": "9d2909dc6b37f4333b286e131593930066a70925a0ab6625e9dc8820c795f42d"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt": {
-      "blob_sha": "4d4943cafcb92690e71e98e933311ade518b54f2",
-      "bytes": 80535,
-      "sha256": "432a7d8141b1f4ed41edc14d57405c6201e9e422de432d26c47e632a2d309602"
+      "blob_sha": "d7bda7b7424245df33b1f7f049357adb421bb26b",
+      "bytes": 80599,
+      "sha256": "8ed850010f5093f21f1770ba486c8a62d2bda6c586a44a3419c522a02abc0ac6"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRelevance.kt": {
       "blob_sha": "dc936c6e8c4c6b8ebc26189f062e284bfa482e94",
@@ -3323,9 +3323,9 @@
       "sha256": "dae607325a1685258c53872e9bf12e13d2cb60772d3025921b9b187990c5fca1"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextBundleTest.kt": {
-      "blob_sha": "50d4db3d2a78fef87210f23d217f523716138fd6",
-      "bytes": 18135,
-      "sha256": "208f025fb9c83fdc23c7557a80a473ea82e56133548b53eec06b069353c815ea"
+      "blob_sha": "b9b0851866f066dbef6acf2cae2d5be8002ac820",
+      "bytes": 18267,
+      "sha256": "d7b2a3883eb8737390415806f01764aaf1818974edbd04348c3b1ddf9c5fcabf"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextPreparationTest.kt": {
       "blob_sha": "d7cefa4d389e10f2effdfb8564b11cba7bf66e24",

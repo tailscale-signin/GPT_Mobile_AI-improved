@@ -746,9 +746,13 @@ internal class GitHubEvidenceBook(
         if (report?.get("binding") != JsonPrimitive(binding)) return@withLock emptySet()
         GitHubAcceptanceWork.replayReceiptIds(report).mapNotNullTo(mutableSetOf()) { id ->
             val receipt = records[id] ?: return@mapNotNullTo null
-            if (receipt["binding"] != JsonPrimitive(binding) || receipt["trusted"] != JsonPrimitive(true) ||
-                receipt["verification_eligible"] != JsonPrimitive(true) || receipt["success"] != JsonPrimitive(true)
-            ) return@mapNotNullTo null
+            if (receipt["binding"] != JsonPrimitive(binding) ||
+                receipt["trusted"] != JsonPrimitive(true) ||
+                receipt["verification_eligible"] != JsonPrimitive(true) ||
+                receipt["success"] != JsonPrimitive(true)
+            ) {
+                return@mapNotNullTo null
+            }
             (receipt["call_id"] as? JsonPrimitive)?.contentOrNull
         }
     }

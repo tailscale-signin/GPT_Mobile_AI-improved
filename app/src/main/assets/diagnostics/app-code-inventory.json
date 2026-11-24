@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6dc3d6ff14aa767b1edcc5bcbe5052f7b31646f83ead7f53b1c7d3b030ba9213",
+  "source_digest": "08ddf8bc8f7881edbc0cce049f31add8d634fdc23fd1bbe66effb49a28043e92",
   "file_count": 3114,
-  "indexed_line_count": 528890,
+  "indexed_line_count": 528896,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 252,
-      "indexed_line_count": 45036
+      "indexed_line_count": 45038
     },
     {
       "id": "agent_tools",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 295,
-      "indexed_line_count": 53905
+      "indexed_line_count": 53909
     },
     {
       "id": "research",
@@ -2195,8 +2195,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "44ae3e5793052e461641a408502312369f726c98f5f44db6ff16d00db9bb5ae2",
-      "indexed_lines": 362
+      "sha256": "8d89c3a0aaa1bffba803689b8b3a46bc76159e86f7cd9c919f4eaaea3bd1bc73",
+      "indexed_lines": 364
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
@@ -7550,8 +7550,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "432a7d8141b1f4ed41edc14d57405c6201e9e422de432d26c47e632a2d309602",
-      "indexed_lines": 1315
+      "sha256": "8ed850010f5093f21f1770ba486c8a62d2bda6c586a44a3419c522a02abc0ac6",
+      "indexed_lines": 1319
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceExcerpts.kt",

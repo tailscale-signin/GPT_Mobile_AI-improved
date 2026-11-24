@@ -28,7 +28,7 @@ internal object ProviderStreamFailure {
         // contract or a prior unknown outcome. Neither may become a new retry.
         val rawApplicationCode = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.retainedProviderCode(code)
         val structuredCode = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.retainedProviderCode((details?.get("code") as? JsonPrimitive)?.contentOrNull)
-        val unknownOutcomeCode = listOfNotNull(structuredCode, rawApplicationCode).firstOrNull { it in reconciliationCodes }
+        val unknownOutcomeCode = listOfNotNull(structuredCode, rawApplicationCode).firstOrNull(::isReconciliationCode)
             ?: "GATEWAY_OUTCOME_UNKNOWN".takeIf { details?.get("requires_reconciliation") == JsonPrimitive(true) }
         val applicationCode = unknownOutcomeCode ?: structuredCode ?: rawApplicationCode
         val applicationFailure = applicationCode?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider("", it) }
@@ -124,6 +124,11 @@ internal object ProviderStreamFailure {
     }
 
     private val reconciliationCodes = setOf("GATEWAY_OUTCOME_UNKNOWN", "EXECUTION_OPERATION_UNKNOWN_OUTCOME", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
+
+    /** Admission and semantic projection must agree on the same closed uncertainty codes. */
+    internal fun isReconciliationCode(code: String?): Boolean =
+        dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.retainedProviderCode(code) in reconciliationCodes
+
     internal val EVENT_TYPES = setOf("error", "response.failed")
 
     /** Keep semantic correlation without retaining arbitrary upstream error text. */

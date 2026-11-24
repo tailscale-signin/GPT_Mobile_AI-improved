@@ -16,10 +16,14 @@ internal fun providerRateLimitWaitRefusal(
     remoteJobId: String?,
     structuredFailure: JsonObject? = null
 ): NoWaitReason? = when {
-    remoteOutcomeUnknown || structuredFailure?.get("requires_reconciliation") == JsonPrimitive(true) -> NoWaitReason.REMOTE_OUTCOME_UNKNOWN
+    remoteOutcomeUnknown ||
+        structuredFailure?.get("requires_reconciliation") == JsonPrimitive(true) ||
+        structuredFailure?.get("remote_acceptance") in setOf(JsonPrimitive("YES"), JsonPrimitive("UNKNOWN")) ||
+        dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.isReconciliationCode((structuredFailure?.get("code") as? JsonPrimitive)?.contentOrNull) -> NoWaitReason.REMOTE_OUTCOME_UNKNOWN
     !remoteJobId.isNullOrBlank() || (structuredFailure?.get("job_id") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.isNotBlank() == true -> NoWaitReason.REMOTE_JOB_PRESENT
     dispatchedCommandId != null || config.requireGatewayConversation -> NoWaitReason.GATEWAY_COMMAND_PRESENT
     receivedPayload -> NoWaitReason.INITIAL_OUTPUT_PRESENT
+    structuredFailure?.get("retryable") == JsonPrimitive(false) || structuredFailure?.get("request_replay_allowed") == JsonPrimitive(false) -> NoWaitReason.REJECTION_NOT_REPLAY_SAFE
     else -> null
 }
 

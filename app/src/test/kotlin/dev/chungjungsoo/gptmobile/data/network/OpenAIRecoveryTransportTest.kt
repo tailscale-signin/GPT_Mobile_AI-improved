@@ -967,6 +967,152 @@ class OpenAIRecoveryTransportTest {
         }
     }
 
+    @Test fun standaloneAcceptanceAndUnknownCodesRefuseHttpWaitsThroughBothAdapters() = runBlocking {
+        val codes = listOf("GATEWAY_OUTCOME_UNKNOWN", "EXECUTION_OPERATION_UNKNOWN_OUTCOME", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
+        val cases = listOf(
+            Triple<String?, String, String>(null, ",\"remote_acceptance\":\"YES\"", "YES"),
+            Triple<String?, String, String>(null, ",\"remote_acceptance\":\"UNKNOWN\"", "UNKNOWN")
+        ) + codes.map { Triple(it, "", "UNKNOWN") }
+        for (responses in listOf(false, true)) {
+            for (status in listOf(HttpStatusCode.TooManyRequests, HttpStatusCode.PaymentRequired)) {
+                for ((index, observation) in cases.withIndex()) {
+                    val (code, evidence, acceptance) = observation
+                    var attempts = 0
+                    val selected = PlatformV2(uid = "standalone-$responses-${status.value}-$index", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://standalone-$responses-${status.value}-$index.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                    val budget = if (status == HttpStatusCode.PaymentRequired) ",\"metadata\":{\"limit_source\":\"openrouter_in_flight_budget\",\"reason\":\"in_flight_budget_exhausted\"}" else ""
+                    val body = """{"error":{"code":"${code ?: status.value}","message":"Provider capacity"$evidence$budget}}"""
+                    assertFalse(body.contains("job_id") || body.contains("requires_reconciliation"))
+                    withApi(
+                        MockEngine {
+                            attempts++
+                            respond(body, status, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("600")))
+                        }
+                    ) { api ->
+                        withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                            val session = if (responses) {
+                                dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                            } else {
+                                OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                            }
+                            val events = session.streamRound(emptyList(), emptyList()).toList()
+                            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                            val details = requireNotNull(failure.failureDetails)
+                            assertEquals(1, attempts)
+                            val expectedCode = if (!responses && code == "REMOTE_OUTCOME_UNKNOWN") "GATEWAY_OUTCOME_UNKNOWN" else code ?: if (status == HttpStatusCode.TooManyRequests) "429" else "BILLING_UNAVAILABLE"
+                            assertEquals(expectedCode, failure.errorCode)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(acceptance), details["remote_acceptance"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(status.value), details["http_status"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                            assertNull(failure.providerLimit)
+                            assertNull(details["retry_after_ms"])
+                            if (status == HttpStatusCode.TooManyRequests) {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive("REMOTE_OUTCOME_UNKNOWN"), details["provider_wait_no_wait_reason"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["logical_continuation_allowed"])
+                            } else {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive("REVIEW_SAVED_WORK"), details["provider_budget_retry"])
+                            }
+                            if (code != null) {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(code), details["code"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details["requires_reconciliation"])
+                            }
+                            assertFalse(events.any { it is ProviderEvent.Completed })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun explicitHttpRetryRefusalCannotCreateAWaitOrRotateEitherAdapter() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (status in listOf(HttpStatusCode.TooManyRequests, HttpStatusCode.PaymentRequired)) {
+                for ((refusalIndex, refusalField) in listOf("retryable", "request_replay_allowed").withIndex()) {
+                    var attempts = 0
+                    val selected = PlatformV2(uid = "no-retry-$responses-${status.value}-$refusalIndex", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://no-retry-$responses-${status.value}-$refusalIndex.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                    val budget = if (status == HttpStatusCode.PaymentRequired) ",\"metadata\":{\"limit_source\":\"openrouter_in_flight_budget\",\"reason\":\"in_flight_budget_exhausted\"}" else ""
+                    withApi(
+                        MockEngine {
+                            attempts++
+                            respond("""{"error":{"code":${status.value},"message":"Provider capacity","$refusalField":false$budget}}""", status, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("600")))
+                        }
+                    ) { api ->
+                        withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                            val session = if (responses) {
+                                dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                            } else {
+                                OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                            }
+                            val events = session.streamRound(emptyList(), emptyList()).toList()
+                            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                            val details = requireNotNull(failure.failureDetails)
+                            assertEquals(1, attempts)
+                            assertNull(failure.providerLimit)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                            assertNull(details["retry_after_ms"])
+                            if (status == HttpStatusCode.TooManyRequests) {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive("REJECTION_NOT_REPLAY_SAFE"), details["provider_wait_no_wait_reason"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["logical_continuation_allowed"])
+                            } else {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive("REVIEW_SAVED_WORK"), details["provider_budget_retry"])
+                            }
+                            assertFalse(events.any { it is ProviderEvent.Completed })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun explicitUnacceptedHttpErrorsRetainSafeWaitAndManualDelayInBothAdapters() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (status in listOf(HttpStatusCode.TooManyRequests, HttpStatusCode.PaymentRequired)) {
+                for ((variant, replayField) in listOf("", ",\"request_replay_allowed\":true", ",\"request_replay_allowed\":\"false\"").withIndex()) {
+                    var attempts = 0
+                    val selected = PlatformV2(uid = "explicit-no-$responses-${status.value}-$variant", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://explicit-no-$responses-${status.value}-$variant.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                    val budget = if (status == HttpStatusCode.PaymentRequired) ",\"metadata\":{\"limit_source\":\"openrouter_in_flight_budget\",\"reason\":\"in_flight_budget_exhausted\"}" else ""
+                    val body = """{"error":{"code":${status.value},"message":"Provider capacity","remote_acceptance":"NO"$replayField$budget}}"""
+                    assertNull(structuredProviderFailure(body, status.value)?.get("request_replay_allowed"))
+                    withApi(
+                        MockEngine {
+                            attempts++
+                            respond(body, status, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("12")))
+                        }
+                    ) { api ->
+                        withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                            val session = if (responses) {
+                                dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                            } else {
+                                OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                            }
+                            val events = session.streamRound(emptyList(), emptyList()).toList()
+                            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                            val details = requireNotNull(failure.failureDetails)
+                            assertEquals(1, attempts)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive("NO"), details["remote_acceptance"])
+                            assertNull(details["provider_wait_no_wait_reason"])
+                            if (status == HttpStatusCode.TooManyRequests) {
+                                val decision = requireNotNull(failure.providerLimit)
+                                assertTrue(decision.knownNotAccepted)
+                                assertTrue(decision.mayWait)
+                                assertEquals(selected.uid, decision.profileUid)
+                                assertEquals(selected.model, decision.model)
+                            } else {
+                                assertNull(failure.providerLimit)
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive("MANUAL_AFTER_PROVIDER_DELAY"), details["provider_budget_retry"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(12_000), details["retry_after_ms"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                            }
+                            assertFalse(events.any { it is ProviderEvent.Completed })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     @Test fun typedInFlight402RetainsManualTimingWithoutAutomaticWaitOrCredentialRetryForEitherApi() = runTest {
         for (responses in listOf(false, true)) {
             for (retryAfter in listOf("12", "invalid", "0")) {

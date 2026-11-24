@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "33a118c33d0aca8d5b73b719f4a33c71aa4f802786f767bf462bb2dfdca31743",
+  "source_digest": "c9694220ffc607f85822640df771eef460c2228636f4929465bc4aa62e75a651",
   "file_count": 3082,
-  "indexed_line_count": 522197,
+  "indexed_line_count": 522208,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -101,7 +101,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 114,
-      "indexed_line_count": 11703
+      "indexed_line_count": 11714
     },
     {
       "id": "github",
@@ -10469,8 +10469,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderErrorDiagnostics.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "7203f761cfabd4259690e4cf96fe6e79f72361bad99c508655c54af44da35c79",
-      "indexed_lines": 165
+      "sha256": "da4107ec5373c1d4818e28d94b6867d7020e468947905416a2fedd3c18c7b24e",
+      "indexed_lines": 167
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
@@ -10497,8 +10497,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRateLimitEvidence.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "65383f358110fe9f3239595fae7332d108318c4be41890a1f61df064c5254e3d",
-      "indexed_lines": 48
+      "sha256": "2ed29fcc17b3bd190278db04fc97a00c9d9b9f4f3e40cd0c433e11e21fb3770e",
+      "indexed_lines": 52
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRejectionDiagnostics.kt",
@@ -10707,8 +10707,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailure.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "1ea7979e166bcada49ee94fcf41520148e06aba95795f69c1a6e1345792ceb8d",
-      "indexed_lines": 177
+      "sha256": "21dbda841f611c0c112707bbc878d32524c2887bf98cdec9dae39639d5f4ac48",
+      "indexed_lines": 182
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAPI.kt",

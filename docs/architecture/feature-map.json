@@ -314,7 +314,11 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningConfiguration.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferences.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningSettings.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningSettings.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt",
@@ -324,21 +328,27 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferencesTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferencesTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
       ],
       "documents": [
         "docs/repairs/voice-pronunciation-vocabulary-2026-11-23.md",
-        "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json"
+        "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json",
+        "docs/repairs/voice-literal-pronunciation-order-2026-11-24-task.json",
+        "docs/repairs/evidence/voice-literal-pronunciation-order/required-junit-methods.json",
+        "docs/repairs/literal-pronunciation-public-composition-2026-11-24-task.json"
       ],
       "invariants": [
         "Shared projection preserves readable content and append-stable replay without exposing hidden reasoning or encoded source addresses.",
         "Literal saved corrections precede native tokenization, match whole bounded terms once, and retain original caption ranges.",
         "Native English normalization and SDK natural-language processing retain their own phonetic frontends.",
         "Android utterances snapshot pronunciation settings and reject late callbacks after cancellation.",
-        "No raw vocabulary, matched terms or source speech is added to diagnostics; phonetic tests do not establish phone acoustic quality."
+        "No raw vocabulary, matched terms or source speech is added to diagnostics; phonetic tests do not establish phone acoustic quality.",
+        "Playback preserves eligible literal spelling only after safety filtering; unmatched defaults follow one-pass correction and captions use the same original spelling. The general-purpose buffer retains its default projection."
       ]
     },
     {
@@ -2329,9 +2339,9 @@
       "sha256": "78a312c1a23bfcad0788c4786e07006655c942b38eb9f8c5066f2eedbeeb6a91"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": {
-      "blob_sha": "8c4bd18a01e2b87d6470167f5870e185bfb8de36",
-      "bytes": 92147,
-      "sha256": "b7f06f549dfe12cef758868ce1d0a65177ff5d1722b7c1f58202324d5a4ca8d1"
+      "blob_sha": "88b47534e9c3395bc72c5b0b113ad2a0d685acb4",
+      "bytes": 92174,
+      "sha256": "7b866edd52b3c6a5805442b043f2e49394498a336cff49074938edc7294aad5e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt": {
       "blob_sha": "03aae70dbcf806d63aa8ea7423e834e878fa85f5",
@@ -2469,14 +2479,14 @@
       "sha256": "e31c0cc17eaadc1d62e7fc55472dad14cc59ba8a73f3d591a0892738af1c23ff"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt": {
-      "blob_sha": "d484592738bbc1b6e02eca715d3d0c0dd3cc059d",
-      "bytes": 5251,
-      "sha256": "43a609cf36f6e18ca3bd251d38db6d6b48d2978a1a51de4c9684f1aecaa9e707"
+      "blob_sha": "ecff32c5890d7bd086df7b21d8a7aee5cd3db2e9",
+      "bytes": 6746,
+      "sha256": "c8163e425383a232dc7be0ccf59cb3187b7a3fbdf3632c67afc596e240a95339"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": {
-      "blob_sha": "3b1a3f1a70329008843699c44023a153184074c6",
-      "bytes": 46349,
-      "sha256": "a100f2eee081edda2bf3f9d97d9f2f2f644e78cdce1f91f8ffa4d1378b70e074"
+      "blob_sha": "1dd9be0026121a0b4ac0677a5d7cba22c472151d",
+      "bytes": 46469,
+      "sha256": "331767e161ad395d308a4c5d5f58aa325fdb538c36222e05e4fafdc25b4c4e48"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmup.kt": {
       "blob_sha": "9c88e6ecb3b01ab629b92d26a64af6c7a7785108",
@@ -2548,6 +2558,11 @@
       "bytes": 6756,
       "sha256": "5c75f3977b618642744e7883fa82ff85e7a67a22a858d1694a7b002ad46fc011"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt": {
+      "blob_sha": "170bfdb2bdecc93dd07dd1d5ee06a884832b9712",
+      "bytes": 5348,
+      "sha256": "1eab5ce9bb1ad86dc9a6d9327ffb58e1646bfb27687cbe8c3fe5d25cf02b4a30"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkExport.kt": {
       "blob_sha": "e7fee8cc8be7ea657826d89c540f16daba4b45a1",
       "bytes": 12575,
@@ -2594,9 +2609,9 @@
       "sha256": "b9678c3149a8a2e9dea38d521c4125c6c160285b20d3ed05b9a5ce27f030dbbe"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt": {
-      "blob_sha": "76d9046c7a2c42b673a8e3ad6fae953658308844",
-      "bytes": 35587,
-      "sha256": "d394d2e41ff985367ba674be794c52f1926324f5835d4f4970193fd96dd7dd0f"
+      "blob_sha": "0eb257f2a72827da5b4c487e55a7d2b84efa33a1",
+      "bytes": 37420,
+      "sha256": "3359338c134bf3e2c7545ce77b6bddf6a58faa478809d3b3acea95153630c4c7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkload.kt": {
       "blob_sha": "3299995249f416b95918fe6352c30864154ebd5b",
@@ -2764,9 +2779,9 @@
       "sha256": "0711c17250bef95d92977c864817f15b3cd1495b87d57f209a0631c04deac83d"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt": {
-      "blob_sha": "b8960d74004c8d1ad93782f6724e7a8b1ed75565",
-      "bytes": 4452,
-      "sha256": "1126bb24c02692960e775afb8a03c918468c3f50b5e36df01846244d5223dc82"
+      "blob_sha": "7d89d8d3fb186a74134d4f2453a7f85262983e00",
+      "bytes": 4456,
+      "sha256": "7c97979e743f4b44774ccc8f5cf87def7d464a4c5aafca0388af0ce60499ad54"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotion.kt": {
       "blob_sha": "e34d9b5d9b001fb8121eeb271a55ac56a259ec16",
@@ -3429,9 +3444,9 @@
       "sha256": "6659b4a1f74e1bc70fe8ff8cfaea53c7d32fadf02ab3f69a314029710bb78775"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt": {
-      "blob_sha": "073edf3bdfd05fadce250316f45f16ed4ae93f48",
-      "bytes": 23858,
-      "sha256": "9c4fb80c1be0d27308201942e7b67075387536d3d2f1e8b2e23a3edede26e65d"
+      "blob_sha": "8b952a4bc8f5847cae0db9609cb41ab67a9e566f",
+      "bytes": 27657,
+      "sha256": "cc517acc45277aab14e202b063dac2ce1f2580fc614d0af3f213512e6432620b"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/DeferredKokoroOutputTest.kt": {
       "blob_sha": "6b54e471733677867468b9b44841462fe8f4a1bf",
@@ -3548,6 +3563,11 @@
       "bytes": 7404,
       "sha256": "460b96bb2ea8e4632bf0f2f3091b5596737994481772a3e29c3ccccb05430195"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt": {
+      "blob_sha": "8a5252e7c1588d3f3ebd4631b3c1c34179510d08",
+      "bytes": 13104,
+      "sha256": "aaa5292ff35015e3a56cb683b4f2bfacded003b01d723d8f869e5c1a690346b3"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativePreparationRetirementTest.kt": {
       "blob_sha": "7a7c9a5b61b236474abeebf01bde945f4678da15",
       "bytes": 8596,
@@ -3602,6 +3622,11 @@
       "blob_sha": "0b52b48c0a4733eb93c7182ecaaf11810cd8f03e",
       "bytes": 1878,
       "sha256": "02a7de2b5f3fe82c52d2a5023a46012b528a0545accc0e3ff37e933b0300bb9e"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt": {
+      "blob_sha": "f32212fe43c765bf07f69e99deac712f4b96f7ca",
+      "bytes": 33952,
+      "sha256": "5188cb733082e90058781492b43800180c985e25fa4a5eaf7efe5702eaa75ed9"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmupTest.kt": {
       "blob_sha": "840035e15f13e00b29bfedfddfc6570a46b9288b",
@@ -4093,10 +4118,15 @@
       "bytes": 36279,
       "sha256": "9fcda72b8dc7bbdcd1d5e56bdc7169f7866b309d62ea1ef2bf9bbe1c52968341"
     },
+    "docs/repairs/evidence/voice-literal-pronunciation-order/required-junit-methods.json": {
+      "blob_sha": "41c3f7dda415e35971c61ba2edd985cb6c7d0e77",
+      "bytes": 13994,
+      "sha256": "ec5c6b7b356593830edfadc8201e0685eca0ff9419d556d0feff0a79a8f0aae2"
+    },
     "docs/repairs/evidence/voice-pronunciation-vocabulary/required-junit-methods.json": {
-      "blob_sha": "c80cefe68e646b805b5cb0ebc6e6b8ba3e68da7b",
-      "bytes": 19004,
-      "sha256": "ba128bb17d232ce464693bb880f11b8b61b2bc100cc939408fcc4ab951362774"
+      "blob_sha": "0ed3fb60f640563e8e79dff23111ef5730614c6c",
+      "bytes": 19766,
+      "sha256": "6d6e7e33edc7a1747be6e650df29973622850b9563bb9be470412b3aff93d397"
     },
     "docs/repairs/gateway-stream-ownership-2026-11-23-task.json": {
       "blob_sha": "961825824124ab42ded2661d82970177cec70d3c",
@@ -4137,6 +4167,11 @@
       "blob_sha": "654c6f3db4226dc569055fba0e6bab5dc35886cb",
       "bytes": 6173,
       "sha256": "625a364db5ab6f1673f5842efdcff80972f406777d52c9b9f7fea01a3e86c6e9"
+    },
+    "docs/repairs/literal-pronunciation-public-composition-2026-11-24-task.json": {
+      "blob_sha": "560850e04571216e2d10e452dfc269f925bc82ee",
+      "bytes": 4949,
+      "sha256": "577477fb0adf4e4f5f8c6d47a89437563a09acd9e871520d2f6b4a8e90669bc9"
     },
     "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json": {
       "blob_sha": "5c3b2654c0a667692912244ebd7e333f3ac9103c",
@@ -4257,6 +4292,11 @@
       "blob_sha": "2be369c40cffceecefa9deb266a97115679adaba",
       "bytes": 10105,
       "sha256": "724ae7aa8cf17e866efdcf7a2cf57ac156acd8da6e56619bb8b2918bca80c0c0"
+    },
+    "docs/repairs/voice-literal-pronunciation-order-2026-11-24-task.json": {
+      "blob_sha": "8569920e3d28230de07d6925b9018320b23e1df7",
+      "bytes": 7600,
+      "sha256": "031502065d1f919ae68b33445cfe9850115e54d627f42c20c9e70ea63cb23e66"
     },
     "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json": {
       "blob_sha": "6c9f85004a264b82aa61ab1758e7e54f3b9eb43b",

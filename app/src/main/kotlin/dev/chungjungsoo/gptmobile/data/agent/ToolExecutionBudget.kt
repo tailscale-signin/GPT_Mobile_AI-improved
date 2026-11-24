@@ -389,7 +389,7 @@ class ToolExecutionBudget(
                     } else {
                         permits.withPermit {
                             if (!canExecute() && remainingBytes.get() <= 0) return@withPermit failure(outputBudgetMessage())
-                            withContext(ToolOutputAllowance(minOf(16 * 1024, remainingOutputBytes() / 4))) {
+                            withContext(ToolOutputAllowance(sourceExcerptAllowance(remainingOutputBytes()))) {
                                 withTimeoutOrNull(if (limits.researchAcquisition) dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.operationMillis(tool.definition.name, limits.toolTimeoutMillis) else limits.toolTimeoutMillis) { invokeObserved() }
                             }
                                 ?: phoneInterruption.close() ?: if (replayableRead
@@ -632,7 +632,7 @@ class ToolExecutionBudget(
         val resultAllowance = if (shareSourceBudget) {
             // Charge metadata and excerpts together. The reader's body cap alone
             // cannot leave room for another source when the URL envelope is large.
-            minOf(16 * 1024, (outputByteLimit.get() / 4).coerceAtLeast(1))
+            sourceExcerptAllowance(outputByteLimit.get())
         } else if (evidenceBytesPerResult != null) {
             outputByteLimit.get()
         } else if (preserveSuccessfulHandoff) {
@@ -768,6 +768,9 @@ class ToolExecutionBudget(
     }
 
     private companion object {
+        // Below a useful excerpt, spend the remaining bytes on one source and report exhaustion.
+        fun sourceExcerptAllowance(totalBytes: Int) = minOf(totalBytes, 16 * 1024, (totalBytes / 4).coerceAtLeast(256))
+
         const val DELEGATION_TOOL_NAME = "delegate_to_model"
         const val DELEGATION_HANDOFF_RESERVE_BYTES = 64 * 1024
         val ACADEMIC_ACQUISITION_TOOLS = setOf("deep_research_search_papers", "deep_research_read_paper")

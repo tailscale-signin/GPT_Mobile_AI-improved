@@ -9,7 +9,7 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "5b9c1e2d44d00a03b09669b9bf65c5c8671f4f2f18242386f0b7a100f84aa7bf"
+    val sourceDigest: String = "6341d8a89dc99cac7b76cea0f15f8f4581f83dabe279e4095255be6785dc4715"
     val fileCount: Int = 3113
     val lineCount: Int = 528500
     val lineCoverageAvailable: Boolean = false
@@ -27,11 +27,11 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 75, 8749),
         AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 606, 107184),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 200, 9297),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 252, 45006),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 252, 45005),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 104, 24451),
         AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 31, 4866),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
-        AppAuditSourceArea("model_providers", "Model providers and adapters", 66, 9678),
+        AppAuditSourceArea("model_providers", "Model providers and adapters", 66, 9679),
         AppAuditSourceArea("models_and_profiles", "Model profiles and settings", 41, 4084),
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14881),
         AppAuditSourceArea("gateway_client", "Android gateway client", 39, 6999),

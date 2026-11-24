@@ -354,7 +354,8 @@
     "Resume interrupted phone indexing from the native status body with unchanged receipt, scope, revision and cursor checks; validate unsigned packaging changes even when the version stays fixed, including the actual recompression and native provisioning helpers. Retain the 230 MiB universal limit.",
     "Wait for every observed check and commit status on a revision before continuing its authorized saved CI diagnosis. Allow one missing-capability catalog lookup per revision and require a verified, admitted reader before replaying its arguments.",
     "Preserve distinct check suites in whole-commit monitoring, allow Stop to win during a suspended revision read, and revalidate current watch/task authority before continuation. Negotiate missing-tool diagnostic identity separately from legacy recovery evidence before sending the exact approved report.",
-    "Qualify the Windows Gateway benchmark and diagnostic journal using a clean independent candidate checkout and isolated copies of a real, fully committed retention-boundary capture."
+    "Qualify the Windows Gateway benchmark and diagnostic journal using a clean independent candidate checkout and isolated copies of a real, fully committed retention-boundary capture.",
+    "Keep structured provider rejections intact, limit automatic catalog recovery to the bound local catalog, and preserve usable excerpts and delegation handoffs when the remaining output budget is small."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",

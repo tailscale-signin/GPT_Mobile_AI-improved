@@ -699,7 +699,10 @@ class AgentRunner(
                     return AutomaticRead(it, "Reading the next workflow page from the issued continuation.")
                 }
             }
-            if (remoteAllowed && ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) > 0) {
+            if (remoteAllowed &&
+                executableToolByName[ProgressiveToolCatalog.NAME]?.argumentCatalog() != null &&
+                ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) > 0
+            ) {
                 CatalogMissRecovery.next(exchanges, definitions.filter { it.name in executableToolByName }, catalogRecoveryAttempts)?.let {
                     return AutomaticRead(it, if (it.name == ProgressiveToolCatalog.NAME) "Checking the authorized tool catalog." else "Using the verified reading tool from the catalog.")
                 }
@@ -2281,15 +2284,8 @@ class AgentRunner(
                     failureCode = event.errorCode
                     failureTransportComplete = event.transportComplete
                     taskOutcome = event.taskOutcome
-                    failureDetails = if (!event.failureDetails.isNullOrEmpty()) {
-                        event.failureDetails
-                    } else {
-                        buildJsonObject {
-                            put("failed_stage", invocationStage)
-                            put("failed_event_details_present", false)
-                            put("failure_boundary", if (textEmitted) "AFTER_VISIBLE_OUTPUT" else "BEFORE_VISIBLE_OUTPUT")
-                        }
-                    }
+                    // The producer owns this terminal event. Chat observes delivery separately.
+                    failureDetails = event.failureDetails
                     failureInvocationId = event.invocationId
                     providerLimit = event.providerLimit
                 }

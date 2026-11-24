@@ -1199,15 +1199,23 @@ class ProviderAdaptersTest {
         val ollama = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "Remote rejection"))))))
         val groq = FakeGroqAPI(ArrayDeque(listOf(flowOf(NetworkClient.json.decodeFromString<GroqChatCompletionChunk>("""{"error":{"message":"Remote rejection"}}""")))))
         val google = FakeGoogleAPI(ArrayDeque(listOf(flowOf(GenerateContentResponse(error = dev.chungjungsoo.gptmobile.data.dto.google.response.ErrorDetail(message = "Remote rejection"))))))
+        val groqStreamEvidence = buildJsonObject {
+            put("provider_error_origin", "OPENAI_COMPAT_STREAM_ERROR_VALUE")
+            put("provider_error_code_state", "ABSENT")
+            put("failed_stage", "response_stream")
+            put("failure_origin", "PROVIDER")
+            put("failure_boundary", "BEFORE_VISIBLE_OUTPUT")
+            put("stream_answer_state", "NO_TEXT_EMITTED")
+        }
         val sessions = listOf(
-            OpenAICompatibleAdapter(ollama, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA)),
-            OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ)),
-            GeminiAdapter(google, attachmentEncoder()).openSession(turns(), platform(ClientType.GOOGLE))
+            OpenAICompatibleAdapter(ollama, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA)) to null,
+            OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ)) to groqStreamEvidence,
+            GeminiAdapter(google, attachmentEncoder()).openSession(turns(), platform(ClientType.GOOGLE)) to null
         )
-        for (session in sessions) {
+        for ((session, expectedEvidence) in sessions) {
             val failure = session.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
             assertEquals("Remote rejection", failure.message)
-            assertNull(failure.failureDetails)
+            assertEquals(expectedEvidence, failure.failureDetails)
             assertNull(failure.invocationId)
         }
     }

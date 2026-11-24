@@ -269,8 +269,11 @@ class ToolCatalogSelectorRecoveryTest {
             put("action", "catalog")
         }
         assertEquals(validSingle, catalog.canonicalArguments(validSingle))
+        val emptyNames = Json.parseToJsonElement("""{"action":"catalog","names":[]}""").jsonObject
+        assertEquals(buildJsonObject { put("catalog_only", true) }, catalog.canonicalArguments(emptyNames))
         for (raw in listOf(
-            """{"action":"catalog","names":[]}""",
+            """{"action":"catalog","names":[],"catalog_only":false}""",
+            """{"action":"write","names":[]}""",
             """{"action":"catalog","names":["github_read","github_search"],"catalog_only":false}""",
             """{"action":"catalog","names":["github_read",false]}""",
             """{"action":"catalog","names":["github_read","github_search"],"inventory_cursor":1}""",

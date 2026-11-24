@@ -312,6 +312,8 @@
     "Refresh GitHub preview repetition only for a new bounded immutable source capture with matching call, repository, connection, range, commit and digest; retain saved-source distinctions, same-source suppression, existing cadence and factual authority.",
     "Run the existing actual-Git intact, missing-object and restored-history regression in the mandatory PR/main scanner gate with its same pinned scanner, preserving all30 detection controls, redaction and full-history traversal; reject unknown or repeated mode arguments before repository access.",
     "Improve voice vocabulary and literal pronunciation corrections across native Kokoro, SDK and Android speech, preserving meaningful formatted elements, numeric semantics, original caption ranges and cancellation ownership.",
+    "Retain bounded redacted rule/commit/path/line identities from the actual complete-history credential scan while preserving every scanner rule, pin, preflight, strict CI integrity control and failure outcome; refuse malformed, absent or inconsistent report evidence.",
+    "Recover a candidate artifact opening rejected with HTTP429 through bounded waits honoring supported Retry-After values, while preserving publisher checksums, atomic output, native verification and final CI gates.",
     "Establish one-time empty-owner presentation for Gateway native acceptance, retain all strict control hit assertions, and add bounded failure diagnostics with a matching complete package manifest."
   ],
   "limitations": [
@@ -788,6 +790,12 @@
     "docs/repairs/diagnostic-readiness-selection-2026-11-24-task.json",
     "docs/repairs/diagnostic-voice-audit-2026-11-23-task.json",
     "docs/repairs/emulator-early-input-readiness-2026-11-23-task.json",
+    "docs/repairs/evidence/secret-history-finding-evidence/finding.stderr.log",
+    "docs/repairs/evidence/secret-history-finding-evidence/finding.stdout.log",
+    "docs/repairs/evidence/secret-history-finding-evidence/focused-result.json",
+    "docs/repairs/evidence/secret-history-finding-evidence/outer.stderr.log",
+    "docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log",
+    "docs/repairs/evidence/secret-history-finding-evidence/unit-controls.log",
     "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
     "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json",
     "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json",
@@ -851,10 +859,12 @@
     "docs/repairs/privacy-review-followup-2026-11-23-task.json",
     "docs/repairs/privacy-stream-backpressure-review-2026-11-23-task.json",
     "docs/repairs/privacy-tool-result-projection-2026-11-23-task.json",
+    "docs/repairs/qnn-candidate-rate-limit-2026-11-24-task.json",
     "docs/repairs/release-lint-budget-2026-11-23-task.json",
     "docs/repairs/responses-retained-backend-work-2026-11-24-task.json",
     "docs/repairs/responses-retained-http400-2026-11-24-task.json",
     "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json",
+    "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json",
     "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
     "docs/repairs/shared-release-integration-2026-11-23-task.json",
     "docs/repairs/speech-benchmark-1795470489503-task.json",
@@ -911,6 +921,7 @@
     "scripts/gradle_retry.py",
     "scripts/heap-stress.init.gradle",
     "scripts/prepare_emulator_action.py",
+    "scripts/report_secret_history.py",
     "scripts/requirements-voice-mediapipe-smoke.txt",
     "scripts/run_mediapipe_android_smoke.sh",
     "scripts/run_release0950_acceptance.sh",
@@ -935,7 +946,9 @@
     "scripts/tests/test_native_memory_smoke.py",
     "scripts/tests/test_prepare_emulator_action.py",
     "scripts/tests/test_prepare_emulator_ui.py",
-    "scripts/tests/test_release_lint_workflow.py"
+    "scripts/tests/test_qualcomm_candidate_download.py",
+    "scripts/tests/test_release_lint_workflow.py",
+    "scripts/tests/test_secret_history_reporting.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

@@ -18,7 +18,7 @@ internal class VoiceTuningConfiguration(
         if (before?.listeningStyle != value.listeningStyle) audio.listeningStyle = value.listeningStyle
         if (before?.captureBatchMs != value.captureBatchMs) audio.captureBatchMs = value.captureBatchMs
         if (before?.handsFreeInterruption != value.handsFreeInterruption) session.configureInterruption(value.handsFreeInterruption)
-        if (before?.pronunciation != value.pronunciation) output?.configurePronunciation(value.pronunciation)
+        if (before?.pronunciation != value.pronunciation) audio.configurePronunciation(value.pronunciation)
         if (before?.captionOffsetMs != value.captionOffsetMs) output?.configureCaptionOffset(value.captionOffsetMs)
         previous = value
     }

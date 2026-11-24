@@ -12,4 +12,11 @@ class VoiceTuningPreferencesTest {
         assertNull(parsePronunciationEditor("missing separator"))
         assertEquals(emptyMap<String, String>(), parsePronunciationEditor(""))
     }
+
+    @Test fun editorSupportsAccentedNamesAndTechnicalTermsButRejectsCanonicalDuplicates() {
+        assertEquals(mapOf("São" to "sow", "C++" to "see plus plus", "GPT-4" to "gee pee tee four"), parsePronunciationEditor("São = sow\nC++ = see plus plus\nGPT-4 = gee pee tee four"))
+        assertNull(parsePronunciationEditor("São = sow\nSA\u0303O = another"))
+        assertNull(parsePronunciationEditor("O'Connor = oh connor\nO’Connor = another"))
+        assertNull(parsePronunciationEditor((1..101).joinToString("\n") { "term$it = term" }))
+    }
 }

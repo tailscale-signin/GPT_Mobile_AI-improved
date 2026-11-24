@@ -290,6 +290,54 @@
       ]
     },
     {
+      "id": "voice-pronunciation-vocabulary",
+      "title": "Voice vocabulary, spoken elements and saved pronunciations",
+      "terms": [
+        "mispronounced words",
+        "missing vocabulary",
+        "pronunciation dictionary",
+        "read elements correctly",
+        "technical terms",
+        "accented names",
+        "speech spelling"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningConfiguration.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferences.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningSettings.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechTextTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverridesTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferencesTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/voice-pronunciation-vocabulary-2026-11-23.md",
+        "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json"
+      ],
+      "invariants": [
+        "Shared projection preserves readable content and append-stable replay without exposing hidden reasoning or encoded source addresses.",
+        "Literal saved corrections precede native tokenization, match whole bounded terms once, and retain original caption ranges.",
+        "Native English normalization and SDK natural-language processing retain their own phonetic frontends.",
+        "Android utterances snapshot pronunciation settings and reject late callbacks after cancellation.",
+        "No raw vocabulary, matched terms or source speech is added to diagnostics; phonetic tests do not establish phone acoustic quality."
+      ]
+    },
+    {
       "id": "voice-streaming-preparation",
       "title": "Streaming speech engines, preparation and playback admission",
       "terms": [

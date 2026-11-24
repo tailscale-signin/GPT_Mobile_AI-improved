@@ -14,26 +14,9 @@ internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, St
     private val characters = BreakIterator.getCharacterInstance(Locale.ROOT)
 
     init {
-        val output = StringBuilder()
-        val positions = mutableListOf<IntRange>()
-        var cursor = 0
-        fun original(end: Int) {
-            while (cursor < end) {
-                output.append(input[cursor])
-                positions += cursor..cursor
-                cursor++
-            }
-        }
-        for (word in wordPattern.findAll(input)) {
-            val replacement = overrides[word.value.lowercase(Locale.ROOT)] ?: continue
-            original(word.range.first)
-            output.append(replacement)
-            repeat(replacement.length) { positions += word.range }
-            cursor = word.range.last + 1
-        }
-        original(input.length)
-        text = output.toString()
-        sources = positions
+        val projection = VoicePronunciationOverrides.project(input, overrides)
+        text = projection.text
+        sources = projection.sourceCharacters
         characters.setText(text)
     }
 
@@ -61,7 +44,6 @@ internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, St
     }
 
     private companion object {
-        val wordPattern = Regex("[\\p{L}]+(?:['’][\\p{L}]+)*")
         val chunkWords = Regex("\\S+\\s*")
     }
 }

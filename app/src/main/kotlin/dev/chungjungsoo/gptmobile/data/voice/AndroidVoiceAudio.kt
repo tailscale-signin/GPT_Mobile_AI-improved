@@ -62,6 +62,11 @@ class AndroidVoiceAudio internal constructor(
     }
     private var playbackStarted: (() -> Unit)? = null
     private var spokenRange: ((Int, String, IntRange) -> Unit)? = null
+
+    @Volatile private var pronunciations: Map<String, String> = emptyMap()
+    override fun configurePronunciation(overrides: Map<String, String>) {
+        pronunciations = VoicePronunciationOverrides.clean(overrides)
+    }
     override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
         spokenRange = spoken
     }
@@ -541,6 +546,7 @@ class AndroidVoiceAudio internal constructor(
         val observations = diagnosticProbe
         val audioStarted = playbackStarted
         val rangeObserver = spokenRange
+        val pronunciation = pronunciations
         var reportedStart = false
         observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
         val wasWarm = speechReady
@@ -649,8 +655,12 @@ class AndroidVoiceAudio internal constructor(
                     }
                     // Cancellation/configuration changes during a blocking Binder call must not start old audio.
                     if (closed || ticket != generation) return@work
-                    val spoken = if (text.length > 12000) text.take(12000) + " The rest of this response is available in the chat." else text
-                    val chunks = speechChunks(spoken, minOf(3000, TextToSpeech.getMaxSpeechInputLength()))
+                    val end = minOf(text.length, 12000).let { if (it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
+                    val spoken = text.substring(0, end) + if (text.length > 12000) " ${VoiceSpeechText.LIMIT_NOTICE}" else ""
+                    val projection = VoicePronunciationOverrides.project(spoken, pronunciation)
+                    val chunks = speechChunks(projection.text, minOf(3000, TextToSpeech.getMaxSpeechInputLength()))
+                    var chunkOffset = 0
+                    val chunkStarts = chunks.map { chunk -> chunkOffset.also { chunkOffset += chunk.length } }
                     val finalId = "$ticket:${chunks.lastIndex}"
                     val utteranceIds = chunks.indices.mapTo(hashSetOf()) { "$ticket:$it" }
                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -690,7 +700,14 @@ class AndroidVoiceAudio internal constructor(
                             if (start !in 0 until end || end > utterance.length) return
                             main.post {
                                 if (!closed && ticket == generation && engineVersion == speechGeneration && tts === engine) {
-                                    callback(index, utterance, start until end)
+                                    if (projection.text == spoken) {
+                                        callback(index, utterance, start until end)
+                                    } else {
+                                        // Multiple engine chunks still refer to one unchanged displayed
+                                        // segment, including corrections expanded across a chunk break.
+                                        val offset = chunkStarts[index]
+                                        projection.sourceRange(offset + start, offset + end)?.let { callback(0, spoken, it) }
+                                    }
                                 }
                             }
                         }

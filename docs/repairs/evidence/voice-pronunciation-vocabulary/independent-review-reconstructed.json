@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "title": "Voice pronunciation independent review — reconstructed execution summary",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "evidence_kind": "reconstructed_summary_of_directly_observed_tool_results",
+  "reconstruction": {
+    "reason": "The executor became unavailable after the review and executions.",
+    "raw_receipts_available": false,
+    "statement": "This document reconstructs the finite results and hashes preserved in the review conversation. It is not a recreated raw log, not a fresh execution after environment loss, and not a replacement for unavailable original receipts.",
+    "production_modified_during_reconstruction": false,
+    "ref_mutated_during_reconstruction": false,
+    "original_receipt_hashes_are_historical_identifiers": true
+  },
+  "source_binding": {
+    "original_checkout_base_revision": "9473aea1958b4ea55c80e1e4fbae027c8bc95084",
+    "original_execution_source": "The working pronunciation changes were snapshotted before compiling the independent probes. The original per-file hash manifest was vocabulary-final-receipt.json; its contents are now unavailable, while its printed digest and observed outcomes survive.",
+    "uploaded_normalizer": {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
+      "git_blob_sha": "6321dd0349ce63c4345a9a4cdc08b9a05e16ffe0",
+      "sha256": "6fb985e895dc55c1cc428628e18f1523c8a43deff7c52496082a8140e2757478",
+      "utf8_bytes": 31941,
+      "verification_after_loss": "Fetched this immutable GitHub blob and independently recomputed SHA-256 in tool-orchestration JavaScript. No executor was used. The coordinator identifies this as the validated unchanged normalizer; this verification alone is not a rerun of the original probes."
+    },
+    "directly_observed_native_source": {
+      "path": "local-kokoro-runtime/src/main/cpp/kokoro_pronunciation.cpp",
+      "sha256": "5e76b90e4eeaa2076c0f46df551b88e346e170dd4f8fafc07581be6dd12d53ee",
+      "method": "Hash printed before compiling the current production source with the cached pinned Flite C tables."
+    }
+  },
+  "reviewed_asset_pins": {
+    "classification": "Expected SHA-256 pins read from KokoroModelPack and the reviewed fixtures. No asset files were accessible for a new hash verification after executor loss.",
+    "package": "kokoro-int8-multi-lang-v1_0",
+    "tokens_txt": "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425",
+    "lexicon_us_en_txt": "7daaab53a181be9885b853a8582bf1838186317e5dadacbcef9c426d6fa0da14",
+    "lexicon_gb_en_txt": "c4cbb37316f62210dff52718a7afcaae24f50c032cc75ab47ae67b831d1049e7",
+    "flite_revision": "e9e2e37c329dbe98bfeb27a1828ef9a71fa84f88",
+    "flite_archive_sha256": "1eebf476797cea10b4706cfbb9db9ba34f7b8ccb1fe7e0069b0b7528e0b0be46"
+  },
+  "directly_observed_results": {
+    "dictionary_scan": [
+      {
+        "dialect": "us",
+        "entries": 178401,
+        "duplicate_keys": 0,
+        "entries_with_unsupported_phone_symbols": 0
+      },
+      {
+        "dialect": "gb",
+        "entries": 191924,
+        "duplicate_keys": 0,
+        "entries_with_unsupported_phone_symbols": 0
+      }
+    ],
+    "real_dictionary_corpus": {
+      "public_inputs_per_dialect": 32,
+      "dialects": [
+        "us",
+        "gb"
+      ],
+      "total_projections": 64,
+      "returned_without_exception_or_pronunciation_failure": 64,
+      "original_caption_source_ranges_in_bounds": 64,
+      "note": "Used the real dictionary through production KokoroLexicon.words as isKnown, rather than a predicate that accepts every word. These are finite probe cases, not 64 JUnit methods."
+    },
+    "actual_stream_replay_comparison": {
+      "public_texts": 12,
+      "dialects": [
+        "us",
+        "gb"
+      ],
+      "override_modes": [
+        "disabled",
+        "enabled"
+      ],
+      "total_cases": 48,
+      "equal_streamed_and_complete_outputs": 48,
+      "method": "Appended growing text one character at a time through actual production VoiceSpeechBuffer, then projected its emitted chunks with KokoroSpeechContext. Checked append stability, projection failure state and segment-relative range bounds.",
+      "harness_qualification": "Compiled current production source. The auxiliary host test JAR supplied unrelated types; the unchanged actual speechChunks function was extracted from VoiceSession.kt for the probe. This was not Android playback or model inference."
+    },
+    "final_dictionary_miss_lts_coverage": {
+      "unique_emitted_misses": 12,
+      "dialects": [
+        "us",
+        "gb"
+      ],
+      "total_sequences": 24,
+      "nonempty_sequences": 24,
+      "sequences_using_only_pinned_model_symbols": 24,
+      "production_function": "PredictEnglishPhones",
+      "method": "Freshly compiled production C++ pronunciation code with the pinned Flite CMU LTS C tables; compared every emitted phone with tokens.txt.",
+      "note": "Phone-symbol compatibility does not establish correct acoustic pronunciation."
+    }
+  },
+  "confirmed_review_repairs": [
+    "Fraction matching no longer truncates decimal, scientific or identifier denominators: 1/2.5, 1/2e3 and 1/2x retain their complete content.",
+    "Titlecase ligature normalization no longer invents the real-dictionary miss split a egir for Ægir.",
+    "Compact scientific quantities including 1e3ms and 1e-3m/s² preserve scientific notation.",
+    "Unit singular/plural selection uses the complete scientific amount.",
+    "GPT-4 is read as g p t four while arithmetic signs are retained.",
+    "e.g. and i.e. expand as phrases rather than having their expansion spelled letter by letter.",
+    "Ordinary prose superscript footnotes avoid blanket exponent interpretation.",
+    "User corrections preserve original displayed term ranges and apply once."
+  ],
+  "selected_observed_outputs": [
+    {
+      "input": "github ChatGPT OpenGL glm qnn",
+      "spoken": "git hub chat g p t open g l g l m q n n"
+    },
+    {
+      "input": "1/2.5",
+      "spoken": "one slash two point five"
+    },
+    {
+      "input": "1e3ms",
+      "spoken": "one times ten to the power of three milliseconds"
+    },
+    {
+      "input": "GPT-4",
+      "spoken": "g p t four"
+    },
+    {
+      "input": "H₂O CO₂ O₂ N₂ NaCl",
+      "spoken": "h two o c o two o two n two sodium chloride"
+    },
+    {
+      "input": "Søren Łukasz Straße Ægir Œuvre Þór Đorđe",
+      "spoken": "soren lukasz strasse aegir oeuvre thor dorde"
+    }
+  ],
+  "original_receipt_identifiers": [
+    {
+      "filename": "frontend-probes.json",
+      "sha256": "8c5e102d72fc057257606813e0aa544c7b158ff4d671967d29e82723d25c3dcd",
+      "raw_contents_available": false
+    },
+    {
+      "filename": "vocabulary-final-receipt.json",
+      "sha256": "7cf1c2741ef05cca24429d8433df420e903023e275975e7b7847ac732d0e2f55",
+      "raw_contents_available": false
+    },
+    {
+      "filename": "vocabulary-final-lts-symbols.json",
+      "sha256": "958bbf0ce371dd918177a1ae5b69d419386dbfd43eaef642373f49e3d364388f",
+      "raw_contents_available": false
+    }
+  ],
+  "unavailable_original_outputs": [
+    "vocabulary-final-output.tsv",
+    "streaming-vocabulary-output.tsv",
+    "vocabulary-final-source/"
+  ],
+  "limitations": [
+    "No physical-phone, Android AudioTrack, acoustic, hardware performance, GPU/NPU, energy or end-to-end JNI/model execution claim.",
+    "No full-CI, merge-readiness or release-publication claim.",
+    "Context-sensitive homographs remain unchanged; no blanket read/live/lead disambiguation claim.",
+    "Some ordinary inflections lack dictionary entries despite a known singular stem. Their LTS stress may differ; nonempty supported phones do not certify natural pronunciation.",
+    "Generic formulas and compound units outside explicitly supported forms may retain literal component readings.",
+    "The earlier poor fallback prediction for typescript was not a production miss: the full dictionary already contains that word. This correction is retained.",
+    "Raw original receipts and per-file manifests cannot be re-fetched from the unavailable executor; historical digests are preserved without fabricating their contents."
+  ]
+}

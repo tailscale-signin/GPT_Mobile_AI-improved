@@ -2,6 +2,15 @@
 
 Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
+## Pronunciation and readable content
+
+- Preserve accented names, HTML entities and short technical elements through shared voice text preparation, with consistent streamed speech and replay.
+- Improve Kokoro readings for technical names and initialisms, dotted abbreviations, ordinals, fractions, scientific notation, common formulas and units. Recognized model labels such as GPT-4 retain their separator meaning.
+- Accept saved pronunciation corrections for accented names and literal terms such as C++, C#, .NET and GPT-4. Apply them before tokenization, keep original caption ranges and forward them to local/SDK and Android speech.
+- Keep Android corrections fixed for each pending utterance and reject cancelled callbacks. Vocabulary and pronunciation text remain absent from diagnostics.
+
+Pronunciation checks verify readable text, source-aligned captions and frontend token compatibility; they do not establish phone acoustic accuracy, general multilingual support or sentence-dependent homograph correctness.
+
 ## CPU, GPU and NPU speech follow-up
 
 - Keep CPU as the recommended default and mark the native GPU/NPU options experimental while preserving saved selections and CPU-reference admission.

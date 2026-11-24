@@ -128,6 +128,12 @@ internal class VoicePluginAudio(
         kokoro?.bindSpokenRange(spoken)
     }
 
+    override fun configurePronunciation(overrides: Map<String, String>) {
+        val cleaned = VoicePronunciationOverrides.clean(overrides)
+        system.configurePronunciation(cleaned)
+        kokoro?.configurePronunciation(cleaned)
+    }
+
     override fun bindTimedSpokenRange(spoken: ((Int, String, IntRange, VoiceCaptionTiming) -> Unit)?) {
         kokoro?.bindTimedSpokenRange(spoken)
     }

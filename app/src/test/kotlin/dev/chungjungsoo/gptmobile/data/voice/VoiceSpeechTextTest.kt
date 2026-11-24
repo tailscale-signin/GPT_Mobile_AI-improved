@@ -314,6 +314,61 @@ class VoiceSpeechTextTest {
         assertAllSnapshots(products)
     }
 
+    @Test fun htmlEntitiesPreserveAccentedWordsAmountsAndMathematicalMeaning() {
+        val input = "Emanu&#233;l and Caf&eacute; cost &pound;4.50. Keep &minus;3&nbsp;&deg;C, 2 &times; 3, 4 &#x2264; 5, and &plusmn;1. &#X1F642;"
+        val expected = "Emanuél and Café cost £4.50. Keep −3 °C, 2 times 3, 4 less than or equal to 5, and plus or minus 1. 🙂"
+        assertEquals(expected, words(VoiceSpeechText.project(input)))
+        assertAllSnapshots(input)
+        assertProjectionPrefixes(input, includeDetails = false)
+        val names = "Cr&egrave;me br&ucirc;l&eacute;e, S&atilde;o, &OElig;uvre and &frac12;."
+        assertEquals("Crème brûlée, São, Œuvre and ½.", VoiceSpeechText.project(names))
+        assertAllSnapshots(names)
+    }
+
+    @Test fun unknownOrInvalidEntitiesKeepTheirVisibleSpellingWithoutInvalidUnicode() {
+        val input = "Keep &customName; &#0; &#xD800; &#x110000; and &#99999999999999999999; visible."
+        assertEquals(input, VoiceSpeechText.project(input))
+        assertAllSnapshots(input)
+        assertProjectionPrefixes(input, includeDetails = false)
+        assertEquals("Read  less than think greater than literal less than /think greater than .", VoiceSpeechText.project("Read &lt;think&gt;literal&lt;/think&gt;."))
+    }
+
+    @Test fun entityEncodedSourceAddressesStayOutOfSpeechAtEveryStreamingBoundary() {
+        val input = "Read https&#58;//example.test/private and &#104;ttps://example.test/private plus www&#46;example.test/private. Done."
+        assertEquals("Read and plus . Done.", words(VoiceSpeechText.project(input)))
+        assertAllSnapshots(input)
+        assertProjectionPrefixes(input, includeDetails = false)
+        assertEquals("A & B", VoiceSpeechText.project("A &amp; B"))
+    }
+
+    @Test fun shortTechnicalInlineElementsAreSpokenWhileExecutableCodeRemainsOnScreen() {
+        val input = "Use `C++`, `C#`, `.NET`, `UTF-8`, `v0.9.66.15`, `--cpu-threads`, `MB/s`, `-3 °C` and `£4.50`. Keep `privateCall()` and `hidden_inline` in chat."
+        val expected = "Use C++, C#, .NET, UTF-8, v0.9.66.15, dash dash cpu threads, MB/s, -3 °C and £4.50. Keep Code is available in the chat. and in chat."
+        assertEquals(expected, words(VoiceSpeechText.project(input)))
+        assertAllSnapshots(input)
+        assertProjectionPrefixes(input, includeDetails = false)
+        assertEquals("Code is available in the chat. ", VoiceSpeechText.project("`https://example.test/private`"))
+    }
+
+    @Test fun savedCorrectionsApplyToTheSameLiteralTermsInProseAndInlineElements() {
+        val input = "São uses C++, C#, .NET and GPT-4."
+        val formatted = "`São` uses `C++`, `C#`, `.NET` and `GPT-4`."
+        val corrections = mapOf("São" to "sow", "C++" to "see plus plus", "C#" to "see sharp", ".NET" to "dot net", "GPT-4" to "gee pee tee four")
+        val projected = VoiceSpeechText.project(formatted)
+        assertEquals(input, projected)
+        assertEquals(VoicePronunciationOverrides.project(input, corrections), VoicePronunciationOverrides.project(projected, corrections))
+        assertEquals("sow uses see plus plus, see sharp, dot net and gee pee tee four.", VoicePronunciationOverrides.project(projected, corrections).text)
+        assertAllSnapshots(formatted)
+        assertProjectionPrefixes(formatted, includeDetails = false)
+    }
+
+    @Test fun ordinaryIdentifierSeparatorsCannotJoinDistinctWords() {
+        val input = "Read snake_case and HTTP__status with _clear_ **labels**."
+        assertEquals("Read snake case and HTTP status with clear labels.", VoiceSpeechText.project(input))
+        assertAllSnapshots(input)
+        assertProjectionPrefixes(input, includeDetails = false)
+    }
+
     private fun assertProjectionPrefixes(input: String, includeDetails: Boolean) {
         val complete = VoiceSpeechText.project(input, includeDetails = includeDetails)
         for (end in 1..input.length) {

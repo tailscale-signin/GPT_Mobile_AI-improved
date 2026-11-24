@@ -45,4 +45,16 @@ class VoiceStreamingPhrasePlanTest {
         assertTrue(phrases.all { it.text.first() != '\u0301' })
         assertFalse(phrases.any { it.text.isBlank() })
     }
+
+    @Test fun sdkCorrectionsUseFullSymbolicTermsAndKeepOriginalWordCues() {
+        val text = "São uses C++ and C# with .NET."
+        val plan = VoiceStreamingPhrasePlan(text, mapOf("São" to "sow", "C++" to "see plus plus", "C#" to "see sharp", ".NET" to "dot net"), 1f)
+        val phrases = generateSequence { plan.next(4) }.toList()
+        assertEquals("sow uses see plus plus and see sharp with dot net.", phrases.joinToString("") { it.text })
+        val phrase = phrases.first { "sharp" in it.text }
+        val start = phrase.text.indexOf("sharp")
+        val range = phrase.sourceCharacters[start]
+        assertEquals("C#", text.substring(range))
+        assertTrue(phrase.sourceCharacters.subList(start, start + 5).all { it == range })
+    }
 }

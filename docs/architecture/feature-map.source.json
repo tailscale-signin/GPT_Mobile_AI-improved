@@ -1528,6 +1528,34 @@
         "A recoverable rejection can shrink the next request only within its original permissions and resource budget.",
         "Score comparisons require independently measured work under matching task, policy, environment and budget identities."
       ]
+    },
+    {
+      "id": "publication-attestation-retention",
+      "title": "Retained Android and Windows attestation bundles",
+      "terms": [
+        "release attestation",
+        "offline provenance verification",
+        "attestation bundle"
+      ],
+      "paths": [
+        ".github/workflows/release-build.yml",
+        ".github/workflows/gateway-windows-installer.yml"
+      ],
+      "tests": [
+        "scripts/tests/test_published_release.py",
+        "scripts/tests/test_release_scope.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/publication-attestation-retention-2026-11-24-task.json"
+      ],
+      "invariants": [
+        "Each existing package attestation retains its exact bundle-path output as a separate source/run/attempt artifact for 14 days.",
+        "Subject globs, signing, permissions, package artifacts, release assets, triggers, required gates and publication behavior remain unchanged.",
+        "Retained bundles are verification inputs; their presence does not establish cryptographic validation, final-source qualification or publication."
+      ]
     }
   ]
 }

@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.PhoneIndexContinuation
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ProviderToolInvocation
 import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubTool
@@ -110,7 +111,11 @@ class PhoneIndexDeadlineRecoveryTest {
             assertTrue(fixture.secondBlobEntered.isCompleted)
             assertTrue(fixture.secondBlobStopped.isCompleted)
             val interrupted = finished[0]
-            assertEquals(initial, interrupted.call)
+            fun captured(call: ProviderEvent.ToolCall): ProviderEvent.ToolCall {
+                val invocation = ProviderToolInvocation(call.name, call.arguments)
+                return call.copy(originalInvocation = invocation, originalInvocationFingerprint = invocation.fingerprint(call.callId))
+            }
+            assertEquals(captured(initial), interrupted.call)
             assertTrue(interrupted.result.isError)
             assertEquals("PHONE_INDEX_INTERRUPTED", interrupted.result.errorCode)
             assertEquals(JsonPrimitive(true), interrupted.result.executionReceipt?.get("local_work_stopped"))
@@ -127,8 +132,8 @@ class PhoneIndexDeadlineRecoveryTest {
             assertEquals(JsonPrimitive(1), statusBody.getValue("graph").jsonObject["processed_files"])
             val cursor = statusBody.getValue("index_cursor").jsonPrimitive.content
             val resumed = finished[2]
-            assertEquals(status.call.callId.replace("phone-index-status-", "phone-index-resume-"), resumed.call.callId)
-            assertEquals(arguments("index", cursor), resumed.call.arguments)
+            val issuedResume = initial.copy(callId = status.call.callId.replace("phone-index-status-", "phone-index-resume-"), arguments = arguments("index", cursor))
+            assertEquals(captured(issuedResume), resumed.call)
             assertFalse(resumed.result.isError)
             assertEquals(JsonPrimitive(true), body(resumed.result).getValue("graph").jsonObject["coverage_complete"])
             assertEquals(1, fixture.firstBlobReads.get())
@@ -144,8 +149,8 @@ class PhoneIndexDeadlineRecoveryTest {
                 history.take(1) + history[1].copy(results = listOf(result)),
                 definitions
             )
-            assertEquals(resumed.call, afterStatus(status.result))
-            assertEquals(resumed.call, afterStatus(status.result.copy(content = ToolResultContent.Text(statusBody.toString()))))
+            assertEquals(issuedResume, afterStatus(status.result))
+            assertEquals(issuedResume, afterStatus(status.result.copy(content = ToolResultContent.Text(statusBody.toString()))))
             assertNull(afterStatus(status.result.copy(isError = true)))
             assertNull(afterStatus(status.result.copy(content = ToolResultContent.Json(JsonObject(statusBody + ("has_more" to JsonPrimitive(false)))))))
             assertNull(afterStatus(status.result.copy(content = ToolResultContent.Json(JsonObject(statusBody + ("index_cursor" to JsonPrimitive("unissued")))))))

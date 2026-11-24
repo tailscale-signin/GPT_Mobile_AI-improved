@@ -12,6 +12,49 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_typed_budget_metadata_and_manual_timing_survive_the_public_report(self):
+        for kind, source, reason, retry in (
+            ("ACCOUNT_CREDITS", "openrouter_credits", None, "AFTER_CONFIGURATION_CHANGE"),
+            ("KEY_LIMIT", "openrouter_key_limit", None, "AFTER_CONFIGURATION_CHANGE"),
+            ("REQUEST_AFFORDABILITY", "openrouter_credits", "weight_exceeds_budget", "AFTER_CONFIGURATION_CHANGE"),
+            ("IN_FLIGHT_BUDGET", "openrouter_in_flight_budget", "in_flight_budget_exhausted", "MANUAL_AFTER_PROVIDER_DELAY"),
+        ):
+            with self.subTest(kind=kind):
+                values = {"incident_phase": "model_invocation", "causal_failure_code": "BILLING_UNAVAILABLE",
+                          "provider_failure_kind": "BUDGET", "provider_budget_kind": kind,
+                          "provider_budget_limit_source": source, "provider_budget_retry": retry}
+                if reason:
+                    values["provider_budget_reason"] = reason
+                if retry == "MANUAL_AFTER_PROVIDER_DELAY":
+                    values.update(retry_delay_ms=12_000, retry_delay_source="PROVIDER_HEADER")
+                capture = self.capture("INCIDENT", values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = "BILLING_UNAVAILABLE"
+                report["context"]["stage"] = "model_invocation"
+                report["context"]["unavailableFields"].remove("stage")
+                self.assertIn(kind, issue_from_report(report)[1]["body"])
+        for field in ("provider_budget_kind", "provider_budget_limit_source", "provider_budget_reason", "provider_budget_retry"):
+            for invalid in ("private provider body", True, 42, {}, []):
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("INCIDENT", {field: invalid}))
+
+    def test_provider_wait_refusal_reason_survives_the_service_report(self):
+        for reason in ("GATEWAY_COMMAND_PRESENT", "REMOTE_OUTCOME_UNKNOWN", "RETRY_DEADLINE_UNAVAILABLE"):
+            with self.subTest(reason=reason):
+                capture = self.capture("INCIDENT", {
+                    "incident_phase": "provider_wait", "causal_failure_code": "PROVIDER_RATE_LIMITED",
+                    "provider_failure_kind": "RATE_LIMIT", "provider_semantic_status": 429,
+                    "provider_wait_decision_state": "NOT_SCHEDULED", "provider_wait_no_wait_reason": reason,
+                    "provider_wait_scheduler_state": "NOT_SCHEDULED", "provider_wait_persisted": False,
+                })
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = "PROVIDER_RATE_LIMITED"
+                report["context"]["stage"] = "provider_wait"
+                report["context"]["unavailableFields"].remove("stage")
+                self.assertIn(reason, issue_from_report(report)[1]["body"])
+
     def test_streaming_voice_values_roundtrip_only_in_voice_without_claiming_an_observed_delegate(self):
         additions = {
             "voice_engine": {"MEDIAPIPE"},
@@ -2569,6 +2612,30 @@ class IncidentReportContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("TOOL", {"replay_allowance": 0}))
 
+    def test_missing_saved_replay_page_survives_public_issue_without_source_body(self):
+        code = "REPLAY_EVIDENCE_REQUIRED"
+        fields = {"causal_failure_code": code, "incident_phase": "planning",
+                  "replay_budget_state": "REQUIRED_SAVED_PAGE_NOT_PRESENT", "pending_saved_page_count": 1,
+                  "replay_allowance": 24000, "replay_tokens": 9728, "replay_exchange_count": 11}
+        capture = self.capture("INCIDENT", fields)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        report.update(feature="chat", errorCode=code)
+        report["context"]["source"] = "CHAT_FAILURE"
+        before = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("| replay_budget_state | `REQUIRED_SAVED_PAGE_NOT_PRESENT` |", issue["body"])
+        self.assertIn("| pending_saved_page_count | `1` |", issue["body"])
+        self.assertEqual(before, json.dumps(report, separators=(",", ":")))
+        for invalid in (-1, 16_000_001, True, "1", None, {"body": "private source"}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {"pending_saved_page_count": invalid}))
+        for area in ("TOOL", "PROVIDER"):
+            with self.subTest(area=area), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {"pending_saved_page_count": 1}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("INCIDENT", {"saved_page_body": "private source"}))
+
     def test_graph_transport_archives_only_closed_tool_values(self):
         for kind in ("DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN"):
             capture = self.capture("TOOL", {"tool_reason_code": "GRAPH_TRANSPORT_UNAVAILABLE", "graph_transport_kind": kind})
@@ -2576,6 +2643,21 @@ class IncidentReportContractTest(unittest.TestCase):
         for area, value in (("PROVIDER", "DNS"), ("TOOL", "private endpoint"), ("TOOL", True)):
             with self.assertRaises(ValueError):
                 validate_diagnostics(self.capture(area, {"graph_transport_kind": value}))
+
+    def test_local_graph_failure_keeps_closed_stage_and_reason_without_source_text(self):
+        for phase in ("TREE_SELECTION", "PACKET_CACHE_READ", "SYMBOL_CATALOG", "SOURCE_LOAD", "MANIFEST_RANKING", "SOURCE_GRAPH", "SOURCE_RANGES", "SEMANTIC_RANKING", "PACKET_ASSEMBLY", "PACKET_CACHE_WRITE"):
+            for reason in ("LOCAL_INVARIANT_REJECTED", "LOCAL_STATE_INVALID", "LOCAL_RUNTIME_FAILURE"):
+                fields = {"graph_local_phase": phase, "graph_local_reason": reason}
+                capture = self.capture("TOOL", fields)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for area, fields in (
+            ("PROVIDER", {"graph_local_phase": "SOURCE_LOAD"}),
+            ("TOOL", {"graph_local_phase": "private/source.kt"}),
+            ("TOOL", {"graph_local_reason": "private task text"}),
+            ("TOOL", {"graph_local_reason": True}),
+        ):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, fields))
 
     def test_reader_and_reconciliation_evidence_is_scoped_and_bounded(self):
         for area, fields in (

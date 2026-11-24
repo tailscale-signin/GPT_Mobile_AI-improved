@@ -53,7 +53,25 @@ internal class CombinedDocumentPageCache(private val load: suspend (Int, Int) ->
     }
 }
 
-private data class InlineDocumentSnapshot(val text: String, val frames: List<CombinedMarkdownFrame>, val wording: CombinedWordingPresentation?, val replacement: Long)
+internal data class InlineDocumentPageKey(val index: Int, val replacement: Long, val frame: CombinedMarkdownFrame, val passageRevision: Long)
+
+/** Composition-local reuse: settled blocks survive an append to another page. */
+internal class InlineDocumentPageCache {
+    private val lock = Mutex()
+    private val pages = LinkedHashMap<InlineDocumentPageKey, CombinedDocumentBlock>(8, 0.75f, true)
+    internal val retainedPages: Int get() = pages.size
+
+    suspend fun get(key: InlineDocumentPageKey, load: suspend () -> CombinedDocumentBlock): CombinedDocumentBlock = lock.withLock {
+        pages[key]?.let { return@withLock it }
+        load().also { block ->
+            require(block.sequence == key.index && block.start == key.frame.start) { "INLINE_DOCUMENT_PAGE_IDENTITY" }
+            pages[key] = block
+            while (pages.size > 8) pages.remove(pages.keys.first())
+        }
+    }
+}
+
+private data class InlineDocumentSnapshot(val text: String, val frames: List<CombinedMarkdownFrame>, val wording: CombinedWordingPresentation?, val replacement: Long, val passageRevision: Long)
 
 private data class DocumentPageState(val block: CombinedDocumentBlock? = null, val failed: Boolean = false)
 
@@ -69,7 +87,7 @@ internal fun BoundedAssistantDocument(
     articleCards: @Composable (String) -> Unit = {}
 ) {
     val currentLoader by rememberUpdatedState(loadBlocks)
-    val cache = remember(reference.id) { CombinedDocumentPageCache { first, count -> currentLoader(reference, first, count) } }
+    val cache = remember(reference) { CombinedDocumentPageCache { first, count -> currentLoader(reference, first, count) } }
     val page = remember<suspend (Int) -> CombinedDocumentBlock>(cache) { { index -> cache.get(index) } }
     DocumentViewport(identity, reference.blockCount, wording, proseColor, page, outputTrace?.copy(partId = "${reference.id}:${reference.revisionId}"), articleCards)
 }
@@ -83,7 +101,7 @@ internal fun BoundedOriginalAssistantDocument(
     outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null,
     articleCards: @Composable (String) -> Unit = {}
 ) {
-    val count by produceState<Int?>(null, reader) { value = reader.count() }
+    val count by key(reader) { produceState<Int?>(null) { value = reader.count() } }
     val cache = remember(reader) {
         CombinedDocumentPageCache { first, requested ->
             val trace = CombinedOperationTrace.begin("source_tab_load", reader.traceOwner.copy(blockId = "$first:${first + requested}"))
@@ -118,14 +136,20 @@ internal fun BoundedInlineAssistantDocument(
     // Keep text and ranges in one committed snapshot. A replacement can shrink the
     // answer; old offsets must never index the newer text while preparation runs.
     val latest by rememberUpdatedState(Triple(text, streaming, wording))
-    val snapshot by produceState<InlineDocumentSnapshot?>(null, identity) {
-        var prior: InlineDocumentSnapshot? = null
-        snapshotFlow { latest }.presentationSnapshots(streaming = { it.second }, useful = { it.first.isNotBlank() }).prepareConflatedRender { (body, _, presentation) ->
-            withContext(Dispatchers.Default) {
-                val replacement = (prior?.replacement ?: 0) + if (prior?.text?.let(body::startsWith) == false) 1 else 0
-                InlineDocumentSnapshot(body, CombinedMarkdownPaging.frames(body, ASSISTANT_RENDER_PAGE_CHARACTERS).toList(), presentation, replacement).also { prior = it }
-            }
-        }.collect { value = it }
+    val cache = remember(identity) { InlineDocumentPageCache() }
+    val snapshot by key(identity) {
+        produceState<InlineDocumentSnapshot?>(null) {
+            var prior: InlineDocumentSnapshot? = null
+            snapshotFlow { latest }.presentationSnapshots(streaming = { it.second }, useful = { it.first.isNotBlank() }).prepareConflatedRender { (body, _, presentation) ->
+                withContext(Dispatchers.Default) {
+                    val replacement = (prior?.replacement ?: 0) + if (prior?.text?.let(body::startsWith) == false) 1 else 0
+                    // Compare attribution off the UI thread. A changed full-answer
+                    // string or palette does not invalidate unchanged page bytes.
+                    val passageRevision = (prior?.passageRevision ?: 0) + if (prior?.wording?.passages != presentation?.passages) 1 else 0
+                    InlineDocumentSnapshot(body, CombinedMarkdownPaging.frames(body, ASSISTANT_RENDER_PAGE_CHARACTERS).toList(), presentation, replacement, passageRevision).also { prior = it }
+                }
+            }.collect { value = it }
+        }
     }
     val ready = snapshot
     if (ready == null) {
@@ -134,10 +158,12 @@ internal fun BoundedInlineAssistantDocument(
         DocumentViewport(identity, ready.frames.size, ready.wording, proseColor, { index ->
             withContext(Dispatchers.Default) {
                 val range = ready.frames[index]
-                val block = ready.text.substring(range.start, range.end)
-                CombinedDocumentBlock(index, range.start, block, researchHash(block), CombinedDocuments.slicePassages(ready.text, range.start, range.end, ready.wording?.passages.orEmpty()), range.openingFence, range.closingFence, range.tableHeader)
+                cache.get(InlineDocumentPageKey(index, ready.replacement, range, ready.passageRevision)) {
+                    val block = ready.text.substring(range.start, range.end)
+                    CombinedDocumentBlock(index, range.start, block, researchHash(block), CombinedDocuments.slicePassages(ready.text, range.start, range.end, ready.wording?.passages.orEmpty()), range.openingFence, range.closingFence, range.tableHeader)
+                }
             }
-        }, outputTrace, articleCards, streaming = streaming, pageVersion = { index -> listOf(ready.replacement, ready.frames[index], ready.wording) })
+        }, outputTrace, articleCards, streaming = streaming, pageVersion = { index -> InlineDocumentPageKey(index, ready.replacement, ready.frames[index], ready.passageRevision) })
     }
 }
 
@@ -160,13 +186,18 @@ private fun DocumentViewport(
     LazyColumn(state = state, modifier = Modifier.fillMaxWidth().height(viewport).testTag("combined_document")) {
         items(count = count, key = { "$identity:block:$it" }, contentType = { "answer-block" }) { index ->
             val latestPage by rememberUpdatedState(page)
-            val loaded by produceState(DocumentPageState(), identity, index, pageVersion(index)) {
-                value = try {
-                    DocumentPageState(latestPage(index))
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    DocumentPageState(failed = true)
+            // Restarting only a producer preserves its previous value while a
+            // new page loads. Key the state too, so old bytes/attribution never
+            // render under a new document or page revision.
+            val loaded by key(identity, index, pageVersion(index)) {
+                produceState(DocumentPageState()) {
+                    value = try {
+                        DocumentPageState(latestPage(index))
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        DocumentPageState(failed = true)
+                    }
                 }
             }
             val block = loaded.block

@@ -25,11 +25,13 @@ internal class QualcommVoicePhraseEngineFactory(
     }
 
     override val selectedBackend: VoiceSpeechBackend get() = backend
+    override val nativeCleanupPending: Boolean get() = preparationRetirement.nativeCleanupPending
 
     // Recheck visits fourteen production chunks per backend, including changed-shape graph compilation.
     // Its explicit six-minute bound preserves complete measurements; normal model open keeps its separate thirty-second limit.
     override val preparationTimeoutMs: Long get() = if ((backend == VoiceSpeechBackend.AUTO || backend in ACCELERATORS) && calibrateAll) 360_000 else 30_000
     private val pending = AtomicReference<TimedKokoro?>(null)
+    private val preparationRetirement = VoiceNativePreparationRetirement()
     private val generation = AtomicLong()
     private val calibrated = AtomicBoolean(false)
     private val store = runCatching { VoiceBackendCapabilityStore(context) }.getOrNull()
@@ -47,40 +49,41 @@ internal class QualcommVoicePhraseEngineFactory(
     /** A benchmark measures the requested backend without hidden probes or CPU recovery. */
     fun createBenchmarkEngine(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
         require(backend in LOCAL_BACKENDS)
+        check(!nativeCleanupPending) { "Native speech cleanup is unconfirmed; restart the app before another preparation." }
         val ticket = generation.get()
         val native = open(directory, lexicon, threads, backend)
         try {
-            checkTicket(ticket)
-            var observed: VoiceSpeechExecutionEvidence? = null
-            return object : VoicePhraseEngine {
-                override val executionProvider: String get() = provider(backend)
-                override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed
-                override val executionProgress: VoiceSpeechProgress? get() = native.speechProgress()
-                override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
-                    val audio = try {
-                        native.generate(text, speaker, speed)
-                    } catch (error: Exception) {
-                        observed = speechFailureExecutionEvidence(error, backend, deviceKey)
-                        throw error
+            return preparationRetirement.transfer(native) {
+                checkTicket(ticket)
+                var observed: VoiceSpeechExecutionEvidence? = null
+                object : VoicePhraseEngine {
+                    override val executionProvider: String get() = provider(backend)
+                    override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed
+                    override val executionProgress: VoiceSpeechProgress? get() = native.speechProgress()
+                    override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+                        val audio = try {
+                            native.generate(text, speaker, speed)
+                        } catch (error: Exception) {
+                            observed = speechFailureExecutionEvidence(error, backend, deviceKey)
+                            throw error
+                        }
+                        val receipt = native.evidence()
+                        val actual = if (backend != VoiceSpeechBackend.CPU && receipt.acceleratorKernels == 0 && receipt.cpuKernels > 0) "cpu" else executionProvider
+                        observed = evidence(receipt, actual, null)
+                        return VoicePhraseAudio(audio.samples, audio.durations, audio.wordTokens)
                     }
-                    val receipt = native.evidence()
-                    val actual = if (backend != VoiceSpeechBackend.CPU && receipt.acceleratorKernels == 0 && receipt.cpuKernels > 0) "cpu" else executionProvider
-                    observed = evidence(receipt, actual, null)
-                    return VoicePhraseAudio(audio.samples, audio.durations, audio.wordTokens)
+                    override fun resetCancellation() = native.resetCancellation()
+                    override fun cancel() = native.cancel()
+                    override fun close() = native.close()
                 }
-                override fun resetCancellation() = native.resetCancellation()
-                override fun cancel() = native.cancel()
-                override fun close() = native.close()
             }
-        } catch (error: Exception) {
-            native.close()
-            throw error
         } finally {
             pending.compareAndSet(native, null)
         }
     }
 
     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+        check(!nativeCleanupPending) { "Native speech cleanup is unconfirmed; restart the app before another preparation." }
         val ticket = generation.get()
         if ((backend == VoiceSpeechBackend.AUTO || backend in ACCELERATORS) && calibrateAll && calibrated.compareAndSet(false, true)) {
             // Reject a broken workload before opening a provider or writing any hardware receipt.

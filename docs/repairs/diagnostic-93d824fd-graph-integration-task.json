@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pull_request": 2367,
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "59e61ba6fa277b8cab839ad219b7189895a10deb",
+  "working_branch": "work/93d824fd-graph",
+  "intent": "Repair the observed phone task-context failure diagnostics and bounded recovery, and surface integration fixture prerequisites before acquisition while preserving exact approval and receipt-based acceptance.",
+  "diagnostic_source_commit": "631bad141287b2ed6581d42b1a1627256359e36f",
+  "diagnostic_session": "93d824fd-d842-4716-b2d9-ab90f08bea91",
+  "status": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+  "authority": "Existing task source, approval, identity, privacy, tool-call and deadline limits remain unchanged. Independent source reads require their normal authorization. No remote publication is owned by this lane.",
+  "findings": [
+    {
+      "id": "F7",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "scope": "Phone task-context typed failures and safe application frames; independent authorized source reads; explicit per-blob deferred outcomes and no-progress limits. Separately, phone index outer deadlines now persist the active blob attempt, retain first-attempt deferred reasons, and reach later files after the existing two-attempt limit without claiming complete coverage."
+    },
+    {
+      "id": "F11",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "scope": "The first integration checkpoint explains the retained exact fixture approval and real run/job prerequisites before the next tool call. Acceptance keeps exact-SHA test receipts, pending continuation validity and discovery reserve as separate evidence components; no saved page or catalog receipt counts as test execution."
+    }
+  ],
+  "verification": {
+    "executed": [
+      {
+        "command": "python3 -m unittest authentication.test_report_extensions authentication.test_incident_report_contract",
+        "result": "PASS",
+        "tests": 115
+      },
+      {
+        "command": "ktlint 1.3.1 --relative on every changed Kotlin file",
+        "result": "PASS"
+      },
+      {
+        "command": "python3 scripts/check_android_regex.py",
+        "result": "PASS",
+        "literal_patterns": 2124,
+        "dynamic_patterns_skipped": 132
+      },
+      {
+        "command": "git diff --check",
+        "result": "PASS"
+      }
+    ],
+    "pending": [
+      "Production Gradle Android unit tests: PhoneTaskContextFailureTest, RepositoryGraphLocalFailureTest, GitHubTaskContextBundleTest, PhoneRepositoryGraphSessionTest, PhoneRepositoryProgressBudgetTest, PhoneIndexDeadlineRecoveryTest, RepositoryGraphFallbackTest, GitHubIntegrationAcceptanceTest, GitHubIntegrationReportTest, GitHubVerifiedSessionTest",
+      "Generated diagnostic schema, architecture/feature inventory and canonical validation by integration owner",
+      "Selected-device reproduction against the final integrated revision"
+    ],
+    "android_execution_blocker": "Android tests were not executed by this lane. The shared environment has /home/agent tmpfs at 100%; the replay lane reported ordinary Gradle and no-watch retries failing in BuildLifecycleAwareVirtualFileSystem before project configuration. No substitute Kotlin harness was used.",
+    "service_capability_dependency": "The replay lane adds GRAPH_LOCAL_CONTEXT_FAILURE_V1 to the issue-report service feature advertisement and its capability regression alongside the replay feature."
+  },
+  "limitations": [
+    "The exact historical task-context IllegalArgumentException assertion is not retained. New typed phases and safe application frames diagnose future local failures; this does not prove its historical cause.",
+    "The observed index READ_DEADLINE/no-progress path is separate from task-context assembly and has its own outer-timeout persistence fix and nonzero-cursor regression.",
+    "Kotlin behavior tests remain unexecuted in this lane pending a working Gradle/Android environment; lint and Python service checks are not Android behavior qualification.",
+    "Source identity requirements, task approval, tool-call limits, ordinary deadlines and privacy routing remain mandatory. The index path now treats typed identity mismatch as a hard failure instead of downgrading it to unreadable content. No remote publication was performed."
+  ]
+}

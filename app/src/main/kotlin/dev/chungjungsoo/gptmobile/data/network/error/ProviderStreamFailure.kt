@@ -19,7 +19,10 @@ internal object ProviderStreamFailure {
         serverRequestId: String? = null,
         responsePayloadObserved: Boolean = false,
         streamEventType: String? = null,
-        providerResponseId: String? = null
+        providerResponseId: String? = null,
+        metadata: JsonObject? = null,
+        retryAfterMillis: Long? = null,
+        knownNotAccepted: Boolean = false
     ): ResponseErrorEvent {
         // Native structured projection can refine a generic backend code into a
         // contract or a prior unknown outcome. Neither may become a new retry.
@@ -29,7 +32,7 @@ internal object ProviderStreamFailure {
             ?: "GATEWAY_OUTCOME_UNKNOWN".takeIf { details?.get("requires_reconciliation") == JsonPrimitive(true) }
         val applicationCode = unknownOutcomeCode ?: structuredCode ?: rawApplicationCode
         val applicationFailure = applicationCode?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider("", it) }
-        val failure = ProviderFailure.fromValues(httpStatus ?: 200, code, message.takeIf { applicationCode == null }, type.takeIf { applicationCode == null })
+        val failure = ProviderFailure.fromValues(httpStatus ?: 200, code, message.takeIf { applicationCode == null }, type.takeIf { applicationCode == null }, metadata = metadata.takeIf { applicationCode == null })
         val retryable = unknownOutcomeCode == null && (applicationFailure?.retryAllowed ?: failure.retryable) && details?.get("retryable") != JsonPrimitive(false)
         val category = applicationCode ?: when (failure.kind) {
             ProviderFailureKind.BUDGET -> "BILLING_UNAVAILABLE"
@@ -44,7 +47,7 @@ internal object ProviderStreamFailure {
             redactLogMessage(message).replace('\n', ' ').replace('\r', ' ').take(1600)
         } else {
             when (failure.kind) {
-                ProviderFailureKind.BUDGET -> "The provider reported that its credit or budget allowance is unavailable. Check the allowance or choose another AI profile, then resume the saved work."
+                ProviderFailureKind.BUDGET -> requireNotNull(failure.budget).message()
                 ProviderFailureKind.AUTHENTICATION -> "The provider could not authenticate the generation. Update the platform connection in Settings → Platforms, then resume the saved work."
                 ProviderFailureKind.PERMISSION, ProviderFailureKind.FORBIDDEN_UNKNOWN -> "The provider denied access to this generation. Check the selected profile's access before resuming."
                 ProviderFailureKind.CONTENT_POLICY -> "The provider declined this generation under its content policy. The saved evidence is retained."
@@ -60,11 +63,40 @@ internal object ProviderStreamFailure {
         fields["provider_failure_kind"] = JsonPrimitive(failure.kind.name)
         fields["generation_completed"] = JsonPrimitive(false)
         fields.putIfAbsent("dispatched", JsonPrimitive(true))
-        fields.putIfAbsent("remote_acceptance", JsonPrimitive(if (responsePayloadObserved) "YES" else "UNKNOWN"))
+        fields.putIfAbsent(
+            "remote_acceptance",
+            JsonPrimitive(
+                if (responsePayloadObserved) {
+                    "YES"
+                } else if (knownNotAccepted) {
+                    "NO"
+                } else {
+                    "UNKNOWN"
+                }
+            )
+        )
         fields.putIfAbsent("dispatch_state", JsonPrimitive("FAILED"))
         fields["retryable"] = JsonPrimitive(retryable)
         fields["request_replay_allowed"] = JsonPrimitive(retryable && !responsePayloadObserved && fields["request_replay_allowed"] != JsonPrimitive(false) && fields["requires_reconciliation"] != JsonPrimitive(true))
         fields.putIfAbsent("next_action", JsonPrimitive(if (retryable) "RESUME_UNFINISHED_WORK" else "RETRY_AFTER_CONFIGURATION_CHANGE"))
+        failure.budget?.let { budget ->
+            fields.putAll(budget.fields())
+            val delay = retryAfterMillis?.takeIf { it in 1L..86_400_000L }
+            val mode = when {
+                unknownOutcomeCode != null || responsePayloadObserved || details?.get("remote_acceptance") in setOf(JsonPrimitive("YES"), JsonPrimitive("ACCEPTED")) || !knownNotAccepted && budget.kind == ProviderBudgetKind.IN_FLIGHT_BUDGET -> "REVIEW_SAVED_WORK"
+                budget.kind != ProviderBudgetKind.IN_FLIGHT_BUDGET -> "AFTER_CONFIGURATION_CHANGE"
+                delay == null -> "PROVIDER_TIMING_UNAVAILABLE"
+                else -> "MANUAL_AFTER_PROVIDER_DELAY"
+            }
+            fields["provider_budget_retry"] = JsonPrimitive(mode)
+            // This timing is for an explicit retry of saved work. It never grants
+            // wire replay, credential rotation, or an automatic change in spend.
+            if (mode == "MANUAL_AFTER_PROVIDER_DELAY") {
+                fields["retry_after_ms"] = JsonPrimitive(requireNotNull(delay))
+                fields["retry_at_ms"] = JsonPrimitive(dev.chungjungsoo.gptmobile.data.network.ProviderRetryPolicy.deadlineMillis(System.currentTimeMillis(), delay))
+                fields["next_action"] = JsonPrimitive("RESUME_UNFINISHED_WORK")
+            }
+        }
         if (unknownOutcomeCode != null) {
             fields["requires_reconciliation"] = JsonPrimitive(true)
             fields["dispatched"] = JsonPrimitive(true)
@@ -99,6 +131,21 @@ internal object ProviderStreamFailure {
         val kind = (details?.get("provider_failure_kind") as? JsonPrimitive)?.contentOrNull
             ?.takeIf { value -> ProviderFailureKind.entries.any { it.name == value } } ?: return null
         val fields = mutableMapOf("provider_failure_kind" to JsonPrimitive(kind))
+        if (kind == "BUDGET") {
+            val choices = mapOf(
+                "provider_budget_kind" to ProviderBudgetKind.entries.mapTo(mutableSetOf()) { it.name },
+                "provider_budget_limit_source" to ProviderBudgetEvidence.LIMIT_SOURCES,
+                "provider_budget_reason" to ProviderBudgetEvidence.REASONS,
+                "provider_budget_retry" to ProviderBudgetEvidence.RETRY_MODES
+            )
+            for ((key, values) in choices) {
+                (details[key] as? JsonPrimitive)?.takeIf { it.isString && it.content in values }?.let { fields[key] = it }
+            }
+            if (fields["provider_budget_kind"] == JsonPrimitive("IN_FLIGHT_BUDGET") && fields["provider_budget_retry"] == JsonPrimitive("MANUAL_AFTER_PROVIDER_DELAY")) {
+                (details["retry_after_ms"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 1..86_400_000 }
+                    ?.let { fields["retry_after_ms"] = JsonPrimitive(it) }
+            }
+        }
         for (key in listOf("upstream_error_code", "upstream_error_type")) {
             (details[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it in ProviderFailure.SAFE_CODES }
                 ?.let { fields[key] = JsonPrimitive(it) }

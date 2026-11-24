@@ -94,6 +94,25 @@ class ProviderLimitDecisionTest {
         assertFalse(providerLimitDecision(paid, "selected", true, ProviderHttpFailure(429, 2_000, knownNotAccepted = true))!!.knownNotAccepted)
     }
 
+    @Test fun aRefusedTypedLimitRetainsItsClosedReasonWithoutAuthorizingAWait() {
+        val paid = ProviderRequestConfig("https://openrouter.ai/api/v1", "credential", profileUid = "saved", lockedModel = "selected")
+        val safe = ProviderHttpFailure(429, 2_000, knownNotAccepted = true)
+        val cases = listOf(
+            Triple(paid.copy(profileUid = null), safe, "PROFILE_UNAVAILABLE"),
+            Triple(paid.copy(lockedModel = "other"), safe, "ROUTE_MISMATCH"),
+            Triple(paid, ProviderHttpFailure(429, null, knownNotAccepted = true), "RETRY_DEADLINE_UNAVAILABLE"),
+            Triple(paid, ProviderHttpFailure(429, 2_000), "REJECTION_NOT_REPLAY_SAFE"),
+            Triple(paid, ProviderHttpFailure(429, 2_000, waitRefusal = dev.chungjungsoo.gptmobile.data.agent.ProviderWaitSchedulingResult.NoWaitReason.REMOTE_JOB_PRESENT), "REMOTE_JOB_PRESENT")
+        )
+        for ((selected, failure, reason) in cases) {
+            assertNull(providerLimitDecision(selected, "selected", false, failure))
+            val details = providerLimitRefusalDetails(selected, "selected", false, java.io.IOException(failure))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(reason), details["provider_wait_no_wait_reason"])
+            assertFalse(details.toString().contains("credential"))
+        }
+        assertTrue(providerLimitRefusalDetails(paid, "selected", false, IllegalStateException("HTTP 429")).isEmpty())
+    }
+
     @Test fun wrappedShortRejectionRetainsDeadlineAndDoesNotReplayReceivedOutput() {
         val paid = ProviderRequestConfig("https://openrouter.ai/api/v1", "credential", profileUid = "saved", providerType = "OPENROUTER", lockedModel = "selected")
         val rejection = ProviderHttpFailure(429, 4_013, knownNotAccepted = true, observedAtMillis = 10_000, retrySource = "RETRY_AFTER")

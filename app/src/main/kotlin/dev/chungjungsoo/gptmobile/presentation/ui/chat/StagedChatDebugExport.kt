@@ -93,6 +93,7 @@ internal suspend fun writeStagedChatDiagnostics(
         var sessionDirectory: File? = null
         val useReducedMemory = diagnosticCaptureUsesReducedMemory(reducedMemory, AndroidDiagnosticExportMemory.sample())
         val automaticReducedMemory = useReducedMemory && !reducedMemory
+        var releaseRedactionReuse: () -> Unit = {}
         val options = DiagnosticCaptureOptions(
             reducedMemory = useReducedMemory,
             minimumHeadroomBytes = if (useReducedMemory) 4L * 1024 * 1024 else 16L * 1024 * 1024,
@@ -110,7 +111,10 @@ internal suspend fun writeStagedChatDiagnostics(
             resumable = !room.isTemporary,
             deferArchiveHandoff = !room.isTemporary,
             cooperativeHeapRecovery = useReducedMemory,
-            releaseOptionalCaches = ::clearChatRenderingCaches
+            releaseOptionalCaches = {
+                clearChatRenderingCaches()
+                releaseRedactionReuse()
+            }
         )
         val maximumCharacters = if (useReducedMemory) 12 * 1024 else 96 * 1024
         // A single measured source row may exceed one JSONL record; redact it once, then chunk.
@@ -127,6 +131,7 @@ internal suspend fun writeStagedChatDiagnostics(
         } else {
             null
         }
+        releaseRedactionReuse = { redactionReuse?.clear() }
         val logs = mutableMapOf<Boolean, DiagnosticLogSnapshot>()
         var publishedFile: File? = null
         fun authorized() {
@@ -142,7 +147,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 if (reusable == null) {
                     redactor.redact(bounded)
                 } else {
-                    val result = reusable.apply(bounded, ::authorized)
+                    val result = reusable.workspaceRow(bounded, ::authorized)
                     if (result.reused) phaseTimings.redactionReused()
                     result.value
                 }

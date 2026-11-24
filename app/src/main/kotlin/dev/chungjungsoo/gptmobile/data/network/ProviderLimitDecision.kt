@@ -144,7 +144,7 @@ private fun providerHttpLimitDecision(config: ProviderRequestConfig, model: Stri
 }
 
 /** Transport wrappers can retain an observed rejection; application refusals cannot authorize a wait. */
-private fun transportRateLimitFailure(error: Exception): ProviderHttpFailure? {
+internal fun transportRateLimitFailure(error: Exception): ProviderHttpFailure? {
     var current: Throwable? = error
     repeat(8) {
         val cause = current ?: return null

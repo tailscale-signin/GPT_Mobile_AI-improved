@@ -455,6 +455,17 @@ internal object ToolReportDiagnostics {
             // The HTTP status and uncertainty belong to the original graph operation,
             // not the report preview. A mismatched/edited receipt must not supply its cause.
             if (result.isError && receipt["error_code"] == JsonPrimitive(result.errorCode)) {
+                if (action == "task_context_bundle" &&
+                    receipt["map_source"] == JsonPrimitive("phone") &&
+                    receipt["incident_capture_site"] == JsonPrimitive("REPOSITORY_GRAPH_CATCH") &&
+                    receipt["incident_phase_provenance"] == JsonPrimitive("CAPTURE_BOUNDARY_ONLY") &&
+                    result.errorCode == "REPOSITORY_GRAPH_UNAVAILABLE"
+                ) {
+                    (receipt["graph_local_phase"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                        ?.takeIf { it in IssueReportDiagnostics.graphLocalPhases }?.let { put("graph_local_phase", it) }
+                    (receipt["graph_local_reason"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                        ?.takeIf { it in IssueReportDiagnostics.graphLocalReasons }?.let { put("graph_local_reason", it) }
+                }
                 val reason = (receipt["reason_code"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
                 if (reason == "TRANSPORT_UNAVAILABLE" &&
                     result.errorCode == "REPOSITORY_GRAPH_UNAVAILABLE" &&

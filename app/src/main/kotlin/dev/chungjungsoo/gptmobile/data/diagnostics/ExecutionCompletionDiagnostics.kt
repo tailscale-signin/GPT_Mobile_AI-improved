@@ -19,6 +19,9 @@ import kotlinx.serialization.json.put
 internal object ExecutionCompletionDiagnostics {
     const val FEATURE = "EXECUTION_COMPLETION_EVIDENCE_V1"
     const val VISIBLE_OUTPUT_RECOVERY_FEATURE = "VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1"
+    const val PROVIDER_LIMIT_CAUSE_FEATURE = "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"
+    val providerBudgetFields = setOf("provider_budget_kind", "provider_budget_limit_source", "provider_budget_reason", "provider_budget_retry")
+    val providerLimitRefusals = setOf("GATEWAY_COMMAND_PRESENT", "REMOTE_OUTCOME_UNKNOWN", "RETRY_DEADLINE_UNAVAILABLE")
     const val INSPECT_SAVED_PROVIDER_ATTEMPT = "INSPECT_SAVED_PROVIDER_ATTEMPT"
     val visibleOutputStopReasons = setOf("BOUNDED_VISIBLE_OUTPUT_REPAIR", "VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED")
     val codes = setOf("WORKSPACE_EVIDENCE_CONFLICT", "GITHUB_REVIEW_COMPARISON_REQUIRED", "RECONCILIATION_REQUIRED", "BILLING_UNAVAILABLE", "PROVIDER_CONTENT_POLICY", "PROVIDER_GENERATION_FAILED", "PROVIDER_UNAVAILABLE", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN")
@@ -60,6 +63,10 @@ internal object ExecutionCompletionDiagnostics {
         "evidence_record_kind" to setOf("github_evidence", "github_engineering_memory", "synthesis_checkpoint"),
         "evidence_writer_phase" to setOf("IMMUTABLE_APPEND", "CHECKPOINT_REPLACE", "TERMINAL_RECONCILIATION"),
         "provider_failure_kind" to ProviderFailureKind.entries.mapTo(mutableSetOf()) { it.name },
+        "provider_budget_kind" to dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetKind.entries.mapTo(mutableSetOf()) { it.name },
+        "provider_budget_limit_source" to dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetEvidence.LIMIT_SOURCES,
+        "provider_budget_reason" to dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetEvidence.REASONS,
+        "provider_budget_retry" to dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetEvidence.RETRY_MODES,
         "upstream_error_code" to ProviderFailure.SAFE_CODES,
         "upstream_error_type" to ProviderFailure.SAFE_CODES,
         "stream_event_type" to ProviderStreamFailure.EVENT_TYPES,
@@ -121,6 +128,7 @@ internal object ExecutionCompletionDiagnostics {
                 "evidence_conflict_reason", "evidence_record_kind", "evidence_writer_phase", "record_identity_sha256", "proposed_payload_sha256", "retained_payload_sha256" -> persistence
                 "expected_tool_journal_digest", "observed_tool_journal_digest", "expected_tool_evidence_digest", "observed_tool_evidence_digest", "tool_checkpoint_binding_sha256", "queued_tool_count", "unsettled_tool_count", "settled_tool_count", "checkpoint_validation_stage" -> recovery
                 "provider_failure_kind", "upstream_error_code", "upstream_error_type", "stream_event_type", "provider_response_id_hash", "http_status" -> provider
+                in providerBudgetFields -> provider && details["provider_failure_kind"] == JsonPrimitive("BUDGET")
                 "provider_semantic_status" -> provider && details["provider_failure_kind"] == JsonPrimitive("RATE_LIMIT")
                 else -> false
             }

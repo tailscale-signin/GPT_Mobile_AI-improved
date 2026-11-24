@@ -15,6 +15,76 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderStreamFailureTest {
+    @Test fun malformedBudgetReasonsAndContradictoryAcceptanceNeverAcquireManualRetryTiming() {
+        for (source in ProviderBudgetEvidence.LIMIT_SOURCES) {
+            for (reason in listOf(kotlinx.serialization.json.JsonNull, JsonPrimitive(true), JsonPrimitive(7), JsonObject(emptyMap()), kotlinx.serialization.json.JsonArray(emptyList()))) {
+                val metadata = JsonObject(mapOf("limit_source" to JsonPrimitive(source), "reason" to reason))
+                assertEquals(ProviderBudgetKind.UNKNOWN, ProviderBudgetEvidence.from(metadata).kind)
+            }
+        }
+        val metadata = JsonObject(mapOf("limit_source" to JsonPrimitive("openrouter_in_flight_budget")))
+        for (details in listOf(
+            JsonObject(mapOf("remote_acceptance" to JsonPrimitive("YES"))),
+            JsonObject(mapOf("remote_acceptance" to JsonPrimitive("ACCEPTED"))),
+            JsonObject(mapOf("requires_reconciliation" to JsonPrimitive(true)))
+        )) {
+            val event = ProviderStreamFailure.event("402", "private", details = details, httpStatus = 402, metadata = metadata, knownNotAccepted = true, retryAfterMillis = 12_000)
+            val record = ProfileFailureRecord.fromProvider(event.message, event.code, event.failureDetails)
+            assertEquals(JsonPrimitive("REVIEW_SAVED_WORK"), record.providerFailure?.get("provider_budget_retry"))
+            assertEquals(null, record.retryAfterMillis)
+            assertFalse(record.retryAllowed)
+            assertEquals(false, record.requestReplayAllowed)
+        }
+    }
+
+    @Test fun documentedBudgetMetadataKeepsSpecificGuidanceWithoutRetainingProviderText() {
+        val cases = listOf(
+            Triple("openrouter_credits", null, ProviderBudgetKind.ACCOUNT_CREDITS),
+            Triple("openrouter_key_limit", null, ProviderBudgetKind.KEY_LIMIT),
+            Triple("openrouter_credits", "weight_exceeds_budget", ProviderBudgetKind.REQUEST_AFFORDABILITY),
+            Triple("openrouter_in_flight_budget", "in_flight_budget_exhausted", ProviderBudgetKind.IN_FLIGHT_BUDGET),
+            Triple("openrouter_in_flight_budget", "weight_exceeds_budget", ProviderBudgetKind.UNKNOWN),
+            Triple("private-source", "private-reason", ProviderBudgetKind.UNKNOWN)
+        )
+        for ((source, reason, expected) in cases) {
+            val metadata = JsonObject(mapOf("limit_source" to JsonPrimitive(source), "remedy_hint" to JsonPrimitive("private-token-and-prompt")) + reason?.let { mapOf("reason" to JsonPrimitive(it)) }.orEmpty())
+            val body = JsonObject(mapOf("error" to JsonObject(mapOf("code" to JsonPrimitive(402), "metadata" to metadata)))).toString()
+            val parsed = ProviderFailure.parse(402, body)
+            assertEquals(expected, parsed.budget?.kind)
+            assertFalse(parsed.retryable)
+            val event = ProviderStreamFailure.event("402", "private-message", httpStatus = 402, metadata = metadata, knownNotAccepted = true, retryAfterMillis = 5_000)
+            val record = ProfileFailureRecord.fromProvider(event.message, event.code, event.failureDetails)
+            assertEquals("BILLING_UNAVAILABLE", record.category)
+            assertEquals(JsonPrimitive(expected.name), record.providerFailure?.get("provider_budget_kind"))
+            assertFalse(record.retryAllowed)
+            assertEquals(false, record.requestReplayAllowed)
+            assertFalse(event.message.contains("private"))
+            assertFalse(record.providerFailure.toString().contains("private"))
+        }
+    }
+
+    @Test fun inFlightBudgetTimingRequiresAValidHeaderAndAnUnacceptedRequest() {
+        val metadata = JsonObject(mapOf("limit_source" to JsonPrimitive("openrouter_in_flight_budget"), "reason" to JsonPrimitive("in_flight_budget_exhausted")))
+        for (knownNotAccepted in listOf(false, true)) {
+            for (payload in listOf(false, true)) {
+                for (delay in listOf(null, 0L, -1L, 86_400_001L, 12_000L)) {
+                    val event = ProviderStreamFailure.event("402", "private", httpStatus = 402, metadata = metadata, retryAfterMillis = delay, knownNotAccepted = knownNotAccepted, responsePayloadObserved = payload)
+                    val record = ProfileFailureRecord.fromProvider(event.message, event.code, event.failureDetails)
+                    val mode = when {
+                        !knownNotAccepted || payload -> "REVIEW_SAVED_WORK"
+                        delay != 12_000L -> "PROVIDER_TIMING_UNAVAILABLE"
+                        else -> "MANUAL_AFTER_PROVIDER_DELAY"
+                    }
+                    assertEquals(JsonPrimitive(mode), record.providerFailure?.get("provider_budget_retry"))
+                    assertEquals(if (mode == "MANUAL_AFTER_PROVIDER_DELAY") JsonPrimitive(12_000) else null, record.providerFailure?.get("retry_after_ms"))
+                    assertEquals(mode == "MANUAL_AFTER_PROVIDER_DELAY", record.retryAfterMillis != null)
+                    assertFalse(record.retryAllowed)
+                    assertEquals(false, record.requestReplayAllowed)
+                }
+            }
+        }
+    }
+
     @Test fun assemblerKeepsPartialReasoningAcceptanceAndFailedResponseUsage() {
         val assembler = OpenAIResponsesEventAssembler()
         assembler.accept(dev.chungjungsoo.gptmobile.data.dto.openai.response.ReasoningSummaryTextDeltaEvent("reasoning", 0, 0, "Retained reasoning"))

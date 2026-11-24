@@ -64,7 +64,8 @@ class AgentRunProviderWaitTest {
     }
 
     @Test fun terminalQuotaPathsRetainTheirExactNoWaitReasonWithTheOriginalFailure() = runBlocking {
-        for (reason in listOf("DECISION_UNAVAILABLE", "REJECTION_NOT_REPLAY_SAFE", "WAIT_STORE_UNAVAILABLE")) {
+        val transportRefusals = listOf("GATEWAY_COMMAND_PRESENT", "REMOTE_OUTCOME_UNKNOWN", "RETRY_DEADLINE_UNAVAILABLE", "REMOTE_JOB_PRESENT", "PROFILE_UNAVAILABLE", "ROUTE_MISMATCH")
+        for (reason in listOf("DECISION_UNAVAILABLE", "REJECTION_NOT_REPLAY_SAFE", "WAIT_STORE_UNAVAILABLE") + transportRefusals) {
             val context = RuntimeEnvironment.getApplication()
             val chats = mockk<ChatRepository>().also { repository -> coEvery { repository.conversationPrivacyLocked(any()) } returns false }
             val settings = mockk<SettingRepository>()
@@ -73,7 +74,7 @@ class AgentRunProviderWaitTest {
             val answer = MessageV2(id = 2, chatId = 1, content = "", platformType = "p", currentRunId = "run", ownershipFence = 1)
             val request = AgentRunRequest("run", 1, answer, platform, listOf(user), listOf(listOf(answer)))
             val decision = ProviderLimitDecision("TEST", "p", "model", 1000, "scope", "PROVIDER_RATE_LIMITED", reason != "REJECTION_NOT_REPLAY_SAFE")
-                .takeUnless { reason == "DECISION_UNAVAILABLE" }
+                .takeUnless { reason == "DECISION_UNAVAILABLE" || reason in transportRefusals }
             val committed = CompletableDeferred<MessageV2>()
             coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(backgroundGeneration = false)
             coEvery { chats.markAgentRunRunning("run", any()) } returns true
@@ -89,6 +90,7 @@ class AgentRunProviderWaitTest {
                             put("http_status", kotlinx.serialization.json.JsonPrimitive(200))
                             put("provider_failure_kind", kotlinx.serialization.json.JsonPrimitive("RATE_LIMIT"))
                             put("provider_semantic_status", kotlinx.serialization.json.JsonPrimitive(429))
+                            if (reason in transportRefusals) put("provider_wait_no_wait_reason", kotlinx.serialization.json.JsonPrimitive(reason))
                         }
                     )
                 )

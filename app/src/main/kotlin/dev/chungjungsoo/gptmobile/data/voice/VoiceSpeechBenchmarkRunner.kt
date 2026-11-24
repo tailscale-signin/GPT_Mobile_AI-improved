@@ -12,6 +12,7 @@ internal class VoiceSpeechBenchmarkRunner(
     private val nanoTime: () -> Long = System::nanoTime,
     private val wallTime: () -> Long = System::currentTimeMillis,
     private val plan: (VoiceSpeechBenchmarkFixture, VoiceSpeechBenchmarkWorkload) -> List<String> = VoiceSpeechWorkload::phrases,
+    private val preparationOwner: () -> VoicePhraseEngineFactory? = { null },
     private val watchdogFactory: (VoiceSpeechBenchmarkDeadlines, () -> VoiceSpeechStage?, (VoiceSpeechBenchmarkTimeout) -> Unit) -> VoiceSpeechBenchmarkWatchdog = { limits, progress, stop ->
         VoiceSpeechBenchmarkWatchdog(limits, nanoTime, progress, stop)
     }
@@ -22,6 +23,7 @@ internal class VoiceSpeechBenchmarkRunner(
     private val cancellationRequest = AtomicReference<CancellationRequest?>(null)
     private val currentWatchdog = AtomicReference<VoiceSpeechBenchmarkWatchdog?>(null)
     private val cleanupUnconfirmed = AtomicBoolean(false)
+    private var unretiredPreparationOwner: VoicePhraseEngineFactory? = null
     val nativeCleanupPending: Boolean get() = cleanupUnconfirmed.get()
 
     fun cancel() {
@@ -375,7 +377,12 @@ internal class VoiceSpeechBenchmarkRunner(
                         retirementPublicationFailure.addSuppressed(failure)
                     }
                 }
-                val retired = VoiceNativeEngineGate.exclusive { runCatching { engine?.close() }.isSuccess }
+                val preparationFailure = preparationOwner()?.takeIf { it.nativeCleanupPending }
+                if (preparationFailure != null) unretiredPreparationOwner = preparationFailure
+                val engineRetired = VoiceNativeEngineGate.exclusive { runCatching { engine?.close() }.isSuccess }
+                // A failed preparation never returned an engine to this runner. Its
+                // factory still owns the handle and must not be reported as retired.
+                val retired = engineRetired && preparationFailure == null
                 result = result.copy(cleanupState = if (retired) VoiceSpeechBenchmarkCleanupState.RETIRED else VoiceSpeechBenchmarkCleanupState.FAILED)
                 if (retired) {
                     currentEngine.compareAndSet(engine, null)
@@ -410,7 +417,11 @@ internal class VoiceSpeechBenchmarkRunner(
         report = report.copy(
             state = finalState,
             finishedAtMillis = wallTime(),
-            issue = if (cancelled.get()) VoiceSpeechBenchmarkIssue.CANCELLED else report.issue,
+            issue = when {
+                nativeCleanupPending -> VoiceSpeechBenchmarkIssue.NATIVE_CLEANUP_PENDING
+                cancelled.get() -> VoiceSpeechBenchmarkIssue.CANCELLED
+                else -> report.issue
+            },
             activeFixture = null,
             activeRepeat = null,
             activeChunk = null,

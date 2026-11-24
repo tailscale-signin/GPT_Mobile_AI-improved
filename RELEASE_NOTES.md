@@ -2,6 +2,23 @@
 
 Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
+## Diagnostic recovery and export completion
+
+- Follow the newest qualified head of the same pull request and connection. Requalify reads after a head change and allow one bounded read-only refresh/retry without replaying mutations or renewing task limits.
+- Preserve validated search paths, blob identities and the selected commit through saved inventory projections, so dependent source reads remain available after the original page is compacted.
+- Keep missing saved-page delivery distinct from replay-capacity exhaustion in reports, including a bounded pending-page count and compatible receiver capability checks.
+- Require deployed report receivers to advertise the saved-page replay, local graph failure and provider-limit evidence capabilities before a hosted reporting route is accepted; native GitHub reporting keeps its existing route.
+- Preserve durable rate-limit recovery for direct provider requests from saved conversations. An unused local Gateway conversation key no longer makes a direct rejected request appear to have an uncertain Gateway outcome.
+- Distinguish OpenRouter account credits, key limits, request affordability and temporary concurrent-request budgets. Preserve validated retry timing and explicit retry authority without changing output limits or spending policy automatically.
+- Split OpenAI request, response and streaming phases into bounded methods with collection-local state. Extend the existing packaged debug-APK ART size guard to both OpenAI APIs and their generated coroutine helpers.
+- Retain typed local graph preparation phases and per-source deadline progress, while keeping identity/permission failures authoritative and independent pinned reads available under their normal authorization.
+- Show integration fixture and real-test prerequisites before bulk acquisition. Saved page recipes remain separate from observed test execution and verification reserve.
+- Parse authenticated protected diagnostic payloads without a second whole plaintext copy, preserve immutable safe branches, and reuse payload redaction across distinct authorized workspace rows. Memory pressure latches one-row paging across later stages and resume without lowering the admission guard or source limits.
+- Reuse bounded settled document pages across streaming appends. Revision changes clear old page state while replacement content loads; current attribution, font, theme and privacy presentation remain authoritative.
+- Retain native preparation ownership after failed cleanup, honor an SDK deadline even when its notification is delayed, and preserve observed partial PCM after a runtime-link failure.
+
+The protected-export continuation regression uses a generated 859-row corpus in the ordinary 256 MiB project heap gate. Source changes and host tests do not establish physical-device latency, live-provider availability, or recovery of evidence absent from the original capture.
+
 ## Diagnostic and voice audit follow-up
 
 - Keep mismatched evidence bound to its original revision and offer explicit historical or current-revision reads; separate argument canonicalization from a verified semantic repair.
@@ -12,7 +29,7 @@ Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains 
 - Classify certificate, handshake and TLS protocol failures separately and retain bounded phase, request-body completion and connection evidence through compatible reporting.
 - Preserve small readiness catalogues on UI hiding and moderate trim signals, identify actual memory evictions, and keep authorization changes immediately authoritative.
 - Open the conversation database on its owned IO startup path before parallel recovery, with separate native-load, key, migration-lock and verification timings.
-- Reuse only exact already-redacted workspace rows within one bounded capture, rechecking capture authority on cache hits and clearing retained data at capture exit.
+- Reuse exact already-redacted workspace payloads within one bounded capture while retaining fresh row metadata, rechecking capture authority on cache hits and clearing retained data at capture exit.
 - Require same-run CPU-reference duration, token-timing and signal consistency for speech benchmark and Auto ranking; retain explicit mismatch, missing-reference and cancellation evidence.
 - Use observed memory headroom for at most three exact accelerator token shapes, cap retained estimates at 1,280 MiB, preserve 512 MiB available reserve and prevent repeated RSS double-counting.
 - Expose total, retained and evicted voice measurement counts and explicit missing speech, accelerator-utilization and end-to-end latency evidence.
@@ -168,7 +185,7 @@ The added engine benchmark measures structural PCM, callback delivery and playba
 - Manual and Auto accelerator playback require a complete, current, same-run CPU-reference audio qualification for the selected voice and rate. Unqualified or mismatching devices use CPU until an explicit Recheck succeeds; ordinary first-phrase self-validation cannot promote a capability receipt. Recheck is explicit, so normal speech does not perform hidden comparison synthesis.
 - Repair Kokoro QNN partition proposals with a convex, static-interface graph adapter; select the concrete GPU or NPU device and keep dynamic duration/alignment sections on CPU within the same audio-and-timing inference.
 - Qualify backend execution from non-silent PCM, aligned durations and actual kernel profiles for each prepared token shape; retain bounded device/model/runtime/lexicon/thread/voice/rate capability receipts and explicit rechecks. Auto retains CPU unless measured accelerator cost, including preparation, is at least 10% lower.
-- Reuse at most two exact token-shape sessions within a conservative estimated memory budget and available-memory guard. Report cache hits, current compilation, original profile identity and reuse, RMS, peaks and clipped/non-silent samples. Discover GPU candidates through actual runtime devices or an available Qualcomm OpenCL driver; the requested GPU must still execute real kernels.
+- Reuse at most three exact token-shape sessions within the unchanged conservative estimated memory budget and available-memory guard. Report cache hits, current compilation, original profile identity and reuse, RMS, peaks and clipped/non-silent samples. Discover GPU candidates through actual runtime devices or an available Qualcomm OpenCL driver; the requested GPU must still execute real kernels.
 - Retire a failed accelerator and retry only its current unplayed phrase on CPU; preserve typed source, target, outcome and original failure when CPU or permitted Android system speech recovery occurs, including optional Gateway CUDA failures. Fence duplicate and stale fallback callbacks.
 - Move deferred speech preference reads off the UI path and retain explicit cancellation origins, bounded cleanup and separate synthesis/playback ownership.
 

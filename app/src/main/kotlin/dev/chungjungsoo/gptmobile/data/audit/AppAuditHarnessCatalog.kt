@@ -9,7 +9,9 @@ internal val APP_AUDIT_SOURCE_HARNESSES: Map<String, List<String>> = linkedMapOf
     ),
     "chat_ui" to listOf(
         "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptMotionInstrumentedTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ComposerInputLifecycleTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ComposerInputLifecycleTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocumentTransitionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CombinedDocumentPageCacheTest.kt"
     ),
     "accessibility_and_localization" to listOf(
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/appearance/AppearanceContractsTest.kt",
@@ -35,7 +37,10 @@ internal val APP_AUDIT_SOURCE_HARNESSES: Map<String, List<String>> = linkedMapOf
     "model_providers" to listOf(
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAICompletionDecoderTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/SseUtilsTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderToolRequestSerializationTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderToolRequestSerializationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunProviderWaitTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailureTest.kt"
     ),
     "models_and_profiles" to listOf(
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/SettingRepositorySecretMigrationTest.kt",
@@ -56,7 +61,11 @@ internal val APP_AUDIT_SOURCE_HARNESSES: Map<String, List<String>> = linkedMapOf
     ),
     "github" to listOf(
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptanceTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptanceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryObservationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryProgressBudgetTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphLocalFailureTest.kt"
     ),
     "research" to listOf(
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeepResearchAcquisitionTest.kt",
@@ -73,7 +82,10 @@ internal val APP_AUDIT_SOURCE_HARNESSES: Map<String, List<String>> = linkedMapOf
     ),
     "diagnostics_and_export" to listOf(
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/CorrelatedDiagnosticExportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RunDiagnosticJournalTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RunDiagnosticJournalTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticCaptureAllocationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticCaptureAdaptiveMemoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/WorkspaceDiagnosticCaptureHeapTest.kt"
     ),
     "benchmark" to listOf(
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualificationTest.kt",
@@ -85,7 +97,9 @@ internal val APP_AUDIT_SOURCE_HARNESSES: Map<String, List<String>> = linkedMapOf
     ),
     "voice_and_media" to listOf(
         "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceEntryInstrumentedTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativePreparationRetirementTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt"
     ),
     "portable_domain" to listOf(
         "core-domain/src/jvmTest/kotlin/dev/chungjungsoo/gptmobile/core/UsageMathTest.kt"

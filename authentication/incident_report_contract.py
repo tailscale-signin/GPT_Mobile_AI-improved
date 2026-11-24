@@ -694,7 +694,7 @@ ACCEPTANCE_FIELDS.add('acceptance_advertised_tool_count')
 HASHES.add('provider_wait_observed_checkpoint_hash')
 TOOL_FIELDS.add('issue_continuation_state')
 FIELD_NAMES.update({'after', 'expected_updated_at', 'names', 'inventory_cursor', 'inventory_version', 'catalog_only'})
-ENUMS['incident_capture_site'].update({'GITHUB_VERIFICATION_CATCH', 'OUTPUT_CONTINUATION_OPEN_CATCH'})
+ENUMS['incident_capture_site'].update({'GITHUB_VERIFICATION_CATCH', 'OUTPUT_CONTINUATION_OPEN_CATCH', 'REPOSITORY_GRAPH_CATCH'})
 ENUMS.update({
     'verification_phase': {
         'DESCENDANTS', 'AUTHORITY', 'SNAPSHOT', 'RECEIPT_RENDERING',
@@ -745,6 +745,10 @@ EXECUTION_COMPLETION_ENUMS = {
     'evidence_record_kind': {'github_evidence', 'github_engineering_memory', 'synthesis_checkpoint'},
     'evidence_writer_phase': {'IMMUTABLE_APPEND', 'CHECKPOINT_REPLACE', 'TERMINAL_RECONCILIATION'},
     'provider_failure_kind': {'AUTHENTICATION', 'BUDGET', 'PERMISSION', 'CONTENT_POLICY', 'FORBIDDEN_UNKNOWN', 'RATE_LIMIT', 'UNAVAILABLE', 'UNKNOWN'},
+    'provider_budget_kind': {'ACCOUNT_CREDITS', 'KEY_LIMIT', 'REQUEST_AFFORDABILITY', 'IN_FLIGHT_BUDGET', 'UNKNOWN'},
+    'provider_budget_limit_source': {'openrouter_credits', 'openrouter_key_limit', 'openrouter_in_flight_budget'},
+    'provider_budget_reason': {'weight_exceeds_budget', 'in_flight_budget_exhausted'},
+    'provider_budget_retry': {'MANUAL_AFTER_PROVIDER_DELAY', 'PROVIDER_TIMING_UNAVAILABLE', 'AFTER_CONFIGURATION_CHANGE', 'REVIEW_SAVED_WORK'},
     'upstream_error_code': EXECUTION_COMPLETION_UPSTREAM_CODES,
     'upstream_error_type': EXECUTION_COMPLETION_UPSTREAM_CODES,
     'stream_event_type': {'error', 'response.failed'},
@@ -755,6 +759,7 @@ EXECUTION_COMPLETION_ENUMS = {
         'DECISION_UNAVAILABLE', 'REJECTION_NOT_REPLAY_SAFE', 'RETRY_LIMIT_REACHED', 'CONNECTIVITY_RESUME_UNSAFE',
         'RESEARCH_CHECKPOINT_INVALID', 'ROUTE_MISMATCH', 'RUN_UNAVAILABLE', 'MESSAGE_UNAVAILABLE', 'OWNER_CHANGED',
         'CHECKPOINT_UNAVAILABLE', 'CHECKPOINT_CHANGED', 'REMOTE_JOB_PRESENT', 'INITIAL_OUTPUT_PRESENT',
+        'GATEWAY_COMMAND_PRESENT', 'REMOTE_OUTCOME_UNKNOWN', 'RETRY_DEADLINE_UNAVAILABLE',
         'CONTINUATION_PREFIX_CHANGED', 'COMBINED_SNAPSHOT_INVALID', 'COMBINED_RESUME_UNSAFE', 'AUTHORITY_UNAVAILABLE',
         'AUTHORITY_CHANGED', 'PROFILE_UNAVAILABLE', 'INPUT_UNAVAILABLE', 'TASK_SOURCE_UNAVAILABLE', 'TASK_SOURCE_INVALID',
         'DEADLINE_EXPIRED', 'PERSISTENCE_REJECTED', 'PERSISTENCE_FAILED', 'PERSISTENCE_OUTCOME_UNKNOWN',

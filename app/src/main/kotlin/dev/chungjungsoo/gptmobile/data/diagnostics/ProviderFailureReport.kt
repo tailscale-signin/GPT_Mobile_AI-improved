@@ -29,7 +29,13 @@ internal object ProviderFailureReport {
         put("diagnostic_area", "PROVIDER")
         dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.retained(failure.errorCode, failure.failureDetails)?.forEach { (key, value) -> put(key, value) }
         val semanticFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(failure.failureDetails)
-        semanticFailure?.forEach { (key, value) -> put(key, value) }
+        semanticFailure?.forEach { (key, value) -> if (key != "retry_after_ms") put(key, value) }
+        if (semanticFailure?.get("provider_budget_retry") == JsonPrimitive("MANUAL_AFTER_PROVIDER_DELAY")) {
+            semanticFailure.number("retry_after_ms")?.takeIf { it in 1..86_400_000 }?.let {
+                put("retry_delay_ms", it)
+                put("retry_delay_source", "PROVIDER_HEADER")
+            }
+        }
         val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
         val rateLimitFailure = providerWaitDecisionRequired(failure.errorCode, classified) ||
             receipt.httpStatus == 429 &&
@@ -192,7 +198,8 @@ internal object ProviderFailureReport {
             val noWaitReason = when (state) {
                 "ROUTE_MISMATCH" -> ProviderWaitSchedulingResult.NoWaitReason.ROUTE_MISMATCH
                 "NOT_SCHEDULED" -> ProviderWaitSchedulingResult.NoWaitReason.CLAIM_EXTRACTION_CHECKPOINT_REQUIRED
-                "INELIGIBLE" -> if (decision == null) ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE else ProviderWaitSchedulingResult.NoWaitReason.REJECTION_NOT_REPLAY_SAFE
+                "INELIGIBLE" -> ProviderWaitSchedulingResult.retainedNoWaitReason(failure.failureDetails)
+                    ?: if (decision == null) ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE else ProviderWaitSchedulingResult.NoWaitReason.REJECTION_NOT_REPLAY_SAFE
                 else -> null
             }
             noWaitReason?.let { put("provider_wait_no_wait_reason", it.name) }

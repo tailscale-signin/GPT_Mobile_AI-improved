@@ -212,7 +212,9 @@ data class ProfileFailureRecord(
                 retryAllowed = !claimCheckpoint && legacy.retryAllowed && (logicalContinuation || details?.get("retryable") != JsonPrimitive(false)),
                 dispatched = dispatched,
                 remoteAcceptance = if (localCircuitRejection || authorityPrecheck || catalogPrecheck || repositoryPrecheck || dispatchState in setOf("not_dispatched", "precheck_rejected")) RemoteRequestAcceptance.NO else observedAcceptance,
-                retryAfterMillis = if (typedProviderCooldown) {
+                retryAfterMillis = if (legacy.category == "BILLING_UNAVAILABLE" && details?.get("provider_budget_kind") == JsonPrimitive("IN_FLIGHT_BUDGET") && details["provider_budget_retry"] == JsonPrimitive("MANUAL_AFTER_PROVIDER_DELAY")) {
+                    retryAt ?: retryAfter?.let { System.currentTimeMillis() + it }
+                } else if (typedProviderCooldown) {
                     retryAt ?: retryAfter?.let { System.currentTimeMillis() + it } ?: legacy.retryAfterMillis
                 } else if ((localCircuitRejection || repositoryPrecheck) && retryAfter != null) {
                     System.currentTimeMillis() + retryAfter
@@ -231,6 +233,9 @@ data class ProfileFailureRecord(
                     JsonObject(details.orEmpty().filterKeys { it in setOf("failed_stage", "review_stage", "recovery_action", "provider_wait_no_wait_reason", "provider_wait_decision_state", "provider_wait_scheduler_state", "provider_wait_persisted") })
                 } else {
                     ProviderRecoveryFailure.retainedDetails(details)
+                        ?: ProviderWaitSchedulingResult.retainedNoWaitReason(details)?.let { reason ->
+                            JsonObject(mapOf("provider_wait_no_wait_reason" to JsonPrimitive(reason.name)))
+                        }
                 },
                 engineeringRejection = if (errorCode.equals("ENGINEERING_STATE_OR_INPUT_CHANGED", ignoreCase = true)) GatewayInputRejectionDetails.retained(details) else null,
                 providerFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(details),

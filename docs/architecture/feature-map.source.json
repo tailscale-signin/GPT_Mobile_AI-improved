@@ -34,7 +34,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadWorkBudget.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRevisionGuard.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundRepositoryTool.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalization.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalization.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneTaskContextFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextReadProgress.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContextTest.kt",
@@ -56,19 +58,24 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphRevisionAuthorityTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRevisionGuardTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRecoveryTest.kt",
-        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundTransportInstrumentedTest.kt"
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundTransportInstrumentedTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneTaskContextFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphLocalFailureTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
-        "docs/repairs/phone-repository-map-2026-11-22.md"
+        "docs/repairs/phone-repository-map-2026-11-22.md",
+        "docs/repairs/diagnostic-93d824fd-graph-integration-task.json"
       ],
       "invariants": [
         "Bind source ranges to the selected repository commit and blob.",
         "Keep repository references, historical observations and personal documents distinct.",
-        "Graph edges and tests are candidates until verified."
+        "Graph edges and tests are candidates until verified.",
+        "A local preparation failure retains only closed phase/reason evidence; it cannot grant independent source-read authority.",
+        "Repeated blob deadlines retain incomplete coverage and bounded progress across restart; identity mismatches remain hard failures."
       ]
     },
     {
@@ -583,23 +590,28 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SettledMarkdownRenderer.kt",
         "app/src/benchmark/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/benchmark/SettledMarkdownBenchmarkFixture.kt",
-        "macrobenchmark/src/main/kotlin/dev/chungjungsoo/gptmobile/benchmark/AppPerformanceBenchmark.kt"
+        "macrobenchmark/src/main/kotlin/dev/chungjungsoo/gptmobile/benchmark/AppPerformanceBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocument.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParserTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatRenderingCacheBoundaryTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SettledMarkdownRendererTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SettledMarkdownRendererTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocumentTransitionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/CombinedDocumentPageCacheTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
       ],
       "documents": [
-        "docs/repairs/github-evidence-progress-2026-11-23-task.json"
+        "docs/repairs/github-evidence-progress-2026-11-23-task.json",
+        "docs/repairs/diagnostic-93d824fd-implementation-2026-11-23-task.json"
       ],
       "invariants": [
         "Keep privacy-sensitive content out of the shared parsed-document cache.",
         "Retain current layout, font and theme inputs while reusing bounded settled parse results.",
-        "Device performance requires a measured device run."
+        "Device performance requires a measured device run.",
+        "A changed document revision clears the old rendered page while loading; reuse stays local, bounded and tied to current attribution."
       ]
     },
     {
@@ -627,7 +639,13 @@
         "authentication/incident_report_contract.py",
         "authentication/issue_report_diagnostics.py",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticContentPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticStoredValue.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCapture.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/WorkspaceDiagnosticPayload.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExport.kt",
+        "scripts/check_issue_reporting_configuration.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingWindowTest.kt",
@@ -644,7 +662,10 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportPrecheckTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/HttpAttemptEvidenceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparationTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticCaptureAllocationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticCaptureAdaptiveMemoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/WorkspaceDiagnosticCaptureHeapTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -653,14 +674,19 @@
         "docs/contracts/repository-operation-report-v1.json",
         "docs/repairs/voice-streaming-report-compatibility-2026-11-23-task.json",
         "docs/repairs/github-evidence-progress-2026-11-23-task.json",
-        "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json"
+        "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json",
+        "docs/repairs/diagnostic-93d824fd-implementation-2026-11-23-task.json",
+        "docs/repairs/diagnostic-deployment-probe-2026-11-24-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
         "Negotiate capabilities for newly introduced report fields while retaining compatible legacy payloads.",
         "Require VOICE_STREAMING_BACKEND_EVIDENCE_V1 only for emitted new streaming voice enum values; retain ordinary voice V1 payloads and the bounded plain readiness response.",
         "Do not combine observations across recording epochs or infer a historical crash cause without evidence.",
-        "Keep one valid aligned unmet-criterion sample and observed total/omission counts ahead of other summaries inside the unchanged diagnostic byte bound; malformed or unknown evidence gains no authority."
+        "Keep one valid aligned unmet-criterion sample and observed total/omission counts ahead of other summaries inside the unchanged diagnostic byte bound; malformed or unknown evidence gains no authority.",
+        "Protected payload reuse requires fresh row authority before and after redaction, complete digest/UTF-8 validation and unchanged privacy context.",
+        "Memory-pressure recovery preserves all source limits and headroom guards; complete export needs every bounded continuation part.",
+        "Require the shipped saved-page replay, local graph failure and provider-limit capabilities in hosted readiness probes, retaining the4096-byte bound and native-only no-probe routing."
       ]
     },
     {
@@ -697,6 +723,100 @@
       "invariants": [
         "Acceptance uses the same pinned emulator action after exact upstream commit/tree/clean-source and source/runtime digest verification removes only its premature MENU unlock. The real launcher/ANR/foreground readiness predicates, API matrix, memory and time limits remain unchanged.",
         "An upstream revision, source digest, tracked or untracked mutation, or unexpected patch shape prevents execution before either target is written. Host command-order tests do not replace actual healthy API34/API36 instrumentation."
+      ]
+    },
+    {
+      "id": "github-integration-evidence",
+      "title": "Qualified GitHub smoke reads and persisted integration evidence",
+      "terms": [
+        "fresh PR head",
+        "persisted search paths",
+        "missing saved pages",
+        "fixture prerequisites",
+        "exact SHA test receipts"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReads.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryObservation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ExecutionCompletionDiagnostics.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryObservationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptanceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ExecutionCompletionDiagnosticsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLegacySearchReadTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "bash scripts/validate-local.sh full"
+      ],
+      "documents": [
+        "docs/repairs/diagnostic-93d824fd-github-2026-11-23-task.json",
+        "docs/repairs/diagnostic-93d824fd-graph-integration-task.json"
+      ],
+      "invariants": [
+        "Refresh only the same authorized repository, pull request and connection; retain bounded read retries and never replay mutations.",
+        "Validate retained path selectors against the selected repository and commit; reacquisition cannot establish complete historical coverage.",
+        "Saved page recipes, test execution receipts and remaining verification reserve are independent observations.",
+        "Fixture-specific accepted task approval remains authoritative through continuation."
+      ]
+    },
+    {
+      "id": "provider-limit-recovery",
+      "title": "Provider budget evidence, durable waits and streaming failure recovery",
+      "terms": [
+        "rate limit",
+        "429",
+        "402",
+        "durable provider wait",
+        "OpenRouter budget",
+        "OpenAI method size"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRateLimitEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderLimitDecision.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderTransportFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderCooldown.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderBudgetEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitSchedulingResult.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunCoordinator.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
+        "scripts/check_chat_method_size.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderLimitDecisionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunProviderWaitTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "scripts/tests/test_chat_method_size.py",
+        "authentication/test_incident_report_contract.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "bash scripts/validate-local.sh full"
+      ],
+      "documents": [
+        "docs/repairs/diagnostic-93d824fd-provider-2026-11-23-task.json"
+      ],
+      "invariants": [
+        "Only the actual dispatched remote command or job creates Gateway uncertainty; a saved local conversation key alone does not.",
+        "Durable retry requires current route authority, an unchanged output contract and replay-safe typed evidence.",
+        "Unknown or malformed budget metadata stays unknown; budget rejection never automatically changes output limits, spending policy or credentials.",
+        "Request, response and stream helper state belongs to one collection, preserving cancellation, accounting and cleanup order.",
+        "The packaged named-method guard measures unminified debug/benchmark DEX; release obfuscation and device latency are separate evidence."
       ]
     },
     {
@@ -742,7 +862,8 @@
         ".github/workflows/pr-validation.yml",
         ".github/workflows/speech-engine-smoke.yml",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnership.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkUiState.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkUiState.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativePreparationRetirement.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
@@ -758,7 +879,8 @@
         "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java",
         "local-kokoro-runtime/src/testHost/kokoro_qnn_model_qualification.py",
         "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativePreparationRetirementTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -772,6 +894,8 @@
         "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
         "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json",
         "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json",
+        "docs/repairs/diagnostic-93d824fd-native-preparation-task.json",
+        "docs/repairs/speech-sdk-deadline-record-2026-11-24-task.json",
         "docs/repairs/speech-sdk-call-display-2026-11-24-task.json"
       ],
       "invariants": [
@@ -787,6 +911,8 @@
         "Keep frozen export reports in ViewModel memory and encode onIO; large reports must not enter Android saved-state bundles.",
         "Preserve legacy numeric history without restoring stale qualification, and bound full stored history to4MiB by evicting older whole runs.",
         "A failed native close retains the process-wide owner token and restart requirement across screen recreation; a stale lease cannot quarantine or release a replacement owner.",
+        "Failed native preparation retains its actual owner until confirmed destruction; a missing returned engine cannot authorize lease release.",
+        "An already-recorded deadline remains effective independently of delayed notification; measured partial PCM never implies completed audio validation.",
         "Preserve unknown SDK stream-call counts as unknown in playback result displays; a missing observation is not a measured zero."
       ]
     }

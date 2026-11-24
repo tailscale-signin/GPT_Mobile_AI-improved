@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSha": "59e61ba6fa277b8cab839ad219b7189895a10deb",
+  "mainSha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "work/diagnostics-93d824fd-2026-11-23",
+  "parentPullRequest": 2367,
+  "owner": "diagnostic audit 93d824fd root",
+  "recordedBeforeSourceEdit": true,
+  "status": "OWNED_SOURCE_CLOSED_FINAL_QUALIFICATION_AND_TYPED_PRIVACY_OWNER_PENDING",
+  "intent": "Implement every actionable finding in the diagnostic audit, preserve all concurrent owner changes, validate the final draft, merge on green, validate actual main and verify joint publication.",
+  "latestObservedHead": "9f475b1d8f94ee31b8b8857a064c0517511cb310",
+  "lanes": {
+    "github": "qualified fresh head recovery, persisted paths, saved-page diagnostic contract and qualification",
+    "provider": "durable limit handoff, typed 402, suspend method size and DEX guard",
+    "graph": "typed local failure, deadline progress, independent authorized fallback, prerequisite disclosure",
+    "root": "bounded diagnostic export/resume, immutable chat layout work reuse, integration and final publication"
+  },
+  "externalOwners": {
+    "privacy": "Adopt typed PrivateDispatchRejected and suspended non-null authority cancellation coverage.",
+    "speech": "Adopt native/benchmark followup and effective receipt changes.",
+    "diagnosticRetention": "Adopt c76bcaad4e720fdee86887174d8a267f281d6100.",
+    "publisher": "Preserve existing Android 0.9.66.15/code149 + Gateway18.1.3 reservation and coordinated publisher."
+  },
+  "preservation": [
+    "No force push or history rewrite of the shared branch.",
+    "Reconcile current public head before each append.",
+    "Preserve all tests, identity checks, privacy guards, budgets and current provider authority.",
+    "No passing subset substitutes for final source PR and actual-main gates.",
+    "No physical device or live provider claim without execution evidence."
+  ],
+  "qualification": {
+    "host": "Final frozen canonical host qualification and exact input hashes will be recorded in the PR integration block before append; no hosted Android result is claimed in this source ledger.",
+    "project": "UNEXECUTED locally: two ordinary Gradle attempts in GitHub lane failed before configuration with ENOSPC in shared Gradle environment. Hosted final-source project gates required.",
+    "dedicatedHeap": "PENDING",
+    "finalPr": "PENDING",
+    "main": "PENDING",
+    "publication": "PENDING",
+    "rootPinnedKtlint": "Pinned1.3.1 passed all316 base-to-working-tree Kotlin inputs at b880265b; final combined source is rechecked before guarded public append.",
+    "rootIndependentReview": "Source review identified old document state surviving produceState restart; corrected with keyed state scopes and ordinary Compose v2 delayed-load regression. Reviewer then reported no further concrete allocation/parser/cache blocker. Execution pending.",
+    "hostFocused": "55 actual Python CI/delivery/release-scope tests passed,0failures. GitHub service contract lane185 tests passed; coordinated capability suite73tests passed. Full canonical host pending final generated tree.",
+    "combinedServiceContracts": "191 actual Python application, report-extension and incident-contract tests passed together after all three lanes integrated;0failures.",
+    "localEnvironment": "Ordinary JDK21Gradle9.8 failed before configuration with ENOSPC; /home/agent shared tmpfs is full. No Android SDK37 installation was found in the observed SDK locations. Existing workers/caches were left intact. Final hosted ordinary-project and device gates remain required.",
+    "rootReview": "Reviewed original-index deadline/cancellation checkpoint, incomplete coverage and hard identity preservation; reviewed early fixture prerequisites and separate exact-SHA receipt components; reviewed legacy [{}] projection and bounded pinned reacquisition. No further concrete blocker found. Independent review and execution remain pending.",
+    "providerExtractionReview": "Independent statement-level review found no blocking extraction regression: cold-flow collection-local state, context, dispatch, cancellation and finalizer/accounting order preserved.17 method-guard Python tests passed independently. Actual APK size and Kotlin project execution remain pending.",
+    "providerFailureFollowup": "Independent review found Responses continued reading after a normalized terminal429, potentially replacing it with a tail timeout. Corrected by stopping after failure emission; actual MockEngine/ByteChannel cases cover both adapters with held-open and erroring tails, retained usage/id/limit, no completion/replay and no tail read. Independent reviewer closed all scoped provider findings after5eabae2fa8b0. Ordinary hosted Kotlin execution remains pending.",
+    "graphIndependentReview": "Independent review closed with no blocker: scoped two-attempt outer-timeout persistence, durable monotonic frontier, shard-derived incomplete coverage, cancellation-only negative, identity mismatch hard rejection, authorized task-context cache recovery, closed diagnostics and separate fixture/test/reserve evidence.",
+    "kotlinStaticReview": "Independent static review found no additional import/visibility/API mismatch in graph, F11, stream JSON and Compose changes; this is not a successful compilation.",
+    "hostPreflight": "Canonical validate-local.sh fast passed710tests and all CI-policy/generated-source/dependency/secret/regex/resource gates after integrated source7d34f600e16d. Final freeze follows held-open Responses terminal correction.",
+    "sourceReview": "All owned implementation lanes and native integration corrections are independently source-reviewed and closed. Deployment capability probe follow-up is implemented with18 ordinary Python controls; independent review and final combined frozen host validation follow. Existing external typed-privacy owner and final PR/main/publication gates remain open.",
+    "providerRefusalReview": "Final source review confirmed structured job_id was missing from streamed admission, and explicit refusal could inherit generic retry flags. Closed refusals now deny retry/replay/logical continuation and use existing structured job/reconciliation evidence; safe direct rejected429 remains unchanged. Root independently reviewed the helper/admission diff. HTTP/SSE command/header-job matrix and actual two-key adapter job/unknown-outcome cases are added for final hosted execution.",
+    "concurrentNativeIntegration": "Observed the new public head before blob upload; adopted its full immutable commit/production/tests. Source review of native lifecycle/evidence and final combined frozen host qualification follow; preserve its83required ordinary methods, all prior methods and separate physical limits.",
+    "concurrentNativeEvidenceReview": "Independent source review found no blocker in SDK engine/Stability/PCM/export/native-v5 evidence: requested delegates remain distinct from unobserved hardware,20warm samples and bounded callback/timeline totals remain explicit, three-shape retention preserves640MiB single/1280MiB aggregate estimates and512MiB reserve, and unmeasured PCM remains distinct from scanned silence. No runtime or physical claim.",
+    "retainedTestInventory": "Preserve all58prior owner/publisher manifests, current owner2109named methods and492peer selectors. d74native extends retained baseline to203suites/2165names including all83required changed native-owner methods; final source inventory adds every changed diagnostic/provider/graph method. Six ordinary assumption exceptions require separate256MiB/64MiB gate passes.",
+    "nativeIntegrationCorrections": "Independent review closed the failed native preparation destructor escape, delayed SDK timeout notification race, partial PCM omission on LinkageError, and cleanup issue precedence during cancellation. Actual helper/runner/model-store/speech-lease and deterministic watchdog/runner tests are added; ordinary project execution remains pending. Existing native gates and every prior method remain required."
+  },
+  "rootChanges": [
+    "Parse authenticated protected JSON from bounded byte streams with strict UTF-8 and shape validation; avoid full plaintext String copies.",
+    "Preserve immutable safe redaction branches and reuse payloads across distinct authorized workspace rows under frozen redaction policy.",
+    "Latch cooperative one-row capture after pressure across later stages and resumed archive parts without changing source limits or headroom.",
+    "Retain at most eight inline document pages keyed by replacement, frame and attribution revision; bind persisted document cache to complete manifest reference.",
+    "Add ordinary allocation/privacy/cancellation-sensitive regressions and a real 256MiB 859-row protected corpus continuation gate.",
+    "Require all three new diagnostic capability families during hosted readiness validation, preserving native-only routing and the4096-byte response bound."
+  ],
+  "concurrentAdopted": [
+    "c76bcaad4e720fdee86887174d8a267f281d6100 acceptance retention",
+    "029b7e5a1b268b9a1ef611a60e04396ab604044f non-null authority cancellation regression",
+    "d74dcb445b3381920f373b3f09a7cb9e1c5877d8 speech benchmark source, evidence, engine comparisons, bounded deadlines and native retirement quarantine",
+    "7b7e15f1d2628a747b5d901c8a9f9325bd40f014 complete privacy UI expected literals; root matched both production messages and preserved all five methods.",
+    "9f475b1d8f94ee31b8b8857a064c0517511cb310 retains absent SDK stream-call evidence as unknown; measured zero/nonzero and every producer/test stay unchanged."
+  ],
+  "integratedLaneCommits": {
+    "github": [
+      "b67d84249f46fc21c3432911c0aa1eb388be47e7",
+      "5bf9094ac7fe4c1115b0c9612554ff96106948c7",
+      "5a405d800bc7d0764e42b4486eec160519246f5a",
+      "8b77327c99f6b2552fc8a2a64fb0cea5e429d2d1"
+    ],
+    "provider": [
+      "4e08f6a74fba7b61f8d90a5c70e717fb40d0206a",
+      "9585b6856b00df71406cfb471029ad40c055b71c",
+      "5fac843b8dd26db3d08614302c07be702b31a5e6",
+      "acd86702f502d25e1e78d891eeef5b56e5a4729a",
+      "5eabae2fa8b0869866ee97827e0fbad9f0fcbf07",
+      "3ed487ea9574d58db1ba0e5ef19435d6921b6cd8"
+    ],
+    "graph": [
+      "79ad393c39ea90cd9f7773666bfc0466aa2ab362",
+      "0506111f2f2222a285ec1e8baad9750d4c35003d"
+    ],
+    "nativeIntegration": [
+      "3730e448917aac7283ddf3ede4c05b3c69b80360",
+      "9034ef0c64c66df1ff72184c680636482597adfa",
+      "a23df69841689fd3fb47f0b93c43a9580e211d94"
+    ],
+    "deploymentProbe": [
+      "2e30b15ce9a8cff65204004a2f0460baf77e72ee"
+    ]
+  },
+  "remainingExternalSource": [
+    "Typed PrivateDispatchRejected through actual adapter/masked-session for reports2411/2412, owned by existing coordinator."
+  ],
+  "additionalIntegrationFindings": [
+    "Retain failed native factory cleanup after cancellation during preparation and propagate quarantine through runner/ViewModel before releasing model/process ownership.",
+    "Consume an SDK watchdog deadline already recorded under lock independently of delayed callback publication, including finalization."
+  ]
+}

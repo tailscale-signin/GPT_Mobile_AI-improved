@@ -21,7 +21,8 @@ internal class ProviderHttpFailure(
     val serverRequestId: String? = null,
     /** Opaque rate-limit scope hash; no credential or raw model ID. */
     val cooldownScope: String? = null,
-    val limitSource: String? = null
+    val limitSource: String? = null,
+    val waitRefusal: dev.chungjungsoo.gptmobile.data.agent.ProviderWaitSchedulingResult.NoWaitReason? = null
 ) : java.io.IOException("HTTP $status: transient provider failure") {
     val retryAtMillis: Long? = retryAfterMs?.let { ProviderRetryPolicy.deadlineMillis(observedAtMillis, it) }
 }
@@ -58,7 +59,8 @@ internal object ProviderCooldown {
         checkpointContinuationAllowed: Boolean = false,
         observedHttpStatus: Int? = null,
         serverRequestId: String? = null,
-        limitSource: String? = null
+        limitSource: String? = null,
+        waitRefusal: dev.chungjungsoo.gptmobile.data.agent.ProviderWaitSchedulingResult.NoWaitReason? = null
     ): ProviderHttpFailure {
         val normalizedSource = OpenRouterRateLimitScopes.validLimitSource(limitSource)
         val identity = key(config, normalizedSource)
@@ -69,10 +71,12 @@ internal object ProviderCooldown {
                 status,
                 wait,
                 knownNotAccepted,
+                checkpointContinuationAllowed = checkpointContinuationAllowed,
                 observedHttpStatus = observedHttpStatus,
                 serverRequestId = safeProviderRequestIdentity(serverRequestId),
                 cooldownScope = "provider:" + identity,
-                limitSource = normalizedSource
+                limitSource = normalizedSource,
+                waitRefusal = waitRefusal
             )
         }
         val now = System.currentTimeMillis()
@@ -97,7 +101,8 @@ internal object ProviderCooldown {
             observedHttpStatus = observedHttpStatus,
             serverRequestId = safeProviderRequestIdentity(serverRequestId),
             cooldownScope = "provider:" + identity,
-            limitSource = normalizedSource
+            limitSource = normalizedSource,
+            waitRefusal = waitRefusal
         )
     }
 

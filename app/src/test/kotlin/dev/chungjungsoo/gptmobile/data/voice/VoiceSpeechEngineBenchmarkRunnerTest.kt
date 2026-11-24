@@ -165,6 +165,105 @@ class VoiceSpeechEngineBenchmarkRunnerTest {
         assertTrue(closed.get())
     }
 
+    @Test fun recordedDeadlineStopsTheOwnerAndSurvivesRetirementBeforeItsCallbackCanRun() {
+        listOf(false, true).forEach { linkageFailure ->
+            val time = AtomicLong()
+            val scheduler = ManualScheduler(time)
+            val streamEntered = CountDownLatch(1)
+            val releaseStream = CountDownLatch(1)
+            val deadlineRecorded = CountDownLatch(1)
+            val releaseCallback = CountDownLatch(1)
+            val streamReturned = AtomicBoolean()
+            val streams = AtomicInteger()
+            val cancels = AtomicInteger()
+            val closes = AtomicInteger()
+            val notices = AtomicInteger()
+            val snapshots = CopyOnWriteArrayList<VoiceSpeechBenchmarkReport>()
+            val engine = object : TestEngine() {
+                override fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                    streams.incrementAndGet()
+                    try {
+                        emit(VoicePcmChunk(FloatArray(240) { .1f }))
+                        streamEntered.countDown()
+                        check(releaseStream.await(3, TimeUnit.SECONDS))
+                        if (linkageFailure) throw LinkageError("Fixture native call failed before the next owner checkpoint")
+                    } finally {
+                        streamReturned.set(true)
+                    }
+                }
+                override fun cancel() {
+                    cancels.incrementAndGet()
+                }
+                override fun close() {
+                    assertTrue(streamReturned.get())
+                    closes.incrementAndGet()
+                }
+            }
+            val runner = VoiceSpeechEngineBenchmarkRunner(
+                { factory(it) { engine } },
+                File("unused"),
+                thermalStatus = { 0 },
+                nanoTime = time::get,
+                onStopping = { notices.incrementAndGet() },
+                watchdogFactory = { limits, notify ->
+                    VoiceSpeechBenchmarkWatchdog(
+                        limits,
+                        time::get,
+                        onTimeout = { observed ->
+                            // The actual watchdog has already recorded the deadline and
+                            // released its lock; hold only delivery to the runner callback.
+                            deadlineRecorded.countDown()
+                            check(releaseCallback.await(10, TimeUnit.SECONDS))
+                            notify(observed)
+                        },
+                        scheduler = scheduler
+                    )
+                }
+            )
+            val initial = report().let { it.copy(configuration = it.configuration.copy(deadlines = VoiceSpeechBenchmarkDeadlines(chunkMs = 30))) }
+            val owner = Executors.newSingleThreadExecutor()
+            val timer = Executors.newSingleThreadExecutor()
+            try {
+                val operation = owner.submit<VoiceSpeechBenchmarkReport> { runner.run(initial) { snapshots += it } }
+                assertTrue(streamEntered.await(3, TimeUnit.SECONDS))
+                val callback = timer.submit { scheduler.advanceMs(31) }
+                assertTrue(deadlineRecorded.await(3, TimeUnit.SECONDS))
+                assertFalse(callback.isDone)
+                assertEquals(0, cancels.get())
+                assertEquals(0, closes.get())
+                releaseStream.countDown()
+                val row = operation.get(3, TimeUnit.SECONDS).engineResults.single()
+                assertEquals(VoiceSpeechBenchmarkBackendState.FAILED, row.state)
+                assertEquals("DEADLINE", row.failureCode)
+                assertEquals("CHUNK", row.timeoutScope)
+                assertEquals(30L, row.timeoutLimitMs)
+                assertEquals(31L, row.timeoutElapsedMs)
+                assertEquals("RETIRED", row.cleanupState)
+                assertTrue(row.samples.isEmpty())
+                assertEquals(1, row.partialSample?.pcmChunks)
+                assertEquals(240L, row.partialSample?.audioFrames)
+                assertEquals(false, row.partialSample?.validatedAudio)
+                assertEquals(1, streams.get())
+                assertEquals(1, cancels.get())
+                assertEquals(1, closes.get())
+                assertEquals(0, notices.get())
+                assertFalse(runner.nativeCleanupPending)
+                val published = snapshots.toList()
+                releaseCallback.countDown()
+                callback.get(3, TimeUnit.SECONDS)
+                assertEquals(published, snapshots.toList())
+                assertEquals(1, cancels.get())
+                assertEquals(1, closes.get())
+                assertEquals(0, notices.get())
+            } finally {
+                releaseStream.countDown()
+                releaseCallback.countDown()
+                owner.shutdownNow()
+                timer.shutdownNow()
+            }
+        }
+    }
+
     @Test fun throwingRetirementObserverCannotSkipCloseOrFailedCloseQuarantine() {
         listOf(false, true).forEach { closeFails ->
             val closes = AtomicInteger()

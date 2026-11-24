@@ -59,6 +59,11 @@ internal data class IssueReportDiagnostics(
         }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values.keys + omittedFields + unavailableFields).any { it in ExecutionCompletionDiagnostics.providerBudgetFields } ||
+            (values["provider_wait_no_wait_reason"] as? JsonPrimitive)?.contentOrNull in ExecutionCompletionDiagnostics.providerLimitRefusals
+        ) {
+            add(ExecutionCompletionDiagnostics.PROVIDER_LIMIT_CAUSE_FEATURE)
+        }
         if ((values["tool_error_code"] as? JsonPrimitive)?.contentOrNull in RepositoryOperationReportContract.errorCodes ||
             (values["tool_action"] as? JsonPrimitive)?.contentOrNull in RepositoryOperationReportContract.toolActions ||
             (values["tool_reason_code"] as? JsonPrimitive)?.contentOrNull in RepositoryOperationReportContract.toolReasonCodes ||
@@ -202,7 +207,9 @@ internal data class IssueReportDiagnostics(
         if ("app_search_readiness" in values.keys + omittedFields) add(SEARCH_READINESS_FEATURE)
         if ((values.keys + omittedFields).any { it in silencedInputFields }) add(SILENCED_INPUT_FEATURE)
         if ((values.keys + omittedFields).any { it in replayBudgetFields }) add("REPLAY_BUDGET_EVIDENCE_V1")
+        if ("pending_saved_page_count" in values.keys + omittedFields || values["replay_budget_state"] == JsonPrimitive("REQUIRED_SAVED_PAGE_NOT_PRESENT")) add(SAVED_PAGE_REPLAY_FEATURE)
         if ("graph_transport_kind" in values || "graph_transport_kind" in omittedFields) add("GRAPH_TRANSPORT_EVIDENCE_V1")
+        if ((values.keys + omittedFields).any { it in graphLocalFields } || values["incident_capture_site"] == JsonPrimitive("REPOSITORY_GRAPH_CATCH")) add("GRAPH_LOCAL_CONTEXT_FAILURE_V1")
         if (values["combined_repair_stop"] == JsonPrimitive("SINGLE_PASS_LOCAL_CHECKS_ONLY")) add(COMBINED_SINGLE_PASS_FEATURE)
         if ((values.keys + omittedFields).any { it in readerRunFields } || values["incident_capture_site"] == JsonPrimitive("AGENT_ROUND_CATCH")) add("READER_AND_RUN_FAILURE_DETAILS_V1")
         if ((values.keys + omittedFields).any { it in searchFailureFields || it in taskTimingFields }) add("TASK_AND_TOOL_FAILURE_DETAILS_V1")
@@ -275,10 +282,14 @@ internal data class IssueReportDiagnostics(
         const val ACTION_ONLY_FEATURE = "ACTION_ONLY_TOOL_PRECHECK_V1"
         const val REPEAT_PRIOR_CAUSE_FEATURE = "TOOL_REPEAT_PRIOR_CAUSE_V1"
         const val PROFILE_BEHAVIOR_FEATURE = "PROFILE_BEHAVIOR_CHANGE_V1"
-        private val replayBudgetCounts = setOf("replay_allowance", "replay_tokens", "replay_exchange_count")
+        const val SAVED_PAGE_REPLAY_FEATURE = "SAVED_PAGE_REPLAY_EVIDENCE_V1"
+        private val replayBudgetCounts = setOf("replay_allowance", "replay_tokens", "replay_exchange_count", "pending_saved_page_count")
         internal val replayBudgetFields = replayBudgetCounts + "replay_budget_state"
         private val reconciliationEvidenceFields = setOf("reconciliation_source", "reconciliation_tracked_signature_count")
         internal val graphTransportKinds = setOf("DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN")
+        internal val graphLocalPhases = setOf("TREE_SELECTION", "PACKET_CACHE_READ", "SYMBOL_CATALOG", "SOURCE_LOAD", "MANIFEST_RANKING", "SOURCE_GRAPH", "SOURCE_RANGES", "SEMANTIC_RANKING", "PACKET_ASSEMBLY", "PACKET_CACHE_WRITE")
+        internal val graphLocalReasons = setOf("LOCAL_INVARIANT_REJECTED", "LOCAL_STATE_INVALID", "LOCAL_RUNTIME_FAILURE")
+        private val graphLocalFields = setOf("graph_local_phase", "graph_local_reason")
         private val readerCatalogFields = setOf("url_reader_refusal", "round_catalog_discovery_available")
         private val readerRunFields = reconciliationEvidenceFields + readerCatalogFields
         private val searchAttemptFields = setOf("search_attempt_count", "search_dispatched_attempt_count", "search_budget_rejected_attempt_count")
@@ -422,8 +433,10 @@ internal data class IssueReportDiagnostics(
             "conflict_stream_job_relation" to setOf("MATCHES_VERIFIED_STREAM_JOB", "DIFFERS_VERIFIED_STREAM_JOB", "NO_VERIFIED_STREAM_JOB", "ACTIVE_JOB_NOT_REPORTED"),
             "acceptance_capability_scope" to setOf("FULL_CATALOG", "OBSERVED_CAPABILITIES"),
             "reconciliation_source" to setOf("SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"),
-            "replay_budget_state" to setOf("NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE"),
+            "replay_budget_state" to setOf("NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT"),
             "graph_transport_kind" to graphTransportKinds,
+            "graph_local_phase" to graphLocalPhases,
+            "graph_local_reason" to graphLocalReasons,
             "url_reader_refusal" to setOf("DOMAIN_SCOPE", "HOP_LIMIT", "LOCATION_MISSING", "LOOP", "LOCATION_INVALID", "HTTP_ACCESS_DENIED", "TURN_DENIAL_CACHE"),
             "search_failure_observation" to setOf("UPSTREAM_CHALLENGE", "NO_ENGINE_SUCCEEDED"),
             "catalog_selector_state" to setOf("MIXED_INVENTORY_SELECTORS", "ACTION_NOT_STRING", "ACTION_WITHOUT_NAMES", "NAMES_NOT_ARRAY", "NAMES_NULL", "NAMES_CONTAIN_NON_STRING", "ACTION_REQUIRES_ONE_NAME", "OTHER_SCHEMA_CONSTRAINT"),
@@ -563,7 +576,7 @@ internal data class IssueReportDiagnostics(
                 "privacy_policy_hash", "privacy_zdr_required", "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "privacy_fallbacks_allowed", "privacy_observation", "privacy_reason_code", "privacy_status",
                 "backend_terminal_code_hash", "backend_terminal_status", "backend_finish_reason", "backend_status"
             ),
-            "TOOL" to actionOnlyFields + searchFailureFields + readerCatalogFields + setOf("tool_budget_bytes_available", "graph_index_attempt_hash", "graph_transport_kind") + githubCooldownFields + commonHashes + transportFields + setOf("github_transport_kind", "github_transport_wait_ms", "read_range_count", "read_invalid_window_count", "read_window_rejections", "argument_page_size", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "original_reason_code_hash", "argument_shape_hash", "missing_field_count", "invalid_field_count", "validation_error_count", "invalid_field_classes"),
+            "TOOL" to actionOnlyFields + searchFailureFields + readerCatalogFields + graphLocalFields + setOf("tool_budget_bytes_available", "graph_index_attempt_hash", "graph_transport_kind") + githubCooldownFields + commonHashes + transportFields + setOf("github_transport_kind", "github_transport_wait_ms", "read_range_count", "read_invalid_window_count", "read_window_rejections", "argument_page_size", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "original_reason_code_hash", "argument_shape_hash", "missing_field_count", "invalid_field_count", "validation_error_count", "invalid_field_classes"),
             "ACCEPTANCE" to GitHubAcceptanceRecoveryEvidence.fields + GitHubAcceptancePublicationEvidence.fields + acceptanceScopeFields + githubPrerequisiteFields + setOf("acceptance_pending_remote_continuations", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total", "status_policy_recovery", "branch_protection_http_status", "branch_rules_http_status") + commonHashes + criterionFields + setOf("acceptance_unresolved_claim_count", "acceptance_claim_failure_reasons", "repository_input_blocked_count", "workflow_input_blocked_count", "live_evidence_blocked_count", "acceptance_failed_operation_count", "unmet_requirement_count", "unmet_capability_count", "effective_call_limit", "used_calls", "remaining_calls", "verification_reserve", "pending_continuations", "unresolved_outcomes", "unmet_criterion_count", "unmet_criterion_omitted_count", "checkpoint_hash", "acceptance_evidence_scope"),
             "VOICE" to voiceInstallEvidenceFields + voicePackStateFields + voiceCapturePlaybackFields + setOf("voice_install_state", "voice_install_scheduler", "voice_install_failure", "voice_install_stop_reason", "voice_install_progress_percent", "voice_reply_state", "voice_reply_characters", "voice_session_id_hash", "profile_hash", "model_hash", "voice_generation", "voice_engine", "voice_phase", "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_speech_end_to_transcript_ms", "voice_transcript_to_request_ms", "voice_request_to_response_ms", "voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_warmup_ms", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_focus_result", "voice_input_silenced", "voice_first_audio_basis"),
             "GATEWAY" to setOf("queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "gateway_preflight_candidate_count", "gateway_preflight_blocker_codes", "gateway_preflight_recovery_actions", "gateway_preflight_discovery_state", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason", "gateway_preflight_blocker_codes", "gateway_preflight_recovery_actions", "gateway_preflight_discovery_state", "gateway_preflight_candidate_count", "status_policy_recovery") + commonHashes + modelPreparationFields + setOf("checkpoint_hash", "original_error_code_hash", "gateway_state", "transport_complete", "request_replay_allowed", "logical_continuation_allowed"),

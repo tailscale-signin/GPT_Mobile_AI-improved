@@ -31,6 +31,8 @@ internal fun providerTransportFailureDetails(
 ): JsonObject = JsonObject(
     details.orEmpty() + buildJsonObject {
         val kind = networkFailureKind(error)
+        (error as? Exception)?.let(::transportRateLimitFailure)?.takeIf { it.status == 429 }?.waitRefusal
+            ?.let { put("provider_wait_no_wait_reason", it.name) }
         val effectiveDispatch = details?.get("dispatched") ?: details?.get("inference_dispatched") ?: JsonPrimitive(dispatched)
         val attemptTiming = timing.takeUnless { effectiveDispatch == JsonPrimitive(false) }
         put("dispatched", effectiveDispatch)

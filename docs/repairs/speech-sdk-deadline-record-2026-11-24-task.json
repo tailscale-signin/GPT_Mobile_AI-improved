@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "task": "speech-sdk-deadline-record-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "d74dcb445b3381920f373b3f09a7cb9e1c5877d8",
+  "workingBranch": "work/93d824fd-sdk-deadline",
+  "intent": "Make the SDK benchmark owner consume the watchdog's recorded deadline independently of delayed publication, preserving once-only cancellation and owner retirement fencing.",
+  "status": "IMPLEMENTED_AWAITING_PROJECT_VALIDATION",
+  "scope": [
+    "VoiceSpeechEngineBenchmarkRunner",
+    "Ordinary deterministic SDK runner/watchdog regressions"
+  ],
+  "ownership": "Native preparation/factory/ViewModel quarantine changes belong to the parallel source_recovery_audit lane. Root owns combined generated metadata and hosted validation. No public writes.",
+  "validation": {
+    "status": "FORMAT_PASSED_PROJECT_EXECUTION_DEFERRED",
+    "requirement": "Exercise the actual watchdog and runner with a delayed timeout callback; no replacement state-machine or physical-device claims. Android project execution remains separately qualified.",
+    "observed": [
+      "Pinned ktlint 1.3.1 passed the changed production and test Kotlin files",
+      "git diff --check and task ledger JSON validation passed"
+    ],
+    "notRun": "Ordinary project/JVM tests deferred to hosted CI by root because the Android/Gradle environment remains blocked. No standalone replacement harness or device qualification claimed."
+  },
+  "change": "The owner retains the actual watchdog record at checkpoints, failure handling and after watchdog closure before clearing ownership. Callback delivery remains owner-fenced; cancellation stays idempotent and explicit cancellation retains its existing precedence.",
+  "regression": "An ordinary VoiceSpeechEngineBenchmarkRunnerTest case holds the real watchdog callback after its timeout record, then releases either a normal native return or a LinkageError path. It checks no further synthesis, retained deadline fields, partial PCM on the normal-return path, once-only cancellation/close and no late publication after retirement.",
+  "derivedMetadata": "Root will regenerate revision-bound metadata and run final combined gates after integrating both native follow-ups.",
+  "reviewFollowUp": "Independent review found that the new delayed-deadline LinkageError fixture had delivered PCM but the LinkageError catch did not snapshot it. The catch now preserves the same bounded incomplete measurement as the Exception path; both fixture variants require one chunk, 240 frames and validatedAudio=false. Pinned ktlint1.3.1, diff check and ledger JSON pass. Ordinary project execution remains deferred to hosted CI and unclaimed."
+}

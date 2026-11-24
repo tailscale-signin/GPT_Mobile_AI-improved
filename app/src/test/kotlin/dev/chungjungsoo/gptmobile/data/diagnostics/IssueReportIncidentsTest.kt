@@ -32,6 +32,36 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportIncidentsTest {
+    @Test fun missingSavedReplayPageRetainsTheBoundedSubtypeThroughIncidentCaptureAndRestore() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf(
+            "failed_stage" to "planning",
+            "failure_origin" to "APPLICATION",
+            "dispatched" to false,
+            "replay_budget_state" to "REQUIRED_SAVED_PAGE_NOT_PRESENT",
+            "pending_saved_page_count" to 1,
+            "replay_allowance" to 24000,
+            "replay_tokens" to 9728,
+            "replay_exchange_count" to 11,
+            "saved_page_body" to "PRIVATE_SOURCE_BODY"
+        )
+        IssueReportIncidents.chatFailure("REPLAY_EVIDENCE_REQUIRED", false, null, fields)
+        val report = IssueReportIncidents.pending.value.single()
+        val diagnostics = requireNotNull(report.context?.diagnostics)
+        val restored = requireNotNull(IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), diagnostics)))
+        assertEquals(JsonPrimitive("REQUIRED_SAVED_PAGE_NOT_PRESENT"), restored.values["replay_budget_state"])
+        assertEquals(JsonPrimitive(1), restored.values["pending_saved_page_count"])
+        assertEquals(JsonPrimitive(9728), restored.values["replay_tokens"])
+        assertEquals(JsonPrimitive(24000), restored.values["replay_allowance"])
+        assertEquals(JsonPrimitive(11), restored.values["replay_exchange_count"])
+        assertTrue(IssueReportDiagnostics.SAVED_PAGE_REPLAY_FEATURE in restored.requiredServiceFeatures())
+        assertFalse(report.approvedPayload().contains("PRIVATE_SOURCE_BODY"))
+        for (wrong in listOf(fields + ("dispatched" to true), fields + ("failed_stage" to "tool_precheck"), fields + ("failure_origin" to "PROVIDER"))) {
+            val other = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "REPLAY_EVIDENCE_REQUIRED", wrong)
+            assertTrue(IssueReportDiagnostics.replayBudgetFields.none { it in other })
+        }
+    }
+
     @Test fun verificationReserveStopKeepsTheTypedReasonWithoutRenewingOrExhaustingTheBudget() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val fields = mapOf(

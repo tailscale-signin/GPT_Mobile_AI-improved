@@ -23,6 +23,47 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IssueReportSubmissionTest {
+    @Test fun savedReplayPageEvidenceRequiresReceiverSupportBeforePostingApprovedBytes() {
+        val fields = IssueReportIncidentCapsule.fields(
+            ReportFeature.CHAT,
+            "CHAT_FAILURE",
+            "REPLAY_EVIDENCE_REQUIRED",
+            mapOf("failed_stage" to "planning", "failure_origin" to "APPLICATION", "dispatched" to false, "replay_budget_state" to "REQUIRED_SAVED_PAGE_NOT_PRESENT", "pending_saved_page_count" to 1)
+        )
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+        val needed = requireNotNull(context.diagnostics).requiredServiceFeatures()
+        val feature = IssueReportDiagnostics.SAVED_PAGE_REPLAY_FEATURE
+        assertTrue(feature in needed)
+        assertTrue("REPLAY_BUDGET_EVIDENCE_V1" in needed)
+        val approved = report.copy(feature = "chat", errorCode = "REPLAY_EVIDENCE_REQUIRED", context = context)
+        val payload = approved.approvedPayload()
+        var supported = false
+        val methods = mutableListOf<String>()
+        val posted = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            methods += request.method
+            if (request.method == "GET") {
+                val features = JsonArray(needed.filter { supported || it != feature }.map(::JsonPrimitive))
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+            } else {
+                posted += body(request)
+                response(request, 200, """{"reportId":"${approved.reportId}","number":941}""")
+            }
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        val blocked = submission.send(approved.reportId, payload) as IssueReportSubmission.Failure
+        assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+        assertFalse(blocked.automaticRetry)
+        assertEquals(listOf("GET"), methods)
+        assertTrue(posted.isEmpty())
+        supported = true
+        assertEquals(IssueReportSubmission.Confirmed(941), submission.send(approved.reportId, payload))
+        assertEquals(listOf("GET", "GET", "POST"), methods)
+        assertEquals(listOf(payload), posted)
+        assertEquals(payload, approved.approvedPayload())
+    }
+
     @Test fun streamingVoiceValuesRequireTheirOwnCapabilityBeforePostingRestoredApprovedBytes() {
         val feature = VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
         val cases = listOf(

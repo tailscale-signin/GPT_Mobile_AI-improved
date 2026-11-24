@@ -721,6 +721,25 @@ class ProviderFailureReportTest {
         assertNull(fields["provider_wait_no_wait_reason"])
     }
 
+    @Test fun typedTransportWaitRefusalSurvivesThePublicReportButArbitraryTextDoesNot() {
+        for (reason in listOf("GATEWAY_COMMAND_PRESENT", "REMOTE_OUTCOME_UNKNOWN", "RETRY_DEADLINE_UNAVAILABLE", "private provider text")) {
+            val failure = ProviderEvent.Failed(
+                "Provider limit reached.",
+                errorCode = "429",
+                failureDetails = buildJsonObject {
+                    put("http_status", 429)
+                    put("provider_failure_kind", "RATE_LIMIT")
+                    put("provider_wait_no_wait_reason", reason)
+                }
+            )
+            val fields = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
+            val expected = reason.takeUnless { it == "private provider text" } ?: "DECISION_UNAVAILABLE"
+            assertEquals(JsonPrimitive(expected), fields["provider_wait_no_wait_reason"])
+            assertEquals(JsonPrimitive(expected), ExecutionCompletionDiagnostics.validValue("provider_wait_no_wait_reason", fields.getValue("provider_wait_no_wait_reason")))
+            assertFalse(fields.toString().contains("private provider text"))
+        }
+    }
+
     @Test fun actualStreamExportsCompletionBudgetCauseCapAndOwnedUsageWithoutAnotherRequest() = runBlocking {
         val failure = ProviderEvent.Failed(
             "private provider detail",

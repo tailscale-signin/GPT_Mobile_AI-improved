@@ -364,13 +364,15 @@ internal class GitHubVerifiedSession(
             val catalogComplete = GitHubAuthorizedCatalog.snapshot(receipts, authorizedTools)["complete"] == kotlinx.serialization.json.JsonPrimitive(true)
             val next = schedule.next
             if (checkpoint != lastChecklist) {
+                val firstCheckpoint = lastChecklist == null
                 if (receipts.isNotEmpty()) withContext(computationDispatcher) { evidence.retainChecklist(checkpoint) }
                 lastChecklist = checkpoint
+                val prerequisites = if (firstCheckpoint) " " + GitHubIntegrationPreparation.preflightSummary(task, fixturePreflight) else ""
                 if (receipts.isEmpty()) {
                     val limit = planningBudget["effective_call_limit"] ?: planningRemaining
-                    if (limit != null) progress("Starting GitHub integration checks with $limit tool calls available and ${GitHubChecklistBudget.VERIFICATION_RESERVE} reserved for verification.")
+                    progress("Starting GitHub integration checks" + (limit?.let { " with $it tool calls available and ${GitHubChecklistBudget.VERIFICATION_RESERVE} reserved for verification" } ?: "") + ".$prerequisites")
                 } else {
-                    progress(GitHubTestChecklist.progressSummary(checkpoint, next))
+                    progress(GitHubTestChecklist.progressSummary(checkpoint, next) + prerequisites)
                 }
             }
             if (next != null) {

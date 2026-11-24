@@ -130,6 +130,23 @@ class GitHubIntegrationReportTest {
         assertEquals(1, receipts.size)
     }
 
+    @Test fun preExecutionNoticeUsesTheRetainedDecisionBeforeAnyReadReceiptsExist() {
+        for (mode in listOf(GitHubDecisionMode.ASK, GitHubDecisionMode.AUTO_APPROVE, null)) {
+            val preflight = GitHubTestChecklist.fixtureApprovalPreflight(mode, "accepted-task", "owner/repo", "main", json("{}"))
+            val before = preflight.toString()
+            val checkpoint = GitHubTestChecklist.checkpoint(task, emptyMap(), tools, 200, preflight)
+            val notice = checkpoint.getValue("preparation").jsonObject.text("pre_execution_notice")
+            assertTrue(notice.contains("actual run/job receipts at the selected SHA"))
+            assertEquals(mode == GitHubDecisionMode.ASK, notice.contains("existing exact approval interaction"))
+            assertEquals(mode == null, notice.contains("blocked until"))
+            assertEquals(before, preflight.toString())
+            assertEquals(JsonPrimitive(false), preflight["mutation_dispatched"])
+        }
+        val readOnly = GitHubIntegrationPreparation.preflightSummary("Test GitHub integration read only", null)
+        assertTrue(readOnly.contains("mutation coverage stays out of scope"))
+        assertFalse(readOnly.contains("need"))
+    }
+
     @Test fun remainingBudgetAndMissingPrerequisitesStaySeparateForEachCheckpoint() {
         val receipts = mapOf("source" to source())
         for (remaining in listOf(204, 48)) {

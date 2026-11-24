@@ -36,7 +36,8 @@ internal class GitHubRepositorySession(
     private val searchBlobTimeoutMs: Long = 8_000,
     private val readOperationTimeoutMs: Long = 12_000,
     private val indexBlobTimeoutMs: Long = 4_000,
-    private val initialRepositoryContext: GitHubConversationContext? = null
+    private val initialRepositoryContext: GitHubConversationContext? = null,
+    private val taskContextBlobTimeoutMs: Long = 2500
 ) {
     private val scope = listOf(accountId, connectionUid, conversationId, taskId).joinToString(":")
     private val conversationScope = listOf(accountId, connectionUid, conversationId).joinToString(":")
@@ -189,7 +190,9 @@ internal class GitHubRepositorySession(
         }
         GitHubBlobContent.checkSize(item["size"]?.jsonPrimitive?.longOrNull ?: 0)
         val response = request("${root(context.owner, context.repo)}/git/blobs/$sha").jsonObject
-        require(response.s("sha").isBlank() || response.s("sha") == sha) { "Returned blob identity differs from the selected tree." }
+        if (response.s("sha").isNotBlank() && response.s("sha") != sha) {
+            throw GitHubReadValidation("EVIDENCE_REVISION_MISMATCH", buildJsonObject { put("message", "Returned blob identity differs from the selected tree.") })
+        }
         val decoded = GitHubBlobContent.decode(response.s("encoding"), response.s("content"))
         val text = decoded.content
         // Cached ingestion can resume on Main when invoked from the workspace UI.
@@ -502,7 +505,9 @@ internal class GitHubRepositorySession(
         val budget = GitHubReadWorkBudget(readOperationTimeoutMs)
         val context = budget.run { resolve(owner, repo, args) }
             ?: throw GatewayGraphResultException("READ_DEADLINE", "The pinned repository could not be resolved within the read budget.", "REFRESH_PHONE_MAP")
-        val tree = budget.run { tree(context) } ?: throw readBudgetExpired(context, "phone_index_tree")
+        val tree = budget.run {
+            if (action == "task_context_bundle") taskContextPhase(PhoneTaskContextPhase.TREE_SELECTION) { tree(context) } else tree(context)
+        } ?: throw readBudgetExpired(context, "phone_index_tree")
         if (action == "task_context_bundle") return@withContext taskContextBundle(context, tree, args)
         val entries = tree.getValue("tree").jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
         val eligible = indexableSourceEntries(entries)
@@ -691,84 +696,122 @@ internal class GitHubRepositorySession(
             .getOrElse { throw IllegalArgumentException("Choose CURRENT, REFERENCE, TASK or SEMANTIC context.") }
         val query = args.s("query").take(6000)
         val budget = ((args["budget_bytes"] as? JsonPrimitive)?.intOrNull ?: 12_000).coerceIn(4096, 64_000)
-        val sourceScope = blobScope(context)
-        val entries = indexableSourceEntries(tree.getValue("tree").jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" && it.s("mode") !in setOf("120000", "160000") }).associateBy { it.s("path") }
-        suspend fun generation() = store.read(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:generation-v1")?.s("generation").orEmpty()
-        val requestKey = GitHubRepositoryStateStore.digest(
-            buildJsonObject {
-                put("bundle_version", GitHubTaskContextBundle.VERSION)
-                put("parser_version", PhoneRepositoryGraph.PARSER_VERSION)
-                put("repository", "${context.owner}/${context.repo}")
-                put("ref", context.ref)
-                put("commit_sha", context.commitSha)
-                put("tree_sha", context.treeSha)
-                put("query", query)
-                put("variant", variant.name)
-                put("budget_bytes", budget)
-                put("preparation_budget_ms", preparationBudgetMs)
-            }.toString()
-        )
-        val cacheKey = "task-context:$requestKey:${generation()}"
-        if (variant != GitHubContextVariant.SEMANTIC && !forceLiveReads()) {
-            store.read(sourceScope, cacheKey)?.takeIf {
-                it.s("repository") == "${context.owner}/${context.repo}" &&
-                    it.s("branch") == context.ref &&
-                    it.s("source_sha") == context.commitSha &&
-                    it.s("variant") == variant.name
-            }?.let {
-                val reused = GitHubTaskContextBundle.measure(JsonObject(it + mapOf("cache_hit" to JsonPrimitive(true), "cache" to JsonObject((it["cache"] as? JsonObject).orEmpty() + ("cache_hit" to JsonPrimitive(true))), "cache_status" to JsonPrimitive("PINNED_PACKET_REUSED"), "preparation_ms" to JsonPrimitive(0))))
-                retainTaskContextSummary(context, reused)
-                return reused
+        return taskContextPhase(PhoneTaskContextPhase.PACKET_ASSEMBLY) {
+            val sourceScope = blobScope(context)
+            val entries = taskContextPhase(PhoneTaskContextPhase.TREE_SELECTION) {
+                indexableSourceEntries(tree.getValue("tree").jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" && it.s("mode") !in setOf("120000", "160000") }).associateBy { it.s("path") }
             }
-        }
-        val catalogs = if (variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC)) {
-            entries.values.map { it.s("sha").take(2) }.distinct().associateWith { prefix -> cachedSource(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:catalog-v1:$prefix") }
-        } else {
-            emptyMap()
-        }
-        val files = entries.values.map { entry ->
-            val blobSha = entry.s("sha")
-            GitHubContextFile(entry.s("path"), blobSha, (entry["size"] as? JsonPrimitive)?.longOrNull ?: 0, (catalogs[blobSha.take(2)]?.get(blobSha) as? JsonPrimitive)?.content.orEmpty())
-        }
-        val keys = mutableListOf<String>()
-        val result = GitHubTaskContextBundle.build(
-            "${context.owner}/${context.repo}", context.commitSha, context.ref, files, query, variant, budget,
-            treeComplete = tree["truncated"] != JsonPrimitive(true),
-            load = { path ->
-                val entry = entries[path]
-                if (entry == null) {
-                    null
-                } else {
-                    val key = "blob:${entry.s("sha")}"
-                    val remaining = preparationBudgetMs - (System.nanoTime() - started) / 1_000_000
-                    val read = if (remaining <= 0) null else kotlinx.coroutines.withTimeoutOrNull(minOf(remaining, 2500)) { readBlob(context, entry) }
-                    read?.let {
-                        keys += key
-                        GitHubContextSource(path, entry.s("sha"), it.content.s("content"), it.cacheHit)
-                    }
+            suspend fun generation() = store.read(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:generation-v1")?.s("generation").orEmpty()
+            val requestKey = GitHubRepositoryStateStore.digest(
+                buildJsonObject {
+                    put("bundle_version", GitHubTaskContextBundle.VERSION)
+                    put("parser_version", PhoneRepositoryGraph.PARSER_VERSION)
+                    put("repository", "${context.owner}/${context.repo}")
+                    put("ref", context.ref)
+                    put("commit_sha", context.commitSha)
+                    put("tree_sha", context.treeSha)
+                    put("query", query)
+                    put("variant", variant.name)
+                    put("budget_bytes", budget)
+                    put("preparation_budget_ms", preparationBudgetMs)
+                }.toString()
+            )
+            val cacheKey = "task-context:$requestKey:${generation()}"
+            if (variant != GitHubContextVariant.SEMANTIC && !forceLiveReads()) {
+                taskContextPhase(PhoneTaskContextPhase.PACKET_CACHE_READ) { store.read(sourceScope, cacheKey) }?.takeIf {
+                    it.s("repository") == "${context.owner}/${context.repo}" &&
+                        it.s("branch") == context.ref &&
+                        it.s("source_sha") == context.commitSha &&
+                        it.s("variant") == variant.name
+                }?.let {
+                    val reused = GitHubTaskContextBundle.measure(JsonObject(it + mapOf("cache_hit" to JsonPrimitive(true), "cache" to JsonObject((it["cache"] as? JsonObject).orEmpty() + ("cache_hit" to JsonPrimitive(true))), "cache_status" to JsonPrimitive("PINNED_PACKET_REUSED"), "preparation_ms" to JsonPrimitive(0))))
+                    retainTaskContextSummary(context, reused)
+                    return@taskContextPhase reused
                 }
-            },
-            localRanker = kotlinx.coroutines.currentCoroutineContext()[GitHubTaskContextRanking]?.let { ranker ->
-                { query, records -> ranker.rank(query, records, context.accountId) }
-            },
-            indexedFiles = files.count { catalogs[it.blobSha.take(2)]?.containsKey(it.blobSha) == true }.takeIf { variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC) },
-            localRankingFallback = kotlinx.coroutines.currentCoroutineContext()[GitHubTaskContextRanking]?.fallbackReason
-        )
-        store.retainSourceWorkingSet(sourceScope, keys)
-        val indexedNow = files.count { catalogs[it.blobSha.take(2)]?.containsKey(it.blobSha) == true || "blob:${it.blobSha}" in keys }
-        val coverage = JsonObject((result["coverage"] as? JsonObject).orEmpty() + ("indexed_files" to if (variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC)) JsonPrimitive(indexedNow) else JsonNull))
-        val enriched = GitHubTaskContextBundle.measure(JsonObject(result + mapOf("coverage" to coverage, "cache_status" to JsonPrimitive(if (result["cache_hit"] == JsonPrimitive(true)) "SOURCE_REUSED" else "SOURCE_FETCHED"))))
-        if (variant != GitHubContextVariant.SEMANTIC && result["source_complete"] == JsonPrimitive(true)) store.write(sourceScope, "task-context:$requestKey:${generation()}", enriched)
-        retainTaskContextSummary(context, enriched)
-        return enriched
+            }
+            val catalogs = if (variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC)) {
+                taskContextPhase(PhoneTaskContextPhase.SYMBOL_CATALOG) {
+                    entries.values.map { it.s("sha").take(2) }.distinct().associateWith { prefix -> cachedSource(sourceScope, "source-symbols:${PhoneRepositoryGraph.PARSER_VERSION}:catalog-v1:$prefix") }
+                }
+            } else {
+                emptyMap()
+            }
+            val files = entries.values.map { entry ->
+                val blobSha = entry.s("sha")
+                GitHubContextFile(entry.s("path"), blobSha, (entry["size"] as? JsonPrimitive)?.longOrNull ?: 0, (catalogs[blobSha.take(2)]?.get(blobSha) as? JsonPrimitive)?.content.orEmpty())
+            }
+            val keys = mutableListOf<String>()
+            val progressKey = "task-context-progress:$requestKey"
+            val progress = GitHubTaskContextReadProgress(store.read(scope, progressKey))
+            val result = taskContextPhase(PhoneTaskContextPhase.PACKET_ASSEMBLY) {
+                GitHubTaskContextBundle.build(
+                    "${context.owner}/${context.repo}", context.commitSha, context.ref, files, query, variant, budget,
+                    treeComplete = tree["truncated"] != JsonPrimitive(true),
+                    load = { path ->
+                        val entry = entries[path]
+                        if (entry == null) {
+                            null
+                        } else {
+                            val blob = entry.s("sha")
+                            val key = "blob:$blob"
+                            val remaining = preparationBudgetMs - (System.nanoTime() - started) / 1_000_000
+                            val read = when {
+                                remaining <= 0 -> {
+                                    progress.record(path, blob, GitHubContextReadState.PREPARATION_DEADLINE)
+                                    null
+                                }
+                                progress.exhausted(blob) -> {
+                                    // A separately authorized source read can recover this immutable
+                                    // blob. Never retry its stalled transport merely by repeating a bundle.
+                                    cachedSource(sourceScope, key)?.let { BlobRead(it, cacheHit = true) }
+                                        ?: run {
+                                            progress.record(path, blob, GitHubContextReadState.NO_PROGRESS_LIMIT_REACHED)
+                                            null
+                                        }
+                                }
+                                else -> kotlinx.coroutines.withTimeoutOrNull(minOf(remaining, taskContextBlobTimeoutMs.coerceIn(1, 2500))) { readBlob(context, entry) }
+                                    ?: run {
+                                        val reason = if (remaining <= taskContextBlobTimeoutMs.coerceIn(1, 2500)) GitHubContextReadState.PREPARATION_DEADLINE else GitHubContextReadState.BLOB_READ_DEADLINE
+                                        progress.record(path, blob, reason, attempted = true)
+                                        null
+                                    }
+                            }
+                            if (read != null) progress.record(path, blob, if (read.cacheHit) GitHubContextReadState.SOURCE_REUSED else GitHubContextReadState.SOURCE_FETCHED)
+                            // Retain each completed/deferred blob before another read can time out.
+                            store.write(scope, progressKey, progress.checkpoint())
+                            read?.let {
+                                keys += key
+                                GitHubContextSource(path, entry.s("sha"), it.content.s("content"), it.cacheHit)
+                            }
+                        }
+                    },
+                    localRanker = kotlinx.coroutines.currentCoroutineContext()[GitHubTaskContextRanking]?.let { ranker ->
+                        { query, records -> ranker.rank(query, records, context.accountId) }
+                    },
+                    indexedFiles = files.count { catalogs[it.blobSha.take(2)]?.containsKey(it.blobSha) == true }.takeIf { variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC) },
+                    localRankingFallback = kotlinx.coroutines.currentCoroutineContext()[GitHubTaskContextRanking]?.fallbackReason,
+                    readState = progress::state
+                )
+            }
+            store.retainSourceWorkingSet(sourceScope, keys)
+            val indexedNow = files.count { catalogs[it.blobSha.take(2)]?.containsKey(it.blobSha) == true || "blob:${it.blobSha}" in keys }
+            val coverage = JsonObject((result["coverage"] as? JsonObject).orEmpty() + ("indexed_files" to if (variant in setOf(GitHubContextVariant.TASK, GitHubContextVariant.SEMANTIC)) JsonPrimitive(indexedNow) else JsonNull))
+            val enriched = GitHubTaskContextBundle.measure(JsonObject(result + mapOf("coverage" to coverage, "cache_status" to JsonPrimitive(if (result["cache_hit"] == JsonPrimitive(true)) "SOURCE_REUSED" else "SOURCE_FETCHED"))))
+            taskContextPhase(PhoneTaskContextPhase.PACKET_CACHE_WRITE) {
+                if (variant != GitHubContextVariant.SEMANTIC && result["source_complete"] == JsonPrimitive(true)) store.write(sourceScope, "task-context:$requestKey:${generation()}", enriched)
+                retainTaskContextSummary(context, enriched)
+            }
+            enriched
+        }
     }
 
     /** UI diagnostics retain identities and counts, never task text or source excerpts. */
     private suspend fun retainTaskContextSummary(context: GitHubTaskSnapshot, packet: JsonObject) {
-        val scalarKeys = setOf("schema", "repository", "source_sha", "variant", "reference_digest", "index_digest", "manifest_status", "freshness", "ranking", "semantic_applied", "semantic_fallback", "cache_hit", "cache_status", "cached_files", "loaded_files", "coverage", "cache", "preparation_ms", "content_bytes", "bytes", "token_count", "token_count_basis", "token_estimate", "token_estimate_basis", "selection_truncated", "selected_paths", "test_candidates", "unavailable_files", "source_complete", "source_identity_kind", "source_readiness", "delivery_status")
+        val scalarKeys = setOf("schema", "repository", "source_sha", "variant", "reference_digest", "index_digest", "manifest_status", "freshness", "ranking", "semantic_applied", "semantic_fallback", "cache_hit", "cache_status", "cached_files", "loaded_files", "coverage", "cache", "preparation_ms", "content_bytes", "bytes", "token_count", "token_count_basis", "token_estimate", "token_estimate_basis", "selection_truncated", "selected_paths", "test_candidates", "unavailable_files", "source_complete", "source_identity_kind", "source_readiness", "delivery_status", "source_read_progress_total", "source_read_progress_omitted", "deferred_reason_counts", "automatic_retry", "no_progress_attempt_limit")
         val summary = buildJsonObject {
             packet.filterKeys { it in scalarKeys }.forEach { (key, value) -> put(key, value) }
-            put("source_read_candidates", JsonArray((packet["source_read_candidates"] as? JsonArray).orEmpty().mapNotNull { row -> (row as? JsonObject)?.let { JsonObject(it.filterKeys { name -> name in setOf("path", "blob_sha", "source_loaded") }) } }))
+            put("source_read_candidates", JsonArray((packet["source_read_candidates"] as? JsonArray).orEmpty().mapNotNull { row -> (row as? JsonObject)?.let { JsonObject(it.filterKeys { name -> name in setOf("path", "blob_sha", "source_loaded", "deferred_reason") }) } }))
+            put("source_read_progress", JsonArray((packet["source_read_progress"] as? JsonArray).orEmpty().take(20).mapNotNull { row -> (row as? JsonObject)?.let { JsonObject(it.filterKeys { name -> name in setOf("path", "blob_sha", "state") }) } }))
             put("selected_ranges", JsonArray((packet["selected_ranges"] as? JsonArray).orEmpty().mapNotNull { row -> (row as? JsonObject)?.let { JsonObject(it.filterKeys { name -> name in setOf("path", "blob_sha", "start_line", "end_line", "reason") }) } }))
             put("documents", JsonArray((packet["documents"] as? JsonArray).orEmpty().mapNotNull { row -> (row as? JsonObject)?.let { JsonObject(it.filterKeys { name -> name in setOf("path", "blob_sha", "start_line", "end_line") }) } }))
             put("source_current", packet.s("source_sha") == context.commitSha)
@@ -797,7 +840,10 @@ internal class GitHubRepositorySession(
         var attempted = 0
         var skipped = 0
         var deadline = false
+        var deadlineItem: JsonObject? = null
+        var deadlineScope = "BLOB"
         val deferred = mutableListOf<JsonObject>()
+        val failedIdentities = GitHubSearchFileFailures.entries(store.read(blobScope(context), failureKey)).keys.toMutableSet()
         val treeComplete = pinnedTree["truncated"] != JsonPrimitive(true)
         fun checkpoint() = buildJsonObject {
             put("commit_sha", context.commitSha)
@@ -846,8 +892,11 @@ internal class GitHubRepositorySession(
                     continue
                 }
                 if (bytes + size > 4L * 1024 * 1024) break
+                var readInFlight = false
                 try {
-                    val completed = budget.run(minOf(indexBlobTimeoutMs, (budget.remainingMs - 250).coerceAtLeast(1))) {
+                    val blobBudgetMs = minOf(indexBlobTimeoutMs, (budget.remainingMs - 250).coerceAtLeast(1))
+                    val completed = budget.run(blobBudgetMs) {
+                        readInFlight = true
                         if (forceLiveReads() || !(alreadyPrepared?.invoke(item) ?: store.contains(blobScope(context), "blob:${item.s("sha")}"))) {
                             attempted++
                             val retained = blob(context, item)
@@ -859,27 +908,23 @@ internal class GitHubRepositorySession(
                     }
                     if (completed == null) {
                         deadline = true
-                        val identity = GitHubSearchFileFailures.identity(context, item.s("path"), item.s("sha"))
-                        val failures = store.update(blobScope(context), failureKey) { GitHubSearchFileFailures.update(it, emptySet(), identity) }
-                        val attempts = GitHubSearchFileFailures.entries(failures)[identity] ?: 0
-                        if (attempts >= GitHubSearchFileFailures.MAX_ATTEMPTS) {
-                            deferred += buildJsonObject {
-                                put("path", item.getValue("path"))
-                                put("sha", item.getValue("sha"))
-                                put("reason", "REPEATED_READ_DEADLINE")
-                                put("attempts", attempts)
-                            }
-                            skipped++
-                            next++
-                        }
-                        retainProgress()
+                        deadlineItem = item.takeIf { readInFlight }
+                        deadlineScope = if (blobBudgetMs < indexBlobTimeoutMs) "OPERATION" else "BLOB"
                         break
                     }
+                    readInFlight = false
+                    val identity = GitHubSearchFileFailures.identity(context, item.s("path"), item.s("sha"))
+                    if (failedIdentities.remove(identity)) store.update(blobScope(context), failureKey) { GitHubSearchFileFailures.update(it, setOf(identity), null) }
                     next++
                     retainProgress()
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    if (readInFlight && cancelled is kotlinx.coroutines.TimeoutCancellationException) {
+                        deadline = true
+                        deadlineItem = item
+                        deadlineScope = "OPERATION"
+                    }
                     throw cancelled
-                } catch (_: IllegalArgumentException) {
+                } catch (_: GitHubBlobContentFailure) {
                     skipped++
                     next++
                     retainProgress()
@@ -890,10 +935,39 @@ internal class GitHubRepositorySession(
                 }
             }
         } finally {
-            // Only completed immutable reads advance this local cursor. Cancellation
-            // never retries a remote action and cannot erase the last durable frontier.
+            // An outer deadline must retain the active blob's no-progress attempt too.
+            // Plain cancellation never increments failures. A bounded explicit deferral
+            // may advance traversal, but never counts as successfully indexed coverage.
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
-                kotlinx.coroutines.withTimeoutOrNull(1000) { retainProgress() }
+                kotlinx.coroutines.withTimeoutOrNull(1000) {
+                    deadlineItem?.let { item ->
+                        val identity = GitHubSearchFileFailures.identity(context, item.s("path"), item.s("sha"))
+                        val failures = store.update(blobScope(context), failureKey) { GitHubSearchFileFailures.update(it, emptySet(), identity) }
+                        val attempts = GitHubSearchFileFailures.entries(failures)[identity] ?: 0
+                        val exhausted = attempts >= GitHubSearchFileFailures.MAX_ATTEMPTS
+                        deferred += buildJsonObject {
+                            put("path", item.getValue("path"))
+                            put("sha", item.getValue("sha"))
+                            put(
+                                "reason",
+                                if (exhausted) {
+                                    "REPEATED_READ_DEADLINE"
+                                } else if (deadlineScope == "OPERATION") {
+                                    "OPERATION_READ_DEADLINE"
+                                } else {
+                                    "BLOB_READ_DEADLINE"
+                                }
+                            )
+                            put("deadline_scope", deadlineScope)
+                            put("attempts", attempts)
+                        }
+                        if (exhausted) {
+                            skipped++
+                            next++
+                        }
+                    }
+                    retainProgress()
+                }
             }
         }
         val status = budget.run { indexStatus(context) } ?: buildJsonObject {

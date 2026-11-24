@@ -126,646 +126,847 @@ class OpenAIAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<ChatCompletionChunk> = flow {
-        var config = (if (config.freeProvider != null) config.copy(freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics()) else config).copy(selectedModel = request.model)
-        val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
-        val connectionTimeout = kotlinx.coroutines.currentCoroutineContext()[ProfileConnectionTimeout]?.millis
-        var receivedAssistantPayload = false
-        var receivedVisibleText = false
-        var requestDispatched = false
-        var anyRequestDispatched = false
-        var llamaActivity: AutoCloseable? = null
-        var receivedGatewayToolActivity = false
-        val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
-        var receivedTerminal = false
-        var resolvedFreeModel: String? = null
-        var contextCorrected = false
-        var recoveryCheck = false
-        var requestedHealthModel = request.model
-        var transportRetries = 0
-        val transportStartedNs = System.nanoTime()
-        var activeControlReceipt: ReasoningControlReceipt? = null
-        var activeResponseObserver: ProviderResponseObserver? = null
-        try {
-            val free = config.freeProvider
-            if (free != null) {
-                FreeProviderPreflight.require(config, request.model)
-            }
-            var freeModel = free?.let {
-                if (it == FreeAiProvider.LLM7) Llm7FreeModelSelection.resolve(networkClient.inferenceClient(), config, request.model) else dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireModel(it, request.model)
-            }
-            if (free == FreeAiProvider.PORCHLM && request.model == "automatic") {
-                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(free)
-                freeModel = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(free).firstOrNull { it.id != "automatic" }
-                check(freeModel != null) { "PorchLM model discovery is unavailable. Retry its status check later." }
-            }
-            if (free != null) {
-                config = config.copy(freeModelSnapshot = requireNotNull(freeModel))
-                requestedHealthModel = freeModel.id
-                recoveryCheck = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.beginGeneration(free, freeModel.id, freeCredentialIdentity(free, config.token))
-            }
-            if (free == FreeAiProvider.POLLINATIONS) PollinationsClassic.requireText(request)
-            if (free == FreeAiProvider.PORCHLM) emit(ChatCompletionChunk(applicationNotice = "PorchLM is an educational demonstration model. Responses can be incoherent or inaccurate; use another provider for factual answers."))
-            var preparedRequest = if (free == null) {
-                request.withEndpointSamplingPolicy(config.apiUrl)
-            } else {
-                request.copy(
-                    model = requireNotNull(freeModel).id,
-                    stream = request.stream && freeModel?.streaming == true,
-                    maxTokens = free.outputAllowance(request.maxTokens),
-                    maxCompletionTokens = null,
-                    tools = request.tools.takeIf { freeModel?.tools == true },
-                    toolChoice = request.toolChoice.takeIf { freeModel?.tools == true },
-                    models = null,
-                    provider = null,
-                    plugins = null,
-                    topK = null,
-                    reasoningEffort = if (free == FreeAiProvider.POLLINATIONS) request.reasoningEffort ?: "low" else request.reasoningEffort.takeIf { free in setOf(FreeAiProvider.KILO, FreeAiProvider.BLOCKRUN) },
-                    reasoning = request.reasoning.takeIf { free == FreeAiProvider.KILO },
-                    options = null,
-                    transforms = null,
-                    sessionId = null
+        ChatCompletionStream(this, request, timeoutSeconds, config).run()
+    }.normalizeFreeTextBlocks(config.freeProvider).recordOpenRouterReceipts(config.openRouterReceipt, openRouterReceipts).flowOn(Dispatchers.IO)
+
+    /** One owner per collection keeps retry, output and accounting state across explicit transport phases. */
+    private inner class ChatCompletionStream(
+        private val collector: kotlinx.coroutines.flow.FlowCollector<ChatCompletionChunk>,
+        private val request: ChatCompletionRequest,
+        private val timeoutSeconds: Int,
+        initialConfig: ProviderRequestConfig
+    ) {
+        private var config = (if (initialConfig.freeProvider != null) initialConfig.copy(freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics()) else initialConfig).copy(selectedModel = request.model)
+        private var receivedAssistantPayload = false
+        private var receivedVisibleText = false
+        private var requestDispatched = false
+        private var anyRequestDispatched = false
+        private var llamaActivity: AutoCloseable? = null
+        private var receivedGatewayToolActivity = false
+        private val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
+        private var receivedTerminal = false
+        private var resolvedFreeModel: String? = null
+        private var contextCorrected = false
+        private var recoveryCheck = false
+        private var requestedHealthModel = request.model
+        private var transportRetries = 0
+        private val transportStartedNs = System.nanoTime()
+        private var activeControlReceipt: ReasoningControlReceipt? = null
+        private var activeResponseObserver: ProviderResponseObserver? = null
+        private val free = initialConfig.freeProvider
+        private var preparedRequest = request
+        private lateinit var endpoint: String
+        private var workerBudget: WorkerRequestBudget? = null
+        private var connectionTimeout: Long? = null
+
+        suspend fun run() {
+            workerBudget = currentCoroutineContext()[WorkerRequestBudget]
+            connectionTimeout = currentCoroutineContext()[ProfileConnectionTimeout]?.millis
+            try {
+                if (free != null) {
+                    FreeProviderPreflight.require(config, request.model)
+                }
+                var freeModel = free?.let {
+                    if (it == FreeAiProvider.LLM7) Llm7FreeModelSelection.resolve(networkClient.inferenceClient(), config, request.model) else dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireModel(it, request.model)
+                }
+                if (free == FreeAiProvider.PORCHLM && request.model == "automatic") {
+                    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(free)
+                    freeModel = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(free).firstOrNull { it.id != "automatic" }
+                    check(freeModel != null) { "PorchLM model discovery is unavailable. Retry its status check later." }
+                }
+                if (free != null) {
+                    config = config.copy(freeModelSnapshot = requireNotNull(freeModel))
+                    requestedHealthModel = freeModel.id
+                    recoveryCheck = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.beginGeneration(free, freeModel.id, freeCredentialIdentity(free, config.token))
+                }
+                if (free == FreeAiProvider.POLLINATIONS) PollinationsClassic.requireText(request)
+                if (free == FreeAiProvider.PORCHLM) emit(ChatCompletionChunk(applicationNotice = "PorchLM is an educational demonstration model. Responses can be incoherent or inaccurate; use another provider for factual answers."))
+                preparedRequest = if (free == null) {
+                    request.withEndpointSamplingPolicy(config.apiUrl)
+                } else {
+                    request.copy(
+                        model = requireNotNull(freeModel).id,
+                        stream = request.stream && freeModel?.streaming == true,
+                        maxTokens = free.outputAllowance(request.maxTokens),
+                        maxCompletionTokens = null,
+                        tools = request.tools.takeIf { freeModel?.tools == true },
+                        toolChoice = request.toolChoice.takeIf { freeModel?.tools == true },
+                        models = null,
+                        provider = null,
+                        plugins = null,
+                        topK = null,
+                        reasoningEffort = if (free == FreeAiProvider.POLLINATIONS) request.reasoningEffort ?: "low" else request.reasoningEffort.takeIf { free in setOf(FreeAiProvider.KILO, FreeAiProvider.BLOCKRUN) },
+                        reasoning = request.reasoning.takeIf { free == FreeAiProvider.KILO },
+                        options = null,
+                        transforms = null,
+                        sessionId = null
+                    )
+                }
+                if (free == FreeAiProvider.AI_HORDE || free == FreeAiProvider.HUGGING_FACE) {
+                    FreeQueuedTransport(networkClient.inferenceClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
+                    return
+                }
+                if (free == null && OpenRouterRateLimitScopes.isOpenRouter(config)) {
+                    config = config.copy(
+                        openRouterPinnedProvider = OpenRouterRateLimitScopes.pinnedProvider(
+                            preparedRequest.provider,
+                            !preparedRequest.models.isNullOrEmpty()
+                        )
+                    )
+                }
+                config = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
+                    gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+                }
+                endpoint = config.buildEndpoint("chat/completions")
+
+                val guardedRequest: suspend () -> Unit = {
+                    // Preflight may reject this attempt before executeRequest runs.
+                    // Its receipt must not inherit a prior attempt's headers or dispatch.
+                    activeControlReceipt = null
+                    activeResponseObserver = null
+                    requestDispatched = false
+                    ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
+                        ProviderCooldown.withPermit(config, ::executeRequest)
+                    }
+                }
+                if (free != null) {
+                    config.freeDiagnostics?.permitWaitStartedAt = ProviderElapsedClock.now()
+                    try {
+                        FreeAiRequestLimiter.shared.withPermit(free, preparedRequest.model, freeCredentialIdentity(free, config.token), guardedRequest)
+                    } catch (_: FreeContextRetry) {
+                        config.freeDiagnostics?.recorded = false
+                        emit(ChatCompletionChunk(applicationNotice = "${free.displayName}: adjusting output to the model's context window and retrying once."))
+                        FreeAiRequestLimiter.shared.withPermit(free, preparedRequest.model, freeCredentialIdentity(free, config.token), guardedRequest)
+                    }
+                } else {
+                    ResilientStreamingClient.executeWithRetry(
+                        config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
+                        shouldRetry = { dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity) },
+                        shouldRetryFailure = { failure ->
+                            if (!receivedAssistantPayload && !receivedGatewayToolActivity && ResilientStreamingClient.causesNeedNetworkRecovery(failure)) {
+                                dispatchRetryGuard.rejectedBeforeExecution()
+                            }
+                            dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity)
+                        },
+                        onRetry = { attempt, delay, failure ->
+                            ProviderConnectivityPreflight.failed(config.apiUrl, failure)
+                            LocalServiceHealth.recordLocalFailure(config.apiUrl, failure)
+                            transportRetries = attempt
+                            if (ResilientStreamingClient.isPrematureConnectionClose(failure)) LocalEndpointConnectionPolicy.peerClosed(endpoint)
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                                "ProviderRetry",
+                                "CHAT_RETRY · attempt=$attempt delayMs=$delay · ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",
+                                "W"
+                            )
+                        }
+                    ) { guardedRequest() }
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+                ProviderConnectivityPreflight.failed(config.apiUrl, e)
+                LocalServiceHealth.recordLocalFailure(config.apiUrl, e)
+                val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity
+                val transportFailure = networkFailureKind(e)
+                val providerFailure = providerExceptionDetails(e, receivedAssistantPayload)?.let { failure ->
+                    failure.copy(failureDetails = JsonObject(failure.failureDetails.orEmpty() + providerLimitRefusalDetails(config, request.model, receivedAssistantPayload, e)))
+                }
+                val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
+                val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity) && (providerFailure?.retryable ?: transportFailure.retryable)
+                val errorMessage = if (gatewayOutcomeUnknown) {
+                    "GATEWAY_OUTCOME_UNKNOWN: The connection ended after a request that allows server tools was dispatched. Check the saved gateway job before resuming; the request was not replayed."
+                } else if (providerFailure != null) {
+                    providerFailure.message
+                } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
+                    e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
+                } else if (transportFailure != NetworkFailureKind.UNKNOWN) {
+                    transportFailure.userMessage(receivedVisibleText, activeResponseObserver?.snapshot()?.httpStatus in 200..299, e)
+                } else {
+                    when (e) {
+                        is java.net.UnknownHostException -> config.freeProvider?.let { "${it.displayName}: DNS could not resolve ${java.net.URI(it.apiUrl).host}. Check this provider's availability and your connection; no alternate host was contacted." } ?: "Network error: Unable to resolve host."
+                        is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
+                        is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
+                        is HttpRequestTimeoutException -> "Request timed out."
+                        is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
+                        is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
+                        else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
+                            if (receivedAssistantPayload) "STREAM_INTERRUPTED: connection closed during the response." else "Connection closed before the response started. Please retry."
+                        } else {
+                            dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(e).userMessage
+                        }
+                    }
+                }
+                config.freeDiagnostics?.apply {
+                    if (category == null) category = freeFailureCategory(e)
+                    if (category == FreeFailureCategory.DNS_RESOLUTION_FAILED) dnsFailed(runCatching { java.net.URI(config.apiUrl).host }.getOrNull().orEmpty())
+                    if (e is FreeAiRateLimitException) cooldown = e.cooldown
+                }
+                config.freeProvider?.let { provider ->
+                    if (config.freeDiagnostics?.recorded != true) {
+                        val networkFailure = e is java.io.IOException || e is java.nio.channels.UnresolvedAddressException || config.freeDiagnostics?.category == FreeFailureCategory.DNS_RESOLUTION_FAILED
+                        val cooldown = FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, request.model, freeCredentialIdentity(provider, config.token))
+                        val readiness = when {
+                            e is FreeAiRateLimitException -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.RATE_LIMITED
+                            networkFailure -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.UNREACHABLE
+                            config.freeDiagnostics?.stage == "preparation" -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.INVALID_REQUEST
+                            else -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.GENERATION_FAILED
+                        }
+                        if (e !is FreeProviderException) dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(provider, errorMessage, readiness, if (networkFailure) false else null, cooldown, request.model, freeCredentialIdentity(provider, config.token))
+                        dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, request.model, errorMessage, retryAt = cooldown, terminal = config.freeDiagnostics?.terminal ?: false.takeIf { config.freeDiagnostics?.jobId != null })
+                    }
+                }
+                emit(
+                    ChatCompletionChunk(
+                        providerResponseTiming = activeResponseObserver?.snapshot(),
+                        reasoningControlReceipt = activeControlReceipt,
+                        error = ErrorDetail(
+                            message = errorMessage,
+                            type = if (config.freeProvider != null) (config.freeDiagnostics?.category ?: freeFailureCategory(e)).name else providerFailure?.type ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "provider_error" else "network_error",
+                            code = if (gatewayOutcomeUnknown) {
+                                "GATEWAY_OUTCOME_UNKNOWN"
+                            } else if (e is LocalServiceUnavailableException) {
+                                "LOCAL_SERVICE_UNREACHABLE"
+                            } else {
+                                failureCode
+                            },
+                            retryable = failureRetryable,
+                            failureDetails = providerTransportFailureDetails(
+                                details = when {
+                                    gatewayOutcomeUnknown -> kotlinx.serialization.json.buildJsonObject {
+                                        put("failed_stage", kotlinx.serialization.json.JsonPrimitive("gateway_dispatch"))
+                                        put("outcome", kotlinx.serialization.json.JsonPrimitive("unknown"))
+                                        put("replay_safe", kotlinx.serialization.json.JsonPrimitive(false))
+                                    }
+                                    e is LocalServiceUnavailableException -> e.failureDetails()
+                                    providerFailure != null -> providerFailure.failureDetails
+                                    else -> kotlinx.serialization.json.buildJsonObject {
+                                        put("code", kotlinx.serialization.json.JsonPrimitive(failureCode))
+                                        put(
+                                            "failed_stage",
+                                            kotlinx.serialization.json.JsonPrimitive(
+                                                if (e is ProviderConnectivityPendingException) {
+                                                    "provider_admission"
+                                                } else if (transportFailure == NetworkFailureKind.UNKNOWN) {
+                                                    "stage_not_recorded"
+                                                } else {
+                                                    transportFailure.failedStage
+                                                }
+                                            )
+                                        )
+                                        if (e is ProviderConnectivityPendingException) {
+                                            put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"))
+                                            put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+                                        }
+                                        put("retryable", kotlinx.serialization.json.JsonPrimitive(failureRetryable))
+                                        if (e is ProviderConnectivityPendingException) {
+                                            put("waiting_for_connectivity", kotlinx.serialization.json.JsonPrimitive(true))
+                                            put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(e.retryAfterMs))
+                                        }
+                                        put("partial_output_preserved", kotlinx.serialization.json.JsonPrimitive(receivedAssistantPayload))
+                                    }
+                                },
+                                error = e,
+                                timing = activeResponseObserver?.snapshot(),
+                                dispatched = requestDispatched,
+                                receivedPayload = receivedAssistantPayload,
+                                receivedVisibleText = receivedVisibleText,
+                                generationCompleted = receivedTerminal,
+                                replayAllowed = failureRetryable,
+                                requiresReconciliation = gatewayOutcomeUnknown,
+                                httpAttempt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.latestHttpAttemptEvidence()
+                            ),
+                            providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, e)
+                                ?: providerConnectivityWait(config, request.model, e, anyRequestDispatched, receivedAssistantPayload || receivedGatewayToolActivity)
+                        )
+                    )
                 )
+            } finally {
+                llamaActivity?.close()
+                if (recoveryCheck) config.freeProvider?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.endGeneration(it, requestedHealthModel, freeCredentialIdentity(it, config.token)) }
             }
-            if (free == FreeAiProvider.AI_HORDE || free == FreeAiProvider.HUGGING_FACE) {
-                FreeQueuedTransport(networkClient.inferenceClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
-                return@flow
+        }
+
+        private suspend fun emit(chunk: ChatCompletionChunk) {
+            collector.emit(chunk)
+        }
+
+        private suspend fun executeRequest() {
+            LocalConnectionPreflight.requireReady(config.apiUrl)
+            config.freeDiagnostics?.permitAcquiredAt = ProviderElapsedClock.now()
+            if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
+            config.freeDiagnostics?.stage = "preparation"
+            var admittedOutputTokens: Int? = null
+            val gatewayRequest = dev.chungjungsoo.gptmobile.data.network.gateway.gatewayConversationRequest(NetworkClient.openAIJson.encodeToString(preparedRequest), config)
+            val admittedPayload = requestPreparation.prepare(gatewayRequest.payload, config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
+            // The serializer bridge retains intent even when no response arrives. A
+            // request observation must not masquerade as a provider response chunk.
+            val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config).also { activeControlReceipt = it }
+            // Continuation needs the admitted physical cap in every chat mode,
+            // including ordinary Free chats whose profile allows a larger output.
+            if (free != null || config.captureGenerationReceipt || config.requestRole == "synthesis") admittedOutputTokens?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
+            val quotaReservation = free?.let { provider ->
+                val receipt = config.freeDiagnostics?.admission
+                val estimate = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimate(admittedPayload)
+                FreeAiRequestLimiter.shared.reserveAttempt(provider, preparedRequest.model, freeCredentialIdentity(provider, config.token), receipt?.promptTokens ?: estimate.promptTokens, receipt?.outputTokens ?: preparedRequest.maxTokens?.toLong() ?: provider.defaultOutputTokens.toLong())
             }
-            if (free == null && OpenRouterRateLimitScopes.isOpenRouter(config)) {
-                config = config.copy(
-                    openRouterPinnedProvider = OpenRouterRateLimitScopes.pinnedProvider(
-                        preparedRequest.provider,
-                        !preparedRequest.models.isNullOrEmpty()
+            val usageReceipt = FreeTokenUsageReceipt()
+            var dispatchStarted = false
+            var definitelyNotTransmitted = false
+            var diagnosticHeaders = emptyMap<String, String>()
+            try {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                gatewayRequest.beforeDispatch(config)
+                gatewayRequest.armDispatch(config)
+                config.freeDiagnostics?.stage = "dispatch"
+                config.freeDiagnostics?.attempted()
+                dispatchStarted = true
+                val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
+                dispatchRetryGuard.dispatched()
+                requestDispatched = true
+                anyRequestDispatched = true
+                diagnosticHeaders = GatewayClientDiagnostics.requestHeaders(config, "chat", "POST")
+                dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobPollCoordinator.continuing(config)
+                networkClient.inferenceClient().preparePost(endpoint) {
+                    applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
+                    contentType(ContentType.Application.Json)
+                    setBody(admittedPayload)
+                    accept(if (preparedRequest.stream) ContentType.Text.EventStream else ContentType.Application.Json)
+                    config.token?.takeIf { it.isNotBlank() && (free == null || free.acceptsUserToken) }?.let { bearerAuth(it) }
+                    diagnosticHeaders.forEach { (key, value) -> header(key, value) }
+                    if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+                }.execute { response ->
+                    readChatResponse(response, admittedPayload, reasoningControlReceipt, responseObserver, usageReceipt, gatewayRequest.commandId)
+                }
+            } catch (error: Exception) {
+                GatewayClientDiagnostics.failed(config, diagnosticHeaders, error, "chat")
+                definitelyNotTransmitted = !dispatchStarted || error is java.net.UnknownHostException || error is java.nio.channels.UnresolvedAddressException
+                throw error
+            } finally {
+                if (dispatchStarted) dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobPollCoordinator.continuing(config)
+                GatewayClientDiagnostics.finished(diagnosticHeaders)
+                FreeAiRequestLimiter.shared.settle(quotaReservation, usageReceipt.settledTokens(), definitelyNotTransmitted)
+            }
+        }
+
+        private suspend fun readChatResponse(response: io.ktor.client.statement.HttpResponse, admittedPayload: String, reasoningControlReceipt: ReasoningControlReceipt, responseObserver: ProviderResponseObserver, usageReceipt: FreeTokenUsageReceipt, commandId: String?) {
+            responseObserver.headersReceived(response.status.value) { response.headers[it] }
+            if (response.status.isSuccess()) {
+                dispatchRetryGuard.accepted()
+                ProviderCooldown.observeQuota(config) { response.headers[it] }
+            }
+            // Retain acceptance before parsing: even a reasoning-only interrupted stream has a request identity.
+            emit(ChatCompletionChunk(providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
+            ProviderConnectivityPreflight.responseReceived(config.apiUrl)
+            GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+            config.freeDiagnostics?.responded()
+            if (!response.status.isSuccess()) {
+                readRejectedChatResponse(response, admittedPayload, reasoningControlReceipt, responseObserver, commandId)
+                return
+            }
+
+            free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordAccepted(it) }
+            LocalServiceHealth.recordLocalHandshakeSuccess(config.apiUrl)
+            config.freeDiagnostics?.stage = "generation"
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "Provider",
+                "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: preparedRequest.reasoning?.toString() ?: "provider-default"} · reasoningCapabilityVerified=false · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
+            )
+            // Absence is also observed: later responses must not inherit an earlier gateway route.
+            val gatewayMetadata = gatewayResponseMetadata { response.headers[it] } ?: GatewayResponseMetadata()
+
+            if (config.openRouterReceipt != null) {
+                emit(
+                    ChatCompletionChunk(
+                        id = response.headers["X-Generation-Id"],
+                        model = request.model,
+                        cacheStatus = response.headers["X-OpenRouter-Cache-Status"]
                     )
                 )
             }
-            config = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
-                gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+
+            // llama.cpp and other compatible providers return choices[].message for stream=false.
+            val responseType = response.contentType()
+            if (responseType?.match(ContentType.Application.Json) == true ||
+                (!preparedRequest.stream && responseType?.match(ContentType.Text.EventStream) != true)
+            ) {
+                readJsonChatResponse(response, admittedPayload, reasoningControlReceipt, responseObserver, usageReceipt, gatewayMetadata)
+                return
             }
-            val endpoint = config.buildEndpoint("chat/completions")
+            readSseChatResponse(response, reasoningControlReceipt, responseObserver, usageReceipt, gatewayMetadata, commandId)
+        }
 
-            val executeRequest: suspend () -> Unit = {
-                LocalConnectionPreflight.requireReady(config.apiUrl)
-                config.freeDiagnostics?.permitAcquiredAt = ProviderElapsedClock.now()
-                if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
-                config.freeDiagnostics?.stage = "preparation"
-                var admittedOutputTokens: Int? = null
-                val gatewayRequest = dev.chungjungsoo.gptmobile.data.network.gateway.gatewayConversationRequest(NetworkClient.openAIJson.encodeToString(preparedRequest), config)
-                val admittedPayload = requestPreparation.prepare(gatewayRequest.payload, config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
-                // The serializer bridge retains intent even when no response arrives. A
-                // request observation must not masquerade as a provider response chunk.
-                val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config).also { activeControlReceipt = it }
-                // Continuation needs the admitted physical cap in every chat mode,
-                // including ordinary Free chats whose profile allows a larger output.
-                if (free != null || config.captureGenerationReceipt || config.requestRole == "synthesis") admittedOutputTokens?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
-                val quotaReservation = free?.let { provider ->
-                    val receipt = config.freeDiagnostics?.admission
-                    val estimate = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimate(admittedPayload)
-                    FreeAiRequestLimiter.shared.reserveAttempt(provider, preparedRequest.model, freeCredentialIdentity(provider, config.token), receipt?.promptTokens ?: estimate.promptTokens, receipt?.outputTokens ?: preparedRequest.maxTokens?.toLong() ?: provider.defaultOutputTokens.toLong())
+        private suspend fun readRejectedChatResponse(response: io.ktor.client.statement.HttpResponse, admittedPayload: String, reasoningControlReceipt: ReasoningControlReceipt, responseObserver: ProviderResponseObserver, commandId: String?) {
+            val errorBody = readProviderErrorBody(response, if (free != null) 16_384 else 256 * 1024)
+            val failureDetails = JsonObject(
+                kotlinx.serialization.json.buildJsonObject {
+                    put("failed_stage", "model_invocation")
+                    put("http_status", response.status.value)
+                    responseObserver.snapshot().serverRequestId?.let { put("server_request_id", it) }
+                } + ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS, endpoint) +
+                    structuredProviderFailure(errorBody, response.status.value).orEmpty() +
+                    requestPayloadRejection(
+                        response.status.value,
+                        admittedPayload,
+                        config,
+                        preparedRequest.model,
+                        receivedAssistantPayload || receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown,
+                        response.headers::get
+                    )
+            )
+            val retainedGatewayAttempts = hasRetainedGatewayAttempts(failureDetails)
+            // Error responses also own durable job identity. Publish trusted headers
+            // before any saved-result lookup which may itself lose connectivity.
+            gatewayResponseMetadata { response.headers[it] }?.let { metadata ->
+                emit(ChatCompletionChunk(gatewayMetadata = metadata, providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
+            }
+            if (free == null) {
+                gatewayRecovery.read(response.status.value, failureDetails, config, preparedRequest.model, response.headers["X-Gateway-Job-ID"])?.let { saved ->
+                    receivedAssistantPayload = receivedAssistantPayload || saved.hasAssistantStreamPayload()
+                    receivedTerminal = true
+                    emit(saved.copy(providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
+                    return
                 }
-                val usageReceipt = FreeTokenUsageReceipt()
-                var dispatchStarted = false
-                var definitelyNotTransmitted = false
-                var diagnosticHeaders = emptyMap<String, String>()
-                try {
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    gatewayRequest.beforeDispatch(config)
-                    gatewayRequest.armDispatch(config)
-                    config.freeDiagnostics?.stage = "dispatch"
-                    config.freeDiagnostics?.attempted()
-                    dispatchStarted = true
-                    val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
-                    dispatchRetryGuard.dispatched()
-                    requestDispatched = true
-                    anyRequestDispatched = true
-                    diagnosticHeaders = GatewayClientDiagnostics.requestHeaders(config, "chat", "POST")
-                    dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobPollCoordinator.continuing(config)
-                    networkClient.inferenceClient().preparePost(endpoint) {
-                        applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
-                        contentType(ContentType.Application.Json)
-                        setBody(admittedPayload)
-                        accept(if (preparedRequest.stream) ContentType.Text.EventStream else ContentType.Application.Json)
-                        config.token?.takeIf { it.isNotBlank() && (free == null || free.acceptsUserToken) }?.let { bearerAuth(it) }
-                        diagnosticHeaders.forEach { (key, value) -> header(key, value) }
-                        if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
-                    }.execute { response ->
-                        responseObserver.headersReceived(response.status.value) { response.headers[it] }
-                        if (response.status.isSuccess()) {
-                            dispatchRetryGuard.accepted()
-                            ProviderCooldown.observeQuota(config) { response.headers[it] }
-                        }
-                        // Retain acceptance before parsing: even a reasoning-only interrupted stream has a request identity.
-                        emit(ChatCompletionChunk(providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
-                        ProviderConnectivityPreflight.responseReceived(config.apiUrl)
-                        GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
-                        config.freeDiagnostics?.responded()
-                        if (!response.status.isSuccess()) {
-                            val errorBody = readProviderErrorBody(response, if (free != null) 16_384 else 256 * 1024)
-                            val failureDetails = JsonObject(
-                                kotlinx.serialization.json.buildJsonObject {
-                                    put("failed_stage", "model_invocation")
-                                    put("http_status", response.status.value)
-                                    responseObserver.snapshot().serverRequestId?.let { put("server_request_id", it) }
-                                } + ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS, endpoint) +
-                                    structuredProviderFailure(errorBody, response.status.value).orEmpty() +
-                                    requestPayloadRejection(
-                                        response.status.value,
-                                        admittedPayload,
-                                        config,
-                                        preparedRequest.model,
-                                        receivedAssistantPayload || receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown,
-                                        response.headers::get
-                                    )
+                providerBudgetFailure(errorBody, response.status.value, failureDetails, responseObserver.snapshot().serverRequestId, receivedAssistantPayload, response.headers[HttpHeaders.RetryAfter], response.status.value == 402 && providerRateLimitWaitRefusal(config, commandId, dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity, receivedAssistantPayload, response.headers["X-Gateway-Job-ID"]) == null)?.let { denied ->
+                    val uncertain = receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown
+                    emit(
+                        ChatCompletionChunk(
+                            providerResponseTiming = responseObserver.snapshot(),
+                            reasoningControlReceipt = reasoningControlReceipt,
+                            error = ErrorDetail(
+                                message = if (uncertain) uncertainGatewayFailureMessage(denied.message) else denied.message,
+                                code = if (uncertain) "GATEWAY_OUTCOME_UNKNOWN" else denied.code,
+                                type = if (uncertain) "gateway_outcome_unknown" else "provider_billing_error",
+                                retryable = false,
+                                failureDetails = if (uncertain) uncertainGatewayFailureDetails(denied.failureDetails, responseObserver.snapshot(), denied.code) else denied.failureDetails
                             )
-                            val retainedGatewayAttempts = hasRetainedGatewayAttempts(failureDetails)
-                            // Error responses also own durable job identity. Publish trusted headers
-                            // before any saved-result lookup which may itself lose connectivity.
-                            gatewayResponseMetadata { response.headers[it] }?.let { metadata ->
-                                emit(ChatCompletionChunk(gatewayMetadata = metadata, providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
-                            }
-                            if (free == null) {
-                                gatewayRecovery.read(response.status.value, failureDetails, config, preparedRequest.model, response.headers["X-Gateway-Job-ID"])?.let { saved ->
-                                    receivedAssistantPayload = receivedAssistantPayload || saved.hasAssistantStreamPayload()
-                                    receivedTerminal = true
-                                    emit(saved.copy(providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
-                                    return@execute
-                                }
-                                providerBudgetFailure(errorBody, response.status.value, failureDetails, responseObserver.snapshot().serverRequestId, receivedAssistantPayload)?.let { denied ->
-                                    val uncertain = receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown
-                                    emit(
-                                        ChatCompletionChunk(
-                                            providerResponseTiming = responseObserver.snapshot(),
-                                            reasoningControlReceipt = reasoningControlReceipt,
-                                            error = ErrorDetail(
-                                                message = if (uncertain) uncertainGatewayFailureMessage(denied.message) else denied.message,
-                                                code = if (uncertain) "GATEWAY_OUTCOME_UNKNOWN" else denied.code,
-                                                type = if (uncertain) "gateway_outcome_unknown" else "provider_billing_error",
-                                                retryable = false,
-                                                failureDetails = if (uncertain) uncertainGatewayFailureDetails(denied.failureDetails, responseObserver.snapshot(), denied.code) else denied.failureDetails
-                                            )
-                                        )
-                                    )
-                                    return@execute
-                                }
-                            }
-                            if (free != null && !retainedGatewayAttempts) {
-                                val retryAt = retainFreeHttpFailure(config, preparedRequest.model, response.status.value, errorBody) { response.headers[it] }
-                                val retrySeconds = retryAt?.let { ((it - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(1) }
-                                val detail = providerErrorDetails(errorBody, dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message(), config.token)
-                                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordHttpFailure(free, response.status.value, detail, retryAt, preparedRequest.model, errorBody, freeCredentialIdentity(free, config.token))
-                                dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, detail, response.status.value, errorBody, { response.headers[it] }, retryAt)
-                                if (retrySeconds != null) throw FreeAiRateLimitException(free, retrySeconds, cooldown = config.freeDiagnostics?.cooldown, localBlock = false)
-                                val contextLimit = rejectedFreeContextLimit(response.status.value, errorBody)
-                                if (contextLimit != null && !contextCorrected && !receivedAssistantPayload && !receivedGatewayToolActivity) {
-                                    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.learnContextLimit(free, preparedRequest.model, contextLimit)
-                                    config = config.copy(freeModelSnapshot = config.freeModelSnapshot?.let { it.copy(contextTokens = minOf(it.contextTokens ?: contextLimit, contextLimit)) })
-                                    // A fixed-ceiling route cannot repair context overflow by
-                                    // pretending to request less output than its server allows.
-                                    if (free.fixedOutputTokens == null) {
-                                        contextCorrected = true
-                                        preparedRequest = preparedRequest.copy(maxTokens = minOf(preparedRequest.maxTokens ?: 1024, 1024, contextLimit / 2).coerceAtLeast(1))
-                                        throw FreeContextRetry()
-                                    }
-                                }
-                            }
-                            val parameter = rejectedSamplingParameter(errorBody)
-                            if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown && !retainedGatewayAttempts) {
-                                val sanitized = when (parameter) {
-                                    "temperature" -> preparedRequest.copy(temperature = null)
-                                    "top_p" -> preparedRequest.copy(topP = null)
-                                    else -> preparedRequest
-                                }
-                                if (sanitized != preparedRequest) {
-                                    preparedRequest = sanitized
-                                    dispatchRetryGuard.rejectedBeforeExecution()
-                                    throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
-                                }
-                            }
-                            if (!retainedGatewayAttempts && response.status.value in listOf(429, 502, 503, 504) && ResilientStreamingClient.providerAllowsRetry(errorBody)) {
-                                throw ProviderCooldown.rejected(
-                                    config,
-                                    response.status.value,
-                                    response.headers[HttpHeaders.RetryAfter],
-                                    knownNotAccepted = response.status.value == 429 &&
-                                        !dispatchRetryGuard.remoteOutcomeUnknown &&
-                                        !receivedAssistantPayload &&
-                                        !receivedGatewayToolActivity &&
-                                        !config.requireGatewayConversation &&
-                                        config.gatewayConversationId == null &&
-                                        config.gatewayConversationKey == null &&
-                                        response.headers["X-Gateway-Job-ID"].isNullOrBlank(),
-                                    rateReset = response.headers["X-RateLimit-Reset"],
-                                    errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                    errorType = rateLimitErrorType(errorBody),
-                                    limitSource = OpenRouterRateLimitScopes.sourceFromBody(errorBody)
-                                )
-                            }
-                            if (!retainedGatewayAttempts) throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
-
-                            val errorMessage = if (free != null) {
-                                freeHttpErrorMessage(response.status.value, errorBody, config.token)
-                            } else if (ProviderRejectionDiagnostics.isOpenRouterChatNotFound(response.status.value, endpoint)) {
-                                ProviderRejectionDiagnostics.openRouterNotFoundMessage(failureDetails, providerErrorDetails(errorBody, "HTTP 404", config.token))
-                            } else if (response.status.value in setOf(401, 402, 403)) {
-                                dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
-                            } else {
-                                providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
-                            }
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                                "Provider",
-                                "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
-                                "E"
-                            )
-
-                            val contract = providerResponseContractFailure(errorBody)
-                            emit(
-                                ChatCompletionChunk(
-                                    providerResponseTiming = responseObserver.snapshot(),
-                                    reasoningControlReceipt = reasoningControlReceipt,
-                                    error = ErrorDetail(
-                                        message = contract?.message ?: if (free?.acceptsUserToken == true || response.status.value !in setOf(401, 402, 403)) config.readableProviderError(errorMessage, response.status.value.toString()) else errorMessage,
-                                        type = if (contract != null) "provider_contract_error" else config.freeDiagnostics?.category?.name ?: "http_error",
-                                        code = contract?.code ?: (failureDetails?.get("code") as? JsonPrimitive)?.content ?: response.status.value.toString(),
-                                        retryable = (failureDetails?.get("retryable") as? JsonPrimitive)?.booleanOrNull,
-                                        failureDetails = failureDetails,
-                                        providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, FreeProviderException(config.freeDiagnostics?.category ?: FreeFailureCategory.REQUEST_INVALID, "HTTP ${response.status.value}"))
-                                    )
-                                )
-                            )
-                            return@execute
-                        }
-
-                        free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordAccepted(it) }
-                        LocalServiceHealth.recordLocalHandshakeSuccess(config.apiUrl)
-                        config.freeDiagnostics?.stage = "generation"
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                            "Provider",
-                            "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: preparedRequest.reasoning?.toString() ?: "provider-default"} · reasoningCapabilityVerified=false · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
                         )
-                        // Absence is also observed: later responses must not inherit an earlier gateway route.
-                        val gatewayMetadata = gatewayResponseMetadata { response.headers[it] } ?: GatewayResponseMetadata()
+                    )
+                    return
+                }
+            }
+            if (free != null && !retainedGatewayAttempts) {
+                val retryAt = retainFreeHttpFailure(config, preparedRequest.model, response.status.value, errorBody) { response.headers[it] }
+                val retrySeconds = retryAt?.let { ((it - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(1) }
+                val detail = providerErrorDetails(errorBody, dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message(), config.token)
+                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordHttpFailure(free, response.status.value, detail, retryAt, preparedRequest.model, errorBody, freeCredentialIdentity(free, config.token))
+                dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, detail, response.status.value, errorBody, { response.headers[it] }, retryAt)
+                if (retrySeconds != null) throw FreeAiRateLimitException(free, retrySeconds, cooldown = config.freeDiagnostics?.cooldown, localBlock = false)
+                val contextLimit = rejectedFreeContextLimit(response.status.value, errorBody)
+                if (contextLimit != null && !contextCorrected && !receivedAssistantPayload && !receivedGatewayToolActivity) {
+                    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.learnContextLimit(free, preparedRequest.model, contextLimit)
+                    config = config.copy(freeModelSnapshot = config.freeModelSnapshot?.let { it.copy(contextTokens = minOf(it.contextTokens ?: contextLimit, contextLimit)) })
+                    // A fixed-ceiling route cannot repair context overflow by
+                    // pretending to request less output than its server allows.
+                    if (free.fixedOutputTokens == null) {
+                        contextCorrected = true
+                        preparedRequest = preparedRequest.copy(maxTokens = minOf(preparedRequest.maxTokens ?: 1024, 1024, contextLimit / 2).coerceAtLeast(1))
+                        throw FreeContextRetry()
+                    }
+                }
+            }
+            val parameter = rejectedSamplingParameter(errorBody)
+            if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown && !retainedGatewayAttempts) {
+                val sanitized = when (parameter) {
+                    "temperature" -> preparedRequest.copy(temperature = null)
+                    "top_p" -> preparedRequest.copy(topP = null)
+                    else -> preparedRequest
+                }
+                if (sanitized != preparedRequest) {
+                    preparedRequest = sanitized
+                    dispatchRetryGuard.rejectedBeforeExecution()
+                    throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
+                }
+            }
+            if (!retainedGatewayAttempts && response.status.value in listOf(429, 502, 503, 504) && ResilientStreamingClient.providerAllowsRetry(errorBody)) {
+                val waitRefusal = providerRateLimitWaitRefusal(config, commandId, dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity, receivedAssistantPayload, response.headers["X-Gateway-Job-ID"])
+                throw ProviderCooldown.rejected(
+                    config,
+                    response.status.value,
+                    response.headers[HttpHeaders.RetryAfter],
+                    knownNotAccepted = response.status.value == 429 && waitRefusal == null,
+                    waitRefusal = waitRefusal.takeIf { response.status.value == 429 },
+                    rateReset = response.headers["X-RateLimit-Reset"],
+                    errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
+                    errorType = rateLimitErrorType(errorBody),
+                    limitSource = OpenRouterRateLimitScopes.sourceFromBody(errorBody)
+                )
+            }
+            if (!retainedGatewayAttempts) throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
-                        if (config.openRouterReceipt != null) {
-                            emit(
-                                ChatCompletionChunk(
-                                    id = response.headers["X-Generation-Id"],
-                                    model = request.model,
-                                    cacheStatus = response.headers["X-OpenRouter-Cache-Status"]
-                                )
-                            )
-                        }
+            val errorMessage = if (free != null) {
+                freeHttpErrorMessage(response.status.value, errorBody, config.token)
+            } else if (ProviderRejectionDiagnostics.isOpenRouterChatNotFound(response.status.value, endpoint)) {
+                ProviderRejectionDiagnostics.openRouterNotFoundMessage(failureDetails, providerErrorDetails(errorBody, "HTTP 404", config.token))
+            } else if (response.status.value in setOf(401, 402, 403)) {
+                dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
+            } else {
+                providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
+            }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "Provider",
+                "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
+                "E"
+            )
 
-                        // llama.cpp and other compatible providers return choices[].message for stream=false.
-                        val responseType = response.contentType()
-                        if (responseType?.match(ContentType.Application.Json) == true ||
-                            (!preparedRequest.stream && responseType?.match(ContentType.Text.EventStream) != true)
-                        ) {
-                            val responseBody = response.boundedResponseText()
-                            val decoded = decodeOpenAICompletion(NetworkClient.openAIJson, responseBody)
-                            config.freeDiagnostics?.response = FreeResponseObservation.fromHeaders("json") { response.headers[it] }.withChunk(decoded)
-                            usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
-                            usageReceipt.completed(decoded.error == null)
-                            if (decoded.error == null && decoded.hasAssistantStreamPayload()) ProviderCooldown.accepted(config)
-                            val chunk = decoded.copy(
-                                choices = decoded.choices?.map { choice ->
-                                    if (choice.message != null && choice.finishReason == null) choice.copy(finishReason = "stop") else choice
-                                },
-                                gatewayMetadata = gatewayMetadata,
-                                gatewayProvenance = decoded.gatewayProvenance?.takeIf { gatewayMetadata.transportVerified },
-                                gatewayRecovery = decoded.gatewayRecovery?.takeIf { gatewayMetadata.transportVerified },
-                                gatewayTiming = decoded.gatewayTiming?.takeIf { gatewayMetadata.transportVerified },
-                                gatewayDeliveryTiming = decoded.gatewayDeliveryTiming?.takeIf { gatewayMetadata.transportVerified },
-                                providerResponseTiming = responseObserver.parsed(decoded.hasAssistantGeneratedOutput()),
-                                reasoningControlReceipt = reasoningControlReceipt,
-                                error = decoded.error?.let { error ->
-                                    val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
-                                    config.freeDiagnostics?.category = category
-                                    val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
-                                    val uncertainToolWork = dispatchRetryGuard.remoteOutcomeUnknown || decoded.gatewayProgress?.event in setOf("tool_started", "tool_completed", "tool_failed", "remote_tool_handoff")
-                                    val structured = structuredProviderFailure(responseBody, response.status.value)
-                                    val semantic = providerPayloadSemanticFailure(error.copy(type = error.type ?: rateLimitErrorType(responseBody)), response.status.value, structured, responseObserver.snapshot().serverRequestId, receivedAssistantPayload || decoded.hasAssistantStreamPayload(), decoded.id)
-                                    val reportedMessage = semantic?.message ?: contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(responseBody, error.message, config.token), error.code)
-                                    val details = semantic?.failureDetails ?: structured
-                                    error.copy(
-                                        message = if (uncertainToolWork) uncertainGatewayFailureMessage(reportedMessage) else reportedMessage,
-                                        code = if (uncertainToolWork) "GATEWAY_OUTCOME_UNKNOWN" else semantic?.code ?: contract?.code ?: error.code,
-                                        type = if (uncertainToolWork) {
-                                            "gateway_outcome_unknown"
-                                        } else if (contract != null) {
-                                            "provider_contract_error"
-                                        } else {
-                                            category.name.lowercase()
-                                        },
-                                        retryable = if (uncertainToolWork || contract != null || hasRetainedGatewayAttempts(details)) false else (semantic?.failureDetails?.get("retryable") as? JsonPrimitive)?.booleanOrNull ?: error.retryable,
-                                        failureDetails = if (uncertainToolWork) uncertainGatewayFailureDetails(details, responseObserver.snapshot(), error.code) else details
-                                    )
-                                }
-                            )
-                            if (free != null) {
-                                val usable = chunk.error == null && chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() || !it.effectiveDelta.toolCalls.isNullOrEmpty() }
-                                if (free == FreeAiProvider.POLLINATIONS) {
-                                    config.freeDiagnostics?.let { diagnostics ->
-                                        diagnostics.response?.let { observation ->
-                                            val key = responseDigest("${config.profileUid}|${freeCredentialIdentity(free, config.token)}|$admittedPayload")
-                                            diagnostics.response = UnusableResponseCache.shared.observe(key, responseBody, observation, usable)
-                                        }
-                                    }
-                                }
-                                if (usable) {
-                                    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, chunk.model, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"], freeCredentialIdentity(free, config.token), preparedRequest.model)
-                                } else {
-                                    if (chunk.error == null) config.freeDiagnostics?.category = if (config.freeDiagnostics?.response?.repeatedUnusableCache == true) FreeFailureCategory.CACHED_UNUSABLE_RESPONSE else noVisibleAnswerCategory(chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() }, chunk.choices.orEmpty().any { it.finishReason == "length" })
-                                    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordTerminalFailure(free, preparedRequest.model, config.freeDiagnostics?.category?.name ?: chunk.error?.message ?: "No visible answer received", credentialIdentity = freeCredentialIdentity(free, config.token))
-                                    dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error?.message ?: "No visible answer received", status = 200, header = { response.headers[it] }, retryAt = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[free]?.retryAt, terminal = true)
-                                }
-                            }
-                            if (free != null && !chunk.model.isNullOrBlank()) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
-                            chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }?.record(providerRequestIdentity { response.headers[it] })
-                            emit(chunk)
-                            if (free != null) {
-                                freeResponseOutcome(
-                                    free,
-                                    chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() },
-                                    chunk.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() },
-                                    chunk.error != null,
-                                    chunk.choices.orEmpty().any { it.finishReason == "length" },
-                                    chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() },
-                                    config.freeDiagnostics?.category
-                                )?.let { emit(it) }
-                            }
-                            return@execute
-                        }
+            val contract = providerResponseContractFailure(errorBody)
+            emit(
+                ChatCompletionChunk(
+                    providerResponseTiming = responseObserver.snapshot(),
+                    reasoningControlReceipt = reasoningControlReceipt,
+                    error = ErrorDetail(
+                        message = contract?.message ?: if (free?.acceptsUserToken == true || response.status.value !in setOf(401, 402, 403)) config.readableProviderError(errorMessage, response.status.value.toString()) else errorMessage,
+                        type = if (contract != null) "provider_contract_error" else config.freeDiagnostics?.category?.name ?: "http_error",
+                        code = contract?.code ?: (failureDetails?.get("code") as? JsonPrimitive)?.content ?: response.status.value.toString(),
+                        retryable = (failureDetails?.get("retryable") as? JsonPrimitive)?.booleanOrNull,
+                        failureDetails = failureDetails,
+                        providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, FreeProviderException(config.freeDiagnostics?.category ?: FreeFailureCategory.REQUEST_INVALID, "HTTP ${response.status.value}"))
+                    )
+                )
+            )
+            return
+        }
 
-                        // If gateway metadata is present, emit an initial chunk carrying the metadata
-                        var firstChunk = true
-                        var receivedToolCalls = false
-                        var receivedAnswer = false
-                        var receivedReasoning = false
-                        var receivedError = false
-                        var reachedOutputLimit = false
-                        var parseFailures = 0
-                        config.freeDiagnostics?.response = FreeResponseObservation.fromHeaders("event-stream") { response.headers[it] }
-
-                        // Success - read SSE stream
-                        val channel = response.bodyAsChannel()
-                        val events = ProviderEventReader(channel)
-                        val terminalDrain = TerminalStreamDrain()
-                        while (!channel.isClosedForRead) {
-                            val remaining = terminalDrain.remainingMillis()
-                            val line = if (remaining == null) {
-                                events.readLine()
-                            } else {
-                                withTimeoutOrNull(remaining) { events.readLine() }
-                            } ?: break
-                            val data = SseUtils.extractSseData(line) ?: continue
-
-                            // OpenAI sends "[DONE]" as final message
-                            if (data == "[DONE]") {
-                                receivedTerminal = true
-                                break
-                            }
-
-                            val decoded = try {
-                                decodeOpenAICompletion(NetworkClient.openAIJson, data)
-                            } catch (_: kotlinx.serialization.SerializationException) {
-                                parseFailures++
-                                config.freeDiagnostics?.response = config.freeDiagnostics?.response?.copy(discardedChunks = parseFailures)
-                                continue
-                            }
-                            val streamError = decoded.error
-                            val streamFailureDetails = streamError?.let { structuredProviderFailure(data, response.status.value) }
-                            val semantic = streamError?.let { providerPayloadSemanticFailure(it.copy(type = it.type ?: rateLimitErrorType(data)), response.status.value, streamFailureDetails, responseObserver.snapshot().serverRequestId, receivedAssistantPayload || decoded.hasAssistantStreamPayload(), decoded.id) }
-                            val retainedGatewayAttempts = hasRetainedGatewayAttempts(streamFailureDetails)
-                            if (streamError != null &&
-                                !retainedGatewayAttempts &&
-                                semantic?.code == "429" &&
-                                semantic.failureDetails?.get("retryable") != JsonPrimitive(false) &&
-                                currentCoroutineContext()[ProviderWaitContext]?.durableRateLimits == true &&
-                                !dispatchRetryGuard.remoteOutcomeUnknown &&
-                                !receivedGatewayToolActivity &&
-                                !config.requireGatewayConversation &&
-                                config.gatewayConversationId == null &&
-                                config.gatewayConversationKey == null &&
-                                response.headers["X-Gateway-Job-ID"].isNullOrBlank()
-                            ) {
-                                throw ProviderCooldown.rejected(
-                                    config,
-                                    429,
-                                    response.headers[HttpHeaders.RetryAfter],
-                                    knownNotAccepted = !receivedAssistantPayload,
-                                    rateReset = response.headers["X-RateLimit-Reset"],
-                                    errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                    errorType = rateLimitErrorType(data),
-                                    limitSource = OpenRouterRateLimitScopes.sourceFromBody(data),
-                                    checkpointContinuationAllowed = true,
-                                    observedHttpStatus = response.status.value,
-                                    serverRequestId = responseObserver.snapshot().serverRequestId
-                                )
-                            }
-                            val parsingTiming = responseObserver.parsed(decoded.hasAssistantGeneratedOutput())
-                            config.freeDiagnostics?.response = config.freeDiagnostics?.response?.withChunk(decoded)
-                            usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
-                            if (decoded.gatewayProgress?.event in setOf("tool_started", "tool_completed", "tool_failed", "remote_tool_handoff")) {
-                                receivedGatewayToolActivity = true
-                            }
-                            if (semantic == null && !retainedGatewayAttempts && !receivedAssistantPayload && !receivedGatewayToolActivity && !dispatchRetryGuard.remoteOutcomeUnknown) {
-                                decoded.error?.let { error ->
-                                    if (error.retryable != false && ResilientStreamingClient.isRetryable(IllegalStateException("${error.code.orEmpty()} ${error.message}"))) {
-                                        throw java.io.IOException("Gateway/provider transient error: ${error.message}")
-                                    }
-                                }
-                            }
-                            val chunk = decoded.error?.let { error ->
-                                val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
-                                config.freeDiagnostics?.category = category
-                                val details = semantic?.failureDetails ?: streamFailureDetails
-                                val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
-                                val uncertainToolWork = receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown
-                                val reportedMessage = semantic?.message ?: contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code)
-                                decoded.copy(
-                                    error = error.copy(
-                                        message = if (uncertainToolWork) uncertainGatewayFailureMessage(reportedMessage) else reportedMessage,
-                                        code = if (uncertainToolWork) "GATEWAY_OUTCOME_UNKNOWN" else semantic?.code ?: contract?.code ?: error.code,
-                                        type = if (uncertainToolWork) {
-                                            "gateway_outcome_unknown"
-                                        } else if (contract != null) {
-                                            "provider_contract_error"
-                                        } else {
-                                            category.name.lowercase()
-                                        },
-                                        retryable = if (uncertainToolWork || contract != null || hasRetainedGatewayAttempts(details)) false else (semantic?.failureDetails?.get("retryable") as? JsonPrimitive)?.booleanOrNull ?: error.retryable,
-                                        failureDetails = if (uncertainToolWork) uncertainGatewayFailureDetails(details, responseObserver.snapshot(), error.code) else details
-                                    )
-                                )
-                            } ?: decoded
-                            chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }?.record(providerRequestIdentity { response.headers[it] })
-                            chunk.timings?.let { timings ->
-                                fun measured(value: Double?): String = value?.takeIf { it.isFinite() && it >= 0 }?.toString() ?: "Not measured"
-                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Provider", "SERVER_TIMINGS · requestId=${providerRequestIdentity { response.headers[it] }} · queueMs=${measured(timings.queueMs)} · prefillMs=${measured(timings.promptMs)} · generationMs=${measured(timings.predictedMs)} · promptTokens=${timings.promptTokens ?: "Not measured"} · generatedTokens=${timings.predictedTokens ?: "Not measured"}")
-                            }
-                            val observedChunk = chunk.copy(gatewayProvenance = chunk.gatewayProvenance?.takeIf { gatewayMetadata.transportVerified }, gatewayRecovery = chunk.gatewayRecovery?.takeIf { gatewayMetadata.transportVerified }, gatewayTiming = chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }, gatewayDeliveryTiming = chunk.gatewayDeliveryTiming?.takeIf { gatewayMetadata.transportVerified }, providerResponseTiming = parsingTiming, reasoningControlReceipt = reasoningControlReceipt, observedFinishReason = chunk.choices.orEmpty().firstNotNullOfOrNull { it.finishReason })
-                            if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {
-                                resolvedFreeModel = chunk.model
-                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
-                            }
-                            receivedTerminal = receivedTerminal || chunk.error != null || chunk.choices.orEmpty().any { it.finishReason != null }
-                            if (receivedTerminal) terminalDrain.markTerminal()
-                            receivedReasoning = receivedReasoning || chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() }
-                            receivedAnswer = receivedAnswer || chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() }
-                            receivedVisibleText = receivedVisibleText || receivedAnswer
-                            receivedError = receivedError || chunk.error != null
-                            if (free != null && chunk.error != null) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error.message, status = 200, body = data, event = "error", terminal = true)
-                            reachedOutputLimit = reachedOutputLimit || chunk.choices.orEmpty().any { it.finishReason == "length" }
-                            if (llamaActivity == null && chunk.hasAssistantStreamPayload()) {
-                                llamaActivity = dev.chungjungsoo.gptmobile.data.llama.LlamaGenerationActivity.started(config, request.model, providerRequestIdentity { response.headers[it] })
-                            }
-                            receivedAssistantPayload = receivedAssistantPayload || chunk.hasAssistantStreamPayload()
-                            receivedToolCalls = receivedToolCalls || chunk.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() }
-                            // Tool assembly commits only after the entire stream is validated.
-                            // A malformed chunk can contain missing arguments even when a later
-                            // finish marker looks valid, so retain the text but never execute it.
-                            val publishedChunk = if (receivedToolCalls) observedChunk.copy(choices = chunk.choices?.map { if (it.finishReason in setOf("tool_calls", "function_call", "stop")) it.copy(finishReason = null) else it }) else observedChunk
-                            if (firstChunk) {
-                                firstChunk = false
-                                emit(publishedChunk.copy(gatewayMetadata = gatewayMetadata))
-                            } else {
-                                emit(publishedChunk)
-                            }
-                            if (receivedError) break
-                        }
-                        // Observe an empty response before its terminal error or retry decision.
-                        if (firstChunk) {
-                            emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata, providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
-                        }
-                        if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before a completion marker")
-                        usageReceipt.completed(!receivedError && parseFailures == 0)
-                        if (!receivedError && parseFailures == 0 && receivedAssistantPayload) ProviderCooldown.accepted(config)
-                        if (parseFailures > 0 && !receivedError) {
-                            receivedError = true
-                            config.freeDiagnostics?.category = FreeFailureCategory.STREAM_DEGRADED
-                            emit(ChatCompletionChunk(error = ErrorDetail("STREAM_DEGRADED: $parseFailures response chunks could not be decoded. Usable text was retained, but completeness and tool arguments cannot be verified.", "stream_degraded", code = "STREAM_DEGRADED"), providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
-                        }
-                        if (receivedTerminal && receivedToolCalls && !receivedError) emit(ChatCompletionChunk(streamFinished = true))
-                        if (free != null) {
-                            if (!receivedError && (receivedAnswer || receivedToolCalls)) {
-                                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, resolvedFreeModel, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"], freeCredentialIdentity(free, config.token), preparedRequest.model)
-                            } else {
-                                if (!receivedError) config.freeDiagnostics?.category = noVisibleAnswerCategory(receivedReasoning, reachedOutputLimit)
-                                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordTerminalFailure(free, preparedRequest.model, config.freeDiagnostics?.category?.name ?: "Provider returned an error", credentialIdentity = freeCredentialIdentity(free, config.token))
-                                if (config.freeDiagnostics?.recorded != true) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, if (receivedError) "Provider returned an error" else "No visible answer received", status = 200, retryAt = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[free]?.retryAt, terminal = true)
-                            }
-                            freeResponseOutcome(free, receivedAnswer, receivedToolCalls, receivedError, reachedOutputLimit, receivedReasoning)?.let { emit(it) }
+        private suspend fun readJsonChatResponse(response: io.ktor.client.statement.HttpResponse, admittedPayload: String, reasoningControlReceipt: ReasoningControlReceipt, responseObserver: ProviderResponseObserver, usageReceipt: FreeTokenUsageReceipt, gatewayMetadata: GatewayResponseMetadata) {
+            val responseBody = response.boundedResponseText()
+            val decoded = decodeOpenAICompletion(NetworkClient.openAIJson, responseBody)
+            config.freeDiagnostics?.response = FreeResponseObservation.fromHeaders("json") { response.headers[it] }.withChunk(decoded)
+            usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
+            usageReceipt.completed(decoded.error == null)
+            if (decoded.error == null && decoded.hasAssistantStreamPayload()) ProviderCooldown.accepted(config)
+            val chunk = decoded.copy(
+                choices = decoded.choices?.map { choice ->
+                    if (choice.message != null && choice.finishReason == null) choice.copy(finishReason = "stop") else choice
+                },
+                gatewayMetadata = gatewayMetadata,
+                gatewayProvenance = decoded.gatewayProvenance?.takeIf { gatewayMetadata.transportVerified },
+                gatewayRecovery = decoded.gatewayRecovery?.takeIf { gatewayMetadata.transportVerified },
+                gatewayTiming = decoded.gatewayTiming?.takeIf { gatewayMetadata.transportVerified },
+                gatewayDeliveryTiming = decoded.gatewayDeliveryTiming?.takeIf { gatewayMetadata.transportVerified },
+                providerResponseTiming = responseObserver.parsed(decoded.hasAssistantGeneratedOutput()),
+                reasoningControlReceipt = reasoningControlReceipt,
+                error = decoded.error?.let { error ->
+                    val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
+                    config.freeDiagnostics?.category = category
+                    val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
+                    val uncertainToolWork = dispatchRetryGuard.remoteOutcomeUnknown || decoded.gatewayProgress?.event in setOf("tool_started", "tool_completed", "tool_failed", "remote_tool_handoff")
+                    val structured = structuredProviderFailure(responseBody, response.status.value)
+                    val semantic = providerPayloadSemanticFailure(error.copy(type = error.type ?: rateLimitErrorType(responseBody)), response.status.value, structured, responseObserver.snapshot().serverRequestId, receivedAssistantPayload || decoded.hasAssistantStreamPayload(), decoded.id, dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetEvidence.metadata(responseBody))
+                    val reportedMessage = semantic?.message ?: contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(responseBody, error.message, config.token), error.code)
+                    val details = semantic?.failureDetails ?: structured
+                    error.copy(
+                        message = if (uncertainToolWork) uncertainGatewayFailureMessage(reportedMessage) else reportedMessage,
+                        code = if (uncertainToolWork) "GATEWAY_OUTCOME_UNKNOWN" else semantic?.code ?: contract?.code ?: error.code,
+                        type = if (uncertainToolWork) {
+                            "gateway_outcome_unknown"
+                        } else if (contract != null) {
+                            "provider_contract_error"
+                        } else {
+                            category.name.lowercase()
+                        },
+                        retryable = if (uncertainToolWork || contract != null || hasRetainedGatewayAttempts(details)) false else (semantic?.failureDetails?.get("retryable") as? JsonPrimitive)?.booleanOrNull ?: error.retryable,
+                        failureDetails = if (uncertainToolWork) uncertainGatewayFailureDetails(details, responseObserver.snapshot(), error.code) else details
+                    )
+                }
+            )
+            if (free != null) {
+                val usable = chunk.error == null && chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() || !it.effectiveDelta.toolCalls.isNullOrEmpty() }
+                if (free == FreeAiProvider.POLLINATIONS) {
+                    config.freeDiagnostics?.let { diagnostics ->
+                        diagnostics.response?.let { observation ->
+                            val key = responseDigest("${config.profileUid}|${freeCredentialIdentity(free, config.token)}|$admittedPayload")
+                            diagnostics.response = UnusableResponseCache.shared.observe(key, responseBody, observation, usable)
                         }
                     }
-                } catch (error: Exception) {
-                    GatewayClientDiagnostics.failed(config, diagnosticHeaders, error, "chat")
-                    definitelyNotTransmitted = !dispatchStarted || error is java.net.UnknownHostException || error is java.nio.channels.UnresolvedAddressException
-                    throw error
-                } finally {
-                    if (dispatchStarted) dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobPollCoordinator.continuing(config)
-                    GatewayClientDiagnostics.finished(diagnosticHeaders)
-                    FreeAiRequestLimiter.shared.settle(quotaReservation, usageReceipt.settledTokens(), definitelyNotTransmitted)
+                }
+                if (usable) {
+                    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, chunk.model, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"], freeCredentialIdentity(free, config.token), preparedRequest.model)
+                } else {
+                    if (chunk.error == null) config.freeDiagnostics?.category = if (config.freeDiagnostics?.response?.repeatedUnusableCache == true) FreeFailureCategory.CACHED_UNUSABLE_RESPONSE else noVisibleAnswerCategory(chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() }, chunk.choices.orEmpty().any { it.finishReason == "length" })
+                    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordTerminalFailure(free, preparedRequest.model, config.freeDiagnostics?.category?.name ?: chunk.error?.message ?: "No visible answer received", credentialIdentity = freeCredentialIdentity(free, config.token))
+                    dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error?.message ?: "No visible answer received", status = 200, header = { response.headers[it] }, retryAt = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[free]?.retryAt, terminal = true)
                 }
             }
-            val guardedRequest: suspend () -> Unit = {
-                // Preflight may reject this attempt before executeRequest runs.
-                // Its receipt must not inherit a prior attempt's headers or dispatch.
-                activeControlReceipt = null
-                activeResponseObserver = null
-                requestDispatched = false
-                ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
-                    ProviderCooldown.withPermit(config, executeRequest)
-                }
-            }
+            if (free != null && !chunk.model.isNullOrBlank()) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
+            chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }?.record(providerRequestIdentity { response.headers[it] })
+            emit(chunk)
             if (free != null) {
-                config.freeDiagnostics?.permitWaitStartedAt = ProviderElapsedClock.now()
-                try {
-                    FreeAiRequestLimiter.shared.withPermit(free, preparedRequest.model, freeCredentialIdentity(free, config.token), guardedRequest)
-                } catch (_: FreeContextRetry) {
-                    config.freeDiagnostics?.recorded = false
-                    emit(ChatCompletionChunk(applicationNotice = "${free.displayName}: adjusting output to the model's context window and retrying once."))
-                    FreeAiRequestLimiter.shared.withPermit(free, preparedRequest.model, freeCredentialIdentity(free, config.token), guardedRequest)
+                freeResponseOutcome(
+                    free,
+                    chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() },
+                    chunk.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() },
+                    chunk.error != null,
+                    chunk.choices.orEmpty().any { it.finishReason == "length" },
+                    chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() },
+                    config.freeDiagnostics?.category
+                )?.let { emit(it) }
+            }
+            return
+        }
+
+        private suspend fun readSseChatResponse(response: io.ktor.client.statement.HttpResponse, reasoningControlReceipt: ReasoningControlReceipt, responseObserver: ProviderResponseObserver, usageReceipt: FreeTokenUsageReceipt, gatewayMetadata: GatewayResponseMetadata, commandId: String?) {
+            // If gateway metadata is present, emit an initial chunk carrying the metadata
+            var firstChunk = true
+            var receivedToolCalls = false
+            var receivedAnswer = false
+            var receivedReasoning = false
+            var receivedError = false
+            var reachedOutputLimit = false
+            var parseFailures = 0
+            config.freeDiagnostics?.response = FreeResponseObservation.fromHeaders("event-stream") { response.headers[it] }
+
+            // Success - read SSE stream
+            val channel = response.bodyAsChannel()
+            val events = ProviderEventReader(channel)
+            val terminalDrain = TerminalStreamDrain()
+            while (!channel.isClosedForRead) {
+                val remaining = terminalDrain.remainingMillis()
+                val line = if (remaining == null) {
+                    events.readLine()
+                } else {
+                    withTimeoutOrNull(remaining) { events.readLine() }
+                } ?: break
+                val data = SseUtils.extractSseData(line) ?: continue
+
+                // OpenAI sends "[DONE]" as final message
+                if (data == "[DONE]") {
+                    receivedTerminal = true
+                    break
                 }
-            } else {
+
+                val decoded = try {
+                    decodeOpenAICompletion(NetworkClient.openAIJson, data)
+                } catch (_: kotlinx.serialization.SerializationException) {
+                    parseFailures++
+                    config.freeDiagnostics?.response = config.freeDiagnostics?.response?.copy(discardedChunks = parseFailures)
+                    continue
+                }
+                // A frame can contain accepted output/usage or server tool activity and an error together.
+                // Observe the complete frame before deciding whether any request can be replayed.
+                val acceptedPayload = receivedAssistantPayload || decoded.hasAssistantStreamPayload() || decoded.usage != null
+                receivedGatewayToolActivity = receivedGatewayToolActivity || decoded.gatewayProgress?.event in setOf("tool_started", "tool_completed", "tool_failed", "remote_tool_handoff")
+                val streamError = decoded.error
+                val streamFailureDetails = streamError?.let { structuredProviderFailure(data, response.status.value) }
+                val streamWaitRefusal = providerRateLimitWaitRefusal(config, commandId, dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity, false, response.headers["X-Gateway-Job-ID"] ?: decoded.gatewayProgress?.jobId ?: gatewayMetadata.jobId, streamFailureDetails)
+                val semantic = streamError?.let { providerPayloadSemanticFailure(it.copy(type = it.type ?: rateLimitErrorType(data)), response.status.value, streamFailureDetails, responseObserver.snapshot().serverRequestId, acceptedPayload, decoded.id, dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetEvidence.metadata(data)) }
+                    ?.let { failure -> if (failure.failureDetails?.get("provider_failure_kind") == JsonPrimitive("RATE_LIMIT")) failure.copy(failureDetails = JsonObject(failure.failureDetails.orEmpty() + providerWaitRefusalFields(streamWaitRefusal))) else failure }
+                val retainedGatewayAttempts = hasRetainedGatewayAttempts(streamFailureDetails)
+                val deferredRateLimit = if (streamError != null &&
+                    !retainedGatewayAttempts &&
+                    semantic?.code == "429" &&
+                    semantic.failureDetails?.get("retryable") != JsonPrimitive(false) &&
+                    currentCoroutineContext()[ProviderWaitContext]?.durableRateLimits == true &&
+                    streamWaitRefusal == null
+                ) {
+                    ProviderCooldown.rejected(
+                        config,
+                        429,
+                        response.headers[HttpHeaders.RetryAfter],
+                        knownNotAccepted = !acceptedPayload,
+                        rateReset = response.headers["X-RateLimit-Reset"],
+                        errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
+                        errorType = rateLimitErrorType(data),
+                        limitSource = OpenRouterRateLimitScopes.sourceFromBody(data),
+                        checkpointContinuationAllowed = true,
+                        observedHttpStatus = response.status.value,
+                        serverRequestId = responseObserver.snapshot().serverRequestId
+                    )
+                } else {
+                    null
+                }
+                val parsingTiming = responseObserver.parsed(decoded.hasAssistantGeneratedOutput())
+                config.freeDiagnostics?.response = config.freeDiagnostics?.response?.withChunk(decoded)
+                usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
+                if (semantic == null && !retainedGatewayAttempts && !receivedAssistantPayload && !receivedGatewayToolActivity && !dispatchRetryGuard.remoteOutcomeUnknown) {
+                    decoded.error?.let { error ->
+                        if (error.retryable != false && ResilientStreamingClient.isRetryable(IllegalStateException("${error.code.orEmpty()} ${error.message}"))) {
+                            throw java.io.IOException("Gateway/provider transient error: ${error.message}")
+                        }
+                    }
+                }
+                val chunk = decoded.error?.let { error ->
+                    val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
+                    config.freeDiagnostics?.category = category
+                    val details = deferredRateLimit?.let { streamRateLimitFailureDetails(it, semantic?.failureDetails ?: streamFailureDetails, responseObserver.snapshot(), acceptedPayload, receivedVisibleText || decoded.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrEmpty() }) }
+                        ?: semantic?.failureDetails ?: streamFailureDetails
+                    val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
+                    val uncertainToolWork = receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown
+                    val reportedMessage = semantic?.message ?: contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code)
+                    decoded.copy(
+                        error = error.copy(
+                            message = if (uncertainToolWork) uncertainGatewayFailureMessage(reportedMessage) else reportedMessage,
+                            code = if (uncertainToolWork) "GATEWAY_OUTCOME_UNKNOWN" else semantic?.code ?: contract?.code ?: error.code,
+                            type = if (uncertainToolWork) {
+                                "gateway_outcome_unknown"
+                            } else if (contract != null) {
+                                "provider_contract_error"
+                            } else {
+                                category.name.lowercase()
+                            },
+                            retryable = if (deferredRateLimit != null || uncertainToolWork || contract != null || hasRetainedGatewayAttempts(details)) false else (semantic?.failureDetails?.get("retryable") as? JsonPrimitive)?.booleanOrNull ?: error.retryable,
+                            failureDetails = if (uncertainToolWork) uncertainGatewayFailureDetails(details, responseObserver.snapshot(), error.code) else details,
+                            providerLimit = deferredRateLimit?.let { providerLimitDecision(config, request.model, acceptedPayload, it) }
+                        )
+                    )
+                } ?: decoded
+                chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }?.record(providerRequestIdentity { response.headers[it] })
+                chunk.timings?.let { timings ->
+                    fun measured(value: Double?): String = value?.takeIf { it.isFinite() && it >= 0 }?.toString() ?: "Not measured"
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Provider", "SERVER_TIMINGS · requestId=${providerRequestIdentity { response.headers[it] }} · queueMs=${measured(timings.queueMs)} · prefillMs=${measured(timings.promptMs)} · generationMs=${measured(timings.predictedMs)} · promptTokens=${timings.promptTokens ?: "Not measured"} · generatedTokens=${timings.predictedTokens ?: "Not measured"}")
+                }
+                val observedChunk = chunk.copy(gatewayProvenance = chunk.gatewayProvenance?.takeIf { gatewayMetadata.transportVerified }, gatewayRecovery = chunk.gatewayRecovery?.takeIf { gatewayMetadata.transportVerified }, gatewayTiming = chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }, gatewayDeliveryTiming = chunk.gatewayDeliveryTiming?.takeIf { gatewayMetadata.transportVerified }, providerResponseTiming = parsingTiming, reasoningControlReceipt = reasoningControlReceipt, observedFinishReason = chunk.choices.orEmpty().firstNotNullOfOrNull { it.finishReason })
+                if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {
+                    resolvedFreeModel = chunk.model
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
+                }
+                receivedTerminal = receivedTerminal || chunk.error != null || chunk.choices.orEmpty().any { it.finishReason != null }
+                if (receivedTerminal) terminalDrain.markTerminal()
+                receivedReasoning = receivedReasoning || chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() }
+                receivedAnswer = receivedAnswer || chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() }
+                receivedVisibleText = receivedVisibleText || receivedAnswer
+                receivedError = receivedError || chunk.error != null
+                if (free != null && chunk.error != null) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error.message, status = 200, body = data, event = "error", terminal = true)
+                reachedOutputLimit = reachedOutputLimit || chunk.choices.orEmpty().any { it.finishReason == "length" }
+                if (llamaActivity == null && chunk.hasAssistantStreamPayload()) {
+                    llamaActivity = dev.chungjungsoo.gptmobile.data.llama.LlamaGenerationActivity.started(config, request.model, providerRequestIdentity { response.headers[it] })
+                }
+                receivedAssistantPayload = acceptedPayload || chunk.hasAssistantStreamPayload()
+                receivedToolCalls = receivedToolCalls || chunk.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() }
+                // Tool assembly commits only after the entire stream is validated.
+                // A malformed chunk can contain missing arguments even when a later
+                // finish marker looks valid, so retain the text but never execute it.
+                val publishedChunk = if (receivedToolCalls) observedChunk.copy(choices = chunk.choices?.map { if (it.finishReason in setOf("tool_calls", "function_call", "stop")) it.copy(finishReason = null) else it }) else observedChunk
+                if (firstChunk) {
+                    firstChunk = false
+                    emit(publishedChunk.copy(gatewayMetadata = gatewayMetadata))
+                } else {
+                    emit(publishedChunk)
+                }
+                if (receivedError) break
+            }
+            // Observe an empty response before its terminal error or retry decision.
+            if (firstChunk) {
+                emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata, providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
+            }
+            if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before a completion marker")
+            usageReceipt.completed(!receivedError && parseFailures == 0)
+            if (!receivedError && parseFailures == 0 && receivedAssistantPayload) ProviderCooldown.accepted(config)
+            if (parseFailures > 0 && !receivedError) {
+                receivedError = true
+                config.freeDiagnostics?.category = FreeFailureCategory.STREAM_DEGRADED
+                emit(ChatCompletionChunk(error = ErrorDetail("STREAM_DEGRADED: $parseFailures response chunks could not be decoded. Usable text was retained, but completeness and tool arguments cannot be verified.", "stream_degraded", code = "STREAM_DEGRADED"), providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
+            }
+            if (receivedTerminal && receivedToolCalls && !receivedError) emit(ChatCompletionChunk(streamFinished = true))
+            if (free != null) {
+                if (!receivedError && (receivedAnswer || receivedToolCalls)) {
+                    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, resolvedFreeModel, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"], freeCredentialIdentity(free, config.token), preparedRequest.model)
+                } else {
+                    if (!receivedError) config.freeDiagnostics?.category = noVisibleAnswerCategory(receivedReasoning, reachedOutputLimit)
+                    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordTerminalFailure(free, preparedRequest.model, config.freeDiagnostics?.category?.name ?: "Provider returned an error", credentialIdentity = freeCredentialIdentity(free, config.token))
+                    if (config.freeDiagnostics?.recorded != true) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, if (receivedError) "Provider returned an error" else "No visible answer received", status = 200, retryAt = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[free]?.retryAt, terminal = true)
+                }
+                freeResponseOutcome(free, receivedAnswer, receivedToolCalls, receivedError, reachedOutputLimit, receivedReasoning)?.let { emit(it) }
+            }
+        }
+    }
+
+    override fun streamResponses(
+        request: ResponsesRequest,
+        timeoutSeconds: Int,
+        config: ProviderRequestConfig
+    ): Flow<ResponsesStreamEvent> = flow {
+        ResponsesStream(this, request, timeoutSeconds, config).run()
+    }.flowOn(Dispatchers.IO)
+
+    /** Responses uses the same bounded transport phases while retaining its own acceptance and usage state. */
+    private inner class ResponsesStream(
+        private val collector: kotlinx.coroutines.flow.FlowCollector<ResponsesStreamEvent>,
+        private val request: ResponsesRequest,
+        private val timeoutSeconds: Int,
+        private val config: ProviderRequestConfig
+    ) {
+        private var receivedResponsePayload = false
+        private var receivedVisibleText = false
+        private var requestDispatched = false
+        private var anyRequestDispatched = false
+        private var activeResponseObserver: ProviderResponseObserver? = null
+        private val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
+        private var receivedTerminal = false
+        private var resolvedFreeModel: String? = null
+        private var preparedRequest = request.withModelSamplingPolicy()
+        private var effectiveConfig = config.copy(selectedModel = request.model)
+        private lateinit var endpoint: String
+        private var workerBudget: WorkerRequestBudget? = null
+        private var connectionTimeout: Long? = null
+
+        suspend fun run() {
+            workerBudget = currentCoroutineContext()[WorkerRequestBudget]
+            connectionTimeout = currentCoroutineContext()[ProfileConnectionTimeout]?.millis
+            try {
+                effectiveConfig = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
+                    gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(effectiveConfig, request.model))
+                }
+                endpoint = effectiveConfig.buildEndpoint("responses")
+
                 ResilientStreamingClient.executeWithRetry(
                     config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
-                    shouldRetry = { dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity) },
+                    shouldRetry = { dispatchRetryGuard.mayRetry(receivedResponsePayload) },
                     shouldRetryFailure = { failure ->
-                        if (!receivedAssistantPayload && !receivedGatewayToolActivity && ResilientStreamingClient.causesNeedNetworkRecovery(failure)) {
+                        if (!receivedResponsePayload && ResilientStreamingClient.causesNeedNetworkRecovery(failure)) {
+                            // DNS/unresolved-address failures never reached the remote endpoint, even
+                            // when this route permits server tools. Clear dispatch uncertainty before
+                            // the bounded transport retry; accepted streams remain checkpoint-only.
                             dispatchRetryGuard.rejectedBeforeExecution()
                         }
-                        dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity)
+                        dispatchRetryGuard.mayRetry(receivedResponsePayload)
                     },
                     onRetry = { attempt, delay, failure ->
-                        ProviderConnectivityPreflight.failed(config.apiUrl, failure)
-                        LocalServiceHealth.recordLocalFailure(config.apiUrl, failure)
-                        transportRetries = attempt
-                        if (ResilientStreamingClient.isPrematureConnectionClose(failure)) LocalEndpointConnectionPolicy.peerClosed(endpoint)
+                        ProviderConnectivityPreflight.failed(effectiveConfig.apiUrl, failure)
+                        LocalServiceHealth.recordLocalFailure(effectiveConfig.apiUrl, failure)
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                             "ProviderRetry",
-                            "CHAT_RETRY · attempt=$attempt delayMs=$delay · ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",
+                            "RESPONSES_RETRY · attempt=$attempt delayMs=$delay · ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",
                             "W"
                         )
                     }
-                ) { guardedRequest() }
-            }
-        } catch (e: Exception) {
-            if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
-            ProviderConnectivityPreflight.failed(config.apiUrl, e)
-            LocalServiceHealth.recordLocalFailure(config.apiUrl, e)
-            val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity
-            val transportFailure = networkFailureKind(e)
-            val providerFailure = providerExceptionDetails(e, receivedAssistantPayload)
-            val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
-            val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity) && (providerFailure?.retryable ?: transportFailure.retryable)
-            val errorMessage = if (gatewayOutcomeUnknown) {
-                "GATEWAY_OUTCOME_UNKNOWN: The connection ended after a request that allows server tools was dispatched. Check the saved gateway job before resuming; the request was not replayed."
-            } else if (providerFailure != null) {
-                providerFailure.message
-            } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
-                e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
-            } else if (transportFailure != NetworkFailureKind.UNKNOWN) {
-                transportFailure.userMessage(receivedVisibleText, activeResponseObserver?.snapshot()?.httpStatus in 200..299, e)
-            } else {
-                when (e) {
-                    is java.net.UnknownHostException -> config.freeProvider?.let { "${it.displayName}: DNS could not resolve ${java.net.URI(it.apiUrl).host}. Check this provider's availability and your connection; no alternate host was contacted." } ?: "Network error: Unable to resolve host."
-                    is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
-                    is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
-                    is HttpRequestTimeoutException -> "Request timed out."
-                    is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
-                    is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
-                    else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
-                        if (receivedAssistantPayload) "STREAM_INTERRUPTED: connection closed during the response." else "Connection closed before the response started. Please retry."
-                    } else {
-                        dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(e).userMessage
+                ) {
+                    executeRequest()
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+                ProviderConnectivityPreflight.failed(effectiveConfig.apiUrl, e)
+                LocalServiceHealth.recordLocalFailure(effectiveConfig.apiUrl, e)
+                val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown
+                val transportFailure = networkFailureKind(e)
+                val providerFailure = providerExceptionDetails(e, receivedResponsePayload)?.let { failure ->
+                    failure.copy(failureDetails = JsonObject(failure.failureDetails.orEmpty() + providerLimitRefusalDetails(effectiveConfig, request.model, receivedResponsePayload, e)))
+                }
+                val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
+                val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && dispatchRetryGuard.mayRetry(receivedResponsePayload) && (providerFailure?.retryable ?: transportFailure.retryable)
+                val errorMessage = if (gatewayOutcomeUnknown) {
+                    "GATEWAY_OUTCOME_UNKNOWN: The connection ended after a request that allows server tools was dispatched. Check the saved gateway job before resuming; the request was not replayed."
+                } else if (providerFailure != null) {
+                    providerFailure.message
+                } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
+                    e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
+                } else if (transportFailure != NetworkFailureKind.UNKNOWN) {
+                    transportFailure.userMessage(receivedVisibleText, activeResponseObserver?.snapshot()?.httpStatus in 200..299, e)
+                } else {
+                    when (e) {
+                        is java.net.UnknownHostException -> "Network error: Unable to resolve host."
+                        is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
+                        is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
+                        is HttpRequestTimeoutException -> "Request timed out."
+                        is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
+                        is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
+                        else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
+                            if (receivedResponsePayload) "STREAM_INTERRUPTED: connection closed during the response." else "Connection closed before the response started. Please retry."
+                        } else {
+                            dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(e).userMessage
+                        }
                     }
                 }
-            }
-            config.freeDiagnostics?.apply {
-                if (category == null) category = freeFailureCategory(e)
-                if (category == FreeFailureCategory.DNS_RESOLUTION_FAILED) dnsFailed(runCatching { java.net.URI(config.apiUrl).host }.getOrNull().orEmpty())
-                if (e is FreeAiRateLimitException) cooldown = e.cooldown
-            }
-            config.freeProvider?.let { provider ->
-                if (config.freeDiagnostics?.recorded != true) {
-                    val networkFailure = e is java.io.IOException || e is java.nio.channels.UnresolvedAddressException || config.freeDiagnostics?.category == FreeFailureCategory.DNS_RESOLUTION_FAILED
-                    val cooldown = FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, request.model, freeCredentialIdentity(provider, config.token))
-                    val readiness = when {
-                        e is FreeAiRateLimitException -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.RATE_LIMITED
-                        networkFailure -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.UNREACHABLE
-                        config.freeDiagnostics?.stage == "preparation" -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.INVALID_REQUEST
-                        else -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.GENERATION_FAILED
-                    }
-                    if (e !is FreeProviderException) dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(provider, errorMessage, readiness, if (networkFailure) false else null, cooldown, request.model, freeCredentialIdentity(provider, config.token))
-                    dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, request.model, errorMessage, retryAt = cooldown, terminal = config.freeDiagnostics?.terminal ?: false.takeIf { config.freeDiagnostics?.jobId != null })
-                }
-            }
-            emit(
-                ChatCompletionChunk(
-                    providerResponseTiming = activeResponseObserver?.snapshot(),
-                    reasoningControlReceipt = activeControlReceipt,
-                    error = ErrorDetail(
+                emit(
+                    ResponseErrorEvent(
                         message = errorMessage,
-                        type = if (config.freeProvider != null) (config.freeDiagnostics?.category ?: freeFailureCategory(e)).name else providerFailure?.type ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "provider_error" else "network_error",
                         code = if (gatewayOutcomeUnknown) {
                             "GATEWAY_OUTCOME_UNKNOWN"
                         } else if (e is LocalServiceUnavailableException) {
@@ -773,7 +974,6 @@ class OpenAIAPIImpl @Inject constructor(
                         } else {
                             failureCode
                         },
-                        retryable = failureRetryable,
                         failureDetails = providerTransportFailureDetails(
                             details = when {
                                 gatewayOutcomeUnknown -> kotlinx.serialization.json.buildJsonObject {
@@ -806,434 +1006,338 @@ class OpenAIAPIImpl @Inject constructor(
                                         put("waiting_for_connectivity", kotlinx.serialization.json.JsonPrimitive(true))
                                         put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(e.retryAfterMs))
                                     }
-                                    put("partial_output_preserved", kotlinx.serialization.json.JsonPrimitive(receivedAssistantPayload))
+                                    put("partial_output_preserved", kotlinx.serialization.json.JsonPrimitive(receivedResponsePayload))
                                 }
                             },
                             error = e,
                             timing = activeResponseObserver?.snapshot(),
                             dispatched = requestDispatched,
-                            receivedPayload = receivedAssistantPayload,
+                            receivedPayload = receivedResponsePayload,
                             receivedVisibleText = receivedVisibleText,
                             generationCompleted = receivedTerminal,
                             replayAllowed = failureRetryable,
                             requiresReconciliation = gatewayOutcomeUnknown,
                             httpAttempt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.latestHttpAttemptEvidence()
                         ),
-                        providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, e)
-                            ?: providerConnectivityWait(config, request.model, e, anyRequestDispatched, receivedAssistantPayload || receivedGatewayToolActivity)
+                        providerLimit = providerLimitDecision(effectiveConfig, request.model, receivedResponsePayload, e)
+                            ?: providerConnectivityWait(effectiveConfig, request.model, e, anyRequestDispatched, receivedResponsePayload)
                     )
                 )
-            )
-        } finally {
-            llamaActivity?.close()
-            if (recoveryCheck) config.freeProvider?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.endGeneration(it, requestedHealthModel, freeCredentialIdentity(it, config.token)) }
-        }
-    }.normalizeFreeTextBlocks(config.freeProvider).recordOpenRouterReceipts(config.openRouterReceipt, openRouterReceipts).flowOn(Dispatchers.IO)
-
-    override fun streamResponses(
-        request: ResponsesRequest,
-        timeoutSeconds: Int,
-        config: ProviderRequestConfig
-    ): Flow<ResponsesStreamEvent> = flow {
-        val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
-        val connectionTimeout = kotlinx.coroutines.currentCoroutineContext()[ProfileConnectionTimeout]?.millis
-        var receivedResponsePayload = false
-        var receivedVisibleText = false
-        var requestDispatched = false
-        var anyRequestDispatched = false
-        var activeResponseObserver: ProviderResponseObserver? = null
-        val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
-        var receivedTerminal = false
-        var resolvedFreeModel: String? = null
-        var preparedRequest = request.withModelSamplingPolicy()
-        var effectiveConfig = config.copy(selectedModel = request.model)
-        try {
-            effectiveConfig = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
-                gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(effectiveConfig, request.model))
             }
-            val endpoint = effectiveConfig.buildEndpoint("responses")
+        }
 
-            ResilientStreamingClient.executeWithRetry(
-                config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
-                shouldRetry = { dispatchRetryGuard.mayRetry(receivedResponsePayload) },
-                shouldRetryFailure = { failure ->
-                    if (!receivedResponsePayload && ResilientStreamingClient.causesNeedNetworkRecovery(failure)) {
-                        // DNS/unresolved-address failures never reached the remote endpoint, even
-                        // when this route permits server tools. Clear dispatch uncertainty before
-                        // the bounded transport retry; accepted streams remain checkpoint-only.
-                        dispatchRetryGuard.rejectedBeforeExecution()
-                    }
-                    dispatchRetryGuard.mayRetry(receivedResponsePayload)
-                },
-                onRetry = { attempt, delay, failure ->
-                    ProviderConnectivityPreflight.failed(effectiveConfig.apiUrl, failure)
-                    LocalServiceHealth.recordLocalFailure(effectiveConfig.apiUrl, failure)
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                        "ProviderRetry",
-                        "RESPONSES_RETRY · attempt=$attempt delayMs=$delay · ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",
-                        "W"
-                    )
-                }
-            ) {
-                // Reset before the availability gate, including retries rejected
-                // without dispatch after a preceding transport/DNS failure.
-                requestDispatched = false
-                activeResponseObserver = null
-                ProviderConnectivityPreflight.withAvailability(effectiveConfig.apiUrl) {
-                    LocalConnectionPreflight.requireReady(effectiveConfig.apiUrl)
-                    ProviderCooldown.withPermit(effectiveConfig) {
-                        effectiveConfig.freeDiagnostics?.stage = "preparation"
-                        var admittedOutputTokens: Int? = null
-                        val gatewayRequest = dev.chungjungsoo.gptmobile.data.network.gateway.gatewayConversationRequest(NetworkClient.openAIJson.encodeToString(preparedRequest), effectiveConfig)
-                        val admittedPayload = requestPreparation.prepare(gatewayRequest.payload, effectiveConfig.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
-                        gatewayRequest.beforeDispatch(effectiveConfig)
-                        gatewayRequest.armDispatch(effectiveConfig)
-                        effectiveConfig.freeDiagnostics?.stage = "dispatch"
-                        effectiveConfig.freeDiagnostics?.attempted()
-                        dispatchRetryGuard.dispatched()
-                        requestDispatched = true
-                        anyRequestDispatched = true
-                        val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
-                        dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange(effectiveConfig, "chat", safeRead = false, method = "POST", knownGateway = false) { diagnosticHeaders ->
-                            networkClient.inferenceClient().preparePost(endpoint) {
-                                applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
-                                contentType(ContentType.Application.Json)
-                                setBody(admittedPayload)
-                                accept(ContentType.Text.EventStream)
-                                effectiveConfig.token?.let { bearerAuth(it) }
-                                diagnosticHeaders.forEach { (key, value) -> header(key, value) }
-                            }.execute { response ->
-                                responseObserver.headersReceived(response.status.value) { response.headers[it] }
-                                if (response.status.isSuccess()) {
-                                    dispatchRetryGuard.accepted()
-                                    ProviderCooldown.observeQuota(effectiveConfig) { response.headers[it] }
-                                }
-                                emit(ResponseGatewayMetadataEvent(providerResponseTiming = responseObserver.snapshot()))
-                                ProviderConnectivityPreflight.responseReceived(effectiveConfig.apiUrl)
-                                GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
-                                effectiveConfig.freeDiagnostics?.responded()
-                                if (!response.status.isSuccess()) {
-                                    val errorBody = readProviderErrorBody(response, 256 * 1024)
-                                    providerBudgetFailure(
-                                        errorBody,
-                                        response.status.value,
-                                        JsonObject(
-                                            mapOf("failed_stage" to JsonPrimitive("model_invocation")) +
-                                                ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint) +
-                                                structuredProviderFailure(errorBody, response.status.value).orEmpty()
-                                        ),
-                                        responseObserver.snapshot().serverRequestId,
-                                        receivedResponsePayload
-                                    )?.let { denied ->
-                                        emit(
-                                            if (dispatchRetryGuard.remoteOutcomeUnknown) {
-                                                denied.copy(
-                                                    message = uncertainGatewayFailureMessage(denied.message),
-                                                    code = "GATEWAY_OUTCOME_UNKNOWN",
-                                                    failureDetails = uncertainGatewayFailureDetails(denied.failureDetails, responseObserver.snapshot(), denied.code)
-                                                )
-                                            } else {
-                                                denied
-                                            }
-                                        )
-                                        return@execute
-                                    }
-                                    val parameter = rejectedSamplingParameter(errorBody)
-                                    if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown) {
-                                        val sanitized = when (parameter) {
-                                            "temperature" -> preparedRequest.copy(temperature = null)
-                                            "top_p" -> preparedRequest.copy(topP = null)
-                                            else -> preparedRequest
-                                        }
-                                        if (sanitized != preparedRequest) {
-                                            preparedRequest = sanitized
-                                            dispatchRetryGuard.rejectedBeforeExecution()
-                                            throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
-                                        }
-                                    }
-                                    if (response.status.value in listOf(429, 502, 503, 504)) {
-                                        throw ProviderCooldown.rejected(
-                                            effectiveConfig,
-                                            response.status.value,
-                                            response.headers[HttpHeaders.RetryAfter],
-                                            knownNotAccepted = response.status.value == 429 &&
-                                                !dispatchRetryGuard.remoteOutcomeUnknown &&
-                                                !receivedResponsePayload &&
-                                                !effectiveConfig.requireGatewayConversation &&
-                                                effectiveConfig.gatewayConversationId == null &&
-                                                effectiveConfig.gatewayConversationKey == null &&
-                                                response.headers["X-Gateway-Job-ID"].isNullOrBlank(),
-                                            rateReset = response.headers["X-RateLimit-Reset"],
-                                            errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                            errorType = rateLimitErrorType(errorBody),
-                                            limitSource = OpenRouterRateLimitScopes.sourceFromBody(errorBody)
-                                        )
-                                    }
-                                    throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
+        private suspend fun emit(event: ResponsesStreamEvent) {
+            collector.emit(event)
+        }
 
-                                    val errorMessage = if (response.status.value in setOf(401, 402, 403)) dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message() else providerErrorDetails(errorBody, "HTTP ${response.status.value}", effectiveConfig.token)
-                                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                                        "Provider",
-                                        "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
-                                        "E"
-                                    )
-
-                                    val rejection = JsonObject(
-                                        ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint) +
-                                            requestPayloadRejection(
-                                                response.status.value,
-                                                admittedPayload,
-                                                effectiveConfig,
-                                                preparedRequest.model,
-                                                receivedResponsePayload || dispatchRetryGuard.remoteOutcomeUnknown,
-                                                response.headers::get
-                                            )
-                                    )
-                                    emit(
-                                        ResponseErrorEvent(
-                                            message = if (response.status.value in setOf(401, 402, 403)) errorMessage else effectiveConfig.readableProviderError(errorMessage, response.status.value.toString()),
-                                            code = response.status.value.toString(),
-                                            failureDetails = JsonObject(
-                                                rejection + kotlinx.serialization.json.buildJsonObject {
-                                                    put("http_status", response.status.value)
-                                                    put("failed_stage", "model_invocation")
-                                                }
-                                            )
-                                        )
-                                    )
-                                    return@execute
-                                }
-
-                                LocalServiceHealth.recordLocalHandshakeSuccess(effectiveConfig.apiUrl)
-                                effectiveConfig.freeDiagnostics?.stage = "generation"
-                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                                    "Provider",
-                                    "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
-                                )
-                                // Responses API requests need the same response-bound provenance as chat completions.
-                                emit(ResponseGatewayMetadataEvent(gatewayResponseMetadata { response.headers[it] } ?: GatewayResponseMetadata()))
-                                // Success - read SSE stream
-                                val channel = response.bodyAsChannel()
-                                val events = ProviderEventReader(channel)
-                                var observedResponseId: String? = null
-                                while (!channel.isClosedForRead) {
-                                    val line = events.readLine() ?: break
-                                    val data = SseUtils.extractSseData(line) ?: continue
-
-                                    if (data == "[DONE]") {
-                                        receivedTerminal = true
-                                        break
-                                    }
-
-                                    val decoded = try {
-                                        NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(data)
-                                    } catch (_: kotlinx.serialization.SerializationException) {
-                                        continue
-                                    }
-                                    when (decoded) {
-                                        is ResponseCreatedEvent -> observedResponseId = decoded.response.id
-                                        is ResponseInProgressEvent -> observedResponseId = decoded.response.id
-                                        is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> observedResponseId = decoded.response.id
-                                        else -> Unit
-                                    }
-                                    val errorCode = when (decoded) {
-                                        is ResponseErrorEvent -> decoded.code
-                                        is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> decoded.response.error?.code
-                                        else -> null
-                                    }
-                                    val semanticFailure = when (decoded) {
-                                        is ResponseErrorEvent -> dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.fromValues(response.status.value, decoded.code, decoded.message)
-                                        is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> decoded.response.error?.let {
-                                            dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.fromValues(response.status.value, it.code, it.message, it.type)
-                                        }
-                                        else -> null
-                                    }
-                                    val structuredFailure = if (decoded is ResponseErrorEvent || decoded is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent) structuredResponsesFailure(data, response.status.value) else null
-                                    if (semanticFailure?.kind == dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind.RATE_LIMIT &&
-                                        dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.retainedProviderCode(errorCode) == null &&
-                                        dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.retainedProviderCode((structuredFailure?.get("code") as? JsonPrimitive)?.contentOrNull) == null &&
-                                        structuredFailure?.get("requires_reconciliation") != JsonPrimitive(true) &&
-                                        structuredFailure?.get("retryable") != JsonPrimitive(false) &&
-                                        ProviderCooldown.durableRateLimits() &&
-                                        !dispatchRetryGuard.remoteOutcomeUnknown &&
-                                        !effectiveConfig.requireGatewayConversation &&
-                                        effectiveConfig.gatewayConversationId == null &&
-                                        effectiveConfig.gatewayConversationKey == null &&
-                                        response.headers["X-Gateway-Job-ID"].isNullOrBlank()
-                                    ) {
-                                        throw ProviderCooldown.rejected(
-                                            effectiveConfig,
-                                            429,
-                                            response.headers[HttpHeaders.RetryAfter],
-                                            knownNotAccepted = !receivedResponsePayload,
-                                            rateReset = response.headers["X-RateLimit-Reset"],
-                                            errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                            errorType = semanticFailure.code ?: errorCode,
-                                            checkpointContinuationAllowed = true,
-                                            observedHttpStatus = response.status.value,
-                                            serverRequestId = responseObserver.snapshot().serverRequestId
-                                        )
-                                    }
-                                    val streamEvent = when (decoded) {
-                                        is ResponseErrorEvent -> {
-                                            val reportedMessage = effectiveConfig.readableProviderError(providerErrorDetails(data, decoded.message, effectiveConfig.token), decoded.code)
-                                            val classified = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
-                                                decoded.code,
-                                                reportedMessage,
-                                                details = structuredFailure,
-                                                httpStatus = response.status.value,
-                                                serverRequestId = responseObserver.snapshot().serverRequestId,
-                                                responsePayloadObserved = receivedResponsePayload,
-                                                streamEventType = "error",
-                                                providerResponseId = observedResponseId
-                                            )
-                                            if (dispatchRetryGuard.remoteOutcomeUnknown) {
-                                                classified.copy(message = uncertainGatewayFailureMessage(classified.message), code = "GATEWAY_OUTCOME_UNKNOWN", failureDetails = uncertainGatewayFailureDetails(classified.failureDetails, responseObserver.snapshot(), decoded.code))
-                                            } else {
-                                                classified
-                                            }
-                                        }
-                                        is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> {
-                                            val reported = decoded.response.error
-                                            val classified = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
-                                                reported?.code,
-                                                effectiveConfig.readableProviderError(providerErrorDetails(data, reported?.message ?: "Response failed", effectiveConfig.token), reported?.code),
-                                                reported?.type,
-                                                details = structuredFailure,
-                                                httpStatus = response.status.value,
-                                                serverRequestId = responseObserver.snapshot().serverRequestId,
-                                                responsePayloadObserved = receivedResponsePayload,
-                                                streamEventType = "response.failed",
-                                                providerResponseId = decoded.response.id
-                                            ).copy(providerUsage = decoded.response.usage)
-                                            if (dispatchRetryGuard.remoteOutcomeUnknown) {
-                                                classified.copy(
-                                                    message = uncertainGatewayFailureMessage(classified.message),
-                                                    code = "GATEWAY_OUTCOME_UNKNOWN",
-                                                    failureDetails = uncertainGatewayFailureDetails(classified.failureDetails, responseObserver.snapshot(), reported?.code)
-                                                )
-                                            } else {
-                                                classified
-                                            }
-                                        }
-                                        else -> decoded
-                                    }
-                                    receivedTerminal = receivedTerminal ||
-                                        streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent ||
-                                        streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent ||
-                                        streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent ||
-                                        streamEvent is ResponseErrorEvent
-                                    receivedResponsePayload = receivedResponsePayload || streamEvent.hasResponseStreamPayload()
-                                    receivedVisibleText = receivedVisibleText || streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputTextDeltaEvent && streamEvent.delta.isNotBlank()
-                                    if (streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent) {
-                                        ProviderCooldown.accepted(effectiveConfig)
-                                    }
-                                    emit(streamEvent)
-                                }
-                                if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before response.completed")
-                            }
+        private suspend fun executeRequest() {
+            // Reset before the availability gate, including retries rejected
+            // without dispatch after a preceding transport/DNS failure.
+            requestDispatched = false
+            activeResponseObserver = null
+            ProviderConnectivityPreflight.withAvailability(effectiveConfig.apiUrl) {
+                LocalConnectionPreflight.requireReady(effectiveConfig.apiUrl)
+                ProviderCooldown.withPermit(effectiveConfig) {
+                    effectiveConfig.freeDiagnostics?.stage = "preparation"
+                    var admittedOutputTokens: Int? = null
+                    val gatewayRequest = dev.chungjungsoo.gptmobile.data.network.gateway.gatewayConversationRequest(NetworkClient.openAIJson.encodeToString(preparedRequest), effectiveConfig)
+                    val admittedPayload = requestPreparation.prepare(gatewayRequest.payload, effectiveConfig.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
+                    gatewayRequest.beforeDispatch(effectiveConfig)
+                    gatewayRequest.armDispatch(effectiveConfig)
+                    effectiveConfig.freeDiagnostics?.stage = "dispatch"
+                    effectiveConfig.freeDiagnostics?.attempted()
+                    dispatchRetryGuard.dispatched()
+                    requestDispatched = true
+                    anyRequestDispatched = true
+                    val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
+                    dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange(effectiveConfig, "chat", safeRead = false, method = "POST", knownGateway = false) { diagnosticHeaders ->
+                        networkClient.inferenceClient().preparePost(endpoint) {
+                            applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
+                            contentType(ContentType.Application.Json)
+                            setBody(admittedPayload)
+                            accept(ContentType.Text.EventStream)
+                            effectiveConfig.token?.let { bearerAuth(it) }
+                            diagnosticHeaders.forEach { (key, value) -> header(key, value) }
+                        }.execute { response ->
+                            readResponse(response, admittedPayload, responseObserver, gatewayRequest.commandId)
                         }
                     }
                 }
             }
-        } catch (e: Exception) {
-            if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
-            ProviderConnectivityPreflight.failed(effectiveConfig.apiUrl, e)
-            LocalServiceHealth.recordLocalFailure(effectiveConfig.apiUrl, e)
-            val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown
-            val transportFailure = networkFailureKind(e)
-            val providerFailure = providerExceptionDetails(e, receivedResponsePayload)
-            val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
-            val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && dispatchRetryGuard.mayRetry(receivedResponsePayload) && (providerFailure?.retryable ?: transportFailure.retryable)
-            val errorMessage = if (gatewayOutcomeUnknown) {
-                "GATEWAY_OUTCOME_UNKNOWN: The connection ended after a request that allows server tools was dispatched. Check the saved gateway job before resuming; the request was not replayed."
-            } else if (providerFailure != null) {
-                providerFailure.message
-            } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
-                e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
-            } else if (transportFailure != NetworkFailureKind.UNKNOWN) {
-                transportFailure.userMessage(receivedVisibleText, activeResponseObserver?.snapshot()?.httpStatus in 200..299, e)
-            } else {
-                when (e) {
-                    is java.net.UnknownHostException -> "Network error: Unable to resolve host."
-                    is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
-                    is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
-                    is HttpRequestTimeoutException -> "Request timed out."
-                    is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
-                    is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
-                    else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
-                        if (receivedResponsePayload) "STREAM_INTERRUPTED: connection closed during the response." else "Connection closed before the response started. Please retry."
+        }
+
+        private suspend fun readResponse(response: io.ktor.client.statement.HttpResponse, admittedPayload: String, responseObserver: ProviderResponseObserver, commandId: String?) {
+            responseObserver.headersReceived(response.status.value) { response.headers[it] }
+            if (response.status.isSuccess()) {
+                dispatchRetryGuard.accepted()
+                ProviderCooldown.observeQuota(effectiveConfig) { response.headers[it] }
+            }
+            emit(ResponseGatewayMetadataEvent(providerResponseTiming = responseObserver.snapshot()))
+            ProviderConnectivityPreflight.responseReceived(effectiveConfig.apiUrl)
+            GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+            effectiveConfig.freeDiagnostics?.responded()
+            if (!response.status.isSuccess()) {
+                readRejectedResponse(response, admittedPayload, responseObserver, commandId)
+                return
+            }
+            readSseResponse(response, responseObserver, commandId)
+        }
+
+        private suspend fun readRejectedResponse(response: io.ktor.client.statement.HttpResponse, admittedPayload: String, responseObserver: ProviderResponseObserver, commandId: String?) {
+            val errorBody = readProviderErrorBody(response, 256 * 1024)
+            providerBudgetFailure(
+                errorBody,
+                response.status.value,
+                JsonObject(
+                    mapOf("failed_stage" to JsonPrimitive("model_invocation")) +
+                        ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint) +
+                        structuredProviderFailure(errorBody, response.status.value).orEmpty()
+                ),
+                responseObserver.snapshot().serverRequestId,
+                receivedResponsePayload,
+                response.headers[HttpHeaders.RetryAfter],
+                response.status.value == 402 && providerRateLimitWaitRefusal(effectiveConfig, commandId, dispatchRetryGuard.remoteOutcomeUnknown, receivedResponsePayload, response.headers["X-Gateway-Job-ID"]) == null
+            )?.let { denied ->
+                emit(
+                    if (dispatchRetryGuard.remoteOutcomeUnknown) {
+                        denied.copy(
+                            message = uncertainGatewayFailureMessage(denied.message),
+                            code = "GATEWAY_OUTCOME_UNKNOWN",
+                            failureDetails = uncertainGatewayFailureDetails(denied.failureDetails, responseObserver.snapshot(), denied.code)
+                        )
                     } else {
-                        dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(e).userMessage
+                        denied
                     }
+                )
+                return
+            }
+            val parameter = rejectedSamplingParameter(errorBody)
+            if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown) {
+                val sanitized = when (parameter) {
+                    "temperature" -> preparedRequest.copy(temperature = null)
+                    "top_p" -> preparedRequest.copy(topP = null)
+                    else -> preparedRequest
+                }
+                if (sanitized != preparedRequest) {
+                    preparedRequest = sanitized
+                    dispatchRetryGuard.rejectedBeforeExecution()
+                    throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
                 }
             }
+            if (response.status.value in listOf(429, 502, 503, 504)) {
+                val waitRefusal = providerRateLimitWaitRefusal(effectiveConfig, commandId, dispatchRetryGuard.remoteOutcomeUnknown, receivedResponsePayload, response.headers["X-Gateway-Job-ID"])
+                throw ProviderCooldown.rejected(
+                    effectiveConfig,
+                    response.status.value,
+                    response.headers[HttpHeaders.RetryAfter],
+                    knownNotAccepted = response.status.value == 429 && waitRefusal == null,
+                    waitRefusal = waitRefusal.takeIf { response.status.value == 429 },
+                    rateReset = response.headers["X-RateLimit-Reset"],
+                    errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
+                    errorType = rateLimitErrorType(errorBody),
+                    limitSource = OpenRouterRateLimitScopes.sourceFromBody(errorBody)
+                )
+            }
+            throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
+
+            val errorMessage = if (response.status.value in setOf(401, 402, 403)) dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message() else providerErrorDetails(errorBody, "HTTP ${response.status.value}", effectiveConfig.token)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "Provider",
+                "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
+                "E"
+            )
+
+            val rejection = JsonObject(
+                ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint) +
+                    requestPayloadRejection(
+                        response.status.value,
+                        admittedPayload,
+                        effectiveConfig,
+                        preparedRequest.model,
+                        receivedResponsePayload || dispatchRetryGuard.remoteOutcomeUnknown,
+                        response.headers::get
+                    )
+            )
             emit(
                 ResponseErrorEvent(
-                    message = errorMessage,
-                    code = if (gatewayOutcomeUnknown) {
-                        "GATEWAY_OUTCOME_UNKNOWN"
-                    } else if (e is LocalServiceUnavailableException) {
-                        "LOCAL_SERVICE_UNREACHABLE"
-                    } else {
-                        failureCode
-                    },
-                    failureDetails = providerTransportFailureDetails(
-                        details = when {
-                            gatewayOutcomeUnknown -> kotlinx.serialization.json.buildJsonObject {
-                                put("failed_stage", kotlinx.serialization.json.JsonPrimitive("gateway_dispatch"))
-                                put("outcome", kotlinx.serialization.json.JsonPrimitive("unknown"))
-                                put("replay_safe", kotlinx.serialization.json.JsonPrimitive(false))
-                            }
-                            e is LocalServiceUnavailableException -> e.failureDetails()
-                            providerFailure != null -> providerFailure.failureDetails
-                            else -> kotlinx.serialization.json.buildJsonObject {
-                                put("code", kotlinx.serialization.json.JsonPrimitive(failureCode))
-                                put(
-                                    "failed_stage",
-                                    kotlinx.serialization.json.JsonPrimitive(
-                                        if (e is ProviderConnectivityPendingException) {
-                                            "provider_admission"
-                                        } else if (transportFailure == NetworkFailureKind.UNKNOWN) {
-                                            "stage_not_recorded"
-                                        } else {
-                                            transportFailure.failedStage
-                                        }
-                                    )
-                                )
-                                if (e is ProviderConnectivityPendingException) {
-                                    put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"))
-                                    put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
-                                }
-                                put("retryable", kotlinx.serialization.json.JsonPrimitive(failureRetryable))
-                                if (e is ProviderConnectivityPendingException) {
-                                    put("waiting_for_connectivity", kotlinx.serialization.json.JsonPrimitive(true))
-                                    put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(e.retryAfterMs))
-                                }
-                                put("partial_output_preserved", kotlinx.serialization.json.JsonPrimitive(receivedResponsePayload))
-                            }
-                        },
-                        error = e,
-                        timing = activeResponseObserver?.snapshot(),
-                        dispatched = requestDispatched,
-                        receivedPayload = receivedResponsePayload,
-                        receivedVisibleText = receivedVisibleText,
-                        generationCompleted = receivedTerminal,
-                        replayAllowed = failureRetryable,
-                        requiresReconciliation = gatewayOutcomeUnknown,
-                        httpAttempt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.latestHttpAttemptEvidence()
-                    ),
-                    providerLimit = providerLimitDecision(effectiveConfig, request.model, receivedResponsePayload, e)
-                        ?: providerConnectivityWait(effectiveConfig, request.model, e, anyRequestDispatched, receivedResponsePayload)
+                    message = if (response.status.value in setOf(401, 402, 403)) errorMessage else effectiveConfig.readableProviderError(errorMessage, response.status.value.toString()),
+                    code = response.status.value.toString(),
+                    failureDetails = JsonObject(
+                        rejection + kotlinx.serialization.json.buildJsonObject {
+                            put("http_status", response.status.value)
+                            put("failed_stage", "model_invocation")
+                        }
+                    )
                 )
             )
+            return
         }
-    }.flowOn(Dispatchers.IO)
+
+        private suspend fun readSseResponse(response: io.ktor.client.statement.HttpResponse, responseObserver: ProviderResponseObserver, commandId: String?) {
+            LocalServiceHealth.recordLocalHandshakeSuccess(effectiveConfig.apiUrl)
+            effectiveConfig.freeDiagnostics?.stage = "generation"
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "Provider",
+                "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
+            )
+            // Responses API requests need the same response-bound provenance as chat completions.
+            emit(ResponseGatewayMetadataEvent(gatewayResponseMetadata { response.headers[it] } ?: GatewayResponseMetadata()))
+            // Success - read SSE stream
+            val channel = response.bodyAsChannel()
+            val events = ProviderEventReader(channel)
+            var observedResponseId: String? = null
+            while (!channel.isClosedForRead) {
+                val line = events.readLine() ?: break
+                val data = SseUtils.extractSseData(line) ?: continue
+
+                if (data == "[DONE]") {
+                    receivedTerminal = true
+                    break
+                }
+
+                val decoded = try {
+                    NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(data)
+                } catch (_: kotlinx.serialization.SerializationException) {
+                    continue
+                }
+                when (decoded) {
+                    is ResponseCreatedEvent -> observedResponseId = decoded.response.id
+                    is ResponseInProgressEvent -> observedResponseId = decoded.response.id
+                    is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> observedResponseId = decoded.response.id
+                    else -> Unit
+                }
+                val errorCode = when (decoded) {
+                    is ResponseErrorEvent -> decoded.code
+                    is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> decoded.response.error?.code
+                    else -> null
+                }
+                val semanticFailure = when (decoded) {
+                    is ResponseErrorEvent -> dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.fromValues(response.status.value, decoded.code, decoded.message, metadata = dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetEvidence.metadata(data))
+                    is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> decoded.response.error?.let {
+                        dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.fromValues(response.status.value, it.code, it.message, it.type, metadata = dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetEvidence.metadata(data))
+                    }
+                    else -> null
+                }
+                val reportedUsage = (decoded as? dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent)?.response?.usage
+                val acceptedPayload = receivedResponsePayload || reportedUsage != null
+                val streamFailureDetails = if (decoded is ResponseErrorEvent || decoded is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent) structuredResponsesFailure(data, response.status.value) else null
+                val streamWaitRefusal = providerRateLimitWaitRefusal(effectiveConfig, commandId, dispatchRetryGuard.remoteOutcomeUnknown, false, response.headers["X-Gateway-Job-ID"], streamFailureDetails)
+                val structuredFailure = streamFailureDetails
+                    .let { details -> if (semanticFailure?.kind == dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind.RATE_LIMIT) JsonObject(details.orEmpty() + providerWaitRefusalFields(streamWaitRefusal)) else details }
+                val deferredRateLimit = if (semanticFailure?.kind == dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind.RATE_LIMIT &&
+                    dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.retainedProviderCode(errorCode) == null &&
+                    dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.retainedProviderCode((structuredFailure?.get("code") as? JsonPrimitive)?.contentOrNull) == null &&
+                    structuredFailure?.get("requires_reconciliation") != JsonPrimitive(true) &&
+                    structuredFailure?.get("retryable") != JsonPrimitive(false) &&
+                    ProviderCooldown.durableRateLimits() &&
+                    streamWaitRefusal == null
+                ) {
+                    ProviderCooldown.rejected(
+                        effectiveConfig,
+                        429,
+                        response.headers[HttpHeaders.RetryAfter],
+                        knownNotAccepted = !acceptedPayload,
+                        rateReset = response.headers["X-RateLimit-Reset"],
+                        errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
+                        errorType = semanticFailure.code ?: errorCode,
+                        checkpointContinuationAllowed = true,
+                        observedHttpStatus = response.status.value,
+                        serverRequestId = responseObserver.snapshot().serverRequestId
+                    )
+                } else {
+                    null
+                }
+                val classifiedEvent = when (decoded) {
+                    is ResponseErrorEvent -> {
+                        val reportedMessage = effectiveConfig.readableProviderError(providerErrorDetails(data, decoded.message, effectiveConfig.token), decoded.code)
+                        val classified = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
+                            decoded.code,
+                            reportedMessage,
+                            details = structuredFailure,
+                            httpStatus = response.status.value,
+                            serverRequestId = responseObserver.snapshot().serverRequestId,
+                            responsePayloadObserved = acceptedPayload,
+                            streamEventType = "error",
+                            providerResponseId = observedResponseId,
+                            metadata = dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetEvidence.metadata(data)
+                        )
+                        if (dispatchRetryGuard.remoteOutcomeUnknown) {
+                            classified.copy(message = uncertainGatewayFailureMessage(classified.message), code = "GATEWAY_OUTCOME_UNKNOWN", failureDetails = uncertainGatewayFailureDetails(classified.failureDetails, responseObserver.snapshot(), decoded.code))
+                        } else {
+                            classified
+                        }
+                    }
+                    is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> {
+                        val reported = decoded.response.error
+                        val classified = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
+                            reported?.code,
+                            effectiveConfig.readableProviderError(providerErrorDetails(data, reported?.message ?: "Response failed", effectiveConfig.token), reported?.code),
+                            reported?.type,
+                            details = structuredFailure,
+                            httpStatus = response.status.value,
+                            serverRequestId = responseObserver.snapshot().serverRequestId,
+                            responsePayloadObserved = acceptedPayload,
+                            streamEventType = "response.failed",
+                            providerResponseId = decoded.response.id,
+                            metadata = dev.chungjungsoo.gptmobile.data.network.error.ProviderBudgetEvidence.metadata(data)
+                        ).copy(providerUsage = decoded.response.usage)
+                        if (dispatchRetryGuard.remoteOutcomeUnknown) {
+                            classified.copy(
+                                message = uncertainGatewayFailureMessage(classified.message),
+                                code = "GATEWAY_OUTCOME_UNKNOWN",
+                                failureDetails = uncertainGatewayFailureDetails(classified.failureDetails, responseObserver.snapshot(), reported?.code)
+                            )
+                        } else {
+                            classified
+                        }
+                    }
+                    else -> decoded
+                }
+                val streamEvent = if (deferredRateLimit != null && classifiedEvent is ResponseErrorEvent) {
+                    classifiedEvent.copy(
+                        failureDetails = streamRateLimitFailureDetails(deferredRateLimit, classifiedEvent.failureDetails, responseObserver.snapshot(), acceptedPayload, receivedVisibleText),
+                        providerLimit = providerLimitDecision(effectiveConfig, request.model, acceptedPayload, deferredRateLimit)
+                    )
+                } else {
+                    classifiedEvent
+                }
+                receivedTerminal = receivedTerminal ||
+                    streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent ||
+                    streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent ||
+                    streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent ||
+                    streamEvent is ResponseErrorEvent
+                receivedResponsePayload = receivedResponsePayload || streamEvent.hasResponseStreamPayload()
+                receivedVisibleText = receivedVisibleText || streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputTextDeltaEvent && streamEvent.delta.isNotBlank()
+                if (streamEvent is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent) {
+                    ProviderCooldown.accepted(effectiveConfig)
+                }
+                emit(streamEvent)
+                // A normalized failure is terminal even when the peer keeps SSE open.
+                // Reading again can delay handoff or replace the saved failure with a socket error.
+                if (streamEvent is ResponseErrorEvent) break
+            }
+            if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before response.completed")
+        }
+    }
 }
 
+/** Keep a failed frame's output, usage and identity on the same typed handoff instead of throwing them away. */
+private fun streamRateLimitFailureDetails(rejection: ProviderHttpFailure, details: JsonObject?, timing: ProviderResponseTiming, receivedPayload: Boolean, receivedVisibleText: Boolean): JsonObject =
+    providerTransportFailureDetails(
+        details = JsonObject(details.orEmpty() + providerExceptionDetails(rejection, receivedPayload)?.failureDetails.orEmpty()),
+        error = rejection,
+        timing = timing,
+        dispatched = true,
+        receivedPayload = receivedPayload,
+        receivedVisibleText = receivedVisibleText,
+        generationCompleted = false,
+        replayAllowed = false,
+        requiresReconciliation = false
+    )
+
 /** Successful HTTP chat payloads share the same semantic boundary as Responses events. */
-private fun providerPayloadSemanticFailure(error: ErrorDetail, status: Int, details: JsonObject?, serverRequestId: String?, receivedPayload: Boolean, responseId: String?): ResponseErrorEvent? {
-    val failure = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.fromValues(status, error.code, error.message, error.type)
+private fun providerPayloadSemanticFailure(error: ErrorDetail, status: Int, details: JsonObject?, serverRequestId: String?, receivedPayload: Boolean, responseId: String?, metadata: JsonObject? = null): ResponseErrorEvent? {
+    val failure = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.fromValues(status, error.code, error.message, error.type, metadata = metadata)
     if (failure.kind == dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind.UNKNOWN) return null
     val restrictions = if (error.retryable == false) JsonObject(details.orEmpty() + ("retryable" to JsonPrimitive(false))) else details
     return dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
@@ -1244,12 +1348,13 @@ private fun providerPayloadSemanticFailure(error: ErrorDetail, status: Int, deta
         httpStatus = status,
         serverRequestId = serverRequestId,
         responsePayloadObserved = receivedPayload,
-        providerResponseId = responseId
+        providerResponseId = responseId,
+        metadata = metadata
     )
 }
 
 /** An explicit account allowance denial cannot become a timed HTTP 429 retry. */
-private fun providerBudgetFailure(body: String, status: Int, details: JsonObject?, serverRequestId: String?, receivedPayload: Boolean): ResponseErrorEvent? {
+private fun providerBudgetFailure(body: String, status: Int, details: JsonObject?, serverRequestId: String?, receivedPayload: Boolean, retryAfter: String?, knownNotAccepted: Boolean): ResponseErrorEvent? {
     val failure = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(status, body)
     if (failure.kind != dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind.BUDGET) return null
     val root = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
@@ -1261,7 +1366,10 @@ private fun providerBudgetFailure(body: String, status: Int, details: JsonObject
         details = details,
         httpStatus = status,
         serverRequestId = serverRequestId,
-        responsePayloadObserved = receivedPayload
+        responsePayloadObserved = receivedPayload,
+        metadata = error?.get("metadata") as? JsonObject,
+        retryAfterMillis = retryAfter?.let { ProviderRetryPolicy.retryAfterMillis(it, System.currentTimeMillis()) },
+        knownNotAccepted = knownNotAccepted
     )
 }
 

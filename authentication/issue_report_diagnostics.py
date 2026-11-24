@@ -294,14 +294,17 @@ ENUMS["composer_lifecycle"] = {"INITIALIZED", "CREATED", "STARTED", "RESUMED", "
 ENUMS["composer_input_mode"] = {"TOUCH", "KEYBOARD"}
 FLAGS.update({"composer_focused", "composer_ime_visible", "composer_enabled", "composer_window_focused"})
 SEARCH_ATTEMPT_FIELDS = {"search_attempt_count", "search_dispatched_attempt_count", "search_budget_rejected_attempt_count"}
-REPLAY_BUDGET_COUNTS = {"replay_allowance", "replay_tokens", "replay_exchange_count"}
+REPLAY_BUDGET_COUNTS = {"replay_allowance", "replay_tokens", "replay_exchange_count", "pending_saved_page_count"}
 COUNTS.update(REPLAY_BUDGET_COUNTS)
-ENUMS["replay_budget_state"] = {"NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE"}
+ENUMS["replay_budget_state"] = {"NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT"}
 FIELDS_BY_AREA["INCIDENT"].update(REPLAY_BUDGET_COUNTS | {"replay_budget_state"})
 COUNTS.add("reconciliation_tracked_signature_count")
 FLAGS.add("round_catalog_discovery_available")
 ENUMS["reconciliation_source"] = {"SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"}
 ENUMS["graph_transport_kind"] = {"DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN"}
+ENUMS["graph_local_phase"] = {"TREE_SELECTION", "PACKET_CACHE_READ", "SYMBOL_CATALOG", "SOURCE_LOAD", "MANIFEST_RANKING", "SOURCE_GRAPH", "SOURCE_RANGES", "SEMANTIC_RANKING", "PACKET_ASSEMBLY", "PACKET_CACHE_WRITE"}
+ENUMS["graph_local_reason"] = {"LOCAL_INVARIANT_REJECTED", "LOCAL_STATE_INVALID", "LOCAL_RUNTIME_FAILURE"}
+FIELDS_BY_AREA["TOOL"].update({"graph_local_phase", "graph_local_reason"})
 ENUMS["url_reader_refusal"] = {"DOMAIN_SCOPE", "HOP_LIMIT", "LOCATION_MISSING", "LOOP", "LOCATION_INVALID", "HTTP_ACCESS_DENIED", "TURN_DENIAL_CACHE"}
 FIELDS_BY_AREA["INCIDENT"].update({"reconciliation_source", "reconciliation_tracked_signature_count"})
 FIELDS_BY_AREA["TOOL"].update({"url_reader_refusal", "round_catalog_discovery_available", "graph_transport_kind"})

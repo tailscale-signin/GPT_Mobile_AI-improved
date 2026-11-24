@@ -62,29 +62,27 @@ internal class DiagnosticContentRedactor(
                 null
             }
             val sourceExcerpt = fields.containsAll(setOf("value", "revision", "startline", "endline"))
-            JsonObject(
-                value.mapValues { (key, child) ->
-                    val normalized = normalize(key)
-                    when {
-                        child == JsonNull -> child
-                        key == "fields" && toolEventFields != null -> cleanToolEventFields(toolEventFields)
-                        surfaceCounts && normalized in privateDispatchSurfaces && child is JsonPrimitive && !child.isString && child.content.toLongOrNull()?.let { it >= 0 } == true -> child
-                        normalized in retainedPrivateTextFields -> omitRetainedText(child)
-                        sourceExcerpt && normalized in setOf("value", "resource") -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
-                        observationPointer != null && normalized in setOf("value", "observed", "valuejson") -> redactObservation(child, observationPointer, encoded = normalized == "valuejson")
-                        normalized in setOf("facts", "retainedfacts") && child is JsonObject -> JsonObject(child.mapValues { (pointer, fact) -> redactObservation(fact, pointer) })
-                        configuredConnection && normalized in setOf("name", "alias") -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
-                        researchJob && normalized == "reason" -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
-                        normalized in opaquePrivateFields || normalized in configuredTopologyFields -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
-                        normalized in privateRepositoryPathFields -> cleanRepositoryPaths(child)
-                        privateTextField.matches(normalized) && (child is JsonArray || child is JsonPrimitive && child.isString) -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
-                        normalized == "line" && child is JsonPrimitive && child.isString -> JsonPrimitive(logLine(child.content))
-                        else -> clean(child, surfaceCounts = normalized == "surfacecounts")
-                    }
+            value.mapFieldsIfChanged { key, child ->
+                val normalized = normalize(key)
+                when {
+                    child == JsonNull -> child
+                    key == "fields" && toolEventFields != null -> cleanToolEventFields(toolEventFields)
+                    surfaceCounts && normalized in privateDispatchSurfaces && child is JsonPrimitive && !child.isString && child.content.toLongOrNull()?.let { it >= 0 } == true -> child
+                    normalized in retainedPrivateTextFields -> omitRetainedText(child)
+                    sourceExcerpt && normalized in setOf("value", "resource") -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                    observationPointer != null && normalized in setOf("value", "observed", "valuejson") -> redactObservation(child, observationPointer, encoded = normalized == "valuejson")
+                    normalized in setOf("facts", "retainedfacts") && child is JsonObject -> JsonObject(child.mapValues { (pointer, fact) -> redactObservation(fact, pointer) })
+                    configuredConnection && normalized in setOf("name", "alias") -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                    researchJob && normalized == "reason" -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                    normalized in opaquePrivateFields || normalized in configuredTopologyFields -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                    normalized in privateRepositoryPathFields -> cleanRepositoryPaths(child)
+                    privateTextField.matches(normalized) && (child is JsonArray || child is JsonPrimitive && child.isString) -> JsonPrimitive(PRIVATE_CONTENT_OMITTED)
+                    normalized == "line" && child is JsonPrimitive && child.isString -> JsonPrimitive(logLine(child.content))
+                    else -> clean(child, surfaceCounts = normalized == "surfacecounts")
                 }
-            )
+            }
         }
-        is JsonArray -> JsonArray(value.map(::clean))
+        is JsonArray -> value.mapChildrenIfChanged(::clean)
         is JsonPrimitive -> if (!value.isString) {
             value
         } else {
@@ -94,8 +92,34 @@ internal class DiagnosticContentRedactor(
             } else {
                 null
             }
-            if (embedded is JsonObject || embedded is JsonArray) JsonPrimitive(clean(embedded).toString()) else JsonPrimitive(scrubText(text))
+            val safe = if (embedded is JsonObject || embedded is JsonArray) clean(embedded).toString() else scrubText(text)
+            if (safe == text) value else JsonPrimitive(safe)
         }
+    }
+
+    /** Already-safe branches keep their immutable nodes instead of duplicating the entire receipt. */
+    private inline fun JsonObject.mapFieldsIfChanged(transform: (String, JsonElement) -> JsonElement): JsonObject {
+        var changed: MutableMap<String, JsonElement>? = null
+        for ((key, child) in this) {
+            val safe = transform(key, child)
+            if (safe !== child) {
+                if (changed == null) changed = LinkedHashMap(this)
+                changed[key] = safe
+            }
+        }
+        return changed?.let(::JsonObject) ?: this
+    }
+
+    private inline fun JsonArray.mapChildrenIfChanged(transform: (JsonElement) -> JsonElement): JsonArray {
+        var changed: MutableList<JsonElement>? = null
+        for ((index, child) in withIndex()) {
+            val safe = transform(child)
+            if (safe !== child) {
+                if (changed == null) changed = toMutableList()
+                changed[index] = safe
+            }
+        }
+        return changed?.let(::JsonArray) ?: this
     }
 
     /** Retained task schemas contain both raw strings and compiled, identified criteria. */

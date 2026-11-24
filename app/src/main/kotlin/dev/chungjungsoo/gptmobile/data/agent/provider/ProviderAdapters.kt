@@ -300,7 +300,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                                             failureDetails = mapped.failureDetails
                                             providerLimit = mapped.providerLimit
                                         }
-                                        canRotate = providerLimit == null && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
+                                        canRotate = providerLimit == null && mapped.failureDetails?.get("retryable") != JsonPrimitive(false) && mapped.failureDetails?.get("request_replay_allowed") != JsonPrimitive(false) && !responseObserved && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
                                     }
 
                                     is ProviderEvent.ToolCall -> {

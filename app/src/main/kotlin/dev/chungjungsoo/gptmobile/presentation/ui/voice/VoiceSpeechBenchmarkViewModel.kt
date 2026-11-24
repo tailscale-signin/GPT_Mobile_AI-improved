@@ -232,6 +232,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         }
         var leased = false
         val pending = AtomicReference<QualcommVoicePhraseEngineFactory?>(null)
+        val failedPreparation = AtomicReference<QualcommVoicePhraseEngineFactory?>(null)
         try {
             if (cancelled.get()) throw CancellationException("Cancelled")
             if (nativeEngine) leased = models.acquireUse() else streamingModels.refresh(sdkEngine)
@@ -334,10 +335,12 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                     try {
                         factory.createBenchmarkEngine(models.modelDirectory(), voice.lexicon, report.configuration.threads)
                     } finally {
+                        if (factory.nativeCleanupPending) failedPreparation.compareAndSet(null, factory)
                         pending.compareAndSet(factory, null)
                     }
                 },
                 cancelPreparation = { pending.get()?.cancelPending() },
+                preparationOwner = failedPreparation::get,
                 thermalStatus = thermalStatus
             )
             runner.set(measurement)

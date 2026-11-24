@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
 import dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubReadValidation
 import dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected
+import dev.chungjungsoo.gptmobile.data.github.PhoneTaskContextFailure
 import dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
@@ -106,6 +107,7 @@ internal class RepositoryGraphTool(
             val elapsedMillis = (System.nanoTime() - started) / 1_000_000
             val operation = failure as? GatewayGraphOperationException
             val cause = operation?.cause ?: failure
+            val localContextFailure = (cause as? PhoneTaskContextFailure)?.takeIf { phone }
             val privacyDenied = failure.isLocalPrivacyPolicyRejection()
             val admission = cause as? GatewayGraphAdmissionException
             val prerequisite = cause as? GatewayGraphUnavailableException
@@ -200,6 +202,8 @@ internal class RepositoryGraphTool(
                                     "LOCAL_POLICY_OR_CONFIGURATION"
                                 } else if (phoneDeadline) {
                                     "LOCAL_READ_DEADLINE"
+                                } else if (localContextFailure != null) {
+                                    "LOCAL_CONTEXT_PREPARATION"
                                 } else if (phoneCooldown != null) {
                                     "LOCAL_RATE_LIMIT"
                                 } else if (phoneRejection != null) {
@@ -243,6 +247,8 @@ internal class RepositoryGraphTool(
                                 "RESTORE_SELECTED_CONFIGURATION_OR_GRANTS"
                             } else if (phoneDeadline) {
                                 "READ_SAVED_PHONE_STATUS"
+                            } else if (localContextFailure != null) {
+                                "READ_PINNED_SOURCE_INDEPENDENTLY"
                             } else if (phone) {
                                 "RESTORE_PHONE_REPOSITORY_ACCESS"
                             } else if (unavailable) {
@@ -260,6 +266,8 @@ internal class RepositoryGraphTool(
                                 "Review Privacy Mode for the selected connection, then resume this repository map under the current settings. Completed reads remain recorded."
                             } else if (phoneDeadline) {
                                 "The bounded phone read stopped. Completed source remains local. Read status on this same phone repository under normal authorization, then continue only the exact issued index_cursor; coverage is incomplete and no index replay was authorized."
+                            } else if (localContextFailure != null) {
+                                "Local task-context preparation failed after source admission. Retain the selected revision and use independently authorized github_search mode=paths, then github_read with exact commit_sha and ranges. Do not repeat the same failed bundle without a recovery change; native reads do not establish graph coverage or executed tests."
                             } else if (phoneCooldown != null) {
                                 "Wait until the recorded GitHub cooldown deadline before another phone map read. This HTTP request was blocked locally; retained dispatch counts describe any earlier reads in this operation. Keep the selected GitHub connection and revision."
                             } else if (phoneRejection != null) {
@@ -309,8 +317,12 @@ internal class RepositoryGraphTool(
                                 "Repository graph access failed. Resolve the reported admission, validation or transport problem for this operation; no graph write or policy rejection was retried through another provider."
                             }
                         )
-                        put("failure_type", cause.javaClass.simpleName)
-                        if (!phone && unavailable && readAction && nativeStatus != null) {
+                        put("failure_type", (localContextFailure?.cause ?: cause).javaClass.simpleName)
+                        localContextFailure?.let {
+                            put("graph_local_phase", it.phase.name)
+                            put("graph_local_reason", it.reason.name)
+                        }
+                        if (readAction && (!phone && unavailable && nativeStatus != null || localContextFailure != null)) {
                             if (!unresolved) put("recovery_call", nativeCall("github_context", "status"))
                             put("native_read_alternatives", JsonArray(listOf("resolve", "branches", "commits", "checks").map { nativeCall("github_context", it) } + nativeCall("github_pr", "list")))
                             put("source_inspection", "After resolving the revision, use authorized github_search mode=paths with a concrete query, then github_read with exact ranges and commit_sha. Native source inspection does not supply graph callers/callees, complete graph coverage, or CI execution.")
@@ -387,6 +399,14 @@ internal class RepositoryGraphTool(
                         }
                     }
                     ToolExceptionEvidence.fields(cause).forEach { (key, value) -> put(key, value) }
+                    localContextFailure?.let {
+                        put("graph_local_phase", it.phase.name)
+                        put("graph_local_reason", it.reason.name)
+                        dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.exceptionFields(
+                            it,
+                            dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.REPOSITORY_GRAPH_CATCH
+                        ).forEach { (key, value) -> put(key, value) }
+                    }
                 }
             )
         }

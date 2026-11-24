@@ -14,7 +14,8 @@ internal class VoiceSpeechEngineBenchmarkRunner(
     private val nanoTime: () -> Long = System::nanoTime,
     private val wallTime: () -> Long = System::currentTimeMillis,
     private val onStopping: () -> Unit = {},
-    private val scheduler: VoiceSpeechBenchmarkScheduler? = null
+    private val scheduler: VoiceSpeechBenchmarkScheduler? = null,
+    private val watchdogFactory: ((VoiceSpeechBenchmarkDeadlines, (VoiceSpeechBenchmarkTimeout) -> Unit) -> VoiceSpeechBenchmarkWatchdog)? = null
 ) {
     private val cancelled = AtomicBoolean()
     private val cancellationAt = AtomicLong(-1)
@@ -106,7 +107,12 @@ internal class VoiceSpeechEngineBenchmarkRunner(
             val timeoutAction: (VoiceSpeechBenchmarkTimeout) -> Unit = { observed ->
                 synchronized(publicationLock) {
                     val requested = synchronized(ownerLock) {
-                        currentOwner === owner && !cancelled.get() && timeout.compareAndSet(null, observed)
+                        if (currentOwner === owner && !cancelled.get()) {
+                            timeout.compareAndSet(null, observed)
+                            true
+                        } else {
+                            false
+                        }
                     }
                     if (requested) {
                         val snapshot = published.get().let { previous ->
@@ -129,17 +135,23 @@ internal class VoiceSpeechEngineBenchmarkRunner(
                     }
                 }
             }
-            val watchdog = if (scheduler == null) {
+            val watchdog = watchdogFactory?.invoke(deadlines, timeoutAction) ?: if (scheduler == null) {
                 VoiceSpeechBenchmarkWatchdog(deadlines, nanoTime, onTimeout = timeoutAction)
             } else {
                 VoiceSpeechBenchmarkWatchdog(deadlines, nanoTime, onTimeout = timeoutAction, scheduler = scheduler)
+            }
+            fun retainTimeout(observed: VoiceSpeechBenchmarkTimeout?): VoiceSpeechBenchmarkTimeout? {
+                // The watchdog records first and publishes afterward. Its callback can be
+                // blocked while this owner reaches a checkpoint or starts retirement.
+                if (!cancelled.get() && observed != null) timeout.compareAndSet(null, observed)
+                return timeout.get()
             }
             fun checkActive() {
                 if (cancelled.get()) {
                     requestNativeCancellation()
                     throw CancellationException("Speech benchmark cancelled")
                 }
-                watchdog.checkpoint()
+                retainTimeout(watchdog.checkpoint())
                 if (cancelled.get() || timeout.get() != null) {
                     requestNativeCancellation()
                     throw CancellationException("Speech benchmark stopped")
@@ -218,7 +230,7 @@ internal class VoiceSpeechEngineBenchmarkRunner(
                 checkActive()
                 result = result.copy(state = VoiceSpeechBenchmarkBackendState.COMPLETE)
             } catch (failure: Exception) {
-                val deadline = timeout.get()
+                val deadline = retainTimeout(watchdog.timeout)
                 val code = when {
                     cancelled.get() -> "CANCELLED"
                     deadline != null -> "DEADLINE"
@@ -244,9 +256,13 @@ internal class VoiceSpeechEngineBenchmarkRunner(
                 )
                 if (failure is ThermalLimit) report = report.copy(issue = VoiceSpeechBenchmarkIssue.THERMAL_LIMIT)
             } catch (_: LinkageError) {
-                result = result.copy(state = VoiceSpeechBenchmarkBackendState.UNSUPPORTED, failureCode = "RUNTIME_UNAVAILABLE", failedAttemptMs = attemptAt?.let(::elapsed))
+                result = result.copy(state = VoiceSpeechBenchmarkBackendState.UNSUPPORTED, failureCode = "RUNTIME_UNAVAILABLE", failedAttemptMs = attemptAt?.let(::elapsed), partialSample = measurement?.snapshot(complete = false, thermalAfter = thermalStatus()))
             } finally {
                 watchdog.close()
+                // Closing fences new timer records. Consume the last recorded deadline
+                // before clearing this owner, even when its notification is still delayed.
+                val deadline = retainTimeout(watchdog.timeout)
+                if (deadline != null) requestNativeCancellation()
                 val retiringFactory = synchronized(publicationLock) {
                     synchronized(ownerLock) {
                         currentOwner = null
@@ -254,7 +270,6 @@ internal class VoiceSpeechEngineBenchmarkRunner(
                         currentFactory.getAndSet(null)
                     }
                 }
-                val deadline = timeout.get()
                 if (cancelled.get() || deadline != null) {
                     result = result.copy(
                         state = if (cancelled.get()) VoiceSpeechBenchmarkBackendState.CANCELLED else VoiceSpeechBenchmarkBackendState.FAILED,

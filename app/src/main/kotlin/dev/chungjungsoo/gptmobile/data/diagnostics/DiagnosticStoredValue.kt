@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec
+import java.io.Reader
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -111,14 +112,36 @@ internal fun diagnosticNodeBudget(maximumCharacters: Int): Int = minOf(65_536, m
 
 /** Count JSON values, not separators or object keys, before allocating a tree. */
 internal fun diagnosticJsonShapeFailure(value: String, maximumNodes: Int = 65_536, maximumDepth: Int = 24): String? {
-    var depth = 0
-    var nodes = 0
-    var quoted = false
-    var escaped = false
-    var primitive = false
-    val objectKey = BooleanArray(maximumDepth.coerceAtLeast(0) + 1)
-    val objectContainer = BooleanArray(objectKey.size)
-    for (character in value) {
+    val scanner = DiagnosticJsonShapeScanner(maximumNodes, maximumDepth)
+    for (character in value) scanner.accept(character)?.let { return it }
+    return null
+}
+
+/** Validate measured protected bytes without constructing another full plaintext String. */
+internal fun diagnosticJsonShapeFailure(value: Reader, maximumNodes: Int = 65_536, maximumDepth: Int = 24): String? {
+    val scanner = DiagnosticJsonShapeScanner(maximumNodes, maximumDepth)
+    val buffer = CharArray(4096)
+    try {
+        while (true) {
+            val count = value.read(buffer)
+            if (count < 0) return null
+            for (index in 0 until count) scanner.accept(buffer[index])?.let { return it }
+        }
+    } finally {
+        buffer.fill('\u0000')
+    }
+}
+
+private class DiagnosticJsonShapeScanner(private val maximumNodes: Int, private val maximumDepth: Int) {
+    private var depth = 0
+    private var nodes = 0
+    private var quoted = false
+    private var escaped = false
+    private var primitive = false
+    private val objectKey = BooleanArray(maximumDepth.coerceAtLeast(0) + 1)
+    private val objectContainer = BooleanArray(objectKey.size)
+
+    fun accept(character: Char): String? {
         if (quoted) {
             if (escaped) {
                 escaped = false
@@ -162,8 +185,8 @@ internal fun diagnosticJsonShapeFailure(value: String, maximumNodes: Int = 65_53
             }
             if (nodes > maximumNodes) return "DIAGNOSTIC_NODE_LIMIT"
         }
+        return null
     }
-    return null
 }
 
 /** Never emit encoded archives, including archives nested inside JSON text or arrays. */

@@ -8,6 +8,20 @@ from scripts.check_issue_reporting_configuration import MAX_READINESS_BYTES, REQ
 
 
 class IssueReportingConfigurationTest(unittest.TestCase):
+    def test_deployment_probe_requires_replay_local_graph_and_provider_limit_evidence(self):
+        for feature in ("SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"):
+            with self.subTest(feature=feature):
+                self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)
+                readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                             "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                             "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {feature})}
+                body = json.dumps(readiness, separators=(",", ":")).encode()
+                self.assertLessEqual(len(body), MAX_READINESS_BYTES)
+                with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+                    check_readiness("https://reports.project.org", lambda _: body)
+                readiness["reportDiagnosticFeatures"].append(feature)
+                check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+
     def test_tls_phase_and_read_revision_probe_require_the_existing_implemented_capabilities(self):
         for feature in ("TLS_TRANSPORT_PHASE_EVIDENCE_V1", "GITHUB_READ_REVISION_EVIDENCE_V1"):
             with self.subTest(feature=feature):
@@ -165,6 +179,7 @@ class IssueReportingConfigurationTest(unittest.TestCase):
                 check_readiness("https://reports.project.org", lambda _: body)
 
     def test_extended_readiness_enforces_exact_response_boundary(self):
+        self.assertEqual(4096, MAX_READINESS_BYTES)
         ready = json.dumps({"service": "gpt-mobile-issue-reporter", "version": 2,
                             "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
                             "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES)},

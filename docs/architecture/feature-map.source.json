@@ -520,7 +520,8 @@
         "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json",
         "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
         "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json",
-        "docs/repairs/checksum-history-recovery-2026-11-24-task.json"
+        "docs/repairs/checksum-history-recovery-2026-11-24-task.json",
+        "docs/repairs/heap-worker-observability-2026-11-24-task.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -534,7 +535,8 @@
         "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority.",
         "The mandatory PR/main credential-history gate runs the same pinned scanner against intact, missing-object and restored synthetic histories before the unchanged real reachable-history scan; a missing Git object, failed control or malformed mode cannot produce successful qualification.",
         "Credential-history findings retain only bounded validated rule, commit, path and line identities; scanner detection or invalid/missing report evidence cannot qualify a clean history, and raw match/secret/commit-author content is never published by the identity reporter.",
-        "Verified historical public checksums are exempt only at exact reviewed paths and complete declarations, with a literal frozen receipt line; actual pinned-scanner controls preserve detection for changed values, fields, paths, surrounding content and neighboring credentials, and final reachable-history qualification remains mandatory."
+        "Verified historical public checksums are exempt only at exact reviewed paths and complete declarations, with a literal frozen receipt line; actual pinned-scanner controls preserve detection for changed values, fields, paths, surrounding content and neighboring credentials, and final reachable-history qualification remains mandatory.",
+        "Both constrained-heap CI invocations retain Gradle worker lifecycle and actual heap command evidence without changing their exact suite selectors, memory limits, retry policy or timeout."
       ]
     },
     {
@@ -1034,7 +1036,7 @@
         "SDK callback traces retain at most128 entries while total frames, costs and omission counts remain explicit; later callbacks never become caption violations solely because the trace is full.",
         "Keep native generation wall time including graph preparation distinct from native inference and SDK retained-PCM production intervals; complete SDK stream-call time includes callback waits.",
         "Keep frozen export reports in ViewModel memory and encode onIO; large reports must not enter Android saved-state bundles.",
-        "Preserve legacy numeric history without restoring stale qualification, and bound full stored history to4MiB by evicting older whole runs.",
+        "Preserve legacy numeric history without restoring stale qualification, and bound full stored history to8MiB by evicting older whole runs.",
         "A failed native close retains the process-wide owner token and restart requirement across screen recreation; a stale lease cannot quarantine or release a replacement owner.",
         "Failed native preparation retains its actual owner until confirmed destruction; a missing returned engine cannot authorize lease release.",
         "An already-recorded deadline remains effective independently of delayed notification; measured partial PCM never implies completed audio validation.",

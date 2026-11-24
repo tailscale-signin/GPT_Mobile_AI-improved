@@ -654,7 +654,7 @@ internal class KokoroVoiceOutput(
 
     override fun speakWithFailure(text: String, voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit) {
         openReplyWithFailure(voice, complete, error)?.let {
-            VoiceSpeechBuffer().append(text, final = true).orEmpty().forEach(it::enqueue)
+            VoiceSpeechBuffer(preserveLiteralTerms = true).append(text, final = true).orEmpty().forEach(it::enqueue)
             it.finish()
         }
     }

@@ -1,0 +1,18 @@
+test_actual_scan_arguments_and_detection_exit_are_preserved (test_secret_history_reporting.SecretHistoryReportingTest.test_actual_scan_arguments_and_detection_exit_are_preserved) ... ok
+test_clean_report_preserves_success_with_zero_identities (test_secret_history_reporting.SecretHistoryReportingTest.test_clean_report_preserves_success_with_zero_identities) ... ok
+test_emitted_identity_limit_includes_prefix_spaces_escaping_and_newline (test_secret_history_reporting.SecretHistoryReportingTest.test_emitted_identity_limit_includes_prefix_spaces_escaping_and_newline) ... ok
+test_exit_and_report_disagreement_cannot_pass (test_secret_history_reporting.SecretHistoryReportingTest.test_exit_and_report_disagreement_cannot_pass) ... ok
+test_invalid_finding_metadata_rejects_complete_report (test_secret_history_reporting.SecretHistoryReportingTest.test_invalid_finding_metadata_rejects_complete_report) ... ok
+test_invalid_later_finding_emits_no_partial_identity_or_private_data (test_secret_history_reporting.SecretHistoryReportingTest.test_invalid_later_finding_emits_no_partial_identity_or_private_data) ... ok
+test_malformed_duplicate_and_non_json_numbers_reject (test_secret_history_reporting.SecretHistoryReportingTest.test_malformed_duplicate_and_non_json_numbers_reject) ... ok
+test_missing_report_refuses_zero_and_retains_scanner_failure (test_secret_history_reporting.SecretHistoryReportingTest.test_missing_report_refuses_zero_and_retains_scanner_failure) ... ok
+test_only_allowlisted_identity_fields_survive (test_secret_history_reporting.SecretHistoryReportingTest.test_only_allowlisted_identity_fields_survive) ... ok
+test_report_byte_read_is_bounded_before_json_decode (test_secret_history_reporting.SecretHistoryReportingTest.test_report_byte_read_is_bounded_before_json_decode) ... ok
+test_report_count_and_serialized_identity_limits_are_enforced (test_secret_history_reporting.SecretHistoryReportingTest.test_report_count_and_serialized_identity_limits_are_enforced) ... ok
+test_scanner_launch_failure_has_no_exception_content (test_secret_history_reporting.SecretHistoryReportingTest.test_scanner_launch_failure_has_no_exception_content) ... ok
+test_unredacted_or_missing_secret_fields_reject (test_secret_history_reporting.SecretHistoryReportingTest.test_unredacted_or_missing_secret_fields_reject) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.009s
+
+OK

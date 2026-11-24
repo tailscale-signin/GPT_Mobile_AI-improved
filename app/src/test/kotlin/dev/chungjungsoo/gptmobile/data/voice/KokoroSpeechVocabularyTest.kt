@@ -192,5 +192,100 @@ class KokoroSpeechVocabularyTest {
         assertEquals(List(4000) { "x" } + "Søren", originals)
     }
 
+    @Test fun decimalAndScientificExponentsKeepTheirCompleteNumericValue() {
+        val cases = mapOf(
+            "x^2.5" to "x to the power of two point five",
+            "x^12.5" to "x to the power of twelve point five",
+            "10^-0.5" to "ten to the power of minus zero point five",
+            "x^+2.5" to "x to the power of plus two point five",
+            "x^.5" to "x to the power of zero point five",
+            "x^-.5" to "x to the power of minus zero point five",
+            "x^+.5" to "x to the power of plus zero point five",
+            "x^2.5e3" to "x to the power of two point five times ten to the power of three",
+            "x^12e-3" to "x to the power of twelve times ten to the power of minus three",
+            "x^-.5e+2" to "x to the power of minus zero point five times ten to the power of plus two",
+            "x^+12.5E-3" to "x to the power of plus twelve point five times ten to the power of minus three"
+        )
+        for ((text, expected) in cases) {
+            assertEquals(text, expected, speak(text))
+        }
+    }
+
+    @Test fun unitPowersDoNotConsumePrefixesOfLongerNumericExponents() {
+        val cases = mapOf(
+            "m^2.5" to "m to the power of two point five",
+            "m^3.5" to "m to the power of three point five",
+            "m^20" to "m to the power of twenty",
+            "m^2e3" to "m to the power of two times ten to the power of three",
+            "2 cm^2.5" to "two centimeters to the power of two point five",
+            "2 cm^2.5e3" to "two centimeters to the power of two point five times ten to the power of three",
+            "m/s^2.5" to "meters per second to the power of two point five",
+            "m/s^2e3" to "meters per second to the power of two times ten to the power of three",
+            "m/s^20" to "meters per second to the power of twenty",
+            "m/s^23" to "meters per second to the power of twenty three",
+            "m/s^-0.5" to "meters per second to the power of minus zero point five"
+        )
+        for ((text, expected) in cases) {
+            assertEquals(text, expected, speak(text))
+        }
+    }
+
+    @Test fun completeExponentFallbackKeepsOriginalCaptionRangesAcrossPhraseBoundaries() {
+        val cases = mapOf(
+            "x^2.5" to listOf("x") + List(4) { "^" } + List(3) { "2.5" },
+            "x^12.5" to listOf("x") + List(4) { "^" } + List(3) { "12.5" },
+            "10^-0.5" to listOf("10") + List(4) { "^" } + List(4) { "-0.5" },
+            "x^-.5e+2" to listOf("x") + List(4) { "^" } + List(12) { "-.5e+2" },
+            "x^2.5e3" to listOf("x") + List(4) { "^" } + List(10) { "2.5e3" },
+            "m^2.5" to listOf("m") + List(4) { "^" } + List(3) { "2.5" },
+            "m/s^2.5" to List(3) { "m/s" } + List(4) { "^" } + List(3) { "2.5" },
+            "m/s^20" to List(3) { "m/s" } + List(5) { "^20" }
+        )
+        for ((text, expected) in cases) {
+            val projection = KokoroSpeechText.timed(text) { true }
+            assertNull(projection.observation.failure)
+            val phrases = requireNotNull(projection.phrases)
+            val ranges = phrases.flatMap { it.wordRanges }
+            assertTrue(text, ranges.all { !it.isEmpty() && it.first >= 0 && it.last < text.length })
+            assertEquals(text, expected, ranges.map { text.substring(it) })
+            assertTrue(text, phrases.all { it.speech.length <= 128 && it.wordRanges.size <= 16 })
+        }
+
+        val text = "go ".repeat(10) + "x^2.5e3"
+        val projection = KokoroSpeechText.timed(text) { true }
+        assertNull(projection.observation.failure)
+        val phrases = requireNotNull(projection.phrases)
+        assertEquals(2, phrases.size)
+        assertEquals("go ".repeat(10) + "x to the power of two point five times ten to the power of three", projection.parts!!.joinToString(" "))
+        assertEquals(
+            List(10) { "go" } + listOf("x") + List(4) { "^" } + List(10) { "2.5e3" },
+            phrases.flatMap { it.wordRanges }.map { text.substring(it) }
+        )
+        assertTrue(phrases.all { it.speech.length <= 128 && it.wordRanges.size <= 16 })
+    }
+
+    @Test fun completeIntegerAndSuperscriptPowersRetainTheirExistingReadingsAndRanges() {
+        val cases = listOf(
+            Triple("x^2", "x to the power of two", listOf("x") + List(5) { "^2" }),
+            Triple("x^12", "x to the power of twelve", listOf("x") + List(5) { "^12" }),
+            Triple("x^+2", "x to the power of plus two", listOf("x") + List(6) { "^+2" }),
+            Triple("10^-3", "ten to the power of minus three", listOf("10") + List(6) { "^-3" }),
+            Triple("x²", "x to the power of two", listOf("x") + List(5) { "²" }),
+            Triple("10⁻³", "ten to the power of minus three", listOf("10") + List(6) { "⁻³" }),
+            Triple("1 m^2", "one square meter", listOf("1") + List(2) { "m^2" }),
+            Triple("1 m²", "one square meter", listOf("1") + List(2) { "m²" }),
+            Triple("2 cm^3", "two cubic centimeters", listOf("2") + List(2) { "cm^3" }),
+            Triple("2 cm³", "two cubic centimeters", listOf("2") + List(2) { "cm³" }),
+            Triple("9.8 m/s^2", "nine point eight meters per second squared", List(3) { "9.8" } + List(4) { "m/s^2" }),
+            Triple("9.8 m/s²", "nine point eight meters per second squared", List(3) { "9.8" } + List(4) { "m/s²" })
+        )
+        for ((text, expected, originalTerms) in cases) {
+            val projection = KokoroSpeechText.timed(text) { true }
+            assertNull(projection.observation.failure)
+            assertEquals(text, expected, projection.parts!!.joinToString(" "))
+            assertEquals(text, originalTerms, projection.phrases!!.flatMap { it.wordRanges }.map { text.substring(it) })
+        }
+    }
+
     private fun speak(text: String) = requireNotNull(KokoroSpeechText.timed(text) { true }.parts).joinToString(" ")
 }

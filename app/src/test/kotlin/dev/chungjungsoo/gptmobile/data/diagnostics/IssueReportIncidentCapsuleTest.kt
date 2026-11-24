@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteConstraintException
 import dev.chungjungsoo.gptmobile.data.agent.GitHubHandoffReconciliationEvidence
 import dev.chungjungsoo.gptmobile.data.agent.GitHubToolHandoff
 import dev.chungjungsoo.gptmobile.data.agent.ToolHandoffReceipt
+import dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -424,6 +425,47 @@ class IssueReportIncidentCapsuleTest {
         }
     }
 
+    @Test fun intelligencePolicyNamesFromAuthorityRetainOnlyClosedChangeEvidence() {
+        val additions = mapOf(
+            "intelligenceLevel" to JsonPrimitive("MAXIMUM_INTELLIGENCE"),
+            "recoveryConsultConsent" to JsonPrimitive("PRIVATE_RECOVERY_CONSENT"),
+            "engineeringTeamConsent" to JsonPrimitive("PRIVATE_TEAM_CONSENT"),
+            "recoveryExecutionConsent" to JsonPrimitive("PRIVATE_EXECUTION_CONSENT")
+        )
+        for ((name, setting) in additions) {
+            val field = "githubProfileOverride.$name"
+            val after = JsonObject(mapOf("githubProfileOverride" to JsonObject(mapOf(name to setting))))
+            val changed = ConfiguredDispatchAuthority.githubOverrideChanges(JsonObject(emptyMap()), after)
+            assertEquals(listOf(field), changed)
+            val context = capture(
+                ReportFeature.CHAT,
+                "CHAT_FAILURE",
+                "DISPATCH_POLICY_CHANGED",
+                mapOf("changed_policy_fields" to changed, field to "PRIVATE_POLICY_VALUE")
+            )
+            val diagnostic = requireNotNull(context.diagnostics)
+            assertTrue(diagnostic.isValid())
+            assertEquals(JsonArray(listOf(JsonPrimitive(field))), diagnostic.values["changed_policy_fields"])
+            assertEquals(JsonPrimitive("OBSERVED"), diagnostic.values["changed_policy_observation"])
+            assertEquals(JsonPrimitive(0), diagnostic.values["changed_policy_unknown_count"])
+            assertNull(diagnostic.values[field])
+            assertNull(diagnostic.values["request_replay_allowed"])
+            val approved = report(context).approvedPayload()
+            assertFalse(approved.contains("PRIVATE_"))
+            assertFalse(approved.contains("MAXIMUM_INTELLIGENCE"))
+            for (unknown in listOf("$field.PRIVATE_SELECTION", "$field=PRIVATE_POLICY_VALUE", name)) {
+                assertNull(IssueReportIncidentCapsule.validValue("changed_policy_fields", JsonArray(listOf(JsonPrimitive(unknown)))))
+                val partial = capture(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to listOf(field, unknown)))
+                val values = requireNotNull(partial.diagnostics).values
+                assertEquals(JsonArray(listOf(JsonPrimitive(field))), values["changed_policy_fields"])
+                assertEquals(JsonPrimitive(2), values["changed_policy_field_count"])
+                assertEquals(JsonPrimitive(1), values["changed_policy_unknown_count"])
+                assertEquals(JsonPrimitive("PARTIAL"), values["changed_policy_observation"])
+                assertFalse(report(partial).approvedPayload().contains("PRIVATE_"))
+            }
+        }
+    }
+
     @Test fun missingMalformedAndOversizedPolicyEvidenceStayDistinctFromObservedEmptyLists() {
         val missing = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", emptyMap()).diagnostics).values
         assertTrue(missing.keys.none { it.startsWith("changed_policy_") })
@@ -447,7 +489,7 @@ class IssueReportIncidentCapsuleTest {
     }
 
     @Test fun everyKnownPolicyNameSurvivesWithoutChangingAuthorityOrUnknownOutcomeEvidence() {
-        assertEquals(77, IssueReportIncidentCapsule.policyFieldNames.size)
+        assertEquals(81, IssueReportIncidentCapsule.policyFieldNames.size)
         for (field in IssueReportIncidentCapsule.policyFieldNames) {
             val context = capture(
                 ReportFeature.CHAT,

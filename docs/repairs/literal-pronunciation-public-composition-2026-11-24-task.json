@@ -68,5 +68,14 @@
     "ownerSourceReviewSha256": "b6db8cedc2d0963e769d807c69e86d21f40adaf2aef67a1998e8388c16fa7650",
     "rootAdditiveReviewSha256": "51e46ed02c8d00180370255cb451f6bd2875d9b659bc7b74d3e092f7e394bd3b",
     "ownerClaimed126PurePass": "SOURCE_SPECIFIC_OWNER_EVIDENCE_NOT_EXPANDED_TO_COMBINED_OR_ANDROID_RUNTIME"
+  },
+  "nativeRepairComposition": {
+    "recordedBeforeCompositionUtc": "2026-11-24T05:01:28.297306+00:00",
+    "additionalPublicHead": "4f348a5ddd4ea3cb020a9e2c74754d71f37cd687",
+    "nativeRepair": "6c11d5054bce30499679151ce9f69e9298da7dc9",
+    "priorQualifiedLocalCommit": "073f53c1c4771b798701f8f02282cbf42b54dc02",
+    "uploadedIsolatedCommit": "dcdefad1dae4fa40206e7661f494accc60b8d9b5",
+    "sharedRefMoved": false,
+    "intent": "Preserve the newly published native context serialization/cancellation repair and recovery final-synthesis test. The previous isolated upload was not appended because the expected shared head advanced."
   }
 }

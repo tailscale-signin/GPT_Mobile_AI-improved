@@ -51,7 +51,12 @@ class SavedPageStatelessContinuityTest {
             val expected = (0 until 12).map { "FACT_${it.toString().padStart(2, '0')}" }.toSet()
             val history = expected.mapIndexed { index, fact ->
                 val fixture = GitHubSavedPageCapacityTest.Fixture(fact)
-                val call = requireNotNull(fixture.next(tokens = 3000)).copy(callId = "page-$index")
+                // A terminal cursor can contain only remote continuation metadata.
+                val sourcePage = fixture.history.first { exchange ->
+                    val page = exchange.results.single()
+                    "view_cursor" in exchange.calls.single().arguments && !page.isError && fact in ToolHandoffReceipt.payload(page.content)
+                }
+                val call = sourcePage.calls.single().copy(callId = "page-$index")
                 val result = fixture.read(call)
                 assertTrue(ToolHandoffReceipt.payload(result.content).contains(fact))
                 AgentToolExchange(listOf(call), listOf(result))

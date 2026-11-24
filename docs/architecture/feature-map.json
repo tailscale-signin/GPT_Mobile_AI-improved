@@ -4248,9 +4248,9 @@
       "sha256": "efbdcafbffe7aaf81579a9f6797f3a82f15c2b9f86515a6d9029a68c7d6a97e5"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageStatelessContinuityTest.kt": {
-      "blob_sha": "1ef428a5aefa216c9158d1866590a2733ef0835c",
-      "bytes": 16204,
-      "sha256": "d91f02bb67439a0af291a6eb8956b20e68de41c4592210cc21289d8e529ae672"
+      "blob_sha": "a2167abb261de64c13430ade59a267cfad12d63b",
+      "bytes": 16554,
+      "sha256": "118a842524cb8b417cb156e59cb3645913500899b4fa0c19d8a1dae30d2c27e1"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalizationTest.kt": {
       "blob_sha": "b3ec4a444b32ecaaf1555883a2ca5ac80b83ae93",

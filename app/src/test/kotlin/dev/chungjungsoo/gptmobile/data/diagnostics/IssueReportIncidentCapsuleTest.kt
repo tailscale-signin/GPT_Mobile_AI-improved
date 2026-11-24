@@ -73,6 +73,12 @@ class IssueReportIncidentCapsuleTest {
         val diagnostic = requireNotNull(context.diagnostics)
         assertEquals(JsonPrimitive("AGENT_FAILED_EVENT"), diagnostic.values["incident_capture_site"])
         assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), diagnostic.values["incident_phase_provenance"])
+        val feature = IssueReportIncidentCapsule.FAILED_EVENT_OUTPUT_FEATURE
+        assertTrue(feature in diagnostic.requiredServiceFeatures())
+        val names = IssueReportIncidentCapsule.failedEventOutputFields
+        val withoutFlags = diagnostic.copy(values = diagnostic.values - names)
+        assertFalse(feature in withoutFlags.requiredServiceFeatures())
+        assertTrue(feature in withoutFlags.copy(omittedFields = names.sorted()).requiredServiceFeatures())
         for (key in IssueReportIncidentCapsule.failedEventFields) {
             assertEquals(JsonPrimitive(false), diagnostic.values[key])
             assertNull(diagnostic.copy(values = diagnostic.values + (key to JsonPrimitive("private-value"))).validated())

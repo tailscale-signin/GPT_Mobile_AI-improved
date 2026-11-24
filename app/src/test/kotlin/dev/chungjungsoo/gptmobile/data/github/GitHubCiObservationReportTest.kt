@@ -53,6 +53,74 @@ class GitHubCiObservationReportTest {
         )
     )
 
+    @Test fun signedApkSizeFailureSurvivesLogPagingAndLowContextWithoutCreditingANewerBuild() {
+        val failedRun = run(17, "failure")
+        val rows = listOf(
+            "\"budget_class\": \"universal\",",
+            "\"bytes\": 253719782,",
+            "\"budget_bytes\": 241172480,",
+            "\"passed\": false,"
+        ).mapIndexed { index, value ->
+            buildJsonObject {
+                put("line", 3843 + index)
+                put("start_offset", 0)
+                put("text", "2026-11-24T14:11:06.2352673Z       $value")
+            }
+        }
+        val identity = buildJsonObject {
+            put("head_sha", head)
+            put("run_id", 17)
+            put("run_attempt", 1)
+            put("job_id", 29)
+        }
+        val logs = JsonObject(identity + ("excerpts" to JsonArray(rows)))
+        fun args(action: String) = buildJsonObject {
+            put("action", action)
+            put("run_id", 17)
+            put("run_attempt", 1)
+            put("expected_head_sha", head)
+            if (action == "logs") put("job_id", 29)
+        }
+        val gate = requireNotNull(GitHubCiSizeGate.observation(args("logs"), logs))
+        assertEquals(JsonPrimitive(12547302), gate["over_budget_bytes"])
+        val summary = GitHubSemanticSummary.from("github_ci", args("logs"), logs)
+        assertEquals(gate, GitHubSemanticSummary.bounded(summary, 850)["apk_size_failure"])
+        val job = buildJsonObject {
+            put("id", 29)
+            put("status", "completed")
+            put("conclusion", "failure")
+            put("run_attempt", 1)
+        }
+        val jobs = JsonObject(
+            identity + buildJsonObject {
+                put("jobs", JsonArray(listOf(job)))
+                put("has_more", false)
+                put("total_count", 1)
+                put("page", 1)
+            }
+        )
+        val receipts = evidence(listOf(failedRun))
+        receipts["jobs"] = JsonObject(receipt("jobs", "jobs", jobs, head) + ("arguments" to args("jobs")))
+        receipts["logs"] = JsonObject(receipt("logs", "logs", buildJsonObject {}, head) + mapOf("arguments" to args("logs"), "semantic_summary" to summary))
+        val (answer, report) = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2))
+        assertTrue(answer.contains("3843–3846") && answer.contains("12547302") && answer.contains("253719782") && answer.contains("241172480"))
+        assertEquals(JsonPrimitive(false), report["new_test_execution_verified"])
+        assertEquals(JsonPrimitive("OBSERVED_PACKAGING_FAILURE"), report["observation_state"])
+        assertTrue(GitHubPartialReport.fromReceipts(receipts).contains("12547302"))
+        assertNull(GitHubCiSizeGate.observation(JsonObject(args("logs") + ("run_attempt" to JsonPrimitive(2))), logs))
+        assertNull(GitHubCiSizeGate.fromExcerpts(JsonArray(rows.drop(1))))
+        assertNull(GitHubCiSizeGate.fromExcerpts(JsonArray(rows.mapIndexed { index, row -> if (index == 2) JsonObject(row + ("start_offset" to JsonPrimitive(2))) else row })))
+        receipts["rerun"] = JsonObject(
+            receipt("rerun", "run", run(17, status = "in_progress", attempt = 2), head) + (
+                "arguments" to buildJsonObject {
+                    put("action", "run")
+                    put("run_id", 17)
+                }
+                )
+        )
+        assertNull(GitHubCiObservationReport.render(task, receipts, now, 2))
+    }
+
     @Test fun capturedCheckSnapshotAndPendingJobSurviveIncompleteHistoryAndNoModelClaims() {
         val receipts = evidence(listOf(run(1)), returned = 12)
         val active = run(17, "", "in_progress")

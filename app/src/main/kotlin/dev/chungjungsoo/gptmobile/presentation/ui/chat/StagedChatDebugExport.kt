@@ -288,7 +288,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 database.capture(room.id, "latest_state", maximumCharacters, {
                     authorized()
                     sink.checkBudget()
-                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint, sourceRecord = sink::sourceRecord, sourcePageSize = sink.sourcePageSize, timings = sink.phaseTimings)
+                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint, sourceRecord = sink::sourceRecord, sourcePageSize = sink.sourcePageSize, timings = sink.phaseTimings, currentPageSize = { sink.sourcePageSize })
             },
             DiagnosticCaptureStage("critical_logs", "critical-app-logs.jsonl", critical = true, lowMemorySafe = true, resumableRecords = true, emptyReason = "NO_RETAINED_CRITICAL_LOGS") { captureLogs(it, critical = true) },
             DiagnosticCaptureStage("capture_context", "capture-context.jsonl", lowMemorySafe = true, content = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticStageContent.CONFIGURATION) { sink ->
@@ -394,7 +394,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 database.capture(room.id, section, maximumCharacters, {
                     authorized()
                     sink.checkBudget()
-                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint, sourceRecord = sink::sourceRecord, sourcePageSize = sink.sourcePageSize, timings = sink.phaseTimings)
+                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint, sourceRecord = sink::sourceRecord, sourcePageSize = sink.sourcePageSize, timings = sink.phaseTimings, currentPageSize = { sink.sourcePageSize })
             }
         }
         stages += DiagnosticCaptureStage("live_messages", "live-messages.jsonl") { sink ->

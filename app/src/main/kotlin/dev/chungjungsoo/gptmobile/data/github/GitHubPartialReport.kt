@@ -24,7 +24,9 @@ internal object GitHubPartialReport {
                 val source = receipt["result"] as? JsonObject ?: return@mapNotNull null
                 val args = receipt["arguments"] as? JsonObject ?: return@mapNotNull null
                 if ("view_cursor" in args) return@mapNotNull null
-                val summary = (receipt["semantic_summary"] as? JsonObject) ?: GitHubSemanticSummary.from(receipt.text("tool"), args, source)
+                val previous = receipt["semantic_summary"] as? JsonObject
+                val log = receipt.text("tool").githubOperationFamily() == "github_ci" && args.text("action") in setOf("logs", "failure")
+                val summary = if (previous == null || log && "apk_size_failure" !in previous) GitHubSemanticSummary.from(receipt.text("tool"), args, source) else previous
                 observation(summary, receipt["receipt_id"] ?: JsonPrimitive("unknown"), GitHubEvidenceOrigin.of(receipt) == "CACHED" || source["schema"] == JsonPrimitive("github.repeat.v1"))
             }
     )
@@ -39,6 +41,10 @@ internal object GitHubPartialReport {
         }
         fun cite(row: JsonObject) = " (receipt `${safe(row.text("receipt_id"))}`)."
         val lines = mutableListOf<String>()
+        facts.filter { it["apk_size_failure"] is JsonObject }
+            .distinctBy { it["apk_size_failure"] }.takeLast(3).forEach { row ->
+                lines += GitHubCiSizeGate.describe(row.getValue("apk_size_failure") as JsonObject) + cite(row)
+            }
         facts.lastOrNull { it.text("commit_sha").isNotBlank() }?.let { row ->
             lines += "Observed revision: `${row.text("commit_sha")}`" + row.text("branch").takeIf(String::isNotBlank)?.let { " on `${safe(it)}`" }.orEmpty() + cite(row)
         }

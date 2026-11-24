@@ -2,6 +2,9 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -249,6 +252,30 @@ class GitHubSavedPageCapacityTest {
         assertTrue(conflicting.isError)
         assertEquals(JsonPrimitive("SAVED_VIEW_CONTEXT_MISMATCH"), requireNotNull(conflicting.executionReceipt)["reason_code"])
         assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(conflictingCall), listOf(conflicting))), emptySet(), 4000, 512).isEmpty())
+    }
+
+    @Test fun stagedDeliveryUsesTheSelectedSessionAndNeverExecutesOrPublishesProvisionalOutput() = runBlocking {
+        val fixture = Fixture()
+        val call = requireNotNull(fixture.next(tokens = 3000))
+        val page = fixture.read(call)
+        val exchanges = listOf(AgentToolExchange(listOf(call), listOf(page)))
+        val digest = ToolResultDeliveryProof.digest(page.content)
+        suspend fun read(reply: List<ProviderEvent>): List<ProviderEvent> {
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    assertTrue(tools.isEmpty())
+                    assertNotNull(kotlinx.coroutines.currentCoroutineContext()[SavedPageDeliveryRound])
+                    assertEquals(digest, ToolResultDeliveryProof.digest(exchanges.single().results.single().content))
+                    reply.forEach { emit(it) }
+                }
+            }
+            return SavedPageDeliveryRound.read(session, exchanges).toList()
+        }
+        assertEquals(listOf(ProviderEvent.Completed), read(listOf(ProviderEvent.TextDelta("page received"), ProviderEvent.Completed)))
+        val proposedWrite = ProviderEvent.ToolCall("rejected", "github_pr", buildJsonObject { put("action", "merge") })
+        for (reply in listOf(listOf(proposedWrite, ProviderEvent.Completed), listOf(ProviderEvent.Completed), listOf(ProviderEvent.TextDelta("local", dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)), ProviderEvent.Completed))) {
+            assertEquals("REPLAY_EVIDENCE_REQUIRED", (read(reply).single() as ProviderEvent.Failed).errorCode)
+        }
     }
 
     @Test fun twoAdmittedPagesKeepTheirOwnBodiesWhenLaterCallsReturnIdenticalBytes() {

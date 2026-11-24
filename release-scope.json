@@ -314,7 +314,8 @@
     "Improve voice vocabulary and literal pronunciation corrections across native Kokoro, SDK and Android speech, preserving meaningful formatted elements, numeric semantics, original caption ranges and cancellation ownership.",
     "Retain bounded redacted rule/commit/path/line identities from the actual complete-history credential scan while preserving every scanner rule, pin, preflight, strict CI integrity control and failure outcome; refuse malformed, absent or inconsistent report evidence.",
     "Recover a candidate artifact opening rejected with HTTP429 through bounded waits honoring supported Retry-After values, while preserving publisher checksums, atomic output, native verification and final CI gates.",
-    "Establish one-time empty-owner presentation for Gateway native acceptance, retain all strict control hit assertions, and add bounded failure diagnostics with a matching complete package manifest."
+    "Establish one-time empty-owner presentation for Gateway native acceptance, retain all strict control hit assertions, and add bounded failure diagnostics with a matching complete package manifest.",
+    "Preserve complete decimal and scientific speech exponents and reject partial dimensional/rate powers while retaining integer/superscript behavior, original caption ranges and every prior pronunciation test."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -859,6 +860,7 @@
     "docs/repairs/privacy-review-followup-2026-11-23-task.json",
     "docs/repairs/privacy-stream-backpressure-review-2026-11-23-task.json",
     "docs/repairs/privacy-tool-result-projection-2026-11-23-task.json",
+    "docs/repairs/pronunciation-complete-exponents-2026-11-24-task.json",
     "docs/repairs/qnn-candidate-rate-limit-2026-11-24-task.json",
     "docs/repairs/release-lint-budget-2026-11-23-task.json",
     "docs/repairs/responses-retained-backend-work-2026-11-24-task.json",

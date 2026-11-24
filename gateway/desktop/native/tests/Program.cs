@@ -66,9 +66,11 @@ catch (InvalidOperationException error)
 {
     Check(!error.Message.Contains("PRIVATE_REPLY") && !error.Message.Contains("SECRET_TOKEN"), "Truncated streams fail without exposing payload");
 }
-var preview = new PublicPreview();
+var preview = new PublicPreview("turn");
 JsonObject Observation(int sequence,string key,string text,string kind,double time) => new() {
-    ["sequence"]=sequence,["coalescing_key"]=key,["public_text"]=text,["event_type"]=kind,["observed_at"]=time };
+    ["sequence"]=sequence,["coalescing_key"]=key,["public_text"]=text,["event_type"]=kind,["observed_at"]=time,
+    ["fact"] = kind == "finding" ? new JsonObject { ["scope_id"]="turn",["criterion_id"]="tests",["subject_id"]=key,
+        ["revision_id"]="source",["value"]="observed",["evidence_id"]="receipt" } : null };
 Check(preview.Apply(Observation(1,"tool","Reading settings","tool_start",100)), "First public update is accepted");
 Check(preview.Apply(Observation(2,"scope","Reviewed 3 settings.","finding",110)), "Substantive findings are retained");
 Check(!preview.Apply(Observation(1,"tool","Stale","activity",112)), "Replaying an older event leaves the timeline intact");
@@ -81,6 +83,28 @@ Check(!preview.Summarize(279.9) && preview.Summarize(280), "Later substantive su
 for(int i=5;i<=205;i++) preview.Apply(Observation(i,"phase-"+i,"Stage "+i,"activity",300+i));
 Check(preview.Cursor==205 && preview.Lines.Count==20, "Public replay memory is bounded through a burst");
 var contract = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory,"public-preview-v1.json")))!;
+foreach (var scenario in contract.Array("projection_cases"))
+{
+    var replay = new PublicPreview(scenario.Text("scope_id"));
+    foreach (var step in scenario.Array("events"))
+    {
+        Check(replay.Project(step) == step.Text("expected"), "Public projection: " + scenario.Text("name"));
+        if (step.Text("expected") == "correction")
+            Check(replay.Lines.Last().Kind == "correction" && replay.Lines.Last().Text.Contains(step.Text("public_text")),
+                "A scoped revision correction is visible");
+    }
+}
+var correction = new PublicPreview("turn");
+correction.Apply(Observation(1, "run", "Reading the PR", "activity", 100));
+correction.Apply(Observation(2, "ci", "CI passed on the prior commit.", "finding", 145));
+Check(correction.Lines.Any(line => line.Kind == "summary"), "A due, supported finding is summarized");
+var moved = Observation(3, "ci", "The new commit is waiting for CI.", "finding", 146);
+moved["fact"]!["revision_id"] = "new-commit";
+moved["fact"]!["value"] = "pending";
+Check(correction.Project(moved) == "correction" && correction.Lines.All(line => !line.Text.Contains("prior commit")),
+    "A revision correction withdraws stale summary text as well as its source finding");
+correction.Apply(Observation(4, "answer", "", "final", 150));
+Check(!correction.Summarize(1000), "The start of the final answer seals pending public narration");
 var motion = contract.Object("motion");
 Check(PublicPreview.FadeInMs==motion.Number("entry_ms") && PublicPreview.RefreshMs==motion.Number("refresh_ms")
     && PublicPreview.ChangeIntervalMs==motion.Number("change_interval_ms") && PublicPreview.ActiveAccentMs==motion.Number("active_accent_ms")

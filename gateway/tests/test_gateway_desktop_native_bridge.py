@@ -245,13 +245,56 @@ class NativeBridgeTest(unittest.TestCase):
                   return_value={'result':{'engine':'web_search','sources':sources}}):
             native_bridge.chat_send(self.root,args,io.StringIO())
             events = PublicActivity(self.root,IDENTITY).replay('thread')['items']
-            self.assertEqual('https://example.org/source',next(e for e in events if e['sources'])['sources'][0]['url'])
+            finding = next(e for e in events if e['sources'])
+            self.assertEqual('https://example.org/source', finding['sources'][0]['url'])
+            self.assertEqual(('search-turn', '1'), (finding['fact']['scope_id'], finding['fact']['value']))
+            self.assertEqual(['final'], [e['event_type'] for e in events if e['event_type'] == 'final'])
+            self.assertEqual('final', events[-1]['event_type'])
             client.request.return_value={'conversation_id':'thread'}
             replay = native_bridge.dispatch(self.root,'public-activity',dict(identity=IDENTITY,conversation_id='thread',after=0),io.StringIO())
             self.assertEqual(events,replay['items'])
             self.assertEqual([],native_bridge.dispatch(self.root,'public-activity',
                 dict(identity=IDENTITY,conversation_id='thread',after=events[-1]['sequence']),io.StringIO())['items'])
         client.send.assert_called_once()
+
+    def test_engineering_blocker_and_resumption_survive_reopening(self):
+        jid = 'eng_' + '7' * 32
+        job = dict(id=jid, command_id='turn', conversation_id='thread', updates=[dict(state='NEEDS_INPUT', revision=2)])
+        client = Mock()
+        client.request.side_effect = lambda method, path, **kwargs: job if path.endswith(jid) else dict(active_job_kind='engineering', active_job_id=jid)
+        def replay():
+            return native_bridge.dispatch(self.root, 'public-activity', dict(identity=IDENTITY, conversation_id='thread'), io.StringIO())['items']
+        with patch.object(native_bridge, 'connected', return_value=client):
+            self.assertEqual(['blocker'], [e['event_type'] for e in replay()])
+            job['updates'] = [dict(state='READ', revision=3)]
+            self.assertEqual(['blocker', 'recovery'], [e['event_type'] for e in replay()])
+
+    def test_ci_progress_uses_the_readiness_commit_and_replays_semantic_changes_once(self):
+        cid, turn, jid = 'thread', 'turn', 'eng_' + '1' * 32
+        first, second = 'a' * 40, 'b' * 40
+        conversation = dict(active_job_kind='engineering', active_job_id=jid)
+        job = dict(id=jid, command_id=turn, conversation_id=cid, repository='example/work', revision=4, head_sha='c' * 40,
+                   ci_observation=dict(pr=12, revision=first, verdict='PASSED'))
+        client = Mock()
+        client.request.side_effect = lambda method, path, **kwargs: job if path.endswith(jid) else conversation
+        def replay():
+            return native_bridge.dispatch(self.root, 'public-activity', dict(identity=IDENTITY, conversation_id=cid), io.StringIO())['items']
+        with patch.object(native_bridge, 'connected', return_value=client):
+            a = replay()
+            self.assertEqual([first], [r['fact']['revision_id'] for r in a])
+            self.assertEqual(f'https://github.com/example/work/commit/{first}', a[0]['sources'][0]['url'])
+            self.assertEqual(a, replay())
+            job.update(revision=5, ci_observation=dict(pr=12, revision=second, verdict='PENDING'))
+            b = replay()
+            self.assertEqual([first, second], [r['fact']['revision_id'] for r in b])
+            self.assertEqual(b[0]['coalescing_key'], b[1]['coalescing_key'])
+            job.update(revision=4, ci_observation=dict(pr=12, revision=first, verdict='PASSED'))
+            self.assertEqual(b, replay())
+            job.update(revision=6, ci_observation=dict(pr=12, revision=second, verdict='PASSED'), state='COMPLETED')
+            final = replay()
+            self.assertEqual(['PASSED', 'PENDING', 'PASSED'], [r['fact']['value'] for r in final if 'fact' in r])
+            self.assertEqual('final', final[-1]['event_type'])
+            self.assertEqual(final, replay())
 
     def test_failed_search_retires_original_command_before_model_dispatch(self):
         client = Mock()

@@ -68,6 +68,8 @@ class GitHubTaskContextBundleTest {
         assertEquals(JsonPrimitive("PREPARED"), result["delivery_status"])
         val feature = (result["features"] as JsonArray).single().jsonObject
         assertEquals(JsonPrimitive("REFERENCED_BLOBS_VERIFIED"), feature["freshness"])
+        assertEquals(JsonPrimitive(implementation), feature.getValue("routing").jsonObject["entry"])
+        assertEquals(JsonPrimitive(false), feature.getValue("routing").jsonObject["execution_authority"])
         assertEquals(JsonArray(listOf(JsonPrimitive("A repair receipt belongs to its selected source."))), feature["invariants"])
     }
 
@@ -131,6 +133,7 @@ class GitHubTaskContextBundleTest {
         assertTrue(ranges.none { it["path"] == JsonPrimitive(implementation) && it["reason"] == JsonPrimitive("FEATURE_REFERENCE") })
         val feature = (result["features"] as JsonArray).single().jsonObject
         assertEquals(JsonPrimitive("STALE_OR_MISSING_REFERENCES"), feature["freshness"])
+        assertFalse(feature.containsKey("routing"))
         assertEquals(JsonArray(emptyList()), feature["invariants"])
         assertEquals(JsonArray(emptyList()), feature["commands"])
     }
@@ -148,6 +151,7 @@ class GitHubTaskContextBundleTest {
         assertTrue((result["stale_manifest_paths"] as JsonArray).contains(JsonPrimitive(test)))
         val feature = (result["features"] as JsonArray).single().jsonObject
         assertEquals(JsonPrimitive("STALE_OR_MISSING_REFERENCES"), feature["freshness"])
+        assertFalse(feature.containsKey("routing"))
         assertEquals(JsonArray(emptyList()), feature["invariants"])
     }
 
@@ -325,6 +329,16 @@ class GitHubTaskContextBundleTest {
                     buildJsonObject {
                         put("id", "repair")
                         put("title", "Repair receipts")
+                        put(
+                            "routing",
+                            buildJsonObject {
+                                put("entry", implementation)
+                                put("role", "evidence")
+                                put("proof", "Bound receipt")
+                                put("admission", "Selected repository")
+                                put("decline", "No receipt source")
+                            }
+                        )
                         put("terms", JsonArray(listOf(JsonPrimitive("repairReceipt"))))
                         put("paths", JsonArray(listOf(JsonPrimitive(implementation))))
                         put("tests", JsonArray(listOf(JsonPrimitive(test))))

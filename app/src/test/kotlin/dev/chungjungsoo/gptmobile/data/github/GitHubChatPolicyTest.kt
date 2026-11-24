@@ -23,6 +23,21 @@ class GitHubChatPolicyTest {
     private val context = GitHubConversationContext("c", "owner", "repo", "main", "a".repeat(40), "p")
     private val features = AppFeatureSettings()
 
+    @Test fun legacyProfileDecodesIntelligenceDefaultsAndSettingsRoundTripIndependently() {
+        val defaults = Json.decodeFromString<GitHubChatProfileOverride>("{}")
+        assertEquals(GitHubNextActionMode.ACTIVE, defaults.nextActionPolicy)
+        assertTrue(defaults.evidenceElaboration)
+        GitHubNextActionMode.entries.forEach { mode ->
+            for (elaboration in listOf(true, false)) {
+                val saved = defaults.copy(nextActionPolicy = mode, evidenceElaboration = elaboration)
+                val restored = Json.decodeFromString<GitHubChatProfileOverride>(Json.encodeToString(saved))
+                val configured = features.copy(githubProfileOverrides = mapOf("p" to restored))
+                assertEquals(saved, GitHubChatPolicy.settings(configured, "p", context))
+                assertEquals(null, GitHubChatPolicy.settings(configured, "p", null))
+            }
+        }
+    }
+
     @Test fun savedProfilesDefaultToDirectCopilotAndKeepGatewaySeparateFromInference() {
         val decoded = kotlinx.serialization.json.Json.decodeFromString<GitHubChatProfileOverride>("{}")
         assertEquals(GitHubCopilotExecutionOwner.ANDROID_DIRECT, decoded.copilotExecutionOwner)

@@ -242,13 +242,17 @@ def snapshot(service, principal, job_id, scenario):
     intelligence = ({'intelligence': github_intelligence.case_observations(job, scenario, signals[scenario], completed),
                      'accepted_provider_posts': github_intelligence_targets.accepted_provider_posts(job, attempts, scan.get('attempts'))}
                     if scenario in SCENARIOS else {})
+    public_verdict = None
+    if scenario in github_intelligence.RUBRIC['evidence_accuracy'][1]:
+        public_verdict = intelligence['intelligence']['measures'].get('evidence_accuracy')
+        passed = passed and public_verdict == 1 and intelligence['intelligence']['measures'].get('response_quality') == 1
     return {**intelligence, **workspace_details, 'schema': workspace.SCHEMA if scenario in workspace.ALL_CASES else CONTINUOUS_SCHEMA if continuous else PRODUCTION_SCHEMA, 'scenario': scenario, 'title': scenarios[scenario],
             'job_id': job_id, 'repository': job['request']['repository'], 'source_sha': job['request'].get('source_sha'),
             'head_sha': data.get('head_sha'), 'model': job['request']['model'],
             'model_revision': latest.get('model_revision'), 'quantization': latest.get('hardware', {}).get('quantization'),
             'binding_id': job['request'].get('execution_binding_id'), 'route_identity': latest.get('backend_endpoint_identity'),
             'execution_mode': job['request'].get('execution_mode', 'standard'),
-            'status': 'PASSED' if passed else 'FAILED' if false_completion else 'NOT_VERIFIED',
+            'status': 'PASSED' if passed else 'FAILED' if false_completion or public_verdict == 0 else 'NOT_VERIFIED',
             'liveGitHub': 'OBSERVED' if writes else 'NOT_EXECUTED', 'completion': completed,
             'first_attempt_success': (completed and not bool(job.get('repairs')) and
                                       all(row.get('state') == 'COMPLETED' for row in dispatched)) if attempts_measured else None,

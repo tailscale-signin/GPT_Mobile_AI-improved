@@ -96,9 +96,12 @@ chats retain their existing routing restrictions.
 Fixed sampling preserves semantic intent planning. When a plan is malformed the
 primary can continue from the admitted request. Compaction prioritizes the
 pending handoff and named proof for outstanding criteria and their prerequisites.
-A profile with 2,048–8,191 context tokens can receive up to four ranked unread
-paths from a previously retained, authorized tree. It can then request the
-specific source it needs.
+A profile with 2,048–8,191 context tokens can use a previously retained,
+authorized tree to locate up to four paths. When source caching is enabled and
+the highest-ranked path has a small retained blob, the prompt can include one
+bounded, line-numbered source window. A missing tree or source does not trigger
+a full rebuild. The runner can issue a targeted authorized read. Diagnostics
+distinguish a reused tree, a reused full packet, a deadline and an access change.
 
 For independent review of the primary's code, select a distinct named reviewer
 in Model Delegation and enable **Independent patch review** in Deep Engineering
@@ -151,6 +154,18 @@ reviewed map compact. Generate `feature-map.json` from the current working bytes
 with `python3 scripts/generate_repository_reference.py`, and verify with `--check`.
 The canonical fast validation checks both the feature map and generated build
 facts. Missing paths, escaping paths, symlinks and stale hashes are rejected.
+
+Each feature's `terms` select relevant work. Its `routing` record identifies the
+owner's production entry point, role, expected proof, live admission condition,
+decline behavior, and two test cases for normal and adverse outcomes. Generation
+checks that every stable built-in plugin has a classification and every referenced
+case exists. The Android catalog uses its compiled subset to prioritize matching
+tools among the schemas already admitted for a conversation. Explicit exclusions
+deprioritize the matching automatic routes. External MCP and marketplace tools
+retain their runtime identities and schema versions. The Gateway inventory joins
+discovered tools to the external connections feature and withholds revoked sources.
+GitHub source preparation can prioritize the entry point and expose the expected
+proof only when all feature references match the selected tree.
 
 Reference commands are suggestions. Runtime retrieval validates referenced blob
 identities and excludes stale claims. It does not execute these commands or treat

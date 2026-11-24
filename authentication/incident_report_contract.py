@@ -186,9 +186,12 @@ POLICY_FIELD_NAMES = {
     'githubProfileOverride.executionBatchMode',
     'githubProfileOverride.sampling',
     'githubProfileOverride.intelligenceLevel',
+    'githubProfileOverride.nextActionPolicy',
+    'githubProfileOverride.evidenceElaboration',
     'githubProfileOverride.recoveryConsultConsent',
     'githubProfileOverride.engineeringTeamConsent',
     'githubProfileOverride.recoveryExecutionConsent',
+    'githubProfileOverride.primaryPatchReviewConsent',
 
     'githubProfileSelection',
     'llamaReasoning',

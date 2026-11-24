@@ -61,8 +61,8 @@ def capability_inventory(runtime, tracker, principal=None, now=time.time):
     rows = []
     sources = {}
     catalogue = getattr(runtime, 'gateway_catalogue', None)
-    configured = runtime.load_mcp_config() if callable(getattr(runtime, 'load_mcp_config', None)) else {}
-    configured = configured if isinstance(configured, dict) else {}
+    observed_config = runtime.load_mcp_config() if callable(getattr(runtime, 'load_mcp_config', None)) else None
+    configured = observed_config if isinstance(observed_config, dict) else {}
     source_health = {}
     for source, config in configured.items():
         if catalogue is None or not callable(getattr(catalogue, 'key', None)):
@@ -85,12 +85,17 @@ def capability_inventory(runtime, tracker, principal=None, now=time.time):
         metadata = runtime.mcp_tool_metadata.get(name, {}) if isinstance(getattr(runtime, 'mcp_tool_metadata', None), dict) else {}
         source = _text(metadata.get('server'), 80) or 'gateway-mcp'
         health = source_health.get(source, {})
+        if isinstance(observed_config, dict) and metadata.get('server') and source not in configured:
+            continue
+        if health.get('authorized') is False or (source in configured and configured[source].get('enabled') is False):
+            continue
         contract = hashlib.sha256(json.dumps(parameters, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
         stable = hashlib.sha256(f'{source}\0{name}\0{contract}'.encode()).hexdigest()
         observed = metrics.get(name, {})
         durations = observed.get('durations', [])
         row = {
             'id': stable,
+            'featureId': 'external-connections',
             'name': name,
             'sourceId': source,
             'category': 'GitHub' if name.lower().startswith('github_') else 'Web' if any(word in name.lower() for word in ('web', 'search', 'browse')) else 'Gateway MCP',
@@ -101,7 +106,7 @@ def capability_inventory(runtime, tracker, principal=None, now=time.time):
             'enabled': True,
             # A same-contract execution observation establishes readiness only
             # for the exact tool that produced it. Discovery alone does not.
-            'executableNow': health.get('executionAvailable') if health.get('executionTool') == metadata.get('tool') else None,
+            'executableNow': health.get('executionAvailable') if metadata.get('tool') and health.get('executionTool') == metadata.get('tool') else None,
             'blockedReason': _text(health.get('reasonCode'), 160) or None,
             'metrics': {
                 'scope': 'retained_gateway_activity',
@@ -125,16 +130,17 @@ def capability_inventory(runtime, tracker, principal=None, now=time.time):
     source_rows = []
     for source in sorted(set(sources) | set(configured)):
         health = source_health.get(source, {})
-        source_complete = bool(health.get('authorized', True) and health.get('schemaKnown') and health.get('connectionHealthy'))
+        enabled = configured.get(source, {}).get('enabled') is not False
+        source_complete = bool(enabled and health.get('authorized', True) and health.get('schemaKnown') and health.get('connectionHealthy'))
         source_rows.append({
             'sourceId': source,
-            'discoveryState': 'COMPLETE' if source_complete else 'BLOCKED' if health.get('authorized') is False else 'PARTIAL',
+            'discoveryState': 'COMPLETE' if source_complete else 'BLOCKED' if not enabled or health.get('authorized') is False else 'PARTIAL',
             'discoveredCount': sources.get(source, 0),
             'authorizedCount': sources.get(source, 0) if health.get('authorized', True) else 0,
             'visibleCount': sum(row['sourceId'] == source for row in rows),
             'hasMore': sources.get(source, 0) > sum(row['sourceId'] == source for row in rows),
             'lastVerifiedAt': health.get('lastDiscoverySuccessAtMs', 0) / 1000 if isinstance(health.get('lastDiscoverySuccessAtMs'), int) else None,
-            'reason': _text(health.get('reasonCode'), 160) or None,
+            'reason': 'MCP_CONNECTION_DISABLED' if not enabled else _text(health.get('reasonCode'), 160) or None,
         })
     complete = bool(configured) and not discovery_error and not has_more and all(row['discoveryState'] == 'COMPLETE' for row in source_rows)
     status = 'COMPLETE' if complete else 'BLOCKED' if discovery_error else 'NOT_DISCOVERED' if not configured and not rows else 'PARTIAL'

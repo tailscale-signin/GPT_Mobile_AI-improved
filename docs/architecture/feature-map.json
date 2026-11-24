@@ -42,7 +42,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalization.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneTaskContextFailure.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextReadProgress.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapTopology.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapTopology.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCompactTaskContext.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContextTest.kt",
@@ -82,7 +83,21 @@
         "Graph edges and tests are candidates until verified.",
         "A local preparation failure retains only closed phase/reason evidence; it cannot grant independent source-read authority.",
         "Repeated blob deadlines retain incomplete coverage and bounded progress across restart; identity mismatches remain hard failures."
-      ]
+      ],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt",
+        "proof": "Selected commit, blob and opened source range",
+        "admission": "Current account and repository access",
+        "decline": "Use an admitted direct source read when the index lacks the path",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContextTest.kt#importsAndTestsStayBoundToTheSameTreeAndRevision",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContextTest.kt#externalAndAmbiguousImportsNeverClaimAResolvedCompilerSymbol",
+        "plugins": [
+          "github"
+        ],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "private-conversations",
@@ -190,7 +205,19 @@
         "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming.",
         "Cancellation during a suspended non-null configured provider-authority check propagates unchanged at opening and pre-dispatch collection, retires owning and validating work, restores caller context and opens no provider in either comparison protection mode.",
         "A typed final-wire privacy refusal survives actual network and adapter catches before physical dispatch, then passes through unchanged receiving authorization. Entirely unsent proof remains distinct from prior dispatched or uncertain work; cancellation, no replay and no invented completion remain authoritative."
-      ]
+      ],
+      "routing": {
+        "role": "user_control",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatViewModel.kt",
+        "proof": "Persisted conversation lock and selected-route receipt",
+        "admission": "Conversation owner and currently verified privacy profile",
+        "decline": "Keep the private conversation local if its selected route loses admission",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/ConversationPrivacyContextTest.kt#concurrentPrivateAndOrdinaryConversationsKeepSeparatePolicyOnTheSameThread",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt#customProfileWithoutVerifiedRouteRemainsIneligibleInPrivacyMode",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "voice-captions",
@@ -293,7 +320,21 @@
         "One playback-scoped quiet limiter spans streaming callbacks and phrases; validate raw PCM first and account only retained audio in queued frames and cue positions.",
         "An observed cue prefix may extend in place; a fully trimmed ending clears only the current presented word during refill, without advancing the caption clock, consuming a later onset or bypassing audio-focus pause.",
         "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone."
-      ]
+      ],
+      "routing": {
+        "role": "presentation",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+        "proof": "Presented frame position owned by this utterance",
+        "admission": "Active playback and output identity",
+        "decline": "Freeze caption position while playback is refilling",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackStartTest.kt#captionsHighlightOnlyAnObservedRangeFromTheCurrentUtterance",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTimingTest.kt#interpolationStopsAtAcceptedAudioAndFreezesDuringRefill",
+        "plugins": [
+          "voice_chat"
+        ],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "voice-pronunciation-vocabulary",
@@ -351,7 +392,19 @@
         "Android utterances snapshot pronunciation settings and reject late callbacks after cancellation.",
         "No raw vocabulary, matched terms or source speech is added to diagnostics; phonetic tests do not establish phone acoustic quality.",
         "Playback preserves eligible literal spelling only after safety filtering; unmatched defaults follow one-pass correction and captions use the same original spelling. The general-purpose buffer retains its default projection."
-      ]
+      ],
+      "routing": {
+        "role": "presentation",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
+        "proof": "Spoken projection aligned with original caption offsets",
+        "admission": "Selected voice and admitted text",
+        "decline": "Skip unspeakable markup and preserve original visible text",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechTextTest.kt#anOutOfLexiconContractionUsesKnownWordsAtItsOriginalCaptionRange",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt#codeBodiesAndUnfinishedMarkupNeverBecomeSpeech",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "voice-streaming-preparation",
@@ -451,7 +504,19 @@
         "Numerical audio consistency and SDK model smoke do not establish perceptual equivalence, arbitrary-utterance correctness or target-phone accelerator performance.",
         "Gateway response retirement is bound to the exact admitted Work lease; cancellation and a fixed timeout plus validated audio duration bound transport without extending synthesis or retiring a replacement request.",
         "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone."
-      ]
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineFactory.kt",
+        "proof": "Valid first PCM from the requested engine and model",
+        "admission": "Installed verified model and active speech owner",
+        "decline": "Keep the draft when preparation or PCM validation fails",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineTest.kt#firstOwnedChunkIsEmittedBeforeTheNextNativeRead",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt#incorrectHashOrLengthCannotPublishANativeLoadableModel",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "voice-responsive-turns",
@@ -494,7 +559,19 @@
       "invariants": [
         "Opening the room sends no prompt. Preparation uses the selected profile and the saved conversation policy.",
         "A spoken lookup update requires the same accepted run and a matching running search. First-answer timing starts tracking playback of actual answer text."
-      ]
+      ],
+      "routing": {
+        "role": "user_control",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
+        "proof": "Foreground room entry and an eligible turn-scoped first spoken phrase",
+        "admission": "Voice room foreground and selected profile permits the requested preparation",
+        "decline": "Keep unrelated or completed searches silent and respect profile consent",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSearchOpeningTest.kt#onlyTheQuestionSuppliesTheSpokenTopic",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSearchOpeningTest.kt#queuedCompletedForeignAndUnrelatedSearchesStaySilent",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "engineering-recovery",
@@ -596,7 +673,19 @@
         "Credential-history findings retain only bounded validated rule, commit, path and line identities; scanner detection or invalid/missing report evidence cannot qualify a clean history, and raw match/secret/commit-author content is never published by the identity reporter.",
         "Verified historical public checksums are exempt only at exact reviewed paths and complete declarations, with a literal frozen receipt line; actual pinned-scanner controls preserve detection for changed values, fields, paths, surrounding content and neighboring credentials, and final reachable-history qualification remains mandatory.",
         "Both constrained-heap CI invocations retain Gradle worker lifecycle and actual heap command evidence without changing their exact suite selectors, memory limits, retry policy or timeout."
-      ]
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+        "proof": "Criterion-bound operation receipt and reconciled state",
+        "admission": "Current owner, remaining budget and scoped operation approval",
+        "decline": "Reconcile unknown side effects before retrying",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringPublicationTest.kt#verifiedRefUpdateCanRestoreOnePublicationNotificationAfterProcessDeath",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringPublicationTest.kt#pendingCancelledForeignOrUnverifiedPublicationCannotResumeTheChat",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "coding-benchmarks",
@@ -658,7 +747,19 @@
         "Freeze source, profile, task, budget and environment before comparison.",
         "Hidden grader material never enters retrieval or model input.",
         "Unknown cost, tokens and retrieval relevance remain unknown."
-      ]
+      ],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlan.kt",
+        "proof": "Matched case, route, hidden checks and measurement scope",
+        "admission": "Compatible independent runs and accepted comparison budget",
+        "decline": "Report incomplete or unmatched cases separately",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringComparisonTest.kt#verifiedPairedTasksCanEstablishASuiteScopedWinner",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringComparisonTest.kt#identicalScoresAndMixedEvidenceRemainInconclusive",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "gateway-workspace",
@@ -705,7 +806,19 @@
         "The existing job owns source, execution, authority and publication.",
         "Optional tool configuration never grants extra authority.",
         "Exported source is not automatically model-admitted context."
-      ]
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRepository.kt",
+        "proof": "Bound job, repository revision and observed operation",
+        "admission": "Paired authorized Gateway and eligible execution host",
+        "decline": "Use a phone route only when independently admitted",
+        "positive_fixture": "gateway/tests/test_gateway_workspace_guidance.py#test_direct_procedure_requests_and_same_revision_continuation",
+        "negative_fixture": "gateway/tests/test_gateway_agent_adapters.py#test_config_refuses_secret_values_unpinned_images_endpoints_and_shell_strings",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "gateway-desktop-presentation",
@@ -732,7 +845,19 @@
         "The fixture presents its empty owner before production window construction; production controls remain subject to strict screen hit tests.",
         "Failure diagnostics retain one captured hit and bounded content-free application geometry, focus and stacking observations.",
         "Gateway packaging binds every included source and test byte to the reviewed source inventory."
-      ]
+      ],
+      "routing": {
+        "role": "presentation",
+        "entry": "gateway/desktop/ui.py",
+        "proof": "Destination and visible interaction in native desktop UI",
+        "admission": "Connected desktop session and allowed destination",
+        "decline": "Keep advanced controls hidden until requested",
+        "positive_fixture": "gateway/tests/test_gateway_desktop_native_ui.py#test_daily_destinations_render_and_send_stays_visible_at_minimum_size",
+        "negative_fixture": "gateway/tests/test_gateway_desktop_native_ui.py#test_advanced_settings_are_hidden_until_requested",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "chat-rendering",
@@ -771,7 +896,19 @@
         "Retain current layout, font and theme inputs while reusing bounded settled parse results.",
         "Device performance requires a measured device run.",
         "A changed document revision clears the old rendered page while loading; reuse stays local, bounded and tied to current attribution."
-      ]
+      ],
+      "routing": {
+        "role": "presentation",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdown.kt",
+        "proof": "Rendered document with original source and privacy scope",
+        "admission": "Message owner and eligible rendering cache",
+        "decline": "Use a protected renderer when shared cache reuse is denied",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SettledMarkdownRendererTest.kt#settledRevisitStartsWithTheSamePreparedSyntaxAndReferenceDefinitions",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/SettledMarkdownRendererTest.kt#protectedOrStreamingPreparationNeverReusesOrPopulatesTheSharedCache",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "diagnostic-reports",
@@ -865,7 +1002,19 @@
         "Select the bounded extended readiness catalogue for saved-page replay, graph-local, provider-limit, replay-budget, graph-transport, task/tool and reader/run failure evidence before posting the exact approved report bytes; missing support never authorizes dispatch.",
         "Incident policy-change field names exactly match the fixed production producers across Android and the receiver; names alone never expose setting values or grant dispatch or replay authority.",
         "Require CATALOG_MISSING_TOOL_IDENTITY_V1 only for a present or omitted missing_tool_hash; legacy recovery support does not establish receiver support for that new identity. Preserve approved bytes, current dispatch permission and readiness size bounds."
-      ]
+      ],
+      "routing": {
+        "role": "user_control",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "proof": "User-approved redacted diagnostic and reporter acknowledgement",
+        "admission": "Current diagnostic consent, capture epoch and reporter capability",
+        "decline": "Keep the diagnostic local when submission is unsupported",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt#ordinaryVoiceV1PayloadsStillPostWithoutStreamingBackendSupport",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt#savedReplayPageEvidenceRequiresReceiverSupportBeforePostingApprovedBytes",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "android-acceptance-readiness",
@@ -901,7 +1050,19 @@
       "invariants": [
         "Acceptance uses the same pinned emulator action after exact upstream commit/tree/clean-source and source/runtime digest verification removes only its premature MENU unlock. The real launcher/ANR/foreground readiness predicates, API matrix, memory and time limits remain unchanged.",
         "An upstream revision, source digest, tracked or untracked mutation, or unexpected patch shape prevents execution before either target is written. Host command-order tests do not replace actual healthy API34/API36 instrumentation."
-      ]
+      ],
+      "routing": {
+        "role": "evidence",
+        "entry": ".github/workflows/release-0950-acceptance.yml",
+        "proof": "Exact emulator build, executed procedure and actual assertions",
+        "admission": "Pinned fixture and matching execution environment",
+        "decline": "Mark an unavailable or skipped workflow unverified",
+        "positive_fixture": "scripts/tests/test_prepare_emulator_action.py#test_exact_patch_removes_only_one_line_and_leaves_other_upstream_bytes",
+        "negative_fixture": "scripts/tests/test_prepare_emulator_action.py#test_wrong_commit_refuses_without_writing_either_file",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "github-integration-evidence",
@@ -947,7 +1108,19 @@
         "Saved page recipes, test execution receipts and remaining verification reserve are independent observations.",
         "Fixture-specific accepted task approval remains authoritative through continuation.",
         "Recover a legacy context head change through one fresh scoped LIVE header and one exact pinned read; cached observations, explicit or malformed pins, restored duplicate attempts and a second head change cannot expand the allowance."
-      ]
+      ],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparation.kt",
+        "proof": "Current repo revision, actual reads and applicable result receipts",
+        "admission": "Selected repository, fixture and approved operations",
+        "decline": "Leave missing fixture or stale-head criteria open",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptanceTest.kt#fourExplicitCriteriaEarnIndependentEvidenceCredits",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptanceTest.kt#graphIndexReceiptNeverSuppliesOwnedFixtureMutationEvidence",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "provider-limit-recovery",
@@ -1013,7 +1186,19 @@
         "Standalone accepted or unknown remote state, a closed reconciliation code and an explicit typed retry or replay refusal cannot establish a new known-unaccepted provider wait; raw string and true replay values cannot grant authority.",
         "Durable-wait scheduling diagnostics are projected only for callers requesting durable waiting; ordinary transport retryability and the selected endpoint/model fence remain intact.",
         "Validated retained backend attempts and partial usage survive HTTP rejection without sampling repair, tool-free replay, transient retry or credential rotation; complete bounded failure details retain observed status and stage, while missing token usage remains unknown."
-      ]
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderLimitDecision.kt",
+        "proof": "Scoped provider response, replay state and applicable retry time",
+        "admission": "Authorized provider route and retry allowance",
+        "decline": "Retain already delivered output when replay is inadmissible",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderLimitDecisionTest.kt#requestSpecificTokenRejectionRetainsItsExactDeadline",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderLimitDecisionTest.kt#aLimitAfterReceivedOutputCannotAuthorizeAutomaticReplay",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "speech-benchmark-evidence",
@@ -1076,7 +1261,8 @@
         "local-kokoro-runtime/src/testHost/kokoro_qnn_model_qualification.py",
         "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativePreparationRetirementTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativePreparationRetirementTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1110,7 +1296,19 @@
         "Failed native preparation retains its actual owner until confirmed destruction; a missing returned engine cannot authorize lease release.",
         "An already-recorded deadline remains effective independently of delayed notification; measured partial PCM never implies completed audio validation.",
         "Preserve unknown SDK stream-call counts as unknown in playback result displays; a missing observation is not a measured zero."
-      ]
+      ],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt",
+        "proof": "Matching workload, valid audio, actual provider and timing",
+        "admission": "Compatible installed runtime, device and accepted benchmark",
+        "decline": "Exclude mismatched audio from backend recommendations",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt#allRequestedBackendsRunIdenticalWarmAndColdFixturesAndKeepActualTimings",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt#firstMismatchedGpuChunkStopsOnlyThatBackendAndRetainsItsObservation",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "voice-performance-observations",
@@ -1189,7 +1387,19 @@
         "Operator summaries expose only bounded public categories and first-shape profile count/time with explicit reuse and omission; observed CPU placement does not prove an unsupported operator.",
         "Explicit unknown audio measurement availability stays unknown on restore; only legacy absence may use the existing compatibility inference.",
         "HTP context files are published only after native audio and profile validation, bound to exact model/runtime/provider/device/shape/options identities, verified on load and revalidated for playback; source-model retry remains bounded. Minimal host context success does not qualify full-model or physical speech."
-      ]
+      ],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmup.kt",
+        "proof": "First valid audio and measured cost on the matching workload",
+        "admission": "Current model, voice, rate and resource budget",
+        "decline": "Discard stale warmups or incomplete energy observations",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmupTest.kt#successfulWarmupReusesOnlyTheExactModelVoiceAndRate",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmupTest.kt#staleDeadlineCannotCancelTheNextWarmupOrLiveEngine",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "voice-runtime-model-variants",
@@ -1250,7 +1460,19 @@
         "The embedded-context host emulator regression preserves metadata, CPU nodes and initializers, and requires real QNN plus CPU events; it cannot qualify physical hardware, the full Kokoro graph or speech quality.",
         "Native host fixtures verify actual plugin/QAIRT package identities and reject disagreement with the compiled application identity; historical2.7 execution cannot be relabelled as current2.8 evidence.",
         "Model tooling binds the private tensor snapshot to the expected hash before preflight or allocation, validates bounded unambiguous NPY payloads, and prevents atomic reports from aliasing model/manifest/archive inputs."
-      ]
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelVariant.kt",
+        "proof": "Verified model variant and runtime provenance",
+        "admission": "Installed model identity and qualified runtime configuration",
+        "decline": "Reject unverified or changed runtime assets",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelVariantTest.kt#variantsHaveIndependentStorageProgressAndWeightIdentity",
+        "negative_fixture": "scripts/tests/test_kokoro_model_workbench.py#test_manifest_cannot_escape_through_parent_absolute_or_symlink",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "github-progress-previews",
@@ -1308,7 +1530,19 @@
         "Routine summaries retain the existing 45-second first and 135-second follow-up cadence.",
         "Only a bounded, call-bound immutable source capture can refresh preview repetition after a commit or result change; saved, negative, malformed or mismatched receipts do not gain current-source or completion authority.",
         "Only admitted summaries receive a fresh opaque publication identity; the collector rejects replay before sequence allocation, preserves distinct same-text publications within one invocation and carries identity through display. Caller-supplied identities are overwritten without mutating the input."
-      ]
+      ],
+      "routing": {
+        "role": "presentation",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolProgressTracker.kt",
+        "proof": "Accepted public observation from this task and revision",
+        "admission": "Current authorized audience and active response owner",
+        "decline": "Suppress incomplete or mixed-owner progress",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubPublicProgressTest.kt#eachCompletedBlockIsPublishedSeparatelyAndAnswerTextIsPreserved",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubPublicProgressTest.kt#mixedOriginsOrInvocationsCannotPublishACompletedBlock",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "voice-context-persistence",
@@ -1369,7 +1603,19 @@
         "Full-model HTP export uses a same-runtime CPU BASIC source snapshot and the supported Compile API embedded-initializer callback, with explicit full QNN optimization. The first inference loads the serialized context before cache publication.",
         "Private temporary source snapshots require 512 MiB of additional free-space admission and a post-write 512 MiB bound. They are removed before context inference and on every exit; this is not an in-flight file-size cap or a larger retained-cache allowance.",
         "Cancellation accepted at the source-preparation boundary prevents QNN compilation and any uncached fallback; later cancellation checks prevent further work or publication. Cancellation cannot publish PCM, a Ready state, an orphan profile or a retained source snapshot."
-      ]
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "local-kokoro-runtime/src/main/cpp/kokoro_context_cache.h",
+        "proof": "Matching cache identity and validated runtime context",
+        "admission": "Current model, graph and HTP configuration",
+        "decline": "Discard incompatible contexts and use the admitted fresh path",
+        "positive_fixture": "local-kokoro-runtime/src/main/cpp/kokoro_context_cache_test.cpp#TestPublicationAndIdentity",
+        "negative_fixture": "local-kokoro-runtime/src/main/cpp/kokoro_context_cache_test.cpp#TestConfinement",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "voice-incremental-runtime",
@@ -1427,7 +1673,19 @@
         "Auto CPU scheduling follows the shared device governor; explicit thread selections and benchmark settings remain fixed. Performance hints target only app-owned worker IDs.",
         "All three real SDK checkpoints must deliver PCM before the second fragment and finishInput, then retain complete source cue coverage; open-input cancellation requires retirement and same-task recovery. Android receipt v2 rejects missing or stale source/model/runtime/incremental evidence.",
         "SDK chunk boundaries retain actual separators and original source/UTF-8 ranges for playback and benchmarks; synthetic replacements cannot consume neighboring source text or exceed existing chunk bounds."
-      ]
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngine.kt",
+        "proof": "Accepted text/PCM under one stream owner",
+        "admission": "Current capture policy, active stream and thermal allowance",
+        "decline": "Cancel retired streams before admitting another owner",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeIncrementalSpeechTest.kt#oneStreamDeliversAudioWhileLaterTextIsStillArrivingAndFinishesOnce",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeIncrementalSpeechTest.kt#cancellationInterruptsPendingTextAndRetiresItBeforeDestroyingTheStream",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "voice-export-and-sustained",
@@ -1477,7 +1735,19 @@
         "Cumulative qualification is recomputed from individual receipts; cancelled, thermally interrupted, short or legacy runs cannot claim duration success.",
         "Sustained elapsed totals do not enter speed ranking because candidates may execute different repeat counts; complete sustained qualification remains required.",
         "Local history streams under an 8MiB envelope and evicts complete older runs rather than truncating retained evidence."
-      ]
+      ],
+      "routing": {
+        "role": "user_control",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceDiagnosticExportViewModel.kt",
+        "proof": "Complete export artifact and verified destination outcome",
+        "admission": "Current export selection and writable destination",
+        "decline": "Retain the recoverable artifact after a picker or provider failure",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingExportTest.kt#completeLargeNativeReportStreamsEveryFinalRecordAndMatchesCanonicalSchema",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceDiagnosticExportViewModelTest.kt#failedPickerAndProviderCloseRetainCompleteVoiceExportAcrossProcessRecreation",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "qnn-runtime-candidate",
@@ -1508,7 +1778,19 @@
       "invariants": [
         "Candidate artifact downloads retry only an opening HTTP429 within three attempts and two bounded waits; unusable server cooldowns retain the failure, and every publisher checksum and native qualification gate remains required.",
         "The isolated candidate retains publisher pins and structural native verification; it does not establish production promotion or physical-device performance."
-      ]
+      ],
+      "routing": {
+        "role": "evidence",
+        "entry": "scripts/build_qualcomm_dispatch_candidate.py",
+        "proof": "Pinned source hash, build result and device execution when claimed",
+        "admission": "Permitted candidate source and compatible build environment",
+        "decline": "Keep download, build and device qualification distinct",
+        "positive_fixture": "scripts/tests/test_qualcomm_candidate_download.py#test_rejected_get_waits_then_publishes_only_verified_bytes",
+        "negative_fixture": "scripts/tests/test_qualcomm_candidate_download.py#test_missing_hint_has_finite_backoff_and_original_terminal_error",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "speech-numeric-exponents",
@@ -1536,7 +1818,19 @@
       "invariants": [
         "Integer and squared-unit tokens must not consume a prefix of a decimal, scientific or longer integer exponent; complete numeric fallback preserves the amount and original caption ranges.",
         "Existing integer and Unicode superscript readings, every prior pronunciation method and bounded phrase output remain required."
-      ]
+      ],
+      "routing": {
+        "role": "presentation",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
+        "proof": "Complete mantissa/exponent and aligned pronunciation",
+        "admission": "Active speech projection for a numeric expression",
+        "decline": "Preserve unsupported or incomplete text as a separate span",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt#decimalAndScientificExponentsKeepTheirCompleteNumericValue",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt#unitPowersDoNotConsumePrefixesOfLongerNumericExponents",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "github-engineering-intelligence",
@@ -1632,7 +1926,19 @@
         "Production score comparisons require explicit SESSION_ONLY memory and versioned digests of the exact admitted conversation and follow-up instruction values; unbound historical memory remains unknown, and raw private inputs are not exported.",
         "Leading unquoted read requests retain the selected repository target; quoted or creative task material does not activate that heuristic. Multiline quotes preserve escape parity and in-word apostrophes; complete inline runs and valid whole-line fences bound code. Prompt remains a technical subject. Evidence correction observes raw owned output before markup aggregation, preserves honest mixed lineage, application-report finality, session-owned recovery and earlier failed-round corrections.",
         "A LiteRT-LM primary cannot execute a helper-selected recovery read; saved execution consent stays inactive without falling through to an advice choice, while existing advice eligibility and internal-tools ownership remain unchanged."
-      ]
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt",
+        "proof": "Actionable acceptance row and independent evidence on its revision",
+        "admission": "Selected GitHub profile, authorized operation and admitted budget",
+        "decline": "Skip resolved criteria or unapproved helpers",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceWorkTest.kt#independentWorkLeadsAndVerifiedRowsStayOutOfThePlan",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringStrategyTest.kt#recoveryAdviceRequiresExactLocalProfileWorkspaceAndActiveOptIn",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "publication-attestation-retention",
@@ -1660,7 +1966,19 @@
         "Each existing package attestation retains its exact bundle-path output as a separate source/run/attempt artifact for 14 days.",
         "Subject globs, signing, permissions, package artifacts, release assets, triggers, required gates and publication behavior remain unchanged.",
         "Retained bundles are verification inputs; their presence does not establish cryptographic validation, final-source qualification or publication."
-      ]
+      ],
+      "routing": {
+        "role": "evidence",
+        "entry": ".github/workflows/release-build.yml",
+        "proof": "Exact published artifact, source SHA, checksums and attestations",
+        "admission": "Requested publication with verified release identity",
+        "decline": "Retain missing attestations as an outstanding criterion",
+        "positive_fixture": "scripts/tests/test_published_release.py#test_published_receipt_requires_the_same_id_and_actual_tag_commit",
+        "negative_fixture": "scripts/tests/test_published_release.py#test_attestations_pin_exact_source_and_workflow_and_reject_empty_results",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     },
     {
       "id": "github-ci-continuation",
@@ -1694,7 +2012,625 @@
         "Whole-commit monitoring preserves distinct or unknown check suites and waits for all observed checks and commit statuses on the bound revision.",
         "Terminal continuation reads outside the cancellation mutex, then revalidates the exact watch/task identity, saved run, repository, profile and current authority before the existing durable queue admission. Stop during the remote read prevents delivery.",
         "A changed task set is retained for retry; an active replacement owns its own polling chain. CI completion does not renew a task deadline or grant new write authority."
-      ]
+      ],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchRepository.kt",
+        "proof": "Complete check and status observations at the bound repository, commit, workflow and attempt",
+        "admission": "Live GitHub profile and repository authority with a current generation and accepted CI watch",
+        "decline": "Keep the saved diagnosis pending when any required suite or named status lacks terminal evidence",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummaryTest.kt#aggregateUsesEachNamedStatusBeforeReleasingTheSavedDiagnosis",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt#wholeCommitWatchWaitsForTheOtherWorkflowAfterAnchorSucceeds",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "chat-profiles",
+      "title": "Chat profiles and Combined responses",
+      "terms": [
+        "compare profiles",
+        "combined mode"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatViewModel.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SharedMultiChatCreationTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "user_control",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatViewModel.kt",
+        "proof": "Independent profile outputs and admitted synthesis",
+        "admission": "Selected active profiles and permitted destinations",
+        "decline": "Leave unavailable members visible in the combined result",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SharedMultiChatCreationTest.kt#multiChatCreatesOneRoomContainingEverySelectedProfile",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SharedMultiChatCreationTest.kt#privacyEnabledPluginModesStillRequireToolPermissionsAndProviderActivation",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "delegation",
+      "title": "Delegate a bounded task to an approved profile",
+      "terms": [
+        "delegate to",
+        "ask the reviewer",
+        "second opinion"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModelDelegationTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModelDelegationToolTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModelDelegationTool.kt",
+        "proof": "Helper identity, source references and primary verification",
+        "admission": "Configured helper and permitted transfer",
+        "decline": "Continue on the primary where a helper is unavailable",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModelDelegationToolTest.kt#delegatesToConfiguredProfileAndEnforcesPerTurnBudget",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModelDelegationToolTest.kt#gitHubCapabilityRefusalIsAnErrorAndStopsRepeatedHelperCalls",
+        "plugins": [
+          "model_delegation"
+        ],
+        "tools": [
+          "delegate_to_model"
+        ],
+        "decline_terms": [
+          "without a helper",
+          "without delegation"
+        ]
+      }
+    },
+    {
+      "id": "local-assist",
+      "title": "On-device local model assistance",
+      "terms": [
+        "local assist",
+        "on device ranking"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/assist/LocalAssistToolBinder.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/assist/LocalAssistToolBinderTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/assist/LocalAssistToolBinder.kt",
+        "proof": "Loaded model and completed bounded ranking",
+        "admission": "Admitted warm hardware and current local processing consent",
+        "decline": "Use deterministic ranking when assistance is unavailable",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/assist/LocalAssistToolBinderTest.kt#planningUsesCurrentGoalAndReturnsValidatedProposalsWithoutSearching",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/assist/LocalAssistToolBinderTest.kt#planningRequiresOptInRuntimeAndLiveProcessingPermission",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "document-attachments",
+      "title": "Read user-supplied attachments and document ranges",
+      "terms": [
+        "attached file",
+        "attached document",
+        "attached report",
+        "uploaded document",
+        "file attachment"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadFileSliceTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadFileSliceToolTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadFileSliceTool.kt",
+        "proof": "Selected attachment identity, range and actual extracted text",
+        "admission": "Attachment available to the selected chat and destination",
+        "decline": "Report unreadable or unavailable ranges without inferring contents",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadFileSliceToolTest.kt#execute returns formatted lines with line numbers",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadFileSliceToolTest.kt#execute returns error when content is empty",
+        "plugins": [
+          "read_files"
+        ],
+        "tools": [
+          "read_file_slice"
+        ],
+        "decline_terms": [
+          "do not read the attachment"
+        ]
+      }
+    },
+    {
+      "id": "scoped-memory",
+      "title": "Recall saved memory within the selected chat scope",
+      "terms": [
+        "my saved memory",
+        "my saved facts",
+        "recall my",
+        "forget my"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UnifiedMemoryTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UnifiedMemoryToolTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UnifiedMemoryTool.kt",
+        "proof": "Fact source, revision and destination",
+        "admission": "Current storage, recall and destination grants",
+        "decline": "Omit unapproved or mixed private provenance",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UnifiedMemoryToolTest.kt#unifiedCaptureUsesUserTextAndRecallHonorsDestinationAndMasterSwitch",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UnifiedMemoryToolTest.kt#unavailableBackendsAreNotAdvertisedOrDispatched",
+        "plugins": [
+          "local_memory"
+        ],
+        "tools": [
+          "memory"
+        ],
+        "decline_terms": [
+          "without memory",
+          "do not use memory"
+        ]
+      }
+    },
+    {
+      "id": "clock",
+      "title": "Current time and date",
+      "terms": [
+        "current date",
+        "current time",
+        "what time is it",
+        "today s date"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CurrentDateTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CurrentDateToolTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CurrentDateTool.kt",
+        "proof": "Timestamp and configured time zone",
+        "admission": "Enabled local clock tool",
+        "decline": "Use no external service for a local clock lookup",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CurrentDateToolTest.kt#execute returns formatted date time and zone from clock",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CurrentDateToolTest.kt#callersCannotOverrideTheConfiguredClockThroughArguments",
+        "plugins": [
+          "current_date"
+        ],
+        "tools": [
+          "current_date"
+        ],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "calculation",
+      "title": "Deterministic calculation",
+      "terms": [
+        "calculate",
+        "compute the result",
+        "evaluate the expression"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CalculatorTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CalculatorToolTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CalculatorTool.kt",
+        "proof": "Evaluated expression and observed result",
+        "admission": "Enabled calculator and supported input",
+        "decline": "Report invalid expressions or domains",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CalculatorToolTest.kt#evaluatesBasicArithmetic",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CalculatorToolTest.kt#unknownDigitBearingIdentifiersCannotAliasFunctionsOrConstants",
+        "plugins": [
+          "calculator"
+        ],
+        "tools": [
+          "calculate_expression"
+        ],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "retrieved-pages",
+      "title": "Read and crawl permitted web pages",
+      "terms": [
+        "read this url",
+        "open this link",
+        "read this webpage"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlDocumentContinuationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResearchReaderHealthTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+        "proof": "Canonical URL and captured passage",
+        "admission": "Accepted destination, reader and remaining page budget",
+        "decline": "Use retained material and identify unavailable page text",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlDocumentContinuationTest.kt#continuationDeliversTheWholePageRangeBeforeAdvancingToLaterPages",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResearchReaderHealthTest.kt#blockedHostDoesNotDisableFallbackAndExpires",
+        "plugins": [
+          "read_url",
+          "crawlers"
+        ],
+        "tools": [
+          "read_url"
+        ],
+        "decline_terms": [
+          "without the web",
+          "offline only",
+          "using only the attached file",
+          "use only the attached file"
+        ]
+      }
+    },
+    {
+      "id": "web-academic-research",
+      "title": "Web and academic research",
+      "terms": [
+        "search the web",
+        "search for papers",
+        "academic papers",
+        "review the literature"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AndroidResearchWorkflow.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeepResearchAcquisitionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceAdmissionRegressionTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AndroidResearchWorkflow.kt",
+        "proof": "Distinct underlying sources, passages and claim coverage",
+        "admission": "Search scope, admitted engines and research budget",
+        "decline": "Treat listings as discovery until a passage has actually been read",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeepResearchAcquisitionTest.kt#maximumAcquisitionReachesThreeHundredWithoutAModelOrLegacyToolCeilings",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceAdmissionRegressionTest.kt#successfulDownloadsNeedPositiveStructuredBodyProofForFullText",
+        "plugins": [
+          "web_search",
+          "deep_research"
+        ],
+        "tools": [
+          "web_search",
+          "deep_research_search_papers"
+        ],
+        "decline_terms": [
+          "without web search",
+          "without the web",
+          "using only the attached file",
+          "use only the attached file",
+          "using only the attached document",
+          "offline only"
+        ]
+      }
+    },
+    {
+      "id": "news",
+      "title": "Current news and trends",
+      "terms": [
+        "latest news",
+        "news headlines",
+        "current headlines"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NewsTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NewsToolTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NewsTool.kt",
+        "proof": "Dated publisher record and scope of feed",
+        "admission": "Enabled service, locale and provider reachability",
+        "decline": "Distinguish feed failure from empty results",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NewsToolTest.kt#allSourcesInterleaveAndKeepDatesAndPublishersWithoutSendingCredentials",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NewsToolTest.kt#trendsIncludeTrafficAndDisabledPluginPerformsNoReads",
+        "plugins": [
+          "news"
+        ],
+        "tools": [
+          "news"
+        ],
+        "decline_terms": [
+          "without news"
+        ]
+      }
+    },
+    {
+      "id": "products",
+      "title": "Product listings and prices",
+      "terms": [
+        "amazon products",
+        "amazon price",
+        "search amazon"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonNativeTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonNativeToolTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonNativeTool.kt",
+        "proof": "Retailer, timestamp, verified price and currency",
+        "admission": "Enabled market, selected profile and provider",
+        "decline": "Qualify missing price or unavailable product details",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonNativeToolTest.kt#ukAndFranceConfigurationSelectTheCorrectProviderMarket",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonNativeToolTest.kt#invalidInputsAndDisabledProfileNeverContactProvider",
+        "plugins": [
+          "amazon_free",
+          "amazon_search"
+        ],
+        "tools": [
+          "amazon_search",
+          "amazon_search__free_native",
+          "amazon_get_products",
+          "amazon_get_products__free_native"
+        ],
+        "decline_terms": [
+          "without amazon"
+        ]
+      }
+    },
+    {
+      "id": "places-travel",
+      "title": "Places, listings and travel",
+      "terms": [
+        "airbnb",
+        "vacation rental"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbNativeTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbNativeToolTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbNativeTool.kt",
+        "proof": "Listing or place identity, provider and observed availability",
+        "admission": "Selected service and requested geographic scope",
+        "decline": "Do not infer verified availability or distance from a listing preview",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbNativeToolTest.kt#publicSearchHasNoCredentialsAndCreatesPhotoCards",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbNativeToolTest.kt#disabledPluginAndInvalidArgumentsPerformNoNetworkRequests",
+        "plugins": [
+          "airbnb",
+          "service:google"
+        ],
+        "tools": [
+          "airbnb"
+        ],
+        "decline_terms": [
+          "without airbnb"
+        ]
+      }
+    },
+    {
+      "id": "device-location",
+      "title": "Current device location",
+      "terms": [
+        "my current location",
+        "my current coordinates",
+        "near my location"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationToolTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationTool.kt",
+        "proof": "Observed location age and accuracy",
+        "admission": "Location permission and destination consent",
+        "decline": "Report denied permission or unavailable position",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationToolTest.kt#nearby request returns map markers while lookup failure preserves location",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationToolTest.kt#execute returns error when location permission is not granted",
+        "plugins": [
+          "device_location"
+        ],
+        "tools": [
+          "device_location"
+        ],
+        "decline_terms": [
+          "without my location",
+          "do not use my location"
+        ]
+      }
+    },
+    {
+      "id": "health",
+      "title": "Health Connect measurements",
+      "terms": [
+        "my step count",
+        "my sleep history",
+        "my heart rate",
+        "my health summary"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/HealthConnectTool.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/HealthConnectToolTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "evidence",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/HealthConnectTool.kt",
+        "proof": "Permitted metric, units, time range and source",
+        "admission": "Unlocked visible app and distinct local and AI grants",
+        "decline": "Withhold readings when consent changes or no observation exists",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/HealthConnectToolTest.kt#statusCanExplainSetupWithoutReleasingMeasurements",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/HealthConnectToolTest.kt#disabledPluginNeverReadsEvenWithAiConsent",
+        "plugins": [
+          "health_connect"
+        ],
+        "tools": [
+          "health_connect_summary",
+          "health_connect_activity",
+          "health_connect_sleep",
+          "health_connect_heart_rate"
+        ],
+        "decline_terms": [
+          "without my health data"
+        ]
+      }
+    },
+    {
+      "id": "external-connections",
+      "title": "External MCP and native service operations",
+      "terms": [
+        "mcp server",
+        "native marketplace",
+        "external connection"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapper.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapperTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/NativeMarketplaceTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapper.kt",
+        "proof": "Source identity, bound schema and actual operation receipt",
+        "admission": "Current server connection and exact operation permission",
+        "decline": "Discovery alone leaves execution readiness unknown",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapperTest.kt#remote tool schema maps to provider neutral definition",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/NativeMarketplaceTest.kt#corruptRegistryRequiresExplicitDisabledRepair",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "organization-and-backup",
+      "title": "Organize, export, back up and restore",
+      "terms": [
+        "selective backup",
+        "restore archive",
+        "conversation folders"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BackupRestoreHost.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupSelectionTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "user_control",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BackupRestoreHost.kt",
+        "proof": "Selected artifact and verified import or export outcome",
+        "admission": "Explicit selection, identity and eligible destination",
+        "decline": "Keep unselected data outside the archive",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupSelectionTest.kt#groupsCoverEveryArchiveSectionExactlyOnce",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupSelectionTest.kt#clearingSelectAllAlsoClearsDependentConversationSections",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
+    },
+    {
+      "id": "scheduled-recipes",
+      "title": "Scheduled recipe execution",
+      "terms": [
+        "scheduled recipe",
+        "schedule a recipe",
+        "recurring recipe"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/RecipeScheduler.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/RecipeScheduleAdmissionTest.kt"
+      ],
+      "commands": [],
+      "documents": [],
+      "invariants": [],
+      "routing": {
+        "role": "executor",
+        "entry": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/RecipeScheduler.kt",
+        "proof": "Eligible recipe, schedule and execution outcome",
+        "admission": "Enabled recipe, permissions and Android scheduling constraints",
+        "decline": "Keep unapproved recurring work disabled",
+        "positive_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/RecipeScheduleAdmissionTest.kt#dueRecipeCanQueueAtTheConfiguredInterval",
+        "negative_fixture": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/RecipeScheduleAdmissionTest.kt#disabledRecipeAndFutureCheckpointCannotQueue",
+        "plugins": [],
+        "tools": [],
+        "decline_terms": []
+      }
     }
   ],
   "file_blobs": {
@@ -1779,9 +2715,9 @@
       "sha256": "1c0e6725bea8a27085878c091362e96c23bc983e2e510ab7dedcfd8d2f58fc7c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": {
-      "blob_sha": "14599d09e16b30ea39451148f7d82faf92218425",
-      "bytes": 177175,
-      "sha256": "2b728a2e14cb3cd7ed70b327ef758eef422a127692fcc6ab53de8d7488366b9e"
+      "blob_sha": "cb49a3bfaea964165078b4c0d645909cae9c6eae",
+      "bytes": 177203,
+      "sha256": "977d8d29bab4237a9ac29dde47ddd4ac9fec01e073a8eb9f0568935c6aa5fc46"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt": {
       "blob_sha": "389dff549bb22a0118306daa203c529b28c02d95",
@@ -1819,9 +2755,9 @@
       "sha256": "1ca107fddb4acf44eb12e6981fe24dc2a40c25516b0691dc1de102bb3e8ec64d"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": {
-      "blob_sha": "44908f67ff2eef87f96bfe37b76f44c88cbbe536",
-      "bytes": 61440,
-      "sha256": "c26af040b439f277d1d64ce94c663c674f19057a46c550965957ca6092f31b8b"
+      "blob_sha": "1e0350d26196e01f013d25ff585847f6dfa2f8d8",
+      "bytes": 64830,
+      "sha256": "66a5841a7376cb8ccf639dab0a3baaec0b776897cb363008fd0d114e4543553d"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitSchedulingResult.kt": {
       "blob_sha": "7e728ba0093826a0d42a695ad02cdc95bef14beb",
@@ -1868,15 +2804,85 @@
       "bytes": 135899,
       "sha256": "0c014bcce87823d655302f7290c3540dff108530ffb70459d12c3109f147c5ed"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbNativeTool.kt": {
+      "blob_sha": "00cfe99935318056787a2700f39f9c8d0afda222",
+      "bytes": 9911,
+      "sha256": "31b6d2a9ce2baf304589de963151a635db95ffd2ac7991dc33288bd095086fd8"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonNativeTool.kt": {
+      "blob_sha": "de981054a54b7a8791c42f4b9862b15395a5b84b",
+      "bytes": 12987,
+      "sha256": "97513ae68d4f577b164095e7479ba9c72a42faa4029f83538c1710af5ec404b9"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AndroidResearchWorkflow.kt": {
+      "blob_sha": "2f5039c6aeabedc1c411b903408320f31ccd1dc0",
+      "bytes": 94190,
+      "sha256": "61b3ff56b4c1f04fe17e72bc1771373c4479324b3ca0098670da3ee362875ba8"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CalculatorTool.kt": {
+      "blob_sha": "acc11e2cda34c883e06c0283d9ff5faed665a7bb",
+      "bytes": 14620,
+      "sha256": "24b2b9fc958db769266821460949575d8620108bc2cd0e9c77ae04f3859b53f2"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CurrentDateTool.kt": {
+      "blob_sha": "4081e616c95ec278c568c23d74f480785f7d1879",
+      "bytes": 1575,
+      "sha256": "fa65de67f8474133e96407b9f4841031bb1d48fba2c2e11f35ae9c1bbe4d6c9d"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationTool.kt": {
+      "blob_sha": "3f59aa4d0f032a139342a5051ece69be59f78cbc",
+      "bytes": 6713,
+      "sha256": "a10369430c8a05b94c624d946583fce8557863bdcd0670a5ec8056564f7ce477"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt": {
       "blob_sha": "3cb69b3b505c17fd33738b7445f3852bf309cad9",
       "bytes": 167429,
       "sha256": "b26a9849f171746dec15c9dc596af066083c9a81effa904aa6ad8878c03796a8"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/HealthConnectTool.kt": {
+      "blob_sha": "e1e28aa58589bb7574343521ff26a3e773f64bdf",
+      "bytes": 7756,
+      "sha256": "5f1ca8a11740a7a0b72a276167dee6af470106d3fbcb9d9ddd3a419b22b00ae7"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapper.kt": {
+      "blob_sha": "dc790efce97d54691b967f161282d72c61929408",
+      "bytes": 15962,
+      "sha256": "93e4ee3074d2b7cabc6d88a524ed9aae1333cf1077848cb396e5304be50c91c7"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModelDelegationTool.kt": {
+      "blob_sha": "61203f84374a3711bcf6a5a83ea104fe125d3a32",
+      "bytes": 21043,
+      "sha256": "9c4ff3680c8dc1025d2930170f93c3be1610799992c9d6b23e12e798278f708f"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NewsTool.kt": {
+      "blob_sha": "e9c7339998ed3f68132d7b25b89dc2a7ea9359ef",
+      "bytes": 10067,
+      "sha256": "c0c0d357bb66c143494823a950beba1250b9f2198eadf2510cc826d3954c05a1"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadFileSliceTool.kt": {
+      "blob_sha": "1d213dd5771ef28c75c846d910a71642d48e7f3e",
+      "bytes": 5506,
+      "sha256": "e2d11dc967e00fe25ed69cb610a4c6345ef259961f73a899ba302d057181f9be"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt": {
+      "blob_sha": "005087c342d7f07c44b38fb5d68450b5118c0c27",
+      "bytes": 49881,
+      "sha256": "e69aa7349f1cc7257695cfe658c6dd882a95dc5007dbe99f5734cc353aea9888"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReviewerPolicy.kt": {
       "blob_sha": "5a77ee7b05126b26fbdd0352029ed09b1be6012d",
       "bytes": 3924,
       "sha256": "a4b424ed3cd98cd47b36fe3b00875713a56e427be361789870d2087ae23ee365"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UnifiedMemoryTool.kt": {
+      "blob_sha": "2687c406d21295c61e9f7e3523091b6c02861fb8",
+      "bytes": 4563,
+      "sha256": "8ae0a77e124e2e3adb36664279acbd844e282bc8f618fe242b31d0781e98421b"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/assist/LocalAssistToolBinder.kt": {
+      "blob_sha": "82d8d75c385c63c673c005deed5efcd2d721157e",
+      "bytes": 5479,
+      "sha256": "ebc24db47a5ad10571e89cca224051f1f5ce9535180066914c6bda351bf636b6"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt": {
       "blob_sha": "c47dc4b2248ca64239c2f115e60738d261b4389e",
@@ -1904,9 +2910,9 @@
       "sha256": "89399202257740152ec7a70b0c363a64b768b354db2d055d07b955deca3d45d7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlan.kt": {
-      "blob_sha": "6d80df8ca7d35cebeaaa325a9e399d54f342ecb6",
-      "bytes": 17506,
-      "sha256": "bf8865f21afcce7248194629f7490b5bbda6530157b52141363b2162afbc8a63"
+      "blob_sha": "df3745709a156b67c0d1af412748199d498e48a7",
+      "bytes": 17523,
+      "sha256": "64bbbff78c0bb5d3e173a84142ce12e9a59dbb72298fb8a5dc638242d33626a4"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPreparation.kt": {
       "blob_sha": "15b60a8cc3e646eda1cd54ca73a6b18e9494fd09",
@@ -1974,9 +2980,9 @@
       "sha256": "5b65b340d96b478c47f59765c788ee74bae957d30b28feaceae1a4198d957614"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt": {
-      "blob_sha": "0d72fe9f856e5ac106c8e84ea83eb7094664c7df",
-      "bytes": 61262,
-      "sha256": "9b6e868161010a2440fb3fb1d40b6009e28c7c01ce9ddcc67d2b4483a8404d85"
+      "blob_sha": "399dd30869c816ae8d7c32823b0b698eb8d5ed76",
+      "bytes": 61400,
+      "sha256": "a2e6e6897ea4da1765a20018691e21f94434cabf7bbab101a96bf6355be83321"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": {
       "blob_sha": "ef07dfb50ca3b1defc916f3c830474b8d4286cb6",
@@ -2029,9 +3035,9 @@
       "sha256": "8eb04a320163f956849ac837c06e323dfd30da746e7a53a8407411f2a2dcf329"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRepository.kt": {
-      "blob_sha": "08a239fe60e569c209fdf0ffbbe5af83bb4e7176",
-      "bytes": 57068,
-      "sha256": "287cfe84b3855b8abba1be73777fdd56c51aac5ae469bc75377f4763bcc0dd83"
+      "blob_sha": "77f0eb6085e2736e3f164325c757ec956d76e8db",
+      "bytes": 57609,
+      "sha256": "095fb4181eb01a87a323602347724bee2155f7e96b7f3c7477a7e4cff26ec986"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceContract.kt": {
       "blob_sha": "75763cf56b8319e92cf088f4df91411631361e85",
@@ -2054,9 +3060,9 @@
       "sha256": "1feb5df2a828eae4eeceab9cad0ffd5e2d38d68d9c509e4ab49f76a6dff2cc4b"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt": {
-      "blob_sha": "1fe941667fecbbd899bb20529ad847c8c05dae4d",
-      "bytes": 53089,
-      "sha256": "998c2e946b1253dcfe66367c8580ba95bbb6ada0b3613b9569cde02eb9eb1d8f"
+      "blob_sha": "125ecfb448faab6748e6e0c1b8776ca1c42491fe",
+      "bytes": 66522,
+      "sha256": "9f57f86c4886bdcccf5ae24d54bd3333fd905573dec45c19a1c63bd483061e9d"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummary.kt": {
       "blob_sha": "b661994b9ccfc182e8aa04b44a0eb4d2b0fac45e",
@@ -2083,6 +3089,11 @@
       "bytes": 6101,
       "sha256": "0305df18fbb9a72637a837fd7f06520bbfe1d7a6704942caf20314227d0fa7ed"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCompactTaskContext.kt": {
+      "blob_sha": "e2d5da426b755799a3255d1f6ff5c72d4606b9b5",
+      "bytes": 3944,
+      "sha256": "ab76d6c379e086757f1f0fc315c5d365fc9cf0318f62f3dce6ae734a00dadb99"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt": {
       "blob_sha": "aa7fd91e875293377a70b5ca6748734f2813ebde",
       "bytes": 5244,
@@ -2099,9 +3110,9 @@
       "sha256": "9d2909dc6b37f4333b286e131593930066a70925a0ab6625e9dc8820c795f42d"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt": {
-      "blob_sha": "543867671d47bd022d6f350101485137d6f75d73",
-      "bytes": 81935,
-      "sha256": "319c031d5ecca926c5e7610efa997c3171f90175f3b82f9b69c2455ee7b1cec7"
+      "blob_sha": "d9e9f317df9efbcf14361574d68b2d78d554244a",
+      "bytes": 83115,
+      "sha256": "a1190488ab183388691f9cd24ef99f7d36c01416a0fe5deaefcf2d07d65ad506"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRelevance.kt": {
       "blob_sha": "dc936c6e8c4c6b8ebc26189f062e284bfa482e94",
@@ -2114,9 +3125,9 @@
       "sha256": "6d8827d665e31a6565f7b8c45fa567fa9bf39370adad8a197acfc9d5285efbe4"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt": {
-      "blob_sha": "2b332a46bae41a544b72907a657394eae3d85f0a",
-      "bytes": 37669,
-      "sha256": "af3a1f5d50434d09d803b15b22147cb4314b5bf9647266dc7c1831ef236ab2d0"
+      "blob_sha": "73d910be55765768996e16ac99e6b85fc3652d8c",
+      "bytes": 39818,
+      "sha256": "2c99017d661201a5a03e6ad686e53c06a5e9fcbacb9f461443d89d72feb80776"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFixtureTestMode.kt": {
       "blob_sha": "1ade640c6bfc4bc1eae72c274a69a31779342c06",
@@ -2154,9 +3165,9 @@
       "sha256": "f068d8da730fa0452265b4c96b06807697895693c2a73f47f1625560d5fda022"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressPresentation.kt": {
-      "blob_sha": "0abca42926a80f2c63ab70c6d0f0fce07613a11d",
-      "bytes": 16867,
-      "sha256": "a2535072bd59fbad9bd5191b9cebcce17ed8126659898197b3316347049eed44"
+      "blob_sha": "ba0954f78936628bc5e1981f108fabae44f01916",
+      "bytes": 17736,
+      "sha256": "498b7a7ee7bcad794125745697ee16733eeb4e6b693c59b34f2803f7cbf1f0d7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadWorkBudget.kt": {
       "blob_sha": "2092b50e8ae82abf473e201366f9e5429964bac5",
@@ -2164,9 +3175,9 @@
       "sha256": "3f89ef9db742d799c300b0e46ead456360c3f49d1072c45c21cada6a636cb7ed"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryConsult.kt": {
-      "blob_sha": "d367949f5766c2f0cb52feb0c07e547bb865a198",
-      "bytes": 4447,
-      "sha256": "6f8d287db3e08c1a99aa87f14a78a3729e0af19b79522fe549f90dd60ba9cf5e"
+      "blob_sha": "f8ce5128f18cf8610a7b57722524847b60df7734",
+      "bytes": 4799,
+      "sha256": "97b66a9ecc79bf227e77bc087cddaa63938cd19bef4a81a138f782868d70bfa5"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryReadSession.kt": {
       "blob_sha": "bc2f27efb915af15a76e16c858386972c64fb628",
@@ -2174,9 +3185,9 @@
       "sha256": "5a84d6c688be1fc0f703de1619dc3b1028492ce753b86a0723fd6a93304d6847"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt": {
-      "blob_sha": "7c6035b7d39ce537822dacb55b0e7748246fef9b",
-      "bytes": 136962,
-      "sha256": "5247429b4f7b7b76797bc84cb1217f67da094c09e00f7fe90607f856534b3dc9"
+      "blob_sha": "c4553eb7f7c050e751a1a3676a9532a12d7ad8c1",
+      "bytes": 137047,
+      "sha256": "407d167fe2e2e824d0699ade30664b26585a9d07ba1d7d360e2424661f135b85"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryStateStore.kt": {
       "blob_sha": "f26cca336214cda8be14dc73b8376624e3ef84d3",
@@ -2209,14 +3220,14 @@
       "sha256": "b91dae53e3ab56870570422d99a448953680563ffb8a86aca75d0252a0e8612a"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextBundle.kt": {
-      "blob_sha": "51d536c759d55346771d5127c6a96251c2b2f7db",
-      "bytes": 31356,
-      "sha256": "d3a29ff27058276108795a10558003135ccd32ab96f54362ccc5d8014e6d1ed2"
+      "blob_sha": "1c1dc04e8835209de17cf70c611b0690d58adc98",
+      "bytes": 32590,
+      "sha256": "38d30a2ae6b9605591103f9674b2ed62c122177f75586dd099cc83abb8c4a5d5"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextPreparation.kt": {
-      "blob_sha": "a8b1e88f401ad9efd7c17493c054438968876daf",
-      "bytes": 5480,
-      "sha256": "eec659baa39d2ceec302c39b51d6cc7dc431406c80f0c18ea43b4702a5e3c6dc"
+      "blob_sha": "cb89ad920cf76eb6c330e78e00219031e377037f",
+      "bytes": 7550,
+      "sha256": "142843783f8bf60ddd96a3532c969d1a172d6342fa2c5e3cef5f8906321d81b3"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextRanking.kt": {
       "blob_sha": "a654e69b7f6cfef53bbbe9607b3277138194b7a0",
@@ -2234,9 +3245,9 @@
       "sha256": "2680034826d6f23706235ed013091c492e376a0516d7e5f6bd92189e7493e2d3"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": {
-      "blob_sha": "58ad9b4060c94f18ac9fcf6c9f99dc56de891ace",
-      "bytes": 114885,
-      "sha256": "6c503b837c089bb0d54894ab9ce4e7004305cdf8952a000f85f23c3f69d3f0c3"
+      "blob_sha": "b101286b74e2d6dd4ef77ed242ed8c173ba49fcb",
+      "bytes": 116669,
+      "sha256": "a82e4a1f1faa0bece8822a9645581e6b66e23f1824956a4ce2fa80a037095f98"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapTopology.kt": {
       "blob_sha": "81585ad8f4532e5b9e7f6b1a6013d3f91c901c29",
@@ -2249,9 +3260,9 @@
       "sha256": "ef524502352c2d8ed7d870c373399d15f5c785519f40ecd57e652dfdede03ad1"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepository.kt": {
-      "blob_sha": "f6386410e1f37ccfbafd2fe3c3cd54924bdb6c6f",
-      "bytes": 14052,
-      "sha256": "25e911fa9acd1ba726f57fd22e29ab37303c27e5929061357f94dae57901f72e"
+      "blob_sha": "d1e36f35b74846eaabb7c0edaab7371780e04b4f",
+      "bytes": 14247,
+      "sha256": "e8ea3a8c65b3a5038559675dd13fd83aa2f483c920ca25aa8b953a960d2df547"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneTaskContextFailure.kt": {
       "blob_sha": "6d80f3f3a419ef684897c0e837875f7542ce2704",
@@ -2459,9 +3470,9 @@
       "sha256": "b2d23a0f4219abce80bf26db0fb42c8ac06b837ac63e471760ba62c28360d039"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt": {
-      "blob_sha": "4bd63bdabaa52734a04c707ae8c1634e10b9f942",
-      "bytes": 626789,
-      "sha256": "25d80d03fde40f3086885dfd7666351f0dd4a0ef59e22c913e5ac2ae2e651e24"
+      "blob_sha": "0c8be2033bfb51a7396fc5c656ebc421fe2aa34a",
+      "bytes": 628766,
+      "sha256": "6aaee9de53bb0be8144f01ef6ef416ced7193d50bb302ac45b0d0f605d0a637e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparation.kt": {
       "blob_sha": "f61e90d5e8bcde5583d1e7384a520401f8e82d9f",
@@ -2833,6 +3844,11 @@
       "bytes": 1382,
       "sha256": "8316fe237889d7a389d73558adf00235b59067e94d83ea210226a5e433693ec4"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/RecipeScheduler.kt": {
+      "blob_sha": "60fd3ee63e3f673b7b90454923c8cff1a74f23d2",
+      "bytes": 5819,
+      "sha256": "b114f11baae545035f9c5cc9f199c05042adf3a94dbb8830d8c3a49e390fc176"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/WorkspaceDiagnosticPayload.kt": {
       "blob_sha": "2240bc5406add4e41325ef9cfa272fb610a9106c",
       "bytes": 6317,
@@ -2903,6 +3919,11 @@
       "bytes": 21581,
       "sha256": "2e3d60ed7358696eaa60fee64033632990499060f51bd9112ccfc1282793ae5e"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BackupRestoreHost.kt": {
+      "blob_sha": "83b93e2b2f72364a829c72846f6f57053be8be82",
+      "bytes": 8245,
+      "sha256": "43e713f76a18f2aa83be7852d83f4a2c2f463a646a16b71fb8a0f361d3b516bf"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkContextEvidence.kt": {
       "blob_sha": "b67d93c8a0c05fc18396e9fae423950fc150f31c",
       "bytes": 3006,
@@ -2929,9 +3950,9 @@
       "sha256": "28ea71872c62524c8b14c7a1f7e64b407e2ca513a6a7e7b8f3265aa588740bca"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerSettings.kt": {
-      "blob_sha": "ad18b8a50fd80802ab5881c7ad6a43f82556634d",
-      "bytes": 40720,
-      "sha256": "7920f17ad60cce1068cf0788e3168ba492238ea65ce83290af77e04ad66188b0"
+      "blob_sha": "ccdd7bb99b3d9fa0b22352b587193a0d07246149",
+      "bytes": 42031,
+      "sha256": "36ac67ad1d5eacb5b6873e8522ac6f3057ac2ff4e335c7f0d072eae9aeca50e3"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubQualificationPanel.kt": {
       "blob_sha": "5dfaceadbc93967d6499800b621ca53ffd548340",
@@ -3129,14 +4150,19 @@
       "sha256": "a6879788a964d237d7c4db60bd9eab8875696033cc7eb14c2bb9f435ff9ef621"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt": {
-      "blob_sha": "baadf00d3fa62b1f043651c012144cb0d2ac642e",
-      "bytes": 53209,
-      "sha256": "e3d8fd2da1a9fbfacf1fdfd5f15c92aaa68e5d961358875de72b9814a00c4d30"
+      "blob_sha": "6e11568ac29f261ffe0facedc111074daeda704f",
+      "bytes": 54622,
+      "sha256": "945263dccd2433720e628bfffdaf7bba652adf058f0aff689e2341bcbafd7033"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PublicProgressInstructionsTest.kt": {
       "blob_sha": "78c2064577fb07a2701fcece27ba3c2d57d47ecf",
       "bytes": 4062,
       "sha256": "9387b8bc2bc086a6243be317756a09c55e8c087c87dec743d80925208055de1c"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResearchReaderHealthTest.kt": {
+      "blob_sha": "133280b2df11a5600bddd907726e48066453a7a3",
+      "bytes": 3369,
+      "sha256": "7daed5144c7f2acfb3a5cbab88728a6bca2ec92923e4d3c1ce2b8a3bff310e3c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalizationTest.kt": {
       "blob_sha": "b3ec4a444b32ecaaf1555883a2ca5ac80b83ae93",
@@ -3153,6 +4179,36 @@
       "bytes": 3661,
       "sha256": "a770b149a3bcb4b9373329413eb86b4ad362292255ac53360d8fc20abad56ac0"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AirbnbNativeToolTest.kt": {
+      "blob_sha": "941c507e48fca18e9fd86e2471b13f1da69cd4f8",
+      "bytes": 12020,
+      "sha256": "ddf50a8693181238b44a2ac071b7d7def246378782ea0edfd282b820a84163fc"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AmazonNativeToolTest.kt": {
+      "blob_sha": "6c2171c7d5c2a4ffe4be10548ac2de6066807995",
+      "bytes": 13422,
+      "sha256": "8161452536b3788864d4dccea529b8931584077772f73b49ee218b8073de54e9"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CalculatorToolTest.kt": {
+      "blob_sha": "a7ccd900bb871a63e72928af896d1b909a0860e9",
+      "bytes": 5059,
+      "sha256": "0653867ba608352d5560f0e8e26fbcac77826347c8faafb9a33461b8329a4e26"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CurrentDateToolTest.kt": {
+      "blob_sha": "744265e551211795ad56e93abefd021f9af7de31",
+      "bytes": 2197,
+      "sha256": "48d92cc68a4dd3e7651426ef3a1c50e5c8a4178a5a081205621f7eb48966109d"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeepResearchAcquisitionTest.kt": {
+      "blob_sha": "5b517639c50d4380dd7490e7080c896cbc6b1c42",
+      "bytes": 8812,
+      "sha256": "03d9f7e7809152e4a79150ad13f046af9f551bfa128f0e656d9951d6197d8856"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationToolTest.kt": {
+      "blob_sha": "0015a57d9ec5b7fa3405d05ef9db3f37d08f231d",
+      "bytes": 5111,
+      "sha256": "9e36c331e975082abd9adae4090dedfd3610e2aeb4a573642736c3f9185bb79e"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringPublicationTest.kt": {
       "blob_sha": "fbd46da9ba7e32328564c4be9aa28198b61a08d4",
       "bytes": 2316,
@@ -3168,6 +4224,36 @@
       "bytes": 75818,
       "sha256": "cb7b8fcbd29a41c61d3afb71edafeb2b08a05bba66513cdf6ad6a2d8ae761b26"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/HealthConnectToolTest.kt": {
+      "blob_sha": "1530c34edc6f3f13cc215d6cd1c94b7968e4b22a",
+      "bytes": 5532,
+      "sha256": "d8ce65c7c124ad01415bb147a88672b8237a8f45333ecf18978dc044269462bb"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapperTest.kt": {
+      "blob_sha": "b4fd4be445d7bb1d269ba8afd6ca93bc89bb18fe",
+      "bytes": 8586,
+      "sha256": "f82b922c1e639dfeb4f67e3d4147f3dbcdb8ee170b0426b41c49b3412dec127d"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModelDelegationToolTest.kt": {
+      "blob_sha": "5ef7b4750770f3049339efe1a702cb88a7808495",
+      "bytes": 19959,
+      "sha256": "51e3f58e702450a99c46dd7c0e987f746b1f5222104ea92d3bf0b78f5293eca2"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/NewsToolTest.kt": {
+      "blob_sha": "f8a2c81fc3b548705df2817ee3e25edb1f88f97c",
+      "bytes": 14775,
+      "sha256": "1e01a6cf4cae9f20ad67a1930b8461b4d1cd33011acffd5a905a82ea4ba21981"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadFileSliceToolTest.kt": {
+      "blob_sha": "70dff9ee04a5f8536b376cae43d3be452937bebc",
+      "bytes": 4223,
+      "sha256": "66de34418da6e78c9cc6e880bab13de233a733575d9e4733dbaef31b3a43eaa8"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlDocumentContinuationTest.kt": {
+      "blob_sha": "847a3648a159326b8b953d531985399dbd1d38ce",
+      "bytes": 10655,
+      "sha256": "c3a9b87b9580247fe03659b353b6041231e3aabaaf5fd5058487a21c563c95a2"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphLocalFailureTest.kt": {
       "blob_sha": "a658e959489cac279aa29a47987948c718bf0dae",
       "bytes": 5364,
@@ -3182,6 +4268,21 @@
       "blob_sha": "d024f01aeef62ede9ea23b951ba60635e847d087",
       "bytes": 3783,
       "sha256": "23f8bafeafe623d94f815e6cb355685346147f278ecf53b2f9f363895cfc2fbb"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UnifiedMemoryToolTest.kt": {
+      "blob_sha": "faa003b0181c9cb80ba80eb36d785c5dca73d462",
+      "bytes": 4771,
+      "sha256": "47405b3b22a58fe0a8d11fbf39c21d9e71fc9c67f0f84aa667f9d79de3bac6a7"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/assist/LocalAssistToolBinderTest.kt": {
+      "blob_sha": "f8ad02ea44a9761ea90d4e7cc856488e8aa650be",
+      "bytes": 3025,
+      "sha256": "260fceca79a8cd071d2513cfb392cdb5afbdc30fa89b4098b6121b4b5d1eaf1d"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupSelectionTest.kt": {
+      "blob_sha": "cd557543702864d226fdfb1f6bcc121284dfd4b8",
+      "bytes": 4104,
+      "sha256": "81cff6e275db32021e55a1dd14f70c8629dedc705eee31091d3de27772ee76f8"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/PrivacyAuthorityBackupTest.kt": {
       "blob_sha": "985b5d1a8355e36b715a41e9eeb32e1b75992523",
@@ -3224,9 +4325,9 @@
       "sha256": "f64aa24f6dd04cafe65dc7dff5a50340e6f1d6590c22dad9b6f9cbcf7853dcc8"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlanTest.kt": {
-      "blob_sha": "fd2334d07a641112b779f8f55949f54102ad402f",
+      "blob_sha": "7f837214da99d0a80b6d1edb4a96769a2eefcffd",
       "bytes": 8991,
-      "sha256": "ac137d44645c65ca026c2737934c64c4ae9aaa5b71dfb86b4c0a48d858f5d44e"
+      "sha256": "e797ded803b2aa51fd21d18aa3fe2a3130869c8df8df894f0ed063ca6bbd3888"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubIntelligenceScoreTest.kt": {
       "blob_sha": "6520860d6b16476c1ce2de2a0698b9860a76ab44",
@@ -3279,9 +4380,9 @@
       "sha256": "0fa29dac18b467ed2f0694882923c6acdb0bc4123069a1cedb298777c87dc7f2"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt": {
-      "blob_sha": "8895479fee0531879ef6cc01b30a6d7ff7c20968",
-      "bytes": 57980,
-      "sha256": "b5fe2390957282670adbfae6da6661946cb5253865432919d663d2221b376125"
+      "blob_sha": "edddb7548414a12cab2265dc20687c3d60d74e50",
+      "bytes": 58188,
+      "sha256": "79ad46fb119cae852862ab82c43f06c973b1609ff77eec4634d403b95f779339"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportPrecheckTest.kt": {
       "blob_sha": "a25cf912ea26f673f038b0eec3462e1bd1b59680",
@@ -3479,14 +4580,14 @@
       "sha256": "dae607325a1685258c53872e9bf12e13d2cb60772d3025921b9b187990c5fca1"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextBundleTest.kt": {
-      "blob_sha": "b9b0851866f066dbef6acf2cae2d5be8002ac820",
-      "bytes": 18267,
-      "sha256": "d7b2a3883eb8737390415806f01764aaf1818974edbd04348c3b1ddf9c5fcabf"
+      "blob_sha": "7cf0e69c22d02a4509e8ca5a011d9f031bcd8c0f",
+      "bytes": 19067,
+      "sha256": "28794dfa5ddf973cac43996ea6a55ff80f036d920f16a78608aa2c29a36e349e"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextPreparationTest.kt": {
-      "blob_sha": "d7cefa4d389e10f2effdfb8564b11cba7bf66e24",
-      "bytes": 9173,
-      "sha256": "6687a5cc7d8133c42b929c51d9ec7e2419cee4203114dc8ebec841f3bad0e11a"
+      "blob_sha": "6077335c4f6c9f244c7e9ee783bb767012ef0c04",
+      "bytes": 10701,
+      "sha256": "6131b33fa9ced1975802b5978f2237b1a41c1279e5dd471fe1f588b110e668d5"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt": {
       "blob_sha": "c85b15f98be69c7a16ed16954f2dc1140a6032ee",
@@ -3532,6 +4633,11 @@
       "blob_sha": "a45d4fd0d4de525130be9d4b9bf0e40a505b8e28",
       "bytes": 5150,
       "sha256": "230fe730655ae6aa751d16cd6c518e28cfec1fae14de4c62d9aedfd7a5badd11"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/NativeMarketplaceTest.kt": {
+      "blob_sha": "98f99f5c3aa06c020f6b05b3b88a2f0ebb0a07eb",
+      "bytes": 27508,
+      "sha256": "3d954fce452c16719c15bdfeab4c6fc07c6fdae7124e07ed5b5854d4da2c18af"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/memory/BenchmarkSemanticContextOwnerTest.kt": {
       "blob_sha": "e780fc375d385e79aba1892af59703fd1c0f2b10",
@@ -3672,6 +4778,11 @@
       "blob_sha": "0df6688551e6039770b8873322eaa6b0800396ef",
       "bytes": 2990,
       "sha256": "ddc20b9c700b9311c4fc7bf7259e7c5cde5a478577b407e88b2ffed9a7aae9fa"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceAdmissionRegressionTest.kt": {
+      "blob_sha": "82aaaa43cda25ecf733f5b8bca9166e27adefc01",
+      "bytes": 10011,
+      "sha256": "0058fde025a90201c77cf95efa1d8537284d1a027a2b9ea8d8da1fcc9d92ec29"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparationTest.kt": {
       "blob_sha": "9be3406bf04b68c7c08d540233bd9d81aa2d1e13",
@@ -4013,6 +5124,11 @@
       "bytes": 15025,
       "sha256": "07185a45cd6d008fb9c4e4c430fd7a80365c2023cd86ee49d38a123aa5474204"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/RecipeScheduleAdmissionTest.kt": {
+      "blob_sha": "eb631b7c7c3e28ed54c05bb6fbbabe0fa1c5214a",
+      "bytes": 682,
+      "sha256": "80179c5ec32d0dac326665d18e0db1856a408bd9c60c766bbac558b4f25438f0"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocumentTransitionTest.kt": {
       "blob_sha": "139df1b310aa79ed2b6e0d74d70f136372134eca",
       "bytes": 3442,
@@ -4062,6 +5178,11 @@
       "blob_sha": "703e24123b51dfb8dee3d54b60407e1612d41637",
       "bytes": 42425,
       "sha256": "ec189a13a453c7e05bb7c756a065690b54572355020e46476218127f155c8e1b"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SharedMultiChatCreationTest.kt": {
+      "blob_sha": "81fb43bf6cb686d1f7f35c9fa49200c85c8f6668",
+      "bytes": 42764,
+      "sha256": "793bef901c7f0b4ac1c2f709e79ab431ab44e1f606357175644901020600c7d5"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkContextEvidenceTest.kt": {
       "blob_sha": "c84246e18e2cfd5902fef65f5490e311ec6c047a",
@@ -4139,9 +5260,9 @@
       "sha256": "9fff298a93e24d51d77540fe16eb2251fe9efb0da29382bba42d0ac26a9065ba"
     },
     "authentication/incident_report_contract.py": {
-      "blob_sha": "a98f09c0079bdd7156ca7cdc26d6c550794b8dcf",
-      "bytes": 53881,
-      "sha256": "917a189df090dd51cfc8d0038327fdfb4463de0e9760b917867eb8031eec9c86"
+      "blob_sha": "4d5622f97c212a7340f2194e5b9c2e7f31e2b947",
+      "bytes": 54031,
+      "sha256": "10ec9c86ed7aa0f77b9e68e4ce26a38b9cfd8a73bfa3face89c219e523251712"
     },
     "authentication/issue_report_app.py": {
       "blob_sha": "b798cd0b5cdf0c12c0d36e558ef0c34333193c0e",
@@ -4179,9 +5300,9 @@
       "sha256": "a9fca5be129d805197175d5091cfb6dec7cd0f3f4c21322a830fda475632026c"
     },
     "authentication/test_incident_report_contract.py": {
-      "blob_sha": "e96d80f8081e4b4e95eb9c97a3c07e8d91c2f92c",
-      "bytes": 190239,
-      "sha256": "2cb0399a48a0733a24d0017b53412f30f72213fa9e38c4d5cb140d51ec13604c"
+      "blob_sha": "e12dcec4cfdba84ded3211046d70036fbdfb1ec3",
+      "bytes": 190311,
+      "sha256": "e97a57f9a573d5d2365b219c49003b295d800d5c5c095105467ca6ba95d77d16"
     },
     "authentication/test_privacy_final_request_evidence.py": {
       "blob_sha": "9198f389de32c29163ab5da7178170f8789c7b13",
@@ -4189,9 +5310,9 @@
       "sha256": "378e7fa6a41a056e37fa8a6cb802c669093db796a01c24c03dd64a5567a0d1c6"
     },
     "docs/architecture/repository-guide.md": {
-      "blob_sha": "25263fe3fd62ea7b0e10ea485c1facfe79884a2a",
-      "bytes": 12924,
-      "sha256": "72fce7f75f85a42559cf38f45cc7edada429fc8b8c60bd6487577c62f768fe81"
+      "blob_sha": "f035cdb2dd7459b2e47e9dffe6e7dba4fb00682d",
+      "bytes": 14090,
+      "sha256": "ccc1b2e4b3f1807f9088a602f10c0129d1a1ff58c8e3ee39e3eaa02d97fe9ada"
     },
     "docs/architecture/voice-streaming.md": {
       "blob_sha": "35ef763e5de710c412bb4bfe55cc40197c3d38a7",
@@ -4634,9 +5755,9 @@
       "sha256": "949dbd4debdafebff4339588cd9cb5b00a4ae1a9fc75c11a42b4e9820e5d2e10"
     },
     "gateway/benchmarks/README.md": {
-      "blob_sha": "d5a27955864f90f4ae472f872a7645b1c4942cac",
-      "bytes": 18040,
-      "sha256": "33c0a9f0ae8226a42ee7ca1884ee36c900a5a086a995ab77d3cd9196d4fefa90"
+      "blob_sha": "007b00818d5b5d8121be0168ccf8e95124b942df",
+      "bytes": 25200,
+      "sha256": "ffb48c67d24df151c8a5709c3637b4a82bf9f19d7b2dcaa258623faff8368590"
     },
     "gateway/benchmarks/context_experiment.py": {
       "blob_sha": "043780d7cffe31a2ca9ef7914f6a240a4d8930e9",
@@ -4654,14 +5775,14 @@
       "sha256": "4e92285c2fde29c889c889d4cd4dcf5cadee223fe8c5bc28709fe176b787bfa3"
     },
     "gateway/benchmarks/engineering_qualification.py": {
-      "blob_sha": "d8c080c8640a96bbb4167a1fdff9bd211e2f1a61",
-      "bytes": 22800,
-      "sha256": "d9180c89dddeecf839b4beb829d9659992ec3b8dd0cfb08e13c763aefe4970b3"
+      "blob_sha": "4af09335cb7d9a118f5d3e333ab812d81ff3b982",
+      "bytes": 23133,
+      "sha256": "a2f3de6c40a93fa257419678808f1195d513dbb66d2ae2519e3024a867be7f5c"
     },
     "gateway/benchmarks/github_intelligence.py": {
-      "blob_sha": "c53cad13f2963c1a5d12d0974cd0162f777731e0",
-      "bytes": 13100,
-      "sha256": "d9366ee8c1958f85e983fb8e48c98776910265380b9c1822502f6394012142cf"
+      "blob_sha": "65ba68b16738a93e35d82cc7224b8eefa7fe5974",
+      "bytes": 14774,
+      "sha256": "d0f224a6588e614d4b3c6635de4da3f50851e7d3a1669ba84b3bc6ef80432ee6"
     },
     "gateway/benchmarks/github_intelligence_targets.py": {
       "blob_sha": "f90db5faa20baa3cb05603e0aab1efc834800541",
@@ -4674,9 +5795,9 @@
       "sha256": "28555df33cfa08ca1043c356c4868613a5f1fd3967a80d77de7aba579f324875"
     },
     "gateway/desktop/conversation_client.py": {
-      "blob_sha": "1a5ca4958037f320281c3865153b67390dece2e2",
-      "bytes": 27760,
-      "sha256": "7070cc0246bd692aa3611b3795b93a324134afc8178203e8493b0ebd6fbcaecc"
+      "blob_sha": "e7b25d9deed2d533660f567beb350616bb147005",
+      "bytes": 28157,
+      "sha256": "9664c7533f1e6c69ba72e6a25116186b4b57352100c769e00d333f5c15bce249"
     },
     "gateway/desktop/dashboard.py": {
       "blob_sha": "789fdbb19fc66837fb7b9d423fac8d000fc6c050",
@@ -4689,9 +5810,9 @@
       "sha256": "f03fa8b47a420e25fb37ef087bcf5533be7451ff64c94666e4e5a61007deeda4"
     },
     "gateway/grade_external_reference.py": {
-      "blob_sha": "7b1c335cf85e9e05cd178a24c94d6e60c990dac5",
-      "bytes": 9148,
-      "sha256": "32b9e43beef45897a2184b79106dc7ffc45967f4b4791a969c3800f4e6cf9c9e"
+      "blob_sha": "1301c3f367ca87fc08243008adcc6732d37bf057",
+      "bytes": 9399,
+      "sha256": "dc1a30eaef22669ddf6d109fdc72864445c3c5dcfea3a675c03ddfe26ce77e0a"
     },
     "gateway/qualify_engineering.py": {
       "blob_sha": "b6e30ccc604fe3f25267cf389c060a2d9724453d",
@@ -4734,14 +5855,14 @@
       "sha256": "5106b35e83396f89070606030705a336c7cde699d6d84b6df6c805bf3fd13fa3"
     },
     "gateway/tests/test_gateway_external_reference_cli.py": {
-      "blob_sha": "2872a74981b02a66deadb7ed2b4b167db5c8c804",
-      "bytes": 6711,
-      "sha256": "b405d1b773a168a33bea7cfb91e86f31b37952a650abd1040461e3ca72be07be"
+      "blob_sha": "c3d1f0111b10ea84b089e728c029e3caad72233a",
+      "bytes": 10353,
+      "sha256": "de69f06493660fd6819917d5f209731bd2ac5f1d8049680439d5b00a766fd0ee"
     },
     "gateway/tests/test_gateway_github_intelligence.py": {
-      "blob_sha": "fd4c559c492eb574a7de13b7f20a42025e8873fa",
-      "bytes": 17454,
-      "sha256": "a3de961a9bd74253e8cf4e7af3a20aea198312bcd0ec49c583ba2c355f879a92"
+      "blob_sha": "4addbfae86ee07b0336944c8d3c97c522e16fce8",
+      "bytes": 18838,
+      "sha256": "6fa3655273b6662cd1b4be0a43550d396bb31c81e9ad4cfbc6513a4fbec2c486"
     },
     "gateway/tests/test_gateway_github_intelligence_targets.py": {
       "blob_sha": "cdb27931fd0c413de142a2bd3d5eec9a95ff63a4",
@@ -4759,9 +5880,9 @@
       "sha256": "fd1c6dae8a6c73432af1f0cbc900115e5557a5e648ec32b40becd8c22bd28390"
     },
     "gateway/tests/test_gateway_task_context.py": {
-      "blob_sha": "8f89f11d4c286ab5fdc2d06efc6d534dbdd83568",
-      "bytes": 23195,
-      "sha256": "8d8c70f554e3d829a069dc866cb664ab9f6f39385254be306bb7c349ba77093f"
+      "blob_sha": "0f4689f3b6c878446f0db26950c3cf2c76c723a3",
+      "bytes": 24307,
+      "sha256": "4a63afef720cb8de9491c99455020dbdcf371b1fb9d1937d3d185cb499a6584a"
     },
     "gateway/tests/test_gateway_v14_code_graph.py": {
       "blob_sha": "f71ec2740e6400a537c78a1689eb644c24f73b96",
@@ -4789,9 +5910,9 @@
       "sha256": "875097c608b01db1f4009c3d4946905660b5ee10c8eaadb4df555f4a3056ee9f"
     },
     "gateway/v14/engineering_backend.py": {
-      "blob_sha": "249e30c9189290b6d69d834dddf4ebc1c0be09d2",
-      "bytes": 87562,
-      "sha256": "98725353a985afa5cf26b10a6839de12ce66296f1b33af4331b677e968c96fde"
+      "blob_sha": "9fadbba066f2c6ceda3d6ea6c4f14527bb182188",
+      "bytes": 88636,
+      "sha256": "23766a504b4a17156dc06bb1a0552f76d301fa5216a05db0f9ba2726b0fc5f7c"
     },
     "gateway/v14/engineering_source.py": {
       "blob_sha": "fe637ba2722c0100eac883f617223c22ceac6d84",
@@ -4814,9 +5935,9 @@
       "sha256": "29e0209aeb37b03f18ed18e546aee1e04ae11c04a2926cbc03c6315cfc2f21e9"
     },
     "gateway/v14/task_context.py": {
-      "blob_sha": "b1f923853db0bee12a448906722cbfc303dfe78d",
-      "bytes": 25121,
-      "sha256": "6c0728990b0d789960c9b9a2ed4633fda80bba2f73d72de388762883d8c4f87a"
+      "blob_sha": "871fe50c0bb80cfb10bc8826556dc1053709e0af",
+      "bytes": 25780,
+      "sha256": "13f6049e2a4f28c017713c7633a968e840f8cd10166d40464659d0607857dee0"
     },
     "gateway/v14/voice.py": {
       "blob_sha": "e5b58b0463d0e65ab780f6d1b68e4c070854c2d0",

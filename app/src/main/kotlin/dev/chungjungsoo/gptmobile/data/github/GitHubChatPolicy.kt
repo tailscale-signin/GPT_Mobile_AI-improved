@@ -35,8 +35,18 @@ data class GitHubChatProfileOverride(
     val recoveryConsultConsent: String? = null,
     val engineeringTeamConsent: String? = null,
     val recoveryExecutionConsent: String? = null,
-    val primaryPatchReviewConsent: String? = null
+    val primaryPatchReviewConsent: String? = null,
+    val nextActionPolicy: GitHubNextActionMode = GitHubNextActionMode.ACTIVE,
+    val evidenceElaboration: Boolean = true
 )
+
+/** Rollout controls only the selection of a next action within an admitted GitHub request. */
+@Serializable
+enum class GitHubNextActionMode(val title: String, val description: String) {
+    LEGACY("Original selection", "Use the original requirement order."),
+    SHADOW("Compare decisions", "Record the proposed next action while the original selection runs."),
+    ACTIVE("Evidence-guided selection", "Choose the next permitted action from the evidence each open requirement needs.")
+}
 
 /** Selects the task controller. GitHub executes accepted cloud work in either mode. */
 @Serializable

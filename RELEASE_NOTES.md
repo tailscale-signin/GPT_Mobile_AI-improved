@@ -4,6 +4,17 @@ Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains 
 
 Application native-library stripping uses the same pinned NDK as the native modules. Release packaging drops the unused MediaPipe proofreading and summarization binary, retains the private-memory embedder and speech JNI libraries, and losslessly compresses distribution APKs before signing. The packager checks the SHA-256 of every entry and verifies Android alignment. The universal APK has a 250 MiB limit and each single-ABI APK has a 180 MiB limit.
 
+## Evidence-guided engineering and progress
+
+- Choose the next GitHub action from unmet requirements, their dependencies, scoped evidence and retry budgets. Each Android GitHub profile can use the original policy, record a shadow choice, or enable evidence-guided selection independently of progress elaboration.
+- Use a bounded, authorized source range on small context windows when it is available. Keep cloud recall, private chat state and the reusable repository graph within their existing access boundaries.
+- Connect 44 reviewed feature routes to their normal entry points, proof requirements and positive and negative fixtures. Use the local route catalog to rank eligible tools and verify revision-bound source guidance before presenting it.
+- Present GitHub findings from scoped evidence on Android and Gateway desktop. Coalesce repeats, correct superseded CI findings, and keep bare source reads in the activity preview.
+- Reuse matching observed behavior-check receipts when selecting Gateway work packages. A changed candidate invalidates earlier patch evidence, and a saved conversation retains its original selection policy.
+- Grade displayed CI conclusions against their exact source revision and expose multiple eligible tools in Android engineering workflow benchmarks. Add reproducible native-product comparisons and blinded progress-renderer studies with separate evidence and preference results.
+
+Native-product and reader-preference comparisons require independently collected observations. This release supplies the evaluation workflows and makes no measured claim of superiority over Codex or Claude Code.
+
 ## GitHub engineering intelligence
 
 - Fixed sampling profiles can interpret indirect and mixed requests using conversation history. An invalid advisory proposal falls back to the original request.

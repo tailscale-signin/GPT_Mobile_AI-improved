@@ -1486,7 +1486,7 @@ class AgentRunner(
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.completeTool(call: ProviderEvent.ToolCall, result: AgentToolResult, invalidatedAuthority: AtomicReference<AgentToolResult?>): AgentToolResult {
         checkpoint?.complete(call, result)
-        healthCatalog?.recordObservation(call.name, result)
+        healthCatalog?.recordObservation(call.name, result, arguments = call.arguments)
         val observed = try {
             onToolResult?.invoke(call, result)
             onToolResultCommitted?.invoke(call, result)

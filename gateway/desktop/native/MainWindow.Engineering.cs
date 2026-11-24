@@ -12,12 +12,13 @@ public partial class MainWindow
         int viewEpoch=epoch;
         var form=Ui.Column(Ui.Text(args.Text("model")+" · "+args.Text("prompt"),15));
         var values=new JsonObject{["objective"]=args.Text("prompt")};
-        var fields=new Dictionary<string,TextBox>();ComboBox? provider=null;ComboBox? contextVariant=null;
+        var fields=new Dictionary<string,TextBox>();ComboBox? provider=null;ComboBox? contextVariant=null;ComboBox? nextActionPolicy=null;
         if(original==null){
             args.Remove("conversation_id");
             foreach(var (key,label,value) in new[]{("repository","Repository",""),("source_branch","Source branch","main"),("source_sha","Exact source commit",""),("branch","Working branch",""),("base","Target branch","main"),
                 ("pr","Adopt existing PR number (optional)",""),("adopt_base","Reviewed PR base SHA","")})fields[key]=Ui.Field(form,label,value);
             provider=Ui.Select(form,"Local model provider",new[]{"LLAMA","OLLAMA"});
+            nextActionPolicy=Ui.Select(form,"Next action selection",new[]{"Evidence-guided selection","Compare decisions","Original selection"});
             contextVariant=Ui.Select(form,"Repository context",new[]{"Task context (recommended)","Current context baseline","Repository reference","Task context with local similarity"});
             form.Children.Add(Ui.Text("Task context selects source ranges, repository guidance and test candidates. Local similarity adds semantic ranking within the selected source and permissions.",12,"MutedBrush"));
         }
@@ -25,6 +26,7 @@ public partial class MainWindow
         var procedure=Ui.Field(form,"Procedure (optional)");
         if(!EditDialog("Prepare engineering task",form,"Check prerequisites")||epoch!=viewEpoch)return;
         values["provider"]=provider?.SelectedItem?.ToString();values["task_scope"]=scope.SelectedItem?.ToString();
+        if(nextActionPolicy!=null)values["next_action_policy"]=new[]{"ACTIVE","SHADOW","LEGACY"}[Math.Max(0,nextActionPolicy.SelectedIndex)];
         if(contextVariant!=null)values["context_variant"]=new[]{"TASK","CURRENT","REFERENCE","SEMANTIC"}[Math.Max(0,contextVariant.SelectedIndex)];
         if(procedure.Text.Trim().Length>0)values["objective"]="/"+procedure.Text.Trim().TrimStart('/')+" "+args.Text("prompt");
         foreach(var (key,box) in fields)if(key is not ("pr" or "adopt_base"))values[key]=box.Text.Trim();

@@ -48,6 +48,22 @@ class TaskContextTests(unittest.TestCase):
         kwargs.update(changes)
         return build_bundle(**kwargs)
 
+    def test_feature_entry_and_expected_proof_require_current_bound_source(self):
+        self.feature['file_blobs'] = {p: {'blob_sha': self.tree[p]['sha']} for p in self.sources}
+        row = self.feature['features'][0]
+        row['routing'] = dict(role='evidence', entry='src/profile.py', proof='Profile identity',
+                              admission='Current selection', decline='Unbound profile')
+        def evaluate():
+            self.sources[FEATURE_MAP] = json.dumps(self.feature)
+            self.tree[FEATURE_MAP]['sha'] = blob_sha(self.sources[FEATURE_MAP])
+            return self.build(paths=[], query='conversation masking')
+        bundle = evaluate()
+        self.assertEqual('src/profile.py', bundle['features'][0]['routing']['entry'])
+        self.assertFalse(bundle['features'][0]['routing']['execution_authority'])
+        self.assertTrue(any(r['path'] == 'src/profile.py' and r['reason'] == 'feature_entry' for r in bundle['selected_ranges']))
+        self.feature['file_blobs']['src/profile.py']['blob_sha'] = 'b' * 40
+        self.assertNotIn('routing', evaluate()['features'][0])
+
     def test_task_finds_deep_exact_range_reference_section_and_test(self):
         result = self.build()
         code = [row for row in result['selected_ranges'] if row['path'] == 'src/privacy.py']

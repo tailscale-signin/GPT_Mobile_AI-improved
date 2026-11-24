@@ -58,9 +58,25 @@ class ActivityTests(unittest.TestCase):
             load_mcp_config=lambda: {'github': {'url': 'local'}},
         )
         inventory = capability_inventory(runtime, tracker, now=lambda: 101.0)
+        self.assertEqual('external-connections', inventory['tools'][0]['featureId'])
+        self.assertIsNone(inventory['tools'][0]['executableNow'])
         self.assertEqual('COMPLETE', inventory['status'])
         self.assertEqual('COMPLETE', inventory['sources'][0]['discoveryState'])
         self.assertEqual(99.0, inventory['sources'][0]['lastVerifiedAt'])
+
+    def test_revoked_source_cannot_supply_a_stale_discovered_route(self):
+        runtime = SimpleNamespace(
+            get_all_mcp_tools=lambda: [{'function': {'name': 'old_read', 'parameters': {}}}],
+            mcp_tool_metadata={'old_read': {'server': 'old', 'tool': 'read'}},
+            gateway_catalogue=SimpleNamespace(key=lambda name, cfg: name, health={'old': {'authorized': False}}),
+            load_mcp_config=lambda: {'old': {}},
+        )
+        inventory = capability_inventory(runtime, ActivityTracker())
+        self.assertEqual([], inventory['tools'])
+        self.assertEqual(0, inventory['authorizedCount'])
+        self.assertEqual('BLOCKED', inventory['sources'][0]['discoveryState'])
+        runtime.load_mcp_config = lambda: {}
+        self.assertEqual([], capability_inventory(runtime, ActivityTracker())['tools'])
 
     def test_streaming_passthrough_tracks_socket_not_forwarded_identity(self):
         tracker = ActivityTracker(now=lambda: 100)

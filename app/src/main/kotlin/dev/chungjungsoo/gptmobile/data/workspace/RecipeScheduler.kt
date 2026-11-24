@@ -45,6 +45,10 @@ class RecipeScheduler @Inject constructor(@ApplicationContext private val contex
     }
 }
 
+internal fun TaskRecipe.isDue(now: Long): Boolean = scheduled &&
+    now >= lastQueuedAt &&
+    now - lastQueuedAt >= intervalHours.coerceIn(1, 168) * 3_600_000L
+
 @HiltWorker
 class RecipeWorker @AssistedInject constructor(
     @Assisted context: Context,
@@ -73,7 +77,7 @@ class RecipeWorker @AssistedInject constructor(
                 val currentEntry = workspace.dao.get(id) ?: return@withTransaction
                 if (currentEntry.payload != entry.payload || currentEntry.chatId != entry.chatId) return@withTransaction
                 val latest = workspace.json.decodeFromString<TaskRecipe>(currentEntry.payload)
-                if (!latest.scheduled || now - latest.lastQueuedAt < latest.intervalHours * 3_600_000L) return@withTransaction
+                if (!latest.isDue(now)) return@withTransaction
                 if (workspace.database.pendingPromptDao().firstPending(chatId) != null || workspace.database.pendingPromptDao().activeRunCount(chatId) > 0) {
                     deferred(currentEntry, "Destination has queued or running work.")
                     return@withTransaction

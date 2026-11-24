@@ -803,7 +803,22 @@ class GitHubEngineeringBackend:
             return result
         if phase == 'IMPLEMENT':
             from v14.engineering_workspace import act, view
-            proposal = self.model(job, 'coding agent', view(data))
+            from v14.workspace_task_plan import next_work
+            mode = job['request'].get('next_action_policy', 'LEGACY')
+            decision = next_work(job) if mode != 'LEGACY' else None
+            evidence = view(data)
+            if decision and mode == 'ACTIVE':
+                evidence['next_work_package'] = decision
+            if decision and mode == 'ACTIVE' and decision.get('action') == 'task_plan_complete':
+                proposal = {'workspace_action': {key: decision[key] for key in ('action', 'head_sha', 'id', 'receipt_sha256')}}
+            else:
+                proposal = self.model(job, 'coding agent', evidence)
+            if decision:
+                # Store only bounded structural data for rollout comparisons.
+                self.record_evidence(job, {'task_selection': {'mode': mode, 'id': decision['id'], 'reason': decision['reason'],
+                    'head_sha': decision['head_sha'], 'selected_same_package': isinstance(proposal, dict)
+                    and isinstance(proposal.get('workspace_action'), dict)
+                    and proposal['workspace_action'].get('id') == decision['id']}})
             if (not isinstance(proposal, dict) or set(proposal) - {'workspace_action', 'changes', 'candidate_check_id', 'revert_commit', 'summary'}
                     or sum(key in proposal for key in ('workspace_action', 'changes', 'candidate_check_id', 'revert_commit')) != 1):
                 raise ValueError('Select exactly one complete coding operation')

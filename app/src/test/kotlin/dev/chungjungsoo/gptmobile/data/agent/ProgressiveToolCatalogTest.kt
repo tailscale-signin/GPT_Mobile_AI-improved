@@ -24,6 +24,23 @@ import org.junit.Test
 
 class ProgressiveToolCatalogTest {
 
+    @Test fun attachmentOnlyRequestPrioritizesItsReaderAndKeepsDeclinedWebOutOfDiscovery() = runTest {
+        val schema = buildJsonObject { put("type", "object") }
+        val local = AgentToolDefinition("read_file_slice", "Read", schema)
+        val web = AgentToolDefinition("web_search", "Search", schema, setOf(AgentToolCapability.WEB_SEARCH))
+        val url = AgentToolDefinition("read_url", "Read", schema, setOf(AgentToolCapability.PAGE_READER))
+        val external = AgentToolDefinition("another_reader__connection", "Search", schema, setOf(AgentToolCapability.PAGE_READER))
+        val definitions = listOf(web, url, external, local)
+        val task = "Search for the warranty using only the attached file."
+        val catalog = ProgressiveToolCatalog(definitions, task)
+        assertEquals(listOf(local.name), catalog.selected(definitions).map { it.name })
+        val data = (catalog.execute("discover", buildJsonObject { put("query", "search the web or attached file") }).content as ToolResultContent.Json).value.jsonObject
+        val row = data.getValue("available_next_round").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("document-attachments"), row["feature_id"])
+        assertTrue(row.getValue("expected_evidence").jsonPrimitive.content.contains("range"))
+        assertTrue(ProgressiveToolCatalog(listOf(web, url), task).selected(listOf(web, url)).isEmpty())
+    }
+
     @Test fun structuredRepositoryHintsSelectReadsWithoutEnglishAndNeverAcquireOtherConnections() = runTest {
         var acquisitions = 0
         val names = listOf("github_context", "github_read", "github_search", "github_write", "github_commit", "repository_graph", "personal_health")

@@ -2604,7 +2604,7 @@ class IncidentReportContractTest(unittest.TestCase):
                     issue_from_report(self.report(rejected))
 
     def test_intelligence_policy_names_preserve_approved_bytes_and_reject_unknown_lookalikes(self):
-        names = ("intelligenceLevel", "recoveryConsultConsent", "engineeringTeamConsent", "recoveryExecutionConsent")
+        names = ("intelligenceLevel", "nextActionPolicy", "evidenceElaboration", "recoveryConsultConsent", "engineeringTeamConsent", "recoveryExecutionConsent", "primaryPatchReviewConsent")
         for name in names:
             field = "githubProfileOverride." + name
             with self.subTest(field=field):
@@ -2650,12 +2650,12 @@ class IncidentReportContractTest(unittest.TestCase):
         reported_keys = re.search(r"return\s+listOf\(([^)]*)\)", override_helper)
         self.assertIsNotNone(reported_keys)
         override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', reported_keys.group(1))}
-        self.assertEqual(16, len(override_keys))
+        self.assertEqual(19, len(override_keys))
         behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
         behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
         self.assertEqual(9, len(behavior_keys))
         self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
-        self.assertEqual(81, len(capsule.POLICY_FIELD_NAMES))
+        self.assertEqual(84, len(capsule.POLICY_FIELD_NAMES))
 
     def test_replay_capacity_reason_and_estimates_are_bounded_incident_fields(self):
         code = "REPLAY_EVIDENCE_REQUIRED"

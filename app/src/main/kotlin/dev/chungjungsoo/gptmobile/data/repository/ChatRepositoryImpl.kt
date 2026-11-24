@@ -2329,7 +2329,29 @@ class ChatRepositoryImpl(
             val verificationOnlyRequested = taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RESUME_VERIFICATION
             val followUps = if (verificationOnlyRequested) null else followUpInbox(this, platform, effectiveUserMessages.lastOrNull(), runId, chatToolConfig, effectiveUserMessages)
             val activity = AtomicReference("Preparing response")
-            val githubProgress = chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty()) }
+            val githubProgress = chatToolConfig?.github?.let { github ->
+                val elaboration = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid]?.evidenceElaboration != false
+                dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress(
+                    taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty(),
+                    context = github.takeIf { elaboration },
+                    scopeId = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(
+                        kotlinx.serialization.json.JsonArray(
+                            listOf(
+                                github.connectionUid, github.owner, github.repo, github.ref, platform.uid,
+                                effectiveUserMessages.lastOrNull()?.chatId?.toString().orEmpty(),
+                                (acceptedSourceMessageId ?: effectiveUserMessages.lastOrNull()?.id)?.toString() ?: runId
+                            ).map { kotlinx.serialization.json.JsonPrimitive(it) }
+                        ).toString()
+                    )
+                )
+            }
+            suspend fun sendPublicState(state: ApiState) {
+                if (githubProgress != null && (state is ApiState.ActivitySummary || state is ApiState.ProgressCheckpoint)) {
+                    dispatchAuthority.validate()
+                    if (!githubProgress.currentPublication(state)) return
+                }
+                send(state)
+            }
             val traceSequences = java.util.concurrent.atomic.AtomicInteger()
             var delegatedTools = emptyList<ResolvedAgentTool>()
             suspend fun emitAll(states: Flow<ApiState>) = states.collect { state ->
@@ -2355,12 +2377,12 @@ class ChatRepositoryImpl(
                     }
                     else -> Unit
                 }
-                publicState?.let { send(it) }
+                publicState?.let { sendPublicState(it) }
             }
             val statusJob = launch {
                 if (githubProgress != null) {
                     // Independent of provider streaming and any other model invocation.
-                    githubProgress.updates().collect { send(it) }
+                    githubProgress.updates().collect { sendPublicState(it) }
                     return@launch
                 }
                 var nextTick = (System.nanoTime() / 1_000_000L) + 5000L
@@ -5079,6 +5101,8 @@ class ChatRepositoryImpl(
                 sourceRunId = runId,
                 inferenceProfile = platform,
                 requireAcceptedContract = true,
+                nextActionMode = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.settings(settingRepository.getFeatureSettings(), platform.uid, githubContext)?.nextActionPolicy ?: dev.chungjungsoo.gptmobile.data.github.GitHubNextActionMode.LEGACY,
+                chooseNextAction = catalog?.let { directory -> directory::nextAction },
                 authorizeTaskContinuation = {
                     dispatchAuthority.validate()
                     val run = agentPersistenceDao.rawRecoveryRun(runId)
@@ -5442,7 +5466,7 @@ class ChatRepositoryImpl(
             prepareToolSelection = verifiedEvidence?.let { book ->
                 {
                     val report = book.diagnostic()
-                    catalog?.focusRequirement(report)
+                    catalog?.focusRequirement(report, book.nextActionMode)
                     replayPriority = book.replayCallIds(report)
                 }
             },
@@ -6837,7 +6861,9 @@ class ChatRepositoryImpl(
         if (user == null || repositoryTaskContext == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
         if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user.content) || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user.content).conversational) return ""
         val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
-        val text = repositoryTaskContext.prepare(github, user.chatId, task, preferences.contextVariant, contextTokens, resolvedTools, preferences.engineeringMemory)
+        val prepared = repositoryTaskContext.prepare(github, user.chatId, task, preferences.contextVariant, contextTokens, resolvedTools, preferences.engineeringMemory)
+        AppLogRecorder.recordEvent("GitHub", "REPOSITORY_CONTEXT_PREPARED", mapOf("availability" to prepared.availability.name, "treeReused" to prepared.reusedTree, "packetReused" to prepared.reusedPacket))
+        val text = prepared.text.ifEmpty { return prepared.nextAction }
         if (text.isNotBlank()) {
             val labels = listOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "repository_graph", sourceProfileUid = platform.uid, sourceRef = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(text), categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.PRIVATE_CONTENT), retentionChatId = user.chatId, sourceConnectionUid = github.connectionUid))
             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]?.add(labels)

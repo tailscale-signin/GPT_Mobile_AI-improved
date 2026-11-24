@@ -224,6 +224,8 @@ class Client:
         payload = dict(values, model=model, request_id=command, command_id=command)
         provider = payload.pop('provider')
         if not conversation:
+            if 'next_action_policy' in payload and payload['next_action_policy'] not in ('ACTIVE', 'SHADOW', 'LEGACY'):
+                raise ClientError('Choose a supported next action policy.', not_dispatched=True)
             payload.setdefault('context_variant', 'TASK')
             if payload['context_variant'] not in {'CURRENT', 'REFERENCE', 'TASK', 'SEMANTIC'}:
                 raise ClientError('Choose a supported repository context option.', not_dispatched=True)
@@ -238,6 +240,9 @@ class Client:
                            source_branch=current['branch'], source_sha=current.get('head_sha') or current['source_sha'],
                            profile_id=current['profile_id'], execution_binding_id=current['execution_binding_id'],
                            context_variant=current.get('context_variant', 'TASK'))
+            payload.pop('next_action_policy', None)
+            if current.get('next_action_policy'):
+                payload['next_action_policy'] = current['next_action_policy']
         else:
             if provider not in {'LLAMA', 'OLLAMA'}:
                 raise ClientError('Choose the configured local inference provider.', not_dispatched=True)

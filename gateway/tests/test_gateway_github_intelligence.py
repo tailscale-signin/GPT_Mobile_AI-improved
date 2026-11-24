@@ -10,7 +10,7 @@ from v14.engineering_report import build_report
 
 
 def report(model='model-a', permissions='9' * 64, tool_policy=('SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET'), initial_base='a' * 40,
-           conversation_context=..., conversation_id=None, memory_mode='SESSION_ONLY', user_instructions=...):
+           conversation_context=..., conversation_id=None, memory_mode='SESSION_ONLY', user_instructions=..., mutate_job=None):
     base, head = 'a' * 40, 'b' * 40
     route = dict(model=model, profile_uid=model, profile_revision='1', binding_id=model, endpoint_identity='endpoint',
                  base_sha=base, settings_digest='c' * 64)
@@ -28,7 +28,7 @@ def report(model='model-a', permissions='9' * 64, tool_policy=('SELECTED_ONLY', 
                 'ci': {'ci_verdict': 'BLOCKED', 'pr': 3, 'head_sha': head, 'checks_blocked': True,
                        'checks': [{'name': 'Unit', 'status': 'ACTION_REQUIRED'}]}, 'pr': 3}
         if case == 'post_merge_failure':
-            data.update(merge_sha='1' * 40, post_merge={'status': 'FAILED'})
+            data.update(merge_sha='1' * 40, post_merge={'status': 'FAILED', 'merge_sha': '1' * 40})
         job = dict(id=ident, state='NEEDS_INPUT' if failing else 'COMPLETED', data=data, revision=3,
                    execution_binding=dict(tool_owner='GATEWAY', privacy_scope='LOCAL', required_capability_policy=list(tool_policy)),
                    request=dict(request_id=ident, model=model, base='benchmark/' + model + '/' + case + '/base',
@@ -45,6 +45,8 @@ def report(model='model-a', permissions='9' * 64, tool_policy=('SELECTED_ONLY', 
             data['user_instructions'] = deepcopy(user_instructions)
         data['final_report'] = build_report(job, job['state'], dict(passed=not failing, requirements=[],
                                            failures=['The required check did not pass'] if failing else []))
+        if mutate_job and failing:
+            mutate_job(job)
         cases.append(dict(job_id=ident, repository='org/repo', source_sha=base, scenario=case,
                           comparison_route=route, selected_route_verified=True, measurement_complete=True,
                           intelligence=case_observations(job, case, True, not failing)))
@@ -164,6 +166,25 @@ class GitHubIntelligenceTest(TestCase):
         self.assertEqual(100, sum(d['weight'] for d in result['dimensions'].values()))
         self.assertEqual(2.5, result['dimensions']['tool_efficiency']['points'])
         self.assertEqual(97.5, result['pointsOutOf100'])
+
+    def test_displayed_success_stale_revision_extra_claim_and_stale_merge_lose_both_scores(self):
+        for mutate in (
+            lambda job: job['data']['final_report'].update(summary='All checks passed.'),
+            lambda job: job['data']['final_report'].update(device_performance='VERIFIED_FAST'),
+            lambda job: job['data']['final_report'].update(summary='Work is retained with incomplete verification.'),
+            lambda job: job['data']['final_report'].update(summary=job['data']['final_report']['summary'].replace('b' * 12, '9' * 12).replace('1' * 12, '8' * 12)),
+            lambda job: job['data']['final_report'].update(summary=job['data']['final_report']['summary'] + ' The release is published.'),
+        ):
+            result = score(report(mutate_job=mutate))
+            for key in ('response_quality', 'evidence_accuracy'):
+                self.assertEqual(0, result['dimensions'][key]['points'])
+        def supersede(job):
+            if job['data'].get('merge_sha'):
+                job['data']['post_merge']['merge_sha'] = 'c' * 40
+            else:
+                job['data']['ci']['head_sha'] = 'e' * 40
+        result = score(report(mutate_job=supersede))
+        self.assertEqual(0, result['dimensions']['response_quality']['points'])
 
     def test_identical_frozen_work_is_comparable_only_with_complete_distinct_runs(self):
         a, b = report(), report('model-b')

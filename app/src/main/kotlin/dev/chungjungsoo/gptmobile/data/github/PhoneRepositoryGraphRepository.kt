@@ -113,7 +113,13 @@ class PhoneRepositoryGraphRepository internal constructor(
             throw GatewayGraphIntegrityException("PHONE_GRAPH_REPOSITORY_CHANGED", "GitHub did not confirm the selected repository identity.")
         }
         verifyAdmission(context, admitted, identity)
-        val pinned = JsonObject(arguments + mapOf("ref" to JsonPrimitive(context.ref), "commit_sha" to JsonPrimitive(context.commitSha)))
+        val pinned = JsonObject(
+            arguments + buildJsonObject {
+                put("ref", context.ref)
+                put("commit_sha", context.commitSha)
+                if (arguments["action"] == JsonPrimitive("cached_path_hints")) put("allow_cached_source", admitted.features.githubBlobCache)
+            }
+        )
         val result = if (timing == null) {
             client.repositoryMap(context.owner, context.repo, pinned)
         } else {

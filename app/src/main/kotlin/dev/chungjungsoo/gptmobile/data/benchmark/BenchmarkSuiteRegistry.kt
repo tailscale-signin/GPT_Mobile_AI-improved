@@ -1,15 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
-/** Version twelve shares explicit engineering scope and verifies simulated guard expressions. */
+/** Version thirteen adds autonomous tool selection to the offline GitHub integration audit. */
 internal object BenchmarkSuiteRegistry {
-    const val VERSION = 12
+    const val VERSION = 13
     const val MIN_TIMING_REFERENCE_UNITS = 128
     val quick: List<BenchmarkCase> by lazy { cases(BenchmarkMode.QUICK, 0) }
     val full: List<BenchmarkCase> by lazy { cases(BenchmarkMode.FULL, 0) }
     fun historical(mode: BenchmarkMode) = BenchmarkSuite7.historical(mode)
     fun legacyStandard(agent: Boolean) = BenchmarkSuite7.legacyStandard(agent)
 
-    fun githubAuditCases(allActions: Boolean): List<BenchmarkCase> = GitHubProfileAuditSuite.cases(allActions) + GitHubEngineeringBenchmarkSuite.cases()
+    fun githubAuditCases(allActions: Boolean): List<BenchmarkCase> = GitHubProfileAuditSuite.cases(allActions) + GitHubEngineeringBenchmarkSuite.cases(autonomous = true)
 
     fun cases(mode: BenchmarkMode, rotationSeed: Long): List<BenchmarkCase> {
         if (mode == BenchmarkMode.APP_AUDIT) return emptyList()
@@ -31,10 +31,10 @@ internal fun benchmarkSuiteForVersion(version: Int, mode: BenchmarkMode, rotatio
     mode == BenchmarkMode.GITHUB_INTEGRATION -> if (version <= 10) {
         GitHubProfileAuditSuite.cases(allActions = true)
     } else {
-        GitHubProfileAuditSuite.cases(allActions = true) + GitHubEngineeringBenchmarkSuite.cases(legacy = version <= 11)
+        GitHubProfileAuditSuite.cases(allActions = true) + GitHubEngineeringBenchmarkSuite.cases(legacy = version <= 11, autonomous = version >= 13)
     }
     mode == BenchmarkMode.CPU_EXPERIMENT && version >= 9 -> BenchmarkCpuExperiment.cases()
-    version in 10..12 -> BenchmarkSuiteRegistry.cases(mode, rotationSeed)
+    version in 10..13 -> BenchmarkSuiteRegistry.cases(mode, rotationSeed)
     version == 9 -> when (mode) {
         BenchmarkMode.QUICK -> BenchmarkSuite9.quick
         BenchmarkMode.DIAGNOSTIC -> BenchmarkCapabilitySuite.cases

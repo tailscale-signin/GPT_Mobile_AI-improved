@@ -235,7 +235,7 @@ def install_engineering_routes(app, service):
                     'notifications': 'android_background_sync', 'batch_reads': True,
                     'execution_batch': batch_capability(durable=service.store.runtime.GATEWAY_DURABLE_JOBS),
                     'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',
-                    'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1, 'sampling_policy_protocol': 1}
+                    'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1, 'sampling_policy_protocol': 1, 'next_action_policy_protocol': 1}
         return await execute(run)
 
     @app.get('/gateway/engineering/copilot/capabilities')

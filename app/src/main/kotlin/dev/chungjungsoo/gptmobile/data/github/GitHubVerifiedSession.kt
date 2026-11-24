@@ -61,7 +61,7 @@ internal class GitHubVerifiedSession(
     private var lastChecklist: JsonObject? = null
     private var initialReceiptIds: Set<String>? = null
     private var initiallyVerifiedComplete = false
-    private val readProgress = GitHubReadRoundProgress()
+    private val readProgress = GitHubReadRoundProgress(detectFailedReads = evidence.nextActionMode == GitHubNextActionMode.ACTIVE)
     private var replannedReader: AgentProviderSession? = null
     private var replanBoundary: String? = null
     private var completedDecisionMillis = 0L
@@ -75,6 +75,7 @@ internal class GitHubVerifiedSession(
     private var observedAdvertisedToolCount: Int? = null
     private var issueWork: GitHubIssueRemediation.Context? = null
     private var verificationOnlyAttempted = false
+    private var lastReusedProof: Pair<String, Long>? = null
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
     private fun failureCauses(error: Throwable): List<Throwable> = buildList {
@@ -589,6 +590,24 @@ internal class GitHubVerifiedSession(
                 )
             )
             return@flow
+        }
+        if (evidence.nextActionMode == GitHubNextActionMode.ACTIVE) {
+            val report = evidence.diagnostic()
+            val decision = dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.activeDecision(report)
+            if (decision?.get("action") == JsonPrimitive("REUSE_EVIDENCE")) {
+                val key = (decision["decision_key"] as? JsonPrimitive)?.content
+                val (receipts, epoch) = evidence.snapshot()
+                val selected = dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.selectedCriterion(GitHubAcceptanceWork.outstanding(report), decision)
+                val retainedIds = (selected?.get("receipt_ids") as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>()
+                if (key != null && (key to epoch) != lastReusedProof && retainedIds.any { receipts[it.content]?.get("verification_eligible") == JsonPrimitive(true) }) {
+                    val savedDraft = (evidence.retainedClaimExtraction()?.get("draft") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
+                    if (savedDraft != null) {
+                        lastReusedProof = key to epoch
+                        emitAll(publish(savedDraft, GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION, continuationTools = tools, continuationExchanges = exchanges))
+                        return@flow
+                    }
+                }
+            }
         }
         val latest = exchanges.lastOrNull()
         if (latest != null &&
@@ -1208,7 +1227,7 @@ internal class GitHubVerifiedSession(
                     )
                 }
             )
-            val execution = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(retained, publicationReceipts), publicationReceipts)
+            val execution = evidence.withNextAction(GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(retained, publicationReceipts), publicationReceipts))
             val executionLedger = execution["execution_ledger"] as? JsonObject
             val unresolved = executionLedger?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive
             val reconciliationRequired = unresolved?.content?.toIntOrNull()?.let { it > 0 } == true
@@ -1361,7 +1380,10 @@ internal class GitHubVerifiedSession(
             (report["stage_budget"] as? JsonObject)?.get("acquisition_allowed") == JsonPrimitive(true)
         val currentSessionReview = GitHubRequestCompletion.requiresLiveSessionReviewRefresh(task)
         if (partial &&
-            report["observation_state"] != JsonPrimitive("WAITING_FOR_CI") &&
+            (
+                report["observation_state"] != JsonPrimitive("WAITING_FOR_CI") ||
+                    dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.activeDecision(report)?.get("reason") == JsonPrimitive("INDEPENDENT_DURING_CI")
+                ) &&
             originalFailure == null &&
             publication.extractionFailure == null &&
             openExecutionContinuation != null &&

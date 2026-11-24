@@ -834,6 +834,22 @@ class EngineeringConversationTests(unittest.TestCase):
             return db
         self.runtime._durable_connect = connect
 
+    def test_next_action_mode_is_frozen_for_followup_and_legacy_jobs(self):
+        for mode in ('SHADOW', 'ACTIVE', None):
+            req = dict(self.request, request_id='policy-' + str(mode), client_conversation_id='policy-chat-' + str(mode))
+            if mode:
+                req['next_action_policy'] = mode
+            job = self.store.create('owner', req)
+            snapshot = self.store.conversations.snapshot('owner', job['conversation_id'])
+            self.assertEqual(mode or 'LEGACY', snapshot['next_action_policy'])
+            claimed, lease, _ = self.store.claim(job['id'])
+            self.assertTrue(self.store.complete(claimed, lease, 'COMPLETED', {}))
+            snapshot = self.store.conversations.snapshot('owner', job['conversation_id'])
+            followup = dict(req, request_id='wrong-policy-' + str(mode), conversation_id=job['conversation_id'],
+                            expected_revision=snapshot['revision'], next_action_policy='ACTIVE' if mode != 'ACTIVE' else 'SHADOW')
+            with self.assertRaisesRegex(ConversationConflict, 'next action policy'):
+                self.store.create('owner', followup)
+
     def test_repository_context_variant_is_frozen_in_conversation_snapshot(self):
         self.request.update(context_variant='reference', client_conversation_id='same-context')
         job = self.store.create('owner', self.request)

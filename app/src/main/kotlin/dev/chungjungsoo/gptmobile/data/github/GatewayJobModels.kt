@@ -137,7 +137,8 @@ data class GatewayConversationSnapshot(
     @SerialName("history_limitation") val historyLimitation: String? = null,
     @SerialName("execution_binding") val executionBinding: JsonObject? = null,
     @SerialName("execution_mode") val executionMode: String? = null,
-    @SerialName("context_variant") val contextVariant: GitHubContextVariant? = null
+    @SerialName("context_variant") val contextVariant: GitHubContextVariant? = null,
+    @SerialName("next_action_policy") val nextActionPolicy: GitHubNextActionMode? = null
 )
 
 @Serializable

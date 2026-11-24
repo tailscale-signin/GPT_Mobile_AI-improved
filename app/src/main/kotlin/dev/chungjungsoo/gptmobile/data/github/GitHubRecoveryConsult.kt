@@ -35,7 +35,10 @@ internal object GitHubRecoveryConsult {
         GitHubRepositoryStateStore.digest(listOf(GitHubChatDecisions.workspaceKey(context), ConfiguredDispatchAuthority.profileRevision(primary), ConfiguredDispatchAuthority.profileRevision(helper)).joinToString("|"))
 
     fun unresolvedCriterion(report: JsonObject?, acceptedRequest: String): String? {
-        val row = GitHubAcceptanceWork.outstanding(report).firstOrNull { !GitHubAcceptanceWork.deferred(it) } ?: return null
+        val pending = GitHubAcceptanceWork.outstanding(report).filterNot(GitHubAcceptanceWork::deferred)
+        val decision = dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.activeDecision(report)
+        if (decision?.get("action") in setOf(JsonPrimitive("WAIT"), JsonPrimitive("RECONCILE"))) return null
+        val row = dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.selectedCriterion(pending, decision) ?: pending.firstOrNull() ?: return null
         val criterion = (row["criterion"] ?: row["requirement"]) as? JsonPrimitive
         return criterion?.content?.takeIf { it.isNotBlank() && it in acceptedRequest }?.take(240)
             ?: GitHubAcceptanceWork.step(row)?.action

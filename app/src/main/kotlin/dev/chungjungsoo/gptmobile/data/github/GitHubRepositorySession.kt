@@ -510,7 +510,9 @@ internal class GitHubRepositorySession(
         val context = budget.run { resolve(owner, repo, args) }
             ?: throw GatewayGraphResultException("READ_DEADLINE", "The pinned repository could not be resolved within the read budget.", "REFRESH_PHONE_MAP")
         if (action == "cached_path_hints") {
-            return@withContext GitHubTaskContextBundle.cachedPathHints("${context.owner}/${context.repo}", context.ref, context.commitSha, retainedTree(context), args.s("query"))
+            return@withContext GitHubCompactTaskContext.prepare(context, retainedTree(context), args.s("query")) { sha ->
+                if (args["allow_cached_source"] == JsonPrimitive(true)) cachedSource(blobScope(context), "blob:$sha") else null
+            }
         }
         val tree = budget.run {
             if (action == "task_context_bundle") taskContextPhase(PhoneTaskContextPhase.TREE_SELECTION) { tree(context) } else tree(context)

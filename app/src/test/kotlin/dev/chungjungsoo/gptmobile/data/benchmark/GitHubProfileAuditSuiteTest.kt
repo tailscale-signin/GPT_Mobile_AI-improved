@@ -149,6 +149,19 @@ class GitHubProfileAuditSuiteTest {
         name to JsonPrimitive(value)
 
     @Test
+    fun currentAuditRequiresChoosingBetweenDifferentSourcesWithoutRevealingTheToolOrArguments() {
+        val current = BenchmarkSuiteRegistry.githubAuditCases(allActions = false)
+            .single { it.id.endsWith(":pagination") && it.workload == GitHubEngineeringBenchmarkSuite.WORKLOAD }
+        val scenario = BenchmarkToolScenario(current, "hidden-test-code")
+        assertEquals(3, scenario.tools.map { it.definition.name }.distinct().size)
+        assertTrue(scenario.tools.none { it.definition.name in current.prompt })
+        assertFalse("cursor" in current.prompt)
+        assertFalse("hidden-test-code" in current.prompt)
+        val previous = benchmarkSuiteForVersion(12, BenchmarkMode.GITHUB_INTEGRATION).single { it.id == current.id }
+        assertEquals(1, BenchmarkToolScenario(previous, "hidden-test-code").tools.size)
+    }
+
+    @Test
     fun engineeringWorkflowFixturesEnforceRealEvidenceOrdering() = runBlocking {
         val challenges = GitHubEngineeringBenchmarkSuite.cases()
         assertEquals(7, challenges.size)

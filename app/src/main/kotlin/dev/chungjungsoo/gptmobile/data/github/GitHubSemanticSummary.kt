@@ -19,6 +19,16 @@ internal object GitHubSemanticSummary {
         val action = canonicalRequest.text("action")
         val repository = data["repository"] as? JsonObject
         val branch = data["branch"]
+        val pull = if (operation.githubOperationFamily() == "github_pr" && action in setOf("", "context")) data["pull_request"] as? JsonObject else null
+        val pullHead = pull?.get("head") as? JsonObject
+        val pullRevision = pullHead?.text("sha")?.takeIf(sha::matches)
+        val contextRead = operation.githubOperationFamily() == "github_context"
+        val branchHead = if (contextRead && action == "branch" && branch is JsonObject) {
+            (branch["commit"] as? JsonObject)?.text("sha")?.takeIf(sha::matches)
+        } else {
+            null
+        }
+        val consistentHead = branchHead == null || listOf("head_sha", "commit_sha").all { it !in data || data.text(it).equals(branchHead, true) }
         val checks = (data["check_details"] as? JsonObject) ?: (data["checks"] as? JsonObject) ?: data.takeIf { "check_runs" in it }
         val runs = (checks?.get("check_runs") as? JsonArray)?.filterIsInstance<JsonObject>()
         return bounded(
@@ -29,11 +39,26 @@ internal object GitHubSemanticSummary {
                 put("source_result_sha256", GitHubEvidenceBook.digest(source.toString()))
                 put("hash_scope", "IMMUTABLE_SOURCE_RESULT")
                 put("scope", "Captured observations only; task completion and required-check policy are independently verified.")
-                listOf("commit_sha", "head_sha", "base_sha").forEach { key ->
-                    data.text(key).takeIf(sha::matches)?.let { put(key, it) }
+                data.text("base_sha").takeIf(sha::matches)?.let { put("base_sha", it) }
+                if (consistentHead) {
+                    listOf("commit_sha", "head_sha").forEach { key ->
+                        data.text(key).takeIf(sha::matches)?.let { put(key, it) }
+                    }
+                    ((data["head"] as? JsonObject)?.text("sha"))?.takeIf(sha::matches)?.let { put("head_sha", it) }
+                    branchHead?.let { put("commit_sha", it) }
+                    // The native PR reader validates files against expected_head and retains the upstream head repository.
+                    if (pullRevision != null && data.text("expected_head").equals(pullRevision, true)) {
+                        put("head_sha", pullRevision)
+                        pullHead.text("ref").takeIf { it.isNotBlank() && it.length <= 256 }?.let { put("pr_head_ref", it) }
+                        (pullHead["repo"] as? JsonObject)?.text("full_name")?.takeIf { it.isNotBlank() && it.length <= 512 }?.let { put("pr_head_repo", it) }
+                    }
                 }
-                ((data["head"] as? JsonObject)?.text("sha"))?.takeIf(sha::matches)?.let { put("head_sha", it) }
-                val branchName = if (branch is JsonObject) branch.text("name") else (branch as? JsonPrimitive)?.contentOrNull.orEmpty()
+                val branchName = when {
+                    branch is JsonObject -> branch.text("name")
+                    branch is JsonPrimitive -> branch.contentOrNull.orEmpty()
+                    contextRead && action in setOf("", "resolve") -> data.text("ref")
+                    else -> ""
+                }
                 branchName.takeIf { it.isNotBlank() }?.let { put("branch", it.take(160)) }
                 (data.text("default_branch").ifBlank { repository?.text("default_branch").orEmpty() }).takeIf { it.isNotBlank() }?.let { put("default_branch", it.take(160)) }
                 if (operation.githubOperationFamily() == "github_read" && sha.matches(data.text("commit_sha"))) {
@@ -98,6 +123,40 @@ internal object GitHubSemanticSummary {
                         put("workflow_query_status", "failure")
                     }
                 }
+                if (operation.githubOperationFamily() == "github_ci" && action in setOf("jobs", "job")) {
+                    val jobs = (data["jobs"] as? JsonArray)?.filterIsInstance<JsonObject>()
+                        ?: listOfNotNull(data.takeIf { it["steps"] is JsonArray })
+                    val failed = jobs.firstNotNullOfOrNull { job ->
+                        val revision = job.text("head_sha").takeIf(sha::matches) ?: return@firstNotNullOfOrNull null
+                        val attempt = job["run_attempt"] ?: data["run_attempt"]
+                        if ("run_id" in request &&
+                            request.text("run_id") != job.text("run_id") ||
+                            "run_attempt" in request &&
+                            request["run_attempt"] != attempt ||
+                            "head_sha" in data &&
+                            data["head_sha"] != job["head_sha"] ||
+                            "job_id" in request &&
+                            request.text("job_id") != job.text("id") ||
+                            "expected_head_sha" in request &&
+                            !request.text("expected_head_sha").equals(revision, true) ||
+                            job.text("status") != "completed" ||
+                            job.text("conclusion") != "failure"
+                        ) {
+                            return@firstNotNullOfOrNull null
+                        }
+                        val id = job.text("id").toLongOrNull()?.takeIf { it > 0 } ?: return@firstNotNullOfOrNull null
+                        val failedStep = (job["steps"] as? JsonArray)?.filterIsInstance<JsonObject>()?.firstOrNull {
+                            it.text("status") == "completed" && it.text("conclusion") == "failure"
+                        } ?: return@firstNotNullOfOrNull null
+                        val name = failedStep.text("name").takeIf { it.isNotBlank() && it.length <= 160 } ?: return@firstNotNullOfOrNull null
+                        buildJsonObject {
+                            put("job_id", id)
+                            put("head_sha", revision)
+                            put("step", name)
+                        }
+                    }
+                    failed?.let { put("failed_job_step", it) }
+                }
                 if (runs != null) {
                     put("observed_checks", runs.size)
                     val total = (checks["total_count"] as? JsonPrimitive)?.intOrNull ?: (data["checks"] as? JsonPrimitive)?.intOrNull
@@ -147,14 +206,23 @@ internal object GitHubSemanticSummary {
                 val family = operation.githubOperationFamily()
                 if (family in setOf("github_issue", "github_pr")) {
                     val collection = listOf("items", "issues", "pull_requests").firstOrNull { data[it] is JsonArray }
-                    val rows = collection?.let { data[it] as JsonArray } ?: listOf(data)
+                    val rows = collection?.let { data[it] as JsonArray } ?: listOf(pull ?: data)
                     val observations = rows.take(4).mapIndexedNotNull { index, raw ->
                         val row = raw as? JsonObject ?: return@mapIndexedNotNull null
                         val number = (row["number"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 } ?: return@mapIndexedNotNull null
                         buildJsonObject {
                             put("resource", if (family == "github_issue") "issue" else "pull_request")
                             put("number", number)
-                            put("pointer", if (collection == null) prefix else "$prefix/$collection/$index")
+                            put(
+                                "pointer",
+                                if (collection != null) {
+                                    "$prefix/$collection/$index"
+                                } else if (pull != null) {
+                                    "$prefix/pull_request"
+                                } else {
+                                    prefix
+                                }
+                            )
                             listOf("title", "state", "state_reason").forEach { key -> row.text(key).takeIf(String::isNotBlank)?.let { put(key, it.take(180)) } }
                             row.text("body").takeIf(String::isNotBlank)?.let { body ->
                                 // A bounded excerpt retains the reported symptom, never a model diagnosis.
@@ -264,7 +332,7 @@ internal object GitHubSemanticSummary {
         if (JsonObject(retained).toString().length <= maxCharacters) return JsonObject(retained)
         // Legacy or malformed summaries cannot consume an unbounded replay. Keep
         // identity and the first useful observation, not an all-or-nothing placeholder.
-        val priority = listOf("schema", "operation", "action", "commit_sha", "head_sha", "base_sha", "source_result_sha256", "failure_query_complete", "failed_runs_observed", "workflow_query_status", "search_identity", "search_complete", "path_observations", "paths_observed", "path_preview_complete", "source_read_verified", "branch_observations", "branch_inventory_complete", "scope", "resource_observations", "source_excerpts", "source_range", "total_deferred_files", "no_progress_attempts", "deferred_files", "search_observations", "check_counts", "required_checks_state")
+        val priority = listOf("schema", "operation", "action", "commit_sha", "head_sha", "base_sha", "pr_head_ref", "pr_head_repo", "source_result_sha256", "failed_job_step", "failure_query_complete", "failed_runs_observed", "workflow_query_status", "search_identity", "search_complete", "path_observations", "paths_observed", "path_preview_complete", "source_read_verified", "branch_observations", "branch_inventory_complete", "scope", "resource_observations", "source_excerpts", "source_range", "total_deferred_files", "no_progress_attempts", "deferred_files", "search_observations", "check_counts", "required_checks_state")
         val bounded = linkedMapOf<String, kotlinx.serialization.json.JsonElement>("summary_truncated" to JsonPrimitive(true))
         for (key in priority + retained.keys) {
             if (key in bounded) continue

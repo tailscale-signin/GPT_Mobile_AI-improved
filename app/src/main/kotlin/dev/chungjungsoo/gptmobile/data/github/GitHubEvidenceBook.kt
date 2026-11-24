@@ -42,7 +42,9 @@ internal class GitHubEvidenceBook(
     private val inferenceProfile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2? = null,
     private val latestDeadlineGrant: suspend () -> JsonObject? = { null },
     private val authorizeTaskContinuation: suspend () -> Boolean = { true },
-    private val requireAcceptedContract: Boolean = false
+    private val requireAcceptedContract: Boolean = false,
+    internal val nextActionMode: GitHubNextActionMode = GitHubNextActionMode.ACTIVE,
+    private val chooseNextAction: ((JsonObject) -> dev.chungjungsoo.gptmobile.data.agent.GitHubNextActionPolicy.Decision)? = null
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -740,7 +742,10 @@ internal class GitHubEvidenceBook(
         }
     }
 
-    suspend fun diagnostic(): JsonObject? = latestVerdict()?.takeIf { it["binding"] == JsonPrimitive(binding) }
+    suspend fun diagnostic(): JsonObject? = latestVerdict()?.takeIf { it["binding"] == JsonPrimitive(binding) }?.let { report ->
+        // A restored task may now use another mode or authorized catalog.
+        if ("next_action_decision" in report) withNextAction(report) else report
+    }
 
     suspend fun replayCallIds(report: JsonObject?): Set<String> = mutex.withLock {
         if (report?.get("binding") != JsonPrimitive(binding)) return@withLock emptySet()
@@ -1166,12 +1171,13 @@ internal class GitHubEvidenceBook(
         )
         // The existing latest-verification query can recover this status even if
         // the process dies before a final response or a final verifier exists.
-        val durable = GitHubExecutionLedger.attach(progress, receipts)
+        val durable = withNextAction(GitHubExecutionLedger.attach(progress, receipts))
         saveCurrent("verification", durable)
     }
 
     suspend fun retainChecklist(value: JsonObject) {
-        val checkpoint = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(JsonObject(value + retentionStatus()), snapshot().first), snapshot().first)
+        val receipts = snapshot().first
+        val checkpoint = withNextAction(GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(JsonObject(value + retentionStatus()), receipts), receipts))
         saveCurrent("checklist", JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
     }
 
@@ -1238,7 +1244,7 @@ internal class GitHubEvidenceBook(
         } else {
             retained
         }
-        val execution = GitHubExecutionLedger.attach(checked, receipts)
+        val execution = withNextAction(GitHubExecutionLedger.attach(checked, receipts))
         val checkpoint = JsonObject(execution + ("task_state" to JsonPrimitive(GitHubTaskLifecycle.terminal(execution).name)))
         val sourceRecovery = if (retention["evidence_retention_complete"] == JsonPrimitive(true)) {
             val tools = currentToolContracts.map { (name, schema) -> dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition(name, "", schema) }
@@ -1255,6 +1261,15 @@ internal class GitHubEvidenceBook(
         val explained = JsonObject(durable + (GitHubAcceptanceExplanation.KEY to GitHubAcceptanceExplanation.record(durable, taskContract ?: load("task_contract"))))
         saveCurrent("verification", explained)
         return explained
+    }
+
+    /** Derive a fresh non-authorizing decision for this protected snapshot and its current permitted routes. */
+    internal fun withNextAction(report: JsonObject): JsonObject {
+        val prior = report - "next_action_decision"
+        if (nextActionMode == GitHubNextActionMode.LEGACY || chooseNextAction == null) return if (prior.size == report.size) report else JsonObject(prior)
+        val decision = chooseNextAction.invoke(report)
+        val legacy = if (nextActionMode == GitHubNextActionMode.SHADOW) dev.chungjungsoo.gptmobile.data.agent.GitHubRequirementToolFocus.next(report) else null
+        return JsonObject(prior + ("next_action_decision" to decision.snapshot(nextActionMode, legacy)))
     }
 
     /** Full projections replace only their task-current slot; immutable operation evidence is never rewritten. */

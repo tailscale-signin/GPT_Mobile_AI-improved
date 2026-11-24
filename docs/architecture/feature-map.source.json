@@ -1277,7 +1277,8 @@
         "local-kokoro-runtime/src/main/cpp/kokoro_cancellation.h",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectory.kt",
         "scripts/prepare_kokoro_native_host.py",
-        ".github/workflows/speech-engine-smoke.yml"
+        ".github/workflows/speech-engine-smoke.yml",
+        "local-kokoro-runtime/src/main/cpp/kokoro_context_export.h"
       ],
       "tests": [
         "local-kokoro-runtime/src/main/cpp/kokoro_context_cache_test.cpp",
@@ -1288,7 +1289,10 @@
         "local-kokoro-runtime/src/main/cpp/kokoro_cancellation_test.cpp",
         "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroContextSignalContractTest.java",
         "scripts/tests/test_kokoro_native_host_inputs.py",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectoryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectoryTest.kt",
+        "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+        "local-kokoro-runtime/src/testHost/kokoro_profile_fault.cpp",
+        "local-kokoro-runtime/src/testHost/kokoro_profile_fault.h"
       ],
       "commands": [
         "bash scripts/check_speech_native_contracts.sh",
@@ -1296,7 +1300,8 @@
       ],
       "documents": [
         "docs/repairs/voice-accelerator-rebuild-2026-11-24.md",
-        "docs/audits/qnn-host-context-2.8-ort-1.28.json"
+        "docs/audits/qnn-host-context-2.8-ort-1.28.json",
+        "docs/repairs/evidence/voice-runtime-recovery/native-context-serialization.json"
       ],
       "invariants": [
         "Cache publication follows successful PCM, timing and observed-provider validation; no context can grant execution or CPU-reference playback admission.",
@@ -1305,7 +1310,10 @@
         "Engine load, compilation, disk-context load and resident reuse are distinct observations; legacy absence stays unknown.",
         "Slow cache finalization does not hold the cancellation lock; completion rechecks accepted cancellation under the same short lock before publishing audio or Ready.",
         "The Android private directory requires no-follow descriptor, application UID, directory type,0700 mode and stable device/inode/canonical path checks; failure disables disk persistence.",
-        "Full-model context qualification requires the actual JNI production source and pinned model/runtime. Unseeded vocoder nodes use explicit signal consistency controls, not bitwise waveform or listening-equivalence claims."
+        "Full-model context qualification requires the actual JNI production source and pinned model/runtime. Unseeded vocoder nodes use explicit signal consistency controls, not bitwise waveform or listening-equivalence claims.",
+        "Full-model HTP export uses a same-runtime CPU BASIC source snapshot and the supported Compile API embedded-initializer callback, with explicit full QNN optimization. The first inference loads the serialized context before cache publication.",
+        "Private temporary source snapshots require 512 MiB of additional free-space admission and a post-write 512 MiB bound. They are removed before context inference and on every exit; this is not an in-flight file-size cap or a larger retained-cache allowance.",
+        "Cancellation accepted at the source-preparation boundary prevents QNN compilation and any uncached fallback; later cancellation checks prevent further work or publication. Cancellation cannot publish PCM, a Ready state, an orphan profile or a retained source snapshot."
       ]
     },
     {

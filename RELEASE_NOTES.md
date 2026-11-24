@@ -2,17 +2,19 @@
 
 Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
-Application native-library stripping uses the same pinned NDK as the native modules. Release packaging drops the unused MediaPipe proofreading and summarization binary, retains the private-memory embedder and speech JNI libraries, and losslessly compresses distribution APKs before signing. The packager checks the SHA-256 of every entry and verifies Android alignment. The universal download limit remains 230 MiB.
+Application native-library stripping uses the same pinned NDK as the native modules. Release packaging drops the unused MediaPipe proofreading and summarization binary, retains the private-memory embedder and speech JNI libraries, and losslessly compresses distribution APKs before signing. The packager checks the SHA-256 of every entry and verifies Android alignment. The universal APK has a 250 MiB limit and each single-ABI APK has a 180 MiB limit.
 
 ## November 24 issue fixes
 
 - GitHub chat can reopen an exact missing local result page, make room for it before optional history, and recover a pull request read after the branch head changes.
-- Running CI can look up a matching workflow, register or reattach its watch, and report why monitoring is pending. Watches distinguish workflow attempts. Integration reports identify the blocked capability and the prerequisites to resume.
+- Running CI can look up a matching workflow, register or reattach its watch, and report why monitoring is pending. A workflow-specific watch follows its selected attempt. A whole-commit watch waits for all observed checks and commit statuses, then resumes the original saved diagnosis once. Integration reports identify the blocked capability and the prerequisites to resume.
 - Concurrent phone index requests share the same authorized batch. Each caller checks repository access, and an interrupted batch can resume from its saved revision and issued cursor.
 - Voice chat keeps recognized words editable after Android silences the microphone mid-turn. Sending the partial transcript requires a user action.
-- URL reads share a small result allowance across sources. Catalog discovery handles empty selectors, and repeated missing-tool reports retain the catalog revision and occurrence count. Partial research reports identify the delivery check and source counts.
+- URL reads share a small result allowance across sources. Each missing tool gets one local catalog lookup per revision. A returned, authorized reading tool can reuse validated original arguments. Reports distinguish different missing tools and count repeated rejections. Partial research reports identify the delivery check and source counts.
 - Failure diagnostics distinguish a later failure after visible output. Android freeze reports retain a bounded main-thread fingerprint when the operating system supplies a trace for the affected process.
-- Release pull requests build the unsigned packages when the publication request or Android version changes. The publisher retains its APK payload inventory for size-gate diagnostics.
+- Release pull requests build the unsigned packages when the publication request, Android version, size rules, packaging or native inputs change. The publisher retains its APK payload inventory for size-gate diagnostics.
+- Sending an interrupted voice draft restores reply playback while preserving capture permissions, mute state, admission ownership and cancellation checks.
+- Locally stopped phone reads retain their exact deadline and cancellation details through public issue reporting. An interrupted research writer reports the same refreshed evidence used for its partial answer and saved receipt.
 
 ## GitHub engineering intelligence
 
@@ -448,3 +450,5 @@ Prepared Android compilation requires at least 8,960 MiB of observed RAM/cgroup 
 - Privacy provider comparison uses at most four scored fictional pairs after two warmups. It reports deterministic fixture criteria, not general semantic quality or arbitrary-input detection recall. Missing backend/cap observations, mismatched or incomplete pairs, and strict private routes with unverified sampling parity are excluded from timing summaries; small nearest-rank samples do not establish a stable p95 distribution, causal privacy overhead or provider retention. Live selected-provider performance is not measured by implementation tests.
 
 - The ordinary modal exception is limited to positively classified I may request wording with a discovered May surname and an exact user or history surface. Other ambiguous language and system-prefix collisions remain fail-closed; general semantic name disambiguation is not claimed.
+
+The 8,424,218-byte margin was measured on the earlier signed universal APK. Physical-device performance requires a separate handset benchmark.

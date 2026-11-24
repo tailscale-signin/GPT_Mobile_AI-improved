@@ -81,7 +81,7 @@ internal fun GitHubChatChecks(chatId: Int, model: GitHubChatChecksViewModel = hi
     if (expanded) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             watches.forEach { watch ->
-                GitHubCheckWatchCard(watch, { uriHandler.openUri("https://github.com/${watch.owner}/${watch.repo}/" + (watch.pullNumber?.let { "pull/$it" } ?: "actions/runs/${watch.runId}")) }, { model.refresh(watch.id) }, { model.cancel(watch.id) }, Modifier.fillMaxWidth())
+                GitHubCheckWatchCard(watch, { uriHandler.openUri("https://github.com/${watch.owner}/${watch.repo}/" + watch.githubChecksPath()) }, { model.refresh(watch.id) }, { model.cancel(watch.id) }, Modifier.fillMaxWidth())
             }
         }
         return
@@ -93,7 +93,7 @@ internal fun GitHubChatChecks(chatId: Int, model: GitHubChatChecksViewModel = hi
                 GitHubCheckWatchCard(
                     watch = watch,
                     onOpen = {
-                        val path = watch.pullNumber?.let { "pull/$it" } ?: "actions/runs/${watch.runId}"
+                        val path = watch.githubChecksPath()
                         uriHandler.openUri("https://github.com/${watch.owner}/${watch.repo}/$path")
                     },
                     onRefresh = { model.refresh(watch.id) },
@@ -145,7 +145,7 @@ internal fun GitHubCheckWatchCard(
     } else {
         MaterialTheme.colorScheme.surfaceContainerHigh
     }
-    val title = watch.pullNumber?.let { "PR #$it" } ?: "Run #${watch.runId}"
+    val title = watch.pullNumber?.let { "PR #$it" } ?: if (watch.allChecks) "Commit checks" else "Run #${watch.runId}"
     Card(modifier.widthIn(min = 280.dp, max = 400.dp), colors = CardDefaults.cardColors(containerColor = color)) {
         Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
             Row(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -190,3 +190,6 @@ internal fun GitHubCheckWatchCard(
         )
     }
 }
+
+private fun GitHubCheckWatch.githubChecksPath(): String =
+    pullNumber?.let { "pull/$it" } ?: if (allChecks) "commit/$headSha/checks" else "actions/runs/$runId"

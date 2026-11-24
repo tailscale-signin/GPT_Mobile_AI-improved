@@ -218,6 +218,8 @@ class VoiceSession(
         if (state.phase != VoicePhase.REVIEWING || !accessAllowed() || submittedDraft != null) return
         val prompt = text.trim().take(8000)
         if (prompt.isEmpty()) return
+        // Sending a reviewed draft resumes its reply playback without restarting capture.
+        engaged = true
         submittedDraft = null
         resetStream()
         diagnosticProbe = diagnosticTrace.beginReply(generation)

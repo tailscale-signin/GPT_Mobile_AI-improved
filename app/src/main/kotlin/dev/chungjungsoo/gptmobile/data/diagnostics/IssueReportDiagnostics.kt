@@ -247,7 +247,7 @@ internal data class IssueReportDiagnostics(
             "PROVIDER" to requiredSchemaDetailFields + setOf("dispatch_gateway_selection_change", "reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),
             "APP" to setOf("native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash", "anr_trace_state", "anr_frame_count"),
             "INCIDENT" to researchEvidenceFields + setOf("dispatch_gateway_selection_change", "failure_boundary", "stream_answer_state"),
-            "TOOL" to setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode", "catalog_revision_hash", "catalog_rejection_count", "catalog_selector_count", "catalog_rejected_call_hashes"),
+            "TOOL" to setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode", "catalog_revision_hash", "missing_tool_hash", "catalog_rejection_count", "catalog_selector_count", "catalog_rejected_call_hashes"),
             "ACCEPTANCE" to setOf("acceptance_verified_claim_count", "acceptance_unmeasured_claim_count", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash")
         )
         private val incidentDetailFields = incidentDetailsByArea.values.flatten().toSet()
@@ -383,7 +383,7 @@ internal data class IssueReportDiagnostics(
         )
         private val commonHashes = setOf("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash")
         private val hashFields = commonHashes + profileSelectionHashes + setOf(
-            "native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash", "research_blocker_receipt_hash", "catalog_revision_hash",
+            "native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash", "research_blocker_receipt_hash", "catalog_revision_hash", "missing_tool_hash",
             "graph_index_attempt_hash",
             "reasoning_template_hash", "conflict_conversation_hash", "conflict_pending_tool_ids_hash",
             "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash", "provider_cooldown_scope_hash",

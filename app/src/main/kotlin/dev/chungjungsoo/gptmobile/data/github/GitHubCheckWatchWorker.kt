@@ -11,13 +11,18 @@ import dagger.assisted.AssistedInject
 class GitHubCheckWatchWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted parameters: WorkerParameters,
-    private val watches: GitHubCheckWatchRepository
+    private val watches: GitHubCheckWatchRepository,
+    private val queue: dagger.Lazy<dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue>
 ) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         val id = inputData.getString("watch_id") ?: return Result.failure()
         val trigger = if (runAttemptCount > 0) GitHubWatchTrigger.WORK_MANAGER_RETRY else GitHubWatchTrigger.entries.firstOrNull { it.name == inputData.getString("watch_trigger") } ?: GitHubWatchTrigger.SUCCESSOR
         return try {
-            if (!watches.poll(id, runAttemptCount, this.id.toString(), trigger)) watches.scheduleNext(id)
+            if (!watches.poll(id, runAttemptCount, this.id.toString(), trigger)) {
+                watches.scheduleNext(id)
+            } else if (!watches.deliverTerminalTasks(id, queue)) {
+                return Result.retry()
+            }
             Result.success()
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled

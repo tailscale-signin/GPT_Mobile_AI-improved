@@ -95,7 +95,7 @@ class ReleaseTriggerTests(unittest.TestCase):
         self.config.write_text(BASE_CONFIG + 'ndkVersion = "29.0.14206865"\n')
         self.assertEqual("build=true\n", selected())
         self.config.write_text(BASE_CONFIG)
-        for path in ("scripts/check_apk_size.py", "local-kokoro-runtime/src/main/cpp/CMakeLists.txt"):
+        for path in ("scripts/check_apk_size.py", "scripts/optimize_release_apks.py", "local-kokoro-runtime/src/main/cpp/CMakeLists.txt"):
             with self.subTest(packaging_input=path):
                 source = self.root / path
                 source.parent.mkdir(parents=True, exist_ok=True)

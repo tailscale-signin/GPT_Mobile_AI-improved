@@ -9,7 +9,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
 /** Never infer a green PR from an empty, partial or unavailable check response. */
-internal fun gitHubCheckSummary(checks: JsonObject, status: JsonObject): String {
+internal fun gitHubCheckSummary(checks: JsonObject, status: JsonObject, waitForAll: Boolean = false): String {
     val observed = checks["check_runs"]?.jsonArray ?: return "UNKNOWN"
     val identified = observed.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.longOrNull?.takeIf { id -> id > 0 } }
     if (identified.distinct().size != identified.size) return "UNKNOWN"
@@ -31,11 +31,27 @@ internal fun gitHubCheckSummary(checks: JsonObject, status: JsonObject): String 
     val statuses = status["total_count"]?.jsonPrimitive?.intOrNull ?: return "UNKNOWN"
     val conclusions = runs.map { it.jsonObject["conclusion"]?.jsonPrimitive?.contentOrNull.orEmpty() }
     val statusState = status["state"]?.jsonPrimitive?.contentOrNull.orEmpty()
-    if (conclusions.any { it in setOf("failure", "cancelled", "timed_out", "action_required", "startup_failure") } || statuses > 0 && statusState in setOf("failure", "error")) return "FAILED"
-    if (runs.any { it.jsonObject["status"]?.jsonPrimitive?.contentOrNull != "completed" } || statuses > 0 && statusState == "pending") return "RUNNING"
+    val pending = runs.any { it.jsonObject["status"]?.jsonPrimitive?.contentOrNull != "completed" } || statuses > 0 && statusState == "pending"
     val expected = checks["total_count"]?.jsonPrimitive?.intOrNull ?: return "UNKNOWN"
+    if (waitForAll) {
+        if (expected != observed.size) return "UNKNOWN"
+        if (pending) return "RUNNING"
+        val contexts = status["statuses"] as? kotlinx.serialization.json.JsonArray
+        if (statuses > 0 && (contexts == null || contexts.size < statuses)) return "UNKNOWN"
+        val names = contexts.orEmpty().mapNotNull { it.jsonObject["context"]?.jsonPrimitive?.contentOrNull }
+        if (names.distinct().size != names.size) return "UNKNOWN"
+        if (contexts.orEmpty().any { it.jsonObject["state"]?.jsonPrimitive?.contentOrNull == "pending" }) return "RUNNING"
+    }
+    if (conclusions.any { it in setOf("failure", "cancelled", "timed_out", "action_required", "startup_failure") } || statuses > 0 && statusState in setOf("failure", "error")) return "FAILED"
+    if (pending) return "RUNNING"
     if (expected != observed.size) return "UNKNOWN"
     if (runs.isEmpty() && statuses == 0) return "NONE"
     if (conclusions.any { it !in setOf("success", "neutral", "skipped") } || statuses > 0 && statusState != "success") return "UNKNOWN"
-    return if ("success" in conclusions || statuses > 0 && statusState == "success") "PASSED" else "NONE"
+    return if ("success" in conclusions || statuses > 0 && statusState == "success") {
+        "PASSED"
+    } else if (waitForAll) {
+        "SKIPPED"
+    } else {
+        "NONE"
+    }
 }

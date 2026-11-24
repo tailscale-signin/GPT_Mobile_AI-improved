@@ -9,11 +9,13 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail
 import dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot
 import dev.chungjungsoo.gptmobile.data.research.ResearchSource
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -271,6 +273,58 @@ class ResearchDeliveryBoundaryTest {
         assertEquals("RESEARCH_PARTIAL", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
         assertEquals(ResearchReportValidity.EVIDENCE_ONLY, receipts.single().reportValidity)
         assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test fun interruptedInternalWriterUsesRefreshedEvidenceWithoutReplacingProviderFailure() = runTest {
+        val initial = ResearchDeliveryPacket.build(
+            ResearchSnapshot("sleep trial", sources = listOf(source.copy(status = "Blocked", passage = "", retrievalReceipt = "initial-blocker"))),
+            ResearchReportDetail.BRIEF
+        )
+        val providerFailure = ProviderEvent.Failed("Writer connection ended", errorCode = "REASONING_ONLY")
+        for (originalFailure in listOf(null, providerFailure)) {
+            var currentPacket = initial
+            var packetReads = 0
+            var writerRounds = 0
+            val receipts = mutableListOf<ResearchDeliveryReceipt>()
+            val writer = object : AgentProviderSession {
+                override val handlesToolsInternally = true
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    writerRounds++
+                    currentPacket = packet
+                    if (originalFailure != null) emit(originalFailure)
+                }
+            }
+            val delivery = ResearchDeliverySession(
+                writer,
+                {
+                    packetReads++
+                    currentPacket
+                },
+                saveReceipt = { receipts += it }
+            ) { _, _ -> writer }
+            val events = delivery.streamRound(emptyList(), emptyList()).toList()
+            val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(1, writerRounds)
+            assertEquals(2, packetReads)
+            assertTrue(text.contains(source.passage))
+            assertTrue(text.contains(source.url))
+            assertEquals(ResearchReportValidity.EVIDENCE_ONLY, receipts.single().reportValidity)
+            assertEquals(researchHash(packet.json().toString()), receipts.single().packetDigest)
+            assertTrue(receipts.single().matchesRevision(text))
+            assertFalse(events.contains(ProviderEvent.Completed))
+            if (originalFailure == null) {
+                val details = requireNotNull(failure.failureDetails)
+                assertEquals("RESEARCH_PARTIAL", failure.errorCode)
+                assertEquals(JsonPrimitive("WRITER_INCOMPLETE"), details["research_delivery_criterion"])
+                assertEquals(JsonPrimitive(1), details["research_read_sources"])
+                assertEquals(JsonPrimitive(0), details["research_unread_sources"])
+                assertEquals(JsonPrimitive(0), details["research_blocked_sources"])
+                assertFalse("research_blocker_receipt_hash" in details)
+            } else {
+                assertEquals(originalFailure, failure)
+            }
+        }
     }
 
     @Test fun downstreamCollectorFailureCannotBeRetriedAsAWriterFailure() = runTest {

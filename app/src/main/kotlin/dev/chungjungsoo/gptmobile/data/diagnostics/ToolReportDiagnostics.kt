@@ -240,6 +240,7 @@ internal object ToolReportDiagnostics {
                 (pathReceipt["catalog_revision_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let {
                     put("catalog_revision_hash", it)
                     put("catalog_rejection_count", 1)
+                    (pathReceipt["missing_tool_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.matches(Regex("[a-f0-9]{64}")) }?.let { value -> put("missing_tool_hash", value) }
                 }
             }
             (pathReceipt["available_tool_count"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..100_000 }?.let { put("round_catalog_tool_count", it) }
@@ -298,6 +299,10 @@ internal object ToolReportDiagnostics {
             pathReceipt["request_replay_allowed"] == JsonPrimitive(false) &&
             pathReceipt["authorization_recheck_required"] == JsonPrimitive(true) &&
             listOf("mutation_requests", "accepted_mutations", "rejected_mutations", "unknown_mutations").all { pathReceipt[it] == JsonPrimitive(0) }
+        if (stoppedPhoneDeadline && pathReceipt?.get("phase") == JsonPrimitive("CANCELLED_LOCALLY")) {
+            // Use the existing public stage only for this bound local stop; retain its exact code and phase.
+            put("failed_stage", "tool_execution")
+        }
         (result.executionReceipt?.get("phase") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?.takeIf { it in phases && (it != "CANCELLED_LOCALLY" || stoppedPhoneIndex || stoppedPhoneDeadline) }?.let { put("tool_dispatch_phase", it) }
         put("original_reason_code_hash", IssueReportContext.identifierHash("tool-reason-code", reason))

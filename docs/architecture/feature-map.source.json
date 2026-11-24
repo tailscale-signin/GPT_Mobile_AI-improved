@@ -482,7 +482,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt",
         "scripts/scan_secret_history.sh",
         ".github/workflows/pr-validation.yml",
-        "scripts/report_secret_history.py"
+        "scripts/report_secret_history.py",
+        ".gitleaks.toml"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
@@ -518,7 +519,8 @@
         "docs/ci-cd/modernization.md",
         "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json",
         "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
-        "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json"
+        "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json",
+        "docs/repairs/checksum-history-recovery-2026-11-24-task.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -531,7 +533,8 @@
         "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery.",
         "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority.",
         "The mandatory PR/main credential-history gate runs the same pinned scanner against intact, missing-object and restored synthetic histories before the unchanged real reachable-history scan; a missing Git object, failed control or malformed mode cannot produce successful qualification.",
-        "Credential-history findings retain only bounded validated rule, commit, path and line identities; scanner detection or invalid/missing report evidence cannot qualify a clean history, and raw match/secret/commit-author content is never published by the identity reporter."
+        "Credential-history findings retain only bounded validated rule, commit, path and line identities; scanner detection or invalid/missing report evidence cannot qualify a clean history, and raw match/secret/commit-author content is never published by the identity reporter.",
+        "Verified historical public checksums are exempt only at exact reviewed paths and complete declarations, with a literal frozen receipt line; actual pinned-scanner controls preserve detection for changed values, fields, paths, surrounding content and neighboring credentials, and final reachable-history qualification remains mandatory."
       ]
     },
     {

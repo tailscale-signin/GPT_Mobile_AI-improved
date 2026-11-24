@@ -185,6 +185,10 @@ POLICY_FIELD_NAMES = {
     'githubProfileOverride.engineeringGatewayProfileUid',
     'githubProfileOverride.executionBatchMode',
     'githubProfileOverride.sampling',
+    'githubProfileOverride.intelligenceLevel',
+    'githubProfileOverride.recoveryConsultConsent',
+    'githubProfileOverride.engineeringTeamConsent',
+    'githubProfileOverride.recoveryExecutionConsent',
 
     'githubProfileSelection',
     'llamaReasoning',

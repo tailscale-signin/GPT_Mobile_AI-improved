@@ -69,8 +69,12 @@
 # rename/remove these Java entry points and causes an ART abort on first input.
 # Keep the complete SDK boundary, including callback implementations. The
 # privacy transform removes remote loggers before R8 sees these classes.
--keep class com.google.mediapipe.** { *; }
--keep interface com.google.mediapipe.** { *; }
+-keep class !com.google.mediapipe.tasks.text.textproofreader.**,!com.google.mediapipe.tasks.text.textsummarizer.**,com.google.mediapipe.** { *; }
+-keep interface !com.google.mediapipe.tasks.text.textproofreader.**,!com.google.mediapipe.tasks.text.textsummarizer.**,com.google.mediapipe.** { *; }
+# These two SDK APIs require an unused native library. Fail release shrinking
+# if new app code makes either API reachable without restoring that library.
+-checkdiscard class com.google.mediapipe.tasks.text.textproofreader.TextProofreader
+-checkdiscard class com.google.mediapipe.tasks.text.textsummarizer.TextSummarizer
 # MediaPipe's model options use protobuf-lite reflection (including fileContent_).
 # Preserve generated message fields in minified APKs, as required by protobuf-lite.
 -keep class * extends com.google.protobuf.GeneratedMessageLite { *; }

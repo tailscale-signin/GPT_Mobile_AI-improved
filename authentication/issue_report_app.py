@@ -77,6 +77,7 @@ def create_app(public_url, reporter, rate_key):
                 "VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1",
                 "REPOSITORY_READ_PROGRESS_V1",
                 "SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1",
+                "RECOVERY_REPORT_EVIDENCE_V1",
             ])
         return response
 

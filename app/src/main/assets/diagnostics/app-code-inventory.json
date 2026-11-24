@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "df8e7fc92926da0390ec07bcb3eab7b98632562387c57934b9bdc1d7000989c9",
+  "source_digest": "513c5ce08581473f6bc539864f6b73558b06e2cb4a2a99b8e30f1b307faa0cdb",
   "file_count": 3111,
-  "indexed_line_count": 528175,
+  "indexed_line_count": 528186,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -77,7 +77,7 @@
       "id": "model_providers",
       "label": "Model providers and adapters",
       "file_count": 66,
-      "indexed_line_count": 9676
+      "indexed_line_count": 9678
     },
     {
       "id": "models_and_profiles",
@@ -131,7 +131,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 106,
-      "indexed_line_count": 16921
+      "indexed_line_count": 16929
     },
     {
       "id": "benchmark",
@@ -173,7 +173,7 @@
       "id": "authentication_service",
       "label": "Authentication broker software",
       "file_count": 10,
-      "indexed_line_count": 2956
+      "indexed_line_count": 2957
     },
     {
       "id": "external_integrations",
@@ -823,7 +823,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "e4b2c65698c9ebf416611681efb15e3d6b14d8ce488b9eb3ef4c2dfcb2b73908",
+      "sha256": "2a11fae33956fd05c788d1e571a8d5e0d227e35bd4f9300da073f787bc3a8c30",
       "indexed_lines": 2732
     },
     {
@@ -2391,8 +2391,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "5a28844e333f9c659287556fa22708e1849cbc1f9db20e47c6f2e259c04c0231",
-      "indexed_lines": 2072
+      "sha256": "d81e9166ce553e5c26e963b3a923a2acf55f4e7b0b67f4f2bfd0d4f9af6d8532",
+      "indexed_lines": 2074
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAttachmentEncoder.kt",
@@ -6045,8 +6045,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "9d99ef27aee31305659f638900f19f13ec69f26efbe91db39ff1471ae7924d8e",
-      "indexed_lines": 831
+      "sha256": "a7d0f8737c9baee2999a57e6bcecdc3dd7189371449ea48c4dbd8a45d747146a",
+      "indexed_lines": 838
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportGitHubSubmission.kt",
@@ -6101,8 +6101,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "97ad48bee00b9c6d0d27dddd6203d1ae12ed1554f8f6c75379f2aa33cb2a67a3",
-      "indexed_lines": 284
+      "sha256": "cbf93df23ca66e581a7fa80eb9b264f612dcd5b906fe4a2d594d7e0ca5e285f3",
+      "indexed_lines": 285
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorker.kt",
@@ -19548,8 +19548,8 @@
       "path": "authentication/issue_report_app.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "4c947ae57f720e566dba6daabd7e253935c19b41bacba303d033a6a23bc52604",
-      "indexed_lines": 115
+      "sha256": "903b185a8d9e809dda947886d87489bc61c28ab1e70f3f2f710ed7706ee80b63",
+      "indexed_lines": 116
     },
     {
       "path": "authentication/issue_report_diagnostics.py",

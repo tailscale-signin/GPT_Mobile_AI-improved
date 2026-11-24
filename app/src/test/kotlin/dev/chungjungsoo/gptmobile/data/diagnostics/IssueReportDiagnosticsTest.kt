@@ -15,6 +15,14 @@ import org.junit.Test
 
 class IssueReportDiagnosticsTest {
 
+    @Test fun newFreezeEvidenceNegotiatesItsReporterBeforeDispatch() {
+        val base = mapOf("diagnostic_area" to "APP", "app_exit_kind" to "APP_NOT_RESPONDING")
+        val legacy = requireNotNull(IssueReportDiagnostics.fromFields("PROCESS_EXIT", base, 1000))
+        val updated = requireNotNull(IssueReportDiagnostics.fromFields("PROCESS_EXIT", base + mapOf("anr_frame_count" to 2, "anr_trace_state" to "MAIN_THREAD_CAPTURED"), 1000))
+        assertFalse(IssueReportDiagnostics.RECOVERY_REPORT_FEATURE in legacy.requiredServiceFeatures())
+        assertTrue(IssueReportDiagnostics.RECOVERY_REPORT_FEATURE in updated.requiredServiceFeatures())
+    }
+
     @Test fun streamingVoiceCapabilityDependsOnEmittedValuesAcrossSnapshotAndContextRestoration() {
         val feature = VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE
         val additions = mapOf(

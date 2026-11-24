@@ -111,9 +111,12 @@ internal fun retainSafeToolProtocolFrameKind(
     return JsonObject(previous.orEmpty() + ("tool_protocol_frame_kind" to kind))
 }
 
-internal fun streamErrorDetails(error: dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail, visible: Boolean, finished: Boolean): JsonObject = buildJsonObject {
+internal fun streamErrorDetails(error: dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail, visible: Boolean, finished: Boolean): JsonObject =
+    streamErrorDetails(error.code, error.type, visible, finished, error.retryable, error.failureDetails)
+
+private fun streamErrorDetails(code: String?, type: String?, visible: Boolean, finished: Boolean, retryable: Boolean? = null, details: JsonObject? = null): JsonObject = buildJsonObject {
     put("provider_error_origin", JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"))
-    if (error.code.isNullOrBlank() && error.type.isNullOrBlank()) put("provider_error_code_state", JsonPrimitive("ABSENT"))
+    if (code.isNullOrBlank() && type.isNullOrBlank()) put("provider_error_code_state", JsonPrimitive("ABSENT"))
     put("failed_stage", JsonPrimitive("response_stream"))
     put("failure_origin", JsonPrimitive("PROVIDER"))
     put("failure_boundary", JsonPrimitive(if (visible) "AFTER_VISIBLE_OUTPUT" else "BEFORE_VISIBLE_OUTPUT"))
@@ -129,8 +132,8 @@ internal fun streamErrorDetails(error: dev.chungjungsoo.gptmobile.data.dto.opena
             }
         )
     )
-    error.retryable?.let { put("retryable", JsonPrimitive(it)) }
-    error.failureDetails?.forEach { (key, value) -> put(key, value) }
+    retryable?.let { put("retryable", JsonPrimitive(it)) }
+    details?.forEach { (key, value) -> put(key, value) }
 }
 
 class OpenAIResponsesAdapter @Inject constructor(
@@ -1333,8 +1336,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 chunk.error?.let { error ->
                     roundFailed = true
                     lastFailedMessage = error.message
-                    caughtEvidence = streamErrorDetails(error, visibleText, finishedText)
-                    limit = error.providerLimit
+                    caughtEvidence = streamErrorDetails(error.code, error.type, visibleText, finishedText)
                     protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                         ?: error.code ?: error.type ?: protocolErrorCode
                     canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)

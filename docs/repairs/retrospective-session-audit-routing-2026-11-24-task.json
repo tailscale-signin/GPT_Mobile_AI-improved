@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "task": "retrospective-session-audit-routing-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "0e350f23cf41b5b934effa1d8a44307ba8eebbf1",
+  "workingBranch": "work/retrospective-session-audit-2026-11-24",
+  "parentPullRequest": 2367,
+  "recordedBeforeSourceEdits": true,
+  "recordedAt": "2026-11-24T02:20:50.405132+00:00",
+  "intent": "Recognize narrowly bounded retrospective questions about issues encountered in the current conversation and use the existing local retained-session audit route, preserving the active unfinished task and all dispatch/privacy guards.",
+  "sourceObservation": {
+    "exactReportedQuestion": "What issues have you discovered this session that prevented you from doing what I asked?",
+    "reference": "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23.md",
+    "originalClassifierSha256": "f265fcb97d8474bc8f3ab5501a64001edaa93c532a26e68ca9107a8e5db81e9e",
+    "currentRoute": "GitHubTaskContinuity.sessionAudit -> diagnostic/continuation/reuse and ChatRepositoryImpl existing guarded local audit before request preparation",
+    "limitation": "The compact2446/2447 reports alone did not establish this cause. New repository audit provides the exact wording; current source confirms it misses the explicit session-audit classifier. No captured incident or full application run is reproduced here."
+  },
+  "acceptance": [
+    "Recognize the exact reported retrospective question and a bounded family of equivalent explicit current-session issue questions, with the existing300-character limit.",
+    "Preserve all existing imperative session-audit forms, task controls, repository request matching and authorization/attachment/profile/privacy boundaries.",
+    "Reject compound action requests, quoted instructions, repository/CI-specific questions and overlong normalized lookalikes; do not consume a new action as a local audit.",
+    "Use the existing local report without modifying its retained-window/privacy behavior or adding model/tool requests. Existing diagnostic continuity must preserve pending task identity.",
+    "Add ordinary behavior controls; preserve every existing source/test byte outside the narrowly replaced sessionAudit expression and new private matcher.",
+    "Run permitted formatting/canonical validation and independent source review. Normal hosted Android/ordinary execution remains required; no substitute local application/privacy harness."
+  ],
+  "ownedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt",
+    "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json"
+  ],
+  "state": "SOURCE_REVIEW_CLEAR_FINAL_ORDINARY_RUNTIME_REQUIRED",
+  "integrationParent": "dcfe93976b56cb4f61e5c60a75cd9ada6b9224c0",
+  "sourceInputs": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt": "dc8eacefc70e7903050611253ff1995383bc62a31281dcfb6f06386ef7d97ac9",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt": "7d3938b6dc3d058e5d9f482d2bef1551d98c64034e937f7a31bd35526f1f1b5b"
+  },
+  "validation": {
+    "pinnedKtlint": "PASS:1.3.1;2owned Kotlin files;JDK21;jarSHA256a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1",
+    "ordinaryRegressionMethods": 3,
+    "ordinaryRegressionCases": "5 retrospective questions in plain/workspace forms,10 action/repository/quoted/oversized negatives in both forms,3 retained imperative forms",
+    "ordinaryRuntime": "NOT_RUN_LOCALLY;final normal hosted project CI required",
+    "canonicalHost": "Required on the frozen combined commit before guarded append; receipt retained separately to avoid a circular hash.",
+    "independentSourceReview": {
+      "decision": "SOURCE_CLEAR",
+      "sha256": "340f1e0cf4a0fcdb27e810a304ab88fcc930298d5ed4d0d68de994c7ca4b0fe9",
+      "scope": "Exact classifier/test bytes, preserved original regex/300-character cap, unchanged local guarded fast path and task pointer behavior; no application execution."
+    },
+    "incomingEd394": "Documentation/generated references adopted by fast-forward;owned source/test hashes unchanged",
+    "incomingE855": "Unpublished change rebased onto the complete history-integrity append; all foreign scanner source and scope entries preserved. Owned production/test hashes remain exact.",
+    "incoming9473": "Preserved all Responses retained-work production, four ordinary methods, release notes and feature/scope additions after the pre-append source guard detected concurrent head drift; owned classifier/test bytes remain exact.",
+    "incomingDcfe": "Preserved all new unheaded PR-context recovery production, seven ordinary methods, release notes and feature/scope entries; the reviewed retrospective classifier/test bytes remain exact."
+  },
+  "integrationWorkingBranch": "work/github-session-composed-dcfe"
+}

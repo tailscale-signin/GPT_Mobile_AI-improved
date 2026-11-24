@@ -429,7 +429,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalization.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFixtureTestMode.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
@@ -448,7 +450,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalizationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageAdmissionRunnerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFixtureTestModeTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -457,7 +460,8 @@
       "documents": [
         "docs/architecture/repository-guide.md",
         ".github/instructions/ai-engineering.md",
-        "docs/ci-cd/modernization.md"
+        "docs/ci-cd/modernization.md",
+        "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -467,7 +471,8 @@
         "Argument canonicalization is separate from semantic repair and its observed execution outcome.",
         "A native saved-page read and proven provider delivery are separate facts; continuation retains original context, output and attempt limits.",
         "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it.",
-        "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery."
+        "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery.",
+        "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority."
       ]
     },
     {

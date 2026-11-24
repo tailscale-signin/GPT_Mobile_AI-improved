@@ -433,7 +433,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalization.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFixtureTestMode.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
@@ -452,7 +454,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalizationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageAdmissionRunnerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFixtureTestModeTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -461,7 +464,8 @@
       "documents": [
         "docs/architecture/repository-guide.md",
         ".github/instructions/ai-engineering.md",
-        "docs/ci-cd/modernization.md"
+        "docs/ci-cd/modernization.md",
+        "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -471,7 +475,8 @@
         "Argument canonicalization is separate from semantic repair and its observed execution outcome.",
         "A native saved-page read and proven provider delivery are separate facts; continuation retains original context, output and attempt limits.",
         "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it.",
-        "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery."
+        "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery.",
+        "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority."
       ]
     },
     {
@@ -1456,6 +1461,11 @@
       "bytes": 23534,
       "sha256": "900597fbaa0085ad52b071c4d425510d253452f8a8d06c9739a24108bb44c36a"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt": {
+      "blob_sha": "1e7815e6485bd94a6796575862877cec5d358ab5",
+      "bytes": 3035,
+      "sha256": "b91dae53e3ab56870570422d99a448953680563ffb8a86aca75d0252a0e8612a"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextBundle.kt": {
       "blob_sha": "2786d8888af80fe333aa701275661dc3e2b62aef",
       "bytes": 28837,
@@ -1475,6 +1485,11 @@
       "blob_sha": "9d978e7d2beabd3759ebec2371ac3298d5d43390",
       "bytes": 1990,
       "sha256": "392ffde024dbb7e9914c8765ede6098431f586463d164a9ed6e28adaac8a21da"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt": {
+      "blob_sha": "657456b3d90cf0ee50ae10543da808ade7484325",
+      "bytes": 10709,
+      "sha256": "dc8eacefc70e7903050611253ff1995383bc62a31281dcfb6f06386ef7d97ac9"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": {
       "blob_sha": "ea294b4effbbd8f0a35100c4ae4ba66a71d52ec9",
@@ -2436,6 +2451,11 @@
       "bytes": 4419,
       "sha256": "2700f0149f34ecdfd753d3afe29595ac6235ea6d9f83792877cf7a3f63d57f2a"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt": {
+      "blob_sha": "d2a705b15233de585b2f69d21252d1277af81754",
+      "bytes": 3656,
+      "sha256": "7d3938b6dc3d058e5d9f482d2bef1551d98c64034e937f7a31bd35526f1f1b5b"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewProgressTest.kt": {
       "blob_sha": "a68df110c68a20ae0531becb4b9feb0246302de9",
       "bytes": 20564,
@@ -3230,6 +3250,11 @@
       "blob_sha": "6ac1362b751ffff1cd4584f3d1c75431a9e275a1",
       "bytes": 13944,
       "sha256": "47a2a53cd25da6823e38a695731965e639991147993d71c30663d55e40d4327e"
+    },
+    "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json": {
+      "blob_sha": "d58468232b346357a05c6be561f1b13f6d12e5bb",
+      "bytes": 5113,
+      "sha256": "26110fa5cde36e9bb1cb22126d8e5a711a15a7fcd6da551bdb621dc1dc936c81"
     },
     "docs/repairs/speech-benchmark-1795470489503-task.json": {
       "blob_sha": "bf8dbcfd664790f073288340141c0e8e81ebca9b",

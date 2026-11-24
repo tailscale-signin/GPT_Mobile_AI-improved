@@ -307,7 +307,8 @@
     "Make GitHub previews finding-led and evidence-bound, keep full primary prompt guidance, admit new analysis over existing evidence, publish each completed streamed block independently, and render useful Markdown while retaining source-owned charts and exact recorded check counts.",
     "Scope durable-wait refusal projection to actual durable scheduling at both provider catch sites and complete the persisted-chat test endpoint/model binding without weakening assertions or route authority; preserve and index the incoming isolated QNN candidate workflow and its existing compiler-setup correction. Make candidate-input preflight pipeline failures visible using the explicit Bash fail-fast/pipefail shell, without changing the later independent build validation.",
     "Preserve validated retained backend attempts and partial or unknown usage across Responses sampling, tool-definition and transient HTTP rejection paths; prevent replay/credential rotation, retain bounded terminal evidence and add actual-adapter regressions for HTTP400/429/502/503/504 with all clean positive controls preserved.",
-    "Recover a legacy unheaded PR context failure through one fresh scoped live header and one pinned retry, preserving existing revision guards, restored attempt identity, caller budgets and acquisition reserve."
+    "Recover a legacy unheaded PR context failure through one fresh scoped live header and one pinned retry, preserving existing revision guards, restored attempt identity, caller budgets and acquisition reserve.",
+    "Route bounded retrospective questions about issues in the current conversation through the existing local session audit, retaining pending task identity and rejecting compound repository actions, quoted prompts and overlong lookalikes."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -447,6 +448,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextBundle.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextPreparation.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextReadProgress.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneTaskContextFailure.kt",
@@ -629,6 +631,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRoundProgressTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewProgressTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRuntimeClaimScopeTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchSourceReadTest.kt",
@@ -826,6 +829,7 @@
     "docs/repairs/release-lint-budget-2026-11-23-task.json",
     "docs/repairs/responses-retained-backend-work-2026-11-24-task.json",
     "docs/repairs/responses-retained-http400-2026-11-24-task.json",
+    "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json",
     "docs/repairs/shared-release-integration-2026-11-23-task.json",
     "docs/repairs/speech-benchmark-1795470489503-task.json",
     "docs/repairs/speech-benchmark-control-2026-11-23-task.json",

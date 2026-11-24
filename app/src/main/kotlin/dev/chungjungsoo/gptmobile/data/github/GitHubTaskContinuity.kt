@@ -27,9 +27,20 @@ internal object GitHubTaskContinuity {
     }
 
     fun sessionAudit(text: String): Boolean = request(text).length <= 300 &&
-        Regex(
-            "^(?:(?:list|find|show|identify|examine|review|audit|summarize) (?:me )?(?:all |the )?(?:issues|errors|failures|problems|bugs) (?:with|in|from|for) (?:this|the current|our) (?:github )?(?:session|chat|conversation)|audit (?:this|the current) (?:github )?(?:session|chat|conversation))(?: (?:using|with) github)?(?: and (?:offer|list|suggest) (?:fixes|solutions))?$"
-        ).matches(normalized(text))
+        (
+            Regex(
+                "^(?:(?:list|find|show|identify|examine|review|audit|summarize) (?:me )?(?:all |the )?(?:issues|errors|failures|problems|bugs) (?:with|in|from|for) (?:this|the current|our) (?:github )?(?:session|chat|conversation)|audit (?:this|the current) (?:github )?(?:session|chat|conversation))(?: (?:using|with) github)?(?: and (?:offer|list|suggest) (?:fixes|solutions))?$"
+            ).matches(normalized(text)) ||
+                retrospectiveSessionQuestion.matches(normalized(text))
+            )
+
+    // Full-question matching keeps a new repository action out of the local audit route.
+    private val retrospectiveSessionQuestion = Regex(
+        "^(?:what|which) (?:issues|errors|failures|problems|bugs|blockers) " +
+            "(?:have you (?:discovered|found|encountered|observed)|did you (?:discover|find|encounter|observe)) " +
+            "(?:(?:(?:in|during) )?(?:this|our|the current) (?:github )?(?:session|chat|conversation)|so far)" +
+            "(?: that (?:prevented|stopped|blocked) you from (?:doing what i asked|(?:completing|finishing) (?:the|my) (?:task|request)))?$"
+    )
 
     /** This identifies a resume request only. The claimed commit is verified by read receipts. */
     fun publishedCommit(text: String): String? = GitHubNativeContinuation.publishedCommit(text)

@@ -43,3 +43,12 @@ condition = "AND"
 paths = ['''^app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol\.kt$''']
 regexTarget = "line"
 regexes = ['''^\s*const val ORDER_KEY = "cpu-calibration-order-v3"\s*$''']
+
+# Exact public MockK artifact checksum in the recorded host-test evidence.
+# The scanner controls bind it to Gradle's approved dependency pin. Other
+# filenames, values, paths and surrounding content continue to scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"mockk-agent-api-jvm-1\.14\.11\.jar": "9459d7eb7694b6e0039e19f7d1a89dfc7ae1fa782ff8d38f2952bda1ffa39242",\s*$''']

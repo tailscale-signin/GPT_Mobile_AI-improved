@@ -9,11 +9,31 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key, l
 from benchmarks import product_trials as trials
 from benchmarks.contracts import digest
 
-COMMANDS = ('freeze-native', 'schedule-native', 'observe-native', 'grade-native', 'compare-native', 'blind-previews', 'score-previews')
+TARGET_COMMANDS = {'prepare-target-review': 'Prepare a case-bound target observation inventory',
+                   'observe-targets': 'Sign the independently captured event inventory',
+                   'grade-targets': 'Prepare a label sheet or sign independent judgments',
+                   'score-targets': 'Score independently reviewed production targets'}
+COMMANDS = ('freeze-native', 'schedule-native', 'observe-native', 'grade-native', 'compare-native',
+            'blind-previews', 'score-previews', *TARGET_COMMANDS)
 
 
 def configure(commands):
     for name in COMMANDS:
+        if name in TARGET_COMMANDS:
+            cmd = commands.add_parser(name, help=TARGET_COMMANDS[name])
+            cmd.add_argument('--qualification', type=Path, required=True)
+            if name == 'observe-targets':
+                cmd.add_argument('--inventory', type=Path, required=True)
+                cmd.add_argument('--observer-key', type=Path, required=True)
+            if name in ('grade-targets', 'score-targets'):
+                cmd.add_argument('--observation', type=Path, required=True)
+                cmd.add_argument('--observer-public', type=Path, required=True)
+                cmd.add_argument('--grades', type=Path, required=name == 'score-targets')
+                if name == 'grade-targets':
+                    cmd.add_argument('--grader-key', type=Path)
+                else:
+                    cmd.add_argument('--grader-public', type=Path, required=True)
+            continue
         cmd = commands.add_parser(name, help={
             'blind-previews': 'Prepare anonymized A/B preview transcripts for registered readers',
             'score-previews': 'Grade factual clauses, corrections, repetition and blind preferences',
@@ -62,6 +82,31 @@ def execute(args, client_factory, grade_trial, read_file):
 
     def attest(payload, private):
         return {'payload': payload, 'signature': private.sign(trials.signed_bytes(payload)).hex()}
+
+    if args.command in TARGET_COMMANDS:
+        from benchmarks import target_review
+        report = load(args.qualification)
+        if args.command == 'prepare-target-review':
+            return target_review.inventory_template(report)
+        if args.command == 'observe-targets':
+            inventory = load(args.inventory)
+            target_review.grade_template(report, inventory)
+            return attest(inventory, key(args.observer_key, True))
+        observation = load(args.observation)
+        observer = key(args.observer_public, False)
+        if args.command == 'score-targets':
+            return target_review.score_signed(report, observation, load(args.grades), observer, key(args.grader_public, False))
+        inventory = trials.verified(observation, observer, target_review.OBSERVATION)
+        if not args.grades and not args.grader_key:
+            return target_review.grade_template(report, inventory)
+        if not args.grades or not args.grader_key:
+            raise ValueError('Signing a grade requires both the completed label sheet and the grader key')
+        signer = key(args.grader_key, True)
+        if signer.public_key().public_bytes_raw() == observer.public_bytes_raw():
+            raise ValueError('The grader must have its own independent key')
+        labels = load(args.grades)
+        target_review.reviewed_metrics(report, inventory, labels)
+        return attest(labels, signer)
 
     if args.command in ('blind-previews', 'score-previews'):
         from benchmarks import preview_study

@@ -338,3 +338,27 @@ The comparison checks all ten task contracts, initial commit of each merge targe
 settings, budgets, GitHub actor and repository permissions, binding privacy and tool policy, model bindings and separate job IDs. Its difference describes the
 observed runs. ChatGPT and Codex need equivalent capabilities and independently
 attributable run evidence before a comparison can be reported.
+
+### Review the five targets that need independently labelled evidence
+
+Use a saved, complete ten-job production qualification report. The observer and grader keep distinct Ed25519 PEM keys outside the tested product. The commands run offline on the lab controller and print JSON.
+
+```bash
+python gateway/grade_external_reference.py prepare-target-review --qualification run.json > inventory.json
+python gateway/grade_external_reference.py observe-targets --qualification run.json --inventory inventory.json --observer-key observer.pem > observation.json
+python gateway/grade_external_reference.py grade-targets --qualification run.json --observation observation.json --observer-public observer.pub > labels.json
+python gateway/grade_external_reference.py grade-targets --qualification run.json --observation observation.json --observer-public observer.pub --grades labels.json --grader-key grader.pem > grades.json
+python gateway/grade_external_reference.py score-targets --qualification run.json --observation observation.json --observer-public observer.pub --grades grades.json --grader-public grader.pub > reviewed-targets.json
+```
+
+Before signing the inventory, the observer fills the relevant job and target lists with the SHA-256 of each immutable trace event, including its job and unique event identity. A complete inventory includes every eligible event. Use an empty list for an audited case with zero events, and JSON null for an unavailable inventory. The observer keeps the underlying trace locally.
+
+| Target | Events to inventory | A positive judgment means |
+| --- | --- | --- |
+| Valid task intent | One accepted task and the system's interpretation per job | It matches the independently labelled user intent |
+| Unnecessary tool calls | Every executed call, including retries | The call served no necessary purpose |
+| False implementation claims | Every assertion that a change was implemented | The assertion contradicts the verified outcome |
+| Unreconciled duplicate writes | Every observed remote write effect | This was an excess effect still outstanding after reconciliation |
+| Preventable provider payload failures | Every physical provider dispatch, including retries | The dispatch encountered a preventable payload rejection |
+
+Before signing the grades, the independent grader replaces each reviewed event's null with an object containing a boolean `positive` and the SHA-256 `evidenceDigest` of the supporting judgment. Leave an ungraded event null. The final command verifies both signatures, the exact report, the complete case and event inventory, and any available provider receipts. It produces a numeric reviewed value only with complete case coverage and at least one graded event. Percentages use event counts across cases. These labels supplement the target report and preserve the existing 100-point score.

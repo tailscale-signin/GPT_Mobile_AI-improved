@@ -1888,6 +1888,7 @@
         "gateway/v14/agent_local.py",
         "gateway/benchmarks/github_intelligence.py",
         "gateway/benchmarks/github_intelligence_targets.py",
+        "gateway/benchmarks/target_review.py",
         "gateway/benchmarks/engineering_qualification.py",
         "gateway/qualify_engineering.py",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryReadSession.kt",
@@ -1912,6 +1913,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReviewerPolicyTest.kt",
         "gateway/tests/test_gateway_github_intelligence.py",
         "gateway/tests/test_gateway_github_intelligence_targets.py",
+        "gateway/tests/test_gateway_intelligence_target_review.py",
         "gateway/tests/test_gateway_agent_adapters.py",
         "gateway/tests/test_gateway_external_reference_cli.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryReadSessionTest.kt",
@@ -5850,9 +5852,9 @@
       "sha256": "949dbd4debdafebff4339588cd9cb5b00a4ae1a9fc75c11a42b4e9820e5d2e10"
     },
     "gateway/benchmarks/README.md": {
-      "blob_sha": "007b00818d5b5d8121be0168ccf8e95124b942df",
-      "bytes": 25200,
-      "sha256": "ffb48c67d24df151c8a5709c3637b4a82bf9f19d7b2dcaa258623faff8368590"
+      "blob_sha": "474758d55fe6b413e07fc0f8f3aacfdcd1d491b9",
+      "bytes": 28051,
+      "sha256": "0e773698dc804d80c0e700521896ccad14ac66ed33c9492569b2b53be3663d57"
     },
     "gateway/benchmarks/context_experiment.py": {
       "blob_sha": "043780d7cffe31a2ca9ef7914f6a240a4d8930e9",
@@ -5893,6 +5895,11 @@
       "blob_sha": "96bd3ffce4bca6098d88d26203684b9f102150fd",
       "bytes": 30440,
       "sha256": "28555df33cfa08ca1043c356c4868613a5f1fd3967a80d77de7aba579f324875"
+    },
+    "gateway/benchmarks/target_review.py": {
+      "blob_sha": "ede1d725c7a3bd895c467bc0e281e879b1c6d870",
+      "bytes": 6171,
+      "sha256": "c0f2fe7dabd279d8285fb436788abf5432fdfde854d5c1c22a9d4106c6fdaa8c"
     },
     "gateway/desktop/conversation_client.py": {
       "blob_sha": "e7b25d9deed2d533660f567beb350616bb147005",
@@ -5978,6 +5985,11 @@
       "blob_sha": "4a1fec0e2cba87dfd8cc8256f87a6bfbc1256654",
       "bytes": 16392,
       "sha256": "fd1c6dae8a6c73432af1f0cbc900115e5557a5e648ec32b40becd8c22bd28390"
+    },
+    "gateway/tests/test_gateway_intelligence_target_review.py": {
+      "blob_sha": "a8c557680af18d26b4e5ef4535534efd0f391b15",
+      "bytes": 8196,
+      "sha256": "fa81a8ba8d99970942ace4aef9d7a44c1f6207cba6cb466f5479fa6126d36d23"
     },
     "gateway/tests/test_gateway_preview_study.py": {
       "blob_sha": "48bf3d3fd3245e933e007c253fb6bd7a6d46446c",

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "e45f2e917bfec89740e5e09cc6e28bfd2f0cde88fa39948f56e5a998b19b3ed2",
-  "file_count": 3128,
-  "indexed_line_count": 532234,
+  "source_digest": "4558eaf1251036c09899cb77744514d789e9cda7a68cebfdd0c71618837b1e6d",
+  "file_count": 3129,
+  "indexed_line_count": 532388,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,8 +166,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 281,
-      "indexed_line_count": 103086
+      "file_count": 282,
+      "indexed_line_count": 103240
     },
     {
       "id": "authentication_service",
@@ -19828,8 +19828,8 @@
       "path": "gateway/benchmarks/product_cli.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "7145fc8c37a176aceec176fbdc5b61650f2c7bbf142afa0292e81f1e4a7a7c19",
-      "indexed_lines": 133
+      "sha256": "5b83808bb4b80ae64aa00e6ba733497db7be9a962ac93bfe045e2243685172f4",
+      "indexed_lines": 178
     },
     {
       "path": "gateway/benchmarks/product_trials.py",
@@ -19893,6 +19893,13 @@
       "kind": "source",
       "sha256": "018f70f710de407a96926efeb4ac280678a21331b4c2f1dabbbd48ca2d15b75f",
       "indexed_lines": 413
+    },
+    {
+      "path": "gateway/benchmarks/target_review.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "c0f2fe7dabd279d8285fb436788abf5432fdfde854d5c1c22a9d4106c6fdaa8c",
+      "indexed_lines": 109
     },
     {
       "path": "gateway/benchmarks/variants.py",
@@ -21389,7 +21396,7 @@
       "path": "gateway/v14/package.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "af8c876b302061c45151c0e6051961196573317d61bfbc5b2752dc26f5196d7f",
+      "sha256": "e8940d96e7e012995a87e4bdfb0f6cb9e18ebc1e9265a9a7b3cde752d4f1d1c8",
       "indexed_lines": 43
     },
     {

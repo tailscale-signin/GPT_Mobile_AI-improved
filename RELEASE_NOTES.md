@@ -25,6 +25,8 @@ Native-product and reader-preference comparisons require independently collected
 
 ## GitHub engineering intelligence
 
+- An external reviewer can grade intent accuracy, tool use, implementation claims, duplicate writes and payload failures against signed observations from the exact run. Each result includes the number of cases and events reviewed.
+
 - Fixed sampling profiles can interpret indirect and mixed requests using conversation history. An invalid advisory proposal falls back to the original request.
 - Replay preserves source observations cited by unfinished criteria and their prerequisites. Compact profiles can start with up to four unread paths from the pinned repository tree.
 - New chats reuse the phone's file and symbol relationships when tree, parser, focus and indexed sources match. A missing cached page triggers reconstruction.

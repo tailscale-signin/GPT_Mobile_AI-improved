@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2367,
+  "base_sha": "7e728578c2899d1ecafa284552466f075f46ecb4",
+  "base_tree": "14807bd8cd4a14e61e3c178267e1f6594f0a11bd",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "target_branch": "main",
+  "working_branch": "work/github-comparison-context-7e728578",
+  "intent": "Qualify production model comparisons only when their effective admitted conversation and follow-up inputs match, with unfrozen persistent memory explicitly unavailable.",
+  "status": "FROZEN_LOCAL_COMPONENT_PENDING_ROOT_INTEGRATION",
+  "owned_source_paths": [
+    "gateway/benchmarks/github_intelligence.py",
+    "gateway/tests/test_gateway_github_intelligence.py"
+  ],
+  "metadata_paths": [
+    "docs/repairs/github-comparison-context-2026-11-24-task.json"
+  ],
+  "source_sha256": {
+    "gateway/benchmarks/github_intelligence.py": "210644afc8b64e5a3a9d83a3f50bbe391c3565e51fca7b61bf3e43cd5d09758b",
+    "gateway/tests/test_gateway_github_intelligence.py": "57a35837f8b7598b112c21a41cd3a5a046a06f4fc645ff3fcf922c5cfb76d98a"
+  },
+  "behavior": [
+    "Version gateway.github-intelligence-case.v2 is returned and included in the case-contract digest. Legacy unversioned opaque contracts cannot qualify the current aggregate score or comparison.",
+    "The exact effective job.get('conversation_context') JSON value is locally hashed with a versioned schema. Absent and explicit null both mean null; ordered roles, contents, revisions and coverage flags remain represented.",
+    "The exact effective data.get('user_instructions', []) JSON value is locally hashed with a versioned schema. Absence and [] match; explicit null, command identities, contents and order remain distinct.",
+    "Only explicit SESSION_ONLY qualifies this comparison contract until persistent historical inputs can be frozen and proven. Default, HYBRID and PERSISTENT remain unqualified rather than receiving a zero or failed model score.",
+    "Existing per-case observations remain available. Runtime memory preferences, provider requests, prompts, dispatch authority, budgets, acceptance, scenario weights and model execution remain unchanged.",
+    "No raw conversation or follow-up text is added to reports, score exports or diagnostics. Only an already hashed case contract and its schema marker are returned.",
+    "Comparison refusal retains the original error prefix and adds actionable session-only and matching-input guidance."
+  ],
+  "validation": {
+    "permitted": "Actual ordinary Python helper tests and static Git/source preservation; no Android, Kotlin, native, application substitute harness or provider execution.",
+    "test_first_context": {
+      "methods": 13,
+      "expected_failures": 9,
+      "all_prior_methods_passed": 9,
+      "explanation": "Eight context/presence rejection subcases plus legacy opaque-contract compatibility failed against unchanged base production."
+    },
+    "intermediate_context_only": {
+      "methods": 13,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "test_first_memory_and_instructions": {
+      "methods": 15,
+      "expected_failures": 7,
+      "explanation": "Three unfrozen-memory modes and four changed/present-null follow-up subcases failed before the adjacent guards."
+    },
+    "final_frozen_command": "PYTHONPATH=gateway python3 -m unittest discover -s gateway/tests -p 'test_gateway_github_intelligence*.py' -v",
+    "final_frozen_result": {
+      "methods": 18,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "score_methods": 15,
+      "direct_target_consumer_methods": 3
+    },
+    "prior_method_preservation": "All nine prior score test method bodies and assertions remain byte-identical. The shared synthetic report helper now explicitly selects SESSION_ONLY for valid comparison fixtures and supports controlled context/instruction inputs.",
+    "test_inventory": "Six new score methods cover matched context under distinct external IDs, role/content/order/revision/coverage changes, absence/null/present-empty semantics, legacy schema refusal, unfrozen memory and exact sent follow-up inputs.",
+    "whitespace": "git diff --check passed.",
+    "scope_limit": "Focused tests use controlled job observations and the actual pure Python score/compare/target helpers. They do not establish live-model quality, provider execution, device performance or universal superiority."
+  },
+  "integration_requirements": [
+    "Root owns composition onto the latest public head, preserving all concurrent commits.",
+    "Refresh the Gateway manifest and source anchor, mapped source references and exact additive release scope after composition.",
+    "Run canonical validation and every applicable current-head/main workflow before merge and publication.",
+    "The existing policy vocabulary, native context and other owner holds remain separate; this component clears none of their gates.",
+    "Final source, logs, input hashes, immutable commit/tree and independent review belong to separate receipts; this ledger is not self-attestation of publication."
+  ]
+}

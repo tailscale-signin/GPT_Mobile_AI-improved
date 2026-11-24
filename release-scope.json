@@ -339,7 +339,8 @@
     "Preserve safety-filtered literal pronunciation keys through playback buffers, live/replay captions and all speech frontends; apply saved corrections once before default identifier rendering while retaining original ranges, cancellation ownership and interior URL/reference filtering.",
     "Preserve all literal-pronunciation and GitHub-intelligence source while composing their generated inventories; verify surviving correction ranges after interior raw, encoded and hash-bearing URL removal.",
     "Align the four GitHub intelligence and consent policy-change field names across Android incident projection and the reporting receiver, preserving exact vocabulary parity and rejection of unknown names or raw setting values.",
-    "Repair full Kokoro HTP context serialization using the supported embedded-initializer compile path and a bounded private source snapshot; load and validate the serialized context before publication, preserve cancellation, and qualify real store/load/corruption recovery with the pinned host runtime."
+    "Repair full Kokoro HTP context serialization using the supported embedded-initializer compile path and a bounded private source snapshot; load and validate the serialized context before publication, preserve cancellation, and qualify real store/load/corruption recovery with the pinned host runtime.",
+    "Bind GitHub Intelligence Score comparisons to versioned effective conversation and follow-up input digests, and keep unfrozen persistent-memory history unavailable for comparison without changing runtime preferences."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1177,7 +1178,8 @@
     "scripts/tests/test_qualcomm_candidate_download.py",
     "scripts/tests/test_qualcomm_dispatch_candidate.py",
     "scripts/tests/test_release_lint_workflow.py",
-    "scripts/tests/test_secret_history_reporting.py"
+    "scripts/tests/test_secret_history_reporting.py",
+    "docs/repairs/github-comparison-context-2026-11-24-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

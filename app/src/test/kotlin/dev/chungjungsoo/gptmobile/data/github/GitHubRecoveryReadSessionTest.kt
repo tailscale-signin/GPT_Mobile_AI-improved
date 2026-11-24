@@ -1,6 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
+import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
@@ -70,6 +74,39 @@ class GitHubRecoveryReadSessionTest {
         checkAdmission(listOf(search), emptyList(), """{"kind":"search","term":"Retry","repo":"other"}""", true)
         checkAdmission(listOf(search), emptyList(), """{"kind":"write","path":"foo"}""", true)
         assertEquals(5, calls.size)
+    }
+
+    @Test fun parentRunnerExecutesTheBoundedSelectionAndResumesWithVerifiedEvidence() = runTest {
+        var executions = 0
+        val reader = object : AgentTool {
+            override val definition = search
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                assertEquals(JsonPrimitive(scope.commitSha), arguments["commit_sha"])
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("src/Retry.kt"), false, executionReceipt = JsonObject(mapOf("head_sha" to JsonPrimitive(scope.commitSha))))
+            }
+        }
+        val writer = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                ProviderEvent.TextDelta((exchanges.single().results.single().content as ToolResultContent.Text).text),
+                ProviderEvent.Completed
+            )
+        }
+        val escalated = GitHubRecoveryReadSession(writer, scope, setOf(search.name), "one-read", { selection }, { _, _ -> true })
+        val events = AgentRunner(AgentRunLimits(maxRounds = 2, maxToolCalls = 1)).run(escalated, listOf(reader)).toList()
+        val finished = events.filterIsInstance<AgentRunEvent.ToolFinished>().single()
+        assertEquals(1, executions)
+        assertEquals(JsonPrimitive(scope.commitSha), finished.result.executionReceipt?.get("head_sha"))
+        assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().any { (it.event as? ProviderEvent.TextDelta)?.text == "src/Retry.kt" })
+    }
+
+    @Test fun recoveryTransportRetryCannotInvokeTheAlternateProfileTwiceOrForwardPriorReceipts() = runTest {
+        val session = GitHubRecoveryReadSession.singleGeneration(primary)
+        val prior = AgentToolExchange(emptyList(), listOf(AgentToolResult("old", ToolResultContent.Text("private source"), false)))
+        assertEquals(listOf(ProviderEvent.Completed), session.streamRound(listOf(search), listOf(prior)).toList())
+        val retry = session.streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
+        assertEquals("GITHUB_RECOVERY_PROFILE_LIMIT", retry.errorCode)
+        assertEquals(listOf(emptyList<AgentToolExchange>()), calls)
     }
 
     @Test fun rangeSelectionIsBoundedAndCannotOverrideScopeOrSpecifyAnArbitraryTool() {

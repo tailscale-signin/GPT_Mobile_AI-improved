@@ -23,6 +23,24 @@ CALIBRATION_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/Vo
 MOCKK_EVIDENCE_PATH = "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json"
 MOCKK_ARTIFACT = "mockk-agent-api-jvm-1.14.11.jar"
 COMPOSE_EVIDENCE_PATH = "docs/repairs/privacy-lifecycle-disposal-idle-2026-11-24-task.json"
+PRONUNCIATION_EVIDENCE_PATH = "docs/repairs/evidence/voice-pronunciation-vocabulary/independent-review-reconstructed.json"
+HISTORY_OUTER_EVIDENCE_PATH = "docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log"
+HISTORY_OUTER_FIRST_LINE_SHA256 = "db9b4401caf992c261ab1e9fc649b3cdf6533602fa81151fdfa83f6021c7dd45"
+HISTORY_OUTER_FILE_SHA256 = "239d494e49bd476ad148e2be462a2a0a0e3a857372dcafe7904c02b6f68e42e6"
+# These immutable public source digests are verified in the repair ledger.
+# Keep path and digest separate so the control source is not a secret-like map.
+PUBLIC_WRAPPER_DECLARATIONS = (
+    ("wrapper_e855", "docs/repairs/diagnostic-93d824fd-secret-history-integrity-2026-11-24-task.json",
+     "f19efdac6e205f9ecfb69e9c957c65d79b46e38d741eace05cc3c1200a3836ce"),
+    ("wrapper_e406_before", "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
+     "f19efdac6e205f9ecfb69e9c957c65d79b46e38d741eace05cc3c1200a3836ce"),
+    ("wrapper_e406_after", "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
+     "b3f807b708d932b6f0d2015afe69ee1ff5ec192a6086afbb9bc4f5e4f88b7f63"),
+    ("wrapper_report_ledger", "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json",
+     "d3c62151d7cf40467999121e949ab5bdaf9195635b075b8d6b4d97b4f5744074"),
+    ("wrapper_report_result", "docs/repairs/evidence/secret-history-finding-evidence/focused-result.json",
+     "d3c62151d7cf40467999121e949ab5bdaf9195635b075b8d6b4d97b4f5744074"),
+)
 WAVEFORM_EVIDENCE_PATH = "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json"
 MODEL_PACK_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt"
 HISTORY_OPTIONS = "--all --full-history --diff-merges=first-parent --root"
@@ -105,6 +123,55 @@ def compose_dependency_line():
     if pins != [digest]:
         raise ValueError("compose_dependency_pin_contract")
     return '    "apiArtifactSha256": "' + digest + '"'
+
+
+def exact_declaration_cases(name, path, field, digest, alternate_digest):
+    """Exercise every boundary of one exact path/field/value/whole-line pin."""
+    exact = '  "' + field + '": "' + digest + '",'
+    alternate = exact.replace(digest, alternate_digest)
+    other_field = exact.replace('"' + field + '"', '"other_api_key"', 1)
+    neighboring_key = '  "apiKey": "' + alternate_digest + '",'
+    return [
+        (name + "_exact", path, exact, 0),
+        (name + "_different_value", path, alternate, 1),
+        (name + "_different_path", path + ".other", exact, 1),
+        (name + "_different_field", path, other_field, 1),
+        (name + "_prefix_content", path, '"extra": true, ' + exact.lstrip(), 1),
+        (name + "_trailing_content", path, exact + ' "extra": true,', 1),
+        (name + "_secret_before", path, neighboring_key + "\n" + exact, 1),
+        (name + "_secret_after", path, exact + "\n" + neighboring_key, 1, 3),
+    ]
+
+
+def immutable_outer_evidence_line():
+    raw = (ROOT / HISTORY_OUTER_EVIDENCE_PATH).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != HISTORY_OUTER_FILE_SHA256:
+        raise ValueError("historical_outer_evidence_contract")
+    lines = raw.decode("utf-8").splitlines()
+    if len(lines) != 3 or hashlib.sha256(lines[0].encode()).hexdigest() != HISTORY_OUTER_FIRST_LINE_SHA256:
+        raise ValueError("historical_outer_evidence_contract")
+    return lines[0]
+
+
+def outer_evidence_cases(alternate_digest):
+    # This is one frozen 2,287-byte historical receipt line, not a JSON-shaped
+    # exemption. Any change to any value, field, prefix, suffix or path scans.
+    exact = immutable_outer_evidence_line()
+    original = PUBLIC_WRAPPER_DECLARATIONS[-1][2]
+    if exact.count(original) != 1:
+        raise ValueError("historical_outer_wrapper_contract")
+    neighboring_key = '  "apiKey": "' + alternate_digest + '",'
+    path = HISTORY_OUTER_EVIDENCE_PATH
+    return [
+        ("outer_exact", path, exact, 0),
+        ("outer_different_value", path, exact.replace(original, alternate_digest), 3),
+        ("outer_different_path", path + ".other", exact, 3),
+        ("outer_different_field", path, exact.replace('"scripts/scan_secret_history.sh"', '"other_api_key"'), 3),
+        ("outer_prefix_content", path, '"extra": true, ' + exact, 3),
+        ("outer_trailing_content", path, exact + ' "extra": true,', 3),
+        ("outer_secret_before", path, neighboring_key + "\n" + exact, 1),
+        ("outer_secret_after", path, exact + "\n" + neighboring_key, 1, 3),
+    ]
 
 
 def isolated_environment():
@@ -218,6 +285,12 @@ def main():
             ("compose_secret_after", COMPOSE_EVIDENCE_PATH, compose_line + "\n" + nearby_api_key, 1, 3),
             ("compose_secret_before", COMPOSE_EVIDENCE_PATH, nearby_api_key + "\n" + compose_line, 1),
         ]
+        for name, path, digest in PUBLIC_WRAPPER_DECLARATIONS:
+            cases.extend(exact_declaration_cases(
+                name, path, "scripts/scan_secret_history.sh", digest, alternate_digest))
+        cases.extend(exact_declaration_cases(
+            "pronunciation_tokens", PRONUNCIATION_EVIDENCE_PATH, "tokens_txt", known_digest, alternate_digest))
+        cases.extend(outer_evidence_cases(alternate_digest))
         with tempfile.TemporaryDirectory(prefix="gitleaks-model-pin-") as temporary:
             parent = Path(temporary)
             for case in cases:

@@ -13,7 +13,8 @@
     "a38d3fc593bb16aa898212c46824d8d3de27aea2",
     "b50c29febaeb54808a4561955220f5b33bd09253",
     "55b8490ffdb7a11d78f9721d422c78b2ea467948",
-    "f06066bc6016100d2ef7ac55c9f36ebb2d954cda"
+    "f06066bc6016100d2ef7ac55c9f36ebb2d954cda",
+    "0e350f23cf41b5b934effa1d8a44307ba8eebbf1"
   ],
   "local_implementation_checkpoint": "edf256e3fa1090ae9eb18a61527c81f639fda925",
   "intent": "Audit the supplied diagnostic against the latest PR, offer evidence-backed solutions, and improve empty/repetitive public previews with concise selected-model findings, useful Markdown and provenance-preserving statistics.",
@@ -160,7 +161,8 @@
     "Serialized replay-window sizing and admitted-but-undelivered saved-body recovery; distinguish capacity refusal from missing required evidence.",
     "Exact provider cooldown propagation and durable automatic resume, reassessed against incoming provider changes and incomplete raw-response evidence.",
     "Controller-owned terminal cursor/frontier handling and exact-SHA CI attempt selection.",
-    "Bounded phone indexing, full 805-row forensic export continuation, and measured on-device frame/heap behavior."
+    "Bounded phone indexing, full 805-row forensic export continuation, and measured on-device frame/heap behavior.",
+    "Qualify legacy/unheaded PR-context recovery against2448 and preserve causal acceptance diagnostics for2449; do not weaken revision guards or infer missing budgets."
   ],
   "limits": [
     "The captured build predates reviewed source; source mitigations are not proof of successful device recovery.",
@@ -168,5 +170,33 @@
     "No claim of exact proprietary OpenAI preview implementation.",
     "Root owns final integrated-tree checks, generated metadata, publication decisions and any remote writes."
   ],
-  "integration_parent_sha": "f06066bc6016100d2ef7ac55c9f36ebb2d954cda"
+  "integration_parent_sha": "f06066bc6016100d2ef7ac55c9f36ebb2d954cda",
+  "published_preview_commit": "099603c699bba0b00a0a7380b5b45fc10229296f",
+  "published_preview_tree": "65fd5af9e09efd129125f3e63a8a95b00efdec5f",
+  "open_issue_snapshot": [
+    2441,
+    2442,
+    2443,
+    2444,
+    2445,
+    2446,
+    2447,
+    2448,
+    2449
+  ],
+  "final_issue_refresh": {
+    "captured_app_sha": "bd3d9a69a6dd537862fa909cbc3abb9c9ef02bb7",
+    "new_reports": [
+      2447,
+      2448,
+      2449
+    ],
+    "findings": [
+      "2447: repeated informational empty-evidence symptom; original user question absent, so exact intent remains unproven.",
+      "2448: correct changed-revision guard; newer explicit-head/live-read mitigations exist, with legacy unheaded failed-context recovery still requiring qualification.",
+      "2449: same-run correlation with2448, but compacted missing criteria and absent budget/causal evidence prevent proving premature termination or one sole cause."
+    ],
+    "runtime_changes_added": false
+  },
+  "audit_addendum_parent_sha": "0e350f23cf41b5b934effa1d8a44307ba8eebbf1"
 }

@@ -5,7 +5,8 @@
 This work audits the supplied diagnostic archive against PR **#2367** in
 `tailscale-signin/GPT_Mobile_AI-improved`, branch
 `fix/diagnostic-execution-completion-2026-11-22`, and implements the user's requested
-improvement to empty, repetitive progress descriptions. The presentation goal is
+improvement to empty, repetitive progress descriptions. The preview repair was published in commit
+`099603c699bba0b00a0a7380b5b45fc10229296f`. The presentation goal is
 brief, specific previews with useful Markdown and evidence-backed statistics. It
 does not claim to reproduce OpenAI's proprietary implementation.
 
@@ -157,6 +158,58 @@ cadence, privacy boundaries and optional narrator budgets are unchanged.
    exceeded 100 ms, maximum 201.69 ms (`recent-app-logs.jsonl`, frame-window events through line 2155). Measure the same
    content on-device before claiming improvement. Thresholded overlapping layout
    measurements and cumulative allocation counters do not prove a leak or GPU cause.
+
+## Final refresh: reports #2447–#2449
+
+The final issue refresh found nine open reports, #2441 through #2449. The three
+new reports below also identify captured app commit `bd3d9a69`, build 149. They do
+not establish behavior of the newly published preview repair.
+
+- [#2447](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2447)
+  records another informational-answer verification with zero receipt snapshots,
+  one unmeasured claim, zero calls used out of 64, and no recorded approval, input,
+  live-evidence or continuation blocker. This resembles #2446's empty-evidence
+  symptom, but the compact report does not include the user question. Do not infer
+  the exact same retrospective intent. Classify the actual request before
+  verification: bind historical session evidence when the question is historical,
+  or perform the authorized current-state read when mutable repository evidence
+  is required. Retain the draft and active task identity while acquiring evidence.
+
+- [#2448](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2448)
+  records a `github_pr` context read that detected a changed PR revision despite
+  HTTP 200. Rejecting a mixed-revision context is correct. Its reported arguments
+  lack both `expected_head_sha` and `verify_live`; one recorded HTTP request does
+  not establish the precise throw site because other reads can be cached. The
+  current branch already has newer self-test recipes that add an observed head,
+  a bounded header-refresh/corrected-read path, and a separate one-time live
+  unpinned file-race retry. A residual legacy/non-planner path needs qualification:
+  `GitHubSelfTestPullReads.recover` requires a stored expected head, and
+  `GitHubSelfTestReads` suppresses a previously failed context action without a
+  correctable exception. Recover an authorized live read through a fresh scoped
+  header and one context read pinned to that observation; retain explicit pinned
+  review authority, identity checks and the bounded retry. Test the exact missing-
+  argument receipt, saved-session restore and a second concurrent head change.
+
+- [#2449](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/2449)
+  shares #2448's run hash and reports incomplete acceptance roughly 94 seconds
+  later. It retains 40 receipts, 15 verified claims out of 16, and zero of one
+  task criterion verified. Those are distinct denominators. Its compact capsule
+  retains only one of 85 unmet requirement/capability details, omits the remaining
+  call/deadline evidence, and does not retain an original causal failure. The
+  shared run supports correlation with #2448, not proof that the head change caused
+  every missing criterion or that the stop was premature. Preserve the failed
+  operation's typed identity and causal link, summarize all blocker categories,
+  and perform bounded recovery only when the saved allowance, deadline and
+  authorization permit it. Keep missing requirements unverified.
+
+The source review for these additions used the published preview commit above.
+The audit addendum also preserves `0e350f23cf41b5b934effa1d8a44307ba8eebbf1`, which
+restores ordinary-provider retryability by restricting durable-wait refusal
+projection to durable callers and corrects the endpoint binding in a persisted-chat
+test. This newer correction does not by itself qualify the captured #2442 loss of
+a typed wait decision. The preview source/test inputs retain their validated hashes;
+combined Android and live-provider qualification remain pending. These audit
+recommendations add no runtime changes.
 
 ## Validation and qualification
 

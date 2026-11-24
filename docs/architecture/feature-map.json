@@ -3055,14 +3055,14 @@
       "sha256": "c6287c7c0c0c841ea424e2d11332005a890c84d77179afad02acca47b1d884c0"
     },
     "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json": {
-      "blob_sha": "26a7c985fbea9b25a9a7ad9f585b1aa9f41b952a",
-      "bytes": 9561,
-      "sha256": "c027159f5020f876b65581e27c6bc4bcaa0cda7b6aac8fba2e3672361327bfd6"
+      "blob_sha": "21b739240aa92fd1fd7b4e3b5b0cf77e75e0dea8",
+      "bytes": 10811,
+      "sha256": "dc33a38d40cd10d47d76b757a5398281ec79fdafaa1483ac371dfc637065e5d7"
     },
     "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23.md": {
-      "blob_sha": "545b78157672867b659a36922b316c38afdcdcf0",
-      "bytes": 12004,
-      "sha256": "516cb534a64d9f4977b4b0f95617cb30f627726c42c251188240b6cd9e05621a"
+      "blob_sha": "6c61e74e3f45fe07220a5180763218eaa9b4fe47",
+      "bytes": 15682,
+      "sha256": "f168711dd8b956baeb5bc65039fb6659765e3360f4f2df825e85b24f6a0d11a4"
     },
     "docs/repairs/diagnostic-93d824fd-github-2026-11-23-task.json": {
       "blob_sha": "3fae2383e3db3f6b3174f6f30760f76d64d55061",

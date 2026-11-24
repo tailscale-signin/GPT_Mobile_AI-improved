@@ -32,15 +32,42 @@ data class GitHubPlanningContext(
     }
 
     companion object {
-        private val quotedReadMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*(?:`|\\z)|\"(?:\\\\(?:.|\\z)|[^\"\\\\])*(?:\"|\\z)|“[^”]*(?:”|\\z)|‘[^’]*(?:’|\\z)|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*(?:'|\\z)")
-        private val textReadObjectNames = "(?:sentences?|phrases?|quotes?|quotations?|questions?|prompts?|examples?|poems?|stor(?:y|ies)|lyrics|fiction)"
+        private val quotedReadMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|(`+)|\"(?:\\\\(?:.|\\z)|[^\"\\\\])*(?:\"|\\z)|“[^”]*(?:”|\\z)|‘[^’]*(?:’|\\z)|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*(?:'|\\z)")
+        private val textReadObjectNames = "(?:sentences?|phrases?|quotes?|quotations?|questions?|examples?|poems?|stor(?:y|ies)|lyrics|fiction)"
         private val textReadObject = Regex("(?i)^(?:(?:me|us|the|this|that|a|an|these|those|following)\\s+){0,3}$textReadObjectNames\\b")
         private val namedReadObject = Regex("(?i)\\b$textReadObjectNames\\b")
+
+        private fun readRequestProse(request: String): String = buildString(request.length) {
+            var cursor = 0
+            while (cursor < request.length) {
+                val quoted = quotedReadMaterial.find(request, cursor)
+                if (quoted == null) {
+                    append(request, cursor, request.length)
+                    break
+                }
+                append(request, cursor, quoted.range.first).append(' ')
+                cursor = quoted.range.last + 1
+                val delimiterLength = quoted.groups[1]?.value?.length ?: continue
+                // Inline code may span lines; only a complete matching tick run
+                // closes it. An unmatched opening run consumes the remaining data.
+                while (cursor < request.length) {
+                    val start = request.indexOf('`', cursor)
+                    if (start < 0) {
+                        cursor = request.length
+                        break
+                    }
+                    var end = start + 1
+                    while (end < request.length && request[end] == '`') end++
+                    cursor = end
+                    if (end - start == delimiterLength) break
+                }
+            }
+        }
 
         private fun selectedRepositoryReadIntent(request: String): Boolean {
             // Quoted examples are data. Only the leading prose request can add
             // selected context; a later mention cannot promote a translation or poem.
-            val plain = request.replace(quotedReadMaterial, " ").lineSequence()
+            val plain = readRequestProse(request).lineSequence()
                 .filterNot { it.trimStart().startsWith(">") || it.startsWith("    ") || it.startsWith('\t') }
                 .joinToString("\n").trim()
             val target = "(?:repository|repo|project|codebase|source(?:\\s+tree)?|implementation|files?)"

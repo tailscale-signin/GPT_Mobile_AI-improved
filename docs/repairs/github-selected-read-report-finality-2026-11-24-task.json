@@ -4,13 +4,13 @@
   "parent_pr": 2367,
   "base_branch": "main",
   "base_sha": "8095c1aee67b64584033289944eff1dfac7a7b48",
-  "shared_source_parent": "08cda99b7fd8395dfd631490add40b08c7c758b9",
+  "shared_source_parent": "3dc2c9e2e5a851a7bc2311491f12e0c3c1981667",
   "working_branch": "work/github-read-report-finality-integration-20261124",
   "intent": "Keep selected-repository context on actual read requests, preserve completed application reports and session-owned recovery, and prevent a new evidence correction from stacking after an earlier failed-round correction.",
   "status": "SOURCE_REVIEWED_PENDING_EXACT_HEAD_HOSTED_VALIDATION",
   "acceptance": [
-    "Only leading unquoted read requests can activate the selected-repository heuristic; quoted, code, fenced, blockquote, indented and listed creative or text-transformation objects remain ordinary text.",
-    "Direct selected-repository read questions and polite or repository-scoped read instructions remain recognized.",
+    "Only leading unquoted read requests can activate the selected-repository heuristic; quoted, code, fenced, blockquote, indented and listed creative or text-transformation objects remain ordinary text. Inline code is consumed through a matching complete backtick run across line breaks or conservatively through end of input.",
+    "Direct selected-repository read questions, polite or repository-scoped read instructions and technical questions about prompt handling remain recognized; the noun prompt alone does not establish a creative transformation.",
     "Application reports, retained content, non-answer origins and atomic Combined answers cannot become eligible for the new evidence correction after a later unlabelled text chunk.",
     "A session that owns tool-result recovery retains final response ownership, including real GitHubVerifiedSession retained diagnostic reports.",
     "A prior protocol or output recovery does not gain an additional no-evidence retry; all original exact-count, empty-round, protocol, output-limit and no-dispatch assertions remain intact.",
@@ -20,24 +20,28 @@
   "source_components": {
     "selected_read_intent": "e1086b0d3f404c6be3debaf204f6469e1dfb48fd",
     "report_finality": "6cc79efdce51a271a4eaf062a6b2914697b982a6",
-    "earlier_recovery_admission": "f5615815a74a6c72d1cb14a7a8016ecfaa7863ca"
+    "earlier_recovery_admission": "f5615815a74a6c72d1cb14a7a8016ecfaa7863ca",
+    "selected_read_intent_followup": "2266752c2cd8914c652b22b9ae050f0472750556"
   },
   "source_review": {
     "selected_read_intent_sha256": "4cf0459643da38e437133e7cae495ba0e7d55ac670e0abee3ba7dd622b747548",
     "report_finality_sha256": "7d59a565fdec38c7e80d128cc626e1c7ec909ab77eacb12a1ae0bc950014dd97",
     "scope": "Independent immutable-source review; no application execution claim.",
-    "earlier_recovery_admission_sha256": "40ab0933723609c4f65cfc78a321d69728a42bb04e4f1c21d985542e39801e0c"
+    "earlier_recovery_admission_sha256": "40ab0933723609c4f65cfc78a321d69728a42bb04e4f1c21d985542e39801e0c",
+    "selected_read_followup_sha256": "ae3695c3b2ae178dc62f117d852d71de1d4efa0c3291b6f1649d5d66c91c1a9b",
+    "selected_read_followup_handoff_sha256": "268175d51f0b19e29363c3d60b63f9bba8ad3f0357e2ac48e3fa0888ba8870e9"
   },
   "coverage": {
     "existing_selected_read_test_bodies_retained": 6,
     "existing_empty_answer_test_bodies_retained": 6,
-    "new_selected_read_methods": 3,
-    "new_selected_read_cases": 20,
+    "new_selected_read_methods": 5,
+    "new_selected_read_cases": 25,
     "new_report_finality_methods": 4,
     "new_report_finality_scenarios": 8,
     "qualification": "These are source obligations, not executed test results. Exact-head hosted compilation and complete ordinary/heap/device/native checks remain required.",
     "existing_task_recovery_test_file_retained": true,
-    "existing_task_recovery_methods_retained": 15
+    "existing_task_recovery_methods_retained": 15,
+    "preceding_selected_read_test_methods_retained": 9
   },
   "limitations": [
     "Selected-read intent remains a conservative bounded heuristic. Ambiguous requests containing listed text or creative object nouns before the selected target may omit automatic context.",
@@ -47,5 +51,10 @@
   "qualification_commands": [
     "bash scripts/validate-local.sh fast",
     "python3 scripts/check_release_scope.py --commit <exact-composed-commit>"
-  ]
+  ],
+  "followup_findings": [
+    "Paired multiline inline code with single or double backtick delimiters could expose its selected-target text to the earlier heuristic.",
+    "The prompt noun exclusion incorrectly removed context from genuine technical questions about prompt handling."
+  ],
+  "followup_correction": "Preserve ordered quote/fence alternatives and consume complete inline delimiter runs with a forward-only scan. Remove only prompt(s) from the text-object exclusion vocabulary; no exact-phrase whitelist or authority change."
 }

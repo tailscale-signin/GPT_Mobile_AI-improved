@@ -10,7 +10,7 @@ Production GitHub intelligence scores and comparisons with ChatGPT or Codex requ
 
 Recovery reads selected by a helper are unavailable when the primary profile uses LiteRt-LM. Saved recovery-read choices remain visible but inactive; advice-only recovery keeps its existing eligibility rules.
 
-Direct questions about the selected repository retain its context. Quoted questions and creative writing requests keep their ordinary meaning. Completed diagnostic reports remain final, and an earlier protocol or output recovery does not gain an extra evidence retry.
+Direct questions about the selected repository retain its context, including technical questions about prompt handling. Quoted code remains part of the user's example across line breaks, and creative writing requests keep their ordinary meaning. Completed diagnostic reports remain final, and an earlier protocol or output recovery does not gain an extra evidence retry.
 
 ## Voice runtime rebuild and recoverable exports
 

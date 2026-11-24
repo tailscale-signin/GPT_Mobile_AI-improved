@@ -162,4 +162,30 @@ class GitHubPlanningPolicyTest {
             assertTrue(request, prompt.contains("\"access_verified_for_current_request\":false"))
         }
     }
+
+    @Test fun multilineInlineCodeDoesNotAddSelectedContextThroughTheReadHeuristic() {
+        val context = GitHubPlanningContext("connection", "__selected", selected)
+        for (request in listOf(
+            "Explain `what this project does\nin French`.",
+            "Explain ``what this project does\nin French``."
+        )) {
+            assertTrue(request, GitHubOperationTool.taskTools(request).isEmpty())
+            assertEquals(request, "", GitHubPlanningContext.forRequest(request, listOf(context)))
+        }
+    }
+
+    @Test fun technicalPromptReadsKeepSelectedContextWithoutClaimingAuthority() {
+        val context = GitHubPlanningContext("connection", "__selected", selected)
+        for (request in listOf(
+            "Explain how prompts are handled in this project.",
+            "Show prompt handling in this project.",
+            "Why are prompts truncated in this project?"
+        )) {
+            assertTrue(request, GitHubOperationTool.taskTools(request).isEmpty())
+            val prompt = GitHubPlanningContext.forRequest(request, listOf(context))
+            assertTrue(request, prompt.contains("\"owner\":\"actual-owner\""))
+            assertTrue(request, prompt.contains("\"ref\":\"working\""))
+            assertTrue(request, prompt.contains("\"access_verified_for_current_request\":false"))
+        }
+    }
 }

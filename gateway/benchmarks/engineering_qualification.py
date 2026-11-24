@@ -209,10 +209,16 @@ def snapshot(service, principal, job_id, scenario):
         row.get('action') == 'read' and row.get('head_sha') == base and row.get('path') in required_paths
         and 200 < row.get('start_line', 0) <= row.get('end_line', 0) and row.get('content_sha256')
         for row in data.get('workspace_receipts', []))
+    repair = data.get('ci_repair_observation') or {}
+    readiness = data.get('readiness') or {}
+    repaired_ci = (repair.get('job_id') == job_id and repair.get('pr') and repair['pr'] == data.get('pr')
+                   and repair.get('failure_fingerprint') in (job.get('repairs') or {})
+                   and re.fullmatch(r'[0-9a-f]{40}', str(repair.get('failed_head'))) and repair['failed_head'] != data.get('head_sha')
+                   and readiness.get('head_sha') == data.get('head_sha') and readiness.get('checks_passed') is True)
     signals = {
         'unfamiliar_bug': completed and bool(data.get('changed_paths')) and 'unfamiliar_bug' in accepted,
         'source_paging': completed and paged,
-        'ci_repair': completed and bool(job.get('repairs')) and 'ci_repair' in accepted,
+        'ci_repair': completed and bool(repaired_ci) and 'ci_repair' in accepted,
         'existing_pr': completed and bool(job.get('continuation_pr')) and job['continuation_pr'] == data.get('pr'),
         'context_rotation': completed and bool(data.get('context_compaction')),
         'lost_mutation': completed and duplicates == 0 and lost_mutation_proven and 'lost_mutation' in accepted,

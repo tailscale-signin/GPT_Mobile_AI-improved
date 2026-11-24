@@ -7,7 +7,7 @@ from v14.batch import digest as workspace_digest
 from v14.engineering_defaults import effective_execution_budget
 
 VERSION = 'gateway.github-intelligence.v1'
-CASE_CONTRACT_SCHEMA = 'gateway.github-intelligence-case.v2'
+CASE_CONTRACT_SCHEMA = 'gateway.github-intelligence-case.v3'
 CONVERSATION_CONTEXT_SCHEMA = 'gateway.engineering-conversation-context.v1'
 USER_INSTRUCTIONS_SCHEMA = 'gateway.engineering-user-instructions.v1'
 # Each dimension identifies the real jobs on which its observation is meaningful.
@@ -94,8 +94,13 @@ def case_observations(job, scenario, signal, completed):
                 acquired = initial_paths.union(reads['paths'])
                 measures['repository_understanding'] = len(required_paths.intersection(acquired)) / len(required_paths)
             total = data.get('initial_source_acquisitions', 0) + reads['total']
-            if total > 0:
-                measures['tool_efficiency'] = (len(initial_paths) + len(reads['ranges'])) / total
+            later = set(reads['ranges'])
+            initial_ranges = data.get('initial_source_ranges')
+            if total > 0 and isinstance(initial_ranges, list):
+                measures['tool_efficiency'] = len(set(initial_ranges).union(later)) / total
+            elif total > 0 and initial_paths.isdisjoint(reads['paths']):
+                # Legacy path-only receipts prove distinctness when initial and subsequent files do not overlap.
+                measures['tool_efficiency'] = (len(initial_paths) + len(later)) / total
     if scenario in RUBRIC['error_recovery'][1]:
         measures['error_recovery'] = int(completed and bool(signal))
     if scenario == 'context_rotation' and data.get('context_compaction'):

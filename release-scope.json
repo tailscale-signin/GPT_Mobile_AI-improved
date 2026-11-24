@@ -361,7 +361,8 @@
     "Report HTP cache admission causes and verified disk reuse from an earlier process. Provide duration-path tensor tracing and operator-level kernel timing for same-model GPU and calibrated HTP diagnosis.",
     "Require declared read capabilities before replaying a missing tool call and retain pending, incomplete and duplicate commit-status contexts during CI diagnosis.",
     "Use conversation-aware planning independently of sampling, prioritize proof for unresolved criteria, share revision-bound phone topology across chats, and recover jointly from measured tool-schema and replay byte deficits.",
-    "Restore the pinned compact model’s nested duration dependencies in diagnostic copies and exercise the public 43-token Heart fixture on the real CPU model in CI."
+    "Restore the pinned compact model’s nested duration dependencies in diagnostic copies and exercise the public 43-token Heart fixture on the real CPU model in CI.",
+    "Bind semantic proof clauses to accepted request text, offer separately consented independent patch review in Deep and Maximum, reuse matching Gateway graph fragments, reconcile disjoint PR advances, and grade measured CI repairs and distinct source ranges."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1265,7 +1266,11 @@
     "scripts/generate_app_audit_inventory.py",
     "scripts/tests/test_app_audit_inventory.py",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapTopology.kt",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/groq/response/GroqErrorDetail.kt"
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/groq/response/GroqErrorDetail.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPrimaryPatchReview.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPrimaryPatchReviewTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIssueRemediation.kt",
+    "gateway/v14/engineering.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

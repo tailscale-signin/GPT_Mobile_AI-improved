@@ -35,7 +35,7 @@ class GraphStore:
         db.execute('CREATE TABLE IF NOT EXISTS code_graph_notes (scope TEXT NOT NULL, id TEXT NOT NULL, created REAL NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,id))')
         db.execute('CREATE TABLE IF NOT EXISTS code_graph_metrics (scope TEXT NOT NULL, operation TEXT NOT NULL, count INTEGER NOT NULL, total_ms REAL NOT NULL, output_bytes INTEGER NOT NULL, PRIMARY KEY(scope,operation))')
 
-    def load(self, namespace, sha=None, exclude_sha=None):
+    def load(self, namespace, sha=None, exclude_sha=None, *, refresh_summary=False):
         def read(db):
             self.schema(db)
             selectors = ((' AND sha=?', sha) if sha else (' AND sha<>?', exclude_sha) if exclude_sha else ('', None))
@@ -57,8 +57,17 @@ class GraphStore:
             # A parser change invalidates old fragments even at the same commit.
             value['fragments'] = {path: fragment for path, fragment in value['fragments'].items()
                                   if fragment.get('version') == EXTRACTOR_VERSION}
-            self._save_summary(db, namespace, value, row[2])
+            if refresh_summary:
+                self._save_summary(db, namespace, value, row[2])
             return value
+        return self.store.tx(read)
+
+    def prior_revisions(self, namespace, sha):
+        def read(db):
+            self.schema(db)
+            return [row[0] for row in db.execute(
+                'SELECT sha FROM code_graph_snapshots WHERE scope=? AND sha<>? ORDER BY updated DESC LIMIT 4',
+                (namespace, sha))]
         return self.store.tx(read)
 
     @staticmethod
@@ -82,7 +91,7 @@ class GraphStore:
             value = json.loads(EngineeringCipher.decrypt(db, 'graph-summary:' + namespace + ':' + sha, row[0]))
             return value if value.get('extractor_version') == EXTRACTOR_VERSION else None
         value = self.store.tx(read)
-        if value is None and self.load(namespace, sha) is not None:
+        if value is None and self.load(namespace, sha, refresh_summary=True) is not None:
             value = self.store.tx(read)
         return value
 

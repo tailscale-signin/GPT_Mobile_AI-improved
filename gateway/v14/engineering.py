@@ -1395,8 +1395,18 @@ class EngineeringService:
                 job['data']['readiness'] = output
                 if output.get('head_sha') != job['data'].get('head_sha'):
                     job['approval'] = None
-                    job['message'] = 'The working branch changed outside this job. Review the new head before continuing.'
-                    phase = 'NEEDS_INPUT'
+                    reconcile = getattr(self.backend, 'reconcile_ci_head', None)
+                    advance = reconcile(job, output) if callable(reconcile) else None
+                    if advance:
+                        for key in ('ci', 'readiness', 'completion_verification', 'criterion_receipts', 'local_validation',
+                                    'workspace_checks', 'workspace_check_executions', 'review', 'requirement_evidence_refs'):
+                            job['data'].pop(key, None)
+                        job['data'].update(head_sha=advance['head_sha'], branch_reconciliation=advance)
+                        self.evidence.append(job, 'branch_reconciliation', advance)
+                        job['message'] = 'An independent change advanced this PR. Rechecking CI and acceptance at the new head.'
+                    else:
+                        job['message'] = 'The working branch changed outside this job. Review the new head before continuing.'
+                        phase = 'NEEDS_INPUT'
                 elif output.get('checks_blocked'):
                     job['data']['ci'] = output
                     job['message'] = output.get('message', 'A completed CI check needs attention')
@@ -1405,6 +1415,9 @@ class EngineeringService:
                     fingerprint = output['failure_fingerprint']
                     job['data']['ci'] = output
                     phase = 'READ' if EngineeringSupervisor.repair(job, fingerprint) else 'NEEDS_INPUT'
+                    if phase == 'READ':
+                        job['data']['ci_repair_observation'] = {'job_id': job['id'], 'pr': output.get('pr'),
+                            'failed_head': output['head_sha'], 'failure_fingerprint': fingerprint}
                     if phase == 'NEEDS_INPUT':
                         job['message'] = 'CI repair budget exhausted; failure logs and attempted patches are retained'
                 elif output.get('checks_passed') and output.get('draft') is True:

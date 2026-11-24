@@ -219,6 +219,32 @@ class GitHubIntelligenceTest(TestCase):
         self.assertEqual(1, measures['repository_understanding'])
         self.assertEqual(0.5, measures['tool_efficiency'])
 
+    def test_same_initial_and_workspace_source_range_counts_only_once(self):
+        case, base, path = 'source_paging', 'a' * 40, 'src/target.kt'
+        path_id = digest([base, path])
+        observation = digest([path_id, 'b' * 40, 1, 37])
+        data = dict(initial_source_acquisitions=1, initial_source_paths=[path_id], initial_source_ranges=[observation],
+                    workspace_source_reads=dict(complete=True, paths=[path_id], ranges=[observation], total=1))
+        job = dict(state='COMPLETED', data=data, request=dict(source_sha=base, acceptance=[dict(id=case, paths=[path])]))
+        self.assertEqual(0.5, case_observations(job, case, True, True)['measures']['tool_efficiency'])
+        del data['initial_source_ranges']
+        self.assertNotIn('tool_efficiency', case_observations(job, case, True, True)['measures'])
+
+    def test_code_review_retries_cannot_satisfy_the_ci_repair_scenario(self):
+        head, failed = 'b' * 40, 'a' * 40
+        job = dict(id='eng-ci', state='COMPLETED', created_at=1, repairs={'review': 1}, request=dict(repository='org/repo', model='m', acceptance=[{'id': 'ci_repair'}]),
+                   data=dict(head_sha=head, pr=7, completion_verification={'passed': True, 'requirements': [{'id': 'ci_repair', 'status': 'BEHAVIOR_VERIFIED'}]},
+                             readiness={'head_sha': head, 'checks_passed': True}))
+        service = SimpleNamespace(evidence_access=lambda owner, key: job, store=SimpleNamespace(now=lambda: 2, tx=lambda read: ([{'dispatched': True}], [])))
+        def measured():
+            return snapshot(service, 'owner', job['id'], 'ci_repair')['required_scenario_signal_observed']
+        self.assertFalse(measured())
+        job['repairs']['ci-fingerprint'] = 1
+        job['data']['ci_repair_observation'] = dict(job_id=job['id'], pr=7, failed_head=failed, failure_fingerprint='ci-fingerprint')
+        self.assertTrue(measured())
+        job['data']['readiness']['head_sha'] = failed
+        self.assertFalse(measured())
+
     def test_empty_production_readback_returns_coverage_without_submitting_or_awarding_zero(self):
         result = run_manifest(object(), dict(schema=PRODUCTION_SCHEMA, test_repository='org/repo',
                               cases=[dict(scenario=s) for s in SCENARIOS]))

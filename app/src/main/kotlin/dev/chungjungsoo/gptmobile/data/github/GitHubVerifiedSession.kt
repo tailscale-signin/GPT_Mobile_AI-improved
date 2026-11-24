@@ -52,7 +52,8 @@ internal class GitHubVerifiedSession(
     private val openExecutionContinuation: (suspend (String) -> AgentProviderSession)? = null,
     private val resumeClaimExtraction: Boolean = false,
     private val verificationOnlyRequested: Boolean = false,
-    private val awaitOwnedDescendants: suspend (Long) -> Boolean = { true }
+    private val awaitOwnedDescendants: suspend (Long) -> Boolean = { true },
+    private val independentPatchReview: (suspend (JsonObject) -> AgentProviderSession?)? = null
 ) : AgentProviderSession by delegate {
     override val handlesToolResultRecovery: Boolean = GitHubTestChecklist.integration(task) ||
         GitHubTaskContinuity.reportOnly(currentRequest) ||
@@ -620,11 +621,18 @@ internal class GitHubVerifiedSession(
             replannedReader = openExecutionContinuation.invoke(prompt)
             replanBoundary = latest.calls.first().callId
         }
+        val patchCall = latest?.calls?.lastOrNull { it.name.substringBefore("__") == "github_stage_patch" }
+        val patchSession = if (independentPatchReview != null && patchCall != null && tools.isNotEmpty()) {
+            val stage = evidence.snapshot().first.values.singleOrNull { it["call_id"] == JsonPrimitive(patchCall.callId) }
+            stage?.let { independentPatchReview.invoke(it) }
+        } else {
+            null
+        }
         val boundary = replanBoundary
         val first = if (boundary == null) -1 else exchanges.indexOfFirst { exchange -> exchange.calls.any { it.callId == boundary } }
         val readerContext = if (first < 0) exchanges else exchanges.subList(first, exchanges.size)
         val decisionStarted = System.nanoTime()
-        var round = collectDraft(replannedReader ?: delegate, tools, readerContext)
+        var round = collectDraft(patchSession ?: replannedReader ?: delegate, tools, readerContext)
         completedDecisionMillis = if (round.completed && !round.failed && round.calls) (System.nanoTime() - decisionStarted) / 1_000_000 else 0
         val retained = evidence.snapshot().first
         if (!initiallyVerifiedComplete &&
@@ -1656,7 +1664,7 @@ internal class GitHubVerifiedSession(
                 }
                 val batches = completed.map { requireNotNull(it) }
                 val result = withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.render(GitHubClaimBatches.combine(batches), receipts, now(), epoch, task, issueWork = issueWork)
+                    GitHubEvidencePolicy.render(GitHubClaimBatches.combine(batches), receipts, now(), epoch, task, acceptedContract = evidence.acceptedPromptContract(), issueWork = issueWork)
                 }
                 evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = false)
                 ClaimExtraction(result)
@@ -1699,12 +1707,12 @@ internal class GitHubVerifiedSession(
 
     private fun verificationRequests(draft: String, receipts: Map<String, JsonObject>): VerificationPlan {
         val hardLimit = inputLimit()
-        val groups = GitHubIssueRemediation.verificationWindow(task, issueWork, receipts, now()).chunked(GitHubClaimBatches.REQUIREMENTS_PER_BATCH)
+        val groups = GitHubIssueRemediation.verificationWindow(task, issueWork, receipts, now(), evidence.semanticSteps()).chunked(GitHubClaimBatches.REQUIREMENTS_PER_BATCH)
         // Never let the extraction bound silently remove acceptance criteria. A task
         // that exceeds the bounded batch plan remains incomplete until it is split or
         // a larger, explicitly supported plan is introduced.
         if (groups.size > GitHubClaimBatches.MAX_BATCHES) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_BATCH_LIMIT, groups.size)
-        val criterionContracts = GitHubAcceptanceContract.criteria(task, GitHubRequestCompletion.requirements(task, issueWork)).associateBy { it.id }
+        val criterionContracts = GitHubAcceptanceContract.criteria(task, GitHubRequestCompletion.requirements(task, issueWork, evidence.semanticSteps())).associateBy { it.id }
         val catalog by lazy { JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()) }
         val review = GitHubReviewComparison.plan(task, emptyList(), receipts)?.checkpoint
         val mandatory = GitHubVerificationCatalog.mandatory(catalog, review)

@@ -244,6 +244,16 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
             onSettings(state.profileSettings.copy(sampling = it))
         }
         GitHubRecoveryConsultSetting(state, onSettings)
+        if (state.profileSettings.intelligenceLevel in dev.chungjungsoo.gptmobile.data.github.GitHubPrimaryPatchReview.levels) {
+            val key = state.patchReviewerKey
+            GitHubOverrideSwitch(
+                "Independent patch review",
+                state.patchReviewerName?.let { "Send up to three staged file excerpts to $it once per task." }
+                    ?: "Select a different named reviewer in Model Delegation.",
+                key != null && key == state.profileSettings.primaryPatchReviewConsent,
+                key != null && state.privacyModeLocked == false
+            ) { enabled -> onSettings(state.profileSettings.copy(primaryPatchReviewConsent = key.takeIf { enabled })) }
+        }
         if (state.profileSettings.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE) {
             val key = state.engineeringTeamKey
             GitHubOverrideSwitch(

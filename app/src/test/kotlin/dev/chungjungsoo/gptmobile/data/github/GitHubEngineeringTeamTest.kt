@@ -28,6 +28,24 @@ class GitHubEngineeringTeamTest {
         githubProfileOverrides = mapOf(primary.uid to options)
     ).withToolPluginEnabled(ToolPluginId.MODEL_DELEGATION, true).withProfileToolPluginEnabled(primary.uid, ToolPluginId.MODEL_DELEGATION, true)
 
+    @Test fun patchReviewerUsesAnIndependentNamedProfileAndSeparateConsentAtBothEngineeringLevels() {
+        for (level in GitHubPrimaryPatchReview.levels) {
+            val deep = features.copy(githubProfileOverrides = mapOf(primary.uid to options.copy(intelligenceLevel = level, engineeringTeamConsent = "team-only")))
+            val policy = deep.delegationFor(primary.uid)
+            val choice = requireNotNull(GitHubPrimaryPatchReview.configured(workspace, deep, profiles, policy))
+            assertEquals(reviewer, choice.profile)
+            assertFalse(requireNotNull(GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace), deep, primary.uid)).githubPatchReviewAllowed)
+            val allowed = deep.copy(githubProfileOverrides = mapOf(primary.uid to options.copy(intelligenceLevel = level, primaryPatchReviewConsent = choice.consent)))
+            val scoped = requireNotNull(GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace), allowed, primary.uid))
+            assertTrue(scoped.githubPatchReviewAllowed)
+            assertFalse(scoped.isToolEnabled("delegate_to_model"))
+            assertFalse(requireNotNull(GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace, disabledToolIds = setOf("delegate_to_model")), allowed, primary.uid)).githubPatchReviewAllowed)
+            assertNull(GitHubPrimaryPatchReview.configured(workspace, deep, profiles, policy.copy(reviewerProfileUid = primary.uid)))
+            assertNull(GitHubPrimaryPatchReview.configured(workspace, deep, profiles, policy.copy(reviewerEnabled = false)))
+            assertFalse(choice.consent == GitHubPrimaryPatchReview.configured(workspace.copy(repo = "changed"), deep, profiles, policy)?.consent)
+        }
+    }
+
     @Test fun savedChatCanDisableAProfileTeam() {
         val local = features.copy(conversationDelegation = mapOf(7 to dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false)))
         val policy = GitHubEngineeringTeam.policy(local, workspace, 7)

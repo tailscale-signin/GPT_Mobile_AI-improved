@@ -100,11 +100,22 @@ A profile with 2,048–8,191 context tokens can receive up to four ranked unread
 paths from a previously retained, authorized tree. It can then request the
 specific source it needs.
 
+For independent review of the primary's code, select a distinct named reviewer
+in Model Delegation and enable **Independent patch review** in Deep Engineering
+or Maximum Intelligence. The app sends up to three staged before/after excerpts
+once per task. Findings return to the primary for source verification. Review
+consent is workspace-specific. The approval card still owns publication.
+
+A semantic plan can divide a compound request into criteria when its exact
+clauses cover the original text in order. Conditional and negative instructions
+stay intact. Progress, claim extraction and final verification use the same
+criteria after a restart.
+
 The phone shares immutable tree data and paged relationship records across
 chats. A new source tree, parser version, focus set or set of indexed blobs
 changes the lookup key. Results and cursors stay bound to each request and
 revision. The phone reconstructs missing pages from its content-addressed
-source shards.
+source shards. The Gateway reuses matching source fragments from its four retained snapshots. A restored file can reuse its old blob after intervening commits removed it.
 
 The phone and Gateway can search repository symbols, related tests, architecture
 documents and historical repair records. Source references carry revision identity.

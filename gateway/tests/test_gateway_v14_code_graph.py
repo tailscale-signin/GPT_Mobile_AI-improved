@@ -290,6 +290,22 @@ class GraphServiceTests(unittest.TestCase):
         self.assertEqual(1, result['graph']['index_metrics']['cache_hits'])
         self.assertEqual('NOT_FOUND_IN_INDEX', self.call('query', query='run')['status'])
 
+    def test_restored_files_reuse_older_authorized_fragments_after_restart(self):
+        self.call('index')
+        source = self.files.pop('b.py')
+        self.request['commit_sha'] = self.head = 'b' * 40
+        self.call('index')
+        self.files['b.py'] = source
+        self.request['commit_sha'] = self.head = 'c' * 40
+        self.service = GraphService(self.storage, self.backend)
+        result = self.call('index')
+        self.assertEqual(2, self.blob_reads)
+        self.assertEqual(2, result['graph']['index_metrics']['cache_hits'])
+        self.assertEqual('FOUND', self.call('query', query='run')['status'])
+        self.actor += 1
+        self.call('index')
+        self.assertEqual(4, self.blob_reads)
+
     def test_resumable_batches_and_wrong_cursor_rejection(self):
         self.files = {f'f{i}.py': f'def f{i}(): return {i}\n' for i in range(30)}
         first = self.call('index')

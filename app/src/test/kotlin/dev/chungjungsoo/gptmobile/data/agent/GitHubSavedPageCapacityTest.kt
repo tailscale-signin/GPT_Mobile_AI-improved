@@ -317,6 +317,25 @@ class GitHubSavedPageCapacityTest {
         assertTrue(state.pendingSavedPageDeliveries(listOf(AgentToolExchange(listOf(call), listOf(original))), ToolResultDeliveryProof.capture(listOf(original))).isEmpty())
     }
 
+    @Test fun restorationPreservesTheSelectorsAdmittedWithTheOriginalPage() {
+        val fixture = Fixture()
+        val issued = requireNotNull(fixture.next(tokens = 3000))
+        val selectors = buildJsonObject {
+            put("owner", "o".repeat(39))
+            put("repo", "r".repeat(100))
+        }
+        val call = issued.copy(arguments = JsonObject(issued.arguments + selectors))
+        val original = fixture.read(call, selectors)
+        assertFalse(original.isError)
+        val projected = original.copy(content = requireNotNull(GitHubReplayRecovery.compact(original.content, 512)))
+        val exchange = AgentToolExchange(listOf(call), listOf(projected))
+        val state = GitHubReplayRecovery.State(exchange.calls, exchange.results)
+        val pending = state.pendingSavedPageDeliveries(listOf(exchange), emptyMap())
+        val restore = requireNotNull(state.restoreMissingPage(pending, listOf(exchange), fixture.tools))
+        assertEquals(call.name, restore.name)
+        assertEquals(call.arguments, restore.arguments)
+    }
+
     @Test fun exactDeliveredRereadResolvesAnOldUnknownPageWithoutInventingItsBodyProof() {
         val fixture = Fixture()
         val call = requireNotNull(fixture.next(tokens = 3000))

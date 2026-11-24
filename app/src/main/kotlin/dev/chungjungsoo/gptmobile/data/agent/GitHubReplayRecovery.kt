@@ -145,7 +145,7 @@ internal object GitHubReplayRecovery {
                 val retryId = "saved-result-consume-restore-" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(identity.joinToString("|")).take(24)
                 if (hasAttempt(retryId) || exhausted()) continue
                 val tool = tools.singleOrNull { it.modelVisible && it.name == read.call.name } ?: continue
-                val args = buildJsonObject { put("view_cursor", identity[1]) }
+                val args = read.call.arguments
                 if (ToolArgumentValidator.errors(args, tool.inputSchema).isEmpty()) {
                     return ProviderEvent.ToolCall(retryId, tool.name, args)
                 }
@@ -208,9 +208,9 @@ internal object GitHubReplayRecovery {
         val receipt = result.executionReceipt ?: return null
         if (!GitHubResultViews.SAVED_CONTEXT_KEYS.containsAll(call.arguments.keys - "view_cursor") ||
             result.callId != call.callId ||
-            result.isError ||
+            result.isError || result.outputBudgetExhausted || result.toolCallBudgetExhausted ||
             result.dispatched ||
-            result.errorCode in ToolResultEnvelope.unknownOutcomeCodes ||
+            result.errorCode != null ||
             listOf("requires_reconciliation", "requiresReconciliation").any { receipt[it] == JsonPrimitive(true) }
         ) {
             return null

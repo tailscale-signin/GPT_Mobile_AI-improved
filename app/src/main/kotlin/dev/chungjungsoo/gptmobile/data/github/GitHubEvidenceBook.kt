@@ -912,10 +912,31 @@ internal class GitHubEvidenceBook(
         GitHubIssueRemediation.Context(cohort, rows)
     }
 
+    fun semanticSteps(): JsonObject? = taskContract?.get("semantic_criteria") as? JsonObject
+
+    suspend fun retainSemanticSteps(task: String, plan: JsonObject) = mutex.withLock {
+        val current = taskContract ?: load("task_contract") ?: return@withLock
+        val accepted = (current["requested_actions"] as? JsonPrimitive)?.contentOrNull ?: return@withLock
+        if (current["binding"] != JsonPrimitive(binding) || current["request_digest"] != JsonPrimitive(digest(accepted)) ||
+            GitHubTaskContinuity.request(task) != GitHubTaskContinuity.request(accepted) || current["semantic_criteria"] != null
+        ) return@withLock
+        val refinement = GitHubAcceptanceContract.semanticSteps(accepted, plan) ?: return@withLock
+        val requirements = GitHubRequestCompletion.requirements(accepted, null, refinement)
+        val updated = JsonObject(
+            current + mapOf(
+                "semantic_criteria" to refinement,
+                "acceptance_criteria" to JsonArray(requirements.map(::JsonPrimitive)),
+                "acceptance_contract" to GitHubAcceptanceContract.json(accepted, requirements)
+            )
+        )
+        save("task_contract", updated)
+        taskContract = updated
+    }
+
     suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
 
     suspend fun acceptedPromptContract(): JsonObject? = (taskContract ?: load("task_contract"))?.let { contract ->
-        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "request_digest", "acceptance_criteria", "acceptance_contract", "tool_call_limit", "effective_tool_call_limit", "tool_call_limit_source") })
+        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "request_digest", "acceptance_criteria", "acceptance_contract", "semantic_criteria", "tool_call_limit", "effective_tool_call_limit", "tool_call_limit_source") })
     }
 
     /** Report the same accepted ceiling and execution counter across process restart. */
@@ -1091,12 +1112,12 @@ internal class GitHubEvidenceBook(
             )
         }
         val publishedProgressDigest = publishedChecklistDigest(previous)
-        val criterionContracts = GitHubAcceptanceContract.criteria(task, GitHubRequestCompletion.requirements(task, issueWork)).associateBy { it.id }
+        val criterionContracts = GitHubAcceptanceContract.criteria(task, GitHubRequestCompletion.requirements(task, issueWork, semanticSteps())).associateBy { it.id }
         val requirements = if (GitHubTestChecklist.integration(task)) {
             GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight)
         } else {
             JsonArray(
-                GitHubRequestCompletion.requirements(task, issueWork).map { requirement ->
+                GitHubRequestCompletion.requirements(task, issueWork, semanticSteps()).map { requirement ->
                     if (requirement == GitHubIssueRemediation.INVENTORY_REQUIREMENT && GitHubIssueRemediation.requested(task)) {
                         return@map GitHubIssueRemediation.inventory(issueWork)
                     }

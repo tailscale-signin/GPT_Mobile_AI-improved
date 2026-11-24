@@ -781,6 +781,11 @@ class GitHubEngineeringBackend:
                 # the coder needs no extra range reads. Store identities only, not source bytes.
                 paths = {digest([data['head_sha'], path]) for path in files}
                 result['initial_source_paths'] = sorted(paths.union(data.get('initial_source_paths', [])))
+                initial = data.get('initial_source_ranges')
+                if initial is not None or not data.get('initial_source_acquisitions'):
+                    ranges = {digest([digest([data['head_sha'], path]), value['sha'], 1, len(value['content'].splitlines(True))])
+                              for path, value in files.items()}
+                    result['initial_source_ranges'] = sorted(ranges.union(initial or []))
                 result['initial_source_acquisitions'] = data.get('initial_source_acquisitions', 0) + len(paths)
             data.update(files=files, tree=tree, active_instructions=instructions)
             task_scope = accepted_scope(job['request'])
@@ -1015,6 +1020,45 @@ class GitHubEngineeringBackend:
         if prs:
             raise ValueError('This branch already has an unrelated PR; choose a dedicated branch')
         return None
+
+    def reconcile_ci_head(self, job, observed):
+        """Read-only adoption of a proven descendant on the already verified PR."""
+        request, data = job['request'], job['data']
+        old, new = data.get('head_sha'), observed.get('head_sha')
+        if (not all(isinstance(sha, str) and re.fullmatch(r'[0-9a-f]{40}', sha) for sha in (old, new))
+                or old == new or observed.get('state') != 'OPEN' or not data.get('pr') or observed.get('pr') != data['pr']
+                or request.get('adopt_pr') and not data.get('adopted_pr')):
+            return None
+        protected = set(data.get('changed_paths') or ()) | set(data.get('files') or {})
+        protected.update(change['path'] for change in data.get('changes', []) if isinstance(change, dict) and isinstance(change.get('path'), str))
+        for criterion in request.get('acceptance', []):
+            protected.update(criterion.get('paths', []))
+        if not protected:
+            return None
+        self.identity(job)
+        comparison = self.api(self.root(job) + '/compare/' + old + '...' + new, job=job)
+        files = comparison.get('files')
+        if (comparison.get('status') != 'ahead' or (comparison.get('merge_base_commit') or {}).get('sha') != old
+                or not isinstance(files, list) or len(files) >= 300):
+            return None
+        changed = set()
+        for entry in files:
+            if not isinstance(entry, dict) or not isinstance(entry.get('filename'), str):
+                return None
+            names = [entry['filename']]
+            if entry.get('status') == 'renamed':
+                if not isinstance(entry.get('previous_filename'), str):
+                    return None
+                names.append(entry['previous_filename'])
+            for name in names:
+                changed.add(safe_path(name))
+        # Repository/CI instructions may change the interpretation of an otherwise disjoint patch.
+        if (protected.intersection(changed) or any(path.split('/')[-1] == 'AGENTS.md' or path.startswith('.github/') for path in changed)
+                or self.ref(job, request['branch']) != new):
+            return None
+        self.identity(job)
+        return {'schema': 'gateway.branch-reconciliation.v1', 'job_id': job['id'], 'pr': data['pr'],
+                'previous_head': old, 'head_sha': new, 'changed_paths': len(changed), 'remote_mutation': False}
 
     def inspect(self, job):
         self.identity(job)

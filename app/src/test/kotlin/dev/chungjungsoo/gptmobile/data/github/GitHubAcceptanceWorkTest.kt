@@ -49,6 +49,23 @@ class GitHubAcceptanceWorkTest {
         assertEquals(setOf("evidence-release", "evidence-test", "evidence-source"), GitHubAcceptanceWork.replayReceiptIds(report))
     }
 
+    @Test fun advisoryClausesMustAccountForTheWholeOriginalRequirement() {
+        val left = "The parser should log missing symbols"
+        val right = "the settings should show the selected profile"
+        val task = "$left and $right"
+        fun plan(first: String, second: String) = buildJsonObject {
+            put("steps", JsonArray(listOf(first, second).map { buildJsonObject { put("criterion", it) } }))
+        }
+        val proposals = plan(left, right)
+        val bound = requireNotNull(GitHubAcceptanceContract.semanticSteps(task, proposals))
+        assertEquals(listOf(left, right), GitHubRequestCompletion.requirements(task, null, bound))
+        assertEquals(listOf(task), GitHubRequestCompletion.requirements(task, null, JsonObject(bound + ("request_digest" to JsonPrimitive("different")))))
+        assertTrue(GitHubAcceptanceContract.semanticSteps("$task only after approval", proposals) == null)
+        assertTrue(GitHubAcceptanceContract.semanticSteps("$left after tests and $right", proposals) == null)
+        assertTrue(GitHubAcceptanceContract.semanticSteps(task, plan(right, left)) == null)
+        assertTrue(GitHubAcceptanceContract.semanticSteps(task, plan(left, "publish the change")) == null)
+    }
+
     @Test fun existingProofIsRemappedBeforeAcquiringMoreEvidence() {
         val uncovered = JsonObject(row("test") + ("acceptance_mismatch" to JsonPrimitive("NO_MATCHING_CLAIMS")))
         val observed = JsonObject(uncovered + ("eligible_receipt_count" to JsonPrimitive(1)))

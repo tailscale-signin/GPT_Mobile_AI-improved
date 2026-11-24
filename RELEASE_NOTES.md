@@ -11,6 +11,9 @@ Application native-library stripping uses the same pinned NDK as the native modu
 - New chats reuse the phone's file and symbol relationships when tree, parser, focus and indexed sources match. A missing cached page triggers reconstruction.
 - Groq request-size recovery uses the actual serialized request. A measured rejection can reduce both tool schemas and retained results while preserving the current handoff and settled operations.
 
+- Deep Engineering and Maximum Intelligence can send staged excerpts to a separately authorized independent reviewer. Accepted literal clauses are used consistently in planning and verification.
+- The Gateway can resume CI after a verified, disjoint branch advance. The benchmark credits CI recovery only after a failure-triggered repair and passing checks on the replacement revision. It counts duplicate immutable source ranges across initial and follow-up reads.
+
 ## Speech benchmark and playback
 
 - Auto can warm its admitted CPU session on voice entry. Adaptive playback takes a short opening clause or up to six complete opening words before adjusting phrase lengths to the audio queue.

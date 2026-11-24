@@ -7,6 +7,7 @@ Application native-library stripping uses the same pinned NDK as the native modu
 ## November 24 issue fixes
 
 - CI can wait for all observed checks and commit statuses on a revision, then resume the saved diagnosis once after rechecking the account, repository, profile and revision.
+- Checks from different workflow suites retain their own results. Stopping a watch during its final revision lookup prevents the saved diagnosis from being queued.
 - When a tool is missing, one catalog lookup can recover an authorized reader. Each catalog revision retains its own attempt history. Recovery checks the reader's declared capabilities and schema before using the original arguments.
 - GitHub chat can reopen an exact missing local result page, make room for it before optional history, and recover a pull request read after the branch head changes.
 - Running CI can look up a matching workflow, register or reattach its watch, and report why monitoring is pending. Watches distinguish workflow attempts. Integration reports identify the blocked capability and the prerequisites to resume.
@@ -14,6 +15,7 @@ Application native-library stripping uses the same pinned NDK as the native modu
 - Voice chat keeps recognized words editable after Android silences the microphone mid-turn. Sending the partial transcript requires a user action.
 - URL reads share a small result allowance across sources. Catalog discovery handles empty selectors, and repeated missing-tool reports retain the catalog revision and occurrence count. Partial research reports identify the delivery check and source counts.
 - Failure diagnostics distinguish a later failure after visible output. Android freeze reports retain a bounded main-thread fingerprint when the operating system supplies a trace for the affected process.
+- Missing-tool reports confirm that the receiver supports the new diagnostic identity before sending the approved report; older compatible reports keep their existing delivery behavior.
 - Release pull requests build the unsigned packages when the publication request, Android version or packaging inputs change. The publisher retains its APK payload inventory for size-gate diagnostics.
 - Sending an interrupted voice draft restores reply playback while preserving capture permissions, mute state, admission ownership and cancellation checks.
 - Locally stopped phone reads retain their exact deadline and cancellation details through public issue reporting. An interrupted research writer reports the same refreshed evidence used for its partial answer and saved receipt.

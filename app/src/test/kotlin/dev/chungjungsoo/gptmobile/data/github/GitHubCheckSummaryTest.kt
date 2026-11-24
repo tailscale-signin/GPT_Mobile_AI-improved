@@ -59,4 +59,31 @@ class GitHubCheckSummaryTest {
         assertEquals("UNKNOWN", summary("""{"context":"build","state":"unknown"}"""))
         assertEquals("PASSED", summary("""{"context":"build","state":"success"}"""))
     }
+
+    @Test fun wholeCommitKeepsDistinctAndUnidentifiedCheckSuites() {
+        fun inSuite(row: String, suite: Long) = row.dropLast(1) + ""","check_suite":{"id":$suite}}"""
+        fun summary(older: String, newer: String) = gitHubCheckSummary(
+            Json.parseToJsonElement("""{"total_count":2,"check_runs":[$older,$newer]}""").jsonObject,
+            Json.parseToJsonElement("""{"total_count":0,"statuses":[]}""").jsonObject,
+            waitForAll = true
+        )
+        val newest = inSuite(attempt(20, "success"), 200)
+        assertEquals("RUNNING", summary(inSuite(attempt(10, null, "in_progress"), 100), newest))
+        assertEquals("FAILED", summary(inSuite(attempt(10, "failure"), 100), newest))
+        assertEquals("RUNNING", summary(attempt(10, null, "in_progress"), attempt(20, "success")))
+        assertEquals("FAILED", summary(attempt(10, "failure"), newest))
+        assertEquals("FAILED", summary(inSuite(attempt(10, "failure"), 0), newest))
+    }
+
+    @Test fun wholeCommitAllowsOnlyProvenSameSuiteSupersession() {
+        fun inSuite(row: String) = row.dropLast(1) + ""","check_suite":{"id":100}}"""
+        fun summary(older: String, newer: String) = gitHubCheckSummary(
+            Json.parseToJsonElement("""{"total_count":2,"check_runs":[$older,$newer]}""").jsonObject,
+            Json.parseToJsonElement("""{"total_count":0,"statuses":[]}""").jsonObject,
+            waitForAll = true
+        )
+        assertEquals("PASSED", summary(inSuite(attempt(10, "cancelled")), inSuite(attempt(20, "success"))))
+        assertEquals("RUNNING", summary(inSuite(attempt(10, "failure")), inSuite(attempt(20, null, "in_progress"))))
+        assertEquals("FAILED", summary(inSuite(attempt(10, "failure", app = 99)), inSuite(attempt(20, "success"))))
+    }
 }

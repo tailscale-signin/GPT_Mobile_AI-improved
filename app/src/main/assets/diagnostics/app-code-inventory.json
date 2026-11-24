@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "fb43330ae21acb761b91127aabfeab6fc33d588d251a406c70bade5976ef8914",
+  "source_digest": "5b9c1e2d44d00a03b09669b9bf65c5c8671f4f2f18242386f0b7a100f84aa7bf",
   "file_count": 3113,
-  "indexed_line_count": 528443,
+  "indexed_line_count": 528500,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 294,
-      "indexed_line_count": 53728
+      "indexed_line_count": 53781
     },
     {
       "id": "research",
@@ -131,7 +131,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 106,
-      "indexed_line_count": 16936
+      "indexed_line_count": 16939
     },
     {
       "id": "benchmark",
@@ -173,7 +173,7 @@
       "id": "authentication_service",
       "label": "Authentication broker software",
       "file_count": 10,
-      "indexed_line_count": 2957
+      "indexed_line_count": 2958
     },
     {
       "id": "external_integrations",
@@ -6052,8 +6052,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "66193b659f3a1d3a6f263e3ff8686c89e222ffdfbc6fbeee553d2cb977f11acf",
-      "indexed_lines": 838
+      "sha256": "5b65b340d96b478c47f59765c788ee74bae957d30b28feaceae1a4198d957614",
+      "indexed_lines": 840
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportGitHubSubmission.kt",
@@ -6108,8 +6108,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "cbf93df23ca66e581a7fa80eb9b264f612dcd5b906fe4a2d594d7e0ca5e285f3",
-      "indexed_lines": 285
+      "sha256": "3f224a94723c9b9e637cf0977c09237301e82be1cd2e3813137cfb10a14e7b81",
+      "indexed_lines": 286
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorker.kt",
@@ -7249,15 +7249,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummary.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "6e709c27f8d95bd05550bffb95c48569a0e17a8c7daa0a229c07fa4d82cbc6cc",
-      "indexed_lines": 60
+      "sha256": "84d71c903f6a9ba446fde36940d6edd5aa5f43c943295028d80bb136b82d4a42",
+      "indexed_lines": 67
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchRepository.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "414ae90cd7e50a5d355b4fda76857ee740b42d3ec3b8e7d97f04cb72606b06cf",
-      "indexed_lines": 524
+      "sha256": "031aded6c1264e40a356ba53c3393928b1ff6971d4c175eceb5e37ed2159b8ba",
+      "indexed_lines": 561
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchWorker.kt",
@@ -7326,8 +7326,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiWatchTask.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "29d1fb47b3ba32f20cb041f12e480a835de1125e64f037532995d9b6252c9823",
-      "indexed_lines": 77
+      "sha256": "a4c3f17095c99958aa80445d55568eb6613c920c4ebf16c5f61167f259fbd690",
+      "indexed_lines": 86
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimBatches.kt",
@@ -19562,8 +19562,8 @@
       "path": "authentication/issue_report_app.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "903b185a8d9e809dda947886d87489bc61c28ab1e70f3f2f710ed7706ee80b63",
-      "indexed_lines": 116
+      "sha256": "94ad5c18ab8e595567dc04008dba66acd8885b50420f58b6f673391c30138686",
+      "indexed_lines": 117
     },
     {
       "path": "authentication/issue_report_diagnostics.py",

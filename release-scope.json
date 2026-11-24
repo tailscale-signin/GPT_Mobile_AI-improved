@@ -1381,7 +1381,8 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusCorrectnessTest.kt",
     "authentication/test_report_extensions.py",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundaryTest.kt",
-    "docs/repairs/benchmark-feature-integration-2026-11-24-task.json"
+    "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

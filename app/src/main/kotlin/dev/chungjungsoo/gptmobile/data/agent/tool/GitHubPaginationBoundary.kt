@@ -385,9 +385,12 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         }
         val all = state.pages.values.flatMapTo(mutableSetOf()) { it.identities }
         val overlap = identities.count { it in earlier }
-        // Branch and PR lists have no reliable total. An overlap across offsets
-        // means a shifting collection may also have skipped unseen records.
-        if (branchList || operation == "github_pr" && args["action"] == JsonPrimitive("list_pull_requests")) {
+        // Offset pages can overlap when branches, pull requests, or check runs move between reads.
+        // Even a matching check total cannot establish which rows shared the same observation.
+        val commitChecks = operation == "github_context" &&
+            args["action"] in setOf(JsonPrimitive("get_commit_status_summary"), JsonPrimitive("checks")) &&
+            "check_runs" in collections
+        if (branchList || commitChecks || operation == "github_pr" && args["action"] == JsonPrimitive("list_pull_requests")) {
             if (all.size < state.pages.values.sumOf { it.identities.size }) state.changed = true
         }
         val repeated = identities.isNotEmpty() && overlap == identities.size

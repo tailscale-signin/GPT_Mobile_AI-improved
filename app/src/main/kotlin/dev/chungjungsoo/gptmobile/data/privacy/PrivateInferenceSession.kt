@@ -292,19 +292,7 @@ internal class PrivateInferenceSession private constructor(
             )
         } catch (failure: PrivateDispatchRejected) {
             recordStream()
-            emit(
-                ProviderEvent.Failed(
-                    "The final private request could not be verified. No unverified request was sent.",
-                    errorCode = "PRIVACY_FINAL_REQUEST_REJECTED",
-                    taskOutcome = "BLOCKED",
-                    failureDetails = buildJsonObject {
-                        put("failed_stage", "private_final_request_validation")
-                        put("dispatched", inferenceDispatched.get())
-                        put("privacy_receipt", failure.receipt)
-                        put("request_replay_allowed", false)
-                    }
-                )
-            )
+            emit(privateFinalRequestFailure(failure, currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext], inferenceDispatched.get()))
         } catch (error: Exception) {
             recordStream()
             val decision = (error as? RouteUnavailable)?.decision ?: PrivacyProfileEligibility.Reason.VERIFICATION_UNAVAILABLE.decision()

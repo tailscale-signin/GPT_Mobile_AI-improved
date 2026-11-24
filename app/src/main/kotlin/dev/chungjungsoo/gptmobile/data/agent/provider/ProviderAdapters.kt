@@ -263,7 +263,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                             event !is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent || !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(event.message, event.code)
                         }
                         .catch { error ->
-                            if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                            if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                             roundFailed = true
                             terminalReceived = false
                             failedTransportComplete = false
@@ -665,7 +665,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     withTimeoutOrNull(remainingAttemptMs) {
                         openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig)
                             .catch { error ->
-                                if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                                if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                                 caughtThrowable = error
                                 if (chunkFailure == null) caughtEvidence = providerAdapterExceptionEvidence(error)
                             }
@@ -1017,7 +1017,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 chunk.error?.let { dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(it.message, it.code) } != true
                             }
                             .catch { error ->
-                                if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                                if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                                 // A disconnect after a typed provider error cannot replace its original
                                 // stage, retryability or saved cause with a generic connection failure.
                                 if (roundFailed && failureDetails != null && lastFailedMessage != null) return@catch
@@ -1288,7 +1288,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 !chunk.streamFinished && chunk.error == null
             }
             .catch { error ->
-                if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                 roundFailed = true
                 streamInterrupted = true
                 limit = (error as? Exception)?.let { dev.chungjungsoo.gptmobile.data.network.providerLimitDecision(config, platform.model, deliveredPayload, it) }
@@ -1584,7 +1584,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                             chunk != dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
                         }
                         .catch { error ->
-                            if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                            if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                             roundFailed = true
                             terminalReceived = false
                             val localCircuitRejection = providerRateLimitRejection(error, config, platform.model, deliveredPayload)
@@ -1875,7 +1875,7 @@ class GeminiAdapter @Inject constructor(
                             response.candidates.orEmpty().none { it.finishReason != null }
                         }
                         .catch { error ->
-                            if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                            if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                             roundFailed = true
                             terminalReceived = false
                             localCircuitRejection = providerRateLimitRejection(error, config, platform.model, deliveredPayload)

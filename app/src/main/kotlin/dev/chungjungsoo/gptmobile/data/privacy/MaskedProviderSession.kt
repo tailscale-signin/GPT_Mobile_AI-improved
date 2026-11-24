@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.json.buildJsonObject
@@ -76,6 +77,13 @@ private suspend fun openMaskedProviderSession(
             protection?.flushInputs()
             check(store.effectiveSnapshot(privacy.enabled) == state) { "Privacy settings changed. Resend with the current settings." }
             val authority = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]
+            val requestDispatch = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]
+            val inheritedObserver = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptObserver]
+            val observedDispatch = java.util.concurrent.atomic.AtomicBoolean(false)
+            val attemptObserver = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptObserver { attempt ->
+                observedDispatch.set(true)
+                inheritedObserver?.onDispatch?.invoke(attempt)
+            }
             val privateAuthority = dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard(
                 revision = "${authority?.revision.orEmpty()}:privacy-${state.revision}",
                 authority = authority?.authority
@@ -120,7 +128,12 @@ private suspend fun openMaskedProviderSession(
                 emit(ProviderEvent.TextDelta(result.text, lineage))
             }
             try {
-                session.streamRound(emptyList(), emptyList()).flowOn(privateAuthority + proof).collect { event ->
+                session.streamRound(emptyList(), emptyList()).catch { failure ->
+                    if (failure !is PrivateDispatchRejected) throw failure
+                    // Publish through the ordinary receiving guard below. A typed local refusal
+                    // cannot bypass revoked permissions or borrow a prior attempt's no-send claim.
+                    emit(privateFinalRequestFailure(failure, requestDispatch, observedDispatch.get()))
+                }.flowOn(privateAuthority + proof + attemptObserver).collect { event ->
                     if (terminal) return@collect
                     currentCoroutineContext().ensureActive()
                     if (store.effectiveSnapshot(privacy.enabled) != state) {

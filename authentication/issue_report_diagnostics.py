@@ -44,6 +44,11 @@ PRIVACY_ELIGIBILITY_REASONS = {
     "MANAGEMENT_KEY_MISSING", "GUARDRAIL_UNVERIFIED", "GUARDRAIL_UPDATE_UNCONFIRMED", "GUARDRAIL_ASSIGNMENT_UNVERIFIED",
     "KEY_UNAVAILABLE", "VERIFICATION_RATE_LIMITED", "VERIFICATION_UNAVAILABLE",
 }
+PRIVACY_FINAL_REQUEST_CODE = "PRIVACY_FINAL_REQUEST_REJECTED"
+PRIVACY_FINAL_REQUEST_OUTCOMES = {
+    "POLICY_REVISION_MISMATCH", "KNOWN_VALUE_REINTRODUCED",
+    "NO_SUPPORTED_TEXT_SURFACES", "WIRE_VALIDATION_UNAVAILABLE",
+}
 GATEWAY_CAPABILITY_FIELDS = {"gateway_capability_failure_kind", "gateway_capability_decode_reason"}
 GATEWAY_CAPABILITY_FAILURE_KINDS = {
     "CONNECT_TIMEOUT", "TIMEOUT", "DNS", "TLS", "CONNECTION", "CONNECTION_CLOSED",
@@ -59,6 +64,7 @@ ENUMS = {
     "provider_failure_code": {"BUDGET_RESTRICTED", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_SERVICE_UNVERIFIED"},
     "privacy_reason_code": PRIVACY_ELIGIBILITY_REASONS,
     "privacy_status": {"NOT_VERIFIED", "INCOMPATIBLE"},
+    "privacy_dispatch_outcome": PRIVACY_FINAL_REQUEST_OUTCOMES,
     "gateway_capability_failure_kind": GATEWAY_CAPABILITY_FAILURE_KINDS,
     "gateway_capability_decode_reason": GATEWAY_CAPABILITY_DECODE_REASONS,
     "voice_reply_state": {"FAILED_WITHOUT_DETAILS", "EMPTY_REPLY"},
@@ -132,6 +138,8 @@ FIELDS_BY_AREA = {
     "INCIDENT": COMMON_HASHES | {"original_error_code_hash", "chat_failure_code_state"},
 }
 FIELDS_BY_AREA["PROVIDER"].update(GATEWAY_CAPABILITY_FIELDS)
+FIELDS_BY_AREA["PROVIDER"].add("privacy_dispatch_outcome")
+ENUMS["provider_failure_code"].add(PRIVACY_FINAL_REQUEST_CODE)
 ENUMS["provider_failure_code"].update(capsule.CONVERSATION_RECOVERY_CODES | capsule.EXECUTION_COMPLETION_CODES | {"OUTPUT_CONTINUATION_UNAVAILABLE", "GITHUB_TASK_IDENTITY_CHANGED"})
 FIELDS_BY_AREA["PROVIDER"].update({"gateway_model_state", "gateway_model_advertised", "gateway_model_loaded"})
 FLAGS.update({"gateway_model_advertised", "gateway_model_loaded"})
@@ -497,6 +505,11 @@ def validate_diagnostics(value):
             raise ValueError("invalid gateway capability evidence scope")
         if "gateway_capability_decode_reason" in values and kind != "DECODE_REJECTED":
             raise ValueError("invalid gateway capability decoder evidence")
+    if "privacy_dispatch_outcome" in values and (
+            values.get("provider_failure_code") != PRIVACY_FINAL_REQUEST_CODE
+            or values.get("provider_failure_stage") != "ADMISSION"
+            or values.get("provider_failure_domain") != "APPLICATION_VERIFICATION"):
+        raise ValueError("invalid privacy final request evidence scope")
     if not _aligned_composer(values):
         raise ValueError("unaligned composer observations")
     if area != "INCIDENT" and values.get("incident_capture_site") == "CHAT_FLOW_EMPTY_ANSWER":

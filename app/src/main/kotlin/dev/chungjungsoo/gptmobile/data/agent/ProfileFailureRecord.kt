@@ -102,7 +102,7 @@ data class ProfileFailureRecord(
         private val continuationCodes = setOf("OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_NO_PROGRESS", "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED")
         private val modelPreparationCodes = setOf("MODEL_PREPARATION_INCOMPLETE", "MODEL_PREPARATION_REJECTED", "MODEL_PREPARATION_STORAGE_UNAVAILABLE", "MODEL_PREPARATION_CONNECTION_FAILED")
         private val providerStreamCodes = setOf("BILLING_UNAVAILABLE", "PROVIDER_CONTENT_POLICY", "PROVIDER_GENERATION_FAILED")
-        private val typedCodes = modelPreparationCodes + providerStreamCodes + setOf("GITHUB_TASK_IDENTITY_CHANGED", "WORKSPACE_EVIDENCE_CONFLICT", "REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE", "PROVIDER_PRIVACY_RESTRICTED", "GITHUB_REPOSITORY_TARGET_REQUIRED", "GITHUB_REPOSITORY_TARGET_AMBIGUOUS", "REQUEST_REJECTED", "CIRCUIT_BREAKER_OPEN", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY", "SERIALIZATION_ERROR", "PARSING_ERROR", "SERVICE_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "GITHUB_TASK_INCOMPLETE", "GITHUB_VERIFICATION_INTERNAL_ERROR", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION", "GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_TOOL_BUDGET_EXHAUSTED", "GITHUB_TASK_BUDGET_EXHAUSTED", "TOOL_BUDGET_EXHAUSTED", "TASK_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "DEPENDENCY_DEFERRED", "REPLAY_EVIDENCE_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
+        private val typedCodes = modelPreparationCodes + providerStreamCodes + setOf("GITHUB_TASK_IDENTITY_CHANGED", "WORKSPACE_EVIDENCE_CONFLICT", "REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED", "PROVIDER_PRIVACY_RESTRICTED", "GITHUB_REPOSITORY_TARGET_REQUIRED", "GITHUB_REPOSITORY_TARGET_AMBIGUOUS", "REQUEST_REJECTED", "CIRCUIT_BREAKER_OPEN", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY", "SERIALIZATION_ERROR", "PARSING_ERROR", "SERVICE_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "GITHUB_TASK_INCOMPLETE", "GITHUB_VERIFICATION_INTERNAL_ERROR", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION", "GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_TOOL_BUDGET_EXHAUSTED", "GITHUB_TASK_BUDGET_EXHAUSTED", "TOOL_BUDGET_EXHAUSTED", "TASK_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "DEPENDENCY_DEFERRED", "REPLAY_EVIDENCE_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
 
         internal fun retainedProviderCode(value: String?): String? = value?.uppercase(java.util.Locale.ROOT)?.takeIf {
             it in setOf("WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "REVIEW_INPUT_REQUIRED", "ENGINEERING_STATE_OR_INPUT_CHANGED") || it in ProviderRecoveryFailure.CODES || executionCode.matches(it) || it in continuationCodes || it in typedCodes || it in repositoryAdmissionCodes || it in githubSchemaAdmissionCodes || it in capacityCodes || it in gatewayAdmissionCodes || it in engineeringPreflightCodes || it in readinessCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || it in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
@@ -151,13 +151,13 @@ data class ProfileFailureRecord(
                     it == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProfileFailureRecord(it, retryAllowed = false, phase = "engineering_guard")
                     it == "PROVIDER_INVOCATION_FAILED" -> ProfileFailureRecord(it, retryAllowed = false, phase = "model_invocation")
                     it == "GITHUB_VERIFICATION_INTERNAL_ERROR" -> ProfileFailureRecord(it, retryAllowed = false, phase = "verification")
-                    it == "PRIVACY_PROVIDER_INELIGIBLE" -> ProfileFailureRecord(it, retryAllowed = false)
+                    it in setOf("PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED") -> ProfileFailureRecord(it, retryAllowed = false)
                     it in ProviderRecoveryFailure.CODES -> ProfileFailureRecord(it, retryAllowed = false, phase = "lifecycle")
                     executionCode.matches(it) -> ProfileFailureRecord(it, retryAllowed = false, phase = "provider_admission")
                     else -> classify(it)
                 }
             }
-            val legacy = if (code in setOf("PROVIDER_INVOCATION_FAILED", "PRIVACY_PROVIDER_INELIGIBLE", "GITHUB_VERIFICATION_INTERNAL_ERROR") || code in ProviderRecoveryFailure.CODES) {
+            val legacy = if (code in setOf("PROVIDER_INVOCATION_FAILED", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED", "GITHUB_VERIFICATION_INTERNAL_ERROR") || code in ProviderRecoveryFailure.CODES) {
                 // An unknown model exception or privacy gate contributes no dispatch
                 // or cooldown facts from prose. Structured observations apply below.
                 requireNotNull(authoritative)
@@ -178,7 +178,20 @@ data class ProfileFailureRecord(
             val dispatchFact = details?.get("dispatched")
                 ?: details?.get("inference_dispatched")?.takeIf { stage == "connection_preflight" }
             val dispatchState = (details?.get("dispatch_state") as? JsonPrimitive)?.contentOrNull?.lowercase(java.util.Locale.ROOT)
-            val dispatched = (dispatchFact as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+            val finalRequestRefusal = code == "PRIVACY_FINAL_REQUEST_REJECTED"
+            val finalRequestPriorAcceptance = finalRequestRefusal && details?.get("remote_acceptance") in setOf(JsonPrimitive("YES"), JsonPrimitive("ACCEPTED"))
+            val finalRequestPriorDispatch = finalRequestRefusal && (details?.get("dispatched") == JsonPrimitive(true) || dispatchState == "dispatched")
+            val finalRequestUncertain = finalRequestRefusal &&
+                (
+                    details?.get("requires_reconciliation") == JsonPrimitive(true) ||
+                        details?.get("command_outcome_unknown") == JsonPrimitive(true) ||
+                        details?.get("remote_acceptance") == JsonPrimitive("UNKNOWN") ||
+                        dispatchState in setOf("unknown", "unknown_outcome")
+                    )
+            // This validation refused the current request. Its negative fields
+            // cannot erase an earlier attempt's positive or uncertain evidence.
+            val dispatched = true.takeIf { finalRequestPriorAcceptance || finalRequestPriorDispatch }
+                ?: (dispatchFact as? JsonPrimitive)?.takeUnless { it.isString || finalRequestUncertain }?.booleanOrNull
                 ?: false.takeIf { dispatchState in setOf("not_dispatched", "precheck_rejected") }
                 ?: true.takeIf { dispatchState == "dispatched" }
                 ?: true.takeIf { details?.get("remote_acceptance") in setOf(JsonPrimitive("YES"), JsonPrimitive("ACCEPTED")) }
@@ -210,8 +223,14 @@ data class ProfileFailureRecord(
             return legacy.copy(
                 phase = stage ?: legacy.phase.ifBlank { "stage_not_recorded" },
                 retryAllowed = !claimCheckpoint && legacy.retryAllowed && (logicalContinuation || details?.get("retryable") != JsonPrimitive(false)),
-                dispatched = dispatched,
-                remoteAcceptance = if (localCircuitRejection || authorityPrecheck || catalogPrecheck || repositoryPrecheck || dispatchState in setOf("not_dispatched", "precheck_rejected")) RemoteRequestAcceptance.NO else observedAcceptance,
+                dispatched = dispatched.takeUnless { finalRequestUncertain && it == false },
+                remoteAcceptance = when {
+                    finalRequestPriorAcceptance -> RemoteRequestAcceptance.YES
+                    finalRequestUncertain -> RemoteRequestAcceptance.UNKNOWN
+                    finalRequestPriorDispatch || finalRequestRefusal && details?.get("remote_acceptance") == JsonPrimitive("UNKNOWN") -> observedAcceptance
+                    localCircuitRejection || authorityPrecheck || catalogPrecheck || repositoryPrecheck || dispatchState in setOf("not_dispatched", "precheck_rejected") -> RemoteRequestAcceptance.NO
+                    else -> observedAcceptance
+                },
                 retryAfterMillis = if (legacy.category == "BILLING_UNAVAILABLE" && details?.get("provider_budget_kind") == JsonPrimitive("IN_FLIGHT_BUDGET") && details["provider_budget_retry"] == JsonPrimitive("MANUAL_AFTER_PROVIDER_DELAY")) {
                     retryAt ?: retryAfter?.let { System.currentTimeMillis() + it }
                 } else if (typedProviderCooldown) {
@@ -224,10 +243,14 @@ data class ProfileFailureRecord(
                 invocationId = invocationId,
                 serverRequestId = serverRequestId,
                 generationCompleted = generationCompleted,
-                requestReplayAllowed = false.takeIf { claimCheckpoint || code in modelPreparationCodes || code in setOf("GITHUB_TASK_IDENTITY_CHANGED", "PROVIDER_INVOCATION_FAILED", "PRIVACY_PROVIDER_INELIGIBLE", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", "GITHUB_VERIFICATION_INTERNAL_ERROR") }
+                requestReplayAllowed = false.takeIf { claimCheckpoint || code in modelPreparationCodes || code in setOf("GITHUB_TASK_IDENTITY_CHANGED", "PROVIDER_INVOCATION_FAILED", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", "GITHUB_VERIFICATION_INTERNAL_ERROR") }
                     ?: (details?.get("request_replay_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
                 causeTypes = causeTypes,
-                dispatchState = dispatchState?.uppercase(java.util.Locale.ROOT)?.takeIf { it in setOf("NOT_DISPATCHED", "PRECHECK_REJECTED", "DISPATCHED", "FAILED", "COMPLETED", "UNKNOWN") },
+                dispatchState = when {
+                    finalRequestPriorAcceptance || finalRequestPriorDispatch -> "DISPATCHED"
+                    finalRequestUncertain -> "UNKNOWN"
+                    else -> dispatchState?.uppercase(java.util.Locale.ROOT)?.takeIf { it in setOf("NOT_DISPATCHED", "PRECHECK_REJECTED", "DISPATCHED", "FAILED", "COMPLETED", "UNKNOWN") }
+                },
                 recoveryActions = if (claimCheckpoint) listOf("RESUME_UNFINISHED_EXTRACTION_BATCHES_AFTER_RETRY_AT") else recoveryActions,
                 recoveryDetails = if (claimCheckpoint) {
                     JsonObject(details.orEmpty().filterKeys { it in setOf("failed_stage", "review_stage", "recovery_action", "provider_wait_no_wait_reason", "provider_wait_decision_state", "provider_wait_scheduler_state", "provider_wait_persisted") })
@@ -302,6 +325,7 @@ data class ProfileFailureRecord(
                 details.contains("PROVIDER_CONTENT_POLICY", true) -> "PROVIDER_CONTENT_POLICY"
                 details.contains("PROVIDER_GENERATION_FAILED", true) -> "PROVIDER_GENERATION_FAILED"
                 details.contains("PRIVACY_PROVIDER_INELIGIBLE", true) -> "PRIVACY_PROVIDER_INELIGIBLE"
+                details.contains("PRIVACY_FINAL_REQUEST_REJECTED", true) -> "PRIVACY_FINAL_REQUEST_REJECTED"
                 details.contains("DISPATCH_POLICY_CHANGED", true) || details.contains("POLICY_STALE", true) -> "POLICY_STALE"
                 details.contains("STALE_INVENTORY", true) -> "STALE_INVENTORY"
                 readinessCode != null -> readinessCode
@@ -359,9 +383,9 @@ data class ProfileFailureRecord(
             }
             return ProfileFailureRecord(
                 category,
-                !incompatible && !unavailablePolicy && engineeringPreflight == null && repositoryAdmission == null && githubSchemaAdmission == null && capacityCode == null && gatewayAdmission == null && (continuationCode == null || continuationCode == "OUTPUT_CONTINUATION_UNAVAILABLE") && verificationCode == null && (readinessCode == null || readinessCode == "REQUIRED_TOOL_ACQUISITION_TIMED_OUT") && contract == null && githubCode?.let { dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.requiresCorrection(it) } != true && category !in setOf("GITHUB_TASK_IDENTITY_CHANGED", "WORKSPACE_EVIDENCE_CONFLICT", "PROVIDER_CONTENT_POLICY", "PROVIDER_GENERATION_FAILED", "TASK_INCOMPLETE", "EVIDENCE_REQUIRED", "REQUEST_REJECTED", "POLICY_STALE", "STALE_INVENTORY", "REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR", "WAITING_FOR_APPROVAL"),
-                retryAt.takeUnless { category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED", "PRIVACY_PROVIDER_INELIGIBLE") },
-                dispatched = false.takeIf { !circuit && category !in setOf("POLICY_STALE", "STALE_INVENTORY", "PRIVACY_PROVIDER_INELIGIBLE") && (details.contains("dispatched=false", true) || details.contains("No request was dispatched", true)) },
+                !incompatible && !unavailablePolicy && engineeringPreflight == null && repositoryAdmission == null && githubSchemaAdmission == null && capacityCode == null && gatewayAdmission == null && (continuationCode == null || continuationCode == "OUTPUT_CONTINUATION_UNAVAILABLE") && verificationCode == null && (readinessCode == null || readinessCode == "REQUIRED_TOOL_ACQUISITION_TIMED_OUT") && contract == null && githubCode?.let { dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.requiresCorrection(it) } != true && category !in setOf("GITHUB_TASK_IDENTITY_CHANGED", "WORKSPACE_EVIDENCE_CONFLICT", "PROVIDER_CONTENT_POLICY", "PROVIDER_GENERATION_FAILED", "TASK_INCOMPLETE", "EVIDENCE_REQUIRED", "REQUEST_REJECTED", "POLICY_STALE", "STALE_INVENTORY", "REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR", "WAITING_FOR_APPROVAL"),
+                retryAt.takeUnless { category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED") },
+                dispatched = false.takeIf { !circuit && category !in setOf("POLICY_STALE", "STALE_INVENTORY", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED") && (details.contains("dispatched=false", true) || details.contains("No request was dispatched", true)) },
                 phase = when {
                     category == "GITHUB_TASK_IDENTITY_CHANGED" -> "admission"
                     category == "WORKSPACE_EVIDENCE_CONFLICT" -> "application_persistence"
@@ -396,7 +420,7 @@ data class ProfileFailureRecord(
                     category in setOf("REASONING_BUDGET_EXHAUSTED", "OUTPUT_PROTOCOL_INVALID") -> "final_synthesis"
                     else -> "stage_not_recorded"
                 },
-                requestReplayAllowed = false.takeIf { category == "PRIVACY_PROVIDER_INELIGIBLE" }
+                requestReplayAllowed = false.takeIf { category in setOf("PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_FINAL_REQUEST_REJECTED") }
             )
         }
     }

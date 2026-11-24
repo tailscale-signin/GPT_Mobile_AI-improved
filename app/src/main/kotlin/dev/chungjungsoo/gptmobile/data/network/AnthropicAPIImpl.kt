@@ -235,7 +235,7 @@ class AnthropicAPIImpl @Inject constructor(
                     }
                 }
             }.catch { e ->
-                if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+                if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException || e is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw e
                 if (e is ProviderHttpFailure && e.status == 429 && ProviderCooldown.durableRateLimits()) throw e
                 if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e)) {
                     return@catch

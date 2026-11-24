@@ -74,7 +74,9 @@ data class ProviderFailureReceipt(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val privacyReasonCode: String? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val privacyStatus: String? = null
+    val privacyStatus: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val privacyDispatchOutcome: String? = null
 ) {
     internal fun valid(): Boolean = provider in setOf("OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OPENROUTER", "OLLAMA", "CUSTOM", "LITERT_LM", "LLAMA", "FREE", "NVIDIA") &&
         listOf(profileHash, modelHash).all { it.matches(Regex("[a-f0-9]{64}")) } &&
@@ -87,6 +89,7 @@ data class ProviderFailureReceipt(
         (recoveryAction == null || recoveryAction == GatewayEngineeringPrerequisites.recoveryAction(errorCode)) &&
         (privacyReasonCode == null || errorCode == PrivacyFailureEvidence.CODE && privacyReasonCode in PrivacyFailureEvidence.reasonCodes) &&
         (privacyStatus == null || errorCode == PrivacyFailureEvidence.CODE && privacyStatus in PrivacyFailureEvidence.statuses) &&
+        (privacyDispatchOutcome == null || errorCode == PrivacyFinalRequestFailureEvidence.CODE && privacyDispatchOutcome in PrivacyFinalRequestFailureEvidence.outcomes && stage == ProviderFailureStage.ADMISSION && failureDomain == FailureDomain.APPLICATION_VERIFICATION && requestReplayAllowed == false && logicalContinuationAllowed == false) &&
         listOfNotNull(invocationId, usageInvocationId).all { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) } &&
         (outputTokenSource == null || safeUsageSource(outputTokenSource) != null) &&
         listOfNotNull(serverRequestId, generationId).all { dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity(it) != null } &&
@@ -113,7 +116,7 @@ data class ProviderFailureReceipt(
             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_DISABLED", "OUTPUT_CONTINUATION_NO_PROGRESS",
             "OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_PROTOCOL_INVALID",
             "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "CLIENT_TOOL_RESULTS_REQUIRED", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED",
-            "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", PrivacyFailureEvidence.CODE
+            "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", PrivacyFailureEvidence.CODE, PrivacyFinalRequestFailureEvidence.CODE
         ) + ExecutionCompletionDiagnostics.codes + GatewayEngineeringPrerequisites.codes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES +
             dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES + setOf(dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE) +
             dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes +
@@ -128,11 +131,13 @@ data class ProviderFailureReceipt(
             val applicationGuard = code in setOf("WORKSPACE_EVIDENCE_CONFLICT", "GITHUB_REVIEW_COMPARISON_REQUIRED")
             val comparisonPrerequisite = failedStage == "review_comparison"
             val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
+            val privacyFinalOutcome = PrivacyFinalRequestFailureEvidence.observedOutcome(failure.errorCode, failure.failureDetails)
+            val privacyFinalUnsent = privacyFinalOutcome != null && classified.dispatched == false && classified.remoteAcceptance == dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO
             val invocationId = failure.invocationId ?: classified.invocationId
-            val matchingUsage = usage?.takeUnless { failure.localBudgetRefusal || applicationGuard || comparisonPrerequisite }?.takeIf {
+            val matchingUsage = usage?.takeUnless { failure.localBudgetRefusal || applicationGuard || comparisonPrerequisite || privacyFinalUnsent }?.takeIf {
                 if (invocationId != null || it.invocationId != null) invocationId != null && invocationId == it.invocationId else role != "github-delivery"
             }
-            val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)?.takeUnless { applicationGuard || comparisonPrerequisite }
+            val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)?.takeUnless { applicationGuard || comparisonPrerequisite || privacyFinalUnsent }
             // A finish-only stream frame cannot hide usage already attached to
             // this failure. Never fill it from another invocation's last frame.
             val correlatedUsage = matchingUsage?.copy(
@@ -159,6 +164,7 @@ data class ProviderFailureReceipt(
             val privacyAdmissionRejected = code == PrivacyFailureEvidence.CODE && failedStage == "provider_admission"
             val stage = when {
                 applicationGuard || comparisonPrerequisite -> ProviderFailureStage.ENGINEERING_GUARD
+                code == PrivacyFinalRequestFailureEvidence.CODE -> if (privacyFinalOutcome != null) ProviderFailureStage.ADMISSION else ProviderFailureStage.GENERATION
                 // The failed preparation stage does not establish whether prior
                 // work in this run was dispatched or has an uncertain outcome.
                 profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected || privacyAdmissionRejected || failure.localBudgetRefusal -> ProviderFailureStage.ADMISSION
@@ -198,7 +204,7 @@ data class ProviderFailureReceipt(
                 remoteAcceptance = classified.remoteAcceptance,
                 generationCompleted = classified.generationCompleted,
                 requestReplayAllowed = classified.requestReplayAllowed,
-                logicalContinuationAllowed = if (classified.category in setOf("GATEWAY_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN") || failure.failureDetails?.get("requires_reconciliation") == JsonPrimitive(true)) {
+                logicalContinuationAllowed = if (code == PrivacyFinalRequestFailureEvidence.CODE || classified.category in setOf("GATEWAY_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN") || failure.failureDetails?.get("requires_reconciliation") == JsonPrimitive(true)) {
                     false
                 } else {
                     (failure.failureDetails?.get("logical_continuation_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
@@ -209,6 +215,7 @@ data class ProviderFailureReceipt(
                 failureDomain = when {
                     applicationGuard -> FailureDomain.APPLICATION_VERIFICATION
                     comparisonPrerequisite -> if (code == "REVIEW_INPUT_REQUIRED") FailureDomain.APPLICATION_VERIFICATION else FailureDomain.TOOL_EXECUTION
+                    code == PrivacyFinalRequestFailureEvidence.CODE -> if (privacyFinalOutcome != null) FailureDomain.APPLICATION_VERIFICATION else FailureDomain.UNKNOWN
                     profileSelectionRejected || githubCooldownActive || code == PrivacyFailureEvidence.CODE || failure.localBudgetRefusal -> FailureDomain.APPLICATION_VERIFICATION
                     githubRateResponse -> FailureDomain.TOOL_EXECUTION
                     classified.isUserInputRequired || classified.isEngineeringSetup || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
@@ -227,7 +234,8 @@ data class ProviderFailureReceipt(
                 engineeringRejection = classified.engineeringRejection,
                 recoveryAction = GatewayEngineeringPrerequisites.recoveryAction(code),
                 privacyReasonCode = PrivacyFailureEvidence.reason(failure.failureDetails?.get("privacy_reason_code")).takeIf { code == PrivacyFailureEvidence.CODE },
-                privacyStatus = PrivacyFailureEvidence.status(failure.failureDetails?.get("privacy_status")).takeIf { code == PrivacyFailureEvidence.CODE }
+                privacyStatus = PrivacyFailureEvidence.status(failure.failureDetails?.get("privacy_status")).takeIf { code == PrivacyFailureEvidence.CODE },
+                privacyDispatchOutcome = privacyFinalOutcome
             )
         }
     }
@@ -277,7 +285,7 @@ internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: 
                     RunDiagnostics.journal?.record(runId, RunDiagnosticKind.FAILURE_RECEIPT, invocationId = receipt.invocationId, successful = false, providerFailure = receipt)
                     // Delivery can wrap review, extraction, approval or a retained verdict. It
                     // cannot replace the original producer's profile or borrow its last usage.
-                    if (role != "github-delivery" && (receipt.failureDomain == FailureDomain.PROVIDER || receipt.errorCode == PrivacyFailureEvidence.CODE || event.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) && (invocationId == null || receipt.invocationId == invocationId) && event.failureDetails?.get("diagnostic_area") == null) {
+                    if (role != "github-delivery" && (receipt.failureDomain == FailureDomain.PROVIDER || receipt.errorCode in setOf(PrivacyFailureEvidence.CODE, PrivacyFinalRequestFailureEvidence.CODE) || event.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) && (invocationId == null || receipt.invocationId == invocationId) && event.failureDetails?.get("diagnostic_area") == null) {
                         val fields = ProviderFailureReport.fields(
                             runId,
                             ownedFailure,
@@ -288,7 +296,12 @@ internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: 
                             reasoningBytes = reasoningBytes.takeIf { ownsStream },
                             metadata = metadata.takeIf { ownsStream }
                         )
-                        emit(ownedFailure.copy(failureDetails = JsonObject(ownedFailure.failureDetails.orEmpty() + fields)))
+                        val retained = if (receipt.errorCode == PrivacyFinalRequestFailureEvidence.CODE) {
+                            ownedFailure.failureDetails.orEmpty() - PrivacyFinalRequestFailureEvidence.FIELD
+                        } else {
+                            ownedFailure.failureDetails.orEmpty()
+                        }
+                        emit(ownedFailure.copy(failureDetails = JsonObject(retained + fields)))
                         return@collect
                     }
                     emit(ownedFailure)
@@ -316,7 +329,25 @@ private fun observedFailure(failure: ProviderEvent.Failed, usage: ProviderEvent.
         requestId?.let { put("server_request_id", it) }
         dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity(timing?.generationId)?.let { put("generation_id", it) }
     }
+    if (observed.isEmpty()) return failure
     // Header acceptance does not establish generation or transport completion.
-    // Explicit upstream reconciliation/dispatch facts retain their precedence.
-    return if (observed.isEmpty()) failure else failure.copy(failureDetails = JsonObject(observed + retained))
+    val merged = if (failure.errorCode == PrivacyFinalRequestFailureEvidence.CODE) {
+        buildJsonObject {
+            retained.forEach { (key, value) -> put(key, value) }
+            // Actual owning-stream headers can prove earlier work was sent.
+            observed.forEach { (key, value) -> put(key, value) }
+            // A last rejected attempt cannot negate an earlier accepted or
+            // uncertain operation in this same invocation. Positive headers
+            // remain useful even when completion is still unknown.
+            if (observed["remote_acceptance"] == JsonPrimitive("NO")) {
+                retained["remote_acceptance"]
+                    ?.takeIf { it in setOf(JsonPrimitive("UNKNOWN"), JsonPrimitive("YES"), JsonPrimitive("ACCEPTED")) }
+                    ?.let { put("remote_acceptance", it) }
+            }
+        }
+    } else {
+        // Other failures keep their existing explicit upstream precedence.
+        JsonObject(observed + retained)
+    }
+    return failure.copy(failureDetails = merged)
 }

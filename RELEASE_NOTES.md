@@ -38,6 +38,13 @@ CPU-reference speech checks establish bounded numerical consistency, not percept
 
 Production accelerator admission establishes numerical consistency on the fixed representative CPU-reference workload. It does not prove perceptual equivalence or correctness for every future utterance; native per-phrase validation remains required.
 
+## Final request privacy refusal evidence
+
+- Preserve final request privacy refusals through the actual provider clients and adapters, then apply the existing receiving authorization and cancellation checks before publishing a terminal result.
+- Distinguish a request proven wholly unsent from prior accepted or uncertain work. Retain only closed validation outcomes in approved diagnostics and require compatible reporting capability; raw private receipts remain excluded.
+
+Final-request refusal diagnostics report only the four observed typed outcomes from current validation. Missing historical receipt causes remain unknown; prior accepted or uncertain work cannot be reduced to unsent. Source and receiver data checks do not replace ordinary hosted composed runtime qualification or private capture/approval policy.
+
 ## Speech benchmark evidence and engine comparison
 
 - Distinguish unmeasured PCM from measured silence, and retain fixed validation reasons with bounded tensor and token-duration statistics. Historical failed snapshots leave unavailable audio statistics unknown.

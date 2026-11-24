@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.providerWaitDecisionRequired
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -37,11 +38,14 @@ internal object ProviderFailureReport {
             }
         }
         val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
-        val rateLimitFailure = providerWaitDecisionRequired(failure.errorCode, classified) ||
-            receipt.httpStatus == 429 &&
-            providerWaitDecisionRequired("429", classified) ||
-            semanticFailure?.get("provider_failure_kind") == JsonPrimitive("RATE_LIMIT") &&
-            semanticFailure["provider_semantic_status"] == JsonPrimitive(429)
+        val rateLimitFailure = receipt.errorCode != PrivacyFinalRequestFailureEvidence.CODE &&
+            (
+                providerWaitDecisionRequired(failure.errorCode, classified) ||
+                    receipt.httpStatus == 429 &&
+                    providerWaitDecisionRequired("429", classified) ||
+                    semanticFailure?.get("provider_failure_kind") == JsonPrimitive("RATE_LIMIT") &&
+                    semanticFailure["provider_semantic_status"] == JsonPrimitive(429)
+                )
         for (key in listOf("verification_phase", "continuation_cause", "continuation_trigger", "continuation_saved_characters", "continuation_attempt_count", "continuation_output_cap", "checkpoint_mismatch_reason", "observed_checkpoint_state")) {
             failure.failureDetails?.get(key)?.let { value -> IssueReportIncidentCapsule.validValue(key, value) }?.let { put(key, it) }
         }
@@ -53,6 +57,12 @@ internal object ProviderFailureReport {
         if (receipt.errorCode == PrivacyFailureEvidence.CODE) {
             receipt.privacyReasonCode?.let { put("privacy_reason_code", it) }
             receipt.privacyStatus?.let { put("privacy_status", it) }
+        }
+        if (receipt.errorCode == PrivacyFinalRequestFailureEvidence.CODE) {
+            receipt.privacyDispatchOutcome?.takeIf { it == PrivacyFinalRequestFailureEvidence.observedOutcome(failure.errorCode, failure.failureDetails) }?.let {
+                put(PrivacyFinalRequestFailureEvidence.FIELD, it)
+                put("failure_origin", "APPLICATION")
+            }
         }
         if (rateLimitFailure) {
             val details = failure.failureDetails
@@ -145,6 +155,15 @@ internal object ProviderFailureReport {
         receipt.httpStatus?.let { put("http_status", it) }
         receipt.dispatched?.let { put("dispatched", it) }
         if (receipt.remoteAcceptance != dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN) put("remote_acceptance", receipt.remoteAcceptance.name)
+        if (receipt.errorCode == PrivacyFinalRequestFailureEvidence.CODE) {
+            // The projection is merged into the original details. Explicit
+            // unknowns prevent a later refusal's false/NO from resurfacing.
+            put("remote_acceptance", receipt.remoteAcceptance.name)
+            if (receipt.dispatched == null) {
+                put("dispatched", JsonNull)
+                put("dispatch_state", "UNKNOWN")
+            }
+        }
         if (receipt.errorCode == "GITHUB_CIRCUIT_OPEN") {
             failure.failureDetails?.get("github_cooldown_stop")?.let { put("github_cooldown_stop", it) }
         }

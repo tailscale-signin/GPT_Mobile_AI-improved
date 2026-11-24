@@ -9,7 +9,7 @@ from scripts.check_issue_reporting_configuration import MAX_READINESS_BYTES, REQ
 
 class IssueReportingConfigurationTest(unittest.TestCase):
     def test_deployment_probe_requires_replay_local_graph_and_provider_limit_evidence(self):
-        for feature in ("SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"):
+        for feature in ("SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1", "PRIVACY_FINAL_REQUEST_EVIDENCE_V1"):
             with self.subTest(feature=feature):
                 self.assertIn(feature, REQUIRED_DIAGNOSTIC_FEATURES)
                 readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,

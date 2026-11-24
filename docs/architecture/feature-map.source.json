@@ -125,7 +125,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonRunner.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateSyntheticInput.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanel.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModel.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateFinalRequestFailure.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt",
@@ -153,7 +154,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonRunnerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModelTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateFinalRequestRefusalTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -163,7 +165,8 @@
         "docs/repairs/privacy-receiving-accounting-2026-11-23-task.json",
         "docs/repairs/privacy-paired-comparison-2026-11-23-task.json",
         "docs/repairs/privacy-comparison-authority-cancellation-2026-11-23-task.json",
-        "docs/repairs/privacy-comparison-ui-expectations-2026-11-24-task.json"
+        "docs/repairs/privacy-comparison-ui-expectations-2026-11-24-task.json",
+        "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json"
       ],
       "invariants": [
         "Saved private-chat authority follows its conversation and queued work independently of global availability.",
@@ -179,7 +182,8 @@
         "A receiving-side denial carries generation_completed only from an actual observed Completed event; final accounting retains that content-free fact separately from failed delivery, transport completion and replay permission, never from upstream failure metadata.",
         "An explicit provider comparison accepts only closed fictional fixtures, preserves the actual private dispatch/restoration and live authority checks, excludes saved personal text and tools, and keeps observed detection, task criteria, usage and timing separate. Only completed pairs with matching observed runtime/output ceilings enter grouped nearest-rank sample percentiles; warmups, incomplete or mismatched pairs and unverified strict-route settings are excluded.",
         "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming.",
-        "Cancellation during a suspended non-null configured provider-authority check propagates unchanged at opening and pre-dispatch collection, retires owning and validating work, restores caller context and opens no provider in either comparison protection mode."
+        "Cancellation during a suspended non-null configured provider-authority check propagates unchanged at opening and pre-dispatch collection, retires owning and validating work, restores caller context and opens no provider in either comparison protection mode.",
+        "A typed final-wire privacy refusal survives actual network and adapter catches before physical dispatch, then passes through unchanged receiving authorization. Entirely unsent proof remains distinct from prior dispatched or uncertain work; cancellation, no replay and no invented completion remain authoritative."
       ]
     },
     {
@@ -645,7 +649,10 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCapture.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/WorkspaceDiagnosticPayload.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExport.kt",
-        "scripts/check_issue_reporting_configuration.py"
+        "scripts/check_issue_reporting_configuration.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingWindowTest.kt",
@@ -665,7 +672,12 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticCaptureAllocationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticCaptureAdaptiveMemoryTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/WorkspaceDiagnosticCaptureHeapTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/WorkspaceDiagnosticCaptureHeapTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFinalRequestFailureClassificationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestSubmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestIncidentTest.kt",
+        "authentication/test_privacy_final_request_evidence.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -676,7 +688,8 @@
         "docs/repairs/github-evidence-progress-2026-11-23-task.json",
         "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json",
         "docs/repairs/diagnostic-93d824fd-implementation-2026-11-23-task.json",
-        "docs/repairs/diagnostic-deployment-probe-2026-11-24-task.json"
+        "docs/repairs/diagnostic-deployment-probe-2026-11-24-task.json",
+        "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
@@ -686,7 +699,8 @@
         "Keep one valid aligned unmet-criterion sample and observed total/omission counts ahead of other summaries inside the unchanged diagnostic byte bound; malformed or unknown evidence gains no authority.",
         "Protected payload reuse requires fresh row authority before and after redaction, complete digest/UTF-8 validation and unchanged privacy context.",
         "Memory-pressure recovery preserves all source limits and headroom guards; complete export needs every bounded continuation part.",
-        "Require the shipped saved-page replay, local graph failure and provider-limit capabilities in hosted readiness probes, retaining the4096-byte bound and native-only no-probe routing."
+        "Require the shipped saved-page replay, local graph failure and provider-limit capabilities in hosted readiness probes, retaining the4096-byte bound and native-only no-probe routing.",
+        "Public final-request privacy evidence requires the exact typed code, admission/domain tuple, closed four-outcome vocabulary and negotiated capability. Keep raw private receipts out of approved reports, preserve prior unknown/accepted work against a later negative observation, and never infer an omitted historical reason."
       ]
     },
     {

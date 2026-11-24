@@ -437,6 +437,22 @@ internal object IssueReportIncidents {
                 "provider_failure_stage" to "GENERATION",
                 "provider_failure_code" to publicCode
             )
+        } else if (publicCode == PrivacyFinalRequestFailureEvidence.CODE) {
+            val outcome = PrivacyFinalRequestFailureEvidence.observedOutcome(code, fields)
+            (fields - PrivacyFinalRequestFailureEvidence.fields - PrivacyFinalRequestFailureEvidence.identityFields - "failure_origin") + mapOf(
+                "diagnostic_area" to "PROVIDER",
+                "diagnostic_capture_mode" to "INCIDENT",
+                "provider_failure_code" to publicCode
+            ) + if (outcome != null) {
+                mapOf(
+                    PrivacyFinalRequestFailureEvidence.FIELD to outcome,
+                    "provider_failure_stage" to "ADMISSION",
+                    "provider_failure_domain" to "APPLICATION_VERIFICATION",
+                    "failure_origin" to "APPLICATION"
+                )
+            } else {
+                emptyMap()
+            }
         } else if (publicCode == PrivacyFailureEvidence.CODE) {
             fields + mapOf(
                 "diagnostic_area" to "PROVIDER",

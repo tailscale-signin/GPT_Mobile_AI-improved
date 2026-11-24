@@ -748,6 +748,7 @@
         "authentication/test_framework_frames.py",
         "authentication/test_github_broker.py",
         "authentication/test_incident_report_contract.py",
+        "authentication/test_privacy_final_request_evidence.py",
         "authentication/test_report_extensions.py",
         "authentication/test_request_byte_budget.py",
         "authentication/test_ticket_broker.py",

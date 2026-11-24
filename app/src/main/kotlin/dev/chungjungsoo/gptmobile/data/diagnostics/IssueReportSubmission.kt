@@ -164,6 +164,7 @@ internal class IssueReportSubmission(
             IssueReportIncidentCapsule.GITHUB_PR_CONTEXT_RACE_FEATURE,
             "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1",
             PrivacyFailureEvidence.FEATURE,
+            PrivacyFinalRequestFailureEvidence.FEATURE,
             dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence.FEATURE
         )
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
@@ -211,6 +212,7 @@ internal class IssueReportSubmission(
                     add(IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE)
                 }
                 if (PrivacyFailureEvidence.CODE in codes) add(PrivacyFailureEvidence.FEATURE)
+                if (PrivacyFinalRequestFailureEvidence.CODE in codes) add(PrivacyFinalRequestFailureEvidence.FEATURE)
                 if ("OUTPUT_CONTINUATION_NO_PROGRESS" in codes ||
                     "PROVIDER_INVOCATION_FAILED" in codes ||
                     code(diagnostics?.values?.get("provider_failure_code")) == "BUDGET_RESTRICTED"

@@ -129,7 +129,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonRunner.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateSyntheticInput.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanel.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModel.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateFinalRequestFailure.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt",
@@ -157,7 +158,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonRunnerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonViewModelTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateFinalRequestRefusalTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -167,7 +169,8 @@
         "docs/repairs/privacy-receiving-accounting-2026-11-23-task.json",
         "docs/repairs/privacy-paired-comparison-2026-11-23-task.json",
         "docs/repairs/privacy-comparison-authority-cancellation-2026-11-23-task.json",
-        "docs/repairs/privacy-comparison-ui-expectations-2026-11-24-task.json"
+        "docs/repairs/privacy-comparison-ui-expectations-2026-11-24-task.json",
+        "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json"
       ],
       "invariants": [
         "Saved private-chat authority follows its conversation and queued work independently of global availability.",
@@ -183,7 +186,8 @@
         "A receiving-side denial carries generation_completed only from an actual observed Completed event; final accounting retains that content-free fact separately from failed delivery, transport completion and replay permission, never from upstream failure metadata.",
         "An explicit provider comparison accepts only closed fictional fixtures, preserves the actual private dispatch/restoration and live authority checks, excludes saved personal text and tools, and keeps observed detection, task criteria, usage and timing separate. Only completed pairs with matching observed runtime/output ceilings enter grouped nearest-rank sample percentiles; warmups, incomplete or mismatched pairs and unverified strict-route settings are excluded.",
         "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming.",
-        "Cancellation during a suspended non-null configured provider-authority check propagates unchanged at opening and pre-dispatch collection, retires owning and validating work, restores caller context and opens no provider in either comparison protection mode."
+        "Cancellation during a suspended non-null configured provider-authority check propagates unchanged at opening and pre-dispatch collection, retires owning and validating work, restores caller context and opens no provider in either comparison protection mode.",
+        "A typed final-wire privacy refusal survives actual network and adapter catches before physical dispatch, then passes through unchanged receiving authorization. Entirely unsent proof remains distinct from prior dispatched or uncertain work; cancellation, no replay and no invented completion remain authoritative."
       ]
     },
     {
@@ -649,7 +653,10 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCapture.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/WorkspaceDiagnosticPayload.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExport.kt",
-        "scripts/check_issue_reporting_configuration.py"
+        "scripts/check_issue_reporting_configuration.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingWindowTest.kt",
@@ -669,7 +676,12 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticCaptureAllocationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticCaptureAdaptiveMemoryTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/WorkspaceDiagnosticCaptureHeapTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/WorkspaceDiagnosticCaptureHeapTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFinalRequestFailureClassificationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestSubmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestIncidentTest.kt",
+        "authentication/test_privacy_final_request_evidence.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -680,7 +692,8 @@
         "docs/repairs/github-evidence-progress-2026-11-23-task.json",
         "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json",
         "docs/repairs/diagnostic-93d824fd-implementation-2026-11-23-task.json",
-        "docs/repairs/diagnostic-deployment-probe-2026-11-24-task.json"
+        "docs/repairs/diagnostic-deployment-probe-2026-11-24-task.json",
+        "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
@@ -690,7 +703,8 @@
         "Keep one valid aligned unmet-criterion sample and observed total/omission counts ahead of other summaries inside the unchanged diagnostic byte bound; malformed or unknown evidence gains no authority.",
         "Protected payload reuse requires fresh row authority before and after redaction, complete digest/UTF-8 validation and unchanged privacy context.",
         "Memory-pressure recovery preserves all source limits and headroom guards; complete export needs every bounded continuation part.",
-        "Require the shipped saved-page replay, local graph failure and provider-limit capabilities in hosted readiness probes, retaining the4096-byte bound and native-only no-probe routing."
+        "Require the shipped saved-page replay, local graph failure and provider-limit capabilities in hosted readiness probes, retaining the4096-byte bound and native-only no-probe routing.",
+        "Public final-request privacy evidence requires the exact typed code, admission/domain tuple, closed four-outcome vocabulary and negotiated capability. Keep raw private receipts out of approved reports, preserve prior unknown/accepted work against a later negative observation, and never infer an omitted historical reason."
       ]
     },
     {
@@ -1039,9 +1053,9 @@
       "sha256": "b478bd0b88bfed3465ea66204d5176fe46e0ab1bf070c7c836577139e9471c58"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt": {
-      "blob_sha": "4042b417df22802290e23342cb7455c9f8099bd3",
-      "bytes": 134514,
-      "sha256": "92948c88da2380a530d02796a56b456114a90391ae5e36182e5ea4563e1a0248"
+      "blob_sha": "263f1e1421369554b7b54803f1c7f038731512a8",
+      "bytes": 134970,
+      "sha256": "7d4a23e64567065265eb0176937dd7aaf2281f20aaa0b107383c78fd8a0a6c7b"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt": {
       "blob_sha": "3cb69b3b505c17fd33738b7445f3852bf309cad9",
@@ -1134,19 +1148,29 @@
       "sha256": "d03b0d900d206aa16daff91a4c3fdd280dd497b1d49788c1fe32084b27490af8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt": {
-      "blob_sha": "74a9648c239f729f600f53b5d0d323e228d90082",
-      "bytes": 85527,
-      "sha256": "5050601cee371e5f2e61acffba6cbddcb4bec8d9982c1989f0d1ee9e546712af"
+      "blob_sha": "b128a2e36fcb39ac493411824bce98628f57827a",
+      "bytes": 86617,
+      "sha256": "fe82d3fb494d3e1d15eae0e149aa554261bd91cd7c65b66c9957fc362f1de9cf"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": {
-      "blob_sha": "bc6e8e693f5c39e8a668eaa60be75e9b59441af0",
-      "bytes": 19288,
-      "sha256": "c53a68bc2a17d4ac93464ad93de37aa810049db5d90781bc562175a0230fa5cd"
+      "blob_sha": "0185348150afde1702b3639aed1d5c4fdf071480",
+      "bytes": 19462,
+      "sha256": "b3b0812246996d17e5f66432e6f985455bcad3880a1ff84d7aed94ccc87181af"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt": {
+      "blob_sha": "12a70f54a8c7e1bff666735d9b4df2e6099ec1a9",
+      "bytes": 1909,
+      "sha256": "b16808ae567e7f776ff5c22b199d61a11a11b000c2be86f5091e472e54947874"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt": {
+      "blob_sha": "9d346b09fbfe139b0a5c168c37641a45f9894362",
+      "bytes": 29817,
+      "sha256": "595b528eae07a2b4c21f52fb9c6752332fd96ad91d61f73195a83391ebe5eae8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt": {
-      "blob_sha": "6e21df6c3b5f6e80ed0ee9161f41b568a5506109",
-      "bytes": 19062,
-      "sha256": "561dc6727b66bc332e8e8217dc365513cfdf2aec854127f9f3f8b3d3be978246"
+      "blob_sha": "49249836d0aa9c5467f3dec9e552cb3ecc49d171",
+      "bytes": 20090,
+      "sha256": "ec368428029a9ad01af2126ba8aa44b75c023c69d452a871a7faf266e3bba103"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RepositoryOperationReportContract.kt": {
       "blob_sha": "03ac46ed84ecfc4a1a28f58faeb99e02548ddc6c",
@@ -1329,9 +1353,9 @@
       "sha256": "ab0dd1002fc7b007c2fe9ec9071c4e7345dcbb950376dcdf72618624ebcc842e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt": {
-      "blob_sha": "45f71fea7260098ffe61fcbd9dafab0e994ad083",
-      "bytes": 107752,
-      "sha256": "746a7c9887141849bcfda8de21c19f78f594c7f4ef9e8cf9933ac975c045ab74"
+      "blob_sha": "2f666e9b63c3f7500a9b0d094951b257daf46244",
+      "bytes": 107896,
+      "sha256": "1563897f18263239e3623cd5e868ef445ddc94a34977a2216854cb703aea04d8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderCooldown.kt": {
       "blob_sha": "0872c0d8828cbb19110a844b2f468f46709fda1d",
@@ -1379,9 +1403,9 @@
       "sha256": "e0eeb6263103844f100d119c683b22ef16c30856ca675985bea7dbe98a66436b"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderSession.kt": {
-      "blob_sha": "2ce3aea9c6779dc0523c678f623aa5001e84d652",
-      "bytes": 14316,
-      "sha256": "3308eff0507edbbde1f021f6bc4a0047a79dcc08cccf26b97db97ff6e8d29a45"
+      "blob_sha": "bfd686c25474b148391f11ca40f77d5bfda7e4a8",
+      "bytes": 15349,
+      "sha256": "8b968d21d0de1814f6ebdf1500b68e87e7f4b7cd0d9e23e3f1dc9283662714d9"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyBenchmark.kt": {
       "blob_sha": "ccd46aba8ac6d31364bca26753a58ed24a79ade3",
@@ -1423,15 +1447,20 @@
       "bytes": 22083,
       "sha256": "fb54ea456520ac2821287d7b08e34c1598f76136e8578db71f6ea193b746a9f5"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateFinalRequestFailure.kt": {
+      "blob_sha": "0f50a8d73fc29930c3ddb5357e485db15ae0f7c0",
+      "bytes": 1715,
+      "sha256": "d1e29f2c20b5e9ac8955b940f1af12e8144422bef6b9eafc3b9ce4aaa4e05e4f"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateIdentityDetector.kt": {
       "blob_sha": "76183181075ef3bbdf11cdf5eb64e35690e75e6c",
       "bytes": 6828,
       "sha256": "36de237c54bc10580dd4f1460117949b78ee9f2904bae1120da8d4f1c27c4a5f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt": {
-      "blob_sha": "324a0ce2b65e6399b153e3a0a719ee68a4ccf923",
-      "bytes": 23647,
-      "sha256": "19cdc4446226544d0db3b26e061db854774626a6bf1d776529d73ab37af5f4db"
+      "blob_sha": "55a4100b84dcaba46b9cce3b087366357120315c",
+      "bytes": 23165,
+      "sha256": "dbade7c7b4d0c94126fd103c78e8a0f5a7c59370783b1eca0b49214186bbdf85"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSession.kt": {
       "blob_sha": "f55e697b1774bec877e6fd66570f0eb7f6ebd95e",
@@ -1908,6 +1937,11 @@
       "bytes": 2430,
       "sha256": "dfd8b9cb406d48b8c8da49a33ff9f73ea6ffc18c1bb061ef5dcb9596d97e0a2f"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFinalRequestFailureClassificationTest.kt": {
+      "blob_sha": "f48401ae6d52e29e7afe7972aeaabc5eb6505c08",
+      "bytes": 6117,
+      "sha256": "a6879788a964d237d7c4db60bd9eab8875696033cc7eb14c2bb9f435ff9ef621"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt": {
       "blob_sha": "0889c4aca454b935e1889a1c450db1b939c46f9e",
       "bytes": 52815,
@@ -2042,6 +2076,21 @@
       "blob_sha": "1611113ffa7c91523e1b466f3c50b7d46a6155ab",
       "bytes": 164038,
       "sha256": "0fc8390368f062c456f8afa5380f09948199f7b95dd35f880ec6de95c0e8be60"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt": {
+      "blob_sha": "6f0ad3c7bba0c4b7354217b98cce11060b413354",
+      "bytes": 14145,
+      "sha256": "94a913c5a8605bace4a971daf155acae53faba5b553813ec04ea40a557cdeec9"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestIncidentTest.kt": {
+      "blob_sha": "dadba9a968dc3c37677a942f868910231ce82164",
+      "bytes": 4571,
+      "sha256": "09312ebbf577e259395a0c2192bbbfa562be7dd7b637dd5d214c76f8dee1e0b9"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestSubmissionTest.kt": {
+      "blob_sha": "ecf656b7d6733495ef88ab574479f3d33165a0ec",
+      "bytes": 6843,
+      "sha256": "f940932960b9da5014805e68809b71801e21e2578c125a06ce19528ef4006399"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt": {
       "blob_sha": "ebd4e8c51554409a0e26d17db13846e4e6b69165",
@@ -2272,6 +2321,11 @@
       "blob_sha": "0c295dac84c80637751fd0ded2e228ae9f650f77",
       "bytes": 11860,
       "sha256": "adfeabd0e40c53e7195f9d73b8b36205a99e526b7fa0119210ed025056c0772e"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateFinalRequestRefusalTest.kt": {
+      "blob_sha": "70baeb6f774dd5cb0e58f37c144a3f24624bc897",
+      "bytes": 23349,
+      "sha256": "3e4c380aff51fbff0a0b42d1cd3bc45369c515f93c46e7886ced82cdaa98d0d9"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceStreamingTest.kt": {
       "blob_sha": "523fa7b31139d31abc50b868365ac4cd6053781a",
@@ -2614,19 +2668,19 @@
       "sha256": "0bf1e2d975e87c04a0c6c032923654c8c185a7594ccb94269595bbe631ecc403"
     },
     "authentication/issue_report_app.py": {
-      "blob_sha": "1f0e91490b24fb9a3074f344fd2f611d9808e6a1",
-      "bytes": 6770,
-      "sha256": "b76b33abe12c8c07cf436be20fec34c3f144ac6360cb882bfbd38f1aa3dd5a66"
+      "blob_sha": "05727ab16a68c499dfe5ad906390c3c97f4dc9ef",
+      "bytes": 6823,
+      "sha256": "4c947ae57f720e566dba6daabd7e253935c19b41bacba303d033a6a23bc52604"
     },
     "authentication/issue_report_diagnostics.py": {
-      "blob_sha": "f6d35b2e88685f6e3224993ebd2bc5f8069e3196",
-      "bytes": 52218,
-      "sha256": "6457e295ec77afffe66f91cea8602d846effbc43bf7732d3049f2ad439fc8a96"
+      "blob_sha": "30da367497e38b5e71c2443e23b1874747dce510",
+      "bytes": 52981,
+      "sha256": "3a39d2b69189ab400e1a6404dda0f65d238d48ec4d8d6cca9e711ea4d7d18a98"
     },
     "authentication/issue_reports.py": {
-      "blob_sha": "5fc4e495d2fb62c39276f884a7222c111f47e4e5",
-      "bytes": 42586,
-      "sha256": "8e7de625271f23f3aafd5c0493b47e274d711475ac914273202e5dec5aa90126"
+      "blob_sha": "d2818e005c5129f98ff569cedfb381698dd574bd",
+      "bytes": 42624,
+      "sha256": "bd3f6c8d18f0c7075ee6999444999f5f6a7fa15fbcc85e136a52005c4f201ce3"
     },
     "authentication/repository_operation_report_contract.py": {
       "blob_sha": "2cd0dbaba51b68bb4ab86b1afcafc3b5bd4e0e8b",
@@ -2634,9 +2688,9 @@
       "sha256": "b127eb460cb93fc32cc2eee4d2fe1c19af019bd0e285dda084f00b77ed58f9af"
     },
     "authentication/test_app.py": {
-      "blob_sha": "e06bb7a58bcab8eabc9bd2dbdf934591b4da5031",
-      "bytes": 108027,
-      "sha256": "026264624f0867f638bb68bb42b1dc38b3b863102e59f98e61291515e39298e1"
+      "blob_sha": "f883e5be63fa6dcfae7e5de0f59a78cc5ee210b0",
+      "bytes": 108145,
+      "sha256": "67ccdb9df7a49051e039f69c6cdb13622fe37befa56c5d032fd8a5a97c745c06"
     },
     "authentication/test_failure_details.py": {
       "blob_sha": "8b5d64c3da1b9093812397d6e76ca3b6262050be",
@@ -2652,6 +2706,11 @@
       "blob_sha": "57972a116057653e2c8ea9c78a0044c309440430",
       "bytes": 185952,
       "sha256": "33cc88dbdf261d2bb0b7189b7578c25f78735ec440ffcb195c6d1936e4d877cf"
+    },
+    "authentication/test_privacy_final_request_evidence.py": {
+      "blob_sha": "9198f389de32c29163ab5da7178170f8789c7b13",
+      "bytes": 9169,
+      "sha256": "378e7fa6a41a056e37fa8a6cb802c669093db796a01c24c03dd64a5567a0d1c6"
     },
     "docs/architecture/repository-guide.md": {
       "blob_sha": "7624e5cc7c5720c40a928448e2257b50e66674fa",
@@ -2767,6 +2826,11 @@
       "blob_sha": "1faa795c85a5ec7a9edd4fde1ad03f780e98aaf7",
       "bytes": 5596,
       "sha256": "8721a75adc6f11b0fd7eb14c8afee94fc727a05f0b09018e0fa31fb5d78249c9"
+    },
+    "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json": {
+      "blob_sha": "720d91ce42632da6bd9750d595e371ccc88d359a",
+      "bytes": 19047,
+      "sha256": "b50889421586858b5253122f24fbeb335420b1fd62100489b62b91fdb81ba80a"
     },
     "docs/repairs/privacy-paired-comparison-2026-11-23-task.json": {
       "blob_sha": "663cdee6876c8bb5788555f35dba8ac91ee3077a",
@@ -3049,9 +3113,9 @@
       "sha256": "d417d36854737869580ccf63db332fb451e570383cf8ef0883ccb7bf791d20d2"
     },
     "scripts/check_issue_reporting_configuration.py": {
-      "blob_sha": "f82bfc5843ed658efa050deb1cae28f98a05fe88",
-      "bytes": 5962,
-      "sha256": "87bfeee5c72fc0511cd125c4bf9e64b247a1ae3c23d31fdceaca9c28a4405c8e"
+      "blob_sha": "4ef65566fd4ffb507479248ba84f33208f3035b2",
+      "bytes": 6003,
+      "sha256": "a77475920890858d1a85eae27739563acdbd86bac26cf9cff2ddcfd018addbca"
     },
     "scripts/check_mediapipe_android_smoke.py": {
       "blob_sha": "ecca2617b4d68afb8f18dd1498cf477528591958",
@@ -3109,9 +3173,9 @@
       "sha256": "7c3c7bfaf0cbd32f9b280ad99d19899594b8db1ba9122b86e2b6216b99b141de"
     },
     "scripts/tests/test_issue_reporting_configuration.py": {
-      "blob_sha": "369ee675d3dd81364be720790d6d89d5ca3edc07",
-      "bytes": 14578,
-      "sha256": "19fbf6a830ed61108feef5ff2b06a11c86ab7815f88a1ea81b5bbabb199f29e2"
+      "blob_sha": "ee04bc3f029acc8deaa8863245d6ace5f890e256",
+      "bytes": 14615,
+      "sha256": "620535b8d81cdc0a1dbf515e5c8270a498a76c1dd6241995442b1d748f79624e"
     },
     "scripts/tests/test_mediapipe_android_smoke.py": {
       "blob_sha": "03ebd88b4866f6ae00add5a82fe9ddd125b2c30d",

@@ -262,7 +262,7 @@ class OpenAIAPIImpl @Inject constructor(
                     ) { guardedRequest() }
                 }
             } catch (e: Exception) {
-                if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+                if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException || e is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw e
                 ProviderConnectivityPreflight.failed(config.apiUrl, e)
                 LocalServiceHealth.recordLocalFailure(config.apiUrl, e)
                 val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity
@@ -931,7 +931,7 @@ class OpenAIAPIImpl @Inject constructor(
                     executeRequest()
                 }
             } catch (e: Exception) {
-                if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+                if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException || e is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw e
                 ProviderConnectivityPreflight.failed(effectiveConfig.apiUrl, e)
                 LocalServiceHealth.recordLocalFailure(effectiveConfig.apiUrl, e)
                 val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown

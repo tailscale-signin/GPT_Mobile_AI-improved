@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 1,
+  "status": "SCOPED_SOURCE_CLEAR_FINAL_COMPOSITION_AND_ORDINARY_PROJECT_CI_PENDING",
+  "reviewedAtUtc": "2026-11-24T04:16:10.629158+00:00",
+  "sourceSha": "66cb39d22d810f20f5bc9c54a3e88e6e807af619",
+  "sourceTree": "cd35a907781055c91bfc5854f93a55d7f6133528",
+  "soleParent": "e43c44aa31f71128820aa0c710ee5ab3335601f9",
+  "componentPublicBase": "1e9ece5656172bf1e0678097d9f9784114856b9e",
+  "reviewerMode": "READ_ONLY_SOURCE_REVIEW",
+  "applicationOrKotlinOrAndroidOrNativeOrProjectExecutionByReviewer": false,
+  "sourceOrPublicWritesByReviewer": false,
+  "mutableRootMetadataInspectedOrModified": false,
+  "previousReceipt": {
+    "path": "/workspace/scratch/5876cb54899c/qualification/literal-e43-independent-review/review-receipt.json",
+    "sha256": "4bfeb84db774fe32314e66fdd1028bcd5d5e67cff6b9b5347a6a53bb8ce6717a"
+  },
+  "resolvedFinding": {
+    "id": "LITERAL_INTERIOR_SAFETY_BYPASS",
+    "disposition": "SOURCE_CLOSED",
+    "evidencePath": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
+    "sourceLocations": {
+      "val literalTerm = if (notices.preserveLiteralTerms)": [
+        209
+      ],
+      "rawLinkAt(text, index) ->": [
+        330
+      ],
+      "literalTerm != null ->": [
+        348
+      ],
+      "private fun safeLiteralTermAt": [
+        421
+      ],
+      "for (cursor in term.first + 1..term.last)": [
+        425
+      ],
+      "if (!literalTags && isQuoteStart(text, cursor) || rawLinkAt(text, cursor))": [
+        426
+      ],
+      "if (referenceEnd != null": [
+        429
+      ]
+    },
+    "reason": "The complete literal candidate is calculated once. Every interior position is checked with the existing rawLinkAt predicate, the same reference suppression/pending condition, and the unquoted isQuoteStart predicate. Unsafe spans return null and follow the unchanged per-character parser. Existing outer safety branches precede use of the candidate; no alias expansion or emitted markers occur during filtering.",
+    "originalExamples": [
+      "Read x_https://example.test/R#1.",
+      "Read x_www.example.test.",
+      "Read x_0123456789abcdef0123456789abcdef."
+    ],
+    "regressionCoverage": {
+      "newOrdinaryMethods": [
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.literalSpansCannotJumpOverInteriorRawOrEntityEncodedSourceAddresses",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.literalSpansCannotJumpOverInteriorReferenceSuppression"
+      ],
+      "rawOrEncodedUrlForms": 4,
+      "hashOrUuidForms": 2,
+      "everyPrefixCompared": true,
+      "liveEarlyStartBufferCovered": true,
+      "finalProjectionCovered": true,
+      "savedAliasOnFilteredTermRejected": true,
+      "expectedLegacyFilteredTextAndFollowingTextRetained": true
+    },
+    "scope": "Source-level closure of the reported defect, not independent runtime qualification."
+  },
+  "remainingConcreteSourceHolds": [],
+  "retainedPriorReview": {
+    "defaultFalseOptIn": true,
+    "allFourSessionBuffersAndDirectKokoroEntry": true,
+    "sameCaptionProjection": true,
+    "onePassAliasesAndUnmatchedDefaults": true,
+    "utf16OriginalRanges": true,
+    "generationSequenceAndAndroidSnapshotCancellationFences": true,
+    "noEnginePlannerNormalizerChange": true
+  },
+  "retention": {
+    "oldPublicFloor": 137,
+    "priorComponentRequiredMethods": 183,
+    "newRequiredMethods": 2,
+    "currentRequiredMethods": 185,
+    "classes": [
+      {
+        "className": "dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudioTest",
+        "priorMethods": 15,
+        "currentMethods": 15,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": true,
+        "newMethods": []
+      },
+      {
+        "className": "dev.chungjungsoo.gptmobile.data.voice.KokoroLexiconTest",
+        "priorMethods": 4,
+        "currentMethods": 4,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": true,
+        "newMethods": []
+      },
+      {
+        "className": "dev.chungjungsoo.gptmobile.data.voice.KokoroSpeechTextTest",
+        "priorMethods": 23,
+        "currentMethods": 23,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": true,
+        "newMethods": []
+      },
+      {
+        "className": "dev.chungjungsoo.gptmobile.data.voice.KokoroSpeechVocabularyTest",
+        "priorMethods": 27,
+        "currentMethods": 27,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": true,
+        "newMethods": []
+      },
+      {
+        "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest",
+        "priorMethods": 6,
+        "currentMethods": 8,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": false,
+        "newMethods": [
+          "literalSpansCannotJumpOverInteriorRawOrEntityEncodedSourceAddresses",
+          "literalSpansCannotJumpOverInteriorReferenceSuppression"
+        ]
+      },
+      {
+        "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudioTest",
+        "priorMethods": 18,
+        "currentMethods": 18,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": true,
+        "newMethods": []
+      },
+      {
+        "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePronunciationOverridesTest",
+        "priorMethods": 7,
+        "currentMethods": 7,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": true,
+        "newMethods": []
+      },
+      {
+        "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSessionTest",
+        "priorMethods": 39,
+        "currentMethods": 39,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": true,
+        "newMethods": []
+      },
+      {
+        "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechTextTest",
+        "priorMethods": 33,
+        "currentMethods": 33,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": true,
+        "newMethods": []
+      },
+      {
+        "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceStreamingPhrasePlanTest",
+        "priorMethods": 9,
+        "currentMethods": 9,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": true,
+        "newMethods": []
+      },
+      {
+        "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceTuningPreferencesTest",
+        "priorMethods": 2,
+        "currentMethods": 2,
+        "allPriorMethodBodiesPreserved": true,
+        "wholeFileUnchanged": true,
+        "newMethods": []
+      }
+    ],
+    "proof": "The sole added test hunk reverses exactly to the previous complete file; every other selected test source is byte-identical. All prior full method identities, including backtick names, remain."
+  },
+  "sourceManifest": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt",
+      "bytes": 59416,
+      "sha256": "da14576ceb02bdfe35f7431eb927beefac8bd70054bd0eafcba677b631aa38f1",
+      "gitBlob": "e68d5706c1edc8052dfe79c095f4d9a3d8ad4b48"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
+      "bytes": 32185,
+      "sha256": "78a312c1a23bfcad0788c4786e07006655c942b38eb9f8c5066f2eedbeeb6a91",
+      "gitBlob": "1ca6ab32f668da2f36ba2e712da30c6dc1051082"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+      "bytes": 92174,
+      "sha256": "7b866edd52b3c6a5805442b043f2e49394498a336cff49074938edc7294aad5e",
+      "gitBlob": "88b47534e9c3395bc72c5b0b113ad2a0d685acb4"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt",
+      "bytes": 15935,
+      "sha256": "52bc4ecdfdde547526fab8d20304440f944bf1115fb631f28f958d6263ebba1c",
+      "gitBlob": "c24a2f062b115a87e37354457f094a810a09098d"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt",
+      "bytes": 6746,
+      "sha256": "c8163e425383a232dc7be0ccf59cb3187b7a3fbdf3632c67afc596e240a95339",
+      "gitBlob": "ecff32c5890d7bd086df7b21d8a7aee5cd3db2e9"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+      "bytes": 46469,
+      "sha256": "331767e161ad395d308a4c5d5f58aa325fdb538c36222e05e4fafdc25b4c4e48",
+      "gitBlob": "1dd9be0026121a0b4ac0677a5d7cba22c472151d"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
+      "bytes": 5348,
+      "sha256": "1eab5ce9bb1ad86dc9a6d9327ffb58e1646bfb27687cbe8c3fe5d25cf02b4a30",
+      "gitBlob": "170bfdb2bdecc93dd07dd1d5ee06a884832b9712"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
+      "bytes": 37420,
+      "sha256": "3359338c134bf3e2c7545ce77b6bddf6a58faa478809d3b3acea95153630c4c7",
+      "gitBlob": "0eb257f2a72827da5b4c487e55a7d2b84efa33a1"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt",
+      "bytes": 2730,
+      "sha256": "2dfd25bc17c1843d6877d3316d82163d708f19275ae81989439e931b33c7cb0e",
+      "gitBlob": "26dfe3c5dc67da7b40a532f6b3a8820b4fc68e59"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceAnswerPresentation.kt",
+      "bytes": 3835,
+      "sha256": "e450fdbcf82b8d57506cbefe31e40b87084360f2781c840201b14940f7304ff2",
+      "gitBlob": "64545777aeefe0092ac8bd27daa4ced85297380b"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
+      "bytes": 4456,
+      "sha256": "7c97979e743f4b44774ccc8f5cf87def7d464a4c5aafca0388af0ce60499ad54",
+      "gitBlob": "7d89d8d3fb186a74134d4f2453a7f85262983e00"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
+      "bytes": 25978,
+      "sha256": "6303140d017108b426079150865fc90ace2b8c320f18dc31429d58d20e14defa",
+      "gitBlob": "e3cb1bb3210c94e7311340044485d0a5462637a2"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroLexiconTest.kt",
+      "bytes": 1819,
+      "sha256": "d91723a784decf8ba5c9efbc3600f19e6dbd05846cd53d94fd6345ea1ba3fcc3",
+      "gitBlob": "bd2b83b56dacbebc4fa777afab49332f70fa8316"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechTextTest.kt",
+      "bytes": 15163,
+      "sha256": "89d050f878845c41455255a26f32e61f8e4e4aff082047f114131db697c5b383",
+      "gitBlob": "10a009fc042b539b785f27d34b6a6d63f83b5e63"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt",
+      "bytes": 17843,
+      "sha256": "ee7b3adc46e8e730d10e1149ebbfbad87850d64095c4ec4291f84d27a3e95e0d",
+      "gitBlob": "6e4240d7d2425f6677c060766bc5021a3c33a272"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt",
+      "bytes": 8688,
+      "sha256": "6d0667af37773889d65e0a08cba7444a56e6820f4d75cc86731c3cc8e38f9589",
+      "gitBlob": "c5fd2b677b537aaf41794d6204c3da580a77512e"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt",
+      "bytes": 20785,
+      "sha256": "6142dc4538878eb4f479be818bb45792a23b4bd0844edc3080c89fceaa132672",
+      "gitBlob": "9e1af93d3919ad96010b1863f706df543dd1e9e9"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverridesTest.kt",
+      "bytes": 3827,
+      "sha256": "3a571c723564d0718f5502dde05462592a39103b5804787493bd1d79997195c1",
+      "gitBlob": "0aa103968685c1c0a1d4cca5b1c83196ac39d019"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt",
+      "bytes": 33952,
+      "sha256": "5188cb733082e90058781492b43800180c985e25fa4a5eaf7efe5702eaa75ed9",
+      "gitBlob": "f32212fe43c765bf07f69e99deac712f4b96f7ca"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt",
+      "bytes": 26423,
+      "sha256": "1766c7baa4635c7dc9143d131649be73f47e5ad60d1d1ab780c68d34b74f1591",
+      "gitBlob": "620c529e08973cee279200b26ce2442af2c7cfc3"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt",
+      "bytes": 6558,
+      "sha256": "f02c36d5f04576466c7763cb2b7afea48d952ab6089a0fc7c76cbd54dd4a2e80",
+      "gitBlob": "e79c1af8bb10a9cceb4a37049450e27d9958653d"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferencesTest.kt",
+      "bytes": 1258,
+      "sha256": "5afeab140448949b0c5b0b8407b7e753120a6b121bdd4e9a04f0d407fbc5fe0b",
+      "gitBlob": "4a175a980990bbd34165d58026f1249312f8bd94"
+    },
+    {
+      "path": "docs/repairs/evidence/voice-pronunciation-vocabulary/required-junit-methods.json",
+      "bytes": 19004,
+      "sha256": "ba128bb17d232ce464693bb880f11b8b61b2bc100cc939408fcc4ab951362774",
+      "gitBlob": "c80cefe68e646b805b5cb0ebc6e6b8ba3e68da7b"
+    },
+    {
+      "path": "docs/repairs/voice-literal-pronunciation-order-2026-11-24-task.json",
+      "bytes": 3933,
+      "sha256": "43d86ffbde17138a9a1458c710fdfce60b436e9c45e129f1ac813f3036c7b36b",
+      "gitBlob": "50b2c9536438d3943a358d235905adc6788725e0"
+    }
+  ],
+  "componentDiffSha256": "ffab52f3278b69652a7369fb724df44994ef28fbac44adff5a7403c69d3db48c",
+  "qualification": "No candidate execution result is asserted here. Root-owned125-method execution and canonical/ordinary hosted checks require their own exact source bindings. Incoming public checksum commits and uncommitted metadata were not changed."
+}

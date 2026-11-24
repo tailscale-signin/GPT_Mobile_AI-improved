@@ -10,18 +10,32 @@
   "changes": [
     "Use the existing tool_execution public stage only for a fully bound READ_DEADLINE receipt whose actual phase is CANCELLED_LOCALLY; preserve original receipt, dispatch, privacy and replay facts.",
     "Restore voice engagement only after explicit Send passes the existing reviewing, access, pending-admission and nonempty-text guards; retain permission, mute, request identity and generation checks.",
-    "Construct local WRITER_INCOMPLETE diagnostics after evidence refresh and current-access validation, matching the partial answer and persisted receipt without replacing an existing provider failure."
+    "Construct local WRITER_INCOMPLETE diagnostics after evidence refresh and current-access validation, matching the partial answer and persisted receipt without replacing an existing provider failure.",
+    "Parse the actual phone graph status body after its existing invocation receipt checks and require both body and graph sources to be phone before resuming its same-revision cursor.",
+    "Build unsigned candidates for packaging-only changes, including lossless recompression and native provisioning helper changes, without changing publication authorization or size limits."
   ],
   "regressionSources": [
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolPrecheckIssueReportTest.kt",
     "authentication/test_incident_report_contract.py",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/delivery/ResearchDeliveryBoundaryTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/delivery/ResearchDeliveryBoundaryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneIndexDeadlineRecoveryTest.kt",
+    "scripts/tests/test_release_trigger.py"
   ],
   "verification": {
     "localCanonicalCommand": "bash scripts/validate-local.sh fast",
     "sourceReview": "Independent source review completed before integration; existing test methods and fixture bodies retained.",
     "runtimeEvidence": "The regression sources require hosted Android verification on the final combined commit. This task record does not assert their execution or physical-device qualification.",
     "releaseEvidence": "All required final-head checks, main checks, APK payload and size gates, signatures and publication verification remain required."
+  },
+  "followupParent": "faa87ce694bb85d55b8f87c4ff562d2539ed3147",
+  "additionalConcurrentSource": {
+    "pullRequest": 2528,
+    "commit": "7d2923b7e73dc255f1fb184d94c10d5def0fc96c",
+    "selectedChanges": [
+      "Phone native status continuation and scope regressions",
+      "Unsigned packaging-input selection and regression coverage"
+    ],
+    "universalBudgetBytes": 241172480
   }
 }

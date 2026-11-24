@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -52,10 +53,18 @@ internal object PhoneIndexContinuation {
                 ) {
                     return null
                 }
-                val body = GitHubReplayRecovery.envelope(status.content) ?: return null
+                // A phone map returns its graph directly. Its invocation receipt, above,
+                // carries the schema and the authorized account/revision binding.
+                val body = when (val content = status.content) {
+                    is ToolResultContent.Json -> content.value as? JsonObject
+                    is ToolResultContent.Text -> runCatching { Json.parseToJsonElement(content.text) as? JsonObject }.getOrNull()
+                    is ToolResultContent.ResourceLinks -> null
+                } ?: return null
                 val progress = body["graph"] as? JsonObject ?: return null
                 val cursor = (body["index_cursor"] as? JsonPrimitive)?.content?.takeIf(cursorPattern::matches) ?: return null
-                if (progress["commit_sha"] != revision ||
+                if (body["map_source"] != JsonPrimitive("phone") ||
+                    progress["source"] != JsonPrimitive("phone") ||
+                    progress["commit_sha"] != revision ||
                     body["has_more"] != JsonPrimitive(true) ||
                     (stopped.arguments["options"] as? JsonObject)?.get("index_cursor") == JsonPrimitive(cursor)
                 ) {

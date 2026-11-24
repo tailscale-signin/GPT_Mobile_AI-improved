@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "f0237d7e02c6924510d2095dfc52ea6b77ea177b4d94417de2e90afe22b85161",
+  "source_digest": "24c56d46e065592d3667715522784c7407633bc3a321abbaf81b9ab4ac8ac8a3",
   "file_count": 3111,
-  "indexed_line_count": 528192,
+  "indexed_line_count": 528201,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 251,
-      "indexed_line_count": 44919
+      "indexed_line_count": 44928
     },
     {
       "id": "agent_tools",
@@ -1796,8 +1796,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexContinuation.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "00df7f7f448d3fdba102552196329dfe9596d7c03124881ebcc0b5f26ac5a088",
-      "indexed_lines": 71
+      "sha256": "8f9fce6675c8fb72be28a6e3b3623bce844e8f536897529f7f4724a800e2f2c8",
+      "indexed_lines": 80
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruption.kt",

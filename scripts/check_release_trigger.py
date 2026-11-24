@@ -77,6 +77,19 @@ def main() -> None:
         if not re.fullmatch(r"[0-9a-f]{40}", base):
             raise ValueError("A pull request requires an exact base revision")
         changed = release_requested("push", base)
+        if not changed:
+            # A version can stay fixed while its APK contents or size rules change.
+            # Include deleted and renamed inputs via a path-limited Git diff.
+            packaging = (
+                ":(glob)**/build.gradle*", ":(glob)**/src/**/AndroidManifest.xml",
+                ":(glob)**/src/**/cpp/**", ":(glob)**/src/**/jniLibs/**",
+                ":(glob)**/src/**/assets/**", ":(glob)**/*-rules.pro",
+                "gradle/", "gradle.properties", "settings.gradle.kts",
+                "scripts/check_apk_size.py", "scripts/android_pipeline.py",
+                "scripts/optimize_release_apks.py", "scripts/install_android_native_dependencies.sh",
+                ".github/workflows/unsigned-release-build.yml", ".github/workflows/release-build.yml",
+            )
+            changed = bool(subprocess.check_output(["git", "diff", "--name-only", "-z", base, "--", *packaging]))
         path = "release-scope.json"
         if not changed and Path(path).is_file():
             request = json.loads(Path(path).read_text(encoding="utf-8")).get("publicationRequest")

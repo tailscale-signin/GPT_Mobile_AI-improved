@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.PhoneIndexContinuation
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
@@ -109,7 +110,7 @@ class PhoneIndexDeadlineRecoveryTest {
         val recovery = body(result).getValue("recovery_call").jsonObject
         val history = listOf(AgentToolExchange(listOf(call("interrupted")), listOf(result)))
         val tools = listOf(native.definition)
-        val statusCall = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.PhoneIndexContinuation.next(history, tools))
+        val statusCall = requireNotNull(PhoneIndexContinuation.next(history, tools))
         assertEquals(recovery.getValue("arguments").jsonObject, statusCall.arguments)
         val status = continuation.execute(statusCall.callId, statusCall.arguments)
         assertFalse(status.isError)
@@ -117,7 +118,11 @@ class PhoneIndexDeadlineRecoveryTest {
         assertEquals(JsonPrimitive(1), statusBody.getValue("graph").jsonObject["processed_files"])
         val cursor = statusBody.getValue("index_cursor").jsonPrimitive.content
         val readback = AgentToolExchange(listOf(statusCall), listOf(status))
-        val next = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.PhoneIndexContinuation.next(history + readback, tools))
+        val next = requireNotNull(PhoneIndexContinuation.next(history + readback, tools))
+        val wrongScope = status.copy(executionReceipt = JsonObject(requireNotNull(status.executionReceipt) + ("scope_hash" to JsonPrimitive("0".repeat(64)))))
+        assertNull(PhoneIndexContinuation.next(history + AgentToolExchange(listOf(statusCall), listOf(wrongScope)), tools))
+        val otherSource = status.copy(content = ToolResultContent.Json(JsonObject(statusBody + ("map_source" to JsonPrimitive("gateway")))))
+        assertNull(PhoneIndexContinuation.next(history + AgentToolExchange(listOf(statusCall), listOf(otherSource)), tools))
         assertEquals(arguments("index", cursor), next.arguments)
         val resumed = continuation.execute(next.callId, next.arguments)
         assertFalse(resumed.isError)

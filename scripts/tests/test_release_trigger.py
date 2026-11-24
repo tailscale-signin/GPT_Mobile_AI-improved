@@ -92,6 +92,18 @@ class ReleaseTriggerTests(unittest.TestCase):
                            env={**os.environ, "GITHUB_OUTPUT": str(output)}, check=True)
             return output.read_text()
         self.assertEqual("build=false\n", selected())
+        self.config.write_text(BASE_CONFIG + 'ndkVersion = "29.0.14206865"\n')
+        self.assertEqual("build=true\n", selected())
+        self.config.write_text(BASE_CONFIG)
+        for path in ("scripts/check_apk_size.py", "local-kokoro-runtime/src/main/cpp/CMakeLists.txt",
+                     "scripts/optimize_release_apks.py", "scripts/install_android_native_dependencies.sh"):
+            with self.subTest(packaging_input=path):
+                source = self.root / path
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("fixture\n")
+                self.git("add", path)
+                self.assertEqual("build=true\n", selected())
+                self.git("rm", "-q", "-f", "--", path)
         self.config.write_text(BASE_CONFIG.replace("122", "123"))
         self.assertEqual("build=true\n", selected())
         self.config.write_text(BASE_CONFIG)

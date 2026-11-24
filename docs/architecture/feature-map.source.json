@@ -640,6 +640,33 @@
       ]
     },
     {
+      "id": "gateway-desktop-presentation",
+      "title": "Gateway desktop presentation and native acceptance",
+      "terms": [
+        "gateway desktop",
+        "window visibility",
+        "native hit target"
+      ],
+      "paths": [
+        "gateway/desktop/ui.py",
+        "gateway/desktop/dashboard.py"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_desktop_native_ui.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/windows-owner-presentation-2026-11-24-task.json"
+      ],
+      "invariants": [
+        "The fixture presents its empty owner before production window construction; production controls remain subject to strict screen hit tests.",
+        "Failure diagnostics retain one captured hit and bounded content-free application geometry, focus and stacking observations.",
+        "Gateway packaging binds every included source and test byte to the reviewed source inventory."
+      ]
+    },
+    {
       "id": "chat-rendering",
       "title": "Settled Markdown rendering and chat presentation",
       "terms": [

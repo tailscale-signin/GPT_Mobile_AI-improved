@@ -753,7 +753,8 @@
         "persisted search paths",
         "missing saved pages",
         "fixture prerequisites",
-        "exact SHA test receipts"
+        "exact SHA test receipts",
+        "legacy unheaded PR context recovery"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReads.kt",
@@ -779,13 +780,15 @@
       ],
       "documents": [
         "docs/repairs/diagnostic-93d824fd-github-2026-11-23-task.json",
-        "docs/repairs/diagnostic-93d824fd-graph-integration-task.json"
+        "docs/repairs/diagnostic-93d824fd-graph-integration-task.json",
+        "docs/repairs/github-unheaded-context-recovery-2026-11-24-task.json"
       ],
       "invariants": [
         "Refresh only the same authorized repository, pull request and connection; retain bounded read retries and never replay mutations.",
         "Validate retained path selectors against the selected repository and commit; reacquisition cannot establish complete historical coverage.",
         "Saved page recipes, test execution receipts and remaining verification reserve are independent observations.",
-        "Fixture-specific accepted task approval remains authoritative through continuation."
+        "Fixture-specific accepted task approval remains authoritative through continuation.",
+        "Recover a legacy context head change through one fresh scoped LIVE header and one exact pinned read; cached observations, explicit or malformed pins, restored duplicate attempts and a second head change cannot expand the allowance."
       ]
     },
     {
@@ -1444,9 +1447,9 @@
       "sha256": "56a24fa15be3ac10c5018ffcb45f403eb293e8a60e79c7d3e76223f6c080fddf"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReads.kt": {
-      "blob_sha": "441bd3adab336fa8dab4c1d96f1bb26d83013061",
-      "bytes": 8243,
-      "sha256": "c23593bceb9cd75fbdf1b96e4c639b582fa07b63bda40f36a5eb9c1d4d445f6f"
+      "blob_sha": "61b79d33bf417da80d90231b7be83032b7f44dc2",
+      "bytes": 10678,
+      "sha256": "62e149fd9eaece1ee4ef12df01f5d768510310223387bdb10a214988db8ddcfd"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt": {
       "blob_sha": "e31a32d5e40acab4fe3cee48633c112b942e90f5",
@@ -2444,9 +2447,9 @@
       "sha256": "68fd03469b121904dda896ad51cefd5d3bfe14b8188d8708263494a11d710011"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt": {
-      "blob_sha": "e8b026d657877834bfbacfe74c9e8d059ce9826b",
-      "bytes": 9801,
-      "sha256": "c9bad3f968d55eddb14329dd46f712ec8cc15f9de941b83e88bf808eb12a07f1"
+      "blob_sha": "7d09e62b2a845dd4a9cd9797d56d431ed9f342ac",
+      "bytes": 21409,
+      "sha256": "e1b8028b97dc62eb2b2a7e6ea8adace396c224b5934857ff7a66d74f15b648d6"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceStorageTest.kt": {
       "blob_sha": "05af5601016c56373b8cc7123a1e97e1263698b9",
@@ -3177,6 +3180,11 @@
       "blob_sha": "e91e7966fc38824a9caf3b14a40e7536205eac3e",
       "bytes": 9775,
       "sha256": "11e8309a920ad344493cd7d6c220b893d2139dab2c0b18a1fcaf0ca7c1bac12c"
+    },
+    "docs/repairs/github-unheaded-context-recovery-2026-11-24-task.json": {
+      "blob_sha": "cfd5f93c8aa984b196a527ccb6c59b7d3b135e65",
+      "bytes": 6808,
+      "sha256": "bcc653bfc5e3ddc0f72d260aa7dc72fa5ee46db9441e6bbb50f142247598aeea"
     },
     "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json": {
       "blob_sha": "5c3b2654c0a667692912244ebd7e333f3ac9103c",

@@ -15,6 +15,7 @@ Optional battery-counter decreases describe whole-device observations, not energ
 ## Diagnostic recovery and export completion
 
 - Follow the newest qualified head of the same pull request and connection. Requalify reads after a head change and allow one bounded read-only refresh/retry without replaying mutations or renewing task limits.
+- Recover older PR context reads that lack an expected head through one fresh live header and one pinned retry. Preserve explicit revision constraints, request options, restored attempt identity and verification reserve; stop after another head change.
 - Preserve validated search paths, blob identities and the selected commit through saved inventory projections, so dependent source reads remain available after the original page is compacted.
 - Keep missing saved-page delivery distinct from replay-capacity exhaustion in reports, including a bounded pending-page count and compatible receiver capability checks.
 - Require deployed report receivers to advertise the saved-page replay, local graph failure and provider-limit evidence capabilities before a hosted reporting route is accepted; native GitHub reporting keeps its existing route.

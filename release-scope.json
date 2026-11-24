@@ -306,7 +306,8 @@
     "Drain the Compose/Android host frame after hiding the privacy comparison panel before polling disposal cleanup; preserve the real lifecycle cancellation path, held streams, every assertion and original timeouts.",
     "Make GitHub previews finding-led and evidence-bound, keep full primary prompt guidance, admit new analysis over existing evidence, publish each completed streamed block independently, and render useful Markdown while retaining source-owned charts and exact recorded check counts.",
     "Scope durable-wait refusal projection to actual durable scheduling at both provider catch sites and complete the persisted-chat test endpoint/model binding without weakening assertions or route authority; preserve and index the incoming isolated QNN candidate workflow and its existing compiler-setup correction. Make candidate-input preflight pipeline failures visible using the explicit Bash fail-fast/pipefail shell, without changing the later independent build validation.",
-    "Preserve validated retained backend attempts and partial or unknown usage across Responses sampling, tool-definition and transient HTTP rejection paths; prevent replay/credential rotation, retain bounded terminal evidence and add actual-adapter regressions for HTTP400/429/502/503/504 with all clean positive controls preserved."
+    "Preserve validated retained backend attempts and partial or unknown usage across Responses sampling, tool-definition and transient HTTP rejection paths; prevent replay/credential rotation, retain bounded terminal evidence and add actual-adapter regressions for HTTP400/429/502/503/504 with all clean positive controls preserved.",
+    "Recover a legacy unheaded PR context failure through one fresh scoped live header and one pinned retry, preserving existing revision guards, restored attempt identity, caller budgets and acquisition reserve."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -794,6 +795,7 @@
     "docs/repairs/github-read-startup-ci-2026-11-23-task.json",
     "docs/repairs/github-runtime-claim-scope-2026-11-23-task.json",
     "docs/repairs/github-search-coverage-followup-2026-11-23-task.json",
+    "docs/repairs/github-unheaded-context-recovery-2026-11-24-task.json",
     "docs/repairs/gitleaks-model-pin-2026-11-23-task.json",
     "docs/repairs/hosted-privacy-stream-and-health-2026-11-23-task.json",
     "docs/repairs/locked-speech-dependency-coverage-2026-11-23-task.json",

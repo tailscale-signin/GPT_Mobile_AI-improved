@@ -749,7 +749,8 @@
         "persisted search paths",
         "missing saved pages",
         "fixture prerequisites",
-        "exact SHA test receipts"
+        "exact SHA test receipts",
+        "legacy unheaded PR context recovery"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReads.kt",
@@ -775,13 +776,15 @@
       ],
       "documents": [
         "docs/repairs/diagnostic-93d824fd-github-2026-11-23-task.json",
-        "docs/repairs/diagnostic-93d824fd-graph-integration-task.json"
+        "docs/repairs/diagnostic-93d824fd-graph-integration-task.json",
+        "docs/repairs/github-unheaded-context-recovery-2026-11-24-task.json"
       ],
       "invariants": [
         "Refresh only the same authorized repository, pull request and connection; retain bounded read retries and never replay mutations.",
         "Validate retained path selectors against the selected repository and commit; reacquisition cannot establish complete historical coverage.",
         "Saved page recipes, test execution receipts and remaining verification reserve are independent observations.",
-        "Fixture-specific accepted task approval remains authoritative through continuation."
+        "Fixture-specific accepted task approval remains authoritative through continuation.",
+        "Recover a legacy context head change through one fresh scoped LIVE header and one exact pinned read; cached observations, explicit or malformed pins, restored duplicate attempts and a second head change cannot expand the allowance."
       ]
     },
     {

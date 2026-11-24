@@ -30,14 +30,24 @@ internal object VoicePronunciationOverrides {
     /** Canonically equivalent names use one saved correction, without removing their accents. */
     fun key(value: String): String = Normalizer.normalize(value.replace('’', '\''), Normalizer.Form.NFC).lowercase(Locale.ROOT).replace('ς', 'σ')
 
+    /** Preserve only whole literal identifiers whose default rendering would otherwise destroy a saved key. */
+    fun literalTermAt(input: String, index: Int): IntRange? {
+        if (!boundaryBefore(input, index)) return null
+        val match = word.matchAt(input, index) ?: return null
+        return match.range.takeIf {
+            match.value.any { character -> character == '_' || character == '#' } && boundaryAfter(input, it.last + 1)
+        }
+    }
+
     /**
      * Apply literal whole-term corrections before any speech-engine tokenizer changes the text.
-     * Substitutions are one pass and every spoken character points to the original display term.
+     * Substitutions are one pass; unmatched identifiers then receive their default rendering.
+     * Every spoken character points to its original display character or corrected term.
      * No correction, matched term or generated pronunciation is logged or retained globally.
      */
     fun project(input: String, overrides: Map<String, String>): VoicePronunciationProjection {
         val entries = clean(overrides)
-        if (entries.isEmpty()) return VoicePronunciationProjection(input, input.indices.map { it..it })
+        if (entries.isEmpty() && '_' !in input && '#' !in input) return VoicePronunciationProjection(input, input.indices.map { it..it })
         val canonical = StringBuilder()
         val originalRanges = mutableListOf<IntRange>()
         val characters = BreakIterator.getCharacterInstance(Locale.ROOT)
@@ -58,9 +68,27 @@ internal object VoicePronunciationOverrides {
         var cursor = 0
         fun original(until: Int) {
             while (cursor < until) {
-                spoken.append(input[cursor])
-                positions += cursor..cursor
-                cursor++
+                when {
+                    input[cursor] == '_' -> {
+                        val start = cursor
+                        while (cursor < until && input[cursor] == '_') cursor++
+                        if (input.getOrNull(start - 1)?.isLetterOrDigit() == true && input.getOrNull(cursor)?.isLetterOrDigit() == true) {
+                            spoken.append(' ')
+                            positions += start until cursor
+                        }
+                    }
+                    input[cursor] == '#' && input.getOrNull(cursor + 1)?.isDigit() == true -> {
+                        val rendering = "number "
+                        spoken.append(rendering)
+                        repeat(rendering.length) { positions += cursor..cursor }
+                        cursor++
+                    }
+                    else -> {
+                        spoken.append(input[cursor])
+                        positions += cursor..cursor
+                        cursor++
+                    }
+                }
             }
         }
         var index = 0

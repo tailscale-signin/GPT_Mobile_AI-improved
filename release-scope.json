@@ -349,7 +349,8 @@
     "Restore GenieX minified packaging process isolation: preserve identical unsigned output identities across shrinking, lint and packaging, and complete mandatory release lint in a separate bounded process before APK compression. Retain all payloads, signatures, audits and existing packaging limits.",
     "Pin application stripping to the native modules' NDK and preserve all audited default and GenieX vendor ELF bytes; retain every runtime, ABI, APK size limit, signature, audit and mandatory release gate.",
     "Recover interrupted GitHub result replay and CI watches at the selected revision, share phone index batches and resume saved progress, retain editable silenced speech, and preserve bounded research and diagnostic evidence across the issue cohorts reported through #2526. Build unsigned packages for release candidates and retain signed payload inventory on gate failures.",
-    "Exclude the unused MediaPipe proofreading/summarization JNI, enforce retention of actual speech and embedding JNI, and losslessly recompress and align every unsigned APK before signature and strict size checks."
+    "Exclude the unused MediaPipe proofreading/summarization JNI, enforce retention of actual speech and embedding JNI, and losslessly recompress and align every unsigned APK before signature and strict size checks.",
+    "Preserve a bound local phone deadline in public reporting, restore reply playback after explicitly sending an interrupted voice draft, and bind incomplete research diagnostics to the same refreshed authorized evidence as the partial report and receipt."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1229,7 +1230,10 @@
     "scripts/check_local_runtime_apk.py",
     "scripts/install_android_native_dependencies.sh",
     "scripts/optimize_release_apks.py",
-    "scripts/tests/test_release_apk_compression.py"
+    "scripts/tests/test_release_apk_compression.py",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolPrecheckIssueReportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/delivery/ResearchDeliveryBoundaryTest.kt",
+    "docs/repairs/recovery-review-followup-2026-11-24-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

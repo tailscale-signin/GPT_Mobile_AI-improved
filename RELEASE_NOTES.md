@@ -13,6 +13,8 @@ Application native-library stripping uses the same pinned NDK as the native modu
 - URL reads share a small result allowance across sources. Catalog discovery handles empty selectors, and repeated missing-tool reports retain the catalog revision and occurrence count. Partial research reports identify the delivery check and source counts.
 - Failure diagnostics distinguish a later failure after visible output. Android freeze reports retain a bounded main-thread fingerprint when the operating system supplies a trace for the affected process.
 - Release pull requests build the unsigned packages when the publication request or Android version changes. The publisher retains its APK payload inventory for size-gate diagnostics.
+- Sending an interrupted voice draft restores reply playback while preserving capture permissions, mute state, admission ownership and cancellation checks.
+- Locally stopped phone reads retain their exact deadline and cancellation details through public issue reporting. An interrupted research writer reports the same refreshed evidence used for its partial answer and saved receipt.
 
 ## GitHub engineering intelligence
 

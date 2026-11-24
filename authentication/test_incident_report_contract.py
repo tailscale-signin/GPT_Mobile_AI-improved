@@ -12,6 +12,40 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_phone_deadline_public_alias_uses_existing_context_and_incident_vocabulary(self):
+        for action in ("index", "query"):
+            capture = self.capture("TOOL", {
+                "incident_phase": "tool_execution", "causal_failure_code": "READ_DEADLINE",
+                "tool_error_code": "READ_DEADLINE", "tool_dispatch_phase": "CANCELLED_LOCALLY",
+                **({"tool_action": "index"} if action == "index" else {}),
+            })
+            report = self.report(capture)
+            report["errorCode"] = "READ_DEADLINE"
+            report["context"].update(stage="tool_execution", operation="repository_graph",
+                                     dispatched=True, retryable=False, requiresReconciliation=False)
+            report["context"]["unavailableFields"] = [field for field in report["context"]["unavailableFields"] if field not in report["context"]]
+            approved = json.dumps(report, separators=(",", ":"))
+            restored = json.loads(approved)
+            _, issue = issue_from_report(restored)
+            for value in ("tool_execution", "READ_DEADLINE", "CANCELLED_LOCALLY"):
+                self.assertIn(value, issue["body"])
+            self.assertEqual(approved, json.dumps(restored, separators=(",", ":")))
+            for invalid in ("phone_read_deadline", "tool_execution private/path", "private-stage"):
+                with self.subTest(action=action, stage=invalid), self.assertRaises(ReportError):
+                    rejected = copy.deepcopy(report)
+                    rejected["context"]["stage"] = invalid
+                    issue_from_report(rejected)
+                with self.subTest(action=action, phase=invalid), self.assertRaises(ValueError):
+                    rejected_capture = copy.deepcopy(capture)
+                    rejected_capture["values"]["incident_phase"] = invalid
+                    validate_diagnostics(rejected_capture)
+            unknown = copy.deepcopy(report)
+            del unknown["context"]["stage"]
+            unknown["context"]["unavailableFields"].append("stage")
+            unknown["context"]["unavailableFields"].sort()
+            unknown["context"]["diagnostics"]["values"]["incident_phase"] = "unknown"
+            self.assertIn("unknown", issue_from_report(unknown)[1]["body"])
+
     def test_typed_budget_metadata_and_manual_timing_survive_the_public_report(self):
         for kind, source, reason, retry in (
             ("ACCOUNT_CREDITS", "openrouter_credits", None, "AFTER_CONFIGURATION_CHANGE"),

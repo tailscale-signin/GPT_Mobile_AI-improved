@@ -152,10 +152,10 @@ internal class ResearchDeliverySession(
         if (hasCalls || failure != null || !completed && !overflow) {
             val denied = failure?.let(::isAuthorizationFailure) == true
             if (!denied && !hasCalls) {
-                if (failure == null) failure = partialResearch("The writer stopped before completion. Saved evidence is retained.", "final_synthesis", "WRITER_INCOMPLETE", evidence)
                 // Internal tool rounds can have accepted evidence after the initial packet.
                 evidence = withContext(Dispatchers.Default) { packet() } ?: evidence
                 validateAccess()
+                if (failure == null) failure = partialResearch("The writer stopped before completion. Saved evidence is retained.", "final_synthesis", "WRITER_INCOMPLETE", evidence)
                 val retained = evidence
                 if (retained?.studies?.isNotEmpty() == true) {
                     val issues = listOf(failure?.errorCode ?: "TRANSPORT_INCOMPLETE")

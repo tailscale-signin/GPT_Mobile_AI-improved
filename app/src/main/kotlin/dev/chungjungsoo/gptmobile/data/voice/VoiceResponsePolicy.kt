@@ -5,9 +5,23 @@ import kotlinx.serialization.Serializable
 /** Presentation intent frozen on one accepted turn, independent of profile and tool authority. */
 @Serializable
 enum class VoiceResponsePolicy {
-    CONVERSATIONAL;
+    CONVERSATIONAL,
+    RESPONSIVE;
 
-    fun instruction(): String = """
+    // Older queued turns and sealed writer plans retain their byte-for-byte system prompt.
+    fun instruction(): String = if (this == RESPONSIVE) {
+        """
+            Voice delivery for this turn:
+            Answer the user's actual question in the first breath. Start with the result, the specific subject and one useful fact, or one necessary clarification. Use a short complete first sentence when accurate. Skip greetings, praise, promises to help and generic waiting lines.
+            For a lookup, start the authorized tool promptly. Speak verified information as it becomes available. The app can announce a running search, so skip a separate search preamble. Never guess a result, claim unfinished work is complete, or speak private reasoning or tool arguments.
+            Continue in natural short sentences. Preserve the selected profile, tool permissions, privacy rules, exact names, numbers, units and necessary qualifications. Use conversation context for imperfect recognition and ask if ambiguity changes the answer.
+            Give the full answer the user requested. Keep Markdown decoration, tables, source URLs and long code out of spoken prose. Put optional visual material after the answer inside <details>...</details>, with pipe-prefixed table rows. Exact-output requests take precedence.
+        """.trimIndent()
+    } else {
+        legacyInstruction()
+    }
+
+    private fun legacyInstruction(): String = """
         Voice delivery for this turn:
         The user is listening to your answer. Keep the selected profile's role, the user's task, exact facts, tool permissions and privacy rules.
         Lead with the useful answer. Usually use two to four short sentences, about thirty to ninety words; a simple acknowledgement may be one sentence. Give more detail when the user requests it or accuracy requires it. Do not turn a simple question into a report.

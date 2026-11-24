@@ -34,6 +34,24 @@ import org.robolectric.shadows.ShadowAudioTrack
 @Config(sdk = [34], application = Application::class, shadows = [KokoroPlaybackObservationTest.ImmediatePcmTrack::class])
 @LooperMode(LooperMode.Mode.PAUSED)
 class KokoroSilentWarmupTest {
+    @Test fun openingAssetsArePreparedWhileCaptureOwnsTheGateWithoutCreatingOrSpeakingAModel() {
+        withOutput { fixture ->
+            VoiceNativeEngineGate.exclusive {
+                fixture.output.prewarm(KokoroVoice.HEART, assetsOnly = true)
+                awaitSynthesis(fixture.output)
+                io.mockk.verify(exactly = 1) { fixture.models.acquireUse() }
+                io.mockk.verify(exactly = 1) { fixture.models.releaseUse() }
+                assertEquals(0, fixture.creations.get())
+                assertEquals(0, fixture.audioWrites.get())
+            }
+            fixture.output.prewarm(KokoroVoice.HEART)
+            awaitSynthesis(fixture.output)
+            io.mockk.verify(exactly = 2) { fixture.models.acquireUse() }
+            assertEquals(1, fixture.creations.get())
+            assertEquals(0, fixture.audioWrites.get())
+        }
+    }
+
     @Test fun cpuWarmupIsSilentAndReusesOnlyTheExactVoiceAndRate() {
         withOutput { fixture ->
             val output = fixture.output

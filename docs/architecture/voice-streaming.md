@@ -58,13 +58,35 @@ resume or append to a replacement reply.
 
 ## Preparation and native CPU calibration
 
-Local preparation can start while a completed spoken turn is finalizing, being
-reviewed, or awaiting its answer. It still waits for recognition teardown at the
-shared native gate. Remote Gateway preparation requires accepted admission.
-Withdrawing eligibility invalidates queued warmup without discarding an already
-prepared idle model. Generation checks run before and after gate acquisition so
-an old queued warmup cannot become eligible when a later turn uses the same
-model key.
+Opening a foreground voice room starts two independent preparations. The phone
+checks Moonshine and the selected speech pack. It reuses verified files when their
+installation and change stamps match. Kokoro can read its pronunciation dictionary
+on the synthesis worker while Moonshine starts the microphone. Once capture owns
+the shared native gate, the selected engine can queue construction and eligible
+CPU warm-up for the moment capture releases it. The warm-up discards its audio.
+Gateway speech preparation requires an accepted turn.
+
+The selected AI profile also prepares as soon as the room and its profile policy
+are known. A public cloud profile can open the shared HTTPS connection with an
+unauthenticated, content-free request. Server-side model residency is unknown.
+A selected on-device model uses the existing foreground preload preference and
+resource checks. Selected llama.cpp Gateway models use the existing exact-model
+preparation controller. Private rooms, metered-network preferences, and
+cancellation apply to speculative contact.
+
+New voice turns ask for a short first sentence that answers the question. Auto
+playback queues a complete short clause immediately. During a provider pause,
+two complete words become eligible after 120 ms from the first stable words.
+Later phrases adapt to the audio already buffered. This interval controls text
+buffering. Actual playback also depends on the provider, synthesis and output
+device.
+
+For a short lookup with a matching web search already running, Voice may say
+“I’m checking the weather in Toronto.” The topic comes from the user's words.
+A ready answer takes priority over an unheard update. An audible update finishes
+once while the answer continues to generate. Progress stays out of the saved
+answer and replay. The Performance panel records accepted-request-to-search-update
+and accepted-request-to-first-answer playback separately.
 
 Native CPU calibration snapshots the voice and selected rate, tests 1-4 threads,
 rotates and reverses candidate ordering across runs, and uses short varied warm

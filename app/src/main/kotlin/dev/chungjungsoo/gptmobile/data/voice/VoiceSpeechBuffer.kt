@@ -4,7 +4,8 @@ package dev.chungjungsoo.gptmobile.data.voice
 internal class VoiceSpeechBuffer(
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
     private val includeDetails: Boolean = false,
-    private val preserveLiteralTerms: Boolean = false
+    private val preserveLiteralTerms: Boolean = false,
+    private val skipPreamble: Boolean = false
 ) {
     constructor(clock: () -> Long) : this(clock, false)
     private var previous = ""
@@ -16,10 +17,15 @@ internal class VoiceSpeechBuffer(
         val end = minOf(text.length, 12000).let { if (it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
         val boundedText = text.substring(0, end)
         if (!final && boundedText == previous && !adaptive) return emptyList()
-        val visible = if (preserveLiteralTerms) {
-            VoiceSpeechText.forPlayback(text, final = final, includeDetails = includeDetails)
+        val visible = if (!final && boundedText == previous) {
+            previousSpeech
         } else {
-            VoiceSpeechText.project(text, final = final, includeDetails = includeDetails)
+            val projected = if (preserveLiteralTerms) {
+                VoiceSpeechText.forPlayback(text, final = final, includeDetails = includeDetails)
+            } else {
+                VoiceSpeechText.project(text, final = final, includeDetails = includeDetails)
+            }
+            if (skipPreamble) VoiceSpokenLead.trim(projected, final) else projected
         }
         // Captions and unspoken words can be revised. Only the part already queued for
         // playback is irrevocable, including a final persistence trim of trailing space.
@@ -52,7 +58,7 @@ internal class VoiceSpeechBuffer(
                             completeWord.findAll(tail.substring(0, boundary.range.last + 1)).take(3).count() >= 3
                     }?.range?.last?.plus(1)
                 val bounded = words.lastOrNull { it.range.last < characterLimit }?.range?.last?.plus(1)?.takeIf { tail.length >= characterLimit }
-                val budgetMs = if ((feedback?.bufferedAudioMs ?: 0) < 300) 200 else 500
+                val budgetMs = arrivalBudgetMs(feedback)
                 val arrivalBoundary = words.lastOrNull()?.range?.last?.plus(1)?.takeIf {
                     adaptive && words.size >= 2 && now() - (firstPendingAt ?: now()) >= budgetMs
                 }
@@ -81,6 +87,18 @@ internal class VoiceSpeechBuffer(
         val chunks = speechChunks(visible.substring(consumed, stableEnd)).filter(String::isNotBlank)
         consumed = stableEnd
         return chunks
+    }
+
+    fun nextFlushDelayMs(feedback: VoiceSynthesisFeedback?): Long? {
+        val since = firstPendingAt ?: return null
+        if (completeWord.findAll(previousSpeech, consumed).take(2).count() < 2) return null
+        return (arrivalBudgetMs(feedback) - (now() - since)).coerceAtLeast(0)
+    }
+
+    private fun arrivalBudgetMs(feedback: VoiceSynthesisFeedback?): Long = when {
+        !startedSpeech -> 120L
+        (feedback?.bufferedAudioMs ?: 0) < 300 -> 200L
+        else -> 500L
     }
 
     private companion object {

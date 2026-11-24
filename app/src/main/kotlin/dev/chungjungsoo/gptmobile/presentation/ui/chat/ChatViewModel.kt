@@ -527,7 +527,7 @@ class ChatViewModel @Inject constructor(
 
     private fun voiceTrace(request: VoiceTurnAdmission, text: String) = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace(
         requestId = request.requestId,
-        voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.CONVERSATIONAL,
+        voiceResponsePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.RESPONSIVE,
         onOutcome = { reason ->
             if (_voiceAdmission.value?.requestId == request.requestId) {
                 updateVoiceAdmission(
@@ -849,7 +849,7 @@ class ChatViewModel @Inject constructor(
     fun askQuestion() = submitComposer(null)
 
     /** Typed input in a voice conversation uses the same durable admission as the normal composer. */
-    fun askVoiceQuestion() = submitComposer(dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.CONVERSATIONAL)
+    fun askVoiceQuestion() = submitComposer(dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.RESPONSIVE)
 
     private fun submitComposer(voiceResponsePolicy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy?) {
         // The first tap owns its frozen draft and resumes after admission.
@@ -1392,7 +1392,13 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Check the selected account and privacy policy before activating microphone capture. */
-    suspend fun preflightVoiceProfile(profile: PlatformV2) = chatRepository.preflightAnswerPrivacy(profile)
+    suspend fun preflightVoiceProfile(profile: PlatformV2) {
+        val room = _chatRoom.value
+        check(_voiceRoomReady.value)
+        withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(room.id.takeIf { it > 0 }, room.id <= 0 || room.privacyModeLocked)) {
+            chatRepository.preflightAnswerPrivacy(profile)
+        }
+    }
 
     /** Preserve an unsent recognized draft through the existing durable conversation draft path. */
     fun checkpointVoiceDraft(text: String) {

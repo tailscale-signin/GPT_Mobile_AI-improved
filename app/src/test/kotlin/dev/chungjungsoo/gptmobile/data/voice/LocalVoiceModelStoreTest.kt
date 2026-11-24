@@ -116,6 +116,8 @@ class LocalVoiceModelStoreTest {
             assertTrue(store.acquireUse())
             store.releaseUse()
         }
+        store.refresh(forceVerification = false)
+        assertEquals(LocalVoiceModelStatus.READY, store.state.value.status)
         assertEquals(verified, hashes.get())
         store.refresh()
         assertEquals(verified + 1, hashes.get())
@@ -123,6 +125,8 @@ class LocalVoiceModelStoreTest {
         val priorTime = java.nio.file.Files.getLastModifiedTime(model.toPath())
         model.writeBytes(ByteArray(contents.size))
         java.nio.file.Files.setLastModifiedTime(model.toPath(), priorTime)
+        store.refresh(forceVerification = false)
+        assertEquals(LocalVoiceModelStatus.NOT_INSTALLED, store.state.value.status)
         assertFalse(store.acquireUse())
     }
 

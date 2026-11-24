@@ -73,8 +73,8 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
             }
             _modelStores.value = stores
             coroutineScope {
-                launch { stores.moonshine.refresh() }
-                kokoroStores.values.forEach { model -> launch { model.refresh() } }
+                launch { stores.moonshine.refresh(forceVerification = false) }
+                launch { stores.kokoro.refresh(forceVerification = false) }
             }
         }
     }
@@ -116,7 +116,9 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
     /** The visible runtime must retire before the caller publishes another model store. */
     fun selectKokoroVariant(variant: KokoroModelVariant) {
         val previous = _modelStores.value ?: return
-        _modelStores.value = previous.copy(kokoro = kokoroStores.getValue(variant), kokoroVariant = variant)
+        val selected = kokoroStores.getValue(variant)
+        _modelStores.value = previous.copy(kokoro = selected, kokoroVariant = variant)
+        viewModelScope.launch { selected.refresh(forceVerification = false) }
     }
 
     // ViewModel-owned install coroutines cancel with viewModelScope. The shared

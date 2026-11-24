@@ -5,6 +5,7 @@ The output is a candidate library and an exact input/output receipt. Promoting i
 requires the matching shared QNN package, native inventory and APK verification.
 """
 import argparse
+from email.utils import format_datetime, parsedate_to_datetime
 import hashlib
 import json
 import os
@@ -14,6 +15,8 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -22,11 +25,65 @@ from rebuild_qualcomm_dispatch import verify_workspace
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INPUTS = ROOT / "docs/audits/qnn-runtime-candidate.json"
+DOWNLOAD_ATTEMPTS = 3
+MAX_RETRY_WAIT_SECONDS = 60
 
 
 def digest(path, algorithm="sha256"):
     with Path(path).open("rb") as stream:
         return hashlib.file_digest(stream, algorithm).hexdigest()
+
+
+def rate_limit_delay(error, attempt):
+    """Respect a bounded server wait; an unusable hint refuses the retry."""
+    headers = error.headers
+    if headers is None:
+        values = None
+    elif hasattr(headers, "get_all"):
+        values = headers.get_all("Retry-After")
+    else:
+        value = headers.get("Retry-After")
+        values = None if value is None else [value]
+    fallback = 5 * (attempt + 1)
+    if values is None:
+        return fallback
+    if len(values) != 1 or not isinstance(values[0], str):
+        return None
+    value = values[0].strip()
+    if not value or len(value) > 128:
+        return None
+    try:
+        if re.fullmatch(r"[0-9]+", value):
+            delay = int(value)
+        else:
+            retry_at = parsedate_to_datetime(value)
+            # Email parsing accepts trailing text and unknown time zones. Only
+            # a complete canonical HTTP date can authorize this optional retry;
+            # unsupported legacy/email forms retain the original HTTP failure.
+            if retry_at.tzinfo is None or format_datetime(retry_at, usegmt=True) != value:
+                return None
+            delay = max(0, retry_at.timestamp() - time.time())
+    except (OverflowError, TypeError, ValueError):
+        return None
+    # Never shorten a publisher's longer cooldown to fit our retry allowance.
+    return max(fallback, delay) if delay <= MAX_RETRY_WAIT_SECONDS else None
+
+
+def open_pinned_download(url):
+    """Retry only a rejected GET opening, never body, checksum or build errors."""
+    for attempt in range(DOWNLOAD_ATTEMPTS):
+        try:
+            return urllib.request.urlopen(url, timeout=60)
+        except urllib.error.HTTPError as error:
+            if error.code != 429 or attempt + 1 == DOWNLOAD_ATTEMPTS:
+                error.close()
+                raise
+            delay = rate_limit_delay(error, attempt)
+            error.close()
+            if delay is None:
+                raise
+            print(f"Pinned artifact HTTP 429; waiting {delay:g}s before attempt {attempt + 2}/{DOWNLOAD_ATTEMPTS}", flush=True)
+            time.sleep(delay)
 
 
 def checked_download(record, destination):
@@ -38,7 +95,7 @@ def checked_download(record, destination):
     partial = destination.with_suffix(destination.suffix + ".part")
     try:
         count = 0
-        with urllib.request.urlopen(record["url"], timeout=60) as response, partial.open("wb") as output:
+        with open_pinned_download(record["url"]) as response, partial.open("wb") as output:
             if not response.geturl().startswith("https://"):
                 raise ValueError("Refusing a non-HTTPS redirect")
             while chunk := response.read(1024 * 1024):

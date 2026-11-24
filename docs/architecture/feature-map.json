@@ -2745,9 +2745,9 @@
       "sha256": "1c0e6725bea8a27085878c091362e96c23bc983e2e510ab7dedcfd8d2f58fc7c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": {
-      "blob_sha": "e3e3134c68f273173330a655b1f17284593ebd99",
-      "bytes": 176979,
-      "sha256": "2b41ea31da0a9af79179edd0a909ede7795d97e325224c07b7c699ab66d0c6a1"
+      "blob_sha": "ec67b44393f9623bb3e3710d697a14ecfa9a07d5",
+      "bytes": 177182,
+      "sha256": "4522ec441fa18b6d662ad464237818efde2ed0f07c5e1aeef5491d8f771a4219"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt": {
       "blob_sha": "389dff549bb22a0118306daa203c529b28c02d95",
@@ -2810,9 +2810,9 @@
       "sha256": "c1a999db8c8894bc7cae8b44aed5d20173ae425671da8b390c5c82c1a6499e64"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt": {
-      "blob_sha": "35d2ff3b89cf9a49c31c9d39226ffae5ae94274e",
-      "bytes": 22496,
-      "sha256": "8d89c3a0aaa1bffba803689b8b3a46bc76159e86f7cd9c919f4eaaea3bd1bc73"
+      "blob_sha": "90678294dd83e80183275444119184de87b7c828",
+      "bytes": 23351,
+      "sha256": "aaac81af8e5cf56a06edc57e0055dbe2396364d671e8c11f76ce02265bb917de"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": {
       "blob_sha": "df918182832caa0513a9b0769156262886c0a6f4",
@@ -3015,9 +3015,9 @@
       "sha256": "d03b0d900d206aa16daff91a4c3fdd280dd497b1d49788c1fe32084b27490af8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt": {
-      "blob_sha": "0d2037cdaec69fe316f57c98f26e946be4db561d",
-      "bytes": 90147,
-      "sha256": "737c0f6f1ebfb171db5054eada42e4bc0f83597f7f47dda09d7034801be626e4"
+      "blob_sha": "7da7a7eeae77fbb123d343052e0d7ea9a54d2f0a",
+      "bytes": 90330,
+      "sha256": "429aeb46d7adc38c4e5fcb3b61b606c0134b3e6c91d7b74551ce17130f0de4a1"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt": {
       "blob_sha": "399dd30869c816ae8d7c32823b0b698eb8d5ed76",
@@ -3025,9 +3025,9 @@
       "sha256": "a2e6e6897ea4da1765a20018691e21f94434cabf7bbab101a96bf6355be83321"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": {
-      "blob_sha": "b1a50750544eb08c4282442893afb3e7174c31c4",
-      "bytes": 20011,
-      "sha256": "3cbb58097eba38747e309ec0d896de54af8037e0e3b264215fee87e3fecf4cf6"
+      "blob_sha": "75c51202ca0504bf547b531adcfe5f2c8f43c9d0",
+      "bytes": 20075,
+      "sha256": "58da50c857069148697c7805a1634cb062b78b52d683900128dc34f1ad4c0ca8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt": {
       "blob_sha": "12a70f54a8c7e1bff666735d9b4df2e6099ec1a9",
@@ -3570,9 +3570,9 @@
       "sha256": "78a312c1a23bfcad0788c4786e07006655c942b38eb9f8c5066f2eedbeeb6a91"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": {
-      "blob_sha": "d7ef8ddaf52b739e906a0f933e7d56518accfce7",
-      "bytes": 93377,
-      "sha256": "071e0e144ebdf43a3f3470890982159d541dee1754f0195963258f9363f29fdd"
+      "blob_sha": "46a546ed0694a8d53f22bd545eb4b32f71e5c13f",
+      "bytes": 93629,
+      "sha256": "5f46af6cabf62ca2af8be0e73576bdc32af79a280bddc6f34eefa0f29f8b6318"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt": {
       "blob_sha": "3c8c0209679b9bdf151ba65d9e776a7f15280890",
@@ -4185,9 +4185,9 @@
       "sha256": "857dd9dd98f0b78a9feeae219c53cc6f7378d34ae41d93abb30d70bdbf3dd13b"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageCapacityTest.kt": {
-      "blob_sha": "c9ef689a94e8bd8583ac08024ecdc9f614e14890",
-      "bytes": 28108,
-      "sha256": "79bfc1dcf5414cde76c38a50a9516ac0c68bb6843f61beee5bc1ce676865d787"
+      "blob_sha": "2df7b9cf90d5b3a068545725edbf59c8ce5bb0a3",
+      "bytes": 30118,
+      "sha256": "2d675d90d85a2e758c9199ebebf72f7a9c947d211098225787a603aab686ebce"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PhoneIndexInterruptionTest.kt": {
       "blob_sha": "b994cdb7f6485b04c374f1d16648d913dd8ff703",
@@ -5355,14 +5355,14 @@
       "sha256": "10ec9c86ed7aa0f77b9e68e4ce26a38b9cfd8a73bfa3face89c219e523251712"
     },
     "authentication/issue_report_app.py": {
-      "blob_sha": "8ba540830efb71a86194ba18fb76afe79d13f8ee",
-      "bytes": 6975,
-      "sha256": "66ad288427422cede86845a0a53d4093d1ed9d90d7dbde3dcead1045cb80c73b"
+      "blob_sha": "b26dfc52d310f0ac83b0bfbd776c971beba16146",
+      "bytes": 7021,
+      "sha256": "78a773956c2d845f91c8e23248d36fd6497db19a77798bb229030ac0ecc2970e"
     },
     "authentication/issue_report_diagnostics.py": {
-      "blob_sha": "ba5d2f38eee742f21ecb7655e5f2f3478db4dd22",
+      "blob_sha": "2ac2885ec646069d2ca4402f540e83c4515871af",
       "bytes": 54688,
-      "sha256": "6f1c310862ef4f9bf2e5f43c2b54e3328ba438f1d3739dd577b295d0f30f8d45"
+      "sha256": "0eae8f07e43a2772d005e726c4284bb1b9562bbdf0c83cbf1197034fbde8ffcd"
     },
     "authentication/issue_reports.py": {
       "blob_sha": "d2818e005c5129f98ff569cedfb381698dd574bd",
@@ -5375,9 +5375,9 @@
       "sha256": "b127eb460cb93fc32cc2eee4d2fe1c19af019bd0e285dda084f00b77ed58f9af"
     },
     "authentication/test_app.py": {
-      "blob_sha": "986f504f1b579b7e5d2f320835d7b52dd0e18a97",
-      "bytes": 112495,
-      "sha256": "ce78d5582cc96656d628da02153799af650845b57e1a6c15064fd910d34338d2"
+      "blob_sha": "be2202c981e8991a3844d3afe9e981f528ec13e1",
+      "bytes": 112527,
+      "sha256": "3a1fc01f74f2c0506e37617f197fe53d30fc600bcf5651ca6ed878555118bea0"
     },
     "authentication/test_failure_details.py": {
       "blob_sha": "bdc7a38dae79393b9524f047ac512868ef66e389",
@@ -6245,9 +6245,9 @@
       "sha256": "d417d36854737869580ccf63db332fb451e570383cf8ef0883ccb7bf791d20d2"
     },
     "scripts/check_issue_reporting_configuration.py": {
-      "blob_sha": "2baabeabe4300b1b8c65139c09b24a62fbc21587",
-      "bytes": 6119,
-      "sha256": "f3f01de1e3f6de98dbf00a56cf52051baa9e191192a30b29e8289f94471c2559"
+      "blob_sha": "4f251e32f24fe704df37f2922217d89eae8d564a",
+      "bytes": 6153,
+      "sha256": "fc7ff88126516eee8c58e4886378448c6f627e1c7430ec2fa294352c9cdf3ac3"
     },
     "scripts/check_local_runtime_apk.py": {
       "blob_sha": "f132b89d8f768178d55a126a94a404a183d5a18e",

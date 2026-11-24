@@ -832,7 +832,11 @@ internal class KokoroVoiceOutput(
                         main.postDelayed({ acquireFocus(attempt + 1) }, retryDelay)
                     } else {
                         val message = if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED) {
-                            "Android denied audio focus. When the call or other audio ends, return to Voice and tap replay on this reply."
+                            if (mode == AudioManager.MODE_NORMAL) {
+                                "Android denied audio focus. When audio is available, tap replay on this reply."
+                            } else {
+                                "Android denied audio focus. When the call or other audio ends, return to Voice and tap replay on this reply."
+                            }
                         } else {
                             "Android audio focus is unavailable. Reopen Voice to replay this reply."
                         }

@@ -688,8 +688,20 @@ internal class GitHubOperationTool(
             if (assessment.errorCode != null) {
                 val progress = assessment.data["pagination_progress"] as? JsonObject
                 val gap = progress?.get("first_unobserved_page")
+                val changedCheckHead = if (operation == "github_context" && assessment.errorCode == "GITHUB_PAGINATION_INCOMPLETE") {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubStatusEvidence.changedCheckHead(effectiveArguments, assessment.data)
+                } else {
+                    null
+                }
                 val repairArguments = if (gap == null) {
-                    if (assessment.errorCode == "GITHUB_PAGINATION_INCOMPLETE") singlePageRunRefresh(effectiveArguments, progress) else null
+                    if (changedCheckHead != null) {
+                        JsonObject(effectiveArguments + mapOf("commit_sha" to JsonPrimitive(changedCheckHead), "page" to JsonPrimitive(1), "verify_live" to JsonPrimitive(true)))
+                            .takeIf { ToolArgumentValidator.errors(it, definition.inputSchema).isEmpty() }
+                    } else if (assessment.errorCode == "GITHUB_PAGINATION_INCOMPLETE") {
+                        singlePageRunRefresh(effectiveArguments, progress)
+                    } else {
+                        null
+                    }
                 } else {
                     val pinned = if (operation == "github_context" && effectiveArguments["action"] == JsonPrimitive("commits")) {
                         (assessment.data["commit_sha"] as? JsonPrimitive)?.content?.takeIf { sha -> sha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) }
@@ -720,6 +732,8 @@ internal class GitHubOperationTool(
                             )
                             val message = if (gap != null) {
                                 "The requested page was observed. Earlier pages are missing. For a complete inventory, use the supplied correction call and follow its returned continuations. For a sample, keep the observed rows."
+                            } else if (changedCheckHead != null) {
+                                "The check inventory changed between pages. Refresh page one at the same commit and follow the new traversal before grading CI."
                             } else {
                                 "The workflow run pages overlap. The reported count fits on one page. Use the supplied fresh read with the same filters to verify the inventory."
                             }

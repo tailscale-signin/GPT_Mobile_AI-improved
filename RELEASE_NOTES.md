@@ -30,6 +30,9 @@ GPU and HTP speech qualification and listening quality require measured results 
 
 ## November 24 issue fixes
 
+- Voice reports retain the third audio-focus attempt when Android denies playback in normal mode. The reply remains available for manual replay.
+- A status check can restart an overlapping check inventory once at the same commit. Fresh pages must account for the whole inventory before CI is reported complete.
+- GitHub replay reserves the exact admitted saved-page bodies that are still owed to the model, including when a later call returned identical content.
 - GitHub chat can continue from the original request when a completed advisory planning pass reaches its output limit. A caught planning exception now produces an incident with the planning stage and a sanitized exception fingerprint.
 - Queued GitHub findings are checked again when displayed, so superseded evidence does not reappear merely because it was valid when queued.
 - Reports about GitHub policy selection check the receiver's distinct capability before sending the exact approved details; older report types keep their existing behavior.

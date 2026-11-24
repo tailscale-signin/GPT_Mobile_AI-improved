@@ -145,7 +145,8 @@ class AgentRunner(
         maxReplayTokens: Int,
         maxResultTokens: Int,
         consumedCallIds: Set<String> = emptySet(),
-        deliveredResultDigests: Map<String, String> = emptyMap()
+        deliveredResultDigests: Map<String, String> = emptyMap(),
+        requiredSavedPageDigests: Map<String, String?> = emptyMap()
     ): ReplayProjection = withContext(replayDispatcher) {
         val rawTokens = ToolExchangeCompactor.estimateTokens(exchanges, replayRenderCache)
         val started = System.nanoTime()
@@ -158,7 +159,8 @@ class AgentRunner(
             replayRenderCache,
             if (limits.githubTask) GitHubReplayRecovery.savedPageResultAllowances(exchanges, consumed, maxReplayTokens, maxResultTokens) else emptyMap(),
             taskRequest = limits.githubTaskRequest.takeIf { limits.githubTask },
-            priorityCallIds = if (limits.githubTask) replayPriorityCallIds() else emptySet()
+            priorityCallIds = if (limits.githubTask) replayPriorityCallIds() else emptySet(),
+            requiredSavedPageDigests = requiredSavedPageDigests
         )
         ReplayProjection(
             exchanges = compacted,
@@ -2071,7 +2073,8 @@ class AgentRunner(
                 maxReplayTokens = replayLimit,
                 maxResultTokens = limits.maxReplayResultTokens,
                 consumedCallIds = consumedCallIds,
-                deliveredResultDigests = deliveredResultDigests
+                deliveredResultDigests = deliveredResultDigests,
+                requiredSavedPageDigests = requiredSavedPageDigests
             )
             val rawReplayTokens = replay.rawTokens
             val replayExchanges = replay.exchanges

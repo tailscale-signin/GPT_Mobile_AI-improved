@@ -589,7 +589,7 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
         additions.append("RECOVERY_REPORT_EVIDENCE_V1")
         additions.append("CATALOG_MISSING_TOOL_IDENTITY_V1")
-        additions.append("GITHUB_POLICY_SELECTION_FIELDS_V1")
+        additions.extend(["GITHUB_POLICY_SELECTION_FIELDS_V1", "VOICE_FOCUS_RETRY_COUNT_V1"])
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
         additions.insert(additions.index("PRIVACY_ELIGIBILITY_EVIDENCE_V1") + 1, "PRIVACY_FINAL_REQUEST_EVIDENCE_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,

@@ -19,6 +19,14 @@ class ReportExtensionsTest(unittest.TestCase):
             values[f"composer_event_{index}_age_ms"] = 0 if index == len(events) else 600000 - index
         return values
 
+    def test_voice_focus_counts_match_the_normal_mode_retry_limit(self):
+        for attempts in (1, 2, 3):
+            sample = self.snapshot("VOICE", {"voice_playback_focus_attempts": attempts, "voice_focus_result": "DENIED", "voice_playback_audio_mode": "NORMAL"})
+            self.assertEqual(sample, validate_diagnostics(sample))
+        for invalid in (0, 4, "3", True):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(self.snapshot("VOICE", {"voice_playback_focus_attempts": invalid}))
+
     def test_all_closed_events_and_exact_optional_field_set_preserve_order_and_legacy_values(self):
         self.assertEqual(22, len(COMPOSER_TIMELINE_FIELDS))
         self.assertEqual(24, len(COMPOSER_EVENTS))

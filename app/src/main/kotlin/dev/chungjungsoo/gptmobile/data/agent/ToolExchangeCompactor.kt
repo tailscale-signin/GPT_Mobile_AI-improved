@@ -100,7 +100,8 @@ internal object ToolExchangeCompactor {
         renderCache: RenderCache? = null,
         resultTokenAllowances: Map<String, Int> = emptyMap(),
         taskRequest: String? = null,
-        priorityCallIds: Set<String> = emptySet()
+        priorityCallIds: Set<String> = emptySet(),
+        requiredSavedPageDigests: Map<String, String?> = emptyMap()
     ): List<AgentToolExchange> {
         if (exchanges.isEmpty() || maxReplayTokens == Int.MAX_VALUE) return exchanges
 
@@ -110,6 +111,15 @@ internal object ToolExchangeCompactor {
         // Counts and digests survive projections; render only results that receive
         // space in this round. The cache is private to this runner and bounded.
         val measurements = flattenedResults.map { renderCache?.measure(it.content) ?: measurement(render(it.content)) }
+        // A different call can return identical bytes. Delivery still needs the admitted call's own body.
+        val requiredBodies = if (requiredSavedPageDigests.isEmpty()) {
+            emptySet()
+        } else {
+            flattenedResults.indices.filterTo(mutableSetOf()) { index ->
+                val id = flattenedResults[index].callId
+                id in resultTokenAllowances && requiredSavedPageDigests[id] == measurements[index].digest
+            }
+        }
         val metadataCost = exchanges.sumOf { exchange ->
             exchange.calls.sumOf { call -> ContextTokenEstimate.estimate((call.originalInvocation?.name ?: call.name) + (call.originalInvocation?.arguments ?: call.arguments).toString()).toLong() + 24 }
         }
@@ -137,16 +147,20 @@ internal object ToolExchangeCompactor {
 
         // Prefer the pending handoff, a reserved saved page, or a specifically cited original.
         // Otherwise retain the most recent identical call as before.
-        fun retentionPriority(id: String) = when (id) {
-            in pendingIds -> 3
-            in resultTokenAllowances -> 2
-            in priorityCallIds -> 1
-            else -> 0
+        fun retentionPriority(index: Int) = if (index in requiredBodies) {
+            4
+        } else {
+            when (flattenedResults[index].callId) {
+                in pendingIds -> 3
+                in resultTokenAllowances -> 2
+                in priorityCallIds -> 1
+                else -> 0
+            }
         }
         val retainedOccurrence = mutableMapOf<String, Int>()
         for ((index, key) in fingerprints.withIndex()) {
             val previous = retainedOccurrence[key]
-            if (previous == null || retentionPriority(flattenedResults[index].callId) >= retentionPriority(flattenedResults[previous].callId)) {
+            if (previous == null || retentionPriority(index) >= retentionPriority(previous)) {
                 retainedOccurrence[key] = index
             }
         }
@@ -180,13 +194,14 @@ internal object ToolExchangeCompactor {
             newestFirst.toList()
         } else {
             newestFirst.sortedWith(
-                compareByDescending<Int> { flattenedResults[it].callId in resultTokenAllowances }
+                compareByDescending<Int> { it in requiredBodies }
+                    .thenByDescending { flattenedResults[it].callId in resultTokenAllowances }
                     .thenByDescending { flattenedResults[it].callId in pendingIds }
                     .thenByDescending { scores[flattenedResults[it].callId] ?: 0 }
             )
         }
         for (index in order) {
-            val duplicate = retainedOccurrence[fingerprints[index]] != index
+            val duplicate = index !in requiredBodies && retainedOccurrence[fingerprints[index]] != index
             if (duplicate || consumedPayloads[index] || remaining < MIN_RESULT_TOKENS) continue
             val actualCost = measurements[index].tokens.coerceAtLeast(1)
             val admittedResult = resultTokenAllowances[flattenedResults[index].callId]?.coerceIn(0, hardBudget) ?: perResultBudget
@@ -199,12 +214,13 @@ internal object ToolExchangeCompactor {
         val compacted = exchanges.mapIndexed { exchangeIndex, exchange ->
             val compactedResults = exchange.results.map { result ->
                 val index = resultIndex++
-                val duplicate = retainedOccurrence[fingerprints[index]] != index
+                val duplicate = index !in requiredBodies && retainedOccurrence[fingerprints[index]] != index
                 val maxChars = resultBudgets[index] * CHARS_PER_TOKEN
                 val raw by lazy(LazyThreadSafetyMode.NONE) { renderCache?.render(result.content) ?: render(result.content) }
                 val semantic by lazy(LazyThreadSafetyMode.NONE) { semanticContent(result, result.callId in consumedCallIds) }
                 val summaryProjection = ((result.content as? ToolResultContent.Json)?.value as? JsonObject)?.get("schema") == JsonPrimitive("github.evidence-summary.v1")
                 when {
+                    index in requiredBodies && resultBudgets[index] >= measurements[index].tokens -> result
                     duplicate -> result.copy(content = ToolResultContent.Text(DUPLICATE_RESULT))
                     summaryProjection && semantic != null -> result.copy(content = requireNotNull(semantic))
                     consumedPayloads[index] -> result.copy(content = semantic ?: ToolResultContent.Text(CONSUMED_RESULT))

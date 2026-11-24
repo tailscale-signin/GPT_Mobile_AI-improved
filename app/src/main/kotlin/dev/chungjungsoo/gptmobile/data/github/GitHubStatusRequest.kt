@@ -88,6 +88,35 @@ internal object GitHubStatusRequest {
         }
         call("github_context", buildJsonObject { put("action", "status") })?.let { return it }
         if (head != null) {
+            val scopedChecks = selectedReceipts.values.filter { row ->
+                contextTool != null &&
+                    sameOperation((row["tool"] as? JsonPrimitive)?.content.orEmpty(), contextTool.name) &&
+                    GitHubStatusEvidence.operation(row, "github_context", "checks") &&
+                    fresh(row)
+            }
+            val lastCheck = scopedChecks.lastOrNull()
+            val lastArgs = lastCheck?.get("arguments") as? JsonObject
+            val lastData = lastCheck?.let(GitHubStatusEvidence::data)
+            if (lastCheck?.get("error_code") == JsonPrimitive("GITHUB_PAGINATION_INCOMPLETE") &&
+                lastCheck["success"] == JsonPrimitive(false) &&
+                lastArgs != null &&
+                lastData != null &&
+                GitHubStatusEvidence.changedCheckHead(lastArgs, lastData) == head &&
+                scopedChecks.none { row ->
+                    val args = row["arguments"] as? JsonObject
+                    args?.get("commit_sha") == JsonPrimitive(head) && args["verify_live"] == JsonPrimitive(true) && (args["page"] ?: JsonPrimitive(1)) == JsonPrimitive(1)
+                }
+            ) {
+                call(
+                    "github_context",
+                    buildJsonObject {
+                        put("action", "checks")
+                        put("commit_sha", head)
+                        put("page", 1)
+                        put("verify_live", true)
+                    }
+                )?.let { return it }
+            }
             call(
                 "github_context",
                 buildJsonObject {

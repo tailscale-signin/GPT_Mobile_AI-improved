@@ -251,6 +251,36 @@ class GitHubSavedPageCapacityTest {
         assertTrue(GitHubReplayRecovery.savedPageResultAllowances(listOf(AgentToolExchange(listOf(conflictingCall), listOf(conflicting))), emptySet(), 4000, 512).isEmpty())
     }
 
+    @Test fun twoAdmittedPagesKeepTheirOwnBodiesWhenLaterCallsReturnIdenticalBytes() {
+        val admitted = List(2) { index ->
+            val fixture = Fixture("delivery-source-$index")
+            val call = requireNotNull(fixture.next(tokens = 3000)).copy(callId = "admitted-$index")
+            AgentToolExchange(listOf(call), listOf(fixture.read(call)))
+        }
+        val repeated = AgentToolExchange(
+            admitted.mapIndexed { index, exchange -> exchange.calls.single().copy(callId = "later-$index") },
+            admitted.mapIndexed { index, exchange -> exchange.results.single().copy(callId = "later-$index", executionReceipt = null) }
+        )
+        val history = admitted + repeated
+        val required = ToolResultDeliveryProof.capture(admitted.flatMap { it.results })
+        val allowances = GitHubReplayRecovery.savedPageResultAllowances(history, emptySet(), 24_000, 512)
+        assertEquals(required.keys, allowances.keys)
+        fun delivered(digests: Map<String, String?>, budget: Int): Map<String, String> {
+            val allowed = GitHubReplayRecovery.savedPageResultAllowances(history, emptySet(), budget, 512)
+            val replay = ToolExchangeCompactor.compact(history, budget, 512, resultTokenAllowances = allowed, requiredSavedPageDigests = digests)
+            assertTrue(ToolExchangeCompactor.estimateTokens(replay) <= budget)
+            return ToolResultDeliveryProof.capture(replay.flatMap { it.results })
+        }
+        val exact = delivered(required, 24_000)
+        val ordinary = delivered(emptyMap(), 24_000)
+        val mismatch = delivered(required.mapValues { "0".repeat(64) }, 24_000)
+        val bounded = delivered(required, 1200)
+        assertTrue(required.all { (id, digest) -> exact[id] == digest })
+        assertTrue(required.none { (id, digest) -> ordinary[id] == digest })
+        assertTrue(required.none { (id, digest) -> mismatch[id] == digest })
+        assertFalse(required.all { (id, digest) -> bounded[id] == digest })
+    }
+
     @Test fun multipleAdmittedPagesWaitForExactSuccessfulDeliveryBeforeFurtherAutomaticWork() {
         val fixtures = List(6) { Fixture("source-$it") }
         val history = fixtures.mapIndexed { index, fixture ->

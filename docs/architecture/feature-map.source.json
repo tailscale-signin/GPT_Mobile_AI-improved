@@ -431,7 +431,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt",
+        "scripts/scan_secret_history.sh",
+        ".github/workflows/pr-validation.yml"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
@@ -451,17 +453,21 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageAdmissionRunnerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFixtureTestModeTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt",
+        "scripts/test_secret_history_integrity.py",
+        "scripts/test_gitleaks_model_pin.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
-        "bash scripts/validate-local.sh full"
+        "bash scripts/validate-local.sh full",
+        "bash scripts/scan_secret_history.sh --verify-integrity"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
         ".github/instructions/ai-engineering.md",
         "docs/ci-cd/modernization.md",
-        "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json"
+        "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json",
+        "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -472,7 +478,8 @@
         "A native saved-page read and proven provider delivery are separate facts; continuation retains original context, output and attempt limits.",
         "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it.",
         "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery.",
-        "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority."
+        "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority.",
+        "The mandatory PR/main credential-history gate runs the same pinned scanner against intact, missing-object and restored synthetic histories before the unchanged real reachable-history scan; a missing Git object, failed control or malformed mode cannot produce successful qualification."
       ]
     },
     {

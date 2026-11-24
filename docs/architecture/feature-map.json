@@ -435,7 +435,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt",
+        "scripts/scan_secret_history.sh",
+        ".github/workflows/pr-validation.yml"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
@@ -455,17 +457,21 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedPageAdmissionRunnerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFixtureTestModeTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt",
+        "scripts/test_secret_history_integrity.py",
+        "scripts/test_gitleaks_model_pin.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
-        "bash scripts/validate-local.sh full"
+        "bash scripts/validate-local.sh full",
+        "bash scripts/scan_secret_history.sh --verify-integrity"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
         ".github/instructions/ai-engineering.md",
         "docs/ci-cd/modernization.md",
-        "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json"
+        "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json",
+        "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -476,7 +482,8 @@
         "A native saved-page read and proven provider delivery are separate facts; continuation retains original context, output and attempt limits.",
         "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it.",
         "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery.",
-        "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority."
+        "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority.",
+        "The mandatory PR/main credential-history gate runs the same pinned scanner against intact, missing-object and restored synthetic histories before the unchanged real reachable-history scan; a missing Git object, failed control or malformed mode cannot produce successful qualification."
       ]
     },
     {
@@ -1104,9 +1111,9 @@
       "sha256": "f3b4a480ce1ea9fd0001199644fb96af6fd849a4ecc6a9f4caa3fcda6e8e254d"
     },
     ".github/workflows/pr-validation.yml": {
-      "blob_sha": "5f88fabf132789ca06934eeb4ec0e26103c76ce7",
-      "bytes": 26581,
-      "sha256": "36061605360aa320879cd93105006d84b2b0f8de5b544b3011142a2c48dbee04"
+      "blob_sha": "ef0903725c1161bf5e3a4989cb2bdd0b02149c69",
+      "bytes": 26600,
+      "sha256": "65cb38c06ce0da976030445eac84b4a74ff092d2097346af7092bdc947150d8e"
     },
     ".github/workflows/release-0950-acceptance.yml": {
       "blob_sha": "e014d5d4585a20f7571542da5dcc705f1d7aa411",
@@ -3263,6 +3270,11 @@
       "bytes": 5113,
       "sha256": "26110fa5cde36e9bb1cb22126d8e5a711a15a7fcd6da551bdb621dc1dc936c81"
     },
+    "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json": {
+      "blob_sha": "3094eb314e67b0f8dd3f946b89cfc66a02e0d051",
+      "bytes": 9333,
+      "sha256": "53f46c3490a5aa26cdd95ca0d21b2069260c7d8a8582764722e301498b5bee3e"
+    },
     "docs/repairs/speech-benchmark-1795470489503-task.json": {
       "blob_sha": "bf8dbcfd664790f073288340141c0e8e81ebca9b",
       "bytes": 13238,
@@ -3583,10 +3595,25 @@
       "bytes": 37084,
       "sha256": "e4a1adeb060551172c077dd332e8356875a3c82de20a3c6bf07d20bcf312f5ac"
     },
+    "scripts/scan_secret_history.sh": {
+      "blob_sha": "793de6820819a2384d033ce87b976c9e66adb658",
+      "bytes": 1887,
+      "sha256": "b3f807b708d932b6f0d2015afe69ee1ff5ec192a6086afbb9bc4f5e4f88b7f63"
+    },
     "scripts/smoke_mediapipe_speech.py": {
       "blob_sha": "df8da254108fc944924a5254902ec8d7b56a398e",
       "bytes": 16772,
       "sha256": "0acba5ea77c11052c6144b5956942cf4f1c48c8e48319e87f5a39323ebdbbab8"
+    },
+    "scripts/test_gitleaks_model_pin.py": {
+      "blob_sha": "1b445811f686a9b438838836f03bed29a77a36da",
+      "bytes": 12152,
+      "sha256": "b92492068aeca25c8a29d9b8a22547eb7943bab97cd9ba13caaf24b0a2a7321f"
+    },
+    "scripts/test_secret_history_integrity.py": {
+      "blob_sha": "381e8b5011712ff91268d1a2fe35d35451bb39c5",
+      "bytes": 6303,
+      "sha256": "ca60ef98bfc2c453fadaf7e37fbf1bd433d78afc32b688fce93f270cf5639ef5"
     },
     "scripts/tests/test_chat_method_size.py": {
       "blob_sha": "cdbd92587cd05e8b5ceeda8425d87d81191c85a0",

@@ -309,7 +309,8 @@
     "Preserve validated retained backend attempts and partial or unknown usage across Responses sampling, tool-definition and transient HTTP rejection paths; prevent replay/credential rotation, retain bounded terminal evidence and add actual-adapter regressions for HTTP400/429/502/503/504 with all clean positive controls preserved.",
     "Recover a legacy unheaded PR context failure through one fresh scoped live header and one pinned retry, preserving existing revision guards, restored attempt identity, caller budgets and acquisition reserve.",
     "Route bounded retrospective questions about issues in the current conversation through the existing local session audit, retaining pending task identity and rejecting compound repository actions, quoted prompts and overlong lookalikes.",
-    "Refresh GitHub preview repetition only for a new bounded immutable source capture with matching call, repository, connection, range, commit and digest; retain saved-source distinctions, same-source suppression, existing cadence and factual authority."
+    "Refresh GitHub preview repetition only for a new bounded immutable source capture with matching call, repository, connection, range, commit and digest; retain saved-source distinctions, same-source suppression, existing cadence and factual authority.",
+    "Run the existing actual-Git intact, missing-object and restored-history regression in the mandatory PR/main scanner gate with its same pinned scanner, preserving all30 detection controls, redaction and full-history traversal; reject unknown or repeated mode arguments before repository access."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -832,6 +833,7 @@
     "docs/repairs/responses-retained-backend-work-2026-11-24-task.json",
     "docs/repairs/responses-retained-http400-2026-11-24-task.json",
     "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json",
+    "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
     "docs/repairs/shared-release-integration-2026-11-23-task.json",
     "docs/repairs/speech-benchmark-1795470489503-task.json",
     "docs/repairs/speech-benchmark-control-2026-11-23-task.json",

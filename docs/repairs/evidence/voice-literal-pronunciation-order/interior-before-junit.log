@@ -17,4 +17,3 @@ org.junit.ComparisonFailure: expected:<Before x[ ]. > but was:<Before x[_https:/
 
 FAILURES!!!
 Tests run: 8,  Failures: 2
-

@@ -32,10 +32,11 @@ internal object ProviderFailureReport {
         val semanticFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(failure.failureDetails)
         semanticFailure?.forEach { (key, value) -> if (key != "retry_after_ms") put(key, value) }
         if (semanticFailure?.get("provider_budget_retry") == JsonPrimitive("MANUAL_AFTER_PROVIDER_DELAY")) {
-            semanticFailure.number("retry_after_ms")?.takeIf { it in 1..86_400_000 }?.let {
-                put("retry_delay_ms", it)
-                put("retry_delay_source", "PROVIDER_HEADER")
-            }
+            (semanticFailure["retry_after_ms"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                ?.takeIf { it in 1..86_400_000 }?.let {
+                    put("retry_delay_ms", it)
+                    put("retry_delay_source", "PROVIDER_HEADER")
+                }
         }
         val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
         val rateLimitFailure = receipt.errorCode != PrivacyFinalRequestFailureEvidence.CODE &&

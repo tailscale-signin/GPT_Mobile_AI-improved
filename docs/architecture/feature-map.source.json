@@ -824,14 +824,16 @@
       ],
       "documents": [
         "docs/repairs/diagnostic-93d824fd-provider-2026-11-23-task.json",
-        "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json"
+        "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json",
+        "docs/ci-cd/provider-http-remote-evidence-2026-11-24-task.md"
       ],
       "invariants": [
         "Only the actual dispatched remote command or job creates Gateway uncertainty; a saved local conversation key alone does not.",
         "Durable retry requires current route authority, an unchanged output contract and replay-safe typed evidence.",
         "Unknown or malformed budget metadata stays unknown; budget rejection never automatically changes output limits, spending policy or credentials.",
         "Request, response and stream helper state belongs to one collection, preserving cancellation, accounting and cleanup order.",
-        "The packaged named-method guard measures unminified debug/benchmark DEX; release obfuscation and device latency are separate evidence."
+        "The packaged named-method guard measures unminified debug/benchmark DEX; release obfuscation and device latency are separate evidence.",
+        "HTTP error-body remote-job and reconciliation evidence prevents a new durable wait or manual budget delay and remains attached to the terminal failure."
       ]
     },
     {

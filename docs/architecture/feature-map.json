@@ -828,14 +828,16 @@
       ],
       "documents": [
         "docs/repairs/diagnostic-93d824fd-provider-2026-11-23-task.json",
-        "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json"
+        "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json",
+        "docs/ci-cd/provider-http-remote-evidence-2026-11-24-task.md"
       ],
       "invariants": [
         "Only the actual dispatched remote command or job creates Gateway uncertainty; a saved local conversation key alone does not.",
         "Durable retry requires current route authority, an unchanged output contract and replay-safe typed evidence.",
         "Unknown or malformed budget metadata stays unknown; budget rejection never automatically changes output limits, spending policy or credentials.",
         "Request, response and stream helper state belongs to one collection, preserving cancellation, accounting and cleanup order.",
-        "The packaged named-method guard measures unminified debug/benchmark DEX; release obfuscation and device latency are separate evidence."
+        "The packaged named-method guard measures unminified debug/benchmark DEX; release obfuscation and device latency are separate evidence.",
+        "HTTP error-body remote-job and reconciliation evidence prevents a new durable wait or manual budget delay and remains attached to the terminal failure."
       ]
     },
     {
@@ -1168,9 +1170,9 @@
       "sha256": "595b528eae07a2b4c21f52fb9c6752332fd96ad91d61f73195a83391ebe5eae8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt": {
-      "blob_sha": "49249836d0aa9c5467f3dec9e552cb3ecc49d171",
-      "bytes": 20090,
-      "sha256": "ec368428029a9ad01af2126ba8aa44b75c023c69d452a871a7faf266e3bba103"
+      "blob_sha": "76e32c44ab88f7e5124037481d10aa157c8be477",
+      "bytes": 20171,
+      "sha256": "571cb610f8486e7d64981a884615fdb2e60e17c5c5f7c752e74669ab4850c353"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RepositoryOperationReportContract.kt": {
       "blob_sha": "03ac46ed84ecfc4a1a28f58faeb99e02548ddc6c",
@@ -1353,9 +1355,9 @@
       "sha256": "ab0dd1002fc7b007c2fe9ec9071c4e7345dcbb950376dcdf72618624ebcc842e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt": {
-      "blob_sha": "2f666e9b63c3f7500a9b0d094951b257daf46244",
-      "bytes": 107896,
-      "sha256": "1563897f18263239e3623cd5e868ef445ddc94a34977a2216854cb703aea04d8"
+      "blob_sha": "b0473647ac515ebcf9871cf7c2e99c79d1ca1f35",
+      "bytes": 109918,
+      "sha256": "74977de553c296eb8c2e9624e62a0415673e6a833bce54b8f3d975ce070013dd"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderCooldown.kt": {
       "blob_sha": "0872c0d8828cbb19110a844b2f468f46709fda1d",
@@ -2093,9 +2095,9 @@
       "sha256": "f940932960b9da5014805e68809b71801e21e2578c125a06ce19528ef4006399"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt": {
-      "blob_sha": "ebd4e8c51554409a0e26d17db13846e4e6b69165",
-      "bytes": 68418,
-      "sha256": "49291175dfe75aea83c2069c05e0e7b4d6d9a657fa565842ea84bd94d8cc79ec"
+      "blob_sha": "5e10903a8a7c15bd8a8ad6b14db6b8355c09cb45",
+      "bytes": 71265,
+      "sha256": "eac6594ec400bfcbb4cc904e7b41173661c9c10ce4c843510f29b3c308c184a0"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt": {
       "blob_sha": "ede7fac058f8c712531a7f7d9fd53093c1059d14",
@@ -2253,9 +2255,9 @@
       "sha256": "3c4be9e7352c61a00fb64be4d6422f88ab877f1bc96b1edf8962a8120f0d760f"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt": {
-      "blob_sha": "051ce620417282d9dbfeae2950dd7b937d858748",
-      "bytes": 109028,
-      "sha256": "9288c543d8c9dd4e0bd5ce0e1787c9a1f7de692d5a4f00964206de4fb66ecb0f"
+      "blob_sha": "12d2d69c6c2127be40b2e1b5b43a52cd04f841ee",
+      "bytes": 118152,
+      "sha256": "36fe7e9315c59dc6c4babcb1981378fa87e6ca4f37e1c508b51ddf2f54f074de"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/PrivateFinalRequestBoundaryTest.kt": {
       "blob_sha": "7bf29c7c0ca4ae413da57f376c5e0359eebafcb1",
@@ -2726,6 +2728,11 @@
       "blob_sha": "b124abc3bdcdbf7e6a7d0d217fdf1cbd105b7b37",
       "bytes": 9146,
       "sha256": "cb0ad93e3f60ea54dee45be24ea3402805aec8580d95b7859ab1e7d5bcee972a"
+    },
+    "docs/ci-cd/provider-http-remote-evidence-2026-11-24-task.md": {
+      "blob_sha": "e87f4be01a23bba1820dd42aa89ee313087c62dc",
+      "bytes": 3682,
+      "sha256": "ec36878d8e5cab4b4ab53e53224e3cee64f83c2ecc2350b6afd9427e97116a5e"
     },
     "docs/contracts/repository-operation-report-v1.json": {
       "blob_sha": "400c7f87751327b59b63c563578d440eb0a67bd9",

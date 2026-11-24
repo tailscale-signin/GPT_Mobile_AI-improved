@@ -19,6 +19,9 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -719,6 +722,47 @@ class ProviderFailureReportTest {
         assertEquals(JsonPrimitive(429), fields["http_status"])
         assertNull(fields["provider_wait_decision_state"])
         assertNull(fields["provider_wait_no_wait_reason"])
+    }
+
+    @Test fun manualBudgetDelayKeepsItsDurationBoundThroughPublicProjection() {
+        fun failure(delay: Long): ProviderEvent.Failed {
+            val event = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
+                "402",
+                "private timing canary",
+                httpStatus = 402,
+                metadata = buildJsonObject {
+                    put("limit_source", "openrouter_in_flight_budget")
+                    put("reason", "in_flight_budget_exhausted")
+                },
+                knownNotAccepted = true,
+                retryAfterMillis = delay
+            )
+            return ProviderEvent.Failed(event.message, errorCode = event.code, failureDetails = event.failureDetails)
+        }
+        fun project(value: ProviderEvent.Failed) = ProviderFailureReport.fields("run", value, ProviderFailureReceipt.from(profile, "primary", value))
+        for (delay in listOf(1L, 18_000_000L, 86_400_000L)) {
+            val fields = project(failure(delay))
+            val diagnostics = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L).diagnostics)
+            assertEquals(JsonPrimitive("MANUAL_AFTER_PROVIDER_DELAY"), fields["provider_budget_retry"])
+            assertEquals(JsonPrimitive(delay), fields["retry_delay_ms"])
+            assertEquals(JsonPrimitive("PROVIDER_HEADER"), fields["retry_delay_source"])
+            assertEquals(JsonPrimitive(delay), diagnostics.values["retry_delay_ms"])
+            assertEquals(JsonPrimitive("PROVIDER_HEADER"), diagnostics.values["retry_delay_source"])
+            assertNotNull(diagnostics.validated())
+            assertNull(fields["provider_wait_decision_state"])
+            assertNull(fields["provider_wait_persisted"])
+            assertFalse(diagnostics.toString().contains("private timing canary"))
+        }
+        val valid = failure(12_000L)
+        for (invalid in listOf(JsonPrimitive(0), JsonPrimitive(-1), JsonPrimitive(86_400_001), JsonPrimitive("18000000"), JsonPrimitive(true), JsonPrimitive(1.5), JsonNull, JsonObject(emptyMap()), JsonArray(emptyList()))) {
+            val fields = project(valid.copy(failureDetails = JsonObject(requireNotNull(valid.failureDetails) + ("retry_after_ms" to invalid))))
+            val diagnostics = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L).diagnostics)
+            assertNull(invalid.toString(), fields["retry_delay_ms"])
+            assertNull(invalid.toString(), fields["retry_delay_source"])
+            assertNull(diagnostics.values["retry_delay_ms"])
+            assertNull(diagnostics.values["retry_delay_source"])
+            assertNotNull(diagnostics.validated())
+        }
     }
 
     @Test fun typedTransportWaitRefusalSurvivesThePublicReportButArbitraryTextDoesNot() {

@@ -295,7 +295,8 @@
     "Keep absent SDK stream-call evidence explicitly unknown in speech playback result cards while preserving actual zero/nonzero counts and all measurement, export and ownership behavior.",
     "Require saved-page replay, local graph failure and provider-limit evidence capabilities in deployment readiness probes while preserving the4096-byte response bound and native-only routing.",
     "Correct the OpenAI recovery regression header fixture to pass the existing header pairs to Ktor, preserving all eight API/command/stream cases and assertions after hosted test compilation identified the invalid map overload.",
-    "Preserve typed final-wire privacy refusal across actual provider clients and adapters, publish it through unchanged receiving authorization, retain prior dispatch uncertainty, and negotiate only closed content-free diagnostic outcomes with ordinary composed and receiver regressions."
+    "Preserve typed final-wire privacy refusal across actual provider clients and adapters, publish it through unchanged receiving authorization, retain prior dispatch uncertainty, and negotiate only closed content-free diagnostic outcomes with ordinary composed and receiver regressions.",
+    "Retain bounded HTTP error-body remote-job and reconciliation evidence through both provider adapters; refuse unsafe rate waits and manual budget delays, preserve clean controls, and retain valid public provider delays through 86,400,000 ms."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -701,6 +702,7 @@
     "docs/architecture/repository-guide.md",
     "docs/architecture/repository-index.json",
     "docs/architecture/voice-streaming.md",
+    "docs/ci-cd/provider-http-remote-evidence-2026-11-24-task.md",
     "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json",
     "docs/repairs/android-cmake-package-recovery-2026-11-23-task.json",
     "docs/repairs/assistant-debug-visibility-dispatcher-2026-11-23-task.json",

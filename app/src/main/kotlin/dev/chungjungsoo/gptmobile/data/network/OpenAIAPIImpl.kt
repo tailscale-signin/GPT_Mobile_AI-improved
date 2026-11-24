@@ -496,13 +496,15 @@ class OpenAIAPIImpl @Inject constructor(
 
         private suspend fun readRejectedChatResponse(response: io.ktor.client.statement.HttpResponse, admittedPayload: String, reasoningControlReceipt: ReasoningControlReceipt, responseObserver: ProviderResponseObserver, commandId: String?) {
             val errorBody = readProviderErrorBody(response, if (free != null) 16_384 else 256 * 1024)
+            val structuredFailure = structuredProviderFailure(errorBody, response.status.value)
+            val waitRefusal = providerRateLimitWaitRefusal(config, commandId, dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity, receivedAssistantPayload, response.headers["X-Gateway-Job-ID"], structuredFailure)
             val failureDetails = JsonObject(
                 kotlinx.serialization.json.buildJsonObject {
                     put("failed_stage", "model_invocation")
                     put("http_status", response.status.value)
                     responseObserver.snapshot().serverRequestId?.let { put("server_request_id", it) }
                 } + ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS, endpoint) +
-                    structuredProviderFailure(errorBody, response.status.value).orEmpty() +
+                    structuredFailure.orEmpty() +
                     requestPayloadRejection(
                         response.status.value,
                         admittedPayload,
@@ -525,7 +527,7 @@ class OpenAIAPIImpl @Inject constructor(
                     emit(saved.copy(providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
                     return
                 }
-                providerBudgetFailure(errorBody, response.status.value, failureDetails, responseObserver.snapshot().serverRequestId, receivedAssistantPayload, response.headers[HttpHeaders.RetryAfter], response.status.value == 402 && providerRateLimitWaitRefusal(config, commandId, dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity, receivedAssistantPayload, response.headers["X-Gateway-Job-ID"]) == null)?.let { denied ->
+                providerBudgetFailure(errorBody, response.status.value, failureDetails, responseObserver.snapshot().serverRequestId, receivedAssistantPayload, response.headers[HttpHeaders.RetryAfter], response.status.value == 402 && waitRefusal == null)?.let { denied ->
                     val uncertain = receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown
                     emit(
                         ChatCompletionChunk(
@@ -538,6 +540,16 @@ class OpenAIAPIImpl @Inject constructor(
                                 retryable = false,
                                 failureDetails = if (uncertain) uncertainGatewayFailureDetails(denied.failureDetails, responseObserver.snapshot(), denied.code) else denied.failureDetails
                             )
+                        )
+                    )
+                    return
+                }
+                providerHttpRateLimitRefusal(response.status.value, failureDetails, waitRefusal, responseObserver.snapshot(), receivedAssistantPayload, dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity)?.let { denied ->
+                    emit(
+                        ChatCompletionChunk(
+                            providerResponseTiming = responseObserver.snapshot(),
+                            reasoningControlReceipt = reasoningControlReceipt,
+                            error = ErrorDetail(message = denied.message, code = denied.code, type = "provider_rate_limit", retryable = false, failureDetails = denied.failureDetails)
                         )
                     )
                     return
@@ -577,7 +589,6 @@ class OpenAIAPIImpl @Inject constructor(
                 }
             }
             if (!retainedGatewayAttempts && response.status.value in listOf(429, 502, 503, 504) && ResilientStreamingClient.providerAllowsRetry(errorBody)) {
-                val waitRefusal = providerRateLimitWaitRefusal(config, commandId, dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity, receivedAssistantPayload, response.headers["X-Gateway-Job-ID"])
                 throw ProviderCooldown.rejected(
                     config,
                     response.status.value,
@@ -1085,18 +1096,21 @@ class OpenAIAPIImpl @Inject constructor(
 
         private suspend fun readRejectedResponse(response: io.ktor.client.statement.HttpResponse, admittedPayload: String, responseObserver: ProviderResponseObserver, commandId: String?) {
             val errorBody = readProviderErrorBody(response, 256 * 1024)
+            val structuredFailure = structuredProviderFailure(errorBody, response.status.value)
+            val waitRefusal = providerRateLimitWaitRefusal(effectiveConfig, commandId, dispatchRetryGuard.remoteOutcomeUnknown, receivedResponsePayload, response.headers["X-Gateway-Job-ID"], structuredFailure)
+            val failureDetails = JsonObject(
+                mapOf("failed_stage" to JsonPrimitive("model_invocation")) +
+                    ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint) +
+                    structuredFailure.orEmpty()
+            )
             providerBudgetFailure(
                 errorBody,
                 response.status.value,
-                JsonObject(
-                    mapOf("failed_stage" to JsonPrimitive("model_invocation")) +
-                        ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint) +
-                        structuredProviderFailure(errorBody, response.status.value).orEmpty()
-                ),
+                failureDetails,
                 responseObserver.snapshot().serverRequestId,
                 receivedResponsePayload,
                 response.headers[HttpHeaders.RetryAfter],
-                response.status.value == 402 && providerRateLimitWaitRefusal(effectiveConfig, commandId, dispatchRetryGuard.remoteOutcomeUnknown, receivedResponsePayload, response.headers["X-Gateway-Job-ID"]) == null
+                response.status.value == 402 && waitRefusal == null
             )?.let { denied ->
                 emit(
                     if (dispatchRetryGuard.remoteOutcomeUnknown) {
@@ -1109,6 +1123,10 @@ class OpenAIAPIImpl @Inject constructor(
                         denied
                     }
                 )
+                return
+            }
+            providerHttpRateLimitRefusal(response.status.value, failureDetails, waitRefusal, responseObserver.snapshot(), receivedResponsePayload, dispatchRetryGuard.remoteOutcomeUnknown)?.let { denied ->
+                emit(denied)
                 return
             }
             val parameter = rejectedSamplingParameter(errorBody)
@@ -1125,7 +1143,6 @@ class OpenAIAPIImpl @Inject constructor(
                 }
             }
             if (response.status.value in listOf(429, 502, 503, 504)) {
-                val waitRefusal = providerRateLimitWaitRefusal(effectiveConfig, commandId, dispatchRetryGuard.remoteOutcomeUnknown, receivedResponsePayload, response.headers["X-Gateway-Job-ID"])
                 throw ProviderCooldown.rejected(
                     effectiveConfig,
                     response.status.value,
@@ -1318,6 +1335,28 @@ class OpenAIAPIImpl @Inject constructor(
             }
             if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before response.completed")
         }
+    }
+}
+
+/** A refused HTTP wait must retain the body evidence that made replay unsafe. */
+private fun providerHttpRateLimitRefusal(status: Int, details: JsonObject, reason: dev.chungjungsoo.gptmobile.data.agent.ProviderWaitSchedulingResult.NoWaitReason?, timing: ProviderResponseTiming, receivedPayload: Boolean, remoteOutcomeUnknown: Boolean): ResponseErrorEvent? {
+    if (status != 429 || reason == null) return null
+    val failure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
+        "429",
+        "The provider rate-limited the request. Review the saved work before continuing.",
+        details = JsonObject(details + providerWaitRefusalFields(reason)),
+        httpStatus = status,
+        serverRequestId = timing.serverRequestId,
+        responsePayloadObserved = receivedPayload
+    )
+    return if (remoteOutcomeUnknown) {
+        failure.copy(
+            message = uncertainGatewayFailureMessage(failure.message),
+            code = "GATEWAY_OUTCOME_UNKNOWN",
+            failureDetails = uncertainGatewayFailureDetails(failure.failureDetails, timing, failure.code)
+        )
+    } else {
+        failure
     }
 }
 

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "42b7639279a28f510b755d2f1f4d8a112ad8ebb5f6b1f4738c8ebc01b2d83edd",
+  "source_digest": "d3b53f94d84ad03f34a23498a6f4fe9db67f22f914e8c669c3262547d3346df0",
   "file_count": 3077,
-  "indexed_line_count": 521398,
+  "indexed_line_count": 521438,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -101,7 +101,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 114,
-      "indexed_line_count": 11664
+      "indexed_line_count": 11703
     },
     {
       "id": "github",
@@ -131,7 +131,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 106,
-      "indexed_line_count": 16829
+      "indexed_line_count": 16830
     },
     {
       "id": "benchmark",
@@ -6192,8 +6192,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "ec368428029a9ad01af2126ba8aa44b75c023c69d452a871a7faf266e3bba103",
-      "indexed_lines": 275
+      "sha256": "571cb610f8486e7d64981a884615fdb2e60e17c5c5f7c752e74669ab4850c353",
+      "indexed_lines": 276
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RenderingEffectDiagnostics.kt",
@@ -10385,8 +10385,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "1563897f18263239e3623cd5e868ef445ddc94a34977a2216854cb703aea04d8",
-      "indexed_lines": 1480
+      "sha256": "74977de553c296eb8c2e9624e62a0415673e6a833bce54b8f3d975ce070013dd",
+      "indexed_lines": 1519
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAICompletionDecoder.kt",

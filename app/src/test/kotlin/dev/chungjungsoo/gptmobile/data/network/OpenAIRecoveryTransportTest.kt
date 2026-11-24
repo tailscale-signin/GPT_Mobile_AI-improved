@@ -849,6 +849,124 @@ class OpenAIRecoveryTransportTest {
         }
     }
 
+    @Test fun bodyOnlyRemoteEvidenceRefusesHttp429ThroughBothActualAdapters() = runBlocking {
+        val cases = listOf(
+            Triple("job", "\"job_id\":\"owned-job\"", "429"),
+            Triple("reconciliation", "\"requires_reconciliation\":true", "GATEWAY_OUTCOME_UNKNOWN"),
+            Triple("command", "\"command_outcome_unknown\":true", "GATEWAY_OUTCOME_UNKNOWN"),
+            Triple("stricter", "\"requires_reconciliation\":true", "TOOL_OUTCOME_UNKNOWN")
+        )
+        for (responses in listOf(false, true)) {
+            for ((name, evidence, expectedCode) in cases) {
+                var attempts = 0
+                val selected = PlatformV2(uid = "http-body-$responses-$name", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://http-body-$responses-$name.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                val reportedCode = if (name == "stricter") expectedCode else "429"
+                withApi(
+                    MockEngine { outgoing ->
+                        attempts++
+                        assertFalse(NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject.containsKey("gateway"))
+                        respond("""{"error":{"code":"$reportedCode","message":"Provider capacity",$evidence}}""", HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("600")))
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        val session = if (responses) {
+                            dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                        } else {
+                            OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                        }
+                        val events = session.streamRound(emptyList(), emptyList()).toList()
+                        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                        assertEquals(1, attempts)
+                        assertEquals(expectedCode, failure.errorCode)
+                        assertNull(failure.providerLimit)
+                        val details = requireNotNull(failure.failureDetails)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(429), details["http_status"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive("UNKNOWN"), details["remote_acceptance"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["logical_continuation_allowed"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(if (name == "job") "REMOTE_JOB_PRESENT" else "REMOTE_OUTCOME_UNKNOWN"), details["provider_wait_no_wait_reason"])
+                        if (name == "job") {
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive("owned-job"), details["job_id"])
+                        } else {
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details["requires_reconciliation"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), details["next_action"])
+                        }
+                        assertFalse(events.any { it is ProviderEvent.Completed })
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun cleanHttp429StillCreatesADurableWaitThroughBothActualAdapters() = runBlocking {
+        for (responses in listOf(false, true)) {
+            var attempts = 0
+            val selected = PlatformV2(uid = "http-clean-$responses", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://http-clean-$responses.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+            withApi(
+                MockEngine {
+                    attempts++
+                    respond("""{"error":{"code":"429","message":"Provider capacity"}}""", HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.RetryAfter, "600"))
+                }
+            ) { api ->
+                withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                    val session = if (responses) {
+                        dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                    } else {
+                        OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                    }
+                    val events = session.streamRound(emptyList(), emptyList()).toList()
+                    val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                    val decision = requireNotNull(failure.providerLimit)
+                    assertEquals(1, attempts)
+                    assertTrue(decision.knownNotAccepted)
+                    assertTrue(decision.mayWait)
+                    assertEquals(selected.uid, decision.profileUid)
+                    assertEquals(selected.model, decision.model)
+                    assertEquals("RETRY_AFTER", decision.retrySource)
+                    assertNull(failure.failureDetails?.get("provider_wait_no_wait_reason"))
+                    assertFalse(events.any { it is ProviderEvent.Completed })
+                }
+            }
+        }
+    }
+
+    @Test fun bodyOnlyRemoteEvidencePreventsManual402TimingThroughBothActualAdapters() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for ((name, evidence) in listOf("clean" to "", "job" to ",\"job_id\":\"owned-job\"", "reconciliation" to ",\"requires_reconciliation\":true", "command" to ",\"command_outcome_unknown\":true")) {
+                var attempts = 0
+                val selected = PlatformV2(uid = "http-budget-$responses-$name", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://http-budget-$responses-$name.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                withApi(
+                    MockEngine {
+                        attempts++
+                        respond("""{"error":{"code":402,"message":"Provider capacity","metadata":{"limit_source":"openrouter_in_flight_budget","reason":"in_flight_budget_exhausted"}$evidence}}""", HttpStatusCode.PaymentRequired, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("12")))
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        val session = if (responses) {
+                            dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                        } else {
+                            OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                        }
+                        val events = session.streamRound(emptyList(), emptyList()).toList()
+                        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                        val details = requireNotNull(failure.failureDetails)
+                        assertEquals(1, attempts)
+                        assertNull(failure.providerLimit)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(if (name == "clean") "NO" else "UNKNOWN"), details["remote_acceptance"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(if (name == "clean") "MANUAL_AFTER_PROVIDER_DELAY" else "REVIEW_SAVED_WORK"), details["provider_budget_retry"])
+                        assertEquals(if (name == "clean") kotlinx.serialization.json.JsonPrimitive(12_000) else null, details["retry_after_ms"])
+                        if (name == "job") assertEquals(kotlinx.serialization.json.JsonPrimitive("owned-job"), details["job_id"])
+                        if (name in setOf("reconciliation", "command")) assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details["requires_reconciliation"])
+                        assertFalse(events.any { it is ProviderEvent.Completed })
+                    }
+                }
+            }
+        }
+    }
+
     @Test fun typedInFlight402RetainsManualTimingWithoutAutomaticWaitOrCredentialRetryForEitherApi() = runTest {
         for (responses in listOf(false, true)) {
             for (retryAfter in listOf("12", "invalid", "0")) {

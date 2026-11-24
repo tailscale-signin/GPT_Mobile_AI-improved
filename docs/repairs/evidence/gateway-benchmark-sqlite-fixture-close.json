@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "component": "Gateway paired-score SQLite fixture deterministic closure",
+  "recordedDate": "2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2367,
+  "baseCommit": "650525037819965bfe2704912e2594649eb489d2",
+  "latestPublicReadback": {
+    "commit": "8e21987a7489ad8b62188a1fee4f70a602b4adde",
+    "targetFileIdenticalToBase": true
+  },
+  "source": {
+    "path": "gateway/tests/test_gateway_benchmark_api_v2.py",
+    "baseSha256": "56c896ac56fc1715bd80c49106989bd2f6861b2155ff8b6f498549244616d2c1",
+    "qualifiedSha256": "fd9e853007e67dd4d22a705a7f331bbce974d494432916520e24a812125c24da",
+    "scope": "Test fixture and regression assertions only; no production, workflow, timeout or cleanup-retry change."
+  },
+  "observedHostedFailure": {
+    "runId": 45332913392,
+    "jobId": 138238164891,
+    "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45332913392/job/138238164891",
+    "sourceCommit": "650525037819965bfe2704912e2594649eb489d2",
+    "platform": "windows-latest / Python 3.12.10",
+    "testMethod": "QualificationAdmissionTests.test_paired_score_readback_rechecks_granted_repository_and_role",
+    "result": "15 tests; one TemporaryDirectory cleanup error: WinError 32 for jobs.sqlite3.",
+    "retrievedLogRepresentation": "UTF-8 workflow log with CRLF normalized to LF",
+    "retrievedLogSha256": "2d45297b1ee0d394472e11131c975663d1275c4576481aa5eb16d867442b48c3"
+  },
+  "causeAndRepair": {
+    "cause": "A sqlite3 connection context commits or rolls back a transaction but does not close the connection. The two raw fixture sites create four handles across setup and three permission cases.",
+    "productionInspection": "BenchmarkStore.db and retained_device_grant already close their connections in finally.",
+    "repair": "Wrap each raw fixture connection in contextlib.closing while retaining its inner connection transaction context. Keep all four real handles strongly referenced until each rejects SELECT 1 with sqlite3.ProgrammingError.",
+    "officialReference": "https://docs.python.org/3/library/sqlite3.html#how-to-use-the-connection-context-manager"
+  },
+  "baselineRegression": {
+    "testFirstSourceSha256": "f139183e675b8ca40324f528396ebc741a1337fb7e574f49473db075e8cd09a1",
+    "tests": 15,
+    "exitCode": 1,
+    "failures": 4,
+    "errors": 0,
+    "subtests": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "failure": "The four retained real handles still accepted SELECT 1 after transaction exit. All original assertions completed.",
+    "logSha256": "d118c7d694b309e5d5da5d60cfcc0c61a1199613ac96d907b5075c3db58b3863"
+  },
+  "fixedQualification": {
+    "environment": {
+      "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+      "python": "3.12.14",
+      "sqlite": "3.53.1",
+      "packages": {
+        "requests": "2.34.2",
+        "fastapi": "0.142.2",
+        "starlette": "1.7.0",
+        "httpx": "0.28.1",
+        "pydantic": "2.13.5",
+        "cryptography": "50.0.2",
+        "uvicorn": "0.53.0"
+      }
+    },
+    "commandTemplate": "PYTHONPATH=gateway PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s gateway/tests -p <pattern> -v",
+    "suites": [
+      {
+        "pattern": "test_gateway_benchmark_api_v2.py",
+        "tests": 15,
+        "exitCode": 0,
+        "result": "OK; zero skips",
+        "logSha256": "098b9b7a4cee7ef708cca398cef9b8c9b59c5ae3abf09b4172e9ad0b0100d726"
+      },
+      {
+        "pattern": "test_gateway_benchmark_qualification.py",
+        "tests": 5,
+        "exitCode": 0,
+        "result": "OK; zero skips",
+        "logSha256": "4e0dcfe0910fc5af37f3ba3b00ac8f8ef5e0271da67751d0ab22d552776a78be"
+      },
+      {
+        "pattern": "test_gateway_github_intelligence*.py",
+        "tests": 18,
+        "exitCode": 0,
+        "result": "OK; zero skips",
+        "logSha256": "9f5382c7703d65f8b7167578cc01b89a4dd52c93b156cf7b46db5ce0d31037c9"
+      }
+    ],
+    "totalTests": 38,
+    "trackedGatewayFiles": 520,
+    "allTrackedGatewayInputsUnchangedDuringExecution": true,
+    "completeInputHashReceiptSha256": "6c090c1e8b9a9fa87e298b47c6699a040a4b93745dd9a6c24d5bd6dc453d27c6"
+  },
+  "preservation": {
+    "all15MethodIdentities": [
+      "QualificationAdmissionTests.test_idempotent_creation_reconciles_lost_admission_response_after_restart",
+      "QualificationAdmissionTests.test_read_only_saved_manifest_cannot_be_promoted_to_execution",
+      "QualificationAdmissionTests.test_saved_score_readback_is_owner_profile_and_binding_specific",
+      "QualificationAdmissionTests.test_paired_score_readback_rechecks_granted_repository_and_role",
+      "QualificationAdmissionTests.test_all_requests_are_validated_before_any_admission",
+      "QualificationAdmissionTests.test_changed_live_binding_blocks_before_admission",
+      "QualificationAdmissionTests.test_accepted_ids_are_saved_before_the_first_readback",
+      "BenchmarkApiV2Tests.test_score_route_requires_both_the_frozen_owner_and_engineering_permission",
+      "BenchmarkApiV2Tests.test_one_task_catalog_admission_and_recovery_share_frozen_digests",
+      "BenchmarkApiV2Tests.test_retirement_fences_late_admission_without_a_job_id",
+      "BenchmarkApiV2Tests.test_retired_active_run_remains_observable_until_physical_cleanup",
+      "BenchmarkApiV2Tests.test_runtime_setting_change_blocks_before_inference_or_execution",
+      "BenchmarkApiV2Tests.test_live_cleanup_blocks_admission_and_appends_settlement_without_rewriting_score",
+      "BenchmarkApiV2Tests.test_native_catalog_and_regular_runner_keep_outcomes_separate_from_rubric",
+      "BenchmarkApiV2Tests.test_known_model_failures_stay_in_outcome_denominator"
+    ],
+    "unchangedOtherMethodBodies": 14,
+    "originalAssertionCallsInModifiedMethod": 3,
+    "allOriginalAssertionsRetained": true,
+    "threeRoleRepositoryRevocationCasesRetained": true,
+    "bothTransactionContextsRetained": true,
+    "originalModifiedMethodAstRestoredAfterRemovingOnlyAddedCloseControls": true,
+    "detailedPreservationReceiptSha256": "c933e85bfd8981599ad09a183f7bfc43d5e8d2805310ec55ab3070c22b5a0a19"
+  },
+  "qualificationLimits": [
+    "Local regression execution is Linux Python 3.12.14; it does not claim a Windows runtime pass.",
+    "The final composed source still requires the existing Windows and other required hosted gates.",
+    "No live device, provider or repository-write operation was exercised."
+  ]
+}

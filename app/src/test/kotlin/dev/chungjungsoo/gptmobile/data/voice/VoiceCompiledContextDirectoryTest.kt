@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
 import android.system.ErrnoException
+import android.system.Os
 import android.system.OsConstants
 import android.system.StructStat
 import java.io.File
@@ -23,14 +24,12 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
-import org.robolectric.shadows.ShadowBlockGuardOs
-import org.robolectric.shadows.ShadowLinux
 
 @RunWith(RobolectricTestRunner::class)
 @Config(
     sdk = [34],
     manifest = Config.NONE,
-    shadows = [VoiceCompiledContextLinuxShadow::class, VoiceCompiledContextBlockGuardShadow::class]
+    shadows = [VoiceCompiledContextOsShadow::class]
 )
 class VoiceCompiledContextDirectoryTest {
     @get:Rule val temporary = TemporaryFolder()
@@ -38,11 +37,11 @@ class VoiceCompiledContextDirectoryTest {
 
     @Before fun prepare() {
         cache = temporary.newFolder("cache")
-        VoiceCompiledContextLinuxShadow.reset((Files.getAttribute(cache.toPath(), "unix:uid") as Number).toInt())
+        VoiceCompiledContextOsShadow.reset((Files.getAttribute(cache.toPath(), "unix:uid") as Number).toInt())
     }
 
     @After fun noDescriptorLeaks() {
-        assertTrue(VoiceCompiledContextLinuxShadow.descriptors.isEmpty())
+        assertTrue(VoiceCompiledContextOsShadow.descriptors.isEmpty())
     }
 
     @Test fun createsAnOwnedPrivateDirectoryUsingNonblockingNoFollowDescriptor() {
@@ -51,7 +50,7 @@ class VoiceCompiledContextDirectoryTest {
         assertEquals(0x1C0, mode(directory()))
         assertEquals(
             OsConstants.O_RDONLY or OsConstants.O_NONBLOCK or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC,
-            VoiceCompiledContextLinuxShadow.openFlags
+            VoiceCompiledContextOsShadow.openFlags
         )
     }
 
@@ -60,7 +59,7 @@ class VoiceCompiledContextDirectoryTest {
         mode(directory(), 0x1FD)
         assertEquals(directory().canonicalPath, VoiceCompiledContextDirectory.prepare(cache))
         assertEquals(0x1C0, mode(directory()))
-        assertEquals(1, VoiceCompiledContextLinuxShadow.chmodCalls)
+        assertEquals(1, VoiceCompiledContextOsShadow.chmodCalls)
     }
 
     @Test fun refusesASymbolicLinkWithoutChangingItsTarget() {
@@ -69,7 +68,7 @@ class VoiceCompiledContextDirectoryTest {
         Files.createSymbolicLink(directory().toPath(), target.toPath())
         assertEquals("", VoiceCompiledContextDirectory.prepare(cache))
         assertEquals(0x1FD, mode(target))
-        assertEquals(0, VoiceCompiledContextLinuxShadow.chmodCalls)
+        assertEquals(0, VoiceCompiledContextOsShadow.chmodCalls)
     }
 
     @Test fun refusesARegularFileBeforeChangingItsPermissions() {
@@ -78,32 +77,32 @@ class VoiceCompiledContextDirectoryTest {
         assertEquals("", VoiceCompiledContextDirectory.prepare(cache))
         assertEquals("keep", directory().readText())
         assertEquals(0x1B4, mode(directory()))
-        assertEquals(0, VoiceCompiledContextLinuxShadow.chmodCalls)
+        assertEquals(0, VoiceCompiledContextOsShadow.chmodCalls)
     }
 
     @Test fun refusesAnotherOwnerBeforeChangingPermissions() {
         directory().mkdir()
         mode(directory(), 0x1FD)
-        VoiceCompiledContextLinuxShadow.foreignOwner = true
+        VoiceCompiledContextOsShadow.foreignOwner = true
         assertEquals("", VoiceCompiledContextDirectory.prepare(cache))
         assertEquals(0x1FD, mode(directory()))
-        assertEquals(0, VoiceCompiledContextLinuxShadow.chmodCalls)
+        assertEquals(0, VoiceCompiledContextOsShadow.chmodCalls)
     }
 
     @Test fun deniedOrIneffectiveChmodDisablesOptionalPersistence() {
         directory().mkdir()
         mode(directory(), 0x1FD)
-        VoiceCompiledContextLinuxShadow.denyChmod = true
+        VoiceCompiledContextOsShadow.denyChmod = true
         assertEquals("", VoiceCompiledContextDirectory.prepare(cache))
         assertEquals(0x1FD, mode(directory()))
-        VoiceCompiledContextLinuxShadow.denyChmod = false
-        VoiceCompiledContextLinuxShadow.ignoreChmod = true
+        VoiceCompiledContextOsShadow.denyChmod = false
+        VoiceCompiledContextOsShadow.ignoreChmod = true
         assertEquals("", VoiceCompiledContextDirectory.prepare(cache))
         assertEquals(0x1FD, mode(directory()))
     }
 
     @Test fun replacementAfterDescriptorChmodFailsTheFinalInodeCheck() {
-        VoiceCompiledContextLinuxShadow.replaceAfterChmod = true
+        VoiceCompiledContextOsShadow.replaceAfterChmod = true
         assertEquals("", VoiceCompiledContextDirectory.prepare(cache))
         assertTrue(directory().isDirectory)
         assertEquals(0x1C0, mode(directory()))
@@ -118,58 +117,13 @@ class VoiceCompiledContextDirectoryTest {
  * Explicit POSIX test boundary: default ShadowLinux cannot open directory descriptors
  * or fchmod them. Real temporary paths, permissions, symlinks and inode identities are
  * used here; descriptor ownership/faults are controlled and do not claim Android execution.
+ *
+ * Scope the public static Os calls instead of replacing Linux/BlockGuard instance shadows.
+ * Robolectric can retain the platform's Linux object from an earlier ordinary test, whose
+ * existing default shadow cannot be cast to a later test's custom instance shadow.
  */
-@Implements(className = "libcore.io.Linux", isInAndroidSdk = false)
-class VoiceCompiledContextLinuxShadow : ShadowLinux() {
-    @Implementation override fun mkdir(path: String, mode: Int) {
-        try {
-            Files.createDirectory(Paths.get(path))
-        } catch (_: FileAlreadyExistsException) {
-            throw ErrnoException("mkdir", OsConstants.EEXIST)
-        }
-        Files.setAttribute(Paths.get(path), "unix:mode", mode)
-    }
-
-    @Implementation override fun open(path: String, flags: Int, mode: Int): FileDescriptor {
-        openFlags = flags
-        val target = Paths.get(path)
-        if (Files.isSymbolicLink(target) && flags and OsConstants.O_NOFOLLOW != 0) throw ErrnoException("open", OsConstants.ELOOP)
-        if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) throw ErrnoException("open", OsConstants.ENOENT)
-        return FileDescriptor().also { descriptors[it] = target }
-    }
-
-    @Implementation override fun fstat(descriptor: FileDescriptor): StructStat = attributes(checkNotNull(descriptors[descriptor]))
-
-    @Implementation override fun lstat(path: String): StructStat = attributes(Paths.get(path))
-
-    @Implementation fun geteuid(): Int = owner
-
-    @Implementation fun fchmod(descriptor: FileDescriptor, mode: Int) {
-        chmodCalls++
-        if (denyChmod) throw ErrnoException("fchmod", OsConstants.EACCES)
-        val path = checkNotNull(descriptors[descriptor])
-        if (!ignoreChmod) Files.setAttribute(path, "unix:mode", mode)
-        if (replaceAfterChmod) {
-            val retired = path.resolveSibling("retired-context-directory")
-            Files.move(path, retired)
-            descriptors[descriptor] = retired
-            Files.createDirectory(path)
-            Files.setAttribute(path, "unix:mode", mode)
-        }
-    }
-
-    @Implementation fun close(descriptor: FileDescriptor) = releaseDescriptor(descriptor)
-
-    private fun attributes(path: Path): StructStat {
-        val values = Files.readAttributes(path, "unix:*", LinkOption.NOFOLLOW_LINKS)
-        fun number(key: String): Long = (values.getValue(key) as Number).toLong()
-        return StructStat(
-            number("dev"), number("ino"), number("mode").toInt(), number("nlink"),
-            if (foreignOwner) owner + 1 else number("uid").toInt(), number("gid").toInt(), number("rdev"),
-            number("size"), 0, 0, 0, 0, 0
-        )
-    }
-
+@Implements(Os::class)
+class VoiceCompiledContextOsShadow {
     companion object {
         val descriptors = IdentityHashMap<FileDescriptor, Path>()
         var owner = 0
@@ -180,8 +134,62 @@ class VoiceCompiledContextLinuxShadow : ShadowLinux() {
         var ignoreChmod = false
         var replaceAfterChmod = false
 
-        fun releaseDescriptor(descriptor: FileDescriptor) {
+        @JvmStatic @Implementation
+        fun mkdir(path: String, mode: Int) {
+            try {
+                Files.createDirectory(Paths.get(path))
+            } catch (_: FileAlreadyExistsException) {
+                throw ErrnoException("mkdir", OsConstants.EEXIST)
+            }
+            Files.setAttribute(Paths.get(path), "unix:mode", mode)
+        }
+
+        @JvmStatic @Implementation
+        fun open(path: String, flags: Int, mode: Int): FileDescriptor {
+            openFlags = flags
+            val target = Paths.get(path)
+            if (Files.isSymbolicLink(target) && flags and OsConstants.O_NOFOLLOW != 0) throw ErrnoException("open", OsConstants.ELOOP)
+            if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) throw ErrnoException("open", OsConstants.ENOENT)
+            return FileDescriptor().also { descriptors[it] = target }
+        }
+
+        @JvmStatic @Implementation
+        fun fstat(descriptor: FileDescriptor): StructStat = attributes(checkNotNull(descriptors[descriptor]))
+
+        @JvmStatic @Implementation
+        fun lstat(path: String): StructStat = attributes(Paths.get(path))
+
+        @JvmStatic @Implementation
+        fun geteuid(): Int = owner
+
+        @JvmStatic @Implementation
+        fun fchmod(descriptor: FileDescriptor, mode: Int) {
+            chmodCalls++
+            if (denyChmod) throw ErrnoException("fchmod", OsConstants.EACCES)
+            val path = checkNotNull(descriptors[descriptor])
+            if (!ignoreChmod) Files.setAttribute(path, "unix:mode", mode)
+            if (replaceAfterChmod) {
+                val retired = path.resolveSibling("retired-context-directory")
+                Files.move(path, retired)
+                descriptors[descriptor] = retired
+                Files.createDirectory(path)
+                Files.setAttribute(path, "unix:mode", mode)
+            }
+        }
+
+        @JvmStatic @Implementation
+        fun close(descriptor: FileDescriptor) {
             checkNotNull(descriptors.remove(descriptor))
+        }
+
+        private fun attributes(path: Path): StructStat {
+            val values = Files.readAttributes(path, "unix:*", LinkOption.NOFOLLOW_LINKS)
+            fun number(key: String): Long = (values.getValue(key) as Number).toLong()
+            return StructStat(
+                number("dev"), number("ino"), number("mode").toInt(), number("nlink"),
+                if (foreignOwner) owner + 1 else number("uid").toInt(), number("gid").toInt(), number("rdev"),
+                number("size"), 0, 0, 0, 0, 0
+            )
         }
 
         fun reset(uid: Int) {
@@ -195,10 +203,4 @@ class VoiceCompiledContextLinuxShadow : ShadowLinux() {
             replaceAfterChmod = false
         }
     }
-}
-
-/** Robolectric's default BlockGuard close is a no-op; exercise the helper's real finally path. */
-@Implements(className = "libcore.io.BlockGuardOs", isInAndroidSdk = false)
-class VoiceCompiledContextBlockGuardShadow : ShadowBlockGuardOs() {
-    @Implementation override fun close(descriptor: FileDescriptor) = VoiceCompiledContextLinuxShadow.releaseDescriptor(descriptor)
 }

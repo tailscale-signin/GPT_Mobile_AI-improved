@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "task": "ci-fixture-resource-boundaries-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSha": "8e21987a7489ad8b62188a1fee4f70a602b4adde",
+  "workingBranch": "task/voice-ci-fixtures-8e219",
+  "parentPullRequest": 2367,
+  "owner": "root",
+  "recordedBeforeSourceEdit": true,
+  "status": "FOCUSED_SOURCE_VALIDATED_COMPOSITION_PENDING",
+  "intent": "Repair the reproduced Robolectric static OS shadow boundary and close real SQLite fixture handles while preserving production behavior, all existing test identities, assertions, transaction semantics and CI gates.",
+  "ownedPaths": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectoryTest.kt",
+    "gateway/tests/test_gateway_benchmark_api_v2.py",
+    "gateway/manifest-v14.json",
+    "docs/repairs/ci-fixture-resource-boundaries-2026-11-24-task.json",
+    "docs/repairs/evidence/ci-fixture-resource-boundaries-2026-11-24.json",
+    "docs/architecture/feature-map.json",
+    "release-scope.json",
+    "docs/repairs/evidence/gateway-benchmark-sqlite-fixture-close.json"
+  ],
+  "constraints": [
+    "Preserve incoming 8e219 read-only GitHub evidence changes and all existing ancestry.",
+    "No production change, test removal, skip, retry, GC-only workaround, forced deletion, permission relaxation or timeout/gate change.",
+    "Full current-head hosted Android and Windows qualification remains required after focused source-bound controls.",
+    "Gateway manifest must bind every payload to a reachable immutable source commit."
+  ],
+  "components": {
+    "robolectric": {
+      "commit": "59aef13a0717bd5daa259a875faba8c1183c96f6",
+      "receipt": "docs/repairs/evidence/ci-fixture-resource-boundaries-2026-11-24.json",
+      "receiptSha256": "201b889f016c12de10df2f894bfbb04e2f509ccb3784ff059ef63ec4e504f927"
+    },
+    "sqlite": {
+      "commit": "8f579d7a3b1a80896406f1c6c94739dbfdfaea8d",
+      "receipt": "docs/repairs/evidence/gateway-benchmark-sqlite-fixture-close.json",
+      "receiptSha256": "714a7bdb196b212768becca88ffed880b1b703c0d97c095d58f241e49dd1efcb"
+    }
+  }
+}

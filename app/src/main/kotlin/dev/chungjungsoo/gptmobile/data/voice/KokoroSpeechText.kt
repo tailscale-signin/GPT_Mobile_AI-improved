@@ -44,11 +44,38 @@ internal object KokoroSpeechText {
     private val marks = Regex("""\p{M}+""")
     private val invisibleFormat = Regex("[\u00AD\u200B\u200C\u200D\u2060\uFEFF]")
     private val token = Regex(
-        """[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?(?:[ \t]?[aApP]\.?[mM]\.?)?|[$£€][+\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?|[vV][0-9]+(?:\.[0-9]+)+|[+\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)*|(?:[kKMGT]?[Bb]|[ckm]?m)/[smh](?![a-zA-Z])|[µμ]g(?![a-zA-Z])|°[ \t]?[CF](?![a-zA-Z])|[a-zA-Z]+(?:'[a-zA-Z]+)*|[.,!?;:\n%&#@/+=<>≤≥≠×÷*|°\-–]"""
+        """[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?(?:[ \t]?[aApP]\.?[mM]\.?)?|[$£€][+\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?|[vV][0-9]+(?:\.[0-9]+)+|(?<![a-zA-Z0-9])[+\-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[eE][+\-]?[0-9]+(?:(?![a-zA-Z0-9]|\.[0-9])|(?=(?:ms|min|[ckm]?m|[µμ]?g|kg|[kKMGT]?[Bb]|[kMG]?Hz|s|h)(?![a-zA-Z0-9])))|(?<![a-zA-Z0-9./])[+\-]?(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)(?![a-zA-Z0-9/]|\.[a-zA-Z0-9])|[0-9]+(?i:st|nd|rd|th)(?![a-zA-Z0-9])|\^[+\-]?[0-9]+|[+\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+|\.[0-9]+)(?:\.[0-9]+)*|(?:[kKMGT]?[Bb]|[ckm]?m)/[smh](?:\^2)?(?![a-zA-Z])|[ckm]?m\^[23](?![a-zA-Z0-9])|[µμ]g(?![a-zA-Z])|°[ \t]?[CF](?![a-zA-Z])|(?<![a-zA-Z0-9])(?:Ms\.|(?i:e\.g\.?|i\.e\.?|etc\.|vs\.|dr\.|mr\.|mrs\.|prof\.|sr\.|jr\.|approx\.))(?![a-zA-Z])|(?<![a-zA-Z0-9])(?:[a-zA-Z]\.)+[a-zA-Z]\.?(?![a-zA-Z0-9])|(?<![a-zA-Z0-9])(?i:c\+\+|[cf]#|\.net)(?![a-zA-Z0-9])|(?<![a-zA-Z0-9])(?:H2O|CO2|O2|N2|NaCl)(?![a-zA-Z0-9])|[a-zA-Z]+(?:'[a-zA-Z]+)*|[.,!?;:\n%&#@/+=<>≤≥≠×÷*|°^\-–]"""
     )
     private val camelBoundary = Regex("""(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])""")
-    private val initialisms = setOf("AI", "API", "APK", "AAR", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML", "VR", "XR", "USB", "DNS", "VPN", "CLI", "IDE", "PDF", "NPU", "ASR", "JVM", "PCM", "IP", "USD", "CAD")
+    private val initialisms = setOf("AI", "API", "APK", "AAR", "ABI", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML", "VR", "XR", "USB", "DNS", "VPN", "CLI", "IDE", "PDF", "NPU", "ASR", "JVM", "PCM", "IP", "USD", "CAD", "EUR", "GBP", "GPT", "GLM", "QNN", "ONNX", "JNI", "JDK", "JRE", "GL", "TLS", "SSL", "TCP", "UDP", "RPC", "SSE", "JWT", "BPE", "UTF", "LSTM", "CNN", "RNN", "SSD", "HDD", "DDR", "HDMI", "PCI", "PCIE", "FPS", "RGB", "RGBA", "FP", "NVFP", "GCC", "GDB", "RTX", "GTX")
     private val spokenAcronyms = mapOf("RAM" to "ram", "JSON" to "jason")
+
+    // These keys are technical names even when an answer writes them in lowercase. Ordinary
+    // words such as RAM, ARM, US and IT must never become automatic lowercase initialisms.
+    private val technicalInitialisms = setOf("ai", "api", "apk", "aar", "abi", "cpu", "gpu", "npu", "html", "http", "https", "llm", "mcp", "sdk", "sql", "ssh", "tts", "url", "xml", "usb", "dns", "vpn", "cli", "ide", "pdf", "asr", "jvm", "pcm", "gpt", "glm", "qnn", "onnx", "jni", "jdk", "jre", "tls", "ssl", "tcp", "udp", "rpc", "sse", "jwt", "bpe", "lstm", "cnn", "rnn", "ssd", "hdd", "ddr", "hdmi", "fps", "rgb", "rgba", "nvfp", "gcc", "gdb", "utf", "rtx", "gtx")
+    private val technicalNames = mapOf(
+        "github" to "git hub", "gitlab" to "git lab", "chatgpt" to "chat GPT", "openai" to "open AI",
+        "opengl" to "open GL", "webgpu" to "web GPU", "typescript" to "type script", "javascript" to "java script",
+        "json" to "jason", "c++" to "c plus plus", "c#" to "c sharp", "f#" to "f sharp", ".net" to "dot net", "pcie" to "PCI e"
+    )
+    private val abbreviations = mapOf(
+        "e.g." to "for example", "e.g" to "for example", "i.e." to "that is", "i.e" to "that is", "etc." to "et cetera", "vs." to "versus",
+        "dr." to "doctor", "mr." to "mister", "mrs." to "missus", "ms." to "miz", "prof." to "professor",
+        "sr." to "senior", "jr." to "junior", "approx." to "approximately"
+    )
+    private val formulaNames = mapOf("H2O" to "h two o", "CO2" to "c o two", "O2" to "o two", "N2" to "n two", "NaCl" to "sodium chloride")
+    private val dottedInitialism = Regex("(?:[a-zA-Z]\\.)+[a-zA-Z]\\.?")
+    private val scientificNumber = Regex("[+\\-]?(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[eE][+\\-]?[0-9]+")
+    private val fractionNumber = Regex("[+\\-]?[0-9]+/[0-9]+")
+    private val ordinal = Regex("([0-9]+)(st|nd|rd|th)", RegexOption.IGNORE_CASE)
+    private val latinLetters = mapOf(
+        'Æ' to "AE", 'æ' to "ae", 'Œ' to "OE", 'œ' to "oe", 'Ø' to "O", 'ø' to "o",
+        'Ł' to "L", 'ł' to "l", 'Ð' to "D", 'ð' to "d", 'Đ' to "D", 'đ' to "d",
+        'Þ' to "Th", 'þ' to "th", 'ß' to "ss", 'ẞ' to "SS", 'ı' to "i",
+        'Ŧ' to "T", 'ŧ' to "t", 'Ħ' to "H", 'ħ' to "h", 'Ŋ' to "N", 'ŋ' to "n"
+    )
+    private val superscripts = "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻"
+    private val vulgarFractions = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞"
     private val contractions = mapOf("can't" to "cannot", "won't" to "will not", "don't" to "do not", "doesn't" to "does not", "didn't" to "did not", "isn't" to "is not", "aren't" to "are not", "wasn't" to "was not", "weren't" to "were not", "couldn't" to "could not", "wouldn't" to "would not", "shouldn't" to "should not", "i'm" to "i am", "we're" to "we are", "you're" to "you are", "they're" to "they are", "i've" to "i have", "we've" to "we have", "you've" to "you have", "they've" to "they have")
     private val digits = listOf("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
     private val teens = listOf("ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen")
@@ -56,12 +83,13 @@ internal object KokoroSpeechText {
     private val scales = listOf("", "thousand", "million", "billion", "trillion")
     private val monthNames = listOf("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december")
     private val precedingMonth = Regex("\\b(?:${monthNames.joinToString("|")})[ \\t]+$", RegexOption.IGNORE_CASE)
-    private val precedingNumber = Regex("([+\\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]+)?)[ \\t]*$")
+    private val precedingNumber = Regex("(?<![a-zA-Z0-9./])([+\\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+|\\.[0-9]+)(?:\\.[0-9]+)?(?:[eE][+\\-]?[0-9]+|/[0-9]+)?)[ \\t]*$")
     private val clockSuffix = Regex("[ \\t]*([ap])\\.?m\\.?$", RegexOption.IGNORE_CASE)
     private val clockContext = Regex("\\b(?:at|by|before|after|around|time)[ \\t]+$", RegexOption.IGNORE_CASE)
     private val precedingClock = Regex("\\b[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?[ \\t]+$")
     private val meridiem = Regex("[ap]m", RegexOption.IGNORE_CASE)
     private val addressContext = Regex("\\b(?:ip|address|gateway|host|server)[ \\t:]+$", RegexOption.IGNORE_CASE)
+    private val technicalNumberContext = Regex("\\b(?:gpt|glm|qwen|utf|sha|rtx|gtx)$", RegexOption.IGNORE_CASE)
     private val versionContext = Regex("\\b(?:version|release|build)[ \\t:]+$", RegexOption.IGNORE_CASE)
     private val units = mapOf(
         "ms" to "millisecond", "s" to "second", "min" to "minute", "h" to "hour",
@@ -103,33 +131,16 @@ internal object KokoroSpeechText {
             clipped + if (input.length > MAX_INPUT) " ${VoiceSpeechText.LIMIT_NOTICE}" else ""
         }
         val formatCharacters = invisibleFormat.findAll(projected).count()
-        val plain = Normalizer.normalize(projected.replace(invisibleFormat, ""), Normalizer.Form.NFKD)
-            .replace(marks, "").replace('’', '\'').replace('−', '-')
+        val pronunciation = VoicePronunciationOverrides.project(projected, overrides)
+        val normalized = normalizeCharacters(pronunciation.text, pronunciation.sourceCharacters)
+        val plain = normalized.first
         // Context informs only interpretation. It is never tokenized, emitted or included in
         // current-segment source offsets, and keeps the same normalization as the current text.
-        val context = Normalizer.normalize(contextBefore.takeLast(KOKORO_CONTEXT_CHARS).replace(invisibleFormat, ""), Normalizer.Form.NFKD)
-            .replace(marks, "").replace('’', '\'').replace('−', '-').takeLast(KOKORO_CONTEXT_CHARS)
+        val context = normalizeCharacters(contextBefore.takeLast(KOKORO_CONTEXT_CHARS)).first.takeLast(KOKORO_CONTEXT_CHARS)
         val wordRanges = mutableListOf<IntRange>()
-        // Offsets are UTF-16 in the displayed speech projection. Record the source of each
-        // normalized code unit only when normalization actually changed the string.
-        val origins = if (timed && plain != projected) {
-            buildList<IntRange> {
-                var index = 0
-                while (index < projected.length) {
-                    val end = index + Character.charCount(projected.codePointAt(index))
-                    val source = projected.substring(index, end)
-                    val normalized = Normalizer.normalize(source.replace(invisibleFormat, ""), Normalizer.Form.NFKD).replace(marks, "")
-                    if (normalized.isEmpty() && marks.matches(source) && isNotEmpty()) {
-                        this[lastIndex] = last().first until end
-                    } else {
-                        repeat(normalized.length) { add(index until end) }
-                    }
-                    index = end
-                }
-            }
-        } else {
-            null
-        }
+        // Compose correction and Unicode origins. One displayed character can expand into
+        // several spoken characters, but captions must still highlight its original term.
+        val origins = normalized.second
         var sourceRange = IntRange.EMPTY
         var knownWords = 0
         var initialismWords = 0
@@ -175,7 +186,7 @@ internal object KokoroSpeechText {
                 continue
             }
             if (timed) {
-                val original = if (origins == null) match.range else origins[match.range.first].first..origins[match.range.last].last
+                val original = origins[match.range.first].first..origins[match.range.last].last
                 sourceRange = if (original.last < clipped.length) original else IntRange.EMPTY
             }
             val before = if (match.range.first >= KOKORO_CONTEXT_CHARS) {
@@ -184,17 +195,29 @@ internal object KokoroSpeechText {
                 (context + plain.substring(0, match.range.first)).takeLast(KOKORO_CONTEXT_CHARS)
             }
             val unit = spokenUnit(value, before)
-            val expanded = overrides[value.lowercase(Locale.ROOT)] ?: when {
+            val key = value.lowercase(Locale.ROOT)
+            val explicitInitialism = dottedInitialism.matches(value) && key !in abbreviations
+            val expanded = when {
+                key in abbreviations -> abbreviations.getValue(key)
+                explicitInitialism -> value.filter(Char::isLetter).uppercase(Locale.ROOT)
+                key in technicalNames -> technicalNames.getValue(key)
+                key in technicalInitialisms -> value.uppercase(Locale.ROOT)
+                key == "sha" && plain.getOrNull(match.range.last + 1) == '-' && plain.getOrNull(match.range.last + 2)?.isDigit() == true -> "SHA"
+                value in formulaNames -> formulaNames.getValue(value)
                 value.length == 10 && value[4] == '-' && value[7] == '-' -> spokenDate(value)
                 value.first() in "$£€" -> spokenCurrency(value)
                 ':' in value && value.first().isDigit() -> spokenTime(value, before)
                 meridiem.matches(value) && precedingClock.containsMatchIn(before) -> "${value.first().lowercaseChar()} m"
+                scientificNumber.matches(value) -> spokenScientificNumber(value)
+                fractionNumber.matches(value) -> spokenFraction(value)
+                ordinal.matches(value) -> spokenOrdinal(value)
+                value.startsWith('^') && value.length > 1 -> "to the power of ${spokenNumber(value.drop(1))}"
+                unit != null -> unit
                 value.any(Char::isDigit) -> if (precedingMonth.containsMatchIn(before) && value.toIntOrNull() in 1..31) {
                     ordinalNumber(value.toInt())
                 } else {
                     spokenNumber(value, before)
                 }
-                unit != null -> unit
                 value == "%" -> "percent"
                 value == "#" -> if (plain.getOrNull(match.range.last + 1)?.isDigit() == true) "number" else ""
                 value == "&" -> "and"
@@ -213,11 +236,12 @@ internal object KokoroSpeechText {
                 value == "÷" -> "divided by"
                 value == "|" -> "vertical bar"
                 value == "°" -> "degrees"
+                value == "^" -> "to the power of"
                 else -> spokenAcronyms[value] ?: value
             }
             for (word in expanded.split(' ').filter(String::isNotEmpty)) {
                 val lower = word.lowercase(Locale.ROOT)
-                if (word !in initialisms && isKnown(lower)) {
+                if (word !in initialisms && !explicitInitialism && isKnown(lower)) {
                     appendWord(lower)
                     knownWords++
                 } else if (lower in contractions && contractions.getValue(lower).split(' ').all(isKnown)) {
@@ -231,7 +255,7 @@ internal object KokoroSpeechText {
                         if (segment !in initialisms && segment != word && isKnown(key)) {
                             appendWord(key)
                             knownWords++
-                        } else if (segment in initialisms) {
+                        } else if (segment in initialisms || explicitInitialism) {
                             initialismWords++
                             if (!appendSpelling(key)) return outcome(null, KokoroPronunciationFailure.MISSING_LETTER)
                         } else {
@@ -253,8 +277,96 @@ internal object KokoroSpeechText {
         return outcome(result)
     }
 
+    private fun normalizeCharacters(text: String, sourceCharacters: List<IntRange> = text.indices.map { it..it }): Pair<String, List<IntRange>> {
+        if (text.all { it.code < 128 }) return text to sourceCharacters
+        val result = StringBuilder()
+        val positions = mutableListOf<IntRange>()
+        var index = 0
+        while (index < text.length) {
+            val character = text[index]
+            if (character.code < 128) {
+                result.append(character)
+                positions += sourceCharacters[index]
+                index++
+                continue
+            }
+            val end = index + Character.charCount(text.codePointAt(index))
+            val source = text.substring(index, end)
+            val previous = text.getOrNull(index - 1)
+            val prefix = when {
+                character in superscripts && previous != null && previous !in superscripts && (previous.isLetterOrDigit() || previous == ')') -> {
+                    val singleLetter = previous.isLetter() && text.getOrNull(index - 2)?.isLetter() != true
+                    val lengthUnit = index >= 2 && text.getOrNull(index - 3)?.isLetter() != true && text.substring(index - 2, index) in setOf("mm", "cm", "km")
+                    if (previous.isDigit() || previous == ')' || singleLetter || lengthUnit) "^" else " "
+                }
+                character in vulgarFractions && previous?.isDigit() == true -> " and "
+                else -> ""
+            }
+            val folded = latinLetters[character] ?: source
+            val decomposed = Normalizer.normalize(folded.replace(invisibleFormat, ""), Normalizer.Form.NFKD)
+                .replace(marks, "").replace('’', '\'').replace('−', '-').replace('⁄', '/')
+            // A titlecase ligature must not manufacture an internal camel-case boundary:
+            // Ægir becomes Aegir, while ÆGIR remains AEGIR.
+            val titlecase = decomposed.length > 1 && decomposed.all { it in 'A'..'Z' } && text.getOrNull(end)?.isLowerCase() == true
+            val normalized = prefix + if (titlecase) decomposed.take(1) + decomposed.drop(1).lowercase(Locale.ROOT) else decomposed
+            val original = sourceCharacters[index].first..sourceCharacters[end - 1].last
+            if (normalized.isEmpty() && marks.matches(source) && positions.isNotEmpty()) {
+                positions[positions.lastIndex] = positions.last().first..original.last
+            } else {
+                result.append(normalized)
+                repeat(normalized.length) { positions += original }
+            }
+            index = end
+        }
+        return result.toString() to positions
+    }
+
+    private fun spokenScientificNumber(value: String): String {
+        val components = value.split('e', 'E')
+        return spokenNumber(components[0]) + " times ten to the power of " + spokenNumber(components[1])
+    }
+
+    private fun spokenFraction(value: String): String {
+        val components = value.split('/')
+        val numerator = components[0]
+        val denominator = components[1]
+        val magnitude = numerator.removePrefix("-").removePrefix("+")
+        val denominatorValue = denominator.toIntOrNull()
+        if (denominatorValue == null || denominatorValue !in 2..99) {
+            return spokenNumber(numerator) + " over " + wholeNumber(denominator)
+        }
+        val singular = magnitude.toLongOrNull() == 1L
+        val unit = when (denominatorValue) {
+            2 -> if (singular) "half" else "halves"
+            4 -> if (singular) "quarter" else "quarters"
+            else -> ordinalNumber(denominatorValue) + if (singular) "" else "s"
+        }
+        return spokenNumber(numerator) + " " + unit
+    }
+
+    private fun spokenOrdinal(value: String): String {
+        val match = requireNotNull(ordinal.matchEntire(value))
+        val number = match.groupValues[1]
+        val suffix = match.groupValues[2].lowercase(Locale.ROOT)
+        val lastTwo = number.takeLast(2).toInt()
+        val expected = when {
+            lastTwo in 11..13 -> "th"
+            number.last() == '1' -> "st"
+            number.last() == '2' -> "nd"
+            number.last() == '3' -> "rd"
+            else -> "th"
+        }
+        // Preserve malformed or oversized labels literally rather than inventing an ordinal.
+        if (suffix != expected || number.length > 15) return wholeNumber(number) + " " + suffix.toList().joinToString(" ")
+        return ordinalWords(number)
+    }
+
     private fun spokenNumber(value: String, before: String = ""): String {
-        val number = value.replace(",", "")
+        val number = value.replace(",", "").let {
+            // A registered model/standard separator is part of its label, while x-2,
+            // spaced subtraction and leading negative amounts retain the minus sign.
+            if (it.startsWith('-') && technicalNumberContext.containsMatchIn(before)) it.drop(1) else it
+        }
         val prefixedVersion = number.startsWith("v", ignoreCase = true)
         val prefix = when (number.first()) {
             '-' -> "minus "
@@ -262,7 +374,8 @@ internal object KokoroSpeechText {
             'v', 'V' -> "version "
             else -> ""
         }
-        val components = (if (prefix.isEmpty()) number else number.drop(1)).split('.')
+        val unsigned = if (prefix.isEmpty()) number else number.drop(1)
+        val components = (if (unsigned.startsWith('.')) "0$unsigned" else unsigned).split('.')
         val address = !prefixedVersion &&
             prefix.isEmpty() &&
             components.size == 4 &&
@@ -281,13 +394,22 @@ internal object KokoroSpeechText {
         return "${monthNames[date.monthValue - 1]} ${ordinalNumber(date.dayOfMonth)} ${wholeNumber(date.year.toString())}"
     }
 
-    private fun ordinalNumber(value: Int): String {
-        val special = mapOf(1 to "first", 2 to "second", 3 to "third", 5 to "fifth", 8 to "eighth", 9 to "ninth", 12 to "twelfth", 20 to "twentieth", 30 to "thirtieth")
-        return special[value] ?: if (value > 20 && value % 10 != 0) {
-            tens[value / 10] + " " + ordinalNumber(value % 10)
-        } else {
-            wholeNumber(value.toString()) + "th"
+    private fun ordinalNumber(value: Int): String = ordinalWords(value.toString())
+
+    private fun ordinalWords(value: String): String {
+        val cardinal = wholeNumber(value)
+        val last = cardinal.substringAfterLast(' ')
+        val replacement = when (last) {
+            "one" -> "first"
+            "two" -> "second"
+            "three" -> "third"
+            "five" -> "fifth"
+            "eight" -> "eighth"
+            "nine" -> "ninth"
+            "twelve" -> "twelfth"
+            else -> if (last.endsWith('y')) last.dropLast(1) + "ieth" else last + "th"
         }
+        return cardinal.dropLast(last.length) + replacement
     }
 
     private fun spokenCurrency(value: String): String {
@@ -342,17 +464,36 @@ internal object KokoroSpeechText {
 
     private fun spokenUnit(value: String, before: String): String? {
         val number = precedingNumber.find(before)?.groupValues?.get(1)
-        val singular = number?.replace(",", "")?.toDoubleOrNull()?.let { kotlin.math.abs(it) == 1.0 } == true
+        val magnitude = number?.replace(",", "")?.let { amount ->
+            if ('/' in amount) {
+                val fraction = amount.split('/')
+                val numerator = fraction[0].toDoubleOrNull()
+                val denominator = fraction[1].toDoubleOrNull()
+                if (numerator == null || denominator == null || denominator == 0.0) null else numerator / denominator
+            } else {
+                amount.toDoubleOrNull()
+            }
+        }
+        val singular = magnitude?.let { kotlin.math.abs(it) == 1.0 } == true
         val compact = value.replace(" ", "").replace("\t", "")
         if (compact == "°C" || compact == "°F") return (if (singular) "degree " else "degrees ") + if (compact == "°C") "celsius" else "fahrenheit"
         frequencies[compact]?.let { return it }
         val parts = compact.split('/')
         // Explicit rates/degree/microgram notation is unambiguous even without an amount.
         // Never pass a slash-containing unit as one unknown native pronunciation word.
-        if (number == null && parts.size == 1 && compact !in setOf("µg", "μg")) return null
-        val unit = units[parts[0]] ?: return null
-        val denominator = parts.getOrNull(1)?.let { units[it] ?: return null }
-        return unit + (if (singular) "" else "s") + denominator?.let { " per $it" }.orEmpty()
+        if (number == null && parts.size == 1 && compact !in setOf("µg", "μg") && '^' !in compact) return null
+        val power = parts[0].substringAfter('^', "")
+        val unit = units[parts[0].substringBefore('^')] ?: return null
+        val dimension = when (power) {
+            "2" -> "square "
+            "3" -> "cubic "
+            else -> ""
+        }
+        val denominator = parts.getOrNull(1)?.let {
+            val name = units[it.substringBefore('^')] ?: return null
+            name + if (it.endsWith("^2")) " squared" else ""
+        }
+        return dimension + unit + (if (singular) "" else "s") + denominator?.let { " per $it" }.orEmpty()
     }
 
     private fun hasUnsupportedScript(text: String): Boolean {

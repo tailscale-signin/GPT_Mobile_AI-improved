@@ -10,7 +10,7 @@
   "startingTree": "ba5935499911df8489afe09ccc97150f071b36db",
   "localSnapshotCommit": "fa6326f8018",
   "pullRequest": 2367,
-  "status": "INTEGRATED_PENDING_COMBINED_VERIFICATION",
+  "status": "SOURCE_COMPOSED_PENDING_FRESH_CANONICAL_AND_SHARED_BRANCH_RECONCILIATION",
   "intent": "Implement the approved GPU/NPU runtime, graph preparation, SDK streaming, memory reuse, thermal scheduling, diagnostic export and qualification improvements; preserve concurrent changes and all existing verification gates; finish with verified publication after current PR and actual-main checks pass.",
   "authorization": "The user explicitly resumed implementation, draft push, green-gated merge and publication after the earlier Stop. This task is active and must be reconciled before publishing the shared release.",
   "acceptance": [
@@ -50,7 +50,7 @@
     }
   ],
   "qualification": {
-    "local": "PENDING",
+    "local": "PENDING_FRESH_RESTORED_TREE_VALIDATION",
     "hosted": "PENDING_FINAL_COMBINED_HEAD",
     "physicalDevice": "NOT_MEASURED; the supplied screenshot is prior-build baseline evidence",
     "publication": "NOT_PUBLISHED"
@@ -63,7 +63,13 @@
     "b50c29febaeb54808a4561955220f5b33bd09253",
     "099603c699bba0b00a0a7380b5b45fc10229296f",
     "0e350f23cf41b5b934effa1d8a44307ba8eebbf1",
-    "ed39449085e693fc36d0ed742c10b2cc56ad8643"
+    "ed39449085e693fc36d0ed742c10b2cc56ad8643",
+    "e8552961c988df4ba5b89e04f3c3cdaa36cc5a3c",
+    "9473aea1958b4ea55c80e1e4fbae027c8bc95084",
+    "dcfe93976b56cb4f61e5c60a75cd9ada6b9224c0",
+    "e40659976e33b2e305169f66fbb5c017f6e93282",
+    "be94fb53e14e9fc0188a87b72f8b224b207fd2af",
+    "f9f6fae9b4f267b8c76d3cdf1c1924b11c1de040"
   ],
   "pendingPublicHead": null,
   "publishedDraftPreparationCommits": [
@@ -112,7 +118,7 @@
     "canonicalFast": {
       "status": "PASSED",
       "scriptTests": 725,
-      "scope": "Current combined source at check time; CI policy, generated references, dependencies, secret scan, Python regressions, Android regex/resources and QNN provenance. Final publication still requires current-head hosted gates."
+      "scope": "Historical pre-outage combined-source result at the original checkpoint; current restored-tree canonical validation is pending."
     },
     "historyStore": {
       "passed": 6,
@@ -161,11 +167,81 @@
       "largestResultCardLambdaCodeUnits": 5766,
       "limit": 16383,
       "scope": "Actual current benchmark Settings and SDK results-card against current VM/report APIs and pinned Compose/Hilt dependencies; popup rendering isolated. Full APK/rendered UI remains CI."
+    },
+    "candidatePublisherRetry": {
+      "observedRun": 45317430933,
+      "observedJob": 138187541845,
+      "observedHead": "be94fb53e14e9fc0188a87b72f8b224b207fd2af",
+      "observedFailure": "HTTP429 while downloading a pinned Maven artifact; no compiler or runtime verdict was reached",
+      "scopedTests": 8,
+      "scope": "Three original candidate controls retained and five behavioral methods added. Transient429/500/502/503/504 allow at most three attempts with bounded Retry-After; every attempt retains HTTPS, size, SHA256 and publisher SHA1 validation. Permanent rejection, overlong retry delay and mismatched bytes fail without replacing an artifact. Current hosted rebuild remains required.",
+      "disposition": "The private overlapping draft was removed. The exact coordinated external commit is integrated; its11 current controls and independent immutable source review preserve all publisher checks and native-build validation. Final hosted candidate remains required.",
+      "integratedExternalCommit": "dec118b78d5144d2b3f10616ac20e98501a4678d"
+    },
+    "wholeRepositoryHistory": {
+      "status": "NO_VERDICT_LOCAL_TIME_BOUND",
+      "scope": "The fresh local whole-history wrapper reached its180-second local guard before a scanner verdict. No actual-repository clean-history claim is made; the mandatory unchanged hosted history gate must complete. The separately recorded actual synthetic integrity cases passed."
     }
   },
   "remaining": [
-    "Fix and verify cancellation accepted during native context finalization; complete narrow scanner checksum exception and Settings compile",
-    "Regenerate current source references and append final draft source using expected-head guard after reconciling any branch advances",
-    "Pass unchanged PR gates, merge current head normally, pass actual-main gates and verify all14 Android/Gateway publication asset bytes"
-  ]
+    "Regenerate/freeze current source references, run fresh canonical validation and append the complete voice draft after reconciling shared branch advances",
+    "Preserve other owners pronunciation, scanner and privacy comparison follow-ups; qualify the actual final combined source",
+    "Pass unchanged current-head PR gates, merge normally, pass actual-main gates and verify all14 Android/Gateway publication asset bytes"
+  ],
+  "recovery": {
+    "checkpointCommit": "30f4ea9858d772cee7c0eb1eb66c0dc0b57f2057",
+    "checkpointTree": "bd31a6cc450a69bf8d78f7e3c73d47bc82ef0c0a",
+    "branch": "recovery/voice-runtime-checkpoint-2026-11-24",
+    "restoredIntegrationCommit": "07dee675074a272b72c4abd7f41a4c61720639a6",
+    "mergedPublicHead": "be94fb53e14e9fc0188a87b72f8b224b207fd2af",
+    "scope": "The execution service returned a fresh filesystem. This public checkpoint preserves the core implementation. Later private cancellation, cache-directory, incremental-model-smoke and progress-projection fixes are being reconstructed from recorded patches and require fresh validation. Earlier local results remain historical and do not establish a current restored-tree pass."
+  },
+  "restoredFixes": {
+    "native": {
+      "sourceCommit": "8f1b44f0d5623492b36a2ba212476bb97a0b91c2",
+      "integrationCommit": "6dc0775f8",
+      "scope": "Cancellation finalization lock, deterministic actual-cache control, required full-model/JNI workflow and pinned preparer, signal consistency controls, original history test selector retained with stronger fixture",
+      "freshValidation": "Native cache/cancellation/evidence/PCM contracts and eight preparer controls pass; no full-model or physical execution claimed"
+    },
+    "sdkIncrementalSmoke": {
+      "sourceCommit": "2573538bc",
+      "integrationCommit": "2cf7923ef",
+      "freshValidation": "Eight protocol and thirteen Android receipt/runner controls pass; actual model execution and final current-source Android CI remain required"
+    },
+    "scannerHistoryFixture": {
+      "status": "PASSED_CURRENT_SCANNER_FIXTURE",
+      "scannerVersion": "8.30.1",
+      "scannerSha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+      "scope": "Actual intact and restored synthetic histories each complete all38 controls and scanning. Removing an ordinary historical blob exits128 before scanner execution. This is not the real whole-repository history result."
+    },
+    "progressPublication": {
+      "ownedCommit": "777d54b782bcaa7400b32dd34d289b4e5dc683e0",
+      "controllerCommit": "c4d1963101a3238cb411b7e8371e39e54649b2e1",
+      "integrationCommits": [
+        "df6a3ad6fa",
+        "682e0aa251"
+      ],
+      "freshSourceReview": "Exact external controller and owned DTO/collector/display composition reviewed; all107 original methods retained with12 additional methods across four relevant classes. Scoped verbatim collector methods fail6of8 controls before the correction and pass8of8 after it. Actual composed Flow/controller/Android runtime remains required in ordinary CI."
+    },
+    "cacheDirectory": {
+      "sourceCommit": "e487f2d4db9f4c3cc7fb202eed89b20909fe3fc7",
+      "freshValidation": "Actual Android37/SDK1.2.3 source compilation with declared isolated type boundaries;34 focused JVM methods and7 Robolectric API34 directory tests pass. Explicit BlockGuard close shadow models Linux descriptor retirement while retaining leak assertions. Full Android/production JNI remains required."
+    },
+    "sdkChunkSpacing": {
+      "sourceCommit": "9e0e7e96dc87a92dff3d715eda251a1d7a6c2296",
+      "capturedComponent": "af14995fd39e33110bfe80d9a6301c42398f5eac",
+      "freshValidation": "All18 focused planner/mapping methods pass: original8, incoming symbolic-term method and9 captured spacing regressions. The prior planner fails exactly7 of these cases. The complete captured3-file patch is reconciled with current pronunciation source; the old fourth ledger and full old commit were not recovered. Actual hosted SDK/native/Android execution remains required."
+    },
+    "modelWorkbench": {
+      "sourceCommit": "a7770834590bb365d6571986799375a90bb4810b",
+      "capturedComponent": "40c516200cccd595876552fc32efafa46310734e",
+      "recoveredProductionBlob": "19c64800b910dd67c33e2fc355c1ede41ac551d5",
+      "freshValidation": "24 pure controls and8 actual synthetic ONNX/NumPy tests pass under existing publisher-hashed dependencies. All4 original pure and5 original model methods remain. The decisive archive substitution control fails on the captured40c implementation and passes after explicit snapshot hash binding. Full prior commit/test/doc bytes were not recovered; these controls have fresh identities. Adjacent bounded JSON snapshot provenance is being finalized.",
+      "jsonSnapshotFollowup": {
+        "sourceCommit": "6fa8be33b67e689e2907a2dca13cb79f0b7ee998",
+        "freshValidation": "26 pure controls and11 synthetic ONNX/NumPy tests pass. Four controls fail against the previous source for unbounded JSON growth and comparison/quantization/stage provenance over replaced files. All32 preceding methods remain unchanged; five were added.",
+        "scope": "A single bounded JSON byte read supplies parsing and every reported manifest hash; no full-model copying or native behavior change."
+      }
+    }
+  }
 }

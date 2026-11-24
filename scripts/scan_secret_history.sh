@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # Full-history PR gate. The Linux CI installer verifies the published archive.
 set -euo pipefail
+if [[ $# -eq 0 ]]; then
+  verify_integrity=false
+elif [[ $# -eq 1 && $1 == --verify-integrity ]]; then
+  verify_integrity=true
+else
+  echo 'Usage: scan_secret_history.sh [--verify-integrity]' >&2
+  exit 2
+fi
 cd "$(git rev-parse --show-toplevel)"
 if [[ $(git rev-parse --is-shallow-repository) != false ]]; then
   echo 'Full history required. Fetch the complete repository before scanning.' >&2
@@ -23,6 +31,9 @@ else
   echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $scratch/scanner.tgz" | sha256sum --check --status
   tar -xzf "$scratch/scanner.tgz" -C "$scratch" gitleaks
   scanner="$scratch/gitleaks"
+fi
+if [[ $verify_integrity == true ]]; then
+  python3 scripts/test_secret_history_integrity.py --scanner "$scanner"
 fi
 python3 scripts/test_gitleaks_model_pin.py --scanner "$scanner"
 "$scanner" git --redact=100 --no-banner --no-color --log-opts='--all --full-history --diff-merges=first-parent --root' .

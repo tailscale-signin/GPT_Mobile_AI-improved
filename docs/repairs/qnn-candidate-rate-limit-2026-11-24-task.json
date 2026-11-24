@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "task": "qnn-candidate-rate-limit-recovery",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseSha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "parentPr": 2367,
+  "workingBranch": "task/qnn-download-retry-20261124",
+  "publicParent": "f9f6fae9b4f267b8c76d3cdf1c1924b11c1de040",
+  "intent": "Handle only observed HTTP 429 before a pinned candidate artifact response is opened, with finite attempts and waits respecting Retry-After; retain HTTPS, transfer size, SHA256, publisher SHA1, atomic publication and every native build/ELF check.",
+  "sourceReservation": "speech-live-publication-coordination in PR2367",
+  "observedFailure": {
+    "runId": 45317430933,
+    "jobId": 138187541845,
+    "attempt": 1,
+    "step": 5,
+    "stage": "checked_download called from Maven artifact loop",
+    "status": 429,
+    "exactArtifact": "NOT_PRINTED_BY_ORIGINAL_LOG",
+    "logSha256": "5663d5060406b6842f25e94677ede6281885a20354d4ee3382ba2585537bf2a6"
+  },
+  "status": "SOURCE_IMPLEMENTED_AND_INDEPENDENTLY_REVIEWED; CANONICAL_AND_HOSTED_QUALIFICATION_REQUIRED",
+  "qualification": {
+    "hostControls": {
+      "methods": 11,
+      "failed": 0,
+      "skipped": 0,
+      "network": "mocked, no real download",
+      "waits": "mocked, no elapsed cooldown claimed"
+    },
+    "independentReview": {
+      "disposition": "SCOPED_SOURCE_CLEAR",
+      "receiptSha256": "d21bc450ba403024d2987fe9e80103323aa42536fa493781d1b919afd5a7149e",
+      "initialFinding": "permissive email date parsing accepted trailing, coalesced or unknown-zone hints",
+      "negativeBeforeCorrection": {
+        "methods": 1,
+        "expectedFailureSubcases": 3
+      },
+      "correction": "Require full canonical HTTP-date round trip; all11 controls pass"
+    },
+    "canonicalFast": "REQUIRED_ON_FINAL_COMMITTED_CANDIDATE",
+    "nativeExecution": "NOT_RUN_LOCALLY",
+    "finalHosted": "REQUIRED_ON_ACTUAL_FINAL_PR_AND_MAIN",
+    "published": false
+  },
+  "originalPublicParent": "be94fb53e14e9fc0188a87b72f8b224b207fd2af",
+  "behavior": {
+    "openingAttempts": 3,
+    "maximumWaits": 2,
+    "maximumWaitSecondsEach": 60,
+    "missingHeaderWaitsSeconds": [
+      5,
+      10
+    ],
+    "acceptedRetryAfter": [
+      "ASCII non-negative decimal seconds",
+      "complete canonical IMF-fixdate in GMT"
+    ],
+    "unusableOrLongHeader": "retain original HTTP429 without retry",
+    "otherErrors": "no retry for other HTTP status, transport, body, integrity or native build failure",
+    "transport": "same pinned HTTPS URL; no source mirror or unpinned fallback",
+    "publisherChecks": "Existing size, SHA256, optional SHA1, partial cleanup and atomic replacement unchanged"
+  },
+  "sources": [
+    {
+      "path": "scripts/build_qualcomm_dispatch_candidate.py",
+      "sha256": "5e63e5821952b53a82d3a5f7c8a95d0b9051815a91e4190aef0988d78d75252e"
+    },
+    {
+      "path": "scripts/tests/test_qualcomm_candidate_download.py",
+      "sha256": "86cc7e5945c825f1af9688a2e128631e367cd6954f96f5158256d2d98054fea6"
+    }
+  ],
+  "reference": "https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3",
+  "limits": [
+    "The original hosted log does not identify which Maven artifact returned429 or expose its Retry-After value.",
+    "Bounded recovery can still refuse a long cooldown or exhaust three attempts; final CI must establish a successful candidate.",
+    "Source/host controls do not establish native build, device performance or release publication.",
+    "All existing input pins, native-build suffix, workflow gates, Gateway payload and release versions remain unchanged."
+  ]
+}

@@ -18,6 +18,20 @@ Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains 
 - Split benchmark execution into bounded helpers to respect the existing packaged ART method-size limit while preserving cancellation, energy observations, model leases and retirement.
 
 The runtime rebuild, original-weight tools, incremental-input controls and sustained qualification are implemented with scoped source/host checks and required Android release gates. They do not establish full-model context reload, perceptual speech quality, lower battery use or a measured GPU/NPU speedup on the target phone; fresh device reports are required.
+## Input integrity and progress continuity
+
+- Preserve actual SDK text separators and source/UTF-8 mappings across hard chunk boundaries, retaining the incoming pronunciation projection and benchmark/playback behavior.
+- Protect model-workbench reports from input aliases, validate bounded NPY members before allocation, and bind tensor and JSON provenance to the exact private snapshots consumed.
+- Carry controller-owned opaque publication identities through progress collection and display, preserving fresh same-text findings within one model invocation and rejecting repeated events before sequence allocation.
+
+## Pronunciation and readable content
+
+- Preserve accented names, HTML entities and short technical elements through shared voice text preparation, with consistent streamed speech and replay.
+- Improve Kokoro readings for technical names and initialisms, dotted abbreviations, ordinals, fractions, scientific notation, common formulas and units. Recognized model labels such as GPT-4 retain their separator meaning.
+- Accept saved pronunciation corrections for accented names and literal terms such as C++, C#, .NET and GPT-4. Apply them before tokenization, keep original caption ranges and forward them to local/SDK and Android speech.
+- Keep Android corrections fixed for each pending utterance and reject cancelled callbacks. Vocabulary and pronunciation text remain absent from diagnostics.
+
+Pronunciation checks verify readable text, source-aligned captions and frontend token compatibility; they do not establish phone acoustic accuracy, general multilingual support or sentence-dependent homograph correctness.
 
 ## CPU, GPU and NPU speech follow-up
 
@@ -32,11 +46,13 @@ Optional battery-counter decreases describe whole-device observations, not energ
 ## Diagnostic recovery and export completion
 
 - Follow the newest qualified head of the same pull request and connection. Requalify reads after a head change and allow one bounded read-only refresh/retry without replaying mutations or renewing task limits.
+- Recover older PR context reads that lack an expected head through one fresh live header and one pinned retry. Preserve explicit revision constraints, request options, restored attempt identity and verification reserve; stop after another head change.
 - Preserve validated search paths, blob identities and the selected commit through saved inventory projections, so dependent source reads remain available after the original page is compacted.
 - Keep missing saved-page delivery distinct from replay-capacity exhaustion in reports, including a bounded pending-page count and compatible receiver capability checks.
 - Require deployed report receivers to advertise the saved-page replay, local graph failure and provider-limit evidence capabilities before a hosted reporting route is accepted; native GitHub reporting keeps its existing route.
 - Preserve durable rate-limit recovery for direct provider requests from saved conversations. An unused local Gateway conversation key no longer makes a direct rejected request appear to have an uncertain Gateway outcome.
 - Distinguish OpenRouter account credits, key limits, request affordability and temporary concurrent-request budgets. Preserve validated retry timing and explicit retry authority without changing output limits or spending policy automatically.
+- Preserve recorded backend attempts and partial token usage when Responses rejects a request. Prior work prevents automatic sampling repair, retries without tools, transient retries and credential rotation; missing usage remains unknown.
 - Split OpenAI request, response and streaming phases into bounded methods with collection-local state. Extend the existing packaged debug-APK ART size guard to both OpenAI APIs and their generated coroutine helpers.
 - Retain typed local graph preparation phases and per-source deadline progress, while keeping identity/permission failures authoritative and independent pinned reads available under their normal authorization.
 - Show integration fixture and real-test prerequisites before bulk acquisition. Saved page recipes remain separate from observed test execution and verification reserve.

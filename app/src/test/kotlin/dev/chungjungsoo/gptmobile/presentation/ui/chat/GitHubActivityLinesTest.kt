@@ -10,6 +10,36 @@ import org.junit.Test
 class GitHubActivityLinesTest {
     private fun line(text: String, summary: Boolean = false) = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, text, progressCheckpoint = true, statusSummary = summary)
 
+    @Test fun identifiedSummaryStateCyclesRetainTheirEventOrder() {
+        listOf(false, true).forEach { authored ->
+            val first = line("Issue #2440 is open.", true).copy(modelAuthored = authored, progressId = "open-1", progressSequence = 1)
+            val closed = first.copy(content = "Issue #2440 is closed.", progressId = "closed-2", progressSequence = 2)
+            val reopened = first.copy(progressId = "open-3", progressSequence = 3)
+            val history = listOf(first, first, closed, reopened, closed, reopened)
+            val summaries = gitHubActivityLines(history, "Track the issue", active = true).filter { it.statusSummary }
+            assertEquals(listOf(first, closed, reopened), summaries)
+            assertEquals(reopened, summaries.last())
+        }
+    }
+
+    @Test fun sameTextSummaryPublicationsKeepSeparateIdentityAndLineage() {
+        val owner = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, "primary")
+        val first = line("The issue is open.", true).copy(modelAuthored = true, progressId = "publication-a", progressSequence = 1, outputLineage = owner)
+        val second = first.copy(progressId = "publication-b", progressSequence = 2)
+        val anotherOwner = first.copy(progressId = "publication-c", progressSequence = 3, outputLineage = owner.copy(invocationId = "another-primary"))
+        val summaries = gitHubActivityLines(listOf(first, second, first, anotherOwner, second), "Track the issue", active = true).filter { it.statusSummary }
+        assertEquals(listOf(first, second, anotherOwner), summaries)
+        assertEquals(listOf("primary", "primary", "another-primary"), summaries.map { it.outputLineage?.invocationId })
+    }
+
+    @Test fun unidentifiedModelSummariesSuppressOnlyAdjacentIdenticalEvents() {
+        val first = line("Issue #2440 is open.", true).copy(modelAuthored = true)
+        val closed = first.copy(content = "Issue #2440 is closed.")
+        val differentOwner = first.copy(outputLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, "another-primary"))
+        val summaries = gitHubActivityLines(listOf(first, first, closed, first, first, differentOwner, differentOwner), "Track the issue", active = true).filter { it.statusSummary }
+        assertEquals(listOf(first, closed, first, differentOwner), summaries)
+    }
+
     @Test fun publishesOnlyMatchingPrimaryTextDuringAnActiveTurn() {
         val segment = AssistantTimelineItem(AssistantTimelineItemType.TEXT, "A result.", outputLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, "request"))
         assertEquals(segment.content, gitHubResponsePresentation(segment.content, listOf(segment), true).text)

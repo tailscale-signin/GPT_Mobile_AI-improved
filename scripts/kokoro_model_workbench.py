@@ -7,22 +7,33 @@ overwritten. A report is development evidence, not phone or listening qualificat
 """
 
 import argparse
+import ast
 import collections
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
+import struct
+import sys
 import tempfile
 import zipfile
 
 
 MAX_MODEL_BYTES = 2 * 1024**3
 MAX_CAPTURE_BYTES = 128 * 1024**2
+MAX_JSON_BYTES = 2 * 1024**2
 MAX_CASES = 256
 MAX_TRACE_TENSORS = 64
+MAX_NPY_HEADER_BYTES = 10_000
+MAX_NPY_DIMENSIONS = 64
+COPY_BYTES = 64 * 1024
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
+NUMERIC_DTYPE = re.compile(r"[<>=|]([biufc])([1-9][0-9]?)\Z")
+NUMERIC_ITEM_SIZES = {"b": {1}, "i": {1, 2, 4, 8}, "u": {1, 2, 4, 8},
+                      "f": {2, 4, 8, 16}, "c": {8, 16, 32}}
 QUANTIZED_OPS = {"QuantizeLinear", "DequantizeLinear", "DynamicQuantizeLinear",
                  "MatMulInteger", "ConvInteger", "QLinearMatMul", "QLinearConv"}
 
@@ -52,18 +63,51 @@ def local_file(parent, name):
     return result
 
 
-def read_json(path):
-    path = Path(path)
-    if path.stat().st_size > 2 * 1024**2:
+def read_json_snapshot(path, *, manifest=True):
+    # A size check followed by an unbounded read can admit a growing file, and
+    # hashing its pathname later can describe different bytes than those parsed.
+    with Path(path).open("rb") as stream:
+        encoded = stream.read(MAX_JSON_BYTES + 1)
+    if len(encoded) > MAX_JSON_BYTES:
         raise ValueError("JSON manifest is too large")
-    value = json.loads(path.read_text())
-    if not isinstance(value, dict) or value.get("schemaVersion") != 1:
+    value = json.loads(encoded.decode("utf-8"))
+    if manifest and (not isinstance(value, dict) or value.get("schemaVersion") != 1):
         raise ValueError("Unsupported manifest schema")
-    return value
+    return value, hashlib.sha256(encoded).hexdigest()
+
+
+def read_json(path):
+    return read_json_snapshot(path)[0]
 
 
 def write_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
+
+
+def report_destination(path, inputs):
+    destination = Path(path).resolve()
+    for source in inputs:
+        source = Path(source).resolve()
+        if destination == source or (destination.exists() and destination.samefile(source)):
+            raise ValueError("A report destination must not alias an input file")
+    return destination
+
+
+def write_report(path, value, inputs):
+    destination = report_destination(path, inputs)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix=".kokoro-report-",
+                                         suffix=".json", dir=destination.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(json.dumps(value, indent=2, allow_nan=False) + "\n")
+        if report_destination(path, inputs) != destination:
+            raise ValueError("The report destination changed during generation")
+        # Replacing a distinct directory entry never truncates a linked input inode.
+        os.replace(temporary, destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def new_artifact(output, generate):
@@ -170,24 +214,129 @@ def specialize_tokens(model, count):
     # bucket or claim that data-dependent output shapes have become static.
 
 
-def read_npz(path):
-    import numpy as np
-    with zipfile.ZipFile(path) as archive:
-        if sum(v.file_size for v in archive.infolist()) > MAX_CAPTURE_BYTES:
-            raise ValueError("Uncompressed tensor capture exceeds the memory limit")
-    with np.load(path, allow_pickle=False) as archive:
-        result = {name: archive[name] for name in archive.files}
-    if sum(value.nbytes for value in result.values()) > MAX_CAPTURE_BYTES:
-        raise ValueError("Tensor capture exceeds the memory limit")
-    if any(value.dtype.hasobject for value in result.values()):
-        raise ValueError("Object tensors are not permitted")
-    return result
+def npy_metadata(stream, member_bytes):
+    if stream.read(6) != b"\x93NUMPY":
+        raise ValueError("Tensor members must use the NPY format")
+    version = stream.read(2)
+    if version not in (b"\x01\x00", b"\x02\x00", b"\x03\x00"):
+        raise ValueError("Unsupported NPY format version")
+    width = 2 if version == b"\x01\x00" else 4
+    encoded_length = stream.read(width)
+    if len(encoded_length) != width:
+        raise ValueError("Truncated NPY header length")
+    length = struct.unpack("<H" if width == 2 else "<I", encoded_length)[0]
+    if not 0 < length <= MAX_NPY_HEADER_BYTES or 8 + width + length > member_bytes:
+        raise ValueError("NPY header exceeds its bounded member")
+    encoded = stream.read(length)
+    if len(encoded) != length or not encoded.endswith(b"\n"):
+        raise ValueError("Truncated or malformed NPY header")
+    try:
+        expression = ast.parse(encoded.decode("utf-8" if version == b"\x03\x00" else "latin1").strip(), mode="eval")
+        node = expression.body
+        if not isinstance(node, ast.Dict) or len(node.keys) != 3:
+            raise ValueError("NPY headers must contain exactly three fields")
+        keys = [ast.literal_eval(key) for key in node.keys]
+        if any(type(key) is not str for key in keys) or set(keys) != {"descr", "fortran_order", "shape"}:
+            raise ValueError("NPY header fields must be unique and supported")
+        header = ast.literal_eval(node)
+    except (UnicodeError, SyntaxError, TypeError, ValueError, RecursionError) as failure:
+        raise ValueError("Malformed NPY header") from failure
+    descriptor, shape, fortran = header["descr"], header["shape"], header["fortran_order"]
+    match = NUMERIC_DTYPE.fullmatch(descriptor) if isinstance(descriptor, str) else None
+    if match is None or int(match[2]) not in NUMERIC_ITEM_SIZES[match[1]]:
+        raise ValueError("Only fixed-width primitive numeric NPY tensors are permitted")
+    kind, itemsize = match[1], int(match[2])
+    if (type(fortran) is not bool or type(shape) is not tuple or len(shape) > MAX_NPY_DIMENSIONS or
+            any(type(dimension) is not int or not 0 <= dimension <= sys.maxsize for dimension in shape)):
+        raise ValueError("Invalid bounded NPY shape or storage order")
+    count = 0 if 0 in shape else 1
+    if count:
+        for dimension in shape:
+            if dimension > MAX_CAPTURE_BYTES // itemsize // count:
+                raise ValueError("Declared NPY tensor exceeds the payload limit")
+            count *= dimension
+    payload = count * itemsize
+    if payload != member_bytes - 8 - width - length:
+        raise ValueError("NPY shape and dtype do not match the exact member payload")
+    # Read through the member's CRC/EOF before any NumPy allocation, using bounded chunks.
+    remaining = payload
+    while remaining:
+        chunk = stream.read(min(remaining, COPY_BYTES))
+        if not chunk:
+            raise ValueError("Truncated NPY payload")
+        remaining -= len(chunk)
+    if stream.read(1):
+        raise ValueError("Unexpected trailing NPY payload")
+    return {"shape": shape, "bytes": payload, "fortran_order": fortran,
+            "kind": kind, "itemsize": itemsize}
 
 
-def calibration_cases(path, token_count):
+def preflight_npz(source):
+    """Validate every member before NumPy can trust a shape or allocate its payload."""
+    try:
+        with zipfile.ZipFile(source) as archive:
+            members = archive.infolist()
+            names = [member.filename for member in members]
+            logical = [name.removesuffix(".npy") for name in names]
+            if (not 1 <= len(members) <= MAX_TRACE_TENSORS or len(set(names)) != len(names) or
+                    any(member.is_dir() or member.flag_bits & 1 or not name.endswith(".npy") or not key
+                        for member, name, key in zip(members, names, logical)) or
+                    len(set(logical)) != len(logical) or set(logical).intersection(names)):
+                raise ValueError("NPZ members must be a bounded, unambiguous inventory of NPY tensors")
+            if sum(member.file_size for member in members) > MAX_CAPTURE_BYTES:
+                raise ValueError("Uncompressed tensor archive exceeds the payload limit")
+            result = {}
+            for member, name in zip(members, logical):
+                with archive.open(member) as stream:
+                    result[name] = npy_metadata(stream, member.file_size)
+            if sum(value["bytes"] for value in result.values()) > MAX_CAPTURE_BYTES:
+                raise ValueError("Tensor capture exceeds the payload limit")
+            return result
+    except (zipfile.BadZipFile, EOFError, NotImplementedError) as failure:
+        raise ValueError("Invalid or unsupported tensor archive") from failure
+
+
+def read_npz(path, expected_sha256):
+    # Both passes read one private snapshot. Replacing the source pathname after
+    # validation cannot substitute an unvalidated NPY header at allocation time.
+    if not isinstance(expected_sha256, str) or not SHA256.fullmatch(expected_sha256):
+        raise ValueError("A tensor archive requires its explicit SHA-256 identity")
+    with tempfile.TemporaryFile() as snapshot:
+        total = 0
+        identity = hashlib.sha256()
+        with Path(path).open("rb") as source:
+            while chunk := source.read(COPY_BYTES):
+                total += len(chunk)
+                if total > MAX_CAPTURE_BYTES:
+                    raise ValueError("Encoded tensor archive exceeds the payload limit")
+                identity.update(chunk)
+                snapshot.write(chunk)
+        # A pathname hash checked earlier cannot authenticate replacement bytes.
+        # Bind the exact snapshot before parsing or allocating any tensor.
+        if identity.hexdigest() != expected_sha256:
+            raise ValueError("Tensor snapshot SHA-256 does not match the supplied identity")
+        snapshot.seek(0)
+        inventory = preflight_npz(snapshot)
+        snapshot.seek(0)
+        import numpy as np
+        with np.load(snapshot, allow_pickle=False, max_header_size=MAX_NPY_HEADER_BYTES) as archive:
+            if archive.files != list(inventory):
+                raise ValueError("Tensor archive inventory changed after validation")
+            result = {name: archive[name] for name in archive.files}
+        for name, value in result.items():
+            expected = inventory[name]
+            if (value.dtype.hasobject or value.shape != expected["shape"] or value.nbytes != expected["bytes"] or
+                    value.dtype.kind != expected["kind"] or value.dtype.itemsize != expected["itemsize"]):
+                raise ValueError("Loaded tensor does not match its validated NPY metadata")
+        if sum(value.nbytes for value in result.values()) > MAX_CAPTURE_BYTES:
+            raise ValueError("Tensor capture exceeds the payload limit")
+        return result
+
+
+def calibration_snapshot(path, token_count):
     import numpy as np
     path = Path(path)
-    manifest = read_json(path)
+    manifest, manifest_hash = read_json_snapshot(path)
     cases = manifest.get("cases", [])
     if manifest.get("purpose") != "calibration" or not 1 <= len(cases) <= MAX_CASES:
         raise ValueError("Provide a bounded, explicit calibration corpus")
@@ -199,7 +348,7 @@ def calibration_cases(path, token_count):
             raise ValueError("Calibration case identifiers must be unique")
         ids.add(identifier)
         source = checked_file(local_file(path.parent, case["file"]), case["sha256"], MAX_CAPTURE_BYTES)
-        feed = read_npz(source)
+        feed = read_npz(source, case["sha256"])
         if set(feed) != {"tokens", "style", "speed"}:
             raise ValueError("Calibration cases require tokens, style and speed")
         if feed["tokens"].dtype != np.int64 or feed["tokens"].shape != (1, token_count):
@@ -211,7 +360,11 @@ def calibration_cases(path, token_count):
         if any(not np.isfinite(value).all() for value in feed.values()):
             raise ValueError("Calibration tensors must be finite")
         result.append(feed)
-    return result
+    return result, manifest_hash
+
+
+def calibration_cases(path, token_count):
+    return calibration_snapshot(path, token_count)[0]
 
 
 def prepare(args):
@@ -234,7 +387,7 @@ def prepare(args):
             from onnxruntime.quantization.execution_providers.qnn import get_qnn_qdq_config, qnn_preprocess_model
             if not args.calibration:
                 raise ValueError("Quantization requires a real, fingerprinted calibration corpus")
-            feeds = calibration_cases(args.calibration, args.token_count)
+            feeds, calibration_hash = calibration_snapshot(args.calibration, args.token_count)
 
             class Reader(CalibrationDataReader):
                 def __init__(self):
@@ -256,7 +409,7 @@ def prepare(args):
             onnx.save(quantization_source, output)
             changed = qnn_preprocess_model(str(output), str(preprocessed))
             quant_input = preprocessed if changed else output
-            overrides = json.loads(Path(args.overrides).read_text()) if args.overrides else None
+            overrides, overrides_hash = read_json_snapshot(args.overrides, manifest=False) if args.overrides else (None, None)
             config = get_qnn_qdq_config(str(quant_input), Reader(),
                                        activation_type=QuantType.QUInt16 if args.precision == "a16w8" else QuantType.QUInt8,
                                        weight_type=QuantType.QUInt8,
@@ -266,9 +419,9 @@ def prepare(args):
             quantized.replace(output)
             if preprocessed.exists():
                 preprocessed.unlink()
-            calibration = {"manifestSha256": digest(args.calibration), "cases": len(feeds),
+            calibration = {"manifestSha256": calibration_hash, "cases": len(feeds),
                            "onnxruntimeVersion": ort.__version__,
-                           "overridesSha256": digest(args.overrides) if args.overrides else None}
+                           "overridesSha256": overrides_hash}
         generated = onnx.load(str(output))
         del generated.metadata_props[:]
         generated.metadata_props.extend(model.metadata_props)
@@ -324,7 +477,7 @@ def capture(args):
     manifest = read_json(manifest_path)
     model = checked_file(local_file(manifest_path.parent, manifest["modelFile"]), manifest["modelSha256"])
     case = checked_file(args.case, args.case_sha256, MAX_CAPTURE_BYTES)
-    feeds = read_npz(case)
+    feeds = read_npz(case, args.case_sha256)
 
     def generate(directory):
         options = ort.SessionOptions()
@@ -429,26 +582,30 @@ def compare_arrays(reference, candidate, order, atol, rtol):
 
 def compare(args):
     left_path, right_path = Path(args.reference), Path(args.candidate)
-    left, right = read_json(left_path), read_json(right_path)
+    left, left_hash = read_json_snapshot(left_path)
+    right, right_hash = read_json_snapshot(right_path)
     for key in ("modelSha256", "sourceModelSha256", "inputSha256", "traceOrder"):
         if not left.get(key) or left[key] != right.get(key):
             raise ValueError("Capture source, inputs and trace order must match")
     if left.get("backend") != "cpu":
         raise ValueError("The reference capture must execute the CPU provider")
-    arrays = []
+    archives = []
     for path, manifest in ((left_path, left), (right_path, right)):
         archive = checked_file(local_file(path.parent, manifest["outputsFile"]), manifest["outputsSha256"], MAX_CAPTURE_BYTES)
-        arrays.append(read_npz(archive))
+        archives.append((archive, manifest["outputsSha256"]))
+    inputs = [left_path, right_path, *(archive for archive, _ in archives)]
+    report_destination(args.output, inputs)
+    arrays = [read_npz(archive, expected) for archive, expected in archives]
     report = compare_arrays(*arrays, left["traceOrder"], args.atol, args.rtol)
-    report.update(referenceManifestSha256=digest(left_path), candidateManifestSha256=digest(right_path))
-    write_json(args.output, report)
+    report.update(referenceManifestSha256=left_hash, candidateManifestSha256=right_hash)
+    write_report(args.output, report, inputs)
     return args.output
 
 
 def stages(args):
     import onnx
     model = load_model(args.model, args.model_sha256)
-    specification = read_json(args.specification)
+    specification, specification_hash = read_json_snapshot(args.specification)
     stage_list = specification.get("stages", [])
     if specification.get("sourceModelSha256") != args.model_sha256 or not 1 <= len(stage_list) <= 8:
         raise ValueError("Stage specification must bind the original model and contain one to eight stages")
@@ -471,7 +628,7 @@ def stages(args):
             records.append({"id": stage["id"], "modelFile": output.name, "modelSha256": digest(output),
                             "inputs": inputs, "outputs": outputs})
         return {"kind": "kokoro-explicit-stages", "sourceModelSha256": args.model_sha256,
-                "specificationSha256": digest(args.specification), "stages": records,
+                "specificationSha256": specification_hash, "stages": records,
                 "recompositionValidated": False, "runtimeLoader": "NOT_IMPLICITLY_CHANGED"}
     return new_artifact(args.output_dir, generate)
 
@@ -514,7 +671,8 @@ def main(argv=None):
     sub.add_argument("--rtol", type=float, default=1e-3)
     args = parser.parse_args(argv)
     if args.command == "inspect":
-        write_json(args.output, inspect_model(load_model(args.model, args.model_sha256), args.model_sha256))
+        report_destination(args.output, [args.model])
+        write_report(args.output, inspect_model(load_model(args.model, args.model_sha256), args.model_sha256), [args.model])
         result = args.output
     else:
         result = {"prepare": prepare, "trace": trace, "capture": capture, "compare": compare, "stages": stages}[args.command](args)

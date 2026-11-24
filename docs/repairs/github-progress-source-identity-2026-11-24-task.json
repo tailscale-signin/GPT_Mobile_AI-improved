@@ -1,0 +1,83 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "github-progress-source-identity-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2367,
+  "target_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_branch": "main",
+  "base_sha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "source_parent_sha": "0e350f23cf41b5b934effa1d8a44307ba8eebbf1",
+  "working_branch": "work/github-progress-source-identity-0e35",
+  "intent": "Allow selected-model progress explanations to recur after a newly captured immutable source identity, while retaining same-source repeat suppression and source-owned authority boundaries.",
+  "state": "SOURCE_REVIEW_CLEAR_FINAL_ORDINARY_RUNTIME_REQUIRED",
+  "authorization": "The user authorized the shared PR implementation and publication work. The coordinating review reserved this narrow preview correction before edits; this local candidate does not publish, merge, dispatch a provider or change an execution permission.",
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt",
+    "docs/repairs/github-progress-source-identity-2026-11-24-task.json"
+  ],
+  "finding": "The existing authored-summary key retains rendered fact strings and resource-state epochs but drops source commit and result identity. After explanations A then B, a read of the same path/range at another commit can leave A suppressed even though its captured source changed.",
+  "constraints": [
+    "Consume existing bounded execution-receipt fields; do not parse or hash raw source bodies in the progress path.",
+    "Bind repository, connection-qualified tool, exact path/range, commit and captured result digest.",
+    "Saved, retained, cursor, failed, mismatched, absent or explicitly unverified identities cannot refresh current preview identity.",
+    "The preview epoch cannot verify source coverage, authorize execution, alter completion or manufacture chart counts.",
+    "Preserve all existing ordinary regression method bodies and the 45-second/135-second cadence.",
+    "Do not run a local Kotlin, Android, provider or privacy/application harness. Ordinary project CI must execute the additive behavioral controls.",
+    "The integrator owns generated metadata, exact release scope, current-source canonical validation and guarded public append."
+  ],
+  "validation": {
+    "ordinary_project_tests": "NOT_RUN_REQUIRED_IN_NORMAL_PROJECT_CI",
+    "formatting": "PASS_PINNED_KTLINT_1_3_1_FORMAT_AND_CHECK_ONLY_TWO_OWNED_KOTLIN_FILES",
+    "whitespace": "PASS_GIT_DIFF_CHECK",
+    "old_tests": "All nine prior methods and the complete prior test file reconstruct exactly after removing the additive block and two imports.",
+    "source_binding_receipt": "analysis/github-progress-source-identity/candidate-source-binding.json",
+    "source_binding_receipt_sha256": "ef62b2c09df9c84a2d1ff0b960272420bc0a682a93273372c6ccfe3d270fba1e",
+    "independent_review": {
+      "decision": "SOURCE_CLEAR",
+      "receipt_sha256": "aef41fa2596ad9717756b0ff6ed0ca9e6267579fb86fd8871c820288ad2322f3",
+      "scope": "Fourteen exact source/producer/caller/test inputs; production and test inverses preserve all prior behavior and nine methods. Seven additive ordinary methods still require hosted runtime."
+    },
+    "canonical_integrated_source": "REQUIRED_AFTER_GENERATED_METADATA_AND_EXACT_SCOPE_INTEGRATION",
+    "publication_binding": "The guarded GitHub append must have identical local/public trees and retain the actual current public parent; server-created commit identifiers are recorded in the external publication receipt.",
+    "incoming9473": "Preserved the complete Responses retained-work source, tests, notes and metadata while composing the two independently reviewed GitHub corrections; no source/test component bytes changed.",
+    "incomingDcfe": "Preserved the complete unheaded PR-context recovery and retained-backend-work changes while composing the exact independently reviewed preview source/test bytes."
+  },
+  "implementation": {
+    "identity_channel": "Locally generated execution-receipt semantic summary, with the same captured result digest and original call ID retained by GitHubResultViews.",
+    "location": [
+      "connection-qualified tool",
+      "canonical owner/repository",
+      "exact observed path",
+      "observed start/end lines"
+    ],
+    "version": [
+      "commit_sha",
+      "source_result_sha256"
+    ],
+    "bounded_identities": 256,
+    "effect": "Only the existing authored-preview evidence epoch changes on a newly admitted or changed captured identity; factual observations and model-authored ownership remain unchanged.",
+    "conservative_limitations": [
+      "A path at or above the producer truncation boundary of 256 characters cannot establish an exact identity here.",
+      "A compact or legacy receipt missing the range, digest, hash scope, call binding or repository identity keeps the prior preview behavior.",
+      "A present negative or malformed verification field refuses the identity; no network-live field is required when a complete immutable local capture has no such field.",
+      "Ordinary project CI must execute the new behavioral methods. No source-only or host-formatting result qualifies Android, a provider run or deployment."
+    ]
+  },
+  "regression_methods": [
+    "changedCapturedCommitAllowsEarlierExplanationWithoutPromotingModelProse",
+    "changedCapturedBytesAtTheSameCommitAllowEarlierExplanation",
+    "sameCapturedSourceOnAnotherCallStillSuppressesFormattedRepeats",
+    "capturedRepositoryAndConnectionKeepSameLookingSourceRangesDistinct",
+    "savedSourceIdentitiesCannotRefreshOrReplaceTheCurrentCapture",
+    "missingNegativeAndMismatchedCaptureReceiptsCannotRefreshAuthoredHistory",
+    "absentRepositoryIdentityAndMismatchedRequestedSourceCannotRefreshTheCapture"
+  ],
+  "source_inputs": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt": "270ce30e2291eb2a7131c1163007f97e7045b8102acd996f9a2d16a7469a36d4",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt": "3338a34cfeb604b785b2b96a3a0c93630e5d59378e8001dc17b0532adfc998b4"
+  },
+  "integration_parent_local_sha": "781fddb44034480ed55ab34ca553e4115011f1f2",
+  "integration_parent_tree": "7cb2dda14035750a2a79e8105c7e52e97cb9f345",
+  "integration_working_branch": "work/github-session-composed-dcfe"
+}

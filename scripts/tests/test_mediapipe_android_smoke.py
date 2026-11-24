@@ -22,7 +22,7 @@ SOURCE = "b" * 40
 def native_receipt(engine="phonon", run_id=RUN_ID):
     model = smoke.MODELS[engine]
     return {
-        "schema": "mediapipe-android-jni-smoke-v1",
+        "schema": "mediapipe-android-jni-smoke-v2",
         "scope": "android_jni_checkpoint_smoke",
         "status": "passed",
         "engine": engine.upper(),
@@ -41,6 +41,24 @@ def native_receipt(engine="phonon", run_id=RUN_ID):
         "first_pcm_ms": 200,
         "cancel_before_first_read": "end_of_stream",
         "cancel_after_first_chunk": "native_cancelled",
+        "incremental_stream": incremental_receipt(),
+        "incremental_stream_after_cancellation": incremental_receipt(),
+        "incremental_cancel_before_first_read": "end_of_stream",
+        "incremental_cancel_while_waiting_for_text": {
+            "outcome": "native_cancelled", "input_open_at_cancel": True,
+            "finish_input_calls": 0, "first_pcm_observed": True,
+            "input_owner_retired": True, "stream_closed": True, "total_ms": 500,
+        },
+    }
+
+
+def incremental_receipt():
+    return {
+        "input_mode": "incremental", "input_utf8_bytes": len(smoke.FIXTURE.encode("utf-8")),
+        "input_sha256": hashlib.sha256(smoke.FIXTURE.encode("utf-8")).hexdigest(),
+        "text_delta_count": 2, "finish_input_calls": 1,
+        "first_pcm_before_finish_input": True, "full_input_cues_observed": True,
+        "stream_closed": True, "frames": 72000, "emitted_chunks": 3, "first_pcm_ms": 200,
     }
 
 
@@ -129,6 +147,7 @@ class MediaPipeAndroidReceiptTest(unittest.TestCase):
 
     def test_wrong_identity_or_missing_pcm_cancellation_recovery_evidence_fails(self):
         changes = {
+            "schema": "mediapipe-android-jni-smoke-v1",
             "run_id": "87654321-1234-4234-9234-123456789abc",
             "engine": "KOKORO",
             "runtime": "different-runtime",
@@ -145,6 +164,7 @@ class MediaPipeAndroidReceiptTest(unittest.TestCase):
             "first_pcm_ms": True,
             "cancel_before_first_read": "failed",
             "cancel_after_first_chunk": "unrelated_native_error",
+            "incremental_cancel_before_first_read": "unrelated_native_error",
         }
         for key, value in changes.items():
             with self.subTest(field=key), self.assertRaises(ValueError):
@@ -176,6 +196,42 @@ class MediaPipeAndroidReceiptTest(unittest.TestCase):
         path.write_bytes(original + b"x")
         with self.assertRaisesRegex(ValueError, "size"):
             smoke.verify_apks(self.apks, SOURCE)
+
+    def test_incremental_and_recovery_require_real_input_order_full_text_and_retirement(self):
+        changes = {
+            "input_mode": "single_input", "input_utf8_bytes": 1,
+            "input_sha256": "0" * 64, "text_delta_count": 1, "finish_input_calls": 0,
+            "first_pcm_before_finish_input": False, "full_input_cues_observed": False,
+            "stream_closed": False, "frames": 0, "emitted_chunks": 0, "first_pcm_ms": -1,
+        }
+        for label in ("incremental_stream", "incremental_stream_after_cancellation"):
+            for key, value in changes.items():
+                receipt = native_receipt()
+                receipt[label][key] = value
+                with self.subTest(stream=label, field=key), self.assertRaises(ValueError):
+                    self.check(packets(receipt))
+            for key in incremental_receipt():
+                receipt = native_receipt()
+                del receipt[label][key]
+                with self.subTest(stream=label, missing=key), self.assertRaises(ValueError):
+                    self.check(packets(receipt))
+
+    def test_open_input_cancellation_requires_unfinished_input_and_both_retired_owners(self):
+        changes = {
+            "outcome": "unrelated_error", "input_open_at_cancel": False,
+            "finish_input_calls": 1, "first_pcm_observed": False,
+            "input_owner_retired": False, "stream_closed": False, "total_ms": 300_001,
+        }
+        for key, value in changes.items():
+            receipt = native_receipt()
+            receipt["incremental_cancel_while_waiting_for_text"][key] = value
+            with self.subTest(field=key), self.assertRaises(ValueError):
+                self.check(packets(receipt))
+        for key in changes:
+            receipt = native_receipt()
+            del receipt["incremental_cancel_while_waiting_for_text"][key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                self.check(packets(receipt))
 
     def run_checker(self, process_exit=0):
         arguments = [

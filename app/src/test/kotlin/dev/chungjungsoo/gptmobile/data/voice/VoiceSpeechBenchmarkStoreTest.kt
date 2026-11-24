@@ -76,7 +76,8 @@ class VoiceSpeechBenchmarkStoreTest {
         assertEquals(10L, store.read().single().startedAtMillis)
     }
 
-    @Test fun fullCurrentProtocolEvidenceAboveFourMiBSurvivesWhileOlderRunsAreEvicted() {
+    @Test fun fullCurrentProtocolEvidenceAboveTwoMiBSurvivesWhileOlderRunsAreEvicted() {
+        // Preserve the retained selector; the current fixture also exceeds the former 4 MiB limit.
         // Exercise the allowed trace envelope, not a claim that this schedule occurred on hardware.
         val config = report(1).configuration.copy(
             mode = VoiceSpeechBenchmarkMode.FULL,

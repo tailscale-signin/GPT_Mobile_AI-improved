@@ -15,6 +15,7 @@ import tempfile
 
 from test_gitleaks_model_pin import (
     CALIBRATION_PATH,
+    COMPOSE_EVIDENCE_PATH,
     EVIDENCE_PATH,
     MOCKK_EVIDENCE_PATH,
     MODEL_PACK_PATH,
@@ -36,6 +37,7 @@ INPUTS = (
     EVIDENCE_PATH,
     CALIBRATION_PATH,
     MOCKK_EVIDENCE_PATH,
+    COMPOSE_EVIDENCE_PATH,
     WAVEFORM_EVIDENCE_PATH,
     MODEL_PACK_PATH,
     "gradle/verification-metadata.xml",

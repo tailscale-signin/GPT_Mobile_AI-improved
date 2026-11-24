@@ -414,10 +414,21 @@ private class StreamingMessageBuffer(
             type = AssistantTimelineItemType.NOTICE,
             content = chunk.text,
             modelAuthored = chunk.modelAuthored,
-            statusSummary = true
+            statusSummary = true,
+            progressId = chunk.publicationId,
+            outputLineage = if (chunk.modelAuthored) OutputLineage(OutputOrigin.MODEL_TEXT, chunk.invocationId) else null
         )
         if (githubProgress) {
-            if (timeline.none { it.statusSummary && it.content == item.content.take(1200) }) {
+            // A fresh source can justify identical prose within one invocation.
+            // Preserve the controller's admitted identity; only that event's
+            // replay is redundant. Legacy producers retain latest-only dedup.
+            val previous = timeline.lastOrNull { it.statusSummary }
+            val duplicate = if (item.progressId != null) {
+                timeline.any { it.statusSummary && it.progressId == item.progressId }
+            } else {
+                previous != null && previous.content == item.content.take(1200) && previous.modelAuthored == item.modelAuthored && previous.outputLineage == item.outputLineage
+            }
+            if (!duplicate) {
                 timeline += item.copy(content = item.content.take(1200), progressCheckpoint = true, progressSequence = ++progressSequence)
                 timelineVersion++
             }

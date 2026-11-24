@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "kind": "reconstructed_execution_summary",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "originalLocalCandidate": "3a2870aa2defd307313e67ffcade7f16d7f08ca6",
+  "originalLocalTree": "82a19f1a315b1ef9c77f612c6d992b5d17d7aab3",
+  "parent": "e40659976e33b2e305169f66fbb5c017f6e93282",
+  "recovery": "Workspace became unavailable during immutable-blob upload. All production and test blobs below were uploaded successfully and matched the candidate. Raw unuploaded local receipts are not represented as present.",
+  "unchangedApplicationBlobs": {
+    "app/src/main/assets/diagnostics/app-code-inventory.json": "27da2bf394f66d91c392a5a5cead4c3f6c720c12",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "97f60a443e5b75538b32386b5090c7f980d9f960",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt": "e68d5706c1edc8052dfe79c095f4d9a3d8ad4b48",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt": "6321dd0349ce63c4345a9a4cdc08b9a05e16ffe0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "78a7386adf474af03ea0a560aae3080c1c574847",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt": "d484592738bbc1b6e02eca715d3d0c0dd3cc059d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "3b1a3f1a70329008843699c44023a153184074c6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt": "76d9046c7a2c42b673a8e3ad6fae953658308844",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt": "1cfc3dcb46a723ea7282637c080fe9167949e78d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningConfiguration.kt": "0fddfb80fe1f8ba052cb68c3be37a3e8551fc718",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferences.kt": "de3668227e1568692215c074b6d45654b29c777b",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningSettings.kt": "687bac299527a358b65db248fc8290c4172fe6e4",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt": "073edf3bdfd05fadce250316f45f16ed4ae93f48",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt": "bb879fb5eb3a94b49f44680ff016f420355cbbb1",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt": "9e1af93d3919ad96010b1863f706df543dd1e9e9",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverridesTest.kt": "0aa103968685c1c0a1d4cca5b1c83196ac39d019",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt": "620c529e08973cee279200b26ce2442af2c7cfc3",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt": "e81c64f1bd7308f4d0d5d759cc33c3c0582afade",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferencesTest.kt": "4a175a980990bbd34165d58026f1249312f8bd94"
+  },
+  "observedResults": {
+    "focusedJunit": {
+      "passed": 96,
+      "failed": 0,
+      "skipped": 0
+    },
+    "canonicalHostTests": {
+      "passed": 711,
+      "failed": 0,
+      "log": "docs/repairs/evidence/voice-pronunciation-vocabulary/canonical-fast.log",
+      "gitBlob": "7a1716fa6b21a79bb81d618bdb06f9a3d5383000"
+    },
+    "realDictionaryCases": {
+      "passed": 64,
+      "dialects": [
+        "US",
+        "GB"
+      ]
+    },
+    "streamReplayCases": {
+      "passed": 48
+    },
+    "nativeFallbackSymbolCases": {
+      "passed": 24
+    }
+  },
+  "unavailableOriginalReceiptSha256": {
+    "vocabularyJunit": "b2ecd186fdbe275056abffb4d820807976fa590f6fc6fd11a89ba2b2f354efb9",
+    "projectionAndPreferencesJunit": "0753cb21c5d4fb50fcffae31e6d1982e7f97c3541eb34c90c2d6c69dd591d443",
+    "realDictionaryAndStreaming": "7cf1c2741ef05cca24429d8433df420e903023e275975e7b7847ac732d0e2f55",
+    "nativeFallbackSymbols": "958bbf0ce371dd918177a1ae5b69d419386dbfd43eaef642373f49e3d364388f"
+  },
+  "remainingQualification": [
+    "Full hosted Android compilation and ordinary runtime suites",
+    "All shared PR source-owner holds and required checks",
+    "Physical-phone acoustic validation",
+    "Guarded merge, actual-main qualification and coordinated publication"
+  ],
+  "noNewExecutionClaim": true
+}

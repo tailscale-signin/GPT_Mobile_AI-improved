@@ -3,10 +3,13 @@
 These fixtures prove tool behavior, never Kokoro listening or phone qualification.
 """
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+import zipfile
 
 import numpy as np
 import onnx
@@ -76,7 +79,7 @@ class ModelWorkbenchExecutionTest(unittest.TestCase):
         self.assertEqual("CONSISTENT", workbench.read_json(report)["status"])
         candidate = workbench.read_json(captures[1])
         archive = captures[1].parent / candidate["outputsFile"]
-        values = workbench.read_npz(archive)
+        values = workbench.read_npz(archive, workbench.digest(archive))
         values["scaled"][0, 1] += 1
         np.savez(archive, **values)
         candidate["outputsSha256"] = workbench.digest(archive)
@@ -124,6 +127,122 @@ class ModelWorkbenchExecutionTest(unittest.TestCase):
             self.assertEqual(reason, report["tensors"][0]["reason"])
         with self.assertRaises(ValueError):
             workbench.compare_arrays(reference, reference, [], 0, 0)
+
+    def test_numpy_round_trips_numeric_types_scalars_empty_shapes_and_fortran_order(self):
+        arrays = {"bool": np.array([True, False], dtype=np.bool_),
+                  "signed": np.array([-2, 3], dtype=np.int64),
+                  "unsigned": np.array([0, 255], dtype=np.uint8),
+                  "half": np.array([.5, 1], dtype=np.float16),
+                  "single": np.array([.5, 1], dtype=np.float32),
+                  "double": np.array([.5, 1], dtype=np.float64),
+                  "complex": np.array([1 + 2j], dtype=np.complex128),
+                  "scalar": np.array(7, dtype=np.int32),
+                  "empty": np.zeros((0, 256), dtype=np.float32),
+                  "fortran": np.asfortranarray(np.arange(6, dtype=np.float32).reshape(2, 3))}
+        archive = self.root / "numeric.npz"
+        np.savez(archive, **arrays)
+        restored = workbench.read_npz(archive, workbench.digest(archive))
+        self.assertEqual(list(arrays), list(restored))
+        for name, expected in arrays.items():
+            self.assertEqual(expected.dtype, restored[name].dtype)
+            self.assertEqual(expected.shape, restored[name].shape)
+            np.testing.assert_array_equal(expected, restored[name])
+        self.assertTrue(restored["fortran"].flags.f_contiguous)
+
+    def test_numpy_load_uses_the_validated_private_snapshot_after_source_replacement(self):
+        archive = self.root / "snapshot.npz"
+        original = np.array([1, 2, 3], dtype=np.float32)
+        np.savez(archive, x=original)
+        identity = workbench.digest(archive)
+        preflight = workbench.preflight_npz
+        def replace_path(snapshot):
+            inventory = preflight(snapshot)
+            np.savez(archive, x=np.array([99], dtype=np.float32))
+            return inventory
+        with patch.object(workbench, "preflight_npz", side_effect=replace_path):
+            restored = workbench.read_npz(archive, identity)
+        self.assertNotEqual(identity, workbench.digest(archive))
+        np.testing.assert_array_equal(original, restored["x"])
+
+    def test_malformed_npy_never_reaches_the_real_numpy_loader(self):
+        for shape, descriptor in [((2**50,), "<f4"), ((1,), "|O8"), ((2,), "<f4")]:
+            with self.subTest(shape=shape, descriptor=descriptor):
+                member = io.BytesIO()
+                np.lib.format.write_array_header_1_0(member, {"descr": descriptor, "fortran_order": False, "shape": shape})
+                member.write(b"\0" * 4)
+                archive = self.root / "invalid.npz"
+                with zipfile.ZipFile(archive, "w") as package:
+                    package.writestr("x.npy", member.getvalue())
+                with patch.object(np, "load", wraps=np.load) as loader:
+                    with self.assertRaises(ValueError):
+                        workbench.read_npz(archive, workbench.digest(archive))
+                loader.assert_not_called()
+
+    def test_compare_binds_parsed_manifest_hashes_when_paths_change_during_tensor_loading(self):
+        manifests = []
+        for name in ("reference", "candidate"):
+            archive = self.root / (name + ".npz")
+            np.savez(archive, x=np.array([1, 2], dtype=np.float32))
+            manifest = self.root / (name + ".json")
+            workbench.write_json(manifest, {"schemaVersion": 1, "modelSha256": self.model_hash,
+                                           "sourceModelSha256": self.model_hash,
+                                           "inputSha256": workbench.digest(self.case), "traceOrder": ["x"],
+                                           "backend": "cpu", "outputsFile": archive.name,
+                                           "outputsSha256": workbench.digest(archive)})
+            manifests.append(manifest)
+        identities = [workbench.digest(path) for path in manifests]
+        read_npz = workbench.read_npz
+        def replace_manifests(path, expected):
+            for manifest in manifests:
+                workbench.write_json(manifest, {"schemaVersion": 1, "changedAfterParsing": True})
+            return read_npz(path, expected)
+        report = self.root / "manifest-comparison.json"
+        with patch.object(workbench, "read_npz", side_effect=replace_manifests):
+            workbench.main(["compare", "--reference", str(manifests[0]), "--candidate", str(manifests[1]),
+                            "--output", str(report)])
+        result = workbench.read_json(report)
+        self.assertEqual("CONSISTENT", result["status"])
+        self.assertEqual(identities, [result["referenceManifestSha256"], result["candidateManifestSha256"]])
+        self.assertTrue(all(workbench.digest(path) != expected for path, expected in zip(manifests, identities)))
+
+    def test_prepare_binds_used_calibration_and_override_snapshots_during_quantization(self):
+        from onnxruntime.quantization.execution_providers import qnn
+        corpus, overrides = self.root / "corpus.json", self.root / "overrides.json"
+        workbench.write_json(corpus, {"schemaVersion": 1, "purpose": "calibration", "cases": [
+            {"id": "snapshot-fixture", "file": self.case.name, "sha256": workbench.digest(self.case)}]})
+        overrides.write_text("{}\n")
+        corpus_hash, overrides_hash = workbench.digest(corpus), workbench.digest(overrides)
+        self.assertEqual(1, len(workbench.calibration_cases(corpus, 3)))
+        original_config = qnn.get_qnn_qdq_config
+        def replace_inputs(*args, **kwargs):
+            self.assertEqual({}, kwargs["init_overrides"])
+            workbench.write_json(corpus, {"schemaVersion": 1, "purpose": "calibration", "cases": []})
+            overrides.write_text('{"replacement-not-used": []}')
+            return original_config(*args, **kwargs)
+        with patch.object(qnn, "get_qnn_qdq_config", side_effect=replace_inputs) as configure:
+            result = self.run_model("prepare", self.root / "snapshot-quantized", "--backend", "htp", "--precision", "a16w8",
+                                    "--token-count", "3", "--calibration", str(corpus), "--overrides", str(overrides))
+        self.assertEqual(1, configure.call_count)
+        self.assertEqual(corpus_hash, result["calibration"]["manifestSha256"])
+        self.assertEqual(overrides_hash, result["calibration"]["overridesSha256"])
+        self.assertEqual(1, result["calibration"]["cases"])
+        self.assertNotEqual(corpus_hash, workbench.digest(corpus))
+        self.assertNotEqual(overrides_hash, workbench.digest(overrides))
+
+    def test_stage_extraction_binds_the_used_specification_snapshot(self):
+        specification = self.root / "stages.json"
+        workbench.write_json(specification, {"schemaVersion": 1, "sourceModelSha256": self.model_hash,
+                                            "stages": [{"id": "decoder-fixture", "inputs": ["scaled"], "outputs": ["audio"]}]})
+        identity = workbench.digest(specification)
+        extract_model = onnx.utils.extract_model
+        def replace_specification(*args, **kwargs):
+            workbench.write_json(specification, {"schemaVersion": 1, "sourceModelSha256": "0" * 64, "stages": []})
+            return extract_model(*args, **kwargs)
+        with patch.object(onnx.utils, "extract_model", side_effect=replace_specification):
+            result = self.run_model("stages", self.root / "snapshot-stage", "--specification", str(specification))
+        self.assertEqual(identity, result["specificationSha256"])
+        self.assertEqual(["decoder-fixture"], [stage["id"] for stage in result["stages"]])
+        self.assertNotEqual(identity, workbench.digest(specification))
 
 
 if __name__ == "__main__":

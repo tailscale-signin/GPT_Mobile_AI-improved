@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "task": "github-unheaded-context-recovery-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "parentBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "e8552961c988df4ba5b89e04f3c3cdaa36cc5a3c",
+  "workingBranch": "fix/unheaded-pr-context-recovery-2026-11-24",
+  "parentPullRequest": 2367,
+  "recordedBeforeSourceEdits": true,
+  "recordedAtUtc": "2026-11-24 02:29:22 UTC",
+  "ownershipReservedAtUtc": "2026-11-24 02:28:01 UTC",
+  "status": "SOURCE_REVIEWED_AND_INTEGRATED_PENDING_NORMAL_CI",
+  "intent": "Recover an authorized legacy PR context read that failed with GITHUB_PR_HEAD_CHANGED without an expected head: require one successful scoped live-header read after the failure, then one context retry pinned to that observation.",
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReads.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt",
+    "docs/repairs/github-unheaded-context-recovery-2026-11-24-task.json"
+  ],
+  "preEditBindings": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReads.kt",
+      "sha256": "c23593bceb9cd75fbdf1b96e4c639b582fa07b63bda40f36a5eb9c1d4d445f6f"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt",
+      "sha256": "c9bad3f968d55eddb14329dd46f712ec8cc15f9de941b83e88bf808eb12a07f1"
+    }
+  ],
+  "sourceFinding": {
+    "commit": "ed39449085e693fc36d0ed742c10b2cc56ad8643",
+    "receiptSha256": "37dc049624c13bc31e5f789e8d1effd17c9acaff94498919dc52b1fc830432c0",
+    "reports": [
+      2448,
+      2449
+    ],
+    "evidenceScope": "Current immutable-source recovery omission; compact historical reports do not establish the full objective, authorization, allowance, deadline or causal coverage."
+  },
+  "acceptance": [
+    "Preserve all seven existing ordinary test methods and their bodies.",
+    "Prepare only the exact currently authorized read on the same binding, repository, tool facade and pull request; no mutation or permission failure recovery.",
+    "Require a fresh successful verify_live header observation after the original unheaded failure; a prior list or header cannot supply the retry lease.",
+    "Do not relax explicit head/base pins, malformed arguments, scope checks, action identity, caller budgets, deadlines or cleanup reserves.",
+    "Persist one refresh and one retry allowance through retained receipts and serialization; stop after another concurrent change or failed refresh.",
+    "Leave GitHubSelfTestReads generic failed-context suppression and caller implementations unchanged.",
+    "Root owns generated reference inventory, release scope, independent review, canonical qualification, public append and normal project CI."
+  ],
+  "qualification": {
+    "sourceAndDiffChecks": {
+      "diffCheck": "PASS",
+      "productionInverseRestoresEntireBaseFile": true,
+      "testInverseRestoresEntireBaseFile": true,
+      "preservedExistingMethodCount": 7,
+      "addedOrdinaryMethodCount": 7,
+      "totalOrdinaryMethodCount": 14,
+      "sourceCheckToolChunks": [
+        "abaf55",
+        "9d6457"
+      ],
+      "scope": "Text/source structural checks only; no Kotlin compilation or test execution"
+    },
+    "ordinaryProjectTests": "NOT_RUN_LOCALLY; REQUIRED_NORMAL_PROJECT_CI",
+    "localSubstituteHarness": "NOT_RUN; ordinary behavior is qualified by normal project CI.",
+    "canonicalHost": "Required on the final frozen integrated inputs; exact execution receipt is retained with the root task checkpoint.",
+    "formatting": "Source and test passed pinned ktlint1.3.1, SHA256 a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1; final generated inputs remain part of the integrated formatting gate.",
+    "physicalOrLiveGitHubExecution": "NOT_RUN"
+  },
+  "implementation": {
+    "bindings": [
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReads.kt",
+        "sha256": "62e149fd9eaece1ee4ef12df01f5d768510310223387bdb10a214988db8ddcfd",
+        "bytes": 10678
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPullReadsTest.kt",
+        "sha256": "e1b8028b97dc62eb2b2a7e6ea8adace396c224b5934857ff7a66d74f15b648d6",
+        "bytes": 21409
+      }
+    ],
+    "addedOrdinaryMethods": [
+      "unheadedContextRequiresItsOwnFreshLiveHeaderBeforeOnePinnedRead",
+      "unheadedRecoveryRetainsArgumentsAndSingleAllowanceAcrossReceiptSerialization",
+      "unheadedRecoveryRejectsFailedCachedMalformedAndPreFailureHeaderReceipts",
+      "unheadedRecoveryStopsWhenTheFreshLeaseChangesOrThePinnedRetryFails",
+      "unheadedRecoveryDoesNotTreatOtherPinsOrMalformedArgumentsAsAbsent",
+      "unheadedRecoveryRequiresCurrentTrustedScopeAndAnAvailableHeaderSchema",
+      "unheadedRecoveryUsesTheExistingPreparationAcquisitionReserve"
+    ],
+    "freshHeaderWitness": [
+      "Same current trusted binding, repository, exact tool and pull identity",
+      "Exact recovery call ID and canonical action arguments",
+      "Successful existing LIVE transport provenance",
+      "Observation follows the original failed receipt",
+      "No later observed head replaces the acquired lease"
+    ],
+    "restoreScope": "Ordinary regressions serialize and deserialize the complete ordered receipt list, including action arguments and attempt IDs. They do not claim a Room/process-restart execution result.",
+    "budgetScope": "New ordinary preparation control retains existing acquisition reserve; no caller budgets or deadline code changed.",
+    "pinnedPathPreservation": "The original valid-expected-head path and all seven existing method/helper bodies reconstruct byte-for-byte after removing only this addition."
+  },
+  "preCommitPublicReadback": {
+    "headCommit": "e8552961c988df4ba5b89e04f3c3cdaa36cc5a3c",
+    "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+    "draft": true,
+    "updatedAtUtc": "2026-11-24T02:33:36Z"
+  },
+  "integration": {
+    "publicParent": "9473aea1958b4ea55c80e1e4fbae027c8bc95084",
+    "preservedIncoming": "Responses retained backend-work correction and e855 complete-history preflight",
+    "localComponent": "af9bbfa7cb4a8c47c7e2ce973b8eb34fbb561af8",
+    "independentReviewSha256": "1fa135212ab9e0735985e3cfcfd8b8aeea0a3cd4e5130ac6d9e5592cacd1026b",
+    "rootSourceReview": "PASS; exact scoped live-header witness, same authority, single restored allowance and unchanged pinned path",
+    "qualificationBoundary": "Current immutable source and normal final-head project execution remain distinct."
+  }
+}

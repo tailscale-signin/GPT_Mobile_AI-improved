@@ -6,9 +6,15 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.google.mediapipe.tasks.audio.texttospeech.AudioChunk
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.CancellationException
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -69,7 +75,7 @@ class MediaPipeSpeechNativeSmokeTest {
         }
         val openedAt = SystemClock.elapsedRealtime()
         val cache = File(directory, "runtime-cache").also { check(it.mkdirs() || it.isDirectory) }
-        val task = AndroidMediaPipeSpeechTask(MediaPipeSpeechTaskConfiguration(model, cache, false, 1f, descriptor.defaultVoice))
+        val task = ObservedNativeTask(AndroidMediaPipeSpeechTask(MediaPipeSpeechTaskConfiguration(model, cache, false, 1f, descriptor.defaultVoice)))
         val prepareMs = SystemClock.elapsedRealtime() - openedAt
         val engine = MediaPipeVoicePhraseEngine(task, AutoCloseable {}, backend, 1f, descriptor.defaultVoice)
         var evidence: JSONObject? = null
@@ -102,8 +108,13 @@ class MediaPipeSpeechNativeSmokeTest {
                 true
             }
             recovered.finish()
+            val incremental = consumeIncremental(engine, task)
+            val incrementalBefore = cancelNativeStream(task, descriptor.defaultVoice, afterFirstChunk = false, incremental = true)
+            val incrementalAfter = cancelWaitingInput(engine, task)
+            engine.resetCancellation()
+            val incrementalRecovered = consumeIncremental(engine, task)
             evidence = JSONObject()
-                .put("schema", "mediapipe-android-jni-smoke-v1")
+                .put("schema", "mediapipe-android-jni-smoke-v2")
                 .put("scope", "android_jni_checkpoint_smoke")
                 .put("status", "passed")
                 .put("run_id", runId ?: JSONObject.NULL)
@@ -122,6 +133,10 @@ class MediaPipeSpeechNativeSmokeTest {
                 .put("cancel_before_first_read", before)
                 .put("cancel_after_first_chunk", after)
                 .put("recovered_frames", recovered.frames)
+                .put("incremental_stream", incremental)
+                .put("incremental_cancel_before_first_read", incrementalBefore)
+                .put("incremental_cancel_while_waiting_for_text", incrementalAfter)
+                .put("incremental_stream_after_cancellation", incrementalRecovered)
         } finally {
             // If native retirement fails, preserve its files rather than unlink mapped data.
             engine.close()
@@ -132,8 +147,9 @@ class MediaPipeSpeechNativeSmokeTest {
         instrumentation.sendStatus(2, Bundle().apply { putString("mediapipe_smoke_evidence", completedEvidence.toString()) })
     }
 
-    private fun cancelNativeStream(task: MediaPipeSpeechTask, voiceId: String, afterFirstChunk: Boolean): String {
-        task.openStream(CANCEL_FIXTURE, voiceId).use { stream ->
+    private fun cancelNativeStream(task: MediaPipeSpeechTask, voiceId: String, afterFirstChunk: Boolean, incremental: Boolean = false): String {
+        (if (incremental) task.openIncrementalStream(voiceId) else task.openStream(CANCEL_FIXTURE, voiceId)).use { stream ->
+            if (incremental) stream.pushText(FIRST_DELTA)
             if (afterFirstChunk) assertTrue(checkNotNull(stream.readNext()).samples.isNotEmpty())
             stream.cancel()
             val result = runCatching { stream.readNext() }
@@ -147,8 +163,161 @@ class MediaPipeSpeechNativeSmokeTest {
         }
     }
 
+    private fun consumeIncremental(engine: MediaPipeVoicePhraseEngine, task: ObservedNativeTask): JSONObject {
+        val firstPcm = CountDownLatch(1)
+        val frames = VoiceStreamFrames(FIXTURE)
+        val started = SystemClock.elapsedRealtime()
+        var firstPcmMs: Long? = null
+        var supplied = 0
+        var chunks = 0
+        var unicodeCue = false
+        var lastWordCue = false
+        engine.streamInput(
+            nextText = {
+                when (supplied++) {
+                    0 -> FIRST_DELTA
+                    1 -> {
+                        check(firstPcm.await(60, TimeUnit.SECONDS)) { "No native PCM arrived while incremental input remained open." }
+                        LAST_DELTA
+                    }
+                    else -> null
+                }
+            },
+            speaker = 0,
+            speed = 1f
+        ) { chunk ->
+            check(++chunks <= 4_096)
+            if (chunk.samples.isNotEmpty() && firstPcmMs == null) {
+                firstPcmMs = SystemClock.elapsedRealtime() - started
+                firstPcm.countDown()
+            }
+            frames.accept(chunk).forEach { cue ->
+                assertEquals(VoiceWordCueProvenance.ESTIMATED, cue.provenance)
+                unicodeCue = unicodeCue || cue.range == 0..3
+                lastWordCue = lastWordCue || FIXTURE.lastIndex - 1 in cue.range
+            }
+            check(frames.frames <= VOICE_PCM_SAMPLE_RATE * 30L) { "Incremental smoke exceeded its PCM bound." }
+            true
+        }
+        frames.finish()
+        val trace = checkNotNull(task.latestInput)
+        assertEquals(listOf(FIRST_DELTA, LAST_DELTA), trace.pushedText.toList())
+        assertEquals(1, trace.finishCalls.get())
+        assertTrue("Native PCM must precede finishInput and the later text delta", trace.firstPcmBeforeFinish.get())
+        assertTrue("Both ends of the full Unicode input need valid cues", unicodeCue && lastWordCue)
+        assertTrue(trace.closed.get())
+        assertTrue(frames.frames in 1..(VOICE_PCM_SAMPLE_RATE * 30L))
+        return JSONObject()
+            .put("input_mode", "incremental")
+            .put("input_utf8_bytes", FIXTURE.toByteArray(Charsets.UTF_8).size)
+            .put("input_sha256", MessageDigest.getInstance("SHA-256").digest(FIXTURE.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) })
+            .put("text_delta_count", trace.pushedText.size)
+            .put("finish_input_calls", trace.finishCalls.get())
+            .put("first_pcm_before_finish_input", trace.firstPcmBeforeFinish.get())
+            .put("full_input_cues_observed", unicodeCue && lastWordCue)
+            .put("stream_closed", trace.closed.get())
+            .put("frames", frames.frames)
+            .put("emitted_chunks", chunks)
+            .put("first_pcm_ms", checkNotNull(firstPcmMs))
+    }
+
+    private fun cancelWaitingInput(engine: MediaPipeVoicePhraseEngine, task: ObservedNativeTask): JSONObject {
+        val waiting = CountDownLatch(1)
+        val inputRetired = CountDownLatch(1)
+        val holdInput = CountDownLatch(1)
+        var supplied = false
+        var firstPcm = false
+        val started = SystemClock.elapsedRealtime()
+        val outcome = runCatching {
+            engine.streamInput(
+                nextText = {
+                    if (!supplied) {
+                        supplied = true
+                        FIRST_DELTA
+                    } else {
+                        waiting.countDown()
+                        try {
+                            check(holdInput.await(60, TimeUnit.SECONDS)) { "Open-input cancellation did not interrupt the input supplier." }
+                            error("Cancelled input must not be finished.")
+                        } finally {
+                            inputRetired.countDown()
+                        }
+                    }
+                },
+                speaker = 0,
+                speed = 1f
+            ) { chunk ->
+                if (chunk.samples.isNotEmpty()) {
+                    assertTrue("No PCM may be emitted after cancellation", !firstPcm)
+                    firstPcm = true
+                    assertTrue(waiting.await(5, TimeUnit.SECONDS))
+                    engine.cancel()
+                }
+                true
+            }
+        }
+        assertTrue("The real production owner must report cancellation", outcome.exceptionOrNull() is CancellationException)
+        assertTrue(firstPcm)
+        assertEquals(0L, inputRetired.count)
+        val trace = checkNotNull(task.latestInput)
+        assertEquals(listOf(FIRST_DELTA), trace.pushedText.toList())
+        assertEquals(0, trace.finishCalls.get())
+        assertTrue(trace.closed.get())
+        return JSONObject()
+            .put("outcome", "native_cancelled")
+            .put("input_open_at_cancel", true)
+            .put("finish_input_calls", trace.finishCalls.get())
+            .put("first_pcm_observed", firstPcm)
+            .put("input_owner_retired", inputRetired.count == 0L)
+            .put("stream_closed", trace.closed.get())
+            .put("total_ms", SystemClock.elapsedRealtime() - started)
+    }
+
+    /** Observes successful calls to the packaged JNI; every operation delegates to the real SDK. */
+    private class ObservedNativeTask(private val native: MediaPipeSpeechTask) : MediaPipeSpeechTask by native {
+        var latestInput: InputTrace? = null
+            private set
+
+        override fun openIncrementalStream(voiceId: String): MediaPipeSpeechStream {
+            val stream = native.openIncrementalStream(voiceId)
+            val trace = InputTrace().also { latestInput = it }
+            return object : MediaPipeSpeechStream by stream {
+                override fun pushText(text: String) {
+                    stream.pushText(text)
+                    trace.pushedText.add(text)
+                }
+
+                override fun finishInput() {
+                    trace.finishCalls.incrementAndGet()
+                    stream.finishInput()
+                }
+
+                override fun readNext(): AudioChunk? = stream.readNext().also { chunk ->
+                    if (chunk?.samples?.isNotEmpty() == true && trace.firstPcmSeen.compareAndSet(false, true)) {
+                        trace.firstPcmBeforeFinish.set(trace.finishCalls.get() == 0)
+                    }
+                }
+
+                override fun close() {
+                    stream.close()
+                    trace.closed.set(true)
+                }
+            }
+        }
+    }
+
+    private class InputTrace {
+        val pushedText = CopyOnWriteArrayList<String>()
+        val finishCalls = AtomicInteger()
+        val firstPcmSeen = AtomicBoolean()
+        val firstPcmBeforeFinish = AtomicBoolean()
+        val closed = AtomicBoolean()
+    }
+
     private companion object {
-        const val FIXTURE = "Café is ready. The quick brown fox jumps over the lazy dog."
+        const val FIRST_DELTA = "Café is ready. "
+        const val LAST_DELTA = "The quick brown fox jumps over the lazy dog."
+        const val FIXTURE = FIRST_DELTA + LAST_DELTA
         val CANCEL_FIXTURE = "This sentence checks cancellation before the entire request finishes. ".repeat(12)
     }
 }

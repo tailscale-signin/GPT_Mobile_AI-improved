@@ -1,0 +1,184 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "work/privacy-paired-comparison-2026-11-23",
+  "base_sha": "1cc96b1936c1b3f6442cc89441cce3c6ee77daaa",
+  "base_tree": "ba5935499911df8489afe09ccc97150f071b36db",
+  "base_parent": "6ae1763b96c5d9998b31b4ff941a19ffdb24c49d",
+  "parent_pull_request": 2367,
+  "working_branch": "work/privacy-responses-retained-work-2026-11-24",
+  "intent": "Preserve validated retained backend attempts and measured or unknown usage when the actual OpenAI Responses transport rejects HTTP 429, rather than replacing prior work with a known-unsent durable wait. Reuse the existing Chat retained-attempt boundary and preserve all existing transport, privacy, cancellation and recovery behavior.",
+  "state": "COMPONENT_SOURCE_REVIEW_CLEAR_COMBINED_VALIDATION_PENDING",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "responses-retained-backend-work-2026-11-24",
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt",
+    "docs/repairs/responses-retained-backend-work-2026-11-24-task.json"
+  ],
+  "source_finding": "The Responses rejection path retains valid gateway_recovery locally, but without job, reconciliation, command or current-stream payload flags it can throw a generic known-not-accepted cooldown that drops those prior attempts and usage. Chat already avoids that inference when hasRetainedGatewayAttempts is true. This finding predates the 6ae HTTP body-flag repair.",
+  "preservation_requirements": [
+    "All 45 existing OpenAIRecoveryTransportTest methods and their bodies remain unchanged.",
+    "Typed cancellation, tool-definition and PrivateDispatchRejected passthrough remain unchanged.",
+    "Existing job, reconciliation, command, clean HTTP 429 and safe HTTP 402 behavior remain unchanged.",
+    "No credential rotation, replay permission, fabricated completion or fabricated usage is introduced.",
+    "Retained attempt evidence remains bounded by the existing production parser."
+  ],
+  "validation": {
+    "source_review": "PASS for the frozen ordinary regression and public5575 shared refusal correction; all current48 incoming test methods and helpers reconstruct byte-for-byte after removing the added method.",
+    "pinned_ktlint": "PASS: ktlint 1.3.1, SHA256 a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1, changed Kotlin file only; exit 0.",
+    "ordinary_regression": {
+      "method": "responsesHttp429RetainsEarlierBackendAttemptsWithoutReplayOrCredentialRotation",
+      "cases": 2,
+      "execution": "NOT_RUN; normal project CI required",
+      "route": "Actual OpenAIAPIImpl and OpenAIResponsesAdapter with Ktor MockEngine and the existing attachment/network boundary fixtures",
+      "checks": [
+        "A valid selected profile, two configured credentials, Retry-After and durable-wait context reach the real Responses HTTP429 rejection path.",
+        "Only one POST using the first selected credential; no durable-wait decision, replay permission, transport completion or successful completion.",
+        "The entire bounded completed/failed attempt receipt object survives into ProviderEvent.Failed.",
+        "Measured 12-input/7-output tokens remain partial; absent usage stays unknown. The real timing-only INITIAL Usage is retained with HTTP429 and null token counts/finish; no FINAL or completed usage is invented."
+      ]
+    },
+    "local_runtime": "NOT_RUN: no Kotlin, Android, Gradle, provider or alternative privacy harness is authorized for this task.",
+    "canonical_metadata_scope": "Pending final composition by integrating root; preserve every incoming feature reference, release limitation and required main workflow.",
+    "whitespace": "PASS: git diff --check; exit 0.",
+    "preservation": {
+      "prior_test_methods": 45,
+      "new_test_methods": 1,
+      "current_test_methods": 46,
+      "all_prior_test_bytes": "Deleting only the newly inserted method exactly reconstructs the selected base test file.",
+      "production": "OpenAIAPIImpl.kt is byte-identical to base1cc, including typed cancellation and PrivateDispatchRejected catches."
+    },
+    "independent_review_correction": "Replaced the initial blanket no-Usage assertion with the actual INITIAL timing-only event contract after independent source review of Responses metadata mapping. All remaining assertions and all 45 old methods are unchanged."
+  },
+  "checkpoints": [
+    {
+      "stage": "BEFORE_SOURCE_EDIT",
+      "base_sha": "1cc96b1936c1b3f6442cc89441cce3c6ee77daaa",
+      "intent_recorded": true
+    },
+    {
+      "stage": "PRODUCTION_EDIT_DEFERRED",
+      "reason": "A separately reserved shared refusal-classifier correction may cover validated retained attempts through their explicit false retry/replay evidence. Production remains exactly the selected base; review the immutable public correction before choosing any additional production delta."
+    },
+    {
+      "stage": "COMPOSED_ON_REVIEWED_SHARED_CORRECTION",
+      "recorded_at_utc": "2026-11-24T02:09:16.770415+00:00",
+      "parent_commit": "55b8490ffdb7a11d78f9721d422c78b2ea467948",
+      "shared_production_correction": "5575c6fac0ddd21b8d4772f051a5c87360f9d0ad",
+      "old_test_bytes_retained": true,
+      "local_application_runtime_executed": false
+    }
+  ],
+  "existing_positive_controls": [
+    "cleanHttp429StillCreatesADurableWaitThroughBothActualAdapters",
+    "bodyOnlyRemoteEvidencePreventsManual402TimingThroughBothActualAdapters",
+    "typedInFlight402RetainsManualTimingWithoutAutomaticWaitOrCredentialRetryForEitherApi"
+  ],
+  "existing_preserved_negative_controls": [
+    "bodyOnlyRemoteEvidenceRefusesHttp429ThroughBothActualAdapters",
+    "secondBackendRejectionRetainsPriorAttemptsWithoutReplayOrNestedCauseReclassification",
+    "sameFrame429RetainsAcceptedOutputAndUsageBeforeCheckpointOnlyAdapterHandoff",
+    "responsesFailed429RetainsItsReportedUsageAndIdentityThroughTheActualAdapter"
+  ],
+  "qualification": "The initial1cc retained-work defect is corrected by the independently reviewed shared5575 refusal helper. The frozen actual Responses429 regression is composed on55b with all48 incoming methods intact. Source/formatting evidence does not establish runtime behavior; final normal project CI must execute the integrated regression. The separately reserved retained400/tool/transient bypass repair is tracked in its own task ledger.",
+  "integration": {
+    "parent_commit": "55b8490ffdb7a11d78f9721d422c78b2ea467948",
+    "parent_tree": "0fed9629c92110bafc2424d190bc5fe3c099dd05",
+    "shared_production_correction": "5575c6fac0ddd21b8d4772f051a5c87360f9d0ad",
+    "shared_production_review_sha256": "4556bbca13fc963ad9609882de7b96da8970d6023c59b37527e52b1ff0a743ae",
+    "independent_regression_review_sha256": "0e357f5bcb1d82024b1697ae8b17d36c963b0ea480ba9ef43ee6b5d05009d328",
+    "frozen_method_sha256": "543a8b0ae3e9d31b70d753f918701046a1798ec8dcfc297940bd03fbb283ff98",
+    "incoming_methods": 48,
+    "new_methods": 1,
+    "composed_methods_at_this_checkpoint": 49,
+    "incoming_test_preservation": "Removing only the frozen inserted method reconstructs the entire current incoming file, including all three shared-refusal methods and helpers.",
+    "production_delta_for_this_regression": "NONE; shared5575 routes derived false replay/retry flags through the existing typed HTTP refusal before cooldown.",
+    "integrated_owned_paths": [
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt",
+      "docs/repairs/responses-retained-backend-work-2026-11-24-task.json"
+    ],
+    "runtime": "NOT_RUN; require actual ordinary project CI on the final integrated source."
+  },
+  "combined_integration": {
+    "recorded_at_utc": "2026-11-24T02:32:02.642921+00:00",
+    "parent_commit": "e8552961c988df4ba5b89e04f3c3cdaa36cc5a3c",
+    "parent_tree": "2810c6c84fa6516369d1e1244038547089e8c865",
+    "production_sha256": "6c7ff3de07febb795ca2c2df0a60d168a8cd5f1a08657f6f0a29e3c5d72f1465",
+    "test_sha256": "79635b423288c24b5f869947c53c86b821da5a8d383b545a9d9dd57030ea4409",
+    "prior_methods": 48,
+    "new_methods": 4,
+    "total_methods": 52,
+    "new_cases": 22,
+    "all_parent_test_and_helper_bytes_retained": true,
+    "http_rejection_source_review_sha256": "13f06b9a9e58478455be3143e3cb99c1ac20a4724daf7a5b8cabe894d893440d",
+    "http429_source_review_sha256": "0e357f5bcb1d82024b1697ae8b17d36c963b0ea480ba9ef43ee6b5d05009d328",
+    "source_composition_receipt_sha256": "8dfaf31600ab85834616d31061c16a395a0e422edfa5fabd809d1bf81c715861",
+    "canonical_host_and_final_runtime": "PENDING for the exact e855-composed candidate; normal project runtime remains required.",
+    "working_branch": "work/privacy-retained-integration-e855",
+    "incoming_provider_repair_preserved": "Both durable-mode catch-site guards and the complete locked endpoint/model fixture are retained byte-for-byte; reversing only our five substitutions and four additive test blocks reconstructs the full incoming files.",
+    "source_composition_parent": "0e350f23cf41b5b934effa1d8a44307ba8eebbf1",
+    "metadata_only_append": "Historical ed394 audit/checkpoint/reference append changed no application source, tests, scope or handwritten mapping; its retained-work composition bytes remain unchanged.",
+    "security_gate_append": {
+      "commit": "e8552961c988df4ba5b89e04f3c3cdaa36cc5a3c",
+      "source_review_sha256": "46eb3849c4068d160d6b8bd201ab7485e241668ebcee22a3147ccdab9b51aa82",
+      "preservation": "Complete Git patch-stream preflight, separately invoked actual-wrapper regression, corrected earlier scan coverage ledger and release scope are retained unchanged. Application/test/handwritten mapping parent bytes are identical to ed394.",
+      "coverage_limit": "Earlier local6359 count is selected reachable-commit inventory only; retained logs show incomplete traversal. No complete-history or leak-absence pass is inferred. Final complete hosted all-ref scanning remains mandatory."
+    }
+  },
+  "prior_combined_integration": {
+    "recorded_at_utc": "2026-11-24T02:14:21.533981+00:00",
+    "parent_commit": "f06066bc6016100d2ef7ac55c9f36ebb2d954cda",
+    "parent_tree": "b61eafc5ff363ff673ac6cbbab3617166a74895a",
+    "production_sha256": "c09fa42659ae8243cdc06139bedd96b58e2732551914cc50d231ef36b99b8cab",
+    "test_sha256": "0f385d0048c191eb3fc04e73b45f91603568398b166bcd1f9528f6f7022d2600",
+    "prior_methods": 48,
+    "new_methods": 4,
+    "total_methods": 52,
+    "new_cases": 22,
+    "all_parent_test_and_helper_bytes_retained": true,
+    "http_rejection_source_review_sha256": "13f06b9a9e58478455be3143e3cb99c1ac20a4724daf7a5b8cabe894d893440d",
+    "http429_source_review_sha256": "0e357f5bcb1d82024b1697ae8b17d36c963b0ea480ba9ef43ee6b5d05009d328",
+    "source_composition_receipt_sha256": "d60d803d8ce8e13f7fc62cac6244b14aaf08ee2b62ceb2ab878521641bd84861",
+    "canonical_host_and_final_runtime": "PENDING; no application runtime has been executed locally."
+  },
+  "superseded_combined_integrations": [
+    {
+      "recorded_at_utc": "2026-11-24T02:18:37.123085+00:00",
+      "parent_commit": "099603c699bba0b00a0a7380b5b45fc10229296f",
+      "parent_tree": "65fd5af9e09efd129125f3e63a8a95b00efdec5f",
+      "production_sha256": "c09fa42659ae8243cdc06139bedd96b58e2732551914cc50d231ef36b99b8cab",
+      "test_sha256": "0f385d0048c191eb3fc04e73b45f91603568398b166bcd1f9528f6f7022d2600",
+      "prior_methods": 48,
+      "new_methods": 4,
+      "total_methods": 52,
+      "new_cases": 22,
+      "all_parent_test_and_helper_bytes_retained": true,
+      "http_rejection_source_review_sha256": "13f06b9a9e58478455be3143e3cb99c1ac20a4724daf7a5b8cabe894d893440d",
+      "http429_source_review_sha256": "0e357f5bcb1d82024b1697ae8b17d36c963b0ea480ba9ef43ee6b5d05009d328",
+      "source_composition_receipt_sha256": "d60d803d8ce8e13f7fc62cac6244b14aaf08ee2b62ceb2ab878521641bd84861",
+      "canonical_host_and_final_runtime": "PENDING for recomposed source; prior41 private qualification remains recorded separately.",
+      "working_branch": "work/privacy-retained-integration-099"
+    },
+    {
+      "recorded_at_utc": "2026-11-24T02:20:44.830293+00:00",
+      "parent_commit": "ed39449085e693fc36d0ed742c10b2cc56ad8643",
+      "parent_tree": "43864737a585d4608a0886373c44fdd93fb7893b",
+      "production_sha256": "6c7ff3de07febb795ca2c2df0a60d168a8cd5f1a08657f6f0a29e3c5d72f1465",
+      "test_sha256": "79635b423288c24b5f869947c53c86b821da5a8d383b545a9d9dd57030ea4409",
+      "prior_methods": 48,
+      "new_methods": 4,
+      "total_methods": 52,
+      "new_cases": 22,
+      "all_parent_test_and_helper_bytes_retained": true,
+      "http_rejection_source_review_sha256": "13f06b9a9e58478455be3143e3cb99c1ac20a4724daf7a5b8cabe894d893440d",
+      "http429_source_review_sha256": "0e357f5bcb1d82024b1697ae8b17d36c963b0ea480ba9ef43ee6b5d05009d328",
+      "source_composition_receipt_sha256": "8dfaf31600ab85834616d31061c16a395a0e422edfa5fabd809d1bf81c715861",
+      "canonical_host_and_final_runtime": "PENDING for this recomposed source.",
+      "working_branch": "work/privacy-retained-integration-0e350",
+      "incoming_provider_repair_preserved": "Both durable-mode catch-site guards and the complete locked endpoint/model fixture are retained byte-for-byte; reversing only our five substitutions and four additive test blocks reconstructs the full incoming files.",
+      "source_composition_parent": "0e350f23cf41b5b934effa1d8a44307ba8eebbf1",
+      "metadata_only_append": "The incoming audit/checkpoint/reference append changes no application source, tests, scope or handwritten mapping; retained-work composition bytes are unchanged."
+    }
+  ]
+}

@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "artifact": "required-junit-methods.json",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "feature": "Voice pronunciation and vocabulary",
+  "inventory_kind": "Required ordinary JUnit method identities; not a passing CI receipt",
+  "source_binding": {
+    "kind": "immutable_git_blobs",
+    "uploaded_candidate_tests": 7,
+    "unchanged_tests": 2,
+    "unchanged_tests_commit": "e40659976e33b2e305169f66fbb5c017f6e93282",
+    "method_extraction": "Read each complete immutable Kotlin source, extract every @Test function, and check the annotation count equals the unique method count.",
+    "source_hash_algorithm": "Git blob object ID (SHA-1); no source SHA-256 is inferred."
+  },
+  "expected_class_count": 9,
+  "expected_method_count": 128,
+  "ordinary_ci": {
+    "status": "REQUIRED_NOT_ESTABLISHED_BY_THIS_MANIFEST",
+    "require_every_method": true,
+    "missing_methods_are_failure": true,
+    "failed_cancelled_or_skipped_methods_are_not_passes": true,
+    "component_pass_is_not_android_or_project_qualification": true
+  },
+  "historical_component_execution_by_speech_text_worker": {
+    "status": "PASS_OBSERVED_BEFORE_EXECUTOR_UNAVAILABLE",
+    "passed_method_count": 46,
+    "class_counts": [
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.data.voice.VoicePronunciationOverridesTest",
+        "passed_method_count": 7
+      },
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechTextTest",
+        "passed_method_count": 33
+      },
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.data.voice.VoiceStreamingPhrasePlanTest",
+        "passed_method_count": 4
+      },
+      {
+        "class_name": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceTuningPreferencesTest",
+        "passed_method_count": 2
+      }
+    ],
+    "receipt_sha256": "0753cb21c5d4fb50fcffae31e6d1982e7f97c3541eb34c90c2d6c69dd591d443",
+    "historical_receipt_path": "/tmp/pronunciation-audit-projection/final/receipt.json",
+    "historical_runner_path": "/tmp/pronunciation-audit-projection/final/run_final_receipt.py",
+    "receipt_availability": "The final run returned PASS for 46 methods and reported this receipt SHA-256 before the executor became unavailable. Raw local receipt, runner, logs, command arrays, and auxiliary hashes cannot now be reread or uploaded; their bytes have not been reconstructed.",
+    "confirmed_final_helper_source_sha256": "43a609cf36f6e18ca3bd251d38db6d6b48d2978a1a51de4c9684f1aecaa9e707",
+    "observed_compiler_heap_mib": 384,
+    "observed_test_heap_mib": 192,
+    "observed_execution": "Sequential pure JVM suites: projection 44 methods, preferences 2 methods.",
+    "observed_source_and_dependency_stability": "The final runner confirmed that every compiled source and auxiliary dependency was unchanged during execution.",
+    "component_boundaries": [
+      "Current listed projection, correction-helper, streaming-plan, frame-mapper, speech-buffer, reasoning-scanner, rate-policy and preference sources were compiled.",
+      "Existing auxiliary audio and streaming jars supplied unrelated boundary types and a speechChunks helper.",
+      "android-all-14.jar supplied JSONObject for preference compilation.",
+      "No Android project build, device audio, platform callback, model-inference, or full-CI qualification is established."
+    ],
+    "not_executed_by_this_worker": [
+      "dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudioTest: required Mockito dependencies were unavailable locally.",
+      "dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudioTest: bounded component compilation stopped at incomplete recognition, admission, diagnostics and session dependency boundaries.",
+      "Other classes' test execution evidence is owned by the root or normalizer worker and is not inferred in this manifest."
+    ]
+  },
+  "classes": [
+    {
+      "class_name": "dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudioTest",
+      "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
+      "source_git_blob_sha": "073edf3bdfd05fadce250316f45f16ed4ae93f48",
+      "source_ref": null,
+      "required_method_count": 14,
+      "required_methods": [
+        "savedCorrectionsReachAndroidSpeechWhileCallbacksKeepOriginalCaptions",
+        "diagnosticTimingUsesRealTtsCallbacksAndRejectsCancelledUtterances",
+        "speechConfigurationRunsOnWorkerAndIsReusedUntilSettingsChange",
+        "cancellingDuringConfigurationNeverStartsStaleAudio",
+        "completedSpeechRetiresTimeoutAndDuplicateCallbacks",
+        "unrelatedUtteranceCallbacksCannotChangePlaybackOrLeakTheirIdentifier",
+        "completedCallbackCannotIdleLaterPlayback",
+        "failedInitializationReleasesEngineAndNextReplyCanSpeak",
+        "cancelledInitializationFailureDoesNotNotifyOrBlockTheNextReply",
+        "engineConstructionFailureRetiresTimeoutAndAudioFocusBeforeRetry",
+        "stoppingOrClosingDuringBindingNeverCallsStopOnAnUnboundEngine",
+        "preparingVoicesAndClosingAnIdleReadyEngineDoesNotStopIt",
+        "disconnectedPlaybackRetiresItsEngineBeforeTheNextReply",
+        "repeatedStopCancelsQueuedSpeechOnlyOnce"
+      ],
+      "required_in_ordinary_ci": true,
+      "local_component_execution_by_speech_text_worker": "NOT_EXECUTED_BY_THIS_WORKER"
+    },
+    {
+      "class_name": "dev.chungjungsoo.gptmobile.data.voice.KokoroSpeechVocabularyTest",
+      "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt",
+      "source_git_blob_sha": "bb879fb5eb3a94b49f44680ff016f420355cbbb1",
+      "source_ref": null,
+      "required_method_count": 23,
+      "required_methods": [
+        "nonDecomposingLatinNamesRemainSpeakableWithOriginalCaptionRanges",
+        "expandedTitlecaseLigaturesDoNotInventCamelBoundariesForDictionaryMisses",
+        "correctionsComposeWithUnicodeFoldingAndKeepTheOriginalDisplayedTerms",
+        "canonicallyEquivalentCorrectedNamesRetainTheWholeCombiningSequence",
+        "technicalNamesAndLowercaseInitialismsAvoidNativeNonsensePronunciations",
+        "modelAndStandardHyphensNeverTurnVersionLabelsIntoNegativeNumbers",
+        "ordinaryWordsAndEmphasisNeverBecomeHeuristicLetterSpelling",
+        "nativeDictionaryMissesStillUseTheGraphemeFrontendWithoutLosingWords",
+        "dottedInitialismsExpandAsOneSourceTermAndRetainMissingLetterFailure",
+        "commonAbbreviationsExpandWithoutPausingAfterEachLetter",
+        "ordinalsPreserveNumericMeaningAcrossTensHundredsAndScales",
+        "ordinalExpansionsHaveOriginalRangesEvenWhenCrossingThePhraseBudget",
+        "scientificNotationReadsMantissaAndExponentWithTheirSigns",
+        "fractionsAndMixedUnicodeFractionsKeepTheirAmounts",
+        "numericSyntaxIsNeverPartiallyInterpretedAsAnIntegerFraction",
+        "scientificAndFractionAmountsOwnUnitAgreementIncludingCompactSuffixes",
+        "superscriptsKeepExponentMeaningInsteadOfMergingIntoTheBase",
+        "subscriptedFormulaElementsAreReadRatherThanSilentlyJoined",
+        "newNormalizationMaintainsExistingDateCurrencyUnitAndVersionMeaning",
+        "whitespaceChunkBoundariesPreserveNewVocabularyAndContext",
+        "unsupportedScriptsStillFailVisiblyWithoutSpellingInventedPronunciations",
+        "largeExpansionsRemainBoundedAndDoNotLogTheVocabulary",
+        "manyCorrectionsWithOneAccentRetainEveryWordAndBoundedOriginalRanges"
+      ],
+      "required_in_ordinary_ci": true,
+      "local_component_execution_by_speech_text_worker": "NOT_EXECUTED_BY_THIS_WORKER"
+    },
+    {
+      "class_name": "dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudioTest",
+      "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt",
+      "source_git_blob_sha": "9e1af93d3919ad96010b1863f706df543dd1e9e9",
+      "source_ref": null,
+      "required_method_count": 18,
+      "required_methods": [
+        "pronunciationSettingsReachSystemAndLocalOutputsWithTheSameValidatedTerms",
+        "voiceConversationRequiresKokoroAndNeverFallsBackToAndroidSpeech",
+        "projectedReplyAndReplayPreserveLeadingNumbersThroughTheDeferredOutput",
+        "localFailureNeverStartsSystemRecognition",
+        "localSelectionIgnoresSystemQuotaWithoutResettingIt",
+        "selectingSystemIsExplicitAndStopsLocalCapture",
+        "spokenReplyStopsLocalInputAndUsesExistingOutput",
+        "closeIsTerminalAndReleasesBothEnginesOnce",
+        "explicitEngineChangePreservesDraftAndFencesOldCallbacks",
+        "sharedMicrophoneOwnershipRejectsOtherEnginesAndStaleRelease",
+        "missingOrUnknownSavedBackendUsesLocalWithoutSilentSystemFallback",
+        "streamedUnknownPronunciationUsesOfflineSpeechOnlyBeforeKokoroAudio",
+        "streamingFallbackStartsOnceAndRetiredProducerCannotFinishOrReplaceItsFailure",
+        "stoppedStreamingFallbackRejectsBothProducersAndTheDeferredFinish",
+        "strictKokoroOnlySettingStillRejectsOfflineFallback",
+        "kokoroUsesTheExistingPlaybackEntryAndFallsBackOnlyBeforeAudio",
+        "stoppedKokoroCallbacksCannotRestartPlaybackOrContinueTheQueue",
+        "unsupportedLocaleUsesOnlyTheOfflineFallback"
+      ],
+      "required_in_ordinary_ci": true,
+      "local_component_execution_by_speech_text_worker": "NOT_EXECUTED_BY_THIS_WORKER"
+    },
+    {
+      "class_name": "dev.chungjungsoo.gptmobile.data.voice.VoicePronunciationOverridesTest",
+      "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverridesTest.kt",
+      "source_git_blob_sha": "0aa103968685c1c0a1d4cca5b1c83196ac39d019",
+      "source_ref": null,
+      "required_method_count": 7,
+      "required_methods": [
+        "accentedNamesAndLiteralTechnicalTermsCanBeCorrected",
+        "canonicalUnicodeAndCurlyApostrophesMatchWithoutChangingDisplayedOffsets",
+        "onlyWholeTermsMatchAndLongerCorrectionsWin",
+        "replacementsAreNotInterpretedAsMoreDictionaryEntries",
+        "caseFoldingMatchesTheSavedTermEvenWhenUnicodeLowercaseUsesContext",
+        "invalidOrExcessiveCorrectionsNeverEnterSpeech",
+        "unchangedTextAndInvalidCallbackRangesArePreservedSafely"
+      ],
+      "required_in_ordinary_ci": true,
+      "local_component_execution_by_speech_text_worker": "PASS_OBSERVED_ALL_LISTED_METHODS"
+    },
+    {
+      "class_name": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechTextTest",
+      "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt",
+      "source_git_blob_sha": "620c529e08973cee279200b26ce2442af2c7cfc3",
+      "source_ref": null,
+      "required_method_count": 33,
+      "required_methods": [
+        "linkLabelsSurviveWithoutRepeatedAddressPlaceholders",
+        "descriptiveLinkLabelsKeepNumbersWhileDocumentListsOmitTheirMarkers",
+        "codeBodiesAndUnfinishedMarkupNeverBecomeSpeech",
+        "htmlBoundariesRetainReadableWordsWithoutReadingTagsOrComments",
+        "readableFormattingPreservesWordsNumbersAndUnicode",
+        "aHiddenPrefixDoesNotDelayTheOpeningReadablePhrase",
+        "boundedInputCannotExposeATruncatedLinkAndTheLimitNoticeIsSpokenOnce",
+        "captionGrowthPastTheSpeechLimitNeverReplaysOrCutsASurrogatePair",
+        "aWordCrossingTheSpeechLimitStaysInCaptionsWithoutBeingSpokenInPart",
+        "readableInlineProseSurvivesWhileCodeReferencesAndOpaqueCitationsDoNot",
+        "genericUrisStayOnScreenWithoutNarratingRepeatedPlaceholders",
+        "comparisonsRemainSpokenWhileActualHtmlTagsAreOmitted",
+        "comparisonWhitespaceAndCommentsRemainStableAtEverySplit",
+        "explicitReasoningNeverReachesLiveReplayOrFullDetailSpeech",
+        "literalTagsInsideReasoningCannotExposePrivateTextOrHideTheAnswer",
+        "unfinishedQuotedOrCodeReasoningNeverBecomesAnAnswerOnCompletion",
+        "arbitraryWidthInlineBackticksAndMidlineTildesCannotHideTheAnswer",
+        "matchingBackticksOnTheOpeningLineDoNotCreateAnUnclosedFence",
+        "initialReasoningFencesKeepLiteralTagsHiddenAndAcceptLongerClosingRuns",
+        "numericInchAndFeetMarksInReasoningPreserveTheAnswerAndRealQuotes",
+        "literalDetailClosingTagsCannotMoveDetailTextIntoBriefSpeech",
+        "detailsAndTablesStayVisibleButSpeechRequiresExplicitFullDetails",
+        "tableProjectionWaitsForCompleteRowsAndLeavesLiteralBarsAlone",
+        "sourceSectionsDoNotReadLinksOrLoseTheFollowingAnswerSection",
+        "reasoningOnlyRepliesNeverOfferHiddenMaterialAsMoreDetails",
+        "richDetailsPreserveQuotedEscapedIndentedAndTildeFencedTagExamples",
+        "inequalitiesKeepEqualityAndUncertainWordsAreNotGuessedAway",
+        "htmlEntitiesPreserveAccentedWordsAmountsAndMathematicalMeaning",
+        "unknownOrInvalidEntitiesKeepTheirVisibleSpellingWithoutInvalidUnicode",
+        "entityEncodedSourceAddressesStayOutOfSpeechAtEveryStreamingBoundary",
+        "shortTechnicalInlineElementsAreSpokenWhileExecutableCodeRemainsOnScreen",
+        "savedCorrectionsApplyToTheSameLiteralTermsInProseAndInlineElements",
+        "ordinaryIdentifierSeparatorsCannotJoinDistinctWords"
+      ],
+      "required_in_ordinary_ci": true,
+      "local_component_execution_by_speech_text_worker": "PASS_OBSERVED_ALL_LISTED_METHODS"
+    },
+    {
+      "class_name": "dev.chungjungsoo.gptmobile.data.voice.VoiceStreamingPhrasePlanTest",
+      "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt",
+      "source_git_blob_sha": "e81c64f1bd7308f4d0d5d759cc33c3c0582afade",
+      "source_ref": null,
+      "required_method_count": 4,
+      "required_methods": [
+        "aLongSavedReplyIsSplitBeforeInferenceWithoutLosingItsText",
+        "pronunciationExpansionsKeepOriginalCaptionOffsetsInLaterPhrases",
+        "unbrokenUnicodeTextDoesNotSplitSurrogatesOrDropCombiningMarks",
+        "sdkCorrectionsUseFullSymbolicTermsAndKeepOriginalWordCues"
+      ],
+      "required_in_ordinary_ci": true,
+      "local_component_execution_by_speech_text_worker": "PASS_OBSERVED_ALL_LISTED_METHODS"
+    },
+    {
+      "class_name": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceTuningPreferencesTest",
+      "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferencesTest.kt",
+      "source_git_blob_sha": "4a175a980990bbd34165d58026f1249312f8bd94",
+      "source_ref": null,
+      "required_method_count": 2,
+      "required_methods": [
+        "pronunciationEditorPreservesWordsAndRejectsAmbiguousOrExecutableInput",
+        "editorSupportsAccentedNamesAndTechnicalTermsButRejectsCanonicalDuplicates"
+      ],
+      "required_in_ordinary_ci": true,
+      "local_component_execution_by_speech_text_worker": "PASS_OBSERVED_ALL_LISTED_METHODS"
+    },
+    {
+      "class_name": "dev.chungjungsoo.gptmobile.data.voice.KokoroSpeechTextTest",
+      "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechTextTest.kt",
+      "source_git_blob_sha": "10a009fc042b539b785f27d34b6a6d63f83b5e63",
+      "source_ref": "e40659976e33b2e305169f66fbb5c017f6e93282",
+      "required_method_count": 23,
+      "required_methods": [
+        "anOutOfLexiconContractionUsesKnownWordsAtItsOriginalCaptionRange",
+        "technicalInitialismsContinueWithAlignedCaptionsAndLexiconLetters",
+        "distinguishesSpokenAcronymsFromInitialismsAndNames",
+        "projectedStreamChunksKeepNumbersAtChunkStartsInsteadOfReparsingListMarkup",
+        "addressesStayOnScreenAndCodeKeepsItsExistingSpokenNotice",
+        "speaksBuildNumbersPrNumbersAndVersions",
+        "spellsExplicitInitialismsAndPronouncesKnownPartsOfIdentifiers",
+        "nineLetterLexiconMissKeepsItsCaptionAndTheFollowingWordInBothDialects",
+        "onlyOversizedMissesUseABoundedSpokenNotice",
+        "invisibleFormattingCannotTurnAWordIntoSeparateLetters",
+        "pronunciationObservationsContainOnlyCountsAndFiniteReasons",
+        "declinesScriptsAndLettersTheEnglishLexiconCannotSpeak",
+        "boundsLongSentencesAndPreservesTheirWords",
+        "datesAndClockTimesUseContextWithoutGuessingAmbiguousDateOrder",
+        "currencyUnitsAndNegativeValuesKeepTheirAmountsAndExactRanges",
+        "versionsAndAddressesUseDifferentSeparatorsWithoutChangingDigits",
+        "substitutionsShareTheOriginalDateCurrencyAndAccentedNameRanges",
+        "mathOperatorsAndNegationRemainInSpeech",
+        "orderedSegmentsKeepTheSameUnitsDatesTimesAndAddressesAsWholeSpeech",
+        "theLiveEightWordBoundaryRetainsTheAmountForItsFollowingUnit",
+        "contextNeverAppearsInSpokenWordsOrCurrentSegmentCaptionRanges",
+        "aNewSynthesisStreamCannotInheritThePriorReplyContext",
+        "standaloneRateDegreeAndMicrogramNotationNeverBecomesAnOpaqueNativeWord"
+      ],
+      "required_in_ordinary_ci": true,
+      "local_component_execution_by_speech_text_worker": "NOT_EXECUTED_BY_THIS_WORKER"
+    },
+    {
+      "class_name": "dev.chungjungsoo.gptmobile.data.voice.KokoroLexiconTest",
+      "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroLexiconTest.kt",
+      "source_git_blob_sha": "bd2b83b56dacbebc4fa777afab49332f70fa8316",
+      "source_ref": "e40659976e33b2e305169f66fbb5c017f6e93282",
+      "required_method_count": 4,
+      "required_methods": [
+        "parsesNativeWhitespaceAndPhraseFormatsWithoutInventingComponentEntries",
+        "keysUseNativeCompatibleNfcAndSimpleLowercase",
+        "malformedBomEntryIsNotClaimedSpeakableByTheNativeLookup",
+        "pinnedUsAndGbCommonWordsRemainWordsInEveryCapitalization"
+      ],
+      "required_in_ordinary_ci": true,
+      "local_component_execution_by_speech_text_worker": "NOT_EXECUTED_BY_THIS_WORKER"
+    }
+  ]
+}

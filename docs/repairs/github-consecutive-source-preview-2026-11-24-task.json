@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "task": "github-consecutive-source-preview-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "be94fb53e14e9fc0188a87b72f8b224b207fd2af",
+  "baseTree": "cc8e6be5fa5f6820521fa0d42797ddbff2775802",
+  "workingBranch": "work/github-progress-consecutive-be94",
+  "parentPullRequest": 2367,
+  "owner": "root/gateway_final_gate_monitor",
+  "integrationOwner": "root",
+  "recordedBeforeSourceEdits": true,
+  "recordedAtUtc": "2026-11-24T03:10:15.517939+00:00",
+  "authorization": "Root reopened its owned benchmark-smoke-dependency-coverage marker at02:58:57Z and explicitly coordinated the nullablepublicationId/native contract at03:03:46Z. Root assigned controller plus both existing ordinary fixtures; native owner retains DTO/collector/display.",
+  "intent": "Admit direct consecutive authored wording after a qualified evidence-epoch change at unchanged45/135cadence, then assign a new opaque local publication ID after successful admission so the coordinated native display can distinguish fresh publication from replay.",
+  "ownedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgressTest.kt",
+    "docs/repairs/github-consecutive-source-preview-2026-11-24-task.json"
+  ],
+  "preEditSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt": "270ce30e2291eb2a7131c1163007f97e7045b8102acd996f9a2d16a7469a36d4",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt": "3338a34cfeb604b785b2b96a3a0c93630e5d59378e8001dc17b0532adfc998b4",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgressTest.kt": "3f17ec56e88dfb49aa494b9ac3991ed39d59903a7790f203fe0b31ccbec4feed"
+  },
+  "reconstruction": {
+    "previousBase": "e40659976e33b2e305169f66fbb5c017f6e93282",
+    "uncommittedComponentLostInFilesystemReset": true,
+    "priorActions": "The prior epoch-only component and three ordinary controls were written and ktlint FORMAT completed. Subsequent check/inverse/receipt command returned no result; no commit or peer clearance existed.",
+    "currentInputsExactlyMatchPriorPublicBase": true,
+    "newInputBindingRequired": true
+  },
+  "constraints": [
+    "Preserve45/135cadence,256source/history bounds, all source/receipt verification and factual/model ownership. Same source, another call/invocation, formatting or clock alone cannot renew authored wording.",
+    "Locally generated UUID is presentation identity only; overwrite any incomingpublicationId after admission, preserve invocationId and all existing event fields.",
+    "Do not edit ApiState.kt or native collector/display files. Native-owned nullable default-null publicationId is an explicit compilation/integration prerequisite.",
+    "Migrate15existing complete-event equality sites plus2newconsecutive assertions by comparing every pre-existing field exactly and separately asserting a canonical non-null UUID. No other old assertions may change.",
+    "No local Kotlin/Android/application/privacy/provider/device harness or CI retries/cancellations/dispatches. Actual ordinary project execution remains required.",
+    "Root owns final generated references, exact release scope and canonical validation after source composition."
+  ],
+  "status": "LOCAL_COMPONENT_FROZEN_AWAITING_NATIVE_DTO_COMPOSITION_AND_HOSTED_TESTS",
+  "plannedControls": [
+    "DirectA/T45 then freshB samepath/range and sameT180 without intervening prose; no admission179999. Both commit and captured-byte changes.",
+    "UnchangedB/newcall/newinvocation and formatting-only equivalent text remain suppressed.",
+    "Successful routine and immediate transition IDs are opaque, minted only after admission, distinct across fresh publications and do not alter original model invocation/lineage.",
+    "Incoming IDs cannot survive admitted copies; original event values stay immutable.",
+    "All original production bytes outside explicit epoch/publication additions and all old test bytes outside the documented equality migrations reconstruct exactly."
+  ],
+  "result": {
+    "production": "Repeated last authored wording is compared to its actual evidence epoch; source-owned text deduplication and existing authored history remain unchanged. Both admitted routine and meaningful-transition summaries receive fresh local UUIDs, after all admission gates.",
+    "ordinaryRegressions": [
+      "changedCaptureAllowsConsecutiveIdenticalExplanationAtTheOriginalCadence",
+      "unchangedCaptureCannotRepeatConsecutiveExplanationThroughANewCallOrInvocation",
+      "formattingOnlyCannotRepeatConsecutiveExplanationAtTheSameCapture",
+      "immediateAndRoutinePublicationsHaveDistinctLocalIdsWithoutChangingCadenceOrInvocation"
+    ],
+    "oldEqualitySitesMigrated": 15,
+    "newConsecutiveEqualitySites": 2,
+    "allPreExistingFieldsComparedExactly": true,
+    "oldMethodsPreserved": {
+      "GitHubProgressSummaryRegressionTest": 16,
+      "GitHubChatProgressTest": 38
+    },
+    "completeInverseRestoresAllBaselineFiles": true,
+    "sourceAndTestSha256": {
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt": "6fbda70710149f3b7ce78bf7164975ab4139df6e631ad6c5cabfae8f41b714a8",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgressTest.kt": "d8e8bb97d7b304f4ee9da7f127f428b92ff504bb8e96e030a24c4ce52c41e605",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt": "998c2e946b1253dcfe66367c8580ba95bbb6ada0b3613b9569cde02eb9eb1d8f"
+    }
+  },
+  "validation": {
+    "pinnedKtlint": {
+      "version": "1.3.1",
+      "jarSha256": "a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1",
+      "formatExit": 0,
+      "checkExit": 0,
+      "scope": "Only the three owned Kotlin files",
+      "applicationCompilation": false
+    },
+    "sourceCounterfactual": "Static: on the public baseline the unconditional key == lastSummaryKey branch rejects direct A/T45 to fresh B/same T180. The new tests have not been executed locally.",
+    "applicationTestsExecuted": false,
+    "hostedOrdinaryTestsRequired": true,
+    "nativeCompositionRequired": true,
+    "nativePrerequisite": "ApiState.ActivitySummary must gain the separately owned nullable publicationId field; native collector must map it to the existing progress identity and preserve legacy-null deduplication. This isolated component is not a standalone compilable or releasable candidate.",
+    "independentPeerReview": "Required against these frozen functional bytes; receipt is maintained outside this non-self-referential ledger.",
+    "canonicalAndGeneratedScope": "Root integration responsibility after the native component is composed."
+  }
+}

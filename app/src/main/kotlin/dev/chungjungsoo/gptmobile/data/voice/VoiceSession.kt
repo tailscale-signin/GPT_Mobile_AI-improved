@@ -39,6 +39,7 @@ interface VoiceAudio {
     fun listen(listener: Listener)
     fun finishListening() = Unit
     fun configureInterruption(enabled: Boolean, interrupted: (() -> Unit)?) = Unit
+    fun configurePronunciation(overrides: Map<String, String>) = Unit
     fun speak(text: String, complete: () -> Unit, error: (String) -> Unit)
 
     /** Older backends keep their message-only contract; typed producers retain their actual cause. */

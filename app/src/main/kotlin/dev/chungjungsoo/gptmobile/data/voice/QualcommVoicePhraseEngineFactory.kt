@@ -44,7 +44,7 @@ internal class QualcommVoicePhraseEngineFactory(
     private val thermal = context.getSystemService(PowerManager::class.java)
     private val libraryDirectory = context.applicationInfo.nativeLibraryDir
     private val profileDirectory = File(context.cacheDir, "voice-provider-profiles")
-    private val compiledContextDirectory = File(runCatching { context.cacheDir.canonicalFile }.getOrDefault(context.cacheDir), "voice-compiled-contexts-v1")
+    private val compiledContextRoot = context.cacheDir
     private val compiledContextIdentity = Build.FINGERPRINT?.takeIf { it.isNotBlank() && it != "unknown" }?.let { firmware ->
         MessageDigest.getInstance("SHA-256").digest(
             listOf(
@@ -265,8 +265,7 @@ internal class QualcommVoicePhraseEngineFactory(
         // Only HTP has a verified EPContext export path in the pinned plugin.
         // A cache directory failure leaves normal source-model synthesis usable.
         val contextPath = if (selected == VoiceSpeechBackend.QNN_HTP && compiledContextIdentity.isNotEmpty()) {
-            runCatching { compiledContextDirectory.mkdirs() }
-            compiledContextDirectory.absolutePath
+            VoiceCompiledContextDirectory.prepare(compiledContextRoot)
         } else {
             ""
         }

@@ -42,6 +42,14 @@ validation and nonblocking process ownership. A context is published only after
 valid native PCM/timing and provider-profile observations. Loading a cached graph
 does not bypass CPU-reference playback admission.
 
+The Android cache directory is opened without following links, checked against
+the application UID and directory type, restricted to mode 0700 and checked again
+for stable device/inode/path identity. A failed check disables disk persistence.
+Slow context hashing, publication and owner retirement do not hold the short
+cancellation lock. Completion rechecks cancellation under that lock before
+publishing audio and Ready state, so cancellation accepted during finalization
+cannot be reset or reported as a completed reply.
+
 Invalid, stale or unloadable contexts receive one bounded source-model retry.
 GPU context persistence stays disabled where the backend cannot establish
 support. Engine opening, graph compilation, disk-context loading, resident graph
@@ -54,12 +62,27 @@ CPU nodes and initializers, real provider events and numerical equality. This
 validates the narrow context mechanism. It does not qualify the full Kokoro
 graph, a physical phone, listening quality or a performance gain.
 
+A separate required host job builds the current native/JNI code with the exact
+production model/frontend files, ONNX Runtime 1.28.2 and QNN 2.8/QAIRT 2.52 inputs.
+It exercises full-model context store, load and corruption recovery. The model
+contains unseeded random vocoder nodes, so the controls compare token and duration
+identity plus finite, unclipped, non-silent signal statistics; they do not require
+bitwise waveform equality or claim perceptual equivalence. Preparing the inputs
+or passing the lightweight signal controls does not qualify that full-model job.
+
 ## Incremental speech and resident ownership
 
 The SDK path uses its real incremental-input API: one reply stream accepts
 successive text, closes input once, and drains PCM with bounded backpressure.
 Source/caption mapping, finite cue timelines, cancellation and PCM ownership
 remain explicit. Separate phrase streams remain selectable for comparison.
+
+The Linux and Android smoke paths require actual PCM while text input is still
+open, before the second fragment and before input completion, for Kokoro, Phonon
+and Pocket. They also require open-input cancellation, actual owner retirement
+and same-task recovery. The Android v2 receipt rejects missing incremental
+evidence, stale source/model/runtime identity and incomplete cue coverage. The
+existing sealed-input controls and process deadlines remain in force.
 
 Kokoro Auto/64/128/256 token-bucket choices flow from preferences and benchmarks
 to the SDK factory. Bucket selection never truncates a reply. Model, delegate,
@@ -116,6 +139,13 @@ Focused regressions cover native cache integrity and ownership, evidence ABI,
 SDK API/input mapping and retirement, export recovery, bounded streaming,
 model-variant identity and sustained duration. Test manifests identify the source
 snapshot and distinguish host checks from Android or physical execution.
+
+The integration also preserves admitted progress publications through the DTO,
+collector and display using an opaque publication identity distinct from the
+model invocation. Replayed identities cannot allocate another timeline sequence;
+distinct admitted events can retain identical text from the same invocation.
+The controller owns admission and identity creation. Existing legacy events keep
+their fallback comparison and no database migration is needed.
 
 Canonical PR verification, Android/Compose and native builds, model smoke,
 minified memory checks, actual-main workflows and signed-release checks remain

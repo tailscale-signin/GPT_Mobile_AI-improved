@@ -20,6 +20,7 @@
 #endif
 
 #include "kokoro_measurement.h"
+#include "kokoro_cancellation.h"
 #include "kokoro_context_cache.h"
 #include "kokoro_output_validation.h"
 #include "kokoro_pronunciation.h"
@@ -527,33 +528,32 @@ struct Model : Frontend {
     }
     Require(!cancelled.load(), "Kokoro generation cancelled");
     if (result && !env->ExceptionCheck()) {
-      if (active->context_cache) {
-        // A compiled file is not an execution receipt. Publish only after this
-        // exact session has produced structurally valid PCM and real EP events.
-        if (active->context_cache->status == kokoro_runtime::ContextCacheStatus::Pending) {
-          kokoro_runtime::ElapsedMilliseconds timer(context_store_ms);
-          active->context_cache->Commit();
+      kokoro_runtime::FinalizeSpeechGeneration(cancellation_lock, cancelled, [&] {
+        if (active->context_cache) {
+          // A compiled file is not an execution receipt. Publish only after this
+          // exact session has produced structurally valid PCM and real EP events.
+          if (active->context_cache->status == kokoro_runtime::ContextCacheStatus::Pending) {
+            kokoro_runtime::ElapsedMilliseconds timer(context_store_ms);
+            active->context_cache->Commit();
+          }
+          ObserveContext(*active);
+          active->context_cache.reset();
         }
-        ObserveContext(*active);
-        active->context_cache.reset();
-      }
-      completed = true;
-      SetStage("ready", kokoro_runtime::SpeechPhase::Ready);
+      }, [&] {
+        SetStage("ready", kokoro_runtime::SpeechPhase::Ready);
+        completed = true;
+      });
     }
     return result;
   }
 
   void Cancel() {
-    std::lock_guard<std::mutex> lock(cancellation_lock);
-    cancelled.store(true);
-    run_options.SetTerminate();
+    kokoro_runtime::CancelSpeechGeneration(cancellation_lock, cancelled, [&] { run_options.SetTerminate(); });
   }
 
   // Called by the serial synthesis owner once at the start of a new reply.
   void ResetCancellation() {
-    std::lock_guard<std::mutex> lock(cancellation_lock);
-    run_options.UnsetTerminate();
-    cancelled.store(false);
+    kokoro_runtime::ResetSpeechGeneration(cancellation_lock, cancelled, [&] { run_options.UnsetTerminate(); });
   }
 
   sherpa_onnx::OfflineTtsModelConfig config;
@@ -585,7 +585,7 @@ struct Model : Frontend {
   mutable kokoro_runtime::SelectedDevice selected_device;
   mutable const char *stage = "frontend";
   Ort::RunOptions run_options;
-  std::mutex cancellation_lock;
+  mutable std::mutex cancellation_lock;
   std::atomic<bool> cancelled{false};
 };
 

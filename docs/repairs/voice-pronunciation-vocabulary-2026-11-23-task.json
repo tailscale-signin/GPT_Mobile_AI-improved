@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-pronunciation-vocabulary",
+  "userRequest": "Improve voice chat pronunciation so words, vocabulary and meaningful elements are read correctly.",
+  "date": "2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "pullRequest": 2367,
+  "baseMain": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "parentCommit": "e40659976e33b2e305169f66fbb5c017f6e93282",
+  "sourceStatus": "complete",
+  "integrationStatus": "Awaiting current hosted checks and remaining shared source-owner holds.",
+  "originalLocalCandidate": {
+    "commit": "3a2870aa2defd307313e67ffcade7f16d7f08ca6",
+    "tree": "82a19f1a315b1ef9c77f612c6d992b5d17d7aab3",
+    "published": false
+  },
+  "completed": [
+    "Preserve readable entities, accented letters, useful short inline technical elements and source ranges in shared streaming text preparation.",
+    "Extend native English vocabulary for technical brands, initials, abbreviations, supported numeric forms, quantities and model labels.",
+    "Apply bounded literal pronunciation corrections before tokenization across native, SDK and Android speech.",
+    "Preserve original caption alignment, per-utterance correction snapshots and cancellation ownership.",
+    "Add focused regression coverage while retaining all pre-existing ordinary test methods.",
+    "Regenerate application audit inventory and repository feature reference bindings."
+  ],
+  "unchangedApplicationBlobs": {
+    "app/src/main/assets/diagnostics/app-code-inventory.json": "27da2bf394f66d91c392a5a5cead4c3f6c720c12",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt": "97f60a443e5b75538b32386b5090c7f980d9f960",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt": "e68d5706c1edc8052dfe79c095f4d9a3d8ad4b48",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt": "6321dd0349ce63c4345a9a4cdc08b9a05e16ffe0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt": "78a7386adf474af03ea0a560aae3080c1c574847",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt": "d484592738bbc1b6e02eca715d3d0c0dd3cc059d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt": "3b1a3f1a70329008843699c44023a153184074c6",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt": "76d9046c7a2c42b673a8e3ad6fae953658308844",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt": "1cfc3dcb46a723ea7282637c080fe9167949e78d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningConfiguration.kt": "0fddfb80fe1f8ba052cb68c3be37a3e8551fc718",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferences.kt": "de3668227e1568692215c074b6d45654b29c777b",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningSettings.kt": "687bac299527a358b65db248fc8290c4172fe6e4",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt": "073edf3bdfd05fadce250316f45f16ed4ae93f48",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt": "bb879fb5eb3a94b49f44680ff016f420355cbbb1",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt": "9e1af93d3919ad96010b1863f706df543dd1e9e9",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverridesTest.kt": "0aa103968685c1c0a1d4cca5b1c83196ac39d019",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt": "620c529e08973cee279200b26ce2442af2c7cfc3",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt": "e81c64f1bd7308f4d0d5d759cc33c3c0582afade",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTuningPreferencesTest.kt": "4a175a980990bbd34165d58026f1249312f8bd94"
+  },
+  "observedValidation": {
+    "componentJunit": {
+      "passed": 96,
+      "failed": 0,
+      "skipped": 0,
+      "composition": "50 vocabulary/normalizer/lexicon methods plus 46 projection/correction/SDK phrase/editor methods"
+    },
+    "canonicalFast": {
+      "passedHostTests": 711,
+      "failed": 0,
+      "command": "bash scripts/validate-local.sh fast",
+      "log": "docs/repairs/evidence/voice-pronunciation-vocabulary/canonical-fast.log"
+    },
+    "pinnedUsGbLexicon": {
+      "cases": 64,
+      "failures": 0,
+      "sourceSpansInBounds": true
+    },
+    "characterStreamingReplay": {
+      "cases": 48,
+      "matches": 48
+    },
+    "actualNativeFallback": {
+      "sequences": 24,
+      "allNonempty": true,
+      "allPhoneSymbolsSupported": true
+    },
+    "ordinaryRequiredMethods": {
+      "suites": 9,
+      "methods": 128,
+      "inventory": "docs/repairs/evidence/voice-pronunciation-vocabulary/required-junit-methods.json"
+    },
+    "changedKotlinStyle": "ktlint 1.3.1 passed before workspace loss",
+    "scopedReleaseManifest": "Passed before workspace loss; recovery metadata receives separate structural review."
+  },
+  "resourcePreflight": {
+    "fullAndroidBuildAdmitted": false,
+    "result": "UNKNOWN cgroup headroom",
+    "observedMemAvailableBytes": 2264113152,
+    "requiredHeadroomBytes": 9395240960,
+    "requiredHeadroomMiB": 8960,
+    "gatesOrProductionHeapChanged": false
+  },
+  "remainingQualification": [
+    "Ordinary AndroidVoiceAudioTest (14 methods) and VoicePluginAudioTest (18 methods) need hosted execution; local Mockito and complete plugin dependency closure were unavailable.",
+    "Full hosted Android compilation and all required workflows on the actual PR head.",
+    "Other shared source-owner holds, guarded merge, actual-main qualification and coordinated publication.",
+    "Physical-phone listening and performance checks; text and token validation do not prove acoustic accuracy."
+  ],
+  "recovery": {
+    "kind": "Metadata reconstructed after workspace became unavailable during immutable GitHub blob upload.",
+    "applicationAndTestSourceChanged": false,
+    "verifiedUploadCountBeforeLoss": 25,
+    "retainedArtifacts": [
+      "docs/repairs/evidence/voice-pronunciation-vocabulary/canonical-fast.log",
+      "docs/repairs/evidence/voice-pronunciation-vocabulary/VocabularyProbe.kt.txt",
+      "docs/repairs/evidence/voice-pronunciation-vocabulary/StreamingVocabularyProbe.kt.txt"
+    ],
+    "reconstructedArtifacts": [
+      "docs/repairs/voice-pronunciation-vocabulary-2026-11-23.md",
+      "docs/repairs/voice-pronunciation-vocabulary-2026-11-23-task.json",
+      "docs/repairs/evidence/voice-pronunciation-vocabulary/reconstructed-validation.json",
+      "docs/repairs/evidence/voice-pronunciation-vocabulary/required-junit-methods.json",
+      "docs/repairs/evidence/voice-pronunciation-vocabulary/independent-review-reconstructed.json",
+      "release-scope.json",
+      "docs/architecture/feature-map.json (only the two reconstructed document bindings)"
+    ],
+    "unavailableOriginalReceipts": "Unuploaded raw component/probe receipts were lost with the workspace. Recorded hashes and directly observed outcomes are provenance only; no raw replacement logs are fabricated.",
+    "noNewExecutionClaim": true,
+    "finalTreeDiffersFromOriginalLocalTree": "Documentation and release metadata differ; production and test blobs are identical."
+  },
+  "behaviorLimits": [
+    "Sentence-dependent homographs retain existing behavior; broad context substitutions were not introduced.",
+    "Latin letter folding and English replacements do not establish general multilingual speech support.",
+    "Unlisted formulas and dictionary-missing inflections can still use literal readings or predicted stress."
+  ],
+  "integrationOwnership": {
+    "pronunciationSourceReservation": "complete on this append",
+    "preserveAllPredecessorWork": true,
+    "preserveOtherSourceHolds": true,
+    "keepDraftUntilSharedGatesPass": true,
+    "publisher": "Existing coordinated publisher; no competing publication.",
+    "reservedAndroidVersion": "0.9.66.15",
+    "reservedAndroidVersionCode": 149,
+    "reservedGatewayVersion": "18.1.3",
+    "releaseClaimed": false,
+    "physicalDeviceInstalled": false
+  }
+}

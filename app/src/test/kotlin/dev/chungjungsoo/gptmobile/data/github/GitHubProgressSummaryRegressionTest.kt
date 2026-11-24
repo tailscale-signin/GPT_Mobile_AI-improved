@@ -3,10 +3,13 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import java.util.UUID
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -26,7 +29,7 @@ class GitHubProgressSummaryRegressionTest {
         )
         progress.forward(finding)
         clock = 45_000
-        assertEquals(finding, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
+        assertPublishedSummary(finding, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
 
         val correction = ApiState.ActivitySummary(
             "Cancellation reaches Reader.kt through its parent job. The missing guard is in Writer.kt; I’ll inspect that call next.",
@@ -35,7 +38,7 @@ class GitHubProgressSummaryRegressionTest {
         )
         assertEquals(null, progress.forward(correction))
         clock = 180_000
-        assertEquals(correction, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
+        assertPublishedSummary(correction, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
 
         clock = 315_000
         val repeat = finding.copy(text = "**Reader.kt** retries before recording the response. I will check cancellation next.")
@@ -55,7 +58,7 @@ class GitHubProgressSummaryRegressionTest {
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
 
         val finding = ApiState.ActivitySummary("Issue #2440 is still open; its report identifies the export continuation path.", modelAuthored = true)
-        assertEquals(finding, progress.forward(finding))
+        assertPublishedSummary(finding, progress.forward(finding))
         clock = 180_000
         assertEquals(null, progress.forward(ApiState.ActivitySummary("I’m reviewing the latest results.", modelAuthored = true)))
         assertEquals(finding.text, progress.heartbeat())
@@ -63,7 +66,7 @@ class GitHubProgressSummaryRegressionTest {
             "I have completed 3 repository operations. Reader.kt retries before saving the response; I found the race.",
             modelAuthored = true
         )
-        assertEquals(withActivityPrefix, progress.forward(withActivityPrefix))
+        assertPublishedSummary(withActivityPrefix, progress.forward(withActivityPrefix))
     }
 
     @Test fun everyResourceKeepsItsIdentityAndStateWithoutTurningHistoricalTitlesIntoBlockers() {
@@ -133,7 +136,7 @@ class GitHubProgressSummaryRegressionTest {
             val prose = ApiState.ActivitySummary("Issue #2440 is $state. I’ll compare its latest report with the export continuation path.", modelAuthored = true)
             progress.forward(prose)
             clock = 45_000 + index * 135_000L
-            assertEquals(prose, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
+            assertPublishedSummary(prose, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
             assertEquals(1, progress.summarySnapshot().recentSteps.count { it.startsWith("Issue #2440") })
         }
     }
@@ -190,8 +193,305 @@ class GitHubProgressSummaryRegressionTest {
         assertFalse(GitHubRichSummaryPresentation.isRich("Issue #2440 is open; inspect pkg/__init__.py next."))
     }
 
+    @Test fun changedCapturedCommitAllowsEarlierExplanationWithoutPromotingModelProse() {
+        listOf(false, true).forEach { selectedRepositoryDefault ->
+            val fixture = SourcePreviewFixture()
+            val (call, result) = capturedRead("changed-commit", commit = "b".repeat(40))
+            val request = if (selectedRepositoryDefault) call.copy(arguments = JsonObject(call.arguments - "owner" - "repo")) else call
+            val priorFacts = GitHubRichSummaryPresentation.factKeys(fixture.progress.summarySnapshot())
+            fixture.observe(request to result)
+            assertEquals(priorFacts, GitHubRichSummaryPresentation.factKeys(fixture.progress.summarySnapshot()))
+            val explanation = fixture.repeatedExplanation()
+            assertPublishedSummary(explanation, fixture.progress.forward(explanation))
+            assertTrue(explanation.modelAuthored)
+            val source = fixture.progress.summarySnapshot()
+            assertFalse(source.recentSteps.any { it.contains("retries before") || it.contains("Writer.kt") })
+            assertTrue(GitHubRichSummaryPresentation.chartData(GitHubRichSummaryPresentation.render(source)).isEmpty())
+        }
+    }
+
+    @Test fun changedCapturedBytesAtTheSameCommitAllowEarlierExplanation() {
+        val fixture = SourcePreviewFixture()
+        fixture.observe(capturedRead("changed-result", content = "The captured source now includes a cancellation guard."))
+        val explanation = fixture.repeatedExplanation()
+        assertPublishedSummary(explanation, fixture.progress.forward(explanation))
+    }
+
+    @Test fun sameCapturedSourceOnAnotherCallStillSuppressesFormattedRepeats() {
+        val fixture = SourcePreviewFixture()
+        fixture.observe(capturedRead("same-source-new-call"))
+        fixture.assertRepeatedExplanationSuppressed()
+    }
+
+    @Test fun capturedRepositoryAndConnectionKeepSameLookingSourceRangesDistinct() {
+        listOf(
+            capturedRead("other-repository", repo = "other-project"),
+            capturedRead("other-connection", tool = "github_read__second_connection")
+        ).forEach { read ->
+            val fixture = SourcePreviewFixture()
+            val priorFacts = GitHubRichSummaryPresentation.factKeys(fixture.progress.summarySnapshot())
+            fixture.observe(read)
+            assertEquals(priorFacts, GitHubRichSummaryPresentation.factKeys(fixture.progress.summarySnapshot()))
+            val explanation = fixture.repeatedExplanation()
+            assertPublishedSummary(explanation, fixture.progress.forward(explanation))
+        }
+    }
+
+    @Test fun savedSourceIdentitiesCannotRefreshOrReplaceTheCurrentCapture() {
+        listOf("shared", "retained").forEach { mode ->
+            val fixture = SourcePreviewFixture(savedBeforeNarration = mode)
+            val (call, result) = capturedRead("new-saved-source", commit = "c".repeat(40))
+            fixture.observe(call to asSaved(result, mode))
+            fixture.assertRepeatedExplanationSuppressed()
+            fixture.observe(capturedRead("same-current-source"))
+            fixture.assertRepeatedExplanationSuppressed()
+            assertTrue(fixture.progress.summarySnapshot().recentSteps.any { it.startsWith("From saved results:") })
+        }
+    }
+
+    @Test fun missingNegativeAndMismatchedCaptureReceiptsCannotRefreshAuthoredHistory() {
+        listOf(
+            "content-only", "missing-call", "wrong-call", "missing-digest", "invalid-digest", "digest-mismatch",
+            "missing-commit", "invalid-commit", "missing-scope", "wrong-scope", "negative-verification", "unverified-read",
+            "unknown-read-source", "failed-parent", "malformed-parent", "reconciliation", "malformed-context", "wrong-repository"
+        ).forEach { kind ->
+            val fixture = SourcePreviewFixture()
+            val (call, result) = capturedRead("rejected-$kind", commit = "b".repeat(40))
+            val receipt = requireNotNull(result.executionReceipt)
+            val facts = receipt.getValue("semantic_summary") as JsonObject
+            fun withFact(key: String, value: String) = JsonObject(receipt + ("semantic_summary" to JsonObject(facts + (key to JsonPrimitive(value)))))
+            val rejected = when (kind) {
+                "content-only" -> null
+                "missing-call" -> JsonObject(receipt - "saved_view_source_call_id")
+                "wrong-call" -> JsonObject(receipt + ("saved_view_source_call_id" to JsonPrimitive("another-call")))
+                "missing-digest" -> JsonObject(receipt + ("semantic_summary" to JsonObject(facts - "source_result_sha256")))
+                "invalid-digest" -> withFact("source_result_sha256", "not-a-digest")
+                "digest-mismatch" -> JsonObject(receipt + ("saved_view_source_sha256" to JsonPrimitive("f".repeat(64))))
+                "missing-commit" -> JsonObject(receipt + ("semantic_summary" to JsonObject(facts - "commit_sha")))
+                "invalid-commit" -> withFact("commit_sha", "main")
+                "missing-scope" -> JsonObject(receipt + ("semantic_summary" to JsonObject(facts - "hash_scope")))
+                "wrong-scope" -> withFact("hash_scope", "DISPLAY_PAGE")
+                "negative-verification" -> JsonObject(receipt + ("semantic_summary" to JsonObject(facts + ("source_read_verified" to JsonPrimitive(false)))))
+                "unverified-read" -> JsonObject(receipt + ("read_source" to JsonPrimitive("UNVERIFIED")))
+                "unknown-read-source" -> JsonObject(receipt + ("read_source" to JsonPrimitive("UNKNOWN")))
+                "failed-parent" -> JsonObject(receipt + ("parent_result_successful" to JsonPrimitive(false)))
+                "malformed-parent" -> JsonObject(receipt + ("parent_result_successful" to JsonPrimitive("true")))
+                "reconciliation" -> JsonObject(receipt + ("requires_reconciliation" to JsonPrimitive(true)))
+                "malformed-context" -> JsonObject(receipt + ("resource_context" to JsonPrimitive("sample-owner/project")))
+                "wrong-repository" -> JsonObject(receipt + ("resource_context" to json("""{"owner":"another-owner","repo":"project"}""")))
+                else -> error("Unexpected negative control")
+            }
+            fixture.observe(call to result.copy(executionReceipt = rejected))
+            fixture.assertRepeatedExplanationSuppressed()
+        }
+    }
+
+    @Test fun absentRepositoryIdentityAndMismatchedRequestedSourceCannotRefreshTheCapture() {
+        listOf("missing-repository", "wrong-commit", "wrong-path").forEach { kind ->
+            val fixture = SourcePreviewFixture()
+            val (call, result) = capturedRead("rejected-$kind", commit = "b".repeat(40))
+            val changed = if (kind == "missing-repository") {
+                call.copy(arguments = JsonObject(call.arguments - "owner" - "repo")) to
+                    result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) - "resource_context"))
+            } else if (kind == "wrong-commit") {
+                call.copy(arguments = JsonObject(call.arguments + ("commit_sha" to JsonPrimitive("a".repeat(40))))) to result
+            } else {
+                call.copy(arguments = JsonObject(call.arguments + ("path" to JsonPrimitive("src/Other.kt")))) to result
+            }
+            fixture.observe(changed)
+            fixture.assertRepeatedExplanationSuppressed()
+        }
+    }
+
+    @Test fun changedCaptureAllowsConsecutiveIdenticalExplanationAtTheOriginalCadence() {
+        listOf(
+            capturedRead("direct-new-commit", commit = "b".repeat(40)),
+            capturedRead("direct-new-bytes", content = "The captured source now includes a cancellation guard.")
+        ).forEach { changed ->
+            val fixture = ConsecutiveSourcePreviewFixture(capturedRead("direct-initial"))
+            val priorFacts = GitHubRichSummaryPresentation.factKeys(fixture.progress.summarySnapshot())
+            fixture.observe(changed)
+            assertEquals(priorFacts, GitHubRichSummaryPresentation.factKeys(fixture.progress.summarySnapshot()))
+            fixture.clock = 179_999
+            assertEquals(null, fixture.progress.forward(fixture.explanation))
+            assertTrue(fixture.progress.tick().none { it is ApiState.ActivitySummary })
+            fixture.clock = 180_000
+            val repeated = assertPublishedSummary(fixture.explanation, fixture.progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
+            assertNotEquals(fixture.initialPublication.publicationId, repeated.publicationId)
+            assertEquals("supplied-id-must-not-survive", fixture.explanation.publicationId)
+            assertTrue(repeated.modelAuthored)
+            assertEquals("direct-analysis", repeated.invocationId)
+            val source = fixture.progress.summarySnapshot()
+            assertFalse(source.recentSteps.any { it.contains("retries before") })
+            assertTrue(GitHubRichSummaryPresentation.chartData(GitHubRichSummaryPresentation.render(source)).isEmpty())
+        }
+    }
+
+    @Test fun unchangedCaptureCannotRepeatConsecutiveExplanationThroughANewCallOrInvocation() {
+        val fixture = ConsecutiveSourcePreviewFixture(capturedRead("unchanged-initial", commit = "b".repeat(40)))
+        fixture.observe(capturedRead("unchanged-new-call", commit = "b".repeat(40)))
+        fixture.clock = 180_000
+        fixture.assertSuppressed(fixture.explanation.copy(invocationId = "another-invocation"))
+        fixture.clock = 315_000
+        fixture.assertSuppressed(fixture.explanation)
+    }
+
+    @Test fun formattingOnlyCannotRepeatConsecutiveExplanationAtTheSameCapture() {
+        val fixture = ConsecutiveSourcePreviewFixture(capturedRead("format-initial", commit = "b".repeat(40)))
+        fixture.observe(capturedRead("format-new-call", commit = "b".repeat(40)))
+        fixture.clock = 180_000
+        val formatted = fixture.explanation.copy(text = "**Reader.kt** retries before recording the response. I will check cancellation next.")
+        assertEquals(GitHubProgressPresentation.summaryKey(fixture.explanation.text), GitHubProgressPresentation.summaryKey(formatted.text))
+        fixture.assertSuppressed(formatted)
+    }
+
+    @Test fun immediateAndRoutinePublicationsHaveDistinctLocalIdsWithoutChangingCadenceOrInvocation() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Review cancellation") { clock }
+        val introduction = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+        assertOpaquePublicationId(introduction)
+        clock = 10_000
+        complete(progress, "blocked-read", "github_read", """{"path":"src/Reader.kt"}""", "tool_failed")
+        val transition = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+        assertOpaquePublicationId(transition)
+        assertNotEquals(introduction.publicationId, transition.publicationId)
+        assertFalse(transition.modelAuthored)
+        assertEquals(null, transition.invocationId)
+        assertTrue(transition.text.contains("failed"))
+        val selected = ApiState.ActivitySummary(
+            "Reader.kt still needs its source read before I can inspect cancellation.",
+            modelAuthored = true,
+            preview = "selected preview",
+            invocationId = "selected-invocation",
+            publicationId = "provider-supplied-id"
+        )
+        clock = 44_999
+        assertEquals(null, progress.forward(selected))
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+        clock = 45_000
+        val routine = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+        assertEquals(selected.copy(publicationId = null), routine.copy(publicationId = null))
+        assertOpaquePublicationId(routine)
+        assertNotEquals(selected.publicationId, routine.publicationId)
+        assertNotEquals(transition.publicationId, routine.publicationId)
+        assertEquals("provider-supplied-id", selected.publicationId)
+        assertEquals(null, progress.forward(routine))
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+    }
+
+    private inner class ConsecutiveSourcePreviewFixture(initialRead: Pair<ProviderEvent.ToolCall, AgentToolResult>) {
+        var clock = 0L
+        val progress = GitHubChatProgress("Review cancellation") { clock }
+        val explanation = ApiState.ActivitySummary(
+            "Reader.kt retries before recording the response. I’ll check cancellation next.",
+            modelAuthored = true,
+            preview = "captured source preview",
+            invocationId = "direct-analysis",
+            publicationId = "supplied-id-must-not-survive"
+        )
+        val initialPublication: ApiState.ActivitySummary
+
+        init {
+            progress.tick()
+            observe(initialRead)
+            assertEquals(null, progress.forward(explanation))
+            clock = 44_999
+            assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+            clock = 45_000
+            initialPublication = assertPublishedSummary(explanation, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
+        }
+
+        fun observe(read: Pair<ProviderEvent.ToolCall, AgentToolResult>) {
+            val (call, result) = read
+            assertTrue(progress.observeResult(call, result) != null)
+            complete(progress, call.callId, call.name, call.arguments.toString())
+        }
+
+        fun assertSuppressed(candidate: ApiState.ActivitySummary) {
+            assertEquals(null, progress.forward(candidate))
+            assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+            assertEquals(explanation.text, progress.heartbeat())
+        }
+    }
+
+    private inner class SourcePreviewFixture(savedBeforeNarration: String? = null) {
+        var clock = 0L
+        val progress = GitHubChatProgress("Review cancellation") { clock }
+        private val first = ApiState.ActivitySummary("Reader.kt retries before recording the response. I’ll check cancellation next.", modelAuthored = true, invocationId = "analysis-a")
+        private val second = ApiState.ActivitySummary("The cancellation guard is in Writer.kt; I’ll inspect that call next.", modelAuthored = true, invocationId = "analysis-b")
+
+        init {
+            progress.tick()
+            observe(capturedRead("initial-source"))
+            if (savedBeforeNarration != null) {
+                val (call, result) = capturedRead("initial-saved-source", commit = "b".repeat(40))
+                observe(call to asSaved(result, savedBeforeNarration))
+            }
+            progress.forward(first)
+            clock = 45_000
+            assertPublishedSummary(first, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
+            assertEquals(null, progress.forward(second))
+            clock = 180_000
+            assertPublishedSummary(second, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
+            clock = 315_000
+        }
+
+        fun observe(read: Pair<ProviderEvent.ToolCall, AgentToolResult>) {
+            val (call, result) = read
+            assertTrue(progress.observeResult(call, result) != null)
+            complete(progress, call.callId, call.name, call.arguments.toString())
+        }
+
+        fun repeatedExplanation() = first.copy(text = "**Reader.kt** retries before recording the response. I will check cancellation next.", invocationId = "analysis-a-again")
+
+        fun assertRepeatedExplanationSuppressed() {
+            assertEquals(null, progress.forward(repeatedExplanation()))
+            assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+            assertEquals(second.text, progress.heartbeat())
+        }
+    }
+
+    private fun capturedRead(
+        id: String,
+        commit: String = "a".repeat(40),
+        content: String = "The captured source records a response.",
+        repo: String = "project",
+        tool: String = "github_read__first_connection"
+    ): Pair<ProviderEvent.ToolCall, AgentToolResult> {
+        val call = ProviderEvent.ToolCall(id, tool, json("""{"owner":"sample-owner","repo":"$repo","path":"src/Reader.kt","commit_sha":"$commit","start_line":1,"end_line":4}"""))
+        val source = json("""{"commit_sha":"$commit","items":[{"path":"src/Reader.kt","start_line":1,"end_line":4,"range_complete":true,"content":"$content"}]}""")
+        val upstream = AgentToolResult(
+            id,
+            ToolResultContent.Json(source),
+            false,
+            executionReceipt = json("""{"read_source":"LIVE","parent_result_successful":true,"requires_reconciliation":false,"resource_context":{"owner":"sample-owner","repo":"$repo"}}""")
+        )
+        return call to GitHubResultViews().present("progress-source-test", "github_read", tool, upstream, call.arguments)
+    }
+
+    private fun asSaved(result: AgentToolResult, mode: String) = if (mode == "shared") {
+        result.copy(sharedResult = true)
+    } else {
+        result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) + ("read_source" to JsonPrimitive("RETAINED"))))
+    }
+
     private fun complete(progress: GitHubChatProgress, id: String, name: String, args: String, event: String = "tool_completed") {
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = event, toolName = name, toolCallId = id, toolArgs = json(args))))
+    }
+
+    private fun assertPublishedSummary(expected: ApiState.ActivitySummary, actual: ApiState?): ApiState.ActivitySummary {
+        assertTrue(actual is ApiState.ActivitySummary)
+        val published = actual as ApiState.ActivitySummary
+        assertEquals(expected.copy(publicationId = null), published.copy(publicationId = null))
+        assertTrue(expected !== published)
+        assertOpaquePublicationId(published)
+        assertFalse(expected.publicationId == published.publicationId)
+        return published
+    }
+
+    private fun assertOpaquePublicationId(summary: ApiState.ActivitySummary) {
+        val identity = requireNotNull(summary.publicationId)
+        assertEquals(identity, UUID.fromString(identity).toString())
     }
 
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject

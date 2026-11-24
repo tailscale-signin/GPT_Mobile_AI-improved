@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+from contextlib import closing
 import datetime as dt
 import hashlib
 import importlib.metadata
@@ -40,6 +41,7 @@ NATIVE_LIBRARY_SHA256 = "7ce8b23159d3fd4e8b727e35afbfb35f3d45d6bde1ec11cc01c316b
 SAMPLE_RATE = 24_000
 MAX_FRAMES = SAMPLE_RATE * 30
 FIXTURE = "Café is ready. The quick brown fox jumps over the lazy dog."
+INCREMENTAL_PARTS = ("Café is ready. ", "The quick brown fox jumps over the lazy dog.")
 CANCEL_FIXTURE = "This next sentence checks cancellation before the entire request finishes. " * 12
 
 # Keep these immutable publisher identities in sync with MediaPipeSpeechCatalog.kt.
@@ -152,7 +154,29 @@ def prerequisites() -> dict:
     return {"platform": platform.platform(), "python": platform.python_version(), "cpu_topology": topology, "native_sha256": NATIVE_LIBRARY_SHA256}
 
 
-def consume(task, text: str, np) -> dict:
+def input_chunks(task, text: str, *, incremental: bool, evidence: dict):
+    """Drive the real SDK input protocol; the second delta waits for actual PCM."""
+    evidence.update(text_delta_count=0, finish_input_calls=0, first_pcm_before_finish_input=False)
+    if incremental:
+        require(text == "".join(INCREMENTAL_PARTS), "Incremental fixture parts differ from the full input")
+    with task.open_stream(initial_text="" if incremental else text, finish_input=not incremental) as stream:
+        if incremental:
+            stream.push_text(INCREMENTAL_PARTS[0])
+            evidence["text_delta_count"] += 1
+        for chunk in stream:
+            yield chunk
+            if incremental and chunk.samples.size and not evidence["finish_input_calls"]:
+                require(not chunk.is_final, "Incremental stream ended before the remaining input was supplied")
+                evidence["first_pcm_before_finish_input"] = True
+                stream.push_text(INCREMENTAL_PARTS[1])
+                evidence["text_delta_count"] += 1
+                stream.finish_input()
+                evidence["finish_input_calls"] += 1
+    if incremental:
+        require(evidence["first_pcm_before_finish_input"] and evidence["text_delta_count"] == 2 and evidence["finish_input_calls"] == 1, "Incremental input never completed after its first PCM")
+
+
+def consume(task, text: str, np, *, incremental: bool = False) -> dict:
     start = time.monotonic()
     first_pcm = None
     frames = 0
@@ -164,13 +188,14 @@ def consume(task, text: str, np) -> dict:
     final_seen = False
     digest = hashlib.sha256()
     words = {}
+    input_evidence = {}
     boundaries = {0}
     position = 0
     for character in text:
         position += len(character.encode("utf-8"))
         boundaries.add(position)
-    with task.open_stream(initial_text=text, finish_input=True) as stream:
-        for chunk in stream:
+    with closing(input_chunks(task, text, incremental=incremental, evidence=input_evidence)) as chunks_from_sdk:
+        for chunk in chunks_from_sdk:
             require(not final_seen, "SDK emitted a chunk after its terminal chunk")
             require(chunk.sample_rate_hz == SAMPLE_RATE, "Unexpected sample rate")
             samples = chunk.samples
@@ -194,6 +219,10 @@ def consume(task, text: str, np) -> dict:
             final_seen = chunk.is_final
     require(frames >= SAMPLE_RATE // 5 and nonzero > 0 and first_pcm is not None, "No audible PCM reached end-of-stream")
     require(pcm_chunks >= 2, "The two-sentence fixture did not produce incremental PCM chunks")
+    if incremental:
+        require((0, len("Café".encode("utf-8"))) in words, "Incremental UTF-8 first-word cue is missing")
+        final_word_end = len(text.rstrip(".!? \n").encode("utf-8"))
+        require(any(begin < final_word_end <= end for begin, end in words), "Incremental stream lost its final input word")
     # Python's released wrapper rounds seconds to four decimal places (up to 2.4 frames).
     require(all(end * SAMPLE_RATE <= frames + 3 for _, end in words.values()), "Estimated word time exceeds the complete waveform")
     ordered = [value for _, value in sorted(words.items())]
@@ -207,12 +236,19 @@ def consume(task, text: str, np) -> dict:
         "stream_wall_ms": (time.monotonic() - start) * 1000,
         "estimated_word_spans": len(words), "estimated_overlaps": overlaps,
         "zero_duration_estimates": ties,
+        "input_mode": "incremental" if incremental else "single_input",
+        "input_utf8_bytes": len(text.encode("utf-8")),
+        "input_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "full_input_cues_observed": bool(incremental),
+        **input_evidence,
     }
 
 
-def cancellation_probe(task, after_first_chunk: bool) -> dict:
+def cancellation_probe(task, after_first_chunk: bool, *, incremental: bool = False) -> dict:
     started = time.monotonic()
-    with task.open_stream(initial_text=CANCEL_FIXTURE, finish_input=True) as stream:
+    with task.open_stream(initial_text="" if incremental else CANCEL_FIXTURE, finish_input=not incremental) as stream:
+        if incremental:
+            stream.push_text(INCREMENTAL_PARTS[0])
         iterator = iter(stream)
         if after_first_chunk:
             first = next(iterator)
@@ -229,7 +265,7 @@ def cancellation_probe(task, after_first_chunk: bool) -> dict:
             outcome = "native_cancelled"
         else:
             raise RuntimeError("Native stream returned more PCM after cancellation")
-    return {"point": "after_first_chunk" if after_first_chunk else "before_first_read", "outcome": outcome, "cancel_and_close_ms": (time.monotonic() - cancelled_at) * 1000, "total_ms": (time.monotonic() - started) * 1000}
+    return {"point": "after_first_chunk" if after_first_chunk else "before_first_read", "input_mode": "incremental" if incremental else "single_input", "input_open_at_cancel": incremental, "finish_input_calls": 0, "outcome": outcome, "cancel_and_close_ms": (time.monotonic() - cancelled_at) * 1000, "total_ms": (time.monotonic() - started) * 1000}
 
 
 def worker(args, model: dict, model_file: Path, base: dict) -> int:
@@ -253,7 +289,11 @@ def worker(args, model: dict, model_file: Path, base: dict) -> int:
         before = cancellation_probe(task, False)
         after = cancellation_probe(task, True)
         recovered = consume(task, FIXTURE, np)
-    write_json(args.output, base | {"status": "passed", "host": host, "requested_delegate": "CPU", "prepare_ms": opened_ms, "available_voice_ids": sorted(voices), "stream": initial, "cancellation": [before, after], "stream_after_cancellation": recovered})
+        incremental = consume(task, FIXTURE, np, incremental=True)
+        incremental_before = cancellation_probe(task, False, incremental=True)
+        incremental_after = cancellation_probe(task, True, incremental=True)
+        incremental_recovered = consume(task, FIXTURE, np, incremental=True)
+    write_json(args.output, base | {"status": "passed", "host": host, "requested_delegate": "CPU", "prepare_ms": opened_ms, "available_voice_ids": sorted(voices), "stream": initial, "cancellation": [before, after], "stream_after_cancellation": recovered, "incremental_stream": incremental, "incremental_cancellation": [incremental_before, incremental_after], "incremental_stream_after_cancellation": incremental_recovered})
     return 0
 
 

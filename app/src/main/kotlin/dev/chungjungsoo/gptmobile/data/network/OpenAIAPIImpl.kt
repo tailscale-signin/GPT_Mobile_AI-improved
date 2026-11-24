@@ -1111,6 +1111,7 @@ class OpenAIAPIImpl @Inject constructor(
                     ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint) +
                     structuredFailure.orEmpty()
             )
+            val retainedGatewayAttempts = hasRetainedGatewayAttempts(failureDetails)
             providerBudgetFailure(
                 errorBody,
                 response.status.value,
@@ -1138,7 +1139,7 @@ class OpenAIAPIImpl @Inject constructor(
                 return
             }
             val parameter = rejectedSamplingParameter(errorBody)
-            if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown) {
+            if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown && !retainedGatewayAttempts) {
                 val sanitized = when (parameter) {
                     "temperature" -> preparedRequest.copy(temperature = null)
                     "top_p" -> preparedRequest.copy(topP = null)
@@ -1150,7 +1151,7 @@ class OpenAIAPIImpl @Inject constructor(
                     throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
                 }
             }
-            if (response.status.value in listOf(429, 502, 503, 504)) {
+            if (!retainedGatewayAttempts && response.status.value in listOf(429, 502, 503, 504)) {
                 throw ProviderCooldown.rejected(
                     effectiveConfig,
                     response.status.value,
@@ -1163,7 +1164,7 @@ class OpenAIAPIImpl @Inject constructor(
                     limitSource = OpenRouterRateLimitScopes.sourceFromBody(errorBody)
                 )
             }
-            throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
+            if (!retainedGatewayAttempts) throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
             val errorMessage = if (response.status.value in setOf(401, 402, 403)) dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message() else providerErrorDetails(errorBody, "HTTP ${response.status.value}", effectiveConfig.token)
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
@@ -1187,12 +1188,8 @@ class OpenAIAPIImpl @Inject constructor(
                 ResponseErrorEvent(
                     message = if (response.status.value in setOf(401, 402, 403)) errorMessage else effectiveConfig.readableProviderError(errorMessage, response.status.value.toString()),
                     code = response.status.value.toString(),
-                    failureDetails = JsonObject(
-                        rejection + kotlinx.serialization.json.buildJsonObject {
-                            put("http_status", response.status.value)
-                            put("failed_stage", "model_invocation")
-                        }
-                    )
+                    // The bounded backend receipts and refusal flags outrank generic rejection metadata.
+                    failureDetails = JsonObject(rejection + failureDetails)
                 )
             )
             return

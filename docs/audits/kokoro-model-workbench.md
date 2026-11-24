@@ -31,8 +31,18 @@ calibration data, a listening test or a physical Snapdragon benchmark.
 All output directories must be new. Generation takes place in a temporary sibling
 directory and publishes only after the model and manifest are complete. Inputs
 require explicit SHA-256s. External ONNX tensor sidecars, pickle tensors and
-manifest path escapes are rejected. Tensor archives have a 128-MiB memory bound;
+manifest path escapes are rejected. Encoded tensor archives and their expanded
+payloads each have a 128-MiB limit. The workbench checks member counts, duplicate
+names, numeric types, header sizes, ranks, declared dimensions, payload lengths
+and CRCs before NumPy allocates arrays. Both validation and loading use the same
+private archive snapshot, whose SHA-256 must match the explicit input identity.
+The payload limit does not bound the model runtime or comparison scratch space;
 select small intermediates when inspecting large models.
+
+Inspection and comparison reports cannot alias their model, manifest or tensor
+inputs through a direct path, symbolic link or hard link. Reports are staged in a
+private sibling file and atomically replaced only after generation, with alias
+checks repeated before publication. Input files remain intact on a failed report.
 
 ## Inspect and prepare an exact token shape
 

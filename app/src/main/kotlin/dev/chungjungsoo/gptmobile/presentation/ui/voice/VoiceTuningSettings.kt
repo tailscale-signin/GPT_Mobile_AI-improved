@@ -73,8 +73,8 @@ private fun VoicePronunciationEditor(value: Map<String, String>, save: (Map<Stri
             value = editor,
             onValueChange = { if (it.length <= 32_000) editor = it },
             modifier = Modifier.fillMaxWidth().testTag("voice_pronunciation_editor"),
-            label = { Text("Word = spoken pronunciation") },
-            supportingText = { Text("One entry per line. Example: Melo = mellow") },
+            label = { Text("Word or term = spoken pronunciation") },
+            supportingText = { Text("One entry per line, up to 100. Names and terms work too: Melo = mellow, C++ = see plus plus. Write the pronunciation in English words.") },
             minLines = 2,
             maxLines = 6,
             isError = parsed == null

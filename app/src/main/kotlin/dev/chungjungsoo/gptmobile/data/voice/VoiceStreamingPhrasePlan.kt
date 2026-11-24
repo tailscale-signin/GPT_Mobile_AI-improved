@@ -14,33 +14,24 @@ internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, St
     private val characters = BreakIterator.getCharacterInstance(Locale.ROOT)
 
     init {
-        val output = StringBuilder()
-        val positions = mutableListOf<IntRange>()
-        var cursor = 0
-        fun original(end: Int) {
-            while (cursor < end) {
-                output.append(input[cursor])
-                positions += cursor..cursor
-                cursor++
-            }
-        }
-        for (word in wordPattern.findAll(input)) {
-            val replacement = overrides[word.value.lowercase(Locale.ROOT)] ?: continue
-            original(word.range.first)
-            output.append(replacement)
-            repeat(replacement.length) { positions += word.range }
-            cursor = word.range.last + 1
-        }
-        original(input.length)
-        text = output.toString()
-        sources = positions
+        val projection = VoicePronunciationOverrides.project(input, overrides)
+        text = projection.text
+        sources = projection.sourceCharacters
         characters.setText(text)
     }
 
     fun next(wordLimit: Int): VoiceStreamingPhrase? {
-        while (consumed < text.length && text[consumed].isWhitespace()) consumed++
-        if (consumed == text.length) return null
+        var firstContent = consumed
+        while (firstContent < text.length && text[firstContent].isWhitespace()) firstContent++
+        if (firstContent == text.length) {
+            consumed = firstContent
+            return null
+        }
+        // A hard split can stop immediately before a word separator. Keep that
+        // original separator in the following chunk; only initial padding is skipped.
+        if (consumed == 0) consumed = firstContent
         val ceiling = minOf(text.length, consumed + characterLimit)
+        require(firstContent < ceiling) { "STREAM_INPUT_LIMIT" }
         val limit = wordLimit.coerceIn(4, 24)
         var end = consumed
         var words = 0
@@ -55,13 +46,15 @@ internal class VoiceStreamingPhrasePlan(input: String, overrides: Map<String, St
             end = if (ceiling == text.length || characters.isBoundary(ceiling)) ceiling else characters.preceding(ceiling)
             if (end <= consumed) end = characters.following(consumed)
         }
+        // Do not send a whitespace-only phrase or silently discard an oversized
+        // separator to make it fit. The same bound applies to incremental SDK input.
+        require(end > firstContent) { "STREAM_INPUT_LIMIT" }
         val phrase = VoiceStreamingPhrase(text.substring(consumed, end), sources.subList(consumed, end))
         consumed = end
         return phrase
     }
 
     private companion object {
-        val wordPattern = Regex("[\\p{L}]+(?:['’][\\p{L}]+)*")
         val chunkWords = Regex("\\S+\\s*")
     }
 }

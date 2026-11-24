@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import java.util.UUID
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -234,7 +235,7 @@ class GitHubChatProgressTest {
         assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("Reader.kt"))
         clock += 135_000
         val explanation = ApiState.ActivitySummary("Reader.kt retries the request before it records the response. I’ll check how cancellation affects that path.", modelAuthored = true)
-        assertEquals(explanation, progress.forward(explanation))
+        assertPublishedSummary(explanation, progress.forward(explanation))
         clock += 135_000
         assertEquals(null, progress.forward(explanation))
     }
@@ -432,7 +433,7 @@ class GitHubChatProgressTest {
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
         clock = 48_000
         val prose = ApiState.ActivitySummary("The workflow definition identifies the relevant validation jobs. I will now inspect the failed step and compare its output with the repository changes.", modelAuthored = true)
-        assertEquals(prose, progress.forward(prose))
+        assertPublishedSummary(prose, progress.forward(prose))
         val started = ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_ci", toolCallId = "job-log"))
         assertEquals(started, progress.forward(started))
         clock = 48_250
@@ -455,7 +456,7 @@ class GitHubChatProgressTest {
         assertEquals(null, progress.forward(ApiState.ActivitySummary("A generic preview arrived after the selected model.")))
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
         clock = 45_000
-        assertEquals(latest, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
+        assertPublishedSummary(latest, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
     }
 
     @Test fun gatewayCollectionCountsStayAheadOfTheOrdinaryPreviewInterval() {
@@ -477,7 +478,7 @@ class GitHubChatProgressTest {
         progress.tick()
         val prose = ApiState.ActivitySummary("The workflow uses the same validation command as the local build. I’ll inspect the job log to identify the actual failing diagnostic before choosing a repair.", modelAuthored = true)
         clock = 45_000
-        assertEquals(prose, progress.forward(prose))
+        assertPublishedSummary(prose, progress.forward(prose))
         progress.forward(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_ci", toolCallId = "logs")))
         clock = 90_000
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
@@ -496,7 +497,7 @@ class GitHubChatProgressTest {
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "first", toolArgs = args)))
         val fallback = ApiState.ActivitySummary(GitHubProgressNarrator.factualSummary(progress.summarySnapshot()))
         clock = 45_000
-        assertEquals(fallback, progress.forward(fallback))
+        assertPublishedSummary(fallback, progress.forward(fallback))
         assertTrue(fallback.text.contains("Reader.kt"))
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "second", toolArgs = args)))
         clock = 90_000
@@ -689,6 +690,21 @@ class GitHubChatProgressTest {
         assertEquals(counter, progress.forward(counter))
         assertEquals(null, progress.forward(counter))
         assertTrue(progress.tick().isEmpty())
+    }
+
+    private fun assertPublishedSummary(expected: ApiState.ActivitySummary, actual: ApiState?): ApiState.ActivitySummary {
+        assertTrue(actual is ApiState.ActivitySummary)
+        val published = actual as ApiState.ActivitySummary
+        assertEquals(expected.copy(publicationId = null), published.copy(publicationId = null))
+        assertTrue(expected !== published)
+        assertOpaquePublicationId(published)
+        assertFalse(expected.publicationId == published.publicationId)
+        return published
+    }
+
+    private fun assertOpaquePublicationId(summary: ApiState.ActivitySummary) {
+        val identity = requireNotNull(summary.publicationId)
+        assertEquals(identity, UUID.fromString(identity).toString())
     }
 
     private fun json(value: String) = kotlinx.serialization.json.Json.parseToJsonElement(value) as kotlinx.serialization.json.JsonObject

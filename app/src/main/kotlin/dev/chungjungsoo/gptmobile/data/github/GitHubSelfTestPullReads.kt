@@ -76,11 +76,13 @@ internal object GitHubSelfTestPullReads {
                 return@mapNotNull null
             }
             val previous = failed["arguments"] as? JsonObject ?: return@mapNotNull null
-            val expected = (previous["expected_head_sha"] as? JsonPrimitive)?.takeIf { it.isString && revision.matches(it.content) } ?: return@mapNotNull null
+            val expected = (previous["expected_head_sha"] as? JsonPrimitive)?.takeIf { it.isString && revision.matches(it.content) }
             val key = GitHubEvidenceBook.digest("${source.text("binding")}|${source.text("repository")}|${tool.name}|$number|$action").take(24)
             if (observations.any { it.text("call_id") == "pr-head-retry-$key" || it.text("call_id").startsWith("pr-head-retry-$key-") }) return@mapNotNull null
             val current = head(selected.row)
-            val call = if (current != null && !current.content.equals(expected.content, true)) {
+            val call = if (expected == null) {
+                recoverUnheadedContext(tool, observations, selected, failed, previous, "pr-head-retry-$key") ?: return@mapNotNull null
+            } else if (current != null && !current.content.equals(expected.content, true)) {
                 ProviderEvent.ToolCall("pr-head-retry-$key", tool.name, JsonObject(previous + ("expected_head_sha" to current)))
             } else {
                 val id = "pr-head-refresh-" + GitHubEvidenceBook.digest("${source.text("binding")}|${source.text("repository")}|${tool.name}|$number").take(24)
@@ -91,6 +93,49 @@ internal object GitHubSelfTestPullReads {
             }
             call.takeIf { GitHubAuthorizationBoundary.isReplayableRead(it.name, it.arguments) && GitHubSelfTestReads.valid(tool, it.arguments) }
         }.distinctBy { it.callId }
+    }
+
+    /** Acquire a missing lease through this recovery's live header read. */
+    private fun recoverUnheadedContext(
+        tool: AgentToolDefinition,
+        observations: List<JsonObject>,
+        selected: Selection,
+        failed: JsonObject,
+        previous: JsonObject,
+        retryId: String
+    ): ProviderEvent.ToolCall? {
+        if (previous.text("action") != "context" ||
+            setOf("expected_head", "expected_head_sha", "expected_base_sha", "view_cursor").any { it in previous } ||
+            !GitHubSelfTestReads.valid(tool, previous)
+        ) {
+            return null
+        }
+        val source = selected.receipt
+        val number = selected.row.getValue("number")
+        val id = "pr-head-refresh-" + GitHubEvidenceBook.digest("${source.text("binding")}|${source.text("repository")}|${tool.name}|$number").take(24)
+        val arguments = JsonObject(
+            previous.filterKeys { it in setOf("owner", "repo", "pull_number") } +
+                mapOf("action" to JsonPrimitive("headers"), "verify_live" to JsonPrimitive(true))
+        )
+        val attempts = observations.withIndex().filter { (_, receipt) -> receipt.text("call_id") == id || receipt.text("call_id").startsWith("$id-") }
+        if (attempts.isEmpty()) return ProviderEvent.ToolCall(id, tool.name, arguments)
+        // The call ID bounds the refresh across restore; its exact arguments,
+        // transport provenance and position establish the new observation.
+        val refreshed = attempts.singleOrNull()?.takeIf { it.index > observations.lastIndexOf(failed) }?.value ?: return null
+        if (refreshed["success"] != JsonPrimitive(true) ||
+            GitHubEvidenceOrigin.of(refreshed) != "LIVE" ||
+            !GitHubActionIdentity.matches(tool.name, arguments, refreshed)
+        ) {
+            return null
+        }
+        val fresh = detail(refreshed)?.let(::head) ?: return null
+        // A later changed observation cannot renew this recovery's single lease.
+        if (head(selected.row)?.content?.equals(fresh.content, true) != true) return null
+        return ProviderEvent.ToolCall(
+            retryId,
+            tool.name,
+            JsonObject(previous + mapOf("expected_head_sha" to fresh, "verify_live" to JsonPrimitive(true)))
+        )
     }
 
     /** An earlier successful lease does not complete a read of the newly observed head. */

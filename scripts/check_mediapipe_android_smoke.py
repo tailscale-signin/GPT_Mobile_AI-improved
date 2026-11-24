@@ -11,7 +11,7 @@ import sys
 import uuid
 
 from check_native_memory_smoke import check_instrumentation
-from smoke_mediapipe_speech import MAX_FRAMES, MODELS, RUNTIME_VERSION, SAMPLE_RATE, verify_catalog
+from smoke_mediapipe_speech import FIXTURE, MAX_FRAMES, MODELS, RUNTIME_VERSION, SAMPLE_RATE, verify_catalog
 
 
 TEST_CLASS = "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechNativeSmokeTest"
@@ -85,7 +85,7 @@ def verify_provisioning(path, engine):
 def check_receipt(receipt, engine, run_id):
     model = MODELS[engine]
     expected = {
-        "schema": "mediapipe-android-jni-smoke-v1",
+        "schema": "mediapipe-android-jni-smoke-v2",
         "scope": "android_jni_checkpoint_smoke",
         "status": "passed",
         "engine": engine.upper(),
@@ -107,6 +107,34 @@ def check_receipt(receipt, engine, run_id):
         require(type(receipt.get(key)) is int and 0 <= receipt[key] <= 300_000, f"Missing bounded native timing: {key}")
     for key in ("cancel_before_first_read", "cancel_after_first_chunk"):
         require(isinstance(receipt.get(key), str) and receipt[key] in {"native_cancelled", "end_of_stream"}, f"Native cancellation did not complete: {key}")
+    for key in ("incremental_stream", "incremental_stream_after_cancellation"):
+        check_incremental_stream(receipt.get(key), key)
+    before = receipt.get("incremental_cancel_before_first_read")
+    require(isinstance(before, str) and before in {"native_cancelled", "end_of_stream"}, "Open-input cancellation before first read did not complete")
+    cancellation = receipt.get("incremental_cancel_while_waiting_for_text")
+    require(isinstance(cancellation, dict), "Missing cancellation while production input waits")
+    for key, value in {
+        "outcome": "native_cancelled", "input_open_at_cancel": True, "finish_input_calls": 0,
+        "first_pcm_observed": True, "input_owner_retired": True, "stream_closed": True,
+    }.items():
+        require(type(cancellation.get(key)) is type(value) and cancellation[key] == value, f"Open-input cancellation mismatch: {key}")
+    require(type(cancellation.get("total_ms")) is int and 0 <= cancellation["total_ms"] <= 300_000, "Open-input cancellation exceeded its bound")
+
+
+def check_incremental_stream(stream, label):
+    require(isinstance(stream, dict), f"Missing actual incremental stream evidence: {label}")
+    expected = {
+        "input_mode": "incremental", "input_utf8_bytes": len(FIXTURE.encode("utf-8")),
+        "input_sha256": hashlib.sha256(FIXTURE.encode("utf-8")).hexdigest(),
+        "text_delta_count": 2, "finish_input_calls": 1,
+        "first_pcm_before_finish_input": True, "full_input_cues_observed": True,
+        "stream_closed": True,
+    }
+    for key, value in expected.items():
+        require(type(stream.get(key)) is type(value) and stream[key] == value, f"Incremental evidence mismatch: {label}.{key}")
+    require(type(stream.get("frames")) is int and 0 < stream["frames"] <= MAX_FRAMES, f"Missing bounded incremental PCM: {label}")
+    require(type(stream.get("emitted_chunks")) is int and 0 < stream["emitted_chunks"] <= 4096, f"Missing bounded incremental chunks: {label}")
+    require(type(stream.get("first_pcm_ms")) is int and 0 <= stream["first_pcm_ms"] <= 300_000, f"Missing bounded incremental timing: {label}")
 
 
 def check_results(output, engine, run_id):
@@ -164,7 +192,7 @@ def main(argv=None):
             native_receipt=receipt,
         )
         write_status()
-        print(f"Android speech JNI: {args.engine} passed the named test, pinned model, cancellation and recovery checks")
+        print(f"Android speech JNI: {args.engine} passed the named test, pinned model, single/incremental input, cancellation and recovery checks")
         return 0
     except (OSError, UnicodeError, ValueError, RuntimeError) as failure:
         status["reason"] = str(failure)

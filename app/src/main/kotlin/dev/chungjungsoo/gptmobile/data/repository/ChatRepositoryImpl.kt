@@ -4642,17 +4642,16 @@ class ChatRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.requiredToolNames(task + "\n" + platform.systemPrompt.orEmpty() + "\n" + projectInstructions, definitions)
             )
             return dev.chungjungsoo.gptmobile.data.context.LocalRequestPrompt.build(platform.systemPrompt, projectInstructions, relevant.isNotEmpty(), taskRecovery?.action?.name) +
-                datasetInstruction + dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
+                datasetInstruction + dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined) +
+                if (githubMode && relevant.isNotEmpty()) {
+                    dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.agent.toolProgressInstructions(githubMode = true))
+                } else {
+                    ""
+                }
         }
         val recoveryInstruction = taskRecovery?.let { "\nRecovery action: ${it.action.name}. Resume unfinished stages using saved evidence; preserve prior constraints and verify unknown action outcomes before retrying." }.orEmpty()
         val progressInstruction = if (hasTools) {
-            val ordinaryRequests = "\nAnswer ordinary general-knowledge and writing requests directly when tools add no needed evidence. Do not call discover_available_tools just to check what exists."
-            if (githubMode) {
-                ordinaryRequests
-            } else {
-                ordinaryRequests + "\nBefore the first tool call and after every 10 completed tool calls, " +
-                    dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION
-            }
+            dev.chungjungsoo.gptmobile.data.agent.toolProgressInstructions(githubMode)
         } else {
             ""
         }

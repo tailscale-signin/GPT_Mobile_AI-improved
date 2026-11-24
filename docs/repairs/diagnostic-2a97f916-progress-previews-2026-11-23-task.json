@@ -1,0 +1,172 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "diagnostic-2a97f916-progress-previews-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2367,
+  "target_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_branch": "main",
+  "base_sha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "working_branch": "fix/summary-audit-2026-11-23",
+  "captured_app_sha": "bd3d9a69a6dd537862fa909cbc3abb9c9ef02bb7",
+  "observed_public_heads": [
+    "dcaa851dce7fb7f602ed6d230f24bdf69838c06a",
+    "a38d3fc593bb16aa898212c46824d8d3de27aea2",
+    "b50c29febaeb54808a4561955220f5b33bd09253",
+    "55b8490ffdb7a11d78f9721d422c78b2ea467948",
+    "f06066bc6016100d2ef7ac55c9f36ebb2d954cda"
+  ],
+  "local_implementation_checkpoint": "edf256e3fa1090ae9eb18a61527c81f639fda925",
+  "intent": "Audit the supplied diagnostic against the latest PR, offer evidence-backed solutions, and improve empty/repetitive public previews with concise selected-model findings, useful Markdown and provenance-preserving statistics.",
+  "state": "PREVIEW_REPAIR_HOST_VALIDATED_AUDIT_FOLLOWUPS_OPEN_HOSTED_QUALIFICATION_PENDING",
+  "authorization": "User requested examination and solutions for all issues against the latest PR, then explicitly requested improved AI descriptions and previews with Markdown, statistics, tables and graphs when useful. This checkpoint does not import permissions from the captured conversation.",
+  "archive": {
+    "filename": "partial-diagnostics-2a97f916-3e5f-4bc0-9cb9-f72608c5d20f-part-1-37fab0e9-97c7-4bac-bcf4-18b08bd5182d.zip",
+    "app_version": "0.9.66.15",
+    "build": 149,
+    "variant": "debug",
+    "chat_id": 18,
+    "workspace_ref": "main",
+    "workspace_sha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+    "runs": 14,
+    "tool_events": 176,
+    "model_invocations": 88,
+    "conversation_records": 20,
+    "workspace_rows_emitted": 84,
+    "workspace_rows_expected": 805,
+    "workspace_rows_remaining": 721,
+    "coverage": "Partial guarded workspace export; process-wide logs and report history include other chats. Metadata rows and duplicate log copies are not extra operations or failures."
+  },
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubPublicProgress.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PublicProgressInstructions.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolProgressTracker.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressPresentation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubPublicProgressTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PublicProgressInstructionsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ToolRoundInstructionsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryRenderTest.kt",
+    "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23.md",
+    "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json"
+  ],
+  "acceptance": [
+    {
+      "id": "P01",
+      "requirement": "Complete public-preview guidance reaches actual GitHub primary prompts outside bounded repository context, including local-model requests.",
+      "status": "IMPLEMENTED_HELPER_HOST_TESTED_WIRING_REVIEWED",
+      "evidence": [
+        "PublicProgressInstructionsTest",
+        "ToolRoundInstructionsTest"
+      ]
+    },
+    {
+      "id": "P02",
+      "requirement": "Closed public model blocks survive arbitrary chunk boundaries and unfinished later blocks; reasoning and unfinished text remain private.",
+      "status": "IMPLEMENTED_HOST_TESTED",
+      "evidence": [
+        "GitHubPublicProgressTest"
+      ]
+    },
+    {
+      "id": "P03",
+      "requirement": "Admit distinct findings over the same source, suppress known empty/duplicate updates, and preserve recurring blockers, recoveries and resource state changes.",
+      "status": "IMPLEMENTED_HOST_TESTED",
+      "evidence": [
+        "GitHubProgressSummaryRegressionTest",
+        "GitHubChatProgressTest",
+        "GitHubMeaningfulProgressTest"
+      ]
+    },
+    {
+      "id": "P04",
+      "requirement": "Render supported Markdown and retain exact source-owned statistical, chart and CSV provenance without misclassifying resource titles or source filenames.",
+      "status": "LOGIC_HOST_TESTED_COMPOSE_PENDING",
+      "evidence": [
+        "GitHubProgressSummaryRegressionTest",
+        "GitHubRichSummaryPresentationTest",
+        "GitHubRichSummaryRenderTest"
+      ]
+    },
+    {
+      "id": "A01",
+      "requirement": "Record archive coverage, attribution, current-source mechanisms, recommended repairs and remaining qualifications without claiming all bugs repaired.",
+      "status": "AUDIT_RECORDED_FOLLOWUPS_OPEN",
+      "evidence": [
+        "diagnostic-2a97f916-progress-previews-2026-11-23.md"
+      ]
+    }
+  ],
+  "validation": {
+    "host": {
+      "result": "PASS",
+      "tests_run": 116,
+      "failures": 0,
+      "compile_exit": 0,
+      "junit_exit": 0,
+      "full_real_source_inputs": 43,
+      "verbatim_extracted_sections": 20,
+      "source_hashes_match_after_execution": true,
+      "scope": "Actual summary/prompt/parser production logic and JUnit tests with bounded opaque platform shims; host JVM only, not Android compilation, Compose execution or device qualification.",
+      "evidence": [
+        "audit/summary-validation/result.json",
+        "audit/summary-validation/manifest.json",
+        "audit/summary-validation/tests.log"
+      ],
+      "latest_parent_sha": "f06066bc6016100d2ef7ac55c9f36ebb2d954cda",
+      "runtime_seconds": 0.713,
+      "reconciliation": "All43 full-input and20 supporting-section hashes unchanged after importing independent privacy, checkpoint-report attribution, document-test and scanner repairs. Android remains unexecuted locally."
+    },
+    "negative_control": {
+      "tests_run": 8,
+      "expected_failures": 6,
+      "compile_exit": 0,
+      "scope": "Old GitHubChatProgress and GitHubRichSummaryPresentation with the compatible current GitHubProgressPresentation API retained; not a complete old-tree build.",
+      "evidence": "audit/summary-validation/baseline/tests.log"
+    },
+    "android_gradle": "BLOCKED_BEFORE_CONFIGURATION_NO_SPACE_LEFT_ON_DEVICE",
+    "compose_regression": "NOT_RUN",
+    "canonical_fast": {
+      "result": "PASS",
+      "command": "bash scripts/validate-local.sh fast",
+      "script_tests": 711,
+      "script_test_failures": 0,
+      "literal_android_regex_patterns": 2142,
+      "dynamic_regex_patterns_unexecuted": 132,
+      "xml_files": 36
+    },
+    "ktlint_1_3_1": {
+      "result": "PASS",
+      "files": 14,
+      "pinned_checksum_verified": true
+    },
+    "exact_head_hosted": "PENDING",
+    "device": "NOT_RUN"
+  },
+  "preserved_contracts": [
+    "45-second initial and 135-second subsequent routine-summary cadence; meaningful state transitions remain eligible.",
+    "Selected model and invocation lineage, complete public tags, 2400-character public-block cap, private-reasoning and raw-payload boundaries.",
+    "No additional remote narration request; optional private narrator budgets and verification gates unchanged.",
+    "Exact recorded-check source/coverage/count table, chart and CSV contract; model-authored summaries cannot acquire source-owned export actions.",
+    "Authorization, saved-cursor identity, source binding, uncertain-write reconciliation, task acceptance and release gates are not weakened."
+  ],
+  "open_audit_followups": [
+    "Retrospective session intent/evidence projection and preservation of active repair task; corrected preview wording alone does not repair historical evidence binding.",
+    "Concrete no-progress continuation scheduling and durable wake ownership while authorized work and budget remain.",
+    "Explicit local branch-selection reconciliation without bypassing unknown remote-write fences.",
+    "Serialized replay-window sizing and admitted-but-undelivered saved-body recovery; distinguish capacity refusal from missing required evidence.",
+    "Exact provider cooldown propagation and durable automatic resume, reassessed against incoming provider changes and incomplete raw-response evidence.",
+    "Controller-owned terminal cursor/frontier handling and exact-SHA CI attempt selection.",
+    "Bounded phone indexing, full 805-row forensic export continuation, and measured on-device frame/heap behavior."
+  ],
+  "limits": [
+    "The captured build predates reviewed source; source mitigations are not proof of successful device recovery.",
+    "No claim that all bugs are fixed, all original tasks completed, all reports belong to chat 18, or absent retained crash records prove no historical crash.",
+    "No claim of exact proprietary OpenAI preview implementation.",
+    "Root owns final integrated-tree checks, generated metadata, publication decisions and any remote writes."
+  ],
+  "integration_parent_sha": "f06066bc6016100d2ef7ac55c9f36ebb2d954cda"
+}

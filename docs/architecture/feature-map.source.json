@@ -1016,6 +1016,55 @@
         "Explicit unknown audio measurement availability stays unknown on restore; only legacy absence may use the existing compatibility inference.",
         "Persistent context export must pass generation and reload qualification before production activation; the recorded failed host export does not qualify on-disk caching or physical hardware."
       ]
+    },
+    {
+      "id": "github-progress-previews",
+      "title": "Public GitHub progress commentary and evidence-based summaries",
+      "terms": [
+        "preview summaries",
+        "public progress",
+        "markdown summary",
+        "repetitive progress",
+        "check charts"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PublicProgressInstructions.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubPublicProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolProgressTracker.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressPresentation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubDecisionCard.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryChart.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PublicProgressInstructionsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubPublicProgressTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ToolRoundInstructionsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgressTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressNarratorTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryRenderTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23.md",
+        "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json"
+      ],
+      "invariants": [
+        "Primary preview instructions remain outside the bounded repository snapshot and leave tool-free finalization; no extra remote narration call is added.",
+        "Publish completed public commentary with existing output lineage; never use private reasoning as progress text.",
+        "Each closed streamed preview is independent, bounded and owned by one model invocation; incomplete or mixed-origin blocks cannot publish.",
+        "New analysis can use already-read evidence; suppress repeated wording only within the same observed state and preserve new blockers and recoveries.",
+        "Issue and pull-request titles are descriptive data, not evidence of current failures or check counts.",
+        "Charts and exports preserve structured check counts, source identity and complete or incomplete captured coverage.",
+        "Routine summaries retain the existing 45-second first and 135-second follow-up cadence."
+      ]
     }
   ]
 }

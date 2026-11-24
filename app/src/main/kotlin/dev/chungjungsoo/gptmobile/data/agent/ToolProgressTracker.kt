@@ -19,6 +19,8 @@ class ToolProgressTracker {
 
 /** Separates public progress tags across arbitrary streaming chunk boundaries. */
 class PublicProgressParser {
+    internal data class Segment(val progress: Boolean, val text: String, val closesProgress: Boolean = false)
+
     private var pending = ""
     private var inside = false
     val hasPendingText: Boolean get() = pending.isNotEmpty()
@@ -29,20 +31,24 @@ class PublicProgressParser {
         inside = false
     }
 
-    fun accept(chunk: String, flush: Boolean = false): List<Pair<Boolean, String>> {
+    fun accept(chunk: String, flush: Boolean = false): List<Pair<Boolean, String>> =
+        acceptSegments(chunk, flush).filter { it.text.isNotEmpty() }.map { it.progress to it.text }
+
+    /** Closing boundaries survive even when a provider combines several public updates in one chunk. */
+    internal fun acceptSegments(chunk: String, flush: Boolean = false): List<Segment> {
         pending += chunk
-        val result = mutableListOf<Pair<Boolean, String>>()
+        val result = mutableListOf<Segment>()
         while (pending.isNotEmpty()) {
             val marker = if (inside) "</progress_update>" else "<progress_update>"
             val index = pending.indexOf(marker)
             if (index >= 0) {
-                if (index > 0) result += inside to pending.substring(0, index)
+                if (index > 0 || inside) result += Segment(inside, pending.substring(0, index), closesProgress = inside)
                 pending = pending.substring(index + marker.length)
                 inside = !inside
             } else {
                 val keep = if (flush) 0 else (1 until marker.length).lastOrNull { pending.endsWith(marker.take(it)) } ?: 0
                 val length = pending.length - keep
-                if (length > 0) result += inside to pending.take(length)
+                if (length > 0) result += Segment(inside, pending.take(length))
                 pending = pending.takeLast(keep)
                 break
             }

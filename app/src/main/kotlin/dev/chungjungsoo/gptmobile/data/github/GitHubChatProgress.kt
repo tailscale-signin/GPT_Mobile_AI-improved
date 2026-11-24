@@ -46,6 +46,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var pendingSummary: ApiState.ActivitySummary? = null
     private var pendingSummaryRevision = -1L
     private var lastSummaryKey = ""
+    private val publishedAuthoredSummaries = linkedSetOf<Pair<String, String>>()
+    private val resourceStates = linkedMapOf<String, String>()
+    private var summaryEvidenceEpoch = 0L
     private val reportedFactKeys = linkedSetOf<String>()
     private var lastSummaryRevision = -1L
 
@@ -98,9 +101,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         // cannot manufacture a new insight without a previously unreported fact.
         val allFactsReported = factKeys.isNotEmpty() && factKeys.all(reportedFactKeys::contains)
         val noNewFacts = generated == null && factKeys.isEmpty()
-        // The primary model may explain a finding that was first shown as a factual fallback.
-        val firstInterpretation = generated?.modelAuthored == true && !selectedAuthoredSummary
-        if (!initial && (allFactsReported && !firstInterpretation || noNewFacts)) {
+        // New analysis can come from already-read source. Receipt deduplication
+        // governs factual fallbacks; authored explanations have their own history.
+        if (!initial && generated?.modelAuthored != true && (allFactsReported || noNewFacts)) {
             lastSummaryRevision = revision
             return null
         }
@@ -110,14 +113,19 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             return null
         }
         lastSummaryRevision = revision
-        val key = GitHubProgressPresentation.lineKey(candidate.text)
-        if (key.isBlank() || key == lastSummaryKey) return null
+        val key = GitHubProgressPresentation.summaryKey(candidate.text)
+        val publication = key to summaryEvidenceKey(factKeys)
+        if (key.isBlank() || key == lastSummaryKey || candidate.modelAuthored && publication in publishedAuthoredSummaries) return null
         val introduction = initial && generated == null
         summary = candidate.text
         lastSummaryKey = key
         lastSummaryAt = at
         initial = false
         selectedAuthoredSummary = candidate.modelAuthored
+        if (candidate.modelAuthored) {
+            publishedAuthoredSummaries.add(publication)
+            while (publishedAuthoredSummaries.size > 256) publishedAuthoredSummaries.remove(publishedAuthoredSummaries.first())
+        }
         acknowledgeTransitions()
         // Introduction is only a promise, not a completed observation.
         if (!introduction) {
@@ -133,6 +141,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         if (call == null) return
         val key = Triple(call.first, call.second, kind)
         if (key in announcedTransitions || kind != "RECOVERY" && activeTransitionKinds[scope] == kind) return
+        summaryEvidenceEpoch++
         if (kind == "RECOVERY") activeTransitionKinds.remove(scope) else activeTransitionKinds[scope] = kind
         while (activeTransitionKinds.size > 64) activeTransitionKinds.remove(activeTransitionKinds.keys.first())
         pendingTransitions[scope] = MeaningfulTransition(key, text.take(320))
@@ -153,7 +162,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             if (transitions.size > latest.size) "\nAdditional blocker and recovery observations remain in activity details." else ""
         acknowledgeTransitions()
         summary = text
-        lastSummaryKey = GitHubProgressPresentation.lineKey(text)
+        lastSummaryKey = GitHubProgressPresentation.summaryKey(text)
         initial = false
         selectedAuthoredSummary = false
         transitions.map { GitHubProgressPresentation.lineKey(it.text) }.forEach(reportedFactKeys::add)
@@ -291,6 +300,16 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         val observed = resultObservations.remove(progress.toolCallId)
                         val saved = savedResults.remove(progress.toolCallId)
                         val freshResult = observed?.saved != true && !saved
+                        if (freshResult && observed != null) {
+                            observed.resourceStates.forEach { (resource, text) ->
+                                resourceStates.put(resource, text)?.takeIf { it != text }?.let { previous ->
+                                    recentSteps.removeAll { it == previous }
+                                    reportedFactKeys.remove(GitHubProgressPresentation.lineKey(text))
+                                    summaryEvidenceEpoch++
+                                }
+                            }
+                            while (resourceStates.size > 256) resourceStates.remove(resourceStates.keys.first())
+                        }
                         if (observed?.problem != true && freshResult) {
                             resolveProblem(problemScope, observed?.resolvedConditions.orEmpty())?.let {
                                 selectedAuthoredSummary = false
@@ -300,7 +319,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                                 queueTransition(terminalKey, problemScope, "RECOVERY", finding)
                             }
                         }
-                        if (observed != null || sourceFocus(progress.toolArgs).isNotBlank()) selectedAuthoredSummary = false
+                        val sourceRead = name.githubOperationFamily() == "github_read" && sourceFocus(progress.toolArgs).isNotBlank()
+                        if (observed != null || sourceRead) selectedAuthoredSummary = false
                         val nextPreview = observed?.preview ?: previewSequence.offer(
                             previewEvent(name, progress.toolArgs, GitHubPreviewPhase.RESULT)
                         )
@@ -310,10 +330,13 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                             pendingSummary = null
                             if (freshResult) queueTransition(terminalKey, problemScope, "BLOCKER", observed.summary)
                         }
-                        if (observed != null || sourceFocus(progress.toolArgs).isNotBlank() || operation.mutation) {
+                        if (observed != null || sourceRead || operation.mutation) {
                             // Saved facts remain visible as history but cannot replace a current
                             // blocker or change the fresh evidence required to resolve it.
-                            rememberStep(observed?.summary ?: observation(name, false, false, progress.toolArgs), problemScope = problemScope.takeIf { observed?.problem == true && freshResult }, requiredResolutions = observed?.unresolvedConditions.orEmpty(), resolvedConditions = observed?.resolvedConditions.orEmpty())
+                            val steps = observed?.summaries ?: listOf(observation(name, false, false, progress.toolArgs))
+                            steps.forEach { step ->
+                                rememberStep(step, problemScope = problemScope.takeIf { observed?.problem == true && freshResult }, requiredResolutions = observed?.unresolvedConditions.orEmpty(), resolvedConditions = observed?.resolvedConditions.orEmpty())
+                            }
                         } else {
                             revision++
                         }
@@ -326,7 +349,15 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 if (activity != event.text && GitHubProgressPresentation.liveKey(event.text) == null) revision++
                 activity = event.text
             }
-            is ApiState.ActivitySummary -> if (event.text.isNotBlank() && (event.modelAuthored || !selectedAuthoredSummary && pendingSummary?.modelAuthored != true && !GitHubProgressPresentation.isGenericProgress(event.text))) {
+            is ApiState.ActivitySummary -> if (!GitHubProgressPresentation.isEmptySummary(event.text) &&
+                (
+                    event.modelAuthored &&
+                        authoredSummaryKey(event.text) !in publishedAuthoredSummaries ||
+                        !event.modelAuthored &&
+                        !selectedAuthoredSummary &&
+                        pendingSummary?.modelAuthored != true
+                    )
+            ) {
                 pendingSummary = event
                 pendingSummaryRevision = revision
             }
@@ -355,6 +386,11 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     }
 
     @Synchronized fun heartbeat(): String = summary
+
+    private fun authoredSummaryKey(text: String): Pair<String, String> =
+        GitHubProgressPresentation.summaryKey(text) to summaryEvidenceKey(GitHubRichSummaryPresentation.factKeys(summarySnapshot()))
+
+    private fun summaryEvidenceKey(facts: List<String>): String = "$summaryEvidenceEpoch:" + facts.sorted().joinToString("\u001f")
 
     /** Only bounded public facts enter the optional prose request, never raw tool bodies or reasoning. */
     @Synchronized fun summarySnapshot(): GitHubProgressSnapshot = GitHubProgressSnapshot(
@@ -410,7 +446,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             val problem: Boolean = false,
             val saved: Boolean = false,
             val unresolvedConditions: Set<String> = emptySet(),
-            val resolvedConditions: Set<String> = emptySet()
+            val resolvedConditions: Set<String> = emptySet(),
+            val summaries: List<String> = listOf(summary),
+            val resourceStates: Map<String, String> = emptyMap()
         )
 
         private fun problemScope(job: String, name: String, args: JsonObject?): String {
@@ -425,13 +463,15 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             if (operation(name, args).mutation) return null
             fun count(source: JsonObject, key: String) = (source[key] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
             fun quantity(value: Int, noun: String) = "$value $noun" + if (value == 1) "" else "s"
-            fun observation(preview: String, summary: String, problem: Boolean = false, unresolvedConditions: Set<String> = emptySet(), resolvedConditions: Set<String> = emptySet()): ResultObservation = ResultObservation(
+            fun savedSummary(summary: String) = if (saved) "From saved results: ${summary.replaceFirstChar(Char::lowercase)} Current state still needs verification." else summary
+            fun observation(preview: String, summary: String, problem: Boolean = false, unresolvedConditions: Set<String> = emptySet(), resolvedConditions: Set<String> = emptySet(), related: List<String> = emptyList()): ResultObservation = ResultObservation(
                 (if (saved) "Saved results: " else "") + preview + sourceFocus(args).let { if (it.isBlank()) "" else " · $it" },
-                if (saved) "From saved results: ${summary.replaceFirstChar(Char::lowercase)} Current state still needs verification." else summary,
+                savedSummary(summary),
                 problem,
                 saved,
                 unresolvedConditions,
-                resolvedConditions
+                resolvedConditions,
+                (listOf(summary) + related).map(::savedSummary)
             )
             val range = facts["source_range"] as? JsonObject
             if (name.githubOperationFamily() == "github_read" && range != null) {
@@ -472,15 +512,22 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 }
             }
             val resources = (facts["resource_observations"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-            resources.firstOrNull()?.let { resource ->
-                val number = count(resource, "number")
-                val title = (resource["title"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)?.let(GitHubProgressPresentation::taskLabel)
-                val kind = if (resource["resource"] == JsonPrimitive("issue")) "Issue" else "PR"
-                val state = (resource["state"] as? JsonPrimitive)?.contentOrNull?.takeIf { it in setOf("open", "closed", "merged") }
-                if (number != null && title != null) {
-                    val more = if (resources.size > 1) " Other captured resources remain available for inspection." else ""
-                    return observation("$kind #$number: $title", "$kind #$number reports “$title”${state?.let { " and is $it" }.orEmpty()}.$more")
+            val resourceScope = JsonObject(args.filterKeys { it == "owner" || it == "repo" }.toSortedMap()).toString()
+            val resourceSummaries = resources.take(4).mapNotNull { resource ->
+                val number = count(resource, "number")?.takeIf { it > 0 } ?: return@mapNotNull null
+                val kind = when (resource["resource"]) {
+                    JsonPrimitive("issue") -> "Issue"
+                    JsonPrimitive("pull_request") -> "PR"
+                    else -> return@mapNotNull null
                 }
+                val title = (resource["title"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)?.let(GitHubProgressPresentation::taskLabel)
+                val state = (resource["state"] as? JsonPrimitive)?.contentOrNull?.takeIf { it in setOf("open", "closed", "merged") }
+                if (title == null && state == null) return@mapNotNull null
+                "$resourceScope:$kind #$number" to "$kind #$number${state?.let { " is $it" }.orEmpty()}${title?.let { ": “$it”" }.orEmpty()}."
+            }.toMap()
+            if (resourceSummaries.isNotEmpty()) {
+                val summaries = resourceSummaries.values.toList()
+                return observation(summaries.first(), summaries.first(), related = summaries.drop(1)).copy(resourceStates = resourceSummaries)
             }
             if (name.githubOperationFamily() == "github_search") {
                 val returned = count(facts, "returned")

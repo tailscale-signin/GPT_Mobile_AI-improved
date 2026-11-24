@@ -77,6 +77,21 @@ class GitHubRichSummaryRenderTest {
         compose.onNodeWithTag("github_check_count_chart").assertDoesNotExist()
     }
 
+    @Test fun modelAuthoredEmphasisUsesMarkdownWithoutAHeadingAndBulletTemplate() {
+        val text = "**Reader.kt** retries before recording the response. I’ll check cancellation next."
+        compose.setContent {
+            MaterialTheme {
+                GitHubLiveProgressCard(timeline(text).map { it.copy(modelAuthored = true) }, active = false)
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("github_activity_rich_summary").assertExists()
+        compose.onNodeWithText("Reader.kt", substring = true).assertExists()
+        compose.onNodeWithText("**Reader.kt**", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag("github_summary_copy_csv").assertDoesNotExist()
+        compose.onNodeWithTag("github_check_count_chart").assertDoesNotExist()
+    }
+
     @Test fun narrowChartRetainsLargeCountsAndAccessibleStateLabels() {
         val text = summary("Recorded checks: 100000 successful, 1 skipped, 100000 in progress, 1 failed (incomplete captured list).")
         compose.setContent {

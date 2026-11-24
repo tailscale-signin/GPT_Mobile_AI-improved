@@ -51,7 +51,9 @@ data class GitHubConversationContext(
         }
         append("Complete authorized work or name blockers. Use github_watch_checks for requested CI. Discover paths: github_search mode=paths query=*name*. Use file_extension=kt and path_prefix, not extension:/path: qualifiers. Follow continuation_call; view_cursor is an argument on its original tool. Refresh before writes/claims; retain receipts, reconcile uncertain writes and respect cancellation, approvals and budgets.\n")
         append("Cite pinned source by path, lines and digest. Refresh mutable facts. Cite validation at its tested SHA and retain each supported finding when another claim lacks evidence.\n")
-        append("The app reports ordinary tool activity from receipts. Use a closed <progress_update> only for a substantial finding, a change of plan, or a new blocker. In two to four sentences, explain its effect and the next action. Combine related observations across tool rounds. Keep private reasoning private and finish with one complete answer.\n")
+        // Public commentary instructions are added to the primary system prompt.
+        // Keeping them outside this bounded snapshot preserves both progress tags,
+        // including for compact integration context and long repository metadata.
         append("Use github_decide for required consequential choices: 2-4 options, one recommendation. Honor prior answers; never infer write approval.")
     }.let { prompt ->
         if (prompt.length < 2_000) {

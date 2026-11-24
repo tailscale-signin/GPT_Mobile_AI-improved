@@ -463,6 +463,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressContinuationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressNarratorTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressPresentationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProtectedReceiptTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProviderLimitLineageTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPublicAuthClientTest.kt",

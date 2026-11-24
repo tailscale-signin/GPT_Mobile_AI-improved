@@ -23,10 +23,20 @@
       "added_method_count": 5,
       "execution": "REQUIRED_IN_FINAL_ORDINARY_CI_NOT_ESTABLISHED_BY_THIS_MANIFEST",
       "historical_four_method_component_receipt": "PRESERVED_WITHOUT_EXPANDING_ITS_CLAIM"
+    },
+    "literal_ordering_extension": {
+      "task": "docs/repairs/voice-literal-pronunciation-order-2026-11-24-task.json",
+      "prior_required_method_count": 137,
+      "added_in_this_manifest": 2,
+      "additional_required_manifest": "docs/repairs/evidence/voice-literal-pronunciation-order/required-junit-methods.json",
+      "added_implementation_methods": 13,
+      "execution": "REQUIRED_IN_FINAL_ORDINARY_CI_NOT_ESTABLISHED_BY_THIS_MANIFEST",
+      "original_component_added_implementation_methods": 11,
+      "composition_regression_methods": 2
     }
   },
   "expected_class_count": 9,
-  "expected_method_count": 137,
+  "expected_method_count": 139,
   "ordinary_ci": {
     "status": "REQUIRED_NOT_ESTABLISHED_BY_THIS_MANIFEST",
     "require_every_method": true,
@@ -80,10 +90,12 @@
     {
       "class_name": "dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudioTest",
       "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
-      "source_git_blob_sha": "073edf3bdfd05fadce250316f45f16ed4ae93f48",
-      "source_ref": null,
-      "required_method_count": 14,
+      "source_git_blob_sha": "8b952a4bc8f5847cae0db9609cb41ab67a9e566f",
+      "source_ref": "376cd9fa3d0cf4f0db0e0b0dfffac38a82c89321",
+      "required_method_count": 16,
       "required_methods": [
+        "interiorSourceAddressesStayFilteredBeforeAndroidLiteralCorrections",
+        "bufferLiteralCorrectionsKeepAndroidSnapshotCaptionAndCancellationOwnership",
         "savedCorrectionsReachAndroidSpeechWhileCallbacksKeepOriginalCaptions",
         "diagnosticTimingUsesRealTtsCallbacksAndRejectsCancelledUtterances",
         "speechConfigurationRunsOnWorkerAndIsReusedUntilSettingsChange",

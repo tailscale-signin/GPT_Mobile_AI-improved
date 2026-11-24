@@ -330,7 +330,9 @@
     "Carry controller-owned opaque publication identities through progress collection and display, preserving fresh same-text findings within one model invocation and rejecting repeated events before sequence allocation.",
     "Establish one-time empty-owner presentation for Gateway native acceptance, retain all strict control hit assertions, and add bounded failure diagnostics with a matching complete package manifest.",
     "Retain bounded redacted rule/commit/path/line identities from the actual complete-history credential scan while preserving every scanner rule, pin, preflight, strict CI integrity control and failure outcome; refuse malformed, absent or inconsistent report evidence.",
-    "Preserve complete decimal and scientific speech exponents and reject partial dimensional/rate powers while retaining integer/superscript behavior, original caption ranges and every prior pronunciation test."
+    "Preserve complete decimal and scientific speech exponents and reject partial dimensional/rate powers while retaining integer/superscript behavior, original caption ranges and every prior pronunciation test.",
+    "Recover exact historical public-checksum classification from actual source and approved artifact evidence while preserving the pinned full-history scanner.",
+    "Retain all38 scanner controls and add56 exact-declaration and frozen-receipt boundary controls; exercise all three actual Git-integrity fixtures without broad exceptions."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -830,6 +832,7 @@
     "docs/repairs/calibration-preference-scanner-2026-11-23-task.json",
     "docs/repairs/catalog-alias-issue2378-2026-11-23-task.json",
     "docs/repairs/catalog-query-issues2380-2381-2026-11-23-task.json",
+    "docs/repairs/checksum-history-recovery-2026-11-24-task.json",
     "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json",
     "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23.md",
     "docs/repairs/diagnostic-93d824fd-checkpoint-evidence-2026-11-24-task.json",
@@ -846,6 +849,9 @@
     "docs/repairs/diagnostic-readiness-selection-2026-11-24-task.json",
     "docs/repairs/diagnostic-voice-audit-2026-11-23-task.json",
     "docs/repairs/emulator-early-input-readiness-2026-11-23-task.json",
+    "docs/repairs/evidence/checksum-history-recovery-2026-11-24/classification.json",
+    "docs/repairs/evidence/checksum-history-recovery-2026-11-24/outer-integrity.json",
+    "docs/repairs/evidence/checksum-history-recovery-2026-11-24/pin-controls.json",
     "docs/repairs/evidence/secret-history-finding-evidence/finding.stderr.log",
     "docs/repairs/evidence/secret-history-finding-evidence/finding.stdout.log",
     "docs/repairs/evidence/secret-history-finding-evidence/focused-result.json",

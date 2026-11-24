@@ -444,7 +444,7 @@ def _valid_value(key, value):
     if key in {"composer_focus_transitions", "composer_ime_transitions"}:
         return 0 <= value <= 255
     if key == "voice_playback_focus_attempts":
-        return 1 <= value <= 2
+        return 1 <= value <= 3
     if key == "voice_generation" or key in GITHUB_COOLDOWN_LONGS:
         return 0 <= value <= 9_223_372_036_854_775_807
     if key == "gateway_protocol_version":

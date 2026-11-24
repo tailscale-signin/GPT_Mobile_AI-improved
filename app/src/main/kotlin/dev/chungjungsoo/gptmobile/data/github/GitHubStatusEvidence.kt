@@ -75,6 +75,20 @@ internal object GitHubStatusEvidence {
     fun operation(receipt: JsonObject, tool: String, action: String): Boolean =
         GitHubOperationTool.operationName(receipt.text("tool")) == tool && (receipt["arguments"] as? JsonObject)?.text("action") == action
 
+    fun changedCheckHead(arguments: JsonObject, data: JsonObject): String? {
+        if (arguments["action"] != JsonPrimitive("checks")) return null
+        val progress = data["pagination_progress"] as? JsonObject ?: return null
+        val sha = data.text("commit_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return null
+        val selected = arguments["commit_sha"] as? JsonPrimitive
+        return sha.takeIf {
+            (selected == null || selected.content == sha) &&
+                (progress.integer("remote_page") ?: 0) >= 2 &&
+                (progress.integer("duplicate_records_on_page") ?: 0) > 0 &&
+                progress["contiguous_from_first_page"] == JsonPrimitive(true) &&
+                progress["upstream_changed_during_traversal"] == JsonPrimitive(true)
+        }
+    }
+
     fun checks(receipts: Map<String, JsonObject>, head: String, now: Long, epoch: Long?): CheckInventory {
         if (!head.matches(Regex("[a-fA-F0-9]{40}"))) return CheckInventory()
         val pages = linkedMapOf<Int, Pair<String, JsonObject>>()

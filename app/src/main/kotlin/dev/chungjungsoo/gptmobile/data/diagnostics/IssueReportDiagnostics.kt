@@ -178,6 +178,7 @@ internal data class IssueReportDiagnostics(
         if (VoiceExecutionDiagnostics.requiresStreamingBackendSupport(values)) add(VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE)
         if ((values.keys + omittedFields + unavailableFields).any { it == "claim_extraction_validation_stage" || it == "github_prerequisite_observation" }) add("GITHUB_VALIDATION_CONTEXT_V1")
         if ("voice_playback_audio_mode" in values || "voice_playback_audio_mode" in omittedFields) add("AUDIO_FOCUS_MODE_V1")
+        if (values["voice_playback_focus_attempts"] == JsonPrimitive(3)) add(VOICE_FOCUS_RETRIES_FEATURE)
         if ((values.keys + omittedFields).any { it in voiceCapturePlaybackFields || it in voicePackStateFields }) add("VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in composerEvidenceFields }) add("COMPOSER_IME_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in completionEvidenceFields } || values["provider_failure_code"] == JsonPrimitive("TOOL_PROTOCOL_INVALID_FRAME")) add("COMPLETION_EVIDENCE_V1")
@@ -249,6 +250,7 @@ internal data class IssueReportDiagnostics(
         const val RECOVERY_REPORT_FEATURE = "RECOVERY_REPORT_EVIDENCE_V1"
         const val MISSING_TOOL_IDENTITY_FEATURE = "CATALOG_MISSING_TOOL_IDENTITY_V1"
         const val POLICY_SELECTION_FEATURE = "GITHUB_POLICY_SELECTION_FIELDS_V1"
+        const val VOICE_FOCUS_RETRIES_FEATURE = "VOICE_FOCUS_RETRY_COUNT_V1"
         private const val LEGACY_POLICY_FIELD_LIMIT = 81
         private val policySelectionFields = setOf("githubProfileOverride.nextActionPolicy", "githubProfileOverride.evidenceElaboration", "githubProfileOverride.primaryPatchReviewConsent")
         internal val researchCriteria = setOf("WRITER_INCOMPLETE", "NO_ACQUISITION_PACKET", "NO_READABLE_SOURCES", "DELIVERY_VERIFICATION", "EMPTY_REPORT", "UNKNOWN_CITATION", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED", "MISSING_SECTION", "OMITTED_LEADING_STUDY", "OMITTED_UNREAD_LEAD", "UNSOURCED_SCIENTIFIC_PARAGRAPH", "METADATA_PRESENTED_AS_READ", "NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE", "UNREGISTERED_REFERENCE_URL", "DIRECT_REFERENCE_MISSING", "QUESTION_EVIDENCE_NOT_CITED", "QUESTION_EVIDENCE_UNCOVERED", "QUESTION_EVIDENCE_METADATA_REQUIRED", "EVIDENCE_CLAIM_NOT_COVERED", "COUNTEREVIDENCE_NOT_DISCLOSED")
@@ -808,7 +810,7 @@ internal data class IssueReportDiagnostics(
                 "composer_events_dropped" -> 0L..16_000_000L
                 in composerAgeFields -> 0L..600_000L
                 "composer_focus_transitions", "composer_ime_transitions" -> 0L..255L
-                "voice_playback_focus_attempts" -> 1L..2L
+                "voice_playback_focus_attempts" -> 1L..3L
                 "voice_generation" -> 0..Long.MAX_VALUE
                 "voice_install_progress_percent" -> 0L..100L
                 "voice_install_downloaded_bytes", "voice_install_total_bytes" -> 0L..1_000_000_000L

@@ -313,6 +313,47 @@ class GitHubPaginationBoundaryTest {
         assertEquals("GITHUB_PAGINATION_INCOMPLETE", missing.errorCode)
     }
 
+    @Test fun changedCommitChecksReturnTheSameScopedReadAndRequireFreshTrailingRows() = runBlocking {
+        val sha = "a".repeat(40)
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                val first = arguments["page"] == JsonPrimitive(1)
+                val ids = if (first) {
+                    1..2
+                } else if (callId == "overlap") {
+                    2..3
+                } else {
+                    3..3
+                }
+                val data = buildJsonObject {
+                    put("commit_sha", sha)
+                    put("has_more", first)
+                    put(
+                        "check_details",
+                        buildJsonObject {
+                            put("check_runs", JsonArray(ids.map { id -> buildJsonObject { put("id", id) } }))
+                            put("total_count", 3)
+                        }
+                    )
+                }
+                return AgentToolResult(callId, ToolResultContent.Json(data), false)
+            }
+        }
+        val tool = GitHubOperationTool("github_context", backend, "checks-scope", "github_context__selected")
+        val first = json("""{"action":"checks","owner":"o","repo":"r","per_page":2,"page":1}""")
+        assertFalse(tool.execute("first", first).isError)
+        val last = JsonObject(first + ("page" to JsonPrimitive(2)))
+        val interrupted = tool.execute("overlap", last)
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", interrupted.errorCode)
+        val repair = (interrupted.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive(tool.definition.name), repair["tool"])
+        val refresh = repair.getValue("arguments").jsonObject
+        assertEquals(JsonObject(first + mapOf("commit_sha" to JsonPrimitive(sha), "verify_live" to JsonPrimitive(true))), refresh)
+        assertFalse(tool.execute("refresh", refresh).isError)
+        assertFalse(tool.execute("settled", JsonObject(last + ("commit_sha" to JsonPrimitive(sha)))).isError)
+    }
+
     @Test fun overlappingWorkflowRunPagesCanRefreshOnceWithTheSameFilters() = runBlocking {
         val seen = mutableListOf<JsonObject>()
         val backend = object : AgentTool {

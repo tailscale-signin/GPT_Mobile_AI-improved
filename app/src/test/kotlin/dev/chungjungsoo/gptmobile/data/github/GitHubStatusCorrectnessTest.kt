@@ -186,6 +186,44 @@ class GitHubStatusCorrectnessTest {
         assertEquals(null, GitHubStatusRequest.nextCall(tools, both, now, 0))
     }
 
+    @Test fun overlappingCommitChecksRestartOnceOnTheSameHeadAndNeedFreshTrailingPages() {
+        val first = receipt("github_context", args("checks"), checks(1, 100, 101))
+        val pageTwo = JsonObject(args("checks") + ("page" to JsonPrimitive(2)))
+        val changed = JsonObject(
+            checks(2, 2, 101, firstId = 100) + (
+                "pagination_progress" to buildJsonObject {
+                    put("remote_page", 2)
+                    put("duplicate_records_on_page", 1)
+                    put("unique_records_observed", 101)
+                    put("reported_total", 101)
+                    put("contiguous_from_first_page", true)
+                    put("upstream_changed_during_traversal", true)
+                }
+                )
+        )
+        val failure = JsonObject(receipt("github_context", pageTwo, changed) + mapOf("error_code" to JsonPrimitive("GITHUB_PAGINATION_INCOMPLETE"), "success" to JsonPrimitive(false)))
+        val original = base() + ("first" to first)
+        val drift = original + ("drift" to failure)
+        val refresh = requireNotNull(GitHubStatusRequest.nextCall(tools, drift, now, 0))
+        assertEquals(JsonPrimitive(true), refresh.arguments["verify_live"])
+        assertEquals(JsonPrimitive(head), refresh.arguments["commit_sha"])
+        assertEquals(JsonPrimitive(1), refresh.arguments["page"])
+        for (invalid in listOf(
+            JsonObject(failure + ("trusted" to JsonPrimitive(false))),
+            JsonObject(failure + ("epoch" to JsonPrimitive(1))),
+            JsonObject(failure + ("result" to JsonObject(changed + ("commit_sha" to JsonPrimitive(other))))),
+            JsonObject(failure + ("tool" to JsonPrimitive("github_context__different")))
+        )) {
+            assertFalse(GitHubStatusRequest.nextCall(tools, original + ("other" to invalid), now, 0)?.arguments?.get("verify_live") == JsonPrimitive(true))
+        }
+        val reset = drift + ("reset" to receipt("github_context", refresh.arguments, checks(1, 100, 101)))
+        assertFalse(GitHubStatusEvidence.checks(reset, head, now, 0).complete)
+        val next = requireNotNull(GitHubStatusRequest.nextCall(tools, reset, now, 0))
+        assertEquals(JsonPrimitive(2), next.arguments["page"])
+        assertFalse(GitHubStatusRequest.nextCall(tools, reset + ("again" to failure), now, 0)?.arguments?.get("verify_live") == JsonPrimitive(true))
+        assertTrue(GitHubStatusEvidence.checks(reset + ("clean" to receipt("github_context", next.arguments, checks(2, 1, 101))), head, now, 0).complete)
+    }
+
     @Test fun repeatedWrongRevisionStaleAndMissingPagesCannotCompleteCheckCoverage() {
         val first = base() + ("checks1" to receipt("github_context", args("checks"), checks(1, 100, 132)))
         val secondArgs = JsonObject(args("checks") + ("page" to JsonPrimitive(2)))

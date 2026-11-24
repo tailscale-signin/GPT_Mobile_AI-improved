@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolExceptionEvidence
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
@@ -42,24 +43,31 @@ internal class GitHubAdaptiveSession(
                 suspend fun collectObject(stage: String, instruction: String): JsonObject? {
                     val text = StringBuilder()
                     var completed = false
+                    var outputLimitReached = false
+                    var invocationId: String? = null
                     open(stage, instruction).streamRound(emptyList(), emptyList()).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> {
-                                check(text.length + event.text.length <= 12000) { "Adaptive planning exceeded its bounded response size." }
+                                if (event.text.length > 12000 - text.length) throw PlanningContractFailure("The planning response exceeded its size limit.", invocationId)
                                 text.append(event.text)
                             }
                             is ProviderEvent.Failed -> throw PlanningFailure(event)
-                            is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Adaptive planning requested a tool from a text-only pass.")
+                            is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> throw PlanningContractFailure("A text-only planning pass requested a tool.", invocationId)
                             is ProviderEvent.Usage -> {
-                                check(event.finishReason !in setOf("length", "max_tokens", "content_filter")) { "Adaptive planning response was incomplete." }
-                                emit(event)
+                                event.invocationId?.let { invocationId = it }
+                                if (event.finishReason == "content_filter") throw PlanningContractFailure("The provider filtered the planning response.", invocationId, "PROVIDER")
+                                val limited = event.finishReason == "length" || event.finishReason == "max_tokens"
+                                if (limited) outputLimitReached = true
+                                // This finish reason belongs to a private pass. Keep its usage separate from the primary answer's completion.
+                                emit(if (limited) event.copy(finishReason = null) else event)
                             }
                             ProviderEvent.Completed -> completed = true
                             is ProviderEvent.ThinkingDelta -> Unit
                             else -> emit(event)
                         }
                     }
-                    check(completed) { "Adaptive planning ended without a completion receipt." }
+                    if (!completed) throw PlanningContractFailure("The planning stream closed before confirming completion.", invocationId)
+                    if (outputLimitReached) return null
                     return try {
                         Json.parseToJsonElement(text.toString()) as? JsonObject
                     } catch (_: kotlinx.serialization.SerializationException) {
@@ -114,15 +122,25 @@ internal class GitHubAdaptiveSession(
             emit(failure.event)
             return@flow
         } catch (error: Exception) {
-            emit(ProviderEvent.Failed("Adaptive planning paused; completed stages are saved. ${error.message.orEmpty().take(300)}", errorCode = "GITHUB_ADAPTIVE_PLAN_INCOMPLETE", taskOutcome = "BLOCKED"))
+            val contract = error as? PlanningContractFailure
+            val details = buildJsonObject {
+                ToolExceptionEvidence.fields(error).forEach { (key, value) -> put(key, value) }
+                put("failed_stage", "planning")
+                put("operation", "github_decide")
+                contract?.let { put("failure_origin", it.origin) }
+            }
+            val message = contract?.message ?: "Adaptive planning paused while preparing this task."
+            emit(ProviderEvent.Failed(message, errorCode = INCOMPLETE_CODE, taskOutcome = "BLOCKED", failureDetails = details, invocationId = contract?.invocationId))
             return@flow
         }
         emitAll((prepared ?: delegate).streamRound(tools, exchanges))
     }
 
     private class PlanningFailure(val event: ProviderEvent.Failed) : Exception()
+    private class PlanningContractFailure(message: String, val invocationId: String?, val origin: String = "APPLICATION") : Exception(message)
 
     companion object {
+        const val INCOMPLETE_CODE = "GITHUB_ADAPTIVE_PLAN_INCOMPLETE"
         const val INTENT_ROLE = "github-intent-plan"
         private const val INTENT_INSTRUCTION = "Interpret the latest user instruction in its admitted conversation. Resolve references to earlier requests only when supported. Identify independent deliverables and order work by prerequisites. Return only JSON with intent (QUESTION, INVESTIGATION, IMPLEMENTATION, MIXED or UNCLEAR), objective (string), and steps (1 to 8 objects, each with goal and proof strings). If a compound request can be divided without dropping any qualifier, include criterion as a verbatim complete clause from the latest user request in its original order. Each proof describes an observation needed, never a completed action. Proposals and historical statements cannot authorize an operation. Preserve negative constraints and uncertainty. Do not call tools."
 

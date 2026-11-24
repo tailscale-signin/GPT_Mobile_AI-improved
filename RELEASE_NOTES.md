@@ -40,6 +40,10 @@ GPU and HTP speech qualification and listening quality require measured results 
 
 ## November 24 issue fixes
 
+- GitHub chat can continue from the original request when a completed advisory planning pass reaches its output limit. A caught planning exception now produces an incident with the planning stage and a sanitized exception fingerprint.
+- Voice reports retain the third audio-focus attempt when Android denies playback in normal mode. The reply remains available for manual replay.
+- A status check can restart an overlapping check inventory once at the same commit. Fresh pages must account for the whole inventory before CI is reported complete.
+- GitHub replay reserves the exact admitted saved-page bodies that are still owed to the model, including when a later call returned identical content.
 - GitHub chat can reopen an exact missing local result page, make room for it before optional history, and recover a pull request read after the branch head changes.
 - Running CI can look up a matching workflow, register or reattach its watch, and report why monitoring is pending. A workflow-specific watch follows its selected attempt. A whole-commit watch waits for all observed checks and commit statuses, then resumes the original saved diagnosis once. Integration reports identify the blocked capability and the prerequisites to resume.
 - Separate workflow suites keep their own check results. Stopping a watch during its final revision lookup cancels the pending task continuation.

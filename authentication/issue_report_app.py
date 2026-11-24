@@ -80,6 +80,7 @@ def create_app(public_url, reporter, rate_key):
                 "RECOVERY_REPORT_EVIDENCE_V1",
                 "CATALOG_MISSING_TOOL_IDENTITY_V1",
                 "GITHUB_POLICY_SELECTION_FIELDS_V1",
+                "VOICE_FOCUS_RETRY_COUNT_V1",
             ])
         return response
 

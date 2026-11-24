@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -74,17 +75,52 @@ class GitHubAdaptiveSessionTest {
             }, load = { null }, save = {})
             val events = wrapper.streamRound(emptyList(), emptyList()).toList()
             if (bad is ProviderEvent.ToolCall) {
-                assertTrue(events.any { it is ProviderEvent.Failed })
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                assertEquals("GITHUB_ADAPTIVE_PLAN_INCOMPLETE", failure.errorCode)
+                assertEquals("BLOCKED", failure.taskOutcome)
+                assertEquals(JsonPrimitive("planning"), failure.failureDetails?.get("failed_stage"))
+                assertEquals(JsonPrimitive("github_decide"), failure.failureDetails?.get("operation"))
+                assertNotNull(failure.failureDetails?.get("exception_fingerprint"))
                 assertTrue(events.none { it is ProviderEvent.TextDelta })
             } else {
                 assertEquals("original", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
             }
             assertFalse(executes)
         }
+        val blockedCases = listOf(
+            session(ProviderEvent.TextDelta(options), ProviderEvent.Usage(finishReason = "content_filter", invocationId = "planning-request-7"), ProviderEvent.Completed) to "planning-request-7",
+            session(ProviderEvent.TextDelta(options), ProviderEvent.Usage(finishReason = "length")) to null
+        )
+        for ((privatePass, expectedInvocation) in blockedCases) {
+            val primary = session(ProviderEvent.TextDelta("original"), ProviderEvent.Completed)
+            val wrapper = GitHubAdaptiveSession(primary, "github-design-options", "task", open = { _, _ -> privatePass }, continueWith = { error("Unexpected execution") }, load = { null }, save = { error("Unexpected save") })
+            val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+            assertTrue(events.none { it is ProviderEvent.TextDelta })
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(expectedInvocation, failure.invocationId)
+            assertEquals(GitHubAdaptiveSession.INCOMPLETE_CODE, failure.errorCode)
+        }
     }
 
     @Test fun semanticPlanRunsOnceWithNoToolsAndAnInvalidPlanFallsBackToTheOriginalSession() = runBlocking {
         val plan = """{"intent":"MIXED","objective":"Explain the earlier result and inspect the change","steps":[{"goal":"Resolve the earlier result","proof":"A pinned source observation"}]}"""
+        for (reason in listOf("length", "max_tokens")) {
+            val privatePass = session(ProviderEvent.TextDelta(plan), ProviderEvent.Usage(outputTokens = 15, finishReason = reason), ProviderEvent.Completed)
+            val wrapper = GitHubAdaptiveSession(
+                session(ProviderEvent.TextDelta("original"), ProviderEvent.Completed),
+                GitHubAdaptiveSession.INTENT_ROLE,
+                "task",
+                open = { _, _ -> privatePass },
+                continueWith = { error("Truncated advice cannot direct execution") },
+                load = { null },
+                save = { error("Truncated advice cannot be saved") }
+            )
+            val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+            assertEquals(listOf("original"), events.filterIsInstance<ProviderEvent.TextDelta>().map { it.text })
+            val usage = events.filterIsInstance<ProviderEvent.Usage>().single()
+            assertEquals(15, usage.outputTokens)
+            assertEquals(null, usage.finishReason)
+        }
         for (response in listOf(plan, "unstructured answer", plan.replace("MIXED", "AUTHORIZE"))) {
             var saved: JsonObject? = null
             var calls = 0
@@ -109,6 +145,12 @@ class GitHubAdaptiveSessionTest {
     }
 
     @Test fun changedBindingDiscardsOldProposalAndCancellationRemainsCancellation() = runBlocking {
+        val failedLoad = GitHubAdaptiveSession(session(), "github-design-options", "task", open = { _, _ -> error("Unexpected planning request") }, continueWith = { error("Unexpected execution") }, load = { error("PRIVATE checkpoint detail") }, save = {})
+        val failure = failedLoad.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        assertFalse(failure.message.contains("PRIVATE"))
+        assertEquals(JsonPrimitive("planning"), failure.failureDetails?.get("failed_stage"))
+        assertNotNull(failure.failureDetails?.get("exception_fingerprint"))
+
         val saved = Json.parseToJsonElement("""{"binding":"other-task","options":$options,"selection":$selection}""") as JsonObject
         val wrapper = GitHubAdaptiveSession(session(), "github-design-options", "task", open = { _, _ -> throw CancellationException("cancel") }, continueWith = { session() }, load = { saved }, save = {})
         try {

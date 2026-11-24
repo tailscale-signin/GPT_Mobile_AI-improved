@@ -1376,6 +1376,11 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueueModelPreparationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/VoiceQueuedAdmissionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusEvidence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusRequest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusCorrectnessTest.kt",
+    "authentication/test_report_extensions.py",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundaryTest.kt",
     "docs/repairs/benchmark-feature-integration-2026-11-24-task.json"
   ],
   "publicationRequest": {

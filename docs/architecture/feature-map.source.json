@@ -761,7 +761,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
+        "authentication/issue_report_app.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingWindowTest.kt",
@@ -801,7 +802,8 @@
         "docs/repairs/diagnostic-deployment-probe-2026-11-24-task.json",
         "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json",
         "docs/repairs/diagnostic-readiness-selection-2026-11-24-task.json",
-        "docs/repairs/incident-policy-vocabulary-parity-2026-11-24-task.json"
+        "docs/repairs/incident-policy-vocabulary-parity-2026-11-24-task.json",
+        "docs/repairs/ci-watch-catalog-negotiation-2026-11-24-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
@@ -814,7 +816,8 @@
         "Require the shipped saved-page replay, local graph failure and provider-limit capabilities in hosted readiness probes, retaining the4096-byte bound and native-only no-probe routing.",
         "Public final-request privacy evidence requires the exact typed code, admission/domain tuple, closed four-outcome vocabulary and negotiated capability. Keep raw private receipts out of approved reports, preserve prior unknown/accepted work against a later negative observation, and never infer an omitted historical reason.",
         "Select the bounded extended readiness catalogue for saved-page replay, graph-local, provider-limit, replay-budget, graph-transport, task/tool and reader/run failure evidence before posting the exact approved report bytes; missing support never authorizes dispatch.",
-        "Incident policy-change field names exactly match the fixed production producers across Android and the receiver; names alone never expose setting values or grant dispatch or replay authority."
+        "Incident policy-change field names exactly match the fixed production producers across Android and the receiver; names alone never expose setting values or grant dispatch or replay authority.",
+        "Require CATALOG_MISSING_TOOL_IDENTITY_V1 only for a present or omitted missing_tool_hash; legacy recovery support does not establish receiver support for that new identity. Preserve approved bytes, current dispatch permission and readiness size bounds."
       ]
     },
     {
@@ -1610,6 +1613,40 @@
         "Each existing package attestation retains its exact bundle-path output as a separate source/run/attempt artifact for 14 days.",
         "Subject globs, signing, permissions, package artifacts, release assets, triggers, required gates and publication behavior remain unchanged.",
         "Retained bundles are verification inputs; their presence does not establish cryptographic validation, final-source qualification or publication."
+      ]
+    },
+    {
+      "id": "github-ci-continuation",
+      "title": "Whole-commit CI monitoring and saved diagnosis continuation",
+      "terms": [
+        "CI watch",
+        "all checks",
+        "workflow suite",
+        "stop monitoring",
+        "saved diagnosis"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummary.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchWorker.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiWatchTask.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueue.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatChecks.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/ci-watch-catalog-negotiation-2026-11-24-task.json"
+      ],
+      "invariants": [
+        "Whole-commit monitoring preserves distinct or unknown check suites and waits for all observed checks and commit statuses on the bound revision.",
+        "Terminal continuation reads outside the cancellation mutex, then revalidates the exact watch/task identity, saved run, repository, profile and current authority before the existing durable queue admission. Stop during the remote read prevents delivery.",
+        "A changed task set is retained for retry; an active replacement owns its own polling chain. CI completion does not renew a task deadline or grant new write authority."
       ]
     }
   ]

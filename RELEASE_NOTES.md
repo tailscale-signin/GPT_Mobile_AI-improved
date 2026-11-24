@@ -26,9 +26,11 @@ GPU and HTP speech qualification and listening quality require measured results 
 
 - GitHub chat can reopen an exact missing local result page, make room for it before optional history, and recover a pull request read after the branch head changes.
 - Running CI can look up a matching workflow, register or reattach its watch, and report why monitoring is pending. A workflow-specific watch follows its selected attempt. A whole-commit watch waits for all observed checks and commit statuses, then resumes the original saved diagnosis once. Integration reports identify the blocked capability and the prerequisites to resume.
+- Separate workflow suites keep their own check results. Stopping a watch during its final revision lookup cancels the pending task continuation.
 - Concurrent phone index requests share the same authorized batch. Each caller checks repository access, and an interrupted batch can resume from its saved revision and issued cursor.
 - Voice chat keeps recognized words editable after Android silences the microphone mid-turn. Sending the partial transcript requires a user action.
 - URL reads share a small result allowance across sources. Each missing tool gets one local catalog lookup per revision. A returned, authorized reading tool can reuse validated original arguments. Reports distinguish different missing tools and count repeated rejections. Partial research reports identify the delivery check and source counts.
+- Missing-tool reports check that the receiver supports the diagnostic fingerprint before sending the approved report.
 - Failure diagnostics distinguish a later failure after visible output. Android freeze reports retain a bounded main-thread fingerprint when the operating system supplies a trace for the affected process.
 - Release pull requests build the unsigned packages when the publication request, Android version, size rules, packaging or native inputs change. The publisher retains its APK payload inventory for size-gate diagnostics.
 - Sending an interrupted voice draft restores reply playback while preserving capture permissions, mute state, admission ownership and cancellation checks.

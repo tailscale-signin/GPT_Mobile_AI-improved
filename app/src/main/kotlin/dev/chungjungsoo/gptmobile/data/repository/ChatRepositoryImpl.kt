@@ -1453,8 +1453,11 @@ class ChatRepositoryImpl(
         val policy = dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringTeam.policy(features, context, chatId, config.delegation)
         val reviewer = GitHubPrimaryPatchReview.configured(context, features, settingRepository.fetchPlatformV2s(), policy) ?: return null
         if (reviewer.consent != features.githubProfileOverrides[context.mainProfileUid]?.primaryPatchReviewConsent ||
-            runId in privateMemoryRuns && reviewer.profile.compatibleType != ClientType.LITERT_LM
-        ) return null
+            runId in privateMemoryRuns &&
+            reviewer.profile.compatibleType != ClientType.LITERT_LM
+        ) {
+            return null
+        }
         // Remove whole excerpts until the request fits. Never split JSON or silently enlarge the user's budget.
         val prompt = (patch.excerpts.size downTo 1).firstNotNullOfOrNull { count ->
             GitHubPrimaryPatchReview.instruction(kotlinx.serialization.json.JsonArray(patch.excerpts.take(count))).takeIf { it.length <= policy.maxInputCharacters }
@@ -1510,7 +1513,9 @@ class ChatRepositoryImpl(
             }
             GitHubPrimaryPatchReview.ROLE -> {
                 val reviewer = GitHubPrimaryPatchReview.configured(workspace, features, profiles, policy)
-                config.githubPatchReviewAllowed && reviewer != null && reviewer.profile == target &&
+                config.githubPatchReviewAllowed &&
+                    reviewer != null &&
+                    reviewer.profile == target &&
                     reviewer.consent == features.githubProfileOverrides[workspace.mainProfileUid]?.primaryPatchReviewConsent
             }
             "reviewer" -> team?.reviewer == target

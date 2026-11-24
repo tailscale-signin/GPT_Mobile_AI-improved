@@ -917,9 +917,13 @@ internal class GitHubEvidenceBook(
     suspend fun retainSemanticSteps(task: String, plan: JsonObject) = mutex.withLock {
         val current = taskContract ?: load("task_contract") ?: return@withLock
         val accepted = (current["requested_actions"] as? JsonPrimitive)?.contentOrNull ?: return@withLock
-        if (current["binding"] != JsonPrimitive(binding) || current["request_digest"] != JsonPrimitive(digest(accepted)) ||
-            GitHubTaskContinuity.request(task) != GitHubTaskContinuity.request(accepted) || current["semantic_criteria"] != null
-        ) return@withLock
+        if (current["binding"] != JsonPrimitive(binding) ||
+            current["request_digest"] != JsonPrimitive(digest(accepted)) ||
+            GitHubTaskContinuity.request(task) != GitHubTaskContinuity.request(accepted) ||
+            current["semantic_criteria"] != null
+        ) {
+            return@withLock
+        }
         val refinement = GitHubAcceptanceContract.semanticSteps(accepted, plan) ?: return@withLock
         val requirements = GitHubRequestCompletion.requirements(accepted, null, refinement)
         val updated = JsonObject(

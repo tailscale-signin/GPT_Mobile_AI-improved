@@ -208,7 +208,9 @@ internal object GitHubReplayRecovery {
         val receipt = result.executionReceipt ?: return null
         if (!GitHubResultViews.SAVED_CONTEXT_KEYS.containsAll(call.arguments.keys - "view_cursor") ||
             result.callId != call.callId ||
-            result.isError || result.outputBudgetExhausted || result.toolCallBudgetExhausted ||
+            result.isError ||
+            result.outputBudgetExhausted ||
+            result.toolCallBudgetExhausted ||
             result.dispatched ||
             result.errorCode != null ||
             listOf("requires_reconciliation", "requiresReconciliation").any { receipt[it] == JsonPrimitive(true) }

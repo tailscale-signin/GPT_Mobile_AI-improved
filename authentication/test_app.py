@@ -588,6 +588,7 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.extend(["VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1", "REPOSITORY_READ_PROGRESS_V1"])
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
         additions.append("RECOVERY_REPORT_EVIDENCE_V1")
+        additions.append("CATALOG_MISSING_TOOL_IDENTITY_V1")
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
         additions.insert(additions.index("PRIVACY_ELIGIBILITY_EVIDENCE_V1") + 1, "PRIVACY_FINAL_REQUEST_EVIDENCE_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
@@ -608,6 +609,30 @@ class IssueReportHttpTest(unittest.TestCase):
         check_readiness(self.origin, fetch)
         self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
         self.assertFalse(self.issued)
+
+    def test_catalog_missing_tool_identity_is_advertised_with_receiver_validation(self):
+        feature = "CATALOG_MISSING_TOOL_IDENTITY_V1"
+        self.assertNotIn(feature, self.client.get("/health/ready").json()["reportDiagnosticFeatures"])
+        ready = self.client.get("/health/ready?capabilities=extended")
+        self.assertIn(feature, ready.json()["reportDiagnosticFeatures"])
+        self.assertIn("RECOVERY_REPORT_EVIDENCE_V1", ready.json()["reportDiagnosticFeatures"])
+        self.assertLessEqual(len(ready.content), 4096)
+        capture = self.diagnostics("TOOL", {"catalog_revision_hash": "a" * 64,
+                                            "missing_tool_hash": "b" * 64, "catalog_rejection_count": 1})
+        context = self.context(schemaVersion=5, source="TOOL_RESULT", diagnostics=capture)
+        report = {**self.manual(), "context": context}
+        first = self.submit(report)
+        self.assertEqual(200, first.status_code)
+        self.assertEqual(report["reportId"], first.json()["reportId"])
+        self.assertEqual(first.json(), self.submit(report).json())
+        self.assertIn("| missing_tool_hash | `" + "b" * 64 + "` |", self.issued[-1]["body"])
+        for invalid in ("private_tool_name", "b" * 63, "b" * 65, 123, True):
+            with self.subTest(invalid=invalid):
+                changed = {**capture, "values": {**capture["values"], "missing_tool_hash": invalid}}
+                rejected = self.submit({**report, "reportId": str(uuid4()), "context": {**context, "diagnostics": changed}})
+                self.assertEqual(422, rejected.status_code)
+                self.assertNotIn("private_tool_name", rejected.text)
+        self.assertEqual(1, len(self.issued))
 
     def test_streaming_voice_report_values_are_advertised_then_preserved_by_the_http_receiver(self):
         from authentication import incident_report_contract as capsule

@@ -26,9 +26,15 @@ internal object GitHubPrimaryPatchReview {
 
     fun configured(context: GitHubConversationContext, features: AppFeatureSettings, profiles: List<PlatformV2>, policy: ModelDelegationSettings): Reviewer? {
         val options = features.githubProfileOverrides[context.mainProfileUid] ?: return null
-        if (!options.githubTools || options.intelligenceLevel !in levels || !policy.enabled || !policy.reviewerEnabled ||
-            !features.isToolPluginEnabledForProfile(context.mainProfileUid, ToolPluginId.MODEL_DELEGATION) || policy.reviewerProfileUid.isBlank()
-        ) return null
+        if (!options.githubTools ||
+            options.intelligenceLevel !in levels ||
+            !policy.enabled ||
+            !policy.reviewerEnabled ||
+            !features.isToolPluginEnabledForProfile(context.mainProfileUid, ToolPluginId.MODEL_DELEGATION) ||
+            policy.reviewerProfileUid.isBlank()
+        ) {
+            return null
+        }
         val primary = profiles.singleOrNull { it.uid == context.mainProfileUid && it.enabled && !it.excludesMemory() } ?: return null
         val target = profiles.singleOrNull { it.uid == policy.reviewerProfileUid && reviewerEligible(it, policy, primary) } ?: return null
         val scope = listOf(ROLE, GitHubChatDecisions.workspaceKey(context), ConfiguredDispatchAuthority.profileRevision(primary), ConfiguredDispatchAuthority.profileRevision(target))
@@ -36,21 +42,33 @@ internal object GitHubPrimaryPatchReview {
     }
 
     fun candidate(receipt: JsonObject, context: GitHubConversationContext, binding: String, head: String): Candidate? {
-        if (receipt["binding"] != JsonPrimitive(binding) || receipt["trusted"] != JsonPrimitive(true) ||
-            receipt["verification_eligible"] != JsonPrimitive(true) || receipt["success"] != JsonPrimitive(true) ||
-            receipt["repository_role"] != JsonPrimitive("WRITE_DESTINATION") || !receipt.text("repository").equals(context.repository.fullName, true) ||
+        if (receipt["binding"] != JsonPrimitive(binding) ||
+            receipt["trusted"] != JsonPrimitive(true) ||
+            receipt["verification_eligible"] != JsonPrimitive(true) ||
+            receipt["success"] != JsonPrimitive(true) ||
+            receipt["repository_role"] != JsonPrimitive("WRITE_DESTINATION") ||
+            !receipt.text("repository").equals(context.repository.fullName, true) ||
             receipt.text("tool").substringBefore("__") != "github_stage_patch"
-        ) return null
+        ) {
+            return null
+        }
         val result = receipt["result"] as? JsonObject ?: return null
         val stage = result["data"] as? JsonObject ?: result
         if (stage["committed"] != JsonPrimitive(false) || stage.text("expected_head_sha") != head || stage.text("branch") != context.ref) return null
         val id = stage.text("stage_id").takeIf { stageId.matches(it) } ?: return null
         val rows = (stage["preview"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().take(3).mapNotNull { row ->
             val path = row.text("path")
-            if (path.isBlank() || path.length > 320 || path.any(Char::isISOControl) || path.startsWith('/') || '\\' in path ||
-                path.split('/').any { it.isEmpty() || it in setOf(".", "..") } || !blobId.matches(row.text("expected_blob_sha")) ||
+            if (path.isBlank() ||
+                path.length > 320 ||
+                path.any(Char::isISOControl) ||
+                path.startsWith('/') ||
+                '\\' in path ||
+                path.split('/').any { it.isEmpty() || it in setOf(".", "..") } ||
+                !blobId.matches(row.text("expected_blob_sha")) ||
                 row["preview_bounded"] != JsonPrimitive(true)
-            ) return@mapNotNull null
+            ) {
+                return@mapNotNull null
+            }
             val before = (row["before"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull ?: return@mapNotNull null
             val after = (row["after"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull ?: return@mapNotNull null
             if (before == after) return@mapNotNull null

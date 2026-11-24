@@ -375,17 +375,54 @@ class GitHubCheckWatchRepository @Inject constructor(
     }
 
     /** A persistent queue key fences delivery if the worker restarts after inserting the continuation. */
-    internal suspend fun deliverTerminalTasks(id: String, queue: dagger.Lazy<DurablePromptQueue>): Boolean = mutex.withLock {
-        val watch = workspace.dao.get(id)?.let(::decode) ?: return@withLock true
-        if (!watch.allChecks || watch.waitingTasks.isEmpty() || watch.status !in setOf("PASSED", "FAILED", "SKIPPED")) return@withLock true
-        val api = try {
+    internal suspend fun deliverTerminalTasks(id: String, queue: dagger.Lazy<DurablePromptQueue>): Boolean {
+        val watch = mutex.withLock { workspace.dao.get(id)?.let(::decode) } ?: return true
+        if (!watch.allChecks || watch.waitingTasks.isEmpty() || watch.status !in setOf("PASSED", "FAILED", "SKIPPED")) return true
+        val initialApi = try {
             api(watch)
         } catch (_: IllegalArgumentException) {
-            return@withLock true
+            return true
         }
-        val remaining = watch.waitingTasks.filterNot { it.deliver(watch, workspace.database, settings, api, queue) }
-        if (remaining.size != watch.waitingTasks.size) save(watch.copy(waitingTasks = remaining))
-        remaining.isEmpty()
+        val prepared = watch.waitingTasks.map { it to it.prepare(watch, workspace.database, settings, initialApi) }
+        return mutex.withLock {
+            val current = workspace.dao.get(id)?.let(::decode)
+            // Equality includes the head, authority, generation, status and exact task membership.
+            // Cancellation or a replacement wins over the suspended remote read.
+            if (current != watch) return@withLock terminalDeliverySettled(watch, current)
+            val remaining = mutableListOf<GitHubCiWatchTask>()
+            for ((task, delivery) in prepared) {
+                when (delivery) {
+                    GitHubCiWatchTask.Delivery.Waiting -> remaining += task
+                    GitHubCiWatchTask.Delivery.Discarded -> Unit
+                    is GitHubCiWatchTask.Delivery.Ready -> {
+                        val ready = task.currentDelivery(watch, workspace.database, settings)
+                        if (ready is GitHubCiWatchTask.Delivery.Ready) {
+                            try {
+                                api(watch)
+                            } catch (_: IllegalArgumentException) {
+                                return@withLock true
+                            }
+                            val latest = workspace.dao.get(id)?.let(::decode)
+                            if (latest != watch) return@withLock terminalDeliverySettled(watch, latest)
+                            val key = "github-ci-task:${watch.id}:${watch.headSha}:${task.sourceMessageId}"
+                            queue.get().enqueue(watch.chatId, "Continue", ready.payload, key)
+                        } else if (ready == GitHubCiWatchTask.Delivery.Waiting) {
+                            remaining += task
+                        }
+                    }
+                }
+            }
+            if (remaining.size != watch.waitingTasks.size) save(watch.copy(waitingTasks = remaining))
+            remaining.isEmpty()
+        }
+    }
+
+    private fun terminalDeliverySettled(observed: GitHubCheckWatch, current: GitHubCheckWatch?): Boolean {
+        if (current == null) return true
+        // An active/replaced watch owns its own polling chain. A changed task set on
+        // this same terminal snapshot must be retried rather than silently consumed.
+        val sameTerminal = current.copy(observationGeneration = observed.observationGeneration, waitingTasks = observed.waitingTasks) == observed
+        return !sameTerminal || current.waitingTasks.isEmpty()
     }
 
     internal suspend fun scheduleNext(id: String) = withContext(Dispatchers.IO) {

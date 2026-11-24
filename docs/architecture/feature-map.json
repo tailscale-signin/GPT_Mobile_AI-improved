@@ -765,7 +765,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
+        "authentication/issue_report_app.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingWindowTest.kt",
@@ -805,7 +806,8 @@
         "docs/repairs/diagnostic-deployment-probe-2026-11-24-task.json",
         "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json",
         "docs/repairs/diagnostic-readiness-selection-2026-11-24-task.json",
-        "docs/repairs/incident-policy-vocabulary-parity-2026-11-24-task.json"
+        "docs/repairs/incident-policy-vocabulary-parity-2026-11-24-task.json",
+        "docs/repairs/ci-watch-catalog-negotiation-2026-11-24-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
@@ -818,7 +820,8 @@
         "Require the shipped saved-page replay, local graph failure and provider-limit capabilities in hosted readiness probes, retaining the4096-byte bound and native-only no-probe routing.",
         "Public final-request privacy evidence requires the exact typed code, admission/domain tuple, closed four-outcome vocabulary and negotiated capability. Keep raw private receipts out of approved reports, preserve prior unknown/accepted work against a later negative observation, and never infer an omitted historical reason.",
         "Select the bounded extended readiness catalogue for saved-page replay, graph-local, provider-limit, replay-budget, graph-transport, task/tool and reader/run failure evidence before posting the exact approved report bytes; missing support never authorizes dispatch.",
-        "Incident policy-change field names exactly match the fixed production producers across Android and the receiver; names alone never expose setting values or grant dispatch or replay authority."
+        "Incident policy-change field names exactly match the fixed production producers across Android and the receiver; names alone never expose setting values or grant dispatch or replay authority.",
+        "Require CATALOG_MISSING_TOOL_IDENTITY_V1 only for a present or omitted missing_tool_hash; legacy recovery support does not establish receiver support for that new identity. Preserve approved bytes, current dispatch permission and readiness size bounds."
       ]
     },
     {
@@ -1615,6 +1618,40 @@
         "Subject globs, signing, permissions, package artifacts, release assets, triggers, required gates and publication behavior remain unchanged.",
         "Retained bundles are verification inputs; their presence does not establish cryptographic validation, final-source qualification or publication."
       ]
+    },
+    {
+      "id": "github-ci-continuation",
+      "title": "Whole-commit CI monitoring and saved diagnosis continuation",
+      "terms": [
+        "CI watch",
+        "all checks",
+        "workflow suite",
+        "stop monitoring",
+        "saved diagnosis"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummary.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchWorker.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiWatchTask.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueue.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatChecks.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/ci-watch-catalog-negotiation-2026-11-24-task.json"
+      ],
+      "invariants": [
+        "Whole-commit monitoring preserves distinct or unknown check suites and waits for all observed checks and commit statuses on the bound revision.",
+        "Terminal continuation reads outside the cancellation mutex, then revalidates the exact watch/task identity, saved run, repository, profile and current authority before the existing durable queue admission. Stop during the remote read prevents delivery.",
+        "A changed task set is retained for retry; an active replacement owns its own polling chain. CI completion does not renew a task deadline or grant new write authority."
+      ]
     }
   ],
   "file_blobs": {
@@ -1719,9 +1756,9 @@
       "sha256": "d76ba891ea809d89928f7bd38d9ff461186088816eeedc83cae834180f23da83"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt": {
-      "blob_sha": "9865de2c411d772d48a511429097aa2b9740e4e9",
-      "bytes": 49905,
-      "sha256": "bd73857e4aff71d9b0f025198dc300ab112160e166c45c41c337ffc451084145"
+      "blob_sha": "2d51c06a04a9b82a6369da6083d5181a7d380448",
+      "bytes": 49929,
+      "sha256": "b2da59377d8610c5f5411ea2e941c592ab01254114935f5970085765ad9ccb55"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatch.kt": {
       "blob_sha": "2289f7afa7bc31c3f5977f44bbc40ecac547618d",
@@ -1889,9 +1926,9 @@
       "sha256": "d03b0d900d206aa16daff91a4c3fdd280dd497b1d49788c1fe32084b27490af8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt": {
-      "blob_sha": "efae09a88d52be70fcb05ce41edf75fc729da51c",
-      "bytes": 89088,
-      "sha256": "66193b659f3a1d3a6f263e3ff8686c89e222ffdfbc6fbeee553d2cb977f11acf"
+      "blob_sha": "36bfd032bcbbefe63f3bac6d84c0b722b05d58f0",
+      "bytes": 89272,
+      "sha256": "5b65b340d96b478c47f59765c788ee74bae957d30b28feaceae1a4198d957614"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt": {
       "blob_sha": "0d72fe9f856e5ac106c8e84ea83eb7094664c7df",
@@ -1899,9 +1936,9 @@
       "sha256": "9b6e868161010a2440fb3fb1d40b6009e28c7c01ce9ddcc67d2b4483a8404d85"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": {
-      "blob_sha": "b8af5a79334ddc169d126698b3b74529cc576154",
-      "bytes": 19884,
-      "sha256": "cbf93df23ca66e581a7fa80eb9b264f612dcd5b906fe4a2d594d7e0ca5e285f3"
+      "blob_sha": "ef07dfb50ca3b1defc916f3c830474b8d4286cb6",
+      "bytes": 19950,
+      "sha256": "3f224a94723c9b9e637cf0977c09237301e82be1cd2e3813137cfb10a14e7b81"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt": {
       "blob_sha": "12a70f54a8c7e1bff666735d9b4df2e6099ec1a9",
@@ -1978,6 +2015,26 @@
       "bytes": 53089,
       "sha256": "998c2e946b1253dcfe66367c8580ba95bbb6ada0b3613b9569cde02eb9eb1d8f"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummary.kt": {
+      "blob_sha": "b661994b9ccfc182e8aa04b44a0eb4d2b0fac45e",
+      "bytes": 3902,
+      "sha256": "84d71c903f6a9ba446fde36940d6edd5aa5f43c943295028d80bb136b82d4a42"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchRepository.kt": {
+      "blob_sha": "a29600d5ffbc0c247605fa076b85a8f9fb80f302",
+      "bytes": 35749,
+      "sha256": "031aded6c1264e40a356ba53c3393928b1ff6971d4c175eceb5e37ed2159b8ba"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchWorker.kt": {
+      "blob_sha": "ac7dd26c2681e4c7521cc7e15932adee89df182d",
+      "bytes": 1858,
+      "sha256": "d0e2c3a0ae237737f4f0943292303c56f67ded159e9f9486a3de012d2db99038"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiWatchTask.kt": {
+      "blob_sha": "5b63ad98d7cef5b2577429ab62885e63f8b51684",
+      "bytes": 5492,
+      "sha256": "a4c3f17095c99958aa80445d55568eb6613c920c4ebf16c5f61167f259fbd690"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContext.kt": {
       "blob_sha": "abf765caeaf2ade796d7894e5d367bbd7aab981b",
       "bytes": 6101,
@@ -1999,9 +2056,9 @@
       "sha256": "9d2909dc6b37f4333b286e131593930066a70925a0ab6625e9dc8820c795f42d"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt": {
-      "blob_sha": "489fef198a4ec0563c8bb358c82ab4e90d064931",
-      "bytes": 81887,
-      "sha256": "d098d81292ea90158bfd10ed7ed3eb42387778929aed7644a6e49a3f0510c190"
+      "blob_sha": "543867671d47bd022d6f350101485137d6f75d73",
+      "bytes": 81935,
+      "sha256": "319c031d5ecca926c5e7610efa997c3171f90175f3b82f9b69c2455ee7b1cec7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRelevance.kt": {
       "blob_sha": "dc936c6e8c4c6b8ebc26189f062e284bfa482e94",
@@ -2049,9 +2106,9 @@
       "sha256": "6381579ed2b852739536cb8aa9a11b4a1bff1efad8f1a2d2e9b67e3e41f53ca1"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPrimaryPatchReview.kt": {
-      "blob_sha": "e7d2582ba7bab0e67a7034aff6d5d20b21626dd5",
-      "bytes": 5463,
-      "sha256": "c9f02424707829e212c1181d8e7964f159d833ed21b2f594280bb265a7cca0e2"
+      "blob_sha": "8b8fa6ef42dc7e92f844a9397d7a3422c9773310",
+      "bytes": 5707,
+      "sha256": "f068d8da730fa0452265b4c96b06807697895693c2a73f47f1625560d5fda022"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressPresentation.kt": {
       "blob_sha": "0abca42926a80f2c63ab70c6d0f0fce07613a11d",
@@ -2348,10 +2405,15 @@
       "bytes": 11391,
       "sha256": "055cab72c57e3fc35d137345ffdf609c4aa29a208cb844b1d943c0d4860c180f"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueue.kt": {
+      "blob_sha": "64b8d157217a24b57404135cb77e3259ceee7d41",
+      "bytes": 40543,
+      "sha256": "2d66b531dc7912657bc86fba4eede3ed764976f570cb66da184c3f559321c0d5"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt": {
-      "blob_sha": "7f4cff7d3756531c419ae0dcba2368a1a6b6a75f",
-      "bytes": 626713,
-      "sha256": "1a559d96a06710fef3972594e4b18c4d88a382de2cc7a2cd73fc02c98367e6f4"
+      "blob_sha": "4bd63bdabaa52734a04c707ae8c1634e10b9f942",
+      "bytes": 626789,
+      "sha256": "25d80d03fde40f3086885dfd7666351f0dd4a0ef59e22c913e5ac2ae2e651e24"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparation.kt": {
       "blob_sha": "f61e90d5e8bcde5583d1e7384a520401f8e82d9f",
@@ -2798,6 +2860,11 @@
       "bytes": 13214,
       "sha256": "aa55ed6043c34e56f39b1bfd6a43e7ebb7563eafd85bac0502b69660e1adf15c"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatChecks.kt": {
+      "blob_sha": "bfc7f225a465bb68a6a3cf9f2c0a13fca8d54943",
+      "bytes": 10235,
+      "sha256": "28ea71872c62524c8b14c7a1f7e64b407e2ca513a6a7e7b8f3265aa588740bca"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerSettings.kt": {
       "blob_sha": "ad18b8a50fd80802ab5881c7ad6a43f82556634d",
       "bytes": 40720,
@@ -3139,9 +3206,9 @@
       "sha256": "231f37398d375043e68763836adf6d0940770815fa32c3bb9b7f3ab158d32a3f"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnosticsTest.kt": {
-      "blob_sha": "0142aa7807a6d3b042d7ee64a036be62927c51c7",
-      "bytes": 51785,
-      "sha256": "f0efd4b683aea87a718bb3634a61531a8085424d53ee903e1733fdff64a0d760"
+      "blob_sha": "c3367129807b7bbfc42598d274cbc9debbbe857e",
+      "bytes": 53259,
+      "sha256": "985ecd6ec3da53160234969d44bc4d3c42d061ef81a00b1d25c077e59cad5183"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportFrameworkFramesTest.kt": {
       "blob_sha": "5dee24e55d425981a1cdb98c7c754a2f0383fc78",
@@ -3159,9 +3226,9 @@
       "sha256": "cffc1e45ea7a94b4c3e3e0d084a28ac961e3836b2311967c25c042a416695238"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt": {
-      "blob_sha": "c9b16c5e94df2973770f63a4fdb93c61dd23d6a5",
-      "bytes": 171380,
-      "sha256": "14b172fb5a84dc433d3fe1d31c5c7f6ad5e7b9a687af18007c035e605dc940db"
+      "blob_sha": "7a094534e72aa229b6aae7bb72868a920d2bb1f8",
+      "bytes": 175122,
+      "sha256": "b716387d54067e688ec2ebf407992c8255f2940325ab19d39f9e9e04b3db01bb"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt": {
       "blob_sha": "6f0ad3c7bba0c4b7354217b98cce11060b413354",
@@ -3212,6 +3279,16 @@
       "blob_sha": "a7127ce8ef52cae2cabaf50b2594de9f5f2a7934",
       "bytes": 46186,
       "sha256": "d8e8bb97d7b304f4ee9da7f127f428b92ff504bb8e96e030a24c4ce52c41e605"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummaryTest.kt": {
+      "blob_sha": "3793b9be721ba52fe0edeb68c1d97ec5d53e28e5",
+      "bytes": 5738,
+      "sha256": "290bf81cc5dddd7387b0d8b29de39b141d707f0f47194eda772ba4e4697ceced"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt": {
+      "blob_sha": "43970d0db8c784d82d652dba3637b94d0063619d",
+      "bytes": 24526,
+      "sha256": "f0cb5d755fb4e1dd25b2aba7a726c0aca9dcbfd53f1fcda944126d8418ae29f3"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContextTest.kt": {
       "blob_sha": "52243f5ee620589ffafb38b8d45a55b0ea942703",
@@ -3979,9 +4056,9 @@
       "sha256": "917a189df090dd51cfc8d0038327fdfb4463de0e9760b917867eb8031eec9c86"
     },
     "authentication/issue_report_app.py": {
-      "blob_sha": "90da9c10fb5f194c8f7bb4f992800d45a3c92718",
-      "bytes": 6870,
-      "sha256": "903b185a8d9e809dda947886d87489bc61c28ab1e70f3f2f710ed7706ee80b63"
+      "blob_sha": "b798cd0b5cdf0c12c0d36e558ef0c34333193c0e",
+      "bytes": 6922,
+      "sha256": "94ad5c18ab8e595567dc04008dba66acd8885b50420f58b6f673391c30138686"
     },
     "authentication/issue_report_diagnostics.py": {
       "blob_sha": "ba5d2f38eee742f21ecb7655e5f2f3478db4dd22",
@@ -3999,9 +4076,9 @@
       "sha256": "b127eb460cb93fc32cc2eee4d2fe1c19af019bd0e285dda084f00b77ed58f9af"
     },
     "authentication/test_app.py": {
-      "blob_sha": "9c7b9f88c6742e9d7e0d8f7e2482b573b88757c2",
-      "bytes": 108201,
-      "sha256": "7bd45dcb066f28f715736cfea9b1c426ad839f76a825abb3cfb6195a23a6a2bd"
+      "blob_sha": "acdad3a467fd1a363b6aafd31c5e36d2108936c6",
+      "bytes": 109975,
+      "sha256": "a627a31b4507823a7201ee01a115beea44d0b9fb4b144d0c35b5ac0b5347e3a1"
     },
     "authentication/test_failure_details.py": {
       "blob_sha": "bdc7a38dae79393b9524f047ac512868ef66e389",
@@ -4112,6 +4189,11 @@
       "blob_sha": "463f8023f0620cea78d735d6874f6ce1342cfebc",
       "bytes": 5105,
       "sha256": "1f29841198a65639adc718be5ba6982d151e32fb1749820598eea715dd91c0da"
+    },
+    "docs/repairs/ci-watch-catalog-negotiation-2026-11-24-task.json": {
+      "blob_sha": "86b53153c682a12e1dde0ad90b5088842c490bd8",
+      "bytes": 2823,
+      "sha256": "fc22dfabc40eeb5028cfb008324c04c1c2954f8c59419dffa23a0415b87976c1"
     },
     "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json": {
       "blob_sha": "21b739240aa92fd1fd7b4e3b5b0cf77e75e0dea8",
@@ -4849,9 +4931,9 @@
       "sha256": "d417d36854737869580ccf63db332fb451e570383cf8ef0883ccb7bf791d20d2"
     },
     "scripts/check_issue_reporting_configuration.py": {
-      "blob_sha": "3b4fa7db221e582d0e38fecebcbb63ecfd8f3b6a",
-      "bytes": 6038,
-      "sha256": "e25a817b3bcda834dae5c26fb3ac4ebb214d2a3fd089f5b40bd85466a2a7f178"
+      "blob_sha": "9d93e7c106f350ab2cf24dfe539c27123c9fd542",
+      "bytes": 6078,
+      "sha256": "7ab0d1edb0fb73c7c875d6eb7c2b39e08e302b18628aeb574982310df39b707d"
     },
     "scripts/check_local_runtime_apk.py": {
       "blob_sha": "f132b89d8f768178d55a126a94a404a183d5a18e",
@@ -4964,9 +5046,9 @@
       "sha256": "7c3c7bfaf0cbd32f9b280ad99d19899594b8db1ba9122b86e2b6216b99b141de"
     },
     "scripts/tests/test_issue_reporting_configuration.py": {
-      "blob_sha": "ee04bc3f029acc8deaa8863245d6ace5f890e256",
-      "bytes": 14615,
-      "sha256": "620535b8d81cdc0a1dbf515e5c8270a498a76c1dd6241995442b1d748f79624e"
+      "blob_sha": "d3b2ac5f0e68665cf9110a8baa6b58d6566b1d53",
+      "bytes": 15622,
+      "sha256": "f9e85142880ada473e158a2f55b21c560deda43eb874b5500a1b7c7de1f541ae"
     },
     "scripts/tests/test_kokoro_host_identity.py": {
       "blob_sha": "86fb8f478e6f868976a04f918c58aec26cf589ae",

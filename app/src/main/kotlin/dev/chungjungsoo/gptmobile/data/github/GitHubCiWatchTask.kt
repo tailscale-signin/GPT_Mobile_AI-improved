@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.github
 
-import dagger.Lazy
 import dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction
 import dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor
 import dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringApiException
@@ -8,7 +7,6 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
-import dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
 import dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import kotlinx.serialization.Serializable
@@ -25,41 +23,52 @@ internal data class GitHubCiWatchTask(
     val model: String,
     val profileContract: String
 ) {
-    suspend fun deliver(watch: GitHubCheckWatch, database: ChatDatabaseV2, settings: SettingRepository, api: GitHubEngineeringApi, queue: Lazy<DurablePromptQueue>): Boolean {
-        val run = database.agentRunDao().getById(runId) ?: return true
-        if (run.chatId != watch.chatId || run.profileUid != watch.profileUid || run.userMessageId != sourceMessageId || run.modelSnapshot != model) return true
-        if (run.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING)) return false
-        if (run.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING)) return true
-        val binding = capture(runId, watch.chatId, watch.profileUid, watch.owner, watch.repo, database, settings) ?: return true
-        if (binding != this) return true
-        val room = database.agentPersistenceDao().getChatRoom(watch.chatId) ?: return true
-        if (room.isArchived || room.isTemporary || room.activePlatform != listOf(watch.profileUid)) return true
-        val scope = settings.getFeatureSettings().conversationGitHub[watch.chatId] ?: return true
+    sealed interface Delivery {
+        data object Waiting : Delivery
+        data object Discarded : Delivery
+        data class Ready(val payload: PendingPromptPayload) : Delivery
+    }
+
+    /** The remote read is prepared outside the watch's cancellation/admission mutex. */
+    suspend fun prepare(watch: GitHubCheckWatch, database: ChatDatabaseV2, settings: SettingRepository, api: GitHubEngineeringApi): Delivery {
+        val current = currentDelivery(watch, database, settings)
+        if (current !is Delivery.Ready) return current
+        val head = try {
+            val root = GitHubEngineeringApi.root(watch.owner, watch.repo)
+            Json.parseToJsonElement(api.request("$root/commits/${GitHubEngineeringApi.segment(ref)}")).jsonObject["sha"]
+        } catch (failure: EngineeringApiException) {
+            if (failure.status in setOf(401, 403, 404) && failure.retryAtEpochMs == null) return Delivery.Discarded
+            throw failure
+        }
+        return if (head == JsonPrimitive(watch.headSha)) current else Delivery.Discarded
+    }
+
+    /** Re-read the saved run, conversation and profile immediately before queue admission. */
+    suspend fun currentDelivery(watch: GitHubCheckWatch, database: ChatDatabaseV2, settings: SettingRepository): Delivery {
+        val run = database.agentRunDao().getById(runId) ?: return Delivery.Discarded
+        if (run.chatId != watch.chatId || run.profileUid != watch.profileUid || run.userMessageId != sourceMessageId || run.modelSnapshot != model) return Delivery.Discarded
+        if (run.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING)) return Delivery.Waiting
+        if (run.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING)) return Delivery.Discarded
+        val binding = capture(runId, watch.chatId, watch.profileUid, watch.owner, watch.repo, database, settings) ?: return Delivery.Discarded
+        if (binding != this) return Delivery.Discarded
+        val room = database.agentPersistenceDao().getChatRoom(watch.chatId) ?: return Delivery.Discarded
+        if (room.isArchived || room.isTemporary || room.activePlatform != listOf(watch.profileUid)) return Delivery.Discarded
+        val scope = settings.getFeatureSettings().conversationGitHub[watch.chatId] ?: return Delivery.Discarded
         if (scope.ref != ref ||
             scope.connectionUid != watch.connectionUid ||
             scope.mainProfileUid != watch.profileUid ||
             !scope.owner.equals(watch.owner, true) ||
             !scope.repo.equals(watch.repo, true)
         ) {
-            return true
+            return Delivery.Discarded
         }
-        val head = try {
-            val root = GitHubEngineeringApi.root(watch.owner, watch.repo)
-            Json.parseToJsonElement(api.request("$root/commits/${GitHubEngineeringApi.segment(ref)}")).jsonObject["sha"]
-        } catch (failure: EngineeringApiException) {
-            if (failure.status in setOf(401, 403, 404) && failure.retryAtEpochMs == null) return true
-            throw failure
-        }
-        if (head != JsonPrimitive(watch.headSha)) return true
-        val key = "github-ci-task:${watch.id}:${watch.headSha}:$sourceMessageId"
         val payload = PendingPromptPayload(
             profileUids = listOf(watch.profileUid),
             models = mapOf(watch.profileUid to model),
             tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(watch.connectionUid), github = scope.copy(commitSha = watch.headSha)),
             recovery = TaskResumeDescriptor("${watch.chatId}:$sourceMessageId", sourceMessageId, runId, TaskRecoveryAction.CONTINUE_RUN)
         )
-        queue.get().enqueue(watch.chatId, "Continue", payload, key)
-        return true
+        return Delivery.Ready(payload)
     }
 
     companion object {

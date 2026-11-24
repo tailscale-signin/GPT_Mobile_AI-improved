@@ -148,9 +148,13 @@ internal object GitHubChatPolicy {
             request.delegation?.enabled != false &&
             "delegate_to_model" !in request.disabledToolIds &&
             connection !in request.disabledToolIds
-        val patchReview = config.githubTools && config.intelligenceLevel in GitHubPrimaryPatchReview.levels &&
-            config.primaryPatchReviewConsent != null && !request.allToolsDisabled && request.delegation?.enabled != false &&
-            "delegate_to_model" !in request.disabledToolIds && connection !in request.disabledToolIds
+        val patchReview = config.githubTools &&
+            config.intelligenceLevel in GitHubPrimaryPatchReview.levels &&
+            config.primaryPatchReviewConsent != null &&
+            !request.allToolsDisabled &&
+            request.delegation?.enabled != false &&
+            "delegate_to_model" !in request.disabledToolIds &&
+            connection !in request.disabledToolIds
         val enabled = buildSet {
             add("github_decide")
             if (config.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE &&

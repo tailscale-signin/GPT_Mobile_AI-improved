@@ -1,0 +1,118 @@
+{
+  "sourceRef": "376cd9fa3d0cf4f0db0e0b0dfffac38a82c89321",
+  "command": [
+    "java",
+    "-Xmx256m",
+    "-XX:MaxMetaspaceSize=128m",
+    "-jar",
+    "/workspace/scratch/17b708aeed8b/tools/ktlint-1.3.1.jar",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt"
+  ],
+  "exitCode": 0,
+  "durationSeconds": 2.7535343170166016,
+  "inputs": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+      "sha256": "7b866edd52b3c6a5805442b043f2e49394498a336cff49074938edc7294aad5e",
+      "bytes": 92174
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt",
+      "sha256": "c8163e425383a232dc7be0ccf59cb3187b7a3fbdf3632c67afc596e240a95339",
+      "bytes": 6746
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+      "sha256": "331767e161ad395d308a4c5d5f58aa325fdb538c36222e05e4fafdc25b4c4e48",
+      "bytes": 46469
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
+      "sha256": "1eab5ce9bb1ad86dc9a6d9327ffb58e1646bfb27687cbe8c3fe5d25cf02b4a30",
+      "bytes": 5348
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
+      "sha256": "3359338c134bf3e2c7545ce77b6bddf6a58faa478809d3b3acea95153630c4c7",
+      "bytes": 37420
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
+      "sha256": "7c97979e743f4b44774ccc8f5cf87def7d464a4c5aafca0388af0ce60499ad54",
+      "bytes": 4456
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
+      "sha256": "cc517acc45277aab14e202b063dac2ce1f2580fc614d0af3f213512e6432620b",
+      "bytes": 27657
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt",
+      "sha256": "58af15dd61e566b428c36404e8a0a62fe093e80c0ec27481d7fd30d43446602d",
+      "bytes": 9288
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt",
+      "sha256": "5188cb733082e90058781492b43800180c985e25fa4a5eaf7efe5702eaa75ed9",
+      "bytes": 33952
+    }
+  ],
+  "outputs": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+      "sha256": "7b866edd52b3c6a5805442b043f2e49394498a336cff49074938edc7294aad5e",
+      "bytes": 92174
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt",
+      "sha256": "c8163e425383a232dc7be0ccf59cb3187b7a3fbdf3632c67afc596e240a95339",
+      "bytes": 6746
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+      "sha256": "331767e161ad395d308a4c5d5f58aa325fdb538c36222e05e4fafdc25b4c4e48",
+      "bytes": 46469
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
+      "sha256": "1eab5ce9bb1ad86dc9a6d9327ffb58e1646bfb27687cbe8c3fe5d25cf02b4a30",
+      "bytes": 5348
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
+      "sha256": "3359338c134bf3e2c7545ce77b6bddf6a58faa478809d3b3acea95153630c4c7",
+      "bytes": 37420
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
+      "sha256": "7c97979e743f4b44774ccc8f5cf87def7d464a4c5aafca0388af0ce60499ad54",
+      "bytes": 4456
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
+      "sha256": "cc517acc45277aab14e202b063dac2ce1f2580fc614d0af3f213512e6432620b",
+      "bytes": 27657
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt",
+      "sha256": "58af15dd61e566b428c36404e8a0a62fe093e80c0ec27481d7fd30d43446602d",
+      "bytes": 9288
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt",
+      "sha256": "5188cb733082e90058781492b43800180c985e25fa4a5eaf7efe5702eaa75ed9",
+      "bytes": 33952
+    }
+  ],
+  "inputsUnchanged": true,
+  "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "jarSha256": "a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1"
+}

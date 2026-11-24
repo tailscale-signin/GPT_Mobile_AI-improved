@@ -64,6 +64,25 @@ class ApkSizeTest(unittest.TestCase):
                     self.assertTrue(module.inspect(path, "debug")["passed"])
                     self.assertFalse(module.inspect(path, "release")["passed"])
 
+    def test_measured_dual_abi_release_has_bounded_universal_headroom(self):
+        measured_bytes = 253_719_782
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "qualified-universal.apk"
+            with path.open("wb") as stream:
+                stream.truncate(measured_bytes)
+            with zipfile.ZipFile(path, "a") as archive:
+                archive.writestr("lib/arm64-v8a/runtime.so", b"native")
+                archive.writestr("lib/x86_64/runtime.so", b"native")
+            report = module.inspect(path)
+            self.assertEqual("universal", report["budget_class"])
+            self.assertEqual(250 * 1024 * 1024, report["budget_bytes"])
+            self.assertTrue(report["passed"])
+            self.assertLess(report["budget_bytes"] - report["bytes"], 9 * 1024 * 1024)
+            self.assertEqual(180 * 1024 * 1024, module.BUDGETS["arm64-v8a"])
+            self.assertEqual(180 * 1024 * 1024, module.BUDGETS["x86_64"])
+            with patch.dict(module.BUDGETS, {"universal": report["bytes"] - 1}):
+                self.assertFalse(module.inspect(path)["passed"])
+
     def test_each_profile_enforces_its_boundary(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "universal.apk"

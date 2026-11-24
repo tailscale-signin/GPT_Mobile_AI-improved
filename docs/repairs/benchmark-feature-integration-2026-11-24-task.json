@@ -38,7 +38,7 @@
     "Retain all 41 existing streaming and synthesis test identities while explicitly correcting four fixtures: separate temporary dictionary leases from quarantined model leases, assert the six-word opening, and verify feedback-sized continuation plus the final tail without losing source text."
   ],
   "preserved": [
-    "250 MiB universal and 180 MiB per-ABI packaging limits",
+    "230 MiB universal and 180 MiB per-ABI packaging limits",
     "Current permission, account, revision, profile and model bindings",
     "Existing task grants, shared budgets and deadlines",
     "All original required workflows, version identities and publication request",

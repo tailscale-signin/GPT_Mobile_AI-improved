@@ -1219,6 +1219,7 @@ private class FakeAgentPersistenceDao :
     override suspend fun recoveryRun(runId: String): AgentRun? = unused()
     override suspend fun rawRecoveryMessage(messageId: Int): MessageV2? = unused()
     override suspend fun pendingPrompt(id: String): dev.chungjungsoo.gptmobile.data.queue.PendingPrompt? = unused()
+    override suspend fun queuedGitHubCheckWatch(id: String): dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord? = unused()
     override suspend fun consumePrompt(id: String, messageId: Int): Int = unused()
     override suspend fun firstPendingId(chatId: Int): String? = unused()
     override suspend fun activeRunCount(chatId: Int): Int = unused()

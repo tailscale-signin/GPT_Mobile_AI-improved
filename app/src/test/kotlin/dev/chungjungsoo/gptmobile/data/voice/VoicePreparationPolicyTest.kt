@@ -15,6 +15,9 @@ class VoicePreparationPolicyTest {
         for (phase in listOf(VoicePhase.PREPARING, VoicePhase.SPEAKING, VoicePhase.CLOSED, VoicePhase.ERROR)) {
             assertEquals(VoicePreparation.NONE, stage(phase))
         }
+        for (phase in listOf(VoicePhase.SPEAKING, VoicePhase.CLOSED, VoicePhase.ERROR)) {
+            assertEquals(VoicePreparation.NONE, VoicePreparationPolicy.stage(phase, true, true, true, true, false))
+        }
     }
 
     @Test fun localDraftAndRemoteConsentRemainTurnScoped() {
@@ -22,6 +25,7 @@ class VoicePreparationPolicyTest {
             assertEquals(VoicePreparation.NONE, VoicePreparationPolicy.stage(phase, true, true, false, false, false))
         }
         assertEquals(VoicePreparation.MODEL, VoicePreparationPolicy.stage(VoicePhase.THINKING, true, false, false, true, false))
+        assertEquals(VoicePreparation.MODEL, VoicePreparationPolicy.stage(VoicePhase.THINKING, true, false, true, false, false))
         assertEquals(VoicePreparation.NONE, VoicePreparationPolicy.stage(VoicePhase.THINKING, false, false, true, true, false))
         assertEquals(VoicePreparation.NONE, VoicePreparationPolicy.stage(VoicePhase.REVIEWING, false, false, true, false, false))
         assertEquals(VoicePreparation.MODEL, VoicePreparationPolicy.stage(VoicePhase.REVIEWING, false, true, true, false, false))

@@ -273,15 +273,11 @@ internal class GitHubChatProgress(
             proof = if (context != null && !saved && receiptFacts === facts) captureProof(call, result.executionReceipt, facts) else null,
             sourceIdentity = if (!saved && receiptFacts === facts) capturedSourceIdentity(call, result.executionReceipt, facts) else null
         ) ?: return null
-        val scoped = if (evidence != null && (observation.proof == null || observation.proof.revision != currentHead && !observation.proof.observesHead)) {
-            val label = operation(call.name, call.arguments).preview
-            observation.copy(preview = label + sourceFocus(call.arguments).takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty())
-        } else {
-            observation
-        }
-        resultObservations[call.callId] = scoped
+        resultObservations[call.callId] = observation
         while (resultObservations.size > 256) resultObservations.remove(resultObservations.keys.first())
-        return scoped.preview
+        // This producer can run ahead of the public event consumer. Only that
+        // consumer can admit a detailed finding against its current branch head.
+        return if (evidence == null) observation.preview else operationSummary(call.name, call.arguments)
     }
 
     @Synchronized fun observe(event: ApiState) {
@@ -400,7 +396,7 @@ internal class GitHubChatProgress(
                         }
                         val sourceRead = name.githubOperationFamily() == "github_read" && sourceFocus(progress.toolArgs).isNotBlank()
                         if (observed != null || sourceRead) selectedAuthoredSummary = false
-                        val nextPreview = captured?.preview ?: previewSequence.offer(
+                        val nextPreview = observed?.preview ?: previewSequence.offer(
                             previewEvent(name, progress.toolArgs, GitHubPreviewPhase.RESULT)
                         )
                         nextPreview?.let { activity = it }

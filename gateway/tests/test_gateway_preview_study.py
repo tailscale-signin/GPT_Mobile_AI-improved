@@ -55,3 +55,24 @@ class PreviewStudyTests(TestCase):
         self.assertIsNone(empty['firstUsefulMs'])
         premature = preview_study.grade([], [line(1, 'A repair was applied.', None)])
         self.assertEqual(1, premature['unsupported'])
+
+    def test_chained_corrections_require_only_the_current_replacement(self):
+        events = [
+            dict(id='old', fact='sha-a/ci-failed', ms=5, kind='finding', accepted=['Old CI failed.']),
+            dict(id='middle', fact='sha-b/ci-pending', ms=10, kind='correction',
+                 accepted=['Intermediate CI is pending.'], invalidates=['old']),
+            dict(id='current', fact='sha-c/ci-passed', ms=15, kind='correction',
+                 accepted=['Current CI passed.'], invalidates=['middle']),
+        ]
+        old = line(5, 'Old CI failed.', 'old')
+        current = line(20, 'Current CI passed.', 'current')
+        delayed = preview_study.grade(events, [old, current])
+        self.assertEqual(0, delayed['missingCorrections'])
+        self.assertEqual(0, delayed['stale'])
+        self.assertEqual(1, preview_study.grade(events, [old])['missingCorrections'])
+        intermediate = line(12, 'Intermediate CI is pending.', 'middle')
+        self.assertEqual(0, preview_study.grade(events, [old, intermediate, current])['missingCorrections'])
+        stale = line(18, 'Intermediate CI is pending.', 'middle')
+        self.assertEqual(1, preview_study.grade(events, [old, stale, current])['stale'])
+        # Unpublished and unrequired findings do not create an obligation to speak.
+        self.assertEqual(0, preview_study.grade(events, [])['missingCorrections'])

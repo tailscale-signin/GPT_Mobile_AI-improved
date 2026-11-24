@@ -124,6 +124,63 @@ class GitHubEvidenceElaborationTest {
         }
     }
 
+    @Test fun queuedHeadAdvancePreventsOldResultsFromReappearingAsLivePreview() {
+        summaries()
+        fun queued(target: GitHubChatProgress, id: String, tool: String, request: String, body: String): Pair<ApiState.ProgressCheckpoint, ApiState.GatewayProgressChanged> {
+            val args = Json.parseToJsonElement(request).jsonObject
+            fun event(type: String) = ApiState.GatewayProgressChanged(GatewayProgress(event = type, toolName = tool, toolCallId = id, toolArgs = args))
+            target.forward(event("tool_started"))
+            val upstream = AgentToolResult(id, ToolResultContent.Json(Json.parseToJsonElement(body)), false)
+            val result = GitHubResultViews().present("turn-19", tool, tool, upstream, args)
+            val preview = requireNotNull(target.observeResult(ProviderEvent.ToolCall(id, tool, args), result))
+            return ApiState.ProgressCheckpoint(preview) to event("tool_completed")
+        }
+        fun job(revision: String) = """{"jobs":[{"id":14,"run_id":3,"head_sha":"$revision","status":"completed","conclusion":"failure","steps":[{"name":"Compile Kotlin","status":"completed","conclusion":"failure"}]}]}"""
+        val moved = queued(
+            progress,
+            "head",
+            "github_context",
+            """{"action":"resolve","ref":"main"}""",
+            """{"owner":"owner","repo":"repo","ref":"main","commit_sha":"$next","tree_sha":"${"d".repeat(40)}"}"""
+        )
+        // The producer captures both results before the consumer applies either
+        // completion. Consumption remains FIFO, just as in channelFlow.
+        val stale = queued(progress, "old-ci", "github_ci", """{"action":"jobs","run_id":3}""", job(head))
+        assertFalse(stale.first.text.contains("Compile Kotlin"))
+        assertFalse(moved.first.text.contains(next.take(8)))
+        progress.forward(moved.first)
+        progress.forward(moved.second)
+        assertTrue(summaries().single().contains("moved from ${head.take(8)} to ${next.take(8)}"))
+        progress.forward(stale.first)
+        progress.forward(stale.second)
+        assertFalse(progress.summarySnapshot().activity.contains("Compile Kotlin"))
+        assertFalse(progress.summarySnapshot().recentSteps.any { it.contains("Compile Kotlin") })
+        clock = 45_000
+        assertTrue(
+            progress.tick().none { event ->
+                when (event) {
+                    is ApiState.ProgressCheckpoint -> event.text.contains("Compile Kotlin")
+                    is ApiState.ActivitySummary -> event.text.contains("Compile Kotlin")
+                    else -> false
+                }
+            }
+        )
+
+        val current = queued(progress, "current-ci", "github_ci", """{"action":"jobs","run_id":3}""", job(next))
+        assertFalse(current.first.text.contains("Compile Kotlin"))
+        progress.forward(current.first)
+        progress.forward(current.second)
+        assertTrue(progress.summarySnapshot().activity.contains("Compile Kotlin"))
+        assertTrue(summaries().any { it.contains("Compile Kotlin") && it.contains(next.take(8)) })
+
+        val legacy = GitHubChatProgress("Inspect CI") { clock }
+        val legacyResult = queued(legacy, "legacy-ci", "github_ci", """{"action":"jobs","run_id":3}""", job(head))
+        assertTrue(legacyResult.first.text.contains("Compile Kotlin"))
+        legacy.forward(legacyResult.first)
+        legacy.forward(legacyResult.second)
+        assertTrue(legacy.summarySnapshot().activity.contains("Compile Kotlin"))
+    }
+
     private fun summaries() = progress.tick().filterIsInstance<ApiState.ActivitySummary>().map { it.text }
 
     private fun capture(id: String, tool: String, request: String, body: String) {

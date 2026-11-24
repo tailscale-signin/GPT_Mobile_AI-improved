@@ -6,6 +6,8 @@ Application native-library stripping uses the same pinned NDK as the native modu
 
 ## Evidence-guided engineering and progress
 
+- Recheck each queued progress update against the current commit before it appears. Progress-renderer studies now recognize the latest finding after multiple corrections.
+- Keep every check returned for a commit distinct. A delayed CI diagnosis resumes only when its repository, commit, message, and profile still match. Older diagnostic receivers receive the fields their version supports.
 - Restore saved GitHub pages through their public cursor when the recorded lookup selectors match the original authorized result.
 - Preserve the original provider failure when a stream closes. A GitHub tool-name error can recover through the authorized catalog, and short excerpts remain readable when a tool has little output space.
 - Choose the next GitHub action from unmet requirements, their dependencies, scoped evidence and retry budgets. Each Android GitHub profile can use the original policy, record a shadow choice, or enable evidence-guided selection independently of progress elaboration.

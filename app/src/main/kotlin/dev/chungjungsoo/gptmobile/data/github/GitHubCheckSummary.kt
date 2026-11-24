@@ -13,19 +13,14 @@ internal fun gitHubCheckSummary(checks: JsonObject, status: JsonObject, waitForA
     val observed = checks["check_runs"]?.jsonArray ?: return "UNKNOWN"
     val identified = observed.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.longOrNull?.takeIf { id -> id > 0 } }
     if (identified.distinct().size != identified.size) return "UNKNOWN"
+    if (waitForAll && identified.size != observed.size) return "UNKNOWN"
     val groups = observed.mapIndexed { index, value ->
         val run = value.jsonObject
         val name = run["name"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
         val app = (run["app"] as? JsonObject)?.get("id")?.jsonPrimitive?.longOrNull?.takeIf { it > 0 }
-        val suite = (run["check_suite"] as? JsonObject)?.get("id")?.jsonPrimitive?.longOrNull?.takeIf { it > 0 }
-        // Unidentified producers cannot supersede one another.
-        val identity = when {
-            waitForAll && name != null && app != null && suite != null -> "$app:$suite:$name"
-            waitForAll -> "unidentified:$index"
-            name != null && app != null -> "$app:$name"
-            else -> "unidentified:$index"
-        }
-        identity to value
+        // Whole-commit mode consumes every row selected by the endpoint's latest filter.
+        // Neither display names nor larger IDs prove another returned check was replaced.
+        (if (!waitForAll && name != null && app != null) "$app:$name" else "unidentified:$index") to value
     }.groupBy({ it.first }, { it.second })
     val runs = groups.values.map { attempts ->
         if (attempts.size == 1) {

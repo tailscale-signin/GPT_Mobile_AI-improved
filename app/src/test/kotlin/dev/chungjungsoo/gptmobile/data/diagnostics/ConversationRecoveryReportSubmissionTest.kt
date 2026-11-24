@@ -10,8 +10,10 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConversationRecoveryReportSubmissionTest {
@@ -68,6 +70,106 @@ class ConversationRecoveryReportSubmissionTest {
             assertEquals(IssueReportSubmission.Confirmed(81), submission.send(approved.reportId, payload) { dispatched++ })
             assertEquals(1, dispatched)
             assertEquals(listOf(payload), posted)
+        }
+    }
+
+    @Test fun newRecoveryReportEvidenceDefersOldReportersBeforePostingApprovedBytes() {
+        val recoveryFeature = IssueReportDiagnostics.RECOVERY_REPORT_FEATURE
+        val missingToolFeature = IssueReportDiagnostics.MISSING_TOOL_IDENTITY_FEATURE
+        val anr = IssueReportContext.fromFields(
+            "PROCESS_EXIT",
+            mapOf("diagnostic_area" to "APP", "anr_trace_state" to "MAIN_THREAD_CAPTURED", "anr_frame_count" to 3),
+            1_000L
+        )
+        val anrOmitted = anr.withDiagnostics(
+            requireNotNull(anr.diagnostics).copy(values = emptyMap(), omittedFields = listOf("anr_trace_state", "anr_frame_count"))
+        )
+        val missingTool = IssueReportContext.fromFields(
+            "CHAT_FAILURE",
+            mapOf("diagnostic_area" to "TOOL", "missing_tool_hash" to "a".repeat(64)),
+            1_000L
+        )
+        val missingToolOmitted = missingTool.withDiagnostics(
+            requireNotNull(missingTool.diagnostics).copy(values = emptyMap(), omittedFields = listOf("missing_tool_hash"))
+        )
+        val savedPageContexts = listOf("SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH").map { state ->
+            IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "INCIDENT", "replay_budget_state" to state), 1_000L)
+        }
+        val legacy = IssueReportContext.fromFields("PROCESS_EXIT", mapOf("diagnostic_area" to "APP"), 1_000L)
+        val variants: List<Pair<IssueReportContext, String?>> = listOf(
+            anr to recoveryFeature,
+            anrOmitted to recoveryFeature,
+            missingTool to missingToolFeature,
+            missingToolOmitted to missingToolFeature
+        ) + savedPageContexts.map { it to recoveryFeature } + listOf(legacy to null)
+        for ((context, feature) in variants) {
+            val requiresNewFeature = feature != null
+            val diagnostics = requireNotNull(context.diagnostics)
+            assertTrue(diagnostics.isValid())
+            assertEquals(if (diagnostics.area == "INCIDENT") 3 else 1, diagnostics.schemaVersion)
+            val required = diagnostics.requiredServiceFeatures()
+            assertEquals(requiresNewFeature, feature != null && feature in required)
+            val approved = report.copy(context = context)
+            val payload = approved.approvedPayload()
+            val approvedBytes = payload.encodeToByteArray()
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<ByteArray>()
+            var compatible = false
+            var dispatched = 0
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                val body = when (request.method) {
+                    "GET" -> {
+                        val suffix = if (requiresNewFeature) "?capabilities=extended" else ""
+                        assertEquals("$origin/health/ready$suffix", request.url.toString())
+                        val advertised = if (compatible || feature == null) required else required - feature
+                        val features = if (feature == missingToolFeature) advertised + recoveryFeature else advertised
+                        if (feature == missingToolFeature) assertTrue(recoveryFeature in features)
+                        buildJsonObject {
+                            put("service", "gpt-mobile-issue-reporter")
+                            put("version", 2)
+                            put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                            put("reportDiagnosticFeatures", JsonArray(features.map(::JsonPrimitive)))
+                        }.toString()
+                    }
+                    "POST" -> {
+                        assertEquals("$origin/v1/issue-reports", request.url.toString())
+                        assertEquals(1, dispatched)
+                        posted += Buffer().also { requireNotNull(request.body).writeTo(it) }.readByteArray()
+                        buildJsonObject {
+                            put("reportId", approved.reportId)
+                            put("number", 81)
+                        }.toString()
+                    }
+                    else -> error("Unexpected report transport method: ${request.method}")
+                }
+                Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("Fixture")
+                    .body(body.toResponseBody("application/json".toMediaType())).build()
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            if (requiresNewFeature) {
+                assertEquals(
+                    IssueReportSubmission.Failure("REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, automaticRetry = false),
+                    submission.send(approved.reportId, payload) { dispatched++ }
+                )
+                assertEquals(listOf("GET"), methods)
+                assertEquals(0, dispatched)
+                assertTrue(posted.isEmpty())
+                assertArrayEquals(approvedBytes, payload.encodeToByteArray())
+                compatible = true
+                assertEquals(IssueReportSubmission.Confirmed(81), submission.send(approved.reportId, payload) { dispatched++ })
+                assertEquals(listOf("GET", "GET", "POST"), methods)
+            } else {
+                assertFalse(recoveryFeature in required)
+                assertFalse(missingToolFeature in required)
+                assertEquals(IssueReportSubmission.Confirmed(81), submission.send(approved.reportId, payload) { dispatched++ })
+                assertEquals(listOf("GET", "POST"), methods)
+            }
+            assertEquals(1, dispatched)
+            assertEquals(1, posted.size)
+            assertArrayEquals(approvedBytes, posted.single())
+            assertArrayEquals(approvedBytes, payload.encodeToByteArray())
         }
     }
 }

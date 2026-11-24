@@ -209,7 +209,9 @@ class KokoroSilentWarmupTest {
             withOutput(VoiceSpeechBackend.AUTO, provider) { fixture ->
                 fixture.output.prewarm(KokoroVoice.HEART)
                 awaitSynthesis(fixture.output)
+                assertEquals(provider, 1, fixture.creations.get())
                 assertEquals(provider, if (provider == "cpu") 1 else 0, fixture.warmCalls.size)
+                assertEquals(provider, 0, fixture.liveCalls.get())
                 assertEquals(0, fixture.audioWrites.get())
             }
         }

@@ -152,6 +152,7 @@ internal class IssueReportSubmission(
             IssueReportDiagnostics.INCIDENT_DETAIL_FEATURE,
             IssueReportDiagnostics.RECOVERY_REPORT_FEATURE,
             IssueReportDiagnostics.MISSING_TOOL_IDENTITY_FEATURE,
+            IssueReportDiagnostics.POLICY_SELECTION_FEATURE,
             "CLAIM_EXTRACTION_SCHEMA_HASH_V1",
             GitHubAcceptancePublicationEvidence.FEATURE,
             dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceExplanation.FEATURE,

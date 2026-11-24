@@ -377,7 +377,19 @@
     "Wait for every observed check and commit status on a revision before continuing its authorized saved CI diagnosis. Allow one missing-capability catalog lookup per revision and require a verified, admitted reader before replaying its arguments.",
     "Qualify the Windows Gateway benchmark and diagnostic journal using a clean independent candidate checkout and isolated copies of a real, fully committed retention-boundary capture.",
     "Keep structured provider rejections intact, limit automatic catalog recovery to the bound local catalog, and preserve usable excerpts and delegation handoffs when the remaining output budget is small. Continue from a running check snapshot using its selected GitHub connection when the workflow run has yet to be identified.",
-    "Restore saved GitHub pages through their public cursor when the recorded lookup selectors match the original authorized result."
+    "Restore saved GitHub pages through their public cursor when the recorded lookup selectors match the original authorized result.",
+    "Deliver saved CI diagnoses through a typed continuation that is bound to the original run, source message, account, repository, commit, profile and model. Revalidate delayed queue authority and consume the prompt atomically without renewing grants or task budgets.",
+    "Keep every returned check-run row independent in whole-commit monitoring. Reject incomplete or duplicate identities and do not infer supersession from an application, suite, display name or larger numeric ID. Retain the existing ordinary-summary behavior.",
+    "Classify adapter-owned failure evidence from nonblank answer text successfully emitted to the caller. Reasoning-only output does not establish a published answer; preserve nonnull upstream failure details exactly.",
+    "Exercise actual typed queue and Room consumption, Stop during a held head read, automatic phone cursor continuation and report-submission transport in regression sources. Retain legacy report behavior and require the distinct missing-tool identity capability before dispatch.",
+    "In progress-renderer studies, carry an already-exposed correction forward across explicit invalidation chains, require the current replacement and continue rejecting stale intermediate claims.",
+    "Revalidate queued GitHub findings against the current evidence when they are presented; a real FIFO regression retains fresh observations and suppresses superseded queued findings.",
+    "Negotiate GITHUB_POLICY_SELECTION_FIELDS_V1 before sending approved reports that retain the new GitHub policy-selection fields. Preserve older report delivery, exact approved bytes and closed receiver vocabularies.",
+    "Retain actual 48-byte web-search and page-reader budget controls, execute the empty catalog alias locally without dispatch, and recognize only the existing two CI read aliases while retaining connection suffixes and strict malformed negatives.",
+    "Document the five historical test-identity migrations and the public V3 summary correction explicitly; restore prior inactive-state, remote-consent, engine-count and no-live-generation controls inside the replacement tests.",
+    "Bind restored saved-page selectors to the issued cursor and exact admitted arguments. Normalize a mixed legacy request to its cursor only after selector proof and current schema validation; retain original authority, page contents, attempt limits and no-dispatch behavior.",
+    "Exercise automatic catalog recovery through the actual runner: only the bound local catalog can resolve a missing-tool call; foreign or unavailable catalogs cannot acquire dispatch or retry authority.",
+    "Retain all 41 existing streaming and synthesis test identities while explicitly correcting four fixtures: separate temporary dictionary leases from quarantined model leases, assert the six-word opening, and verify feedback-sized continuation plus the final tail without losing source text."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1350,7 +1362,20 @@
     "scripts/tests/test_repository_reference.py",
     "gateway/tests/test_gateway_phone_benchmark.py",
     "gateway/tests/test_gateway_v14_diagnostic_events.py",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt"
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentPersistenceDao.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiWatchContinuation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueue.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPrompt.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubFullToolVisibilityTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolProgressAndBudgetTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ConversationRecoveryReportSubmissionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GitHubPolicyReportSubmissionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiWatchContinuationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueueModelPreparationAuthorityTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueueModelPreparationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/VoiceQueuedAdmissionTest.kt",
+    "docs/repairs/benchmark-feature-integration-2026-11-24-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

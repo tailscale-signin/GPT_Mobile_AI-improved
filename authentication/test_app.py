@@ -589,6 +589,7 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
         additions.append("RECOVERY_REPORT_EVIDENCE_V1")
         additions.append("CATALOG_MISSING_TOOL_IDENTITY_V1")
+        additions.append("GITHUB_POLICY_SELECTION_FIELDS_V1")
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
         additions.insert(additions.index("PRIVACY_ELIGIBILITY_EVIDENCE_V1") + 1, "PRIVACY_FINAL_REQUEST_EVIDENCE_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
@@ -609,6 +610,40 @@ class IssueReportHttpTest(unittest.TestCase):
         check_readiness(self.origin, fetch)
         self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
         self.assertFalse(self.issued)
+
+    def test_policy_selection_capability_matches_new_names_and_clipped_cardinality(self):
+        from authentication import incident_report_contract as capsule
+        feature = "GITHUB_POLICY_SELECTION_FIELDS_V1"
+        legacy = self.client.get("/health/ready")
+        ready = self.client.get("/health/ready?capabilities=extended")
+        self.assertNotIn(feature, legacy.json()["reportDiagnosticFeatures"])
+        self.assertIn(feature, ready.json()["reportDiagnosticFeatures"])
+        self.assertIn("CATALOG_MISSING_TOOL_IDENTITY_V1", ready.json()["reportDiagnosticFeatures"])
+        self.assertEqual(1022, len(legacy.content))
+        self.assertLessEqual(len(ready.content), 4096)
+        new_names = {"githubProfileOverride.nextActionPolicy", "githubProfileOverride.evidenceElaboration", "githubProfileOverride.primaryPatchReviewConsent"}
+        cases = [[name] for name in sorted(new_names)] + [sorted(capsule.POLICY_FIELD_NAMES)[:count] for count in (82, 83, 84)]
+        for names in cases:
+            with self.subTest(names=names):
+                self.now += 601
+                retained = sorted(names)[:8]
+                omitted = len(names) - len(retained)
+                values = {"changed_policy_fields": retained, "changed_policy_field_count": len(names),
+                          "changed_policy_unknown_count": 0, "changed_policy_malformed_count": 0,
+                          "changed_policy_omitted_count": omitted, "changed_policy_observation": "PARTIAL" if omitted else "OBSERVED"}
+                if omitted:
+                    self.assertTrue(new_names.isdisjoint(retained))
+                capture = self.diagnostics("INCIDENT", values)
+                capture["schemaVersion"] = 3
+                capture["unavailableFields"] = sorted(capsule.CORE - values.keys())
+                report = {**self.manual(), "context": self.context(schemaVersion=7, source="CHAT_FAILURE", diagnostics=capture)}
+                approved = json.dumps(report, separators=(",", ":"))
+                response = self.submit(report)
+                self.assertEqual(200, response.status_code, response.text)
+                self.assertEqual(report["reportId"], response.json()["reportId"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                self.assertIn("| changed_policy_field_count | `" + str(len(names)) + "` |", self.issued[-1]["body"])
+        self.assertEqual(6, len(self.issued))
 
     def test_catalog_missing_tool_identity_is_advertised_with_receiver_validation(self):
         feature = "CATALOG_MISSING_TOOL_IDENTITY_V1"

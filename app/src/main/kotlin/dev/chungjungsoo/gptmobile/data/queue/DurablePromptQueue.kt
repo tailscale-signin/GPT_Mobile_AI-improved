@@ -58,7 +58,8 @@ class DurablePromptQueue @Inject constructor(
     private val gatewayStore: GatewayQueueStore,
     private val gatewayAvailability: GatewayAvailabilityRepository,
     private val gatewayScopes: dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScopeStore,
-    modelPreparation: GatewayModelPreparationRepository
+    modelPreparation: GatewayModelPreparationRepository,
+    private val githubWatches: dagger.Lazy<dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository>
 ) {
     private val dao get() = database.pendingPromptDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -240,6 +241,10 @@ class DurablePromptQueue @Inject constructor(
         val save = features.combinedSettingsJournal[chatId]
         if (save != null && !save.roomSettled && save.phase != dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED) return
         if ((payload.localOnly && remote) || (payload.requiresSpendAllowance && remote && (!features.spendBudget.enforced || features.tokenBudget.outputTokens <= 0))) {
+            dao.pause(prompt.id, true)
+            return
+        }
+        if (payload.githubCiWatch != null && !githubWatches.get().validateQueuedContinuation(prompt)) {
             dao.pause(prompt.id, true)
             return
         }

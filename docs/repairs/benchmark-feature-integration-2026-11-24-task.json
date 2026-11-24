@@ -1,0 +1,292 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "task": "benchmark-feature-integration-2026-11-24",
+  "pullRequest": 2527,
+  "integrationParent": "3cabe8c49b0e6fe03f34a0ed4db20b5ddf9c1044",
+  "selectedParallelSource": "09fcf793cf1eb1384bd9c30b4830eb78b22a8698",
+  "target": {
+    "androidVersion": "0.9.66.16",
+    "androidVersionCode": 150,
+    "gatewayVersion": "18.1.3"
+  },
+  "state": "IMPLEMENTED_AWAITING_CURRENT_SOURCE_GATES",
+  "changes": [
+    "Deliver saved CI diagnoses through a typed continuation that is bound to the original run, source message, account, repository, commit, profile and model. Revalidate delayed queue authority and consume the prompt atomically without renewing grants or task budgets.",
+    "Keep every returned check-run row independent in whole-commit monitoring. Reject incomplete or duplicate identities and do not infer supersession from an application, suite, display name or larger numeric ID. Retain the existing ordinary-summary behavior.",
+    "Classify adapter-owned failure evidence from nonblank answer text successfully emitted to the caller. Reasoning-only output does not establish a published answer; preserve nonnull upstream failure details exactly.",
+    "Bound native recompression children to 180 seconds and check a shared 900 second deadline between phases. Admit scratch disk from actual APK and expanded-entry sizes with a 128 MiB reserve, reject archive growth before atomic promotion, and optimize after bundle assembly before signing while retaining all payload and strict size checks.",
+    "Exercise actual typed queue and Room consumption, Stop during a held head read, automatic phone cursor continuation and report-submission transport in regression sources. Retain legacy report behavior and require the distinct missing-tool identity capability before dispatch.",
+    "Compose selected conversation context, replay priority, exact request size, shared phone topology, adaptive speech, benchmark workload and native context diagnostics while preserving concurrent Stop and distinct report-capability behavior.",
+    "Bind semantic proof clauses to accepted request text, offer separately consented independent patch review in Deep and Maximum, reuse matching Gateway graph fragments, reconcile disjoint PR advances, and grade measured CI repairs and distinct source ranges.",
+    "Support a calibrated convolution-only HTP candidate from original FP32 weights, validate derived graph captures after quantization, and pass the matched rejected-output comparison into the benchmark result card.",
+    "Preserve distinct check suites in whole-commit monitoring, allow Stop to win during a suspended revision read, and revalidate current watch/task authority before continuation. Negotiate missing-tool diagnostic identity separately from legacy recovery evidence before sending the exact approved report.",
+    "Prepare the selected speech pack and voice profile on foreground room entry. Prioritize the first spoken answer during web lookups and record preparation and playback timing.",
+    "Choose the next GitHub action from unmet requirements, their dependencies, scoped evidence and retry budgets. Each Android GitHub profile can use the original policy, record a shadow choice, or enable evidence-guided selection independently of progress elaboration.",
+    "Use a bounded, authorized source range on small context windows when it is available. Keep cloud recall, private chat state and the reusable repository graph within their existing access boundaries.",
+    "Connect 44 reviewed feature routes to their normal entry points, proof requirements and positive and negative fixtures. Use the local route catalog to rank eligible tools and verify revision-bound source guidance before presenting it.",
+    "Present GitHub findings from scoped evidence on Android and Gateway desktop. Coalesce repeats, correct superseded CI findings, and keep bare source reads in the activity preview.",
+    "Reuse matching observed behavior-check receipts when selecting Gateway work packages. A changed candidate invalidates earlier patch evidence, and a saved conversation retains its original selection policy.",
+    "Grade displayed CI conclusions against their exact source revision and expose multiple eligible tools in Android engineering workflow benchmarks. Add reproducible native-product comparisons and blinded progress-renderer studies with separate evidence and preference results.",
+    "In progress-renderer studies, carry an already-exposed correction forward across explicit invalidation chains, require the current replacement and continue rejecting stale intermediate claims.",
+    "Revalidate queued GitHub findings against the current evidence when they are presented; a real FIFO regression retains fresh observations and suppresses superseded queued findings.",
+    "Negotiate GITHUB_POLICY_SELECTION_FIELDS_V1 before sending approved reports that retain the new GitHub policy-selection fields. Preserve older report delivery, exact approved bytes and closed receiver vocabularies.",
+    "Retain actual 48-byte web-search and page-reader budget controls, execute the empty catalog alias locally without dispatch, and recognize only the existing two CI read aliases while retaining connection suffixes and strict malformed negatives.",
+    "Document the five historical test-identity migrations and the public V3 summary correction explicitly; restore prior inactive-state, remote-consent, engine-count and no-live-generation controls inside the replacement tests.",
+    "Bind restored saved-page selectors to the issued cursor and exact admitted arguments. Normalize a mixed legacy request to its cursor only after selector proof and current schema validation; retain original authority, page contents, attempt limits and no-dispatch behavior.",
+    "Exercise automatic catalog recovery through the actual runner: only the bound local catalog can resolve a missing-tool call; foreign or unavailable catalogs cannot acquire dispatch or retry authority.",
+    "Retain all 41 existing streaming and synthesis test identities while explicitly correcting four fixtures: separate temporary dictionary leases from quarantined model leases, assert the six-word opening, and verify feedback-sized continuation plus the final tail without losing source text."
+  ],
+  "preserved": [
+    "230 MiB universal and 180 MiB per-ABI packaging limits",
+    "Current permission, account, revision, profile and model bindings",
+    "Existing task grants, shared budgets and deadlines",
+    "All original required workflows, version identities and publication request",
+    "Independent benchmark tasks, evidence qualifications and explicit inconclusive outcomes"
+  ],
+  "sourceTestMigrations": [
+    {
+      "test": "GitHubCheckSummaryTest",
+      "priorMethods": 9,
+      "newMethods": 12,
+      "migration": "Rename wholeCommitAllowsOnlyProvenSameSuiteSupersession to wholeCommitDoesNotInferSameSuiteSupersession and change only its same-suite cancelled-plus-success PASSED expectation to FAILED. Retain other eight bodies and append three reviewed controls."
+    },
+    {
+      "test": "test_gateway_preview_study.py",
+      "migration": "Preserve all three prior methods exactly and add one five-case method for current, missing, timely-intermediate, stale-intermediate and unexposed correction chains."
+    },
+    {
+      "priorMethod": "GitHubAdaptiveSessionTest.invalidSelectionAndToolCallsCannotReachExecution",
+      "replacementMethods": [
+        "malformedAdviceFallsBackAndUnexpectedPlanningToolsStillBlock"
+      ],
+      "classification": "INTENTIONAL_BEHAVIOR_MIGRATION",
+      "preserved": [
+        "Invalid selection never reaches continueWith.",
+        "Unexpected planning ToolCall produces Failed and never reaches continueWith; new test also forbids text output."
+      ],
+      "deliberateChanges": [
+        "A complete but malformed/invalid advisory selection now falls back to the original admitted delegate, verified by its original text, instead of reporting Failed."
+      ],
+      "sourceReviewSha256": "f66de3f715633cffa62b66aae125bf6dcbbf406257dbc7c75397dc46e788638b"
+    },
+    {
+      "priorMethod": "KokoroSilentWarmupTest.nonCpuSelectionsNeverReceiveASilentInference",
+      "replacementMethods": [
+        "explicitAcceleratorsNeverReceiveASilentInference",
+        "autoWarmsOnlyTheAdmittedCpuEngine"
+      ],
+      "classification": "INTENTIONAL_BEHAVIOR_MIGRATION_WITH_OLD_ASSERTIONS_RESTORED",
+      "preserved": [
+        "Every explicitly selected non-CPU/non-AUTO backend still constructs exactly one engine and has zero warmFirstInference, ordinary generate and audio writes. This includes the streaming and Gateway selections present in the enum.",
+        "AUTO rows now retain exact one-engine and zero ordinary generate assertions, plus existing zero audio writes."
+      ],
+      "deliberateChanges": [
+        "AUTO with actual engine executionProvider=cpu may perform one silent warmFirstInference; AUTO qnn-gpu and qnn-htp perform none. This is intentional and does not grant accelerator fallback."
+      ],
+      "sourceReviewSha256": "f66de3f715633cffa62b66aae125bf6dcbbf406257dbc7c75397dc46e788638b"
+    },
+    {
+      "priorMethod": "VoicePreparationPolicyTest.localPreparationCanOverlapFinalizationReviewAndAdmission",
+      "replacementMethods": [
+        "onEntryFileWorkYieldsTheNativeGateToTheMicrophone",
+        "localDraftAndRemoteConsentRemainTurnScoped"
+      ],
+      "classification": "ALL_THREE_OLD_POSITIVES_MAPPED_TO_MODEL",
+      "preserved": [
+        {
+          "phase": "FINALIZING",
+          "old": "false,false,true,false -> true",
+          "new": "same flags -> MODEL in entry stage test"
+        },
+        {
+          "phase": "REVIEWING",
+          "old": "false,true,true,false -> true",
+          "new": "same flags -> MODEL in turn scope test"
+        },
+        {
+          "phase": "THINKING",
+          "old": "true,false,true,false -> true",
+          "new": "same flags -> MODEL restored additively in turn scope test"
+        }
+      ],
+      "deliberateChanges": [],
+      "sourceReviewSha256": "f66de3f715633cffa62b66aae125bf6dcbbf406257dbc7c75397dc46e788638b"
+    },
+    {
+      "priorMethod": "VoicePreparationPolicyTest.remotePreparationStillRequiresTheAcceptedReply",
+      "replacementMethods": [
+        "localDraftAndRemoteConsentRemainTurnScoped"
+      ],
+      "classification": "ALL_OLD_REMOTE_AUTHORITY_ASSERTIONS_RETAINED",
+      "preserved": [
+        "Every phase with awaitingReply=true, hasDraft=true, local=false, admitted=false remains NONE.",
+        "THINKING with awaitingReply=true, hasDraft=false, local=false, admitted=true becomes MODEL."
+      ],
+      "deliberateChanges": [],
+      "sourceReviewSha256": "f66de3f715633cffa62b66aae125bf6dcbbf406257dbc7c75397dc46e788638b"
+    },
+    {
+      "priorMethod": "VoicePreparationPolicyTest.coldScreenCaptureAndInactiveSessionsDoNotStartModelPreparation",
+      "replacementMethods": [
+        "onEntryFileWorkYieldsTheNativeGateToTheMicrophone",
+        "localDraftAndRemoteConsentRemainTurnScoped"
+      ],
+      "classification": "INTENTIONAL_EARLY_LOCAL_PREPARATION_WITH_OLD_INACTIVE_NEGATIVES_RESTORED",
+      "preserved": [
+        "SPEAKING/CLOSED/ERROR with awaitingReply, hasDraft, local and admitted all true remain NONE, restored additively.",
+        "REVIEWING without draft remains NONE.",
+        "THINKING without awaited reply remains NONE."
+      ],
+      "deliberateChanges": [
+        "Old PAUSED/STARTING/LISTENING local denial is deliberately superseded: PAUSED while opening microphone and STARTING return ASSETS; PAUSED without opening microphone, LISTENING and FINALIZING return MODEL."
+      ],
+      "sourceReviewSha256": "f66de3f715633cffa62b66aae125bf6dcbbf406257dbc7c75397dc46e788638b"
+    },
+    {
+      "test": "KokoroPhrasePlanTest and VoiceSpeechWorkloadTest",
+      "migration": "Initial adaptive phrase-word expectation changes from eight to six; the workload identity assertion covers every current enum entry. Existing measured adaptation and native/varied workload checks remain."
+    },
+    {
+      "test": "GitHubSavedPageCapacityTest",
+      "method": "restorationPreservesTheSelectorsAdmittedWithTheOriginalPage",
+      "migration": "Retain all 16 names and 15 other method bodies. Preserve valid original arguments; require a verified selectors hash before cursor-only schema normalization, byte-equal restored content, dispatched=false, and rejection of a changed owner.",
+      "sourceReviewSha256": "914a7a1c9f87a448f0e6915acb0d0dba6a2070fa389e16992ad9832c96a5cb5e"
+    },
+    {
+      "test": "KokoroStreamingOutputTest",
+      "methods": [
+        "failedNativeDestructionRetainsTheModelLeaseAndBlocksReplacement",
+        "failedPreparationDestructionAlsoKeepsTheOuterModelLease"
+      ],
+      "migration": "Permit the independently released temporary dictionary lease while requiring exactly one outstanding model lease at native entry, no subsequent loss of that lease, failed retirement and blocked replacement. Existing barriers, failure paths and cleanup remain.",
+      "sourceReviewSha256": "3f9a28507934d9ca32862eb22ba3380679bf37c7ca1d5fc82d5f6fc499fd1e53"
+    },
+    {
+      "test": "VoiceSynthesisPerformanceTest",
+      "methods": [
+        "unfinishedStreamReservesItsSlowDeliveryDespiteImmediateSubdivisions",
+        "adaptiveChunksStartEarlyAndUseCurrentPlaybackFeedback"
+      ],
+      "migration": "Use the current six-word opening while preserving unfinished-stream reserve checks. Assert a six-word opening, eight-word feedback continuation and separate two-word final tail with exact input reconstruction; timed-arrival controls remain separate and unchanged.",
+      "sourceReviewSha256": "3f9a28507934d9ca32862eb22ba3380679bf37c7ca1d5fc82d5f6fc499fd1e53"
+    },
+    {
+      "test": "GitHubFullToolVisibilityTest",
+      "addedMethod": "automaticCatalogMissRecoveryRequiresTheBoundLocalCatalog",
+      "migration": "Preserve all 11 prior methods and add one actual-runner catalog identity regression.",
+      "sourceReviewSha256": "7c45801f9ac7388712361576431e5f9c093182280f7cae9d67869895f8f3e0b8"
+    }
+  ],
+  "qualification": {
+    "sourceReview": "All assigned 850637a2 reviews, the eleven correction components, latest09 saved-page and four voice-fixture migrations, and the additive bound-local-catalog regression are source-reviewed. The composition preserves current90 controls and the five explicit historical identity migrations. Final current-source gates and immutable transfer remain required.",
+    "canonical": "Run bash scripts/validate-local.sh fast and the pinned ktlint 1.3.1 formatter after the ordered generators; only the retained exact-input execution receipt establishes their result.",
+    "hosted": "Require every applicable current-PR gate, actual unsigned size/native checks, then all actual merged-main gates and the normal joint publisher.",
+    "publication": "Verify both public releases against the actual merge commit, their immutable assets, Android signatures/identities and producer attestations.",
+    "physical": "No new device, GPU/HTP, acoustic quality, energy, paid-model race or model-superiority measurement is claimed.",
+    "authoringScope": "Complete the source, test and metadata composition, regenerate revision-bound references and execute the authorized canonical host checks. Application, Kotlin test, native-model and device execution remain in normal committed CI.",
+    "generatedOrder": "Format changed Kotlin; regenerate architecture/build facts; generate repository references and compiled routes; format generated Kotlin if needed; regenerate app audit inventory and final repository references. Retain the 96-feature and 512 KiB manifest limits."
+  },
+  "components": [
+    {
+      "name": "typed-ci-watch-queue-boundary-dcd.patch",
+      "sha256": "024dfb8c6a047837d9532c6e219a623d1e82b475d377d2351e19d6858d554bfc"
+    },
+    {
+      "name": "ci-watch-observed-row-boundary-dcd-v3.patch",
+      "sha256": "26bed123d081fa89e17cb72a9b14416ba9a70cbb1694b3a2bbfe1c1c0ff15392"
+    },
+    {
+      "name": "provider-published-answer-observation-reconstructed.patch",
+      "sha256": "40fa19d2ffab8250cec258b765f465c99809d9ca6163c869cc3ba315e1962183"
+    },
+    {
+      "name": "compression-boundary-repair-v3.patch",
+      "sha256": "a7a30b6ac3b62dcf7d1ae126fa193483e3b4ba8729c79a03046f7460e936d9f1"
+    },
+    {
+      "name": "candidate.patch",
+      "sha256": "2225595148bb88faf7b56a4c57f5b7a91508f7b09a69f7ce2994ecfd4c8d3019"
+    },
+    {
+      "name": "transport-distinct-token-test.patch",
+      "sha256": "c3df71c05be24d4237b1c09069d4cba4318e53d29d0836780995ab9fc447abe0"
+    },
+    {
+      "name": "preview-correction-chain.patch",
+      "sha256": "d1f2ff78eea295f19bad964d9a953325103501918939e6059c5079bfc6d3d760"
+    },
+    {
+      "name": "queued-progress-freshness.patch",
+      "sha256": "5d2ee921dd3f00abcef1a6f9291d5d50a3ae48eade597a5a860908847e51b416"
+    },
+    {
+      "name": "e9-budget-catalog-additive.patch",
+      "sha256": "7f34a0a09c3545cc687064ddb693f235fb2b37f0406b345898a8b84bf98fb9e7"
+    },
+    {
+      "name": "ci-observation-alias.patch",
+      "sha256": "763930d00b9888f4a764d5b9352a529d401a266c632b5db1adb5f8782d4eb871"
+    },
+    {
+      "name": "policy-selection-capability.patch",
+      "sha256": "2e95ac5ec2a62fc848da3570c503da4dab9d5322c3c7d509e1248eb30d112315"
+    }
+  ],
+  "generatedMetadataRequired": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ReviewedFeatureRoutes.kt",
+    "app/src/main/assets/diagnostics/app-code-inventory.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt",
+    "docs/architecture/feature-map.json",
+    "docs/architecture/repository-index.json"
+  ],
+  "previousParallelSource": "850637a2ccb50945d12a7c3758335ac3db2a1582",
+  "selectedParallelTree": "2b3f72ae2a53c9368286fa7d6ffbee79111ab380",
+  "featureRouting": {
+    "incomingDeclaredFeatures": 44,
+    "routingContracts": "All 44 incoming routing objects are retained exactly; existing D/b4/typed source, test and document references are unioned into those features.",
+    "generatorLimits": {
+      "maxFeatures": 96,
+      "maxManifestBytes": 524288
+    },
+    "publicationInvariantClarification": "Preserve attestation and publication contracts while documenting changed pre-signing package construction; no alternate size policy is adopted."
+  },
+  "primaryPredecessors": [
+    "dcd20ab746eed07fd444320517e6a66fdb28df71",
+    "b4d113258ca4a7f04d4541fe45ab00617bba9aed",
+    "e9bccaa64f62715fee85db5c7dd63bdcdccfac43",
+    "90e76ba88cd170ebcd1b8352fa2028cb7b194027"
+  ],
+  "historicalIdentityAccounting": {
+    "originalLiteralIdentities": 14216,
+    "survivingLiteralIdentities": 14211,
+    "explicitlyMigratedLiteralIdentities": 5,
+    "replacementOrdinaryMethods": 5,
+    "publicV3MigrationIsSeparate": true,
+    "originalHistoryRetained": true,
+    "runtimeResult": "Not inferred from source or host validation."
+  },
+  "latestSourceAdoptions": {
+    "savedPageSelectors": {
+      "source": "09fcf793cf1eb1384bd9c30b4830eb78b22a8698",
+      "sourceReviewSha256": "914a7a1c9f87a448f0e6915acb0d0dba6a2070fa389e16992ad9832c96a5cb5e"
+    },
+    "voiceFixtures": {
+      "source": "09fcf793cf1eb1384bd9c30b4830eb78b22a8698",
+      "sourceReviewSha256": "3f9a28507934d9ca32862eb22ba3380679bf37c7ca1d5fc82d5f6fc499fd1e53"
+    },
+    "localCatalogIdentityRegression": {
+      "patchSha256": "57ed75899a5068bf65de2016f3f9a74e9af8c7d11ba80ebb8cc78b34b6bfdf0e",
+      "handoffSha256": "1080582fffd143a60ab320ef80e7a38fdc06ba7a02d1d8237907c1bbab540d4f"
+    },
+    "compositionSourceReviewSha256": "7c45801f9ac7388712361576431e5f9c093182280f7cae9d67869895f8f3e0b8"
+  },
+  "gatewaySourceAnchor": {
+    "sourceCommit": "3cabe8c49b0e6fe03f34a0ed4db20b5ddf9c1044",
+    "sourceTree": "05725cb9b1ac37829ab38945e931ce35015eb966",
+    "memberCount": 524,
+    "expandedBytes": 7991166,
+    "manifestSha256": "f3ed247f7c0a6d25d71d03e647537283c78ecebc62baede6421443667906bca5",
+    "scope": "Gateway payload source only; not the later combined Android source or a runtime verdict."
+  }
+}

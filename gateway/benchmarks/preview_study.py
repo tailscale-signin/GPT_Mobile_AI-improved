@@ -37,7 +37,11 @@ def grade(events, updates):
         event_index += 1
         old = set(event.get('invalidates', []))
         invalid.update(old)
-        if old & published:
+        correction_needed = bool(old & (published | needed_corrections))
+        # An obsolete intermediate correction cannot be required after its replacement.
+        # Carry its obligation forward only if the reader saw the fact or needs its correction.
+        needed_corrections.difference_update(old)
+        if correction_needed:
             needed_corrections.add(event['id'])
 
     unsupported = stale = duplicates = clauses = 0

@@ -1,4 +1,5 @@
 """Durable one-task admission and qualification recovery, without live writes."""
+from contextlib import closing
 from copy import deepcopy
 import hashlib
 import json
@@ -148,14 +149,14 @@ class QualificationAdmissionTests(unittest.TestCase):
         revision = 'a' * 64
         self.binding['profile_revision'] = value['manifest']['expected_route']['profile_revision'] = revision
         self.service.runtime = SimpleNamespace(GATEWAY_JOB_DB_PATH=Path(self.directory.name) / 'jobs.sqlite3')
-        with sqlite3.connect(self.service.runtime.GATEWAY_JOB_DB_PATH) as db:
+        with closing(sqlite3.connect(self.service.runtime.GATEWAY_JOB_DB_PATH)) as db, db:
             db.execute('CREATE TABLE gateway_control_devices(id TEXT,role TEXT,repositories TEXT,revoked INTEGER)')
             db.execute('INSERT INTO gateway_control_devices VALUES(?,?,?,0)', ('alice', 'owner', '["owner/fixture"]'))
         saved = self.qualifications.create(owner, value)
         self.assertEqual(saved['id'], self.qualifications.intelligence_score(owner, revision)['report']['id'])
         for role, repos, revoked in [('owner', '[]', 0), ('viewer', '["owner/fixture"]', 0), ('owner', '["owner/fixture"]', 1)]:
             with self.subTest(role=role, repos=repos, revoked=revoked):
-                with sqlite3.connect(self.service.runtime.GATEWAY_JOB_DB_PATH) as db:
+                with closing(sqlite3.connect(self.service.runtime.GATEWAY_JOB_DB_PATH)) as db, db:
                     db.execute('UPDATE gateway_control_devices SET role=?,repositories=?,revoked=?', (role, repos, revoked))
                 with self.assertRaises(PermissionError):
                     self.qualifications.intelligence_score(owner, revision)

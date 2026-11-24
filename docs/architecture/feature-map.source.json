@@ -1550,7 +1550,8 @@
         "docs/architecture/repository-guide.md",
         "gateway/benchmarks/README.md",
         "docs/repairs/github-comparison-context-2026-11-24-task.json",
-        "docs/repairs/github-chat-continuation-intent-checkpoint.json"
+        "docs/repairs/github-chat-continuation-intent-checkpoint.json",
+        "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",

@@ -1185,7 +1185,8 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningContext.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerEmptyAnswerTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPlanningPolicyTest.kt",
-    "docs/repairs/github-chat-continuation-intent-checkpoint.json"
+    "docs/repairs/github-chat-continuation-intent-checkpoint.json",
+    "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

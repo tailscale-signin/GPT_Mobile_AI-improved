@@ -1554,7 +1554,8 @@
         "docs/architecture/repository-guide.md",
         "gateway/benchmarks/README.md",
         "docs/repairs/github-comparison-context-2026-11-24-task.json",
-        "docs/repairs/github-chat-continuation-intent-checkpoint.json"
+        "docs/repairs/github-chat-continuation-intent-checkpoint.json",
+        "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -4377,6 +4378,11 @@
       "blob_sha": "921c965acfc045c03b55565d50bac1bf19a5aaed",
       "bytes": 8587,
       "sha256": "ded28e0c6de8dd4d624cc48f94ed75e4cc3f1784406c22780db45e6f270fa633"
+    },
+    "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json": {
+      "blob_sha": "79d5eae3c70d507e111749f01ec1912c3c8efb69",
+      "bytes": 5329,
+      "sha256": "f7c8a17c612b78d2feccda1da8dc4b50e00bc0a4125894a8a88aaead9735aa21"
     },
     "gateway/benchmarks/PHONE_ACTIONS.md": {
       "blob_sha": "9913058470a289d738bd01936de858dd6e42c9e7",

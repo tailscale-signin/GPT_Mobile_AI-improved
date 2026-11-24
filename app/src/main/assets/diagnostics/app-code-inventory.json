@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "a6518445814b0a1a232107a253704b53c4d1620af1e412c940282df23aa88e05",
+  "source_digest": "2f0bb5d3e4c82aa33b1a319a6309882937852df467296a86d2b5df071fbbf342",
   "file_count": 3126,
-  "indexed_line_count": 531653,
+  "indexed_line_count": 531673,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 299,
-      "indexed_line_count": 54843
+      "indexed_line_count": 54861
     },
     {
       "id": "research",
@@ -131,7 +131,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 106,
-      "indexed_line_count": 16950
+      "indexed_line_count": 16952
     },
     {
       "id": "benchmark",
@@ -6094,8 +6094,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "98c50d5a68421dc26a3c0df9fc8e376677da339b50210af42d234ad2c49b1ce8",
-      "indexed_lines": 685
+      "sha256": "11b848f94b4c8f9ea5f0fed5665dc860f2f7640fc0c15f402d4e8743a87c8570",
+      "indexed_lines": 687
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportManualCapture.kt",
@@ -7123,8 +7123,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAdaptiveSession.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "652da219b9919d7b28bf682f0be962830dd1d053f384e562eaee0634f3a4ce4d",
-      "indexed_lines": 177
+      "sha256": "4ed22a7c1fa3b23c97c4532eb9dad518ece9df0f11a2123e296c127cc92917c9",
+      "indexed_lines": 195
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAnswerPresentation.kt",

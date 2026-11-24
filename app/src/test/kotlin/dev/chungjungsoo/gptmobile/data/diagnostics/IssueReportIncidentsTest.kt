@@ -566,6 +566,16 @@ class IssueReportIncidentsTest {
         val reports = IssueReportIncidents.pending.value
         assertEquals(listOf("BACKEND_TEMPLATE_INVALID", "SERVICE_UNAVAILABLE", "AUTHENTICATION_FAILED"), reports.map { it.errorCode })
         assertFalse(reports.flatMap { it.events }.any { "private details" in it })
+
+        val adaptiveCode = "GITHUB_ADAPTIVE_PLAN_INCOMPLETE"
+        assertEquals("7dcc41180d2d8404c252ea5aaaecf5eb76db4f3a7742187f29e117e0cb6c7663", IssueReportContext.identifierHash("chat-error-code", adaptiveCode))
+        IssueReportIncidents.chatFailure(adaptiveCode, false, null, mapOf("failed_stage" to "planning", "operation" to "github_decide", "exception_fingerprint" to "a".repeat(64)))
+        val planning = IssueReportIncidents.pending.value.single { it.errorCode == "GITHUB_TASK_INCOMPLETE" }
+        assertEquals("planning", planning.context?.stage)
+        assertEquals("github_decide", planning.context?.operation)
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("chat-error-code", adaptiveCode)), planning.context?.diagnostics?.values?.get("original_error_code_hash"))
+        assertEquals("a".repeat(64), planning.context?.exceptionFingerprint)
+        assertNull(planning.context?.retryable)
     }
 
     @Test

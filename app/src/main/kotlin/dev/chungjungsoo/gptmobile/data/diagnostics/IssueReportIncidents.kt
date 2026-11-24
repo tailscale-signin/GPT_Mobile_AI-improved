@@ -341,7 +341,7 @@ internal object IssueReportIncidents {
             else -> null
         }
         val specificCode = when {
-            verificationReserveReached -> "GITHUB_TASK_INCOMPLETE"
+            verificationReserveReached || code == dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSession.INCOMPLETE_CODE -> "GITHUB_TASK_INCOMPLETE"
             code == "BILLING_UNAVAILABLE" || rejection == "BILLING_UNAVAILABLE" && input.httpStatus in setOf(400, 402) -> "SOURCE_PAYMENT_REQUIRED"
             code == "OUTPUT_CONTINUATION_PENDING_TOOLS" && input.stage == "tool_reconciliation" && input.dispatched == false -> "RECONCILIATION_REQUIRED"
             code == "RATE_LIMIT" && input.provider != null -> "PROVIDER_RATE_LIMITED"
@@ -421,6 +421,8 @@ internal object IssueReportIncidents {
         }
         val diagnosticFields = if (verificationReserveReached && publicCode == "GITHUB_TASK_INCOMPLETE") {
             fields + ("reason_code" to "VERIFICATION_RESERVE_REACHED")
+        } else if (publicCode == "GITHUB_TASK_INCOMPLETE" && code == dev.chungjungsoo.gptmobile.data.github.GitHubAdaptiveSession.INCOMPLETE_CODE) {
+            fields + ("original_error_code_hash" to IssueReportContext.identifierHash("chat-error-code", code))
         } else if (publicCode in dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.codes) {
             fields + mapOf(
                 "diagnostic_area" to "GATEWAY",

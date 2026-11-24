@@ -30,6 +30,7 @@ GPU and HTP speech qualification and listening quality require measured results 
 
 ## November 24 issue fixes
 
+- GitHub chat can continue from the original request when a completed advisory planning pass reaches its output limit. A caught planning exception now produces an incident with the planning stage and a sanitized exception fingerprint.
 - Queued GitHub findings are checked again when displayed, so superseded evidence does not reappear merely because it was valid when queued.
 - Reports about GitHub policy selection check the receiver's distinct capability before sending the exact approved details; older report types keep their existing behavior.
 - Regression controls exercise small reader budgets, local empty-catalog discovery and the existing CI read aliases while preserving dispatch and malformed-input boundaries.

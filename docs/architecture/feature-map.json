@@ -3052,9 +3052,9 @@
       "sha256": "c90c699891e3c2770b3fcd29471a2535954543f23f8bda8cbc16ef042ef37d1a"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCapture.kt": {
-      "blob_sha": "5145e598946a6af1dc63ad910c8f42904ed000bd",
-      "bytes": 59654,
-      "sha256": "d6a413bde3fdbe414e20d59c7079c7a3f1c94a52014f5e9ef9e507e22e271b34"
+      "blob_sha": "05e12e3ac7dfb70e3466dc32d153b19e71036ba0",
+      "bytes": 60343,
+      "sha256": "f22a0769ede91b4def7d5addc3d16af26ee64aa5a6c86959b9a7a52ad412c94a"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt": {
       "blob_sha": "e1bb2de7165a2cd5181213716910fb25a3beab94",
@@ -3902,9 +3902,9 @@
       "sha256": "b114f11baae545035f9c5cc9f199c05042adf3a94dbb8830d8c3a49e390fc176"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/WorkspaceDiagnosticPayload.kt": {
-      "blob_sha": "2240bc5406add4e41325ef9cfa272fb610a9106c",
-      "bytes": 6317,
-      "sha256": "a53437afad69b831c4bfcb1746f28fa19ba702c479363c4f06704602a7ccb8a8"
+      "blob_sha": "b8271e6a937d1b23fd9727daa0c6211e66f01e2a",
+      "bytes": 6369,
+      "sha256": "2589b8f1b06aa43b69259ad8198a7d0920b720e582d2cea6f78bf51cb857e2f9"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocument.kt": {
       "blob_sha": "86eb079157f827ce61f994923b46035accd35f5f",

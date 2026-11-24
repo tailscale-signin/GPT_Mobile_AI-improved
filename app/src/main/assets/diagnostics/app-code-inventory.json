@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "4558eaf1251036c09899cb77744514d789e9cda7a68cebfdd0c71618837b1e6d",
+  "source_digest": "c5d227f563f27fa3efb9edf61bae1973c12fade0d7bdbc5329df41a893ea35fd",
   "file_count": 3129,
-  "indexed_line_count": 532388,
+  "indexed_line_count": 532498,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 300,
-      "indexed_line_count": 55133
+      "indexed_line_count": 55134
     },
     {
       "id": "research",
@@ -131,7 +131,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 106,
-      "indexed_line_count": 17073
+      "indexed_line_count": 17182
     },
     {
       "id": "benchmark",
@@ -5828,8 +5828,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticDatabaseSource.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "a13bb6f46ef9bbb1740a050db32c0ea9be75ea7f21e0d0dfb1a30031ea376596",
-      "indexed_lines": 627
+      "sha256": "1edeccf9618de9feb65eefb2d46dd3ae5ef198290e73c41d8d45a8d83695222f",
+      "indexed_lines": 630
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticDrawTiming.kt",
@@ -5905,8 +5905,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticPayloadReferences.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "06db5bbe0108baa9f6839c91d1294fc25b010babbd77c21b1f89e0aef6b726c4",
-      "indexed_lines": 87
+      "sha256": "f83810dfe304cc5f23c406711736a71df1cff3dff5464b091f5ed7da7c46207f",
+      "indexed_lines": 95
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticPrivacy.kt",
@@ -5919,8 +5919,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticRecordChunks.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "65451f05e43a9caf92475ea2d0d6a790f164fa1ae0c644d5a433227608acc66f",
-      "indexed_lines": 86
+      "sha256": "754765b458f82ce11fb449928b46218a0da67dedf06d92f23cf60fa9692fbd67",
+      "indexed_lines": 172
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticRedactionReuse.kt",
@@ -6304,8 +6304,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCapture.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "d6a413bde3fdbe414e20d59c7079c7a3f1c94a52014f5e9ef9e507e22e271b34",
-      "indexed_lines": 1093
+      "sha256": "f22a0769ede91b4def7d5addc3d16af26ee64aa5a6c86959b9a7a52ad412c94a",
+      "indexed_lines": 1105
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StructuredDiagnosticEvent.kt",
@@ -13913,8 +13913,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/WorkspaceDiagnosticPayload.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "a53437afad69b831c4bfcb1746f28fa19ba702c479363c4f06704602a7ccb8a8",
-      "indexed_lines": 127
+      "sha256": "2589b8f1b06aa43b69259ad8198a7d0920b720e582d2cea6f78bf51cb857e2f9",
+      "indexed_lines": 128
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/WorkspaceEvidenceConflict.kt",

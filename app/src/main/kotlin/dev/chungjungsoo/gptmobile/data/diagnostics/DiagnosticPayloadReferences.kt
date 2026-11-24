@@ -13,20 +13,20 @@ internal class DiagnosticPayloadReferences {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 4096
     }
 
-    suspend fun write(value: JsonElement, emit: suspend (JsonElement) -> Unit) {
-        prepare(value, null) { output, _ -> emit(output) }
+    suspend fun write(value: JsonElement, timings: DiagnosticCaptureTimings? = null, emit: suspend (JsonElement) -> Unit) {
+        prepare(value, timings, retainEncoding = false) { output, _ -> emit(output) }
     }
 
     /** Reuse the payload encoding used by its digest instead of encoding it again in the row. */
     suspend fun writeEncoded(value: JsonElement, timings: DiagnosticCaptureTimings? = null, emit: suspend (String) -> Unit) {
-        prepare(value, timings) { output, encodedPayload ->
+        prepare(value, timings, retainEncoding = true) { output, encodedPayload ->
             val encode = { if (encodedPayload == null) output.toString() else encodeRow(output as JsonObject, encodedPayload) }
             val encoded = timings?.measure(DiagnosticCaptureTimings.Phase.SERIALIZATION, encode) ?: encode()
             emit(encoded)
         }
     }
 
-    private suspend fun prepare(value: JsonElement, timings: DiagnosticCaptureTimings?, emit: suspend (JsonElement, String?) -> Unit) {
+    private suspend fun prepare(value: JsonElement, timings: DiagnosticCaptureTimings?, retainEncoding: Boolean, emit: suspend (JsonElement, String?) -> Unit) {
         val row = value as? JsonObject
         val fields = row?.get("fields") as? JsonObject
         val payload = fields?.get("payload")
@@ -40,12 +40,20 @@ internal class DiagnosticPayloadReferences {
             emit(value, null)
             return
         }
-        val serialized = timings?.measure(DiagnosticCaptureTimings.Phase.SERIALIZATION) { payload.toString() } ?: payload.toString()
-        if (serialized.length < 2048) {
+        val serialized = if (retainEncoding) {
+            timings?.measure(DiagnosticCaptureTimings.Phase.SERIALIZATION) { payload.toString() } ?: payload.toString()
+        } else {
+            null
+        }
+        val digest = if (serialized != null) {
+            serialized.takeIf { it.length >= 2048 }?.let(DiagnosticRecordChunks::sha256)
+        } else {
+            DiagnosticRecordChunks.largePayloadDigest(payload, 2048)
+        }
+        if (digest == null) {
             emit(value, serialized)
             return
         }
-        val digest = DiagnosticRecordChunks.sha256(serialized)
         val first = originals[digest]
         if (first == null || first == rowId) {
             emit(value, serialized)

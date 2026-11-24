@@ -27,6 +27,33 @@ import org.junit.Test
 class StagedDiagnosticCaptureTest {
     private val available = DiagnosticCaptureOptions(minimumHeadroomBytes = 0)
 
+    @Test fun largeWorkspaceRowsStreamAsOneLogicalRecordAndReuseOnlyCompletePayloads() = temporary { directory ->
+        runBlocking {
+            val payload = JsonPrimitive("🌱\n".repeat(5000))
+            val rows = (1..2).map { id ->
+                JsonObject(mapOf("table" to JsonPrimitive("workspace_records"), "rowId" to JsonPrimitive(id), "fields" to JsonObject(mapOf("payload" to payload))))
+            }
+            val workspace = stage("workspace") { sink ->
+                rows.forEachIndexed { index, row ->
+                    sink.sourceRecord(DiagnosticSourceRecord("workspace_records", index + 1L, 128, 64 * 1024, hydratedBytes = 50_000))
+                    sink.redactedRecord(row, 2048)
+                    sink.sourceRecord(null)
+                }
+            }
+            val result = StagedDiagnosticCapture.capture(directory, "stream-workspace", listOf(workspace), available)
+            assertTrue(result.complete)
+            ZipFile(result.file).use { zip ->
+                val records = zip.getInputStream(zip.getEntry("workspace.jsonl")).bufferedReader().useLines { lines ->
+                    lines.map { Json.parseToJsonElement(it).jsonObject }.toList()
+                }
+                val chunks = records.dropLast(1)
+                assertEquals(rows.first().toString(), chunks.joinToString("") { it.getValue("content").jsonPrimitive.content })
+                assertEquals(JsonPrimitive(DiagnosticRecordChunks.sha256(rows.first().toString())), chunks.first()["recordSha256"])
+                assertEquals(JsonPrimitive(1), records.last().getValue("fields").jsonObject.getValue("payload_ref").jsonObject["rowId"])
+            }
+        }
+    }
+
     @Test fun journalAndTimelinePrecedeWorkspaceAndShrinkPagesBeforeHeapDeferral() = temporary { directory ->
         runBlocking {
             val sampleOrder = mutableListOf<String>()

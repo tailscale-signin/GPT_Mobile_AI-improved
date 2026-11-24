@@ -2,7 +2,7 @@
 
 Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
-Build 150 also corrects the hosted reporter contract for failed-event output flags, including omissions. GitHub CI diagnosis carries a measured APK size failure with its commit, run, attempt, job and log lines through replay and verification. Exhaustive pagination requests survive a chat restart. Context-limited saved pages can reach the selected model in successive read-only rounds. Diagnostic export collects the run journal and timeline before bulk history and uses smaller database pages as heap headroom falls.
+Build 150 also corrects the hosted reporter contract for failed-event output flags, including omissions. GitHub CI diagnosis carries a measured APK size failure with its commit, run, attempt, job and log lines through replay and verification. Exhaustive pagination requests survive a chat restart. Context-limited saved pages can reach the selected model in successive read-only rounds. Diagnostic export collects the run journal and timeline before bulk history and uses smaller database pages as heap headroom falls. Large redacted workspace rows stream through a private temporary file so exporting the row and its checksums uses bounded buffers.
 
 Quality voice playback starts with up to six words, then adjusts phrase length to the measured synthesis time and available audio. When several authorized tools support a requested action, their local schemas can be selected individually. Repeated identical tool prechecks share one pending report with a count and call history.
 

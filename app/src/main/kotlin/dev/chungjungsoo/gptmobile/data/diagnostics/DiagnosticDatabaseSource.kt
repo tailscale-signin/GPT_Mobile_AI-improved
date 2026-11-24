@@ -465,6 +465,9 @@ class DiagnosticDatabaseSource @Inject constructor(
                             projector
                         )
                     }
+                    if (protected.decodedBytes > 0) {
+                        sourceRecord(DiagnosticSourceRecord(table.name, rowId, sourceBytes, maximumCharacters, hydratedBytes = protected.decodedBytes))
+                    }
                     val payload = if (!protected.protected) {
                         projector.text(storedPayload)
                     } else if (protected.payload != null) {

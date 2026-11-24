@@ -23,7 +23,8 @@ import kotlinx.serialization.json.decodeFromStream
 internal data class WorkspaceDiagnosticPayload(
     val protected: Boolean,
     val payload: JsonElement? = null,
-    val omissionReason: String? = null
+    val omissionReason: String? = null,
+    val decodedBytes: Int = 0
 )
 
 /** Reads at most one bounded receipt, validating authority both before and after decryption. */
@@ -120,7 +121,7 @@ internal suspend fun readWorkspaceDiagnosticPayload(
         beforeRead()
         if (!authorized()) return missing("PROTECTED_SOURCE_CHANGED")
         val projected = (projector ?: DiagnosticValueProjector(maximumBytes, omitted)).element(value)
-        return WorkspaceDiagnosticPayload(true, redactChatDebugData(projected))
+        return WorkspaceDiagnosticPayload(true, redactChatDebugData(projected), decodedBytes = used)
     } finally {
         output.fill(0)
     }

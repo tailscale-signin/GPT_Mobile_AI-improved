@@ -17,6 +17,7 @@ public final class KokoroNativeIntegration {
     private static String file(File pack, String name) { return new File(pack, name).getAbsolutePath(); }
 
     public static void main(String[] args) throws Exception {
+        KokoroEvidenceContractTest.verify();
         require(args.length == 1, "Pass the verified Kokoro pack directory");
         File pack = new File(args[0]);
         expectOpenFailure(pack, "model.int8.onnx", "lexicon-us-en.txt", 0, "MODEL_CONFIGURATION", "preparing");
@@ -56,6 +57,11 @@ public final class KokoroNativeIntegration {
                     "CPU_SINGLE".equals(evidence.cacheAdmission), "Current memory-admission evidence was lost");
             require(evidence.audioRms > 0 && Double.isFinite(evidence.audioRms) && evidence.audioPeak > 0 &&
                     evidence.nonSilentSamples > 0 && evidence.clippedSamples >= 0, "Missing audio validation metrics");
+            require(Boolean.TRUE.equals(evidence.audioMeasurementAvailable) && Boolean.TRUE.equals(evidence.audioFinite) &&
+                    evidence.validationReason == null && evidence.outputFrames == audio.samples.length &&
+                    evidence.outputElementType == 1 && evidence.durationElementType == 7 && evidence.durationCount == encoded.tokenIds.length &&
+                    Boolean.TRUE.equals(evidence.durationStatsAvailable) && Boolean.FALSE.equals(evidence.durationSumOverflow) &&
+                    evidence.durationSum * 600 == audio.samples.length, "Current validated audio lost bounded output/timing observations");
             require(evidence.discoverySummary.matches("[A-Za-z0-9_.=,:;-]{1,512}"), "Unsafe discovery summary");
             try {
                 model.generate(phrase, 0, 0f);

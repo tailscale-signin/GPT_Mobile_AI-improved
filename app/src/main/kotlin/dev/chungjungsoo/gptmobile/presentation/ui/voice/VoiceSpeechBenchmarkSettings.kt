@@ -31,15 +31,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel as lifecycleViewModel
 import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkAudioReference
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBackendResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBackendState
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkConfiguration
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkFixture
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkIssue
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkMode
@@ -49,6 +55,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWorkload
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechCalibrationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackScenario
+import dev.chungjungsoo.gptmobile.data.voice.mediaPipeEngine
 import dev.chungjungsoo.gptmobile.data.voice.voiceSpeechBenchmarkExport
 import dev.melo.kokoro.TimedKokoro
 import java.text.DateFormat
@@ -75,21 +82,59 @@ internal fun VoiceSpeechBenchmarkSettings(
     var audible by rememberSaveable { mutableStateOf(false) }
     var playbackScenario by rememberSaveable { mutableStateOf(VoiceSpeechPlaybackScenario.COLD_START.name) }
     var calibrationPolicy by rememberSaveable { mutableStateOf(VoiceSpeechCalibrationPolicy.CONTROLLED_ZERO.name) }
+    var engine by rememberSaveable { mutableStateOf(VoiceSpeechBenchmarkEngine.NATIVE_KOKORO.name) }
+    var deepDiagnostics by rememberSaveable { mutableStateOf(false) }
     var selected by rememberSaveable { mutableStateOf(VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS.map { it.name }) }
+    val selectedEngine = VoiceSpeechBenchmarkEngine.valueOf(engine)
+    val nativeEngine = selectedEngine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
+    val sdkModel = selectedEngine.mediaPipeEngine()?.let(MediaPipeSpeechCatalog::model)
+    val installed = selectedEngine in state.availableEngines
+    val availableBackends = selectedEngine.supportedBackends
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (!state.running && !state.nativeCleanupPending) viewModel.refreshEngines()
+    }
     VoiceSettingsSection("Speech benchmark")
-    Text("Compare CPU, GPU and NPU on this phone. Fixed samples and numeric results are saved for up to five runs.", style = MaterialTheme.typography.bodySmall)
-    VoiceChoice("Measurement", if (audible) "playback" else "silent", listOf("silent" to "Silent synthesis", "playback" to "Audible playback and captions"), { audible = it == "playback" }, enabled = enabled && !state.running)
+    Text("Compare installed speech engines and their available processor options on this phone. Fixed samples and numeric results are saved for up to five runs.", style = MaterialTheme.typography.bodySmall)
+    VoiceChoice(
+        "Speech engine",
+        engine,
+        VoiceSpeechBenchmarkEngine.entries.map { it.name to it.label },
+        {
+            engine = it
+            selected = VoiceSpeechBenchmarkEngine.valueOf(it).supportedBackends.map { backend -> backend.name }
+        },
+        enabled = enabled && !state.running && !state.nativeCleanupPending
+    )
+    if (state.loaded && !state.nativeCleanupPending && !installed) Text("Install ${selectedEngine.label} in Voice settings before testing. A benchmark does not download models.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+    VoiceChoice(
+        "Measurement",
+        if (audible) "playback" else "silent",
+        listOf("silent" to "Silent synthesis", "playback" to "Audible playback and captions"),
+        {
+            audible = it == "playback"
+            if (audible && mode == VoiceSpeechBenchmarkMode.STABILITY.name) mode = VoiceSpeechBenchmarkMode.FULL.name
+        },
+        enabled = enabled && !state.running
+    )
     if (audible) {
         VoiceChoice("Playback workload", playbackScenario, VoiceSpeechPlaybackScenario.entries.map { it.name to it.label } + ("ALL" to "All six workloads"), { playbackScenario = it }, enabled = enabled && !state.running)
-        VoiceChoice("Test length", mode, VoiceSpeechBenchmarkMode.entries.map { it.name to it.label }, { mode = it }, enabled = enabled && !state.running)
+        VoiceChoice("Test length", mode, VoiceSpeechBenchmarkMode.entries.filter { it != VoiceSpeechBenchmarkMode.STABILITY }.map { it.name to it.label }, { mode = it }, enabled = enabled && !state.running)
         VoiceChoice("Caption calibration", calibrationPolicy, VoiceSpeechCalibrationPolicy.entries.map { it.name to it.label }, { calibrationPolicy = it }, enabled = enabled && !state.running)
-        Text("Fresh, resident, streamed, changing-shape, sustained and cancellation tests use the real speech queue. Warm tests keep the same engine. All six full workloads with controlled calibration are required for a ranking; quick samples remain diagnostics.", style = MaterialTheme.typography.bodySmall)
+        Text("Fresh, resident, streamed, changing-shape, sustained and cancellation tests use the real speech queue. Warm tests keep the same engine. ${if (nativeEngine) "All six full workloads with controlled calibration are required for a native processor ranking." else "SDK completion validates delivered audio and caption coverage; it does not establish processor execution or listening quality."}", style = MaterialTheme.typography.bodySmall)
     } else {
         VoiceChoice("Workload", workload, VoiceSpeechBenchmarkWorkload.entries.map { it.name to it.label }, { workload = it }, enabled = enabled && !state.running)
         VoiceChoice("Test length", mode, VoiceSpeechBenchmarkMode.entries.map { it.name to "${it.label} · ${it.warmRepeats} warm runs per sample" }, { mode = it }, enabled = enabled && !state.running)
-        Text("Production phrases preserve the whole response. Native phrase tests isolate a single call. Changing shapes measures graph reuse when phrase lengths alternate.", style = MaterialTheme.typography.bodySmall)
+        Text(if (nativeEngine) "Production phrases preserve the whole response. Native phrase tests isolate a single call. Changing shapes measures graph reuse when phrase lengths alternate." else "Each fixed fixture is delivered through bounded SDK stream calls. The report records the calls and actual PCM callbacks; internal graph reuse is unobserved.", style = MaterialTheme.typography.bodySmall)
+        if (mode == VoiceSpeechBenchmarkMode.STABILITY.name) Text("Stability records 20 warm repeats per fixture for percentile measurements and can take several minutes. Stop retains completed work.", style = MaterialTheme.typography.bodySmall)
+        if (nativeEngine) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = deepDiagnostics, onCheckedChange = { deepDiagnostics = it }, enabled = enabled && !state.running, modifier = Modifier.testTag("voice_speech_benchmark_deep_diagnostics"))
+                Text("Deep diagnostics · continue after an audio mismatch", style = MaterialTheme.typography.bodySmall)
+            }
+            Text("Ordinary tests stop an engine candidate after a known CPU-reference mismatch. Deep diagnostics retains later observations; invalid audio remains ineligible for ranking.", style = MaterialTheme.typography.bodySmall)
+        }
     }
-    for (backend in VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS) {
+    for (backend in availableBackends) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
                 checked = backend.name in selected,
@@ -101,30 +146,38 @@ internal fun VoiceSpeechBenchmarkSettings(
         }
     }
     Text(
-        if (voice == null) "Select a Kokoro voice to run the benchmark." else "${voice.label} · $threads CPU threads · ${format(speechRate.toDouble())}× speech rate",
+        if (!nativeEngine) {
+            "Voice ${sdkModel?.defaultVoice ?: "unknown"} · ${format(speechRate.toDouble())}× speech rate. SDK thread control and observed processor placement are unavailable."
+        } else if (voice == null) {
+            "Select a Kokoro voice to run the benchmark."
+        } else {
+            "${voice.label} · $threads CPU threads · ${format(speechRate.toDouble())}× speech rate"
+        },
         style = MaterialTheme.typography.bodySmall
     )
     Button(
         onClick = {
             if (state.running) {
                 viewModel.cancel()
-            } else if (voice != null) {
+            } else if (installed && (!nativeEngine || voice != null)) {
                 beforeStart()
                 viewModel.start(
                     VoiceSpeechBenchmarkMode.valueOf(mode),
-                    VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS.filter { it.name in selected },
-                    voice,
+                    availableBackends.filter { it.name in selected },
+                    voice ?: KokoroVoice.HEART,
                     threads,
                     speechRate,
                     workload = if (audible) VoiceSpeechBenchmarkWorkload.UTTERANCE else VoiceSpeechBenchmarkWorkload.valueOf(workload),
                     playback = audible,
                     playbackScenarios = if (playbackScenario == "ALL") VoiceSpeechPlaybackScenario.entries else listOf(VoiceSpeechPlaybackScenario.valueOf(playbackScenario)),
                     calibrationPolicy = VoiceSpeechCalibrationPolicy.valueOf(calibrationPolicy),
-                    captionOffsetMs = captionOffsetMs
+                    captionOffsetMs = captionOffsetMs,
+                    engine = selectedEngine,
+                    deepDiagnostics = nativeEngine && !audible && deepDiagnostics
                 )
             }
         },
-        enabled = if (state.running) !state.cancelling else enabled && state.loaded && !state.nativeCleanupPending && voice != null && selected.isNotEmpty(),
+        enabled = if (state.running) !state.cancelling else enabled && state.loaded && !state.nativeCleanupPending && installed && (!nativeEngine || voice != null) && availableBackends.any { it.name in selected },
         modifier = Modifier.testTag("voice_speech_benchmark_run")
     ) {
         Icon(if (state.running) Icons.Default.Stop else Icons.Default.PlayArrow, contentDescription = null)
@@ -150,8 +203,9 @@ internal fun VoiceSpeechBenchmarkSettings(
             modifier = Modifier.fillMaxWidth()
         )
         val active = report?.results?.firstOrNull { it.state in setOf(VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING) }
+        val activeEngine = report?.engineResults?.firstOrNull { it.state in setOf(VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING) }
         Text(
-            listOfNotNull(active?.requestedBackend?.label, report?.activeFixture?.label, report?.activeRepeat?.let { if (it == 0) "first use" else "warm run $it" }, report?.activeChunk?.let { "chunk ${it + 1}" }).joinToString(" · ").ifBlank { "Checking installed voice model…" },
+            listOfNotNull(active?.requestedBackend?.label ?: activeEngine?.requestedBackend?.label, report?.activeFixture?.label, report?.activeRepeat?.let { if (it == 0) "first use" else "warm run $it" }, report?.activeChunk?.let { "chunk ${it + 1}" }).joinToString(" · ").ifBlank { "Checking installed voice model…" },
             style = MaterialTheme.typography.bodySmall
         )
     }
@@ -160,20 +214,21 @@ internal fun VoiceSpeechBenchmarkSettings(
         VoiceChoice(
             "Saved results",
             current.toString(),
-            state.history.mapIndexed { index, report -> index.toString() to "${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(report.startedAtMillis))} · ${report.configuration.mode.label}" },
+            state.history.mapIndexed { index, report -> index.toString() to "${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(report.startedAtMillis))} · ${report.configuration.engine.label} · ${report.configuration.mode.label}${if (report.configuration.playback) " · playback" else ""}" },
             { it.toIntOrNull()?.let(viewModel::selectHistory) }
         )
     }
     state.report?.let { report ->
         val recorded = report.configuration
+        val recordedSdk = recorded.engine.mediaPipeEngine()?.let(MediaPipeSpeechCatalog::model)
         if (!state.running &&
             (
-                recorded.voice != voice ||
-                    recorded.threads != threads ||
+                recorded.engine != selectedEngine ||
+                    (recorded.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO && (recorded.voice != voice || recorded.threads != threads)) ||
                     recorded.speechRate != speechRate ||
                     recorded.appBuild != BuildConfig.VERSION_CODE ||
-                    recorded.modelSha256 != KokoroModelPack.MODEL_SHA256 ||
-                    recorded.runtimeId != TimedKokoro.RUNTIME_ID ||
+                    recorded.modelSha256 != (recordedSdk?.sha256 ?: KokoroModelPack.MODEL_SHA256) ||
+                    recorded.runtimeId != (if (recordedSdk == null) TimedKokoro.RUNTIME_ID else MediaPipeSpeechCatalog.RUNTIME_ID) ||
                     !recorded.currentProtocol ||
                     recorded.sourceCommit != BuildConfig.APP_COMMIT
                 )
@@ -190,6 +245,7 @@ internal fun VoiceSpeechBenchmarkSettings(
 
 @Composable
 private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
+    val nativeEngine = report.configuration.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
     val outcome = when (report.outcome) {
         VoiceSpeechBenchmarkOutcome.RUNNING -> "Running"
         VoiceSpeechBenchmarkOutcome.QUALIFIED -> if (report.configuration.playback) "Finished · controlled playback suite qualified" else "Finished · workload qualified"
@@ -202,11 +258,11 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
     }
     Text(outcome, style = MaterialTheme.typography.titleSmall)
     Text(
-        "${report.configuration.voice.label} · ${report.configuration.threads} threads · ${format(report.configuration.speechRate.toDouble())}× · build ${report.configuration.appBuild}",
+        "${report.configuration.engine.label} · ${if (nativeEngine) "${report.configuration.voice.label} · ${report.configuration.threads} threads" else "voice ${report.configuration.engineVoiceId ?: "unknown"} · SDK threads unobserved"} · ${format(report.configuration.speechRate.toDouble())}× · build ${report.configuration.appBuild}",
         style = MaterialTheme.typography.bodySmall
     )
     val notice = when (report.issue) {
-        VoiceSpeechBenchmarkIssue.MODEL_UNAVAILABLE -> "Install or repair the Kokoro model in Voice settings before testing."
+        VoiceSpeechBenchmarkIssue.MODEL_UNAVAILABLE -> "Install or repair ${report.configuration.engine.label} in Voice settings before testing."
         VoiceSpeechBenchmarkIssue.THERMAL_LIMIT -> "Stopped because the phone became warm. Let it cool before comparing engines. Completed measurements are retained."
         VoiceSpeechBenchmarkIssue.EXECUTION_FAILED -> "The benchmark could not finish. Completed measurements are retained."
         VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD -> "A test input violated the speech engine contract. This does not establish a processor failure. Export the retained diagnostic result."
@@ -220,7 +276,7 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
     if (report.configuration.playback) {
         Text("${report.completedSamples}/${report.totalSamples} samples · ${report.configuration.calibrationPolicy.label} · configured offset ${report.configuration.captionOffsetMs} ms", style = MaterialTheme.typography.bodySmall)
         for (backend in report.configuration.plannedBackendOrder) {
-            Text("${backend.label} audio consistency: ${report.playbackAudioReference(backend).name.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
+            Text(if (nativeEngine) "${backend.label} audio consistency: ${report.playbackAudioReference(backend).name.lowercase().replace('_', ' ')}" else "${backend.label}: delegate requested; processor execution and listening quality are not measured", style = MaterialTheme.typography.bodySmall)
             val rows = report.playbackResults.filter { it.requestedBackend == backend }
             var expanded by remember(report.startedAtMillis, backend) { mutableStateOf(false) }
             if (rows.isNotEmpty()) {
@@ -235,15 +291,20 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
                 if (expanded) rows.forEach { VoiceSpeechPlaybackResultCard(it) }
             }
         }
-    } else {
+    } else if (nativeEngine) {
         Text("${report.configuration.workload.label} · ${report.completedSamples}/${report.totalSamples} fixture iterations · ${report.completedChunks} native chunks", style = MaterialTheme.typography.bodySmall)
         for (result in report.results) VoiceSpeechBenchmarkResultCard(result, report.audioReference(result), result in report.qualifiedResults())
+    } else {
+        Text("${report.configuration.workload.label} · ${report.completedSamples}/${report.totalSamples} fixture iterations", style = MaterialTheme.typography.bodySmall)
+        for (result in report.engineResults) VoiceSpeechEngineBenchmarkCard(result)
     }
     Text(
         if (report.configuration.playback) {
             "Presented audio uses the production AudioTrack timestamp or playback head. Caption checks validate that clock, not perceptual word accuracy. Independent fixture manifests detect missing caption sections. Acoustic speaker latency, acoustic word alignment, CPU/GPU/NPU utilization and battery energy remain unmeasured."
-        } else {
+        } else if (nativeEngine) {
             "First PCM is the first complete native chunk; total synthesis includes every chunk. Accelerator ranking requires comparable duration, token timing and signal against CPU for the same input and settings. This numerical check does not establish listening quality. Playback and acoustic latency, underruns and battery energy are unmeasured. First use retains the phone's file cache. Medians average the middle pair; p95 is withheld below twenty samples."
+        } else {
+            "First PCM is the first nonempty SDK callback. Timings include the engine's stream calls and callback delivery. The spoken fixtures are shared, but each engine has its own voice and internal timing. Intelligibility, listening quality, acoustic latency, energy and actual processor placement remain unmeasured. These results do not select a cross-engine winner."
         },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -284,6 +345,13 @@ private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendRe
             comparison.durationRatio?.let { Text("${reference.fixture?.label} · repeat ${reference.repeat} · chunk ${reference.chunk?.plus(1)}: audio ${comparison.candidateAudioMs?.let(::format)} ms / CPU ${comparison.referenceAudioMs?.let(::format)} ms", style = MaterialTheme.typography.bodySmall) }
             result.cancellationStage?.let { Text("Stop requested during ${it.name.lowercase()}", style = MaterialTheme.typography.bodySmall) }
             result.cancellationNativeRetirementMs?.let { Text("Native cleanup finished $it ms after the stop request. Graph preparation may need to finish before it can retire.", style = MaterialTheme.typography.bodySmall) }
+            result.stopReason?.let { Text("Stop reason: ${it.name.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall) }
+            result.deadline?.let { Text("Deadline: ${it.scope.name.lowercase()} · ${it.elapsedMs}/${it.limitMs} ms${it.stage?.let { stage -> " · ${stage.name.lowercase()}" }.orEmpty()}", style = MaterialTheme.typography.bodySmall) }
+            result.cleanupState?.let { Text("Native cleanup: ${it.name.lowercase()}${result.deadlineNativeRetirementMs?.let { time -> " · $time ms after deadline request" }.orEmpty()}", style = MaterialTheme.typography.bodySmall) }
+            result.failureObservation?.let { observation ->
+                observation.validationReason?.let { Text("Validation: ${it.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall) }
+                if (observation.audioMeasurementAvailable != true) Text("PCM statistics were not measured or are unknown for this failure.", style = MaterialTheme.typography.bodySmall)
+            }
             result.sessionPrepareMs?.let { Text("Fresh session: $it ms", style = MaterialTheme.typography.bodySmall) }
             result.samples.firstOrNull()?.prepareToFirstPcmMs?.let { Text("Prepare to first PCM: $it ms", style = MaterialTheme.typography.bodySmall) }
             if (result.incompleteChunks.isNotEmpty()) Text("${result.incompleteChunks.size} successful chunks retained from the unfinished ${result.incompleteFixture?.label?.lowercase() ?: "current"} iteration.", style = MaterialTheme.typography.bodySmall)
@@ -308,7 +376,7 @@ private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendRe
                     Text("Profiled kernel time: ${format(chunk.acceleratorMicros / 1000.0)} ms accelerator · ${format(chunk.cpuMicros / 1000.0)} ms CPU", style = MaterialTheme.typography.bodySmall)
                 }
                 chunk?.cacheHit?.let { Text("Latest graph: ${if (it) "reused" else "prepared"} · current preparation ${chunk.currentPrepareMs ?: "—"} ms · ${chunk.cachedShapeCount ?: "—"}/${chunk.cacheLimit ?: "—"} shapes retained", style = MaterialTheme.typography.bodySmall) }
-                chunk?.cacheBudgetBytes?.let { Text("Graph retention: ${chunk.cacheEstimatedBytes?.div(1024 * 1024) ?: "—"} / ${it / (1024 * 1024)} MiB estimated · ${chunk.cacheAdmission?.lowercase()?.replace('_', ' ')}. The count limit does not guarantee that two shapes fit.", style = MaterialTheme.typography.bodySmall) }
+                chunk?.cacheBudgetBytes?.let { Text("Graph retention: ${chunk.cacheEstimatedBytes?.div(1024 * 1024) ?: "—"} / ${it / (1024 * 1024)} MiB estimated · ${chunk.cacheAdmission?.lowercase()?.replace('_', ' ')}. Available memory and the byte ceiling determine how many shapes fit.", style = MaterialTheme.typography.bodySmall) }
                 chunk?.audioRms?.let { Text("PCM RMS ${format(it)} · peak ${chunk.audioPeak?.let(::format) ?: "—"} · clipped samples ${chunk.clippedSamples ?: "—"}. Structural checks do not establish listening quality.", style = MaterialTheme.typography.bodySmall) }
                 TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide samples" else "View all samples") }
                 if (expanded) {
@@ -343,8 +411,13 @@ private fun VoiceSpeechPlaybackResultCard(result: VoiceSpeechPlaybackResult) {
             result.timeoutLimitMs?.let { Text("Deadline: ${result.timeoutScope ?: "unknown"} · ${result.timeoutElapsedMs ?: "unknown"}/$it ms", style = MaterialTheme.typography.bodySmall) }
             Text("First PCM ${result.firstPcmMs ?: "—"} ms · queued ${result.firstQueuedPcmMs ?: "—"} ms · presented ${result.firstPresentedAudioMs ?: "—"} ms", style = MaterialTheme.typography.bodySmall)
             Text("AudioTrack write ${result.firstAudioTrackWriteMs ?: "unmeasured"} ms · play requested ${result.trackPlayRequestedMs ?: "unmeasured"} ms · model preparation ${result.sessionPrepareMs ?: "unmeasured"} ms", style = MaterialTheme.typography.bodySmall)
-            Text("Requested/effective threads ${result.requestedThreads ?: "unknown"}/${result.effectiveThreads ?: "unknown"} · engine reused ${result.engineReused ?: "unknown"}", style = MaterialTheme.typography.bodySmall)
-            Text("${result.validatedChunks}/${result.chunks} chunks verified · synthesis ${result.totalSynthesisMs} ms · audio ${result.totalAudioMs} ms · elapsed ${result.elapsedMs} ms", style = MaterialTheme.typography.bodySmall)
+            Text(if (result.requestedDelegate == null) "Requested/effective threads ${result.requestedThreads ?: "unknown"}/${result.effectiveThreads ?: "unknown"} · engine reused ${result.engineReused ?: "unknown"}" else "${result.requestedDelegate} delegate requested · actual processor and threads unobserved · engine reused ${result.engineReused ?: "unknown"}", style = MaterialTheme.typography.bodySmall)
+            Text("${if (result.requestedDelegate == null) "${result.validatedChunks}/${result.chunks} native chunks verified · completed generation" else "${result.chunks} delivered sections · PCM production intervals"} ${result.totalSynthesisMs} ms · audio ${result.totalAudioMs} ms · elapsed ${result.elapsedMs} ms", style = MaterialTheme.typography.bodySmall)
+            if (result.requestedDelegate != null) Text("${result.engineStreamCalls ?: 0} SDK stream calls · structural audio ${if (result.streamedAudioValidated == true) "validated" else "not established"}", style = MaterialTheme.typography.bodySmall)
+            if (result.requestedDelegate != null) Text("PCM production intervals exclude callback backpressure and work after the last retained callback; they are not complete stream-call wall time.", style = MaterialTheme.typography.bodySmall)
+            result.engineStreamWallMs?.let { Text("Complete SDK stream calls: $it ms, including consumer callback waits.", style = MaterialTheme.typography.bodySmall) }
+            if (result.omittedPcmRecords > 0) Text("${result.omittedPcmRecords} later PCM receipts omitted from the bounded trace; their timing and audio remain in the totals.", style = MaterialTheme.typography.bodySmall)
+            if (result.requestedDelegate == null) Text("Completed generation includes graph preparation within each chunk. Session loading and failed attempts are recorded separately.", style = MaterialTheme.typography.bodySmall)
             Text("Underruns ${result.underruns ?: "unmeasured"} · refills ${result.bufferRestarts} · longest refill ${result.longestRefillMs} ms", style = MaterialTheme.typography.bodySmall)
             Text("Caption observations ${result.captionObservations} · clock regressions ${result.captionClockRegressions} · timing violations ${result.captionTimingViolations}", style = MaterialTheme.typography.bodySmall)
             Text("Fixture words: ${result.manifestWordsObserved ?: "unmeasured"}/${result.manifestWordsExpected ?: "unknown"} observed · ${result.manifestWordsPrepared ?: "unmeasured"} prepared · ${result.unexpectedCaptionWords ?: "unknown"} unexpected", style = MaterialTheme.typography.bodySmall)
@@ -359,21 +432,21 @@ private fun VoiceSpeechPlaybackResultCard(result: VoiceSpeechPlaybackResult) {
 }
 
 @Composable
-private fun VoiceSpeechBenchmarkExportControl(report: VoiceSpeechBenchmarkReport) {
+private fun VoiceSpeechBenchmarkExportControl(report: VoiceSpeechBenchmarkReport, exportState: VoiceSpeechBenchmarkExportState = lifecycleViewModel()) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var captured by rememberSaveable { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { destination ->
-        val frozen = captured
-        captured = null
+        val frozen = exportState.pending
+        exportState.pending = null
         if (destination != null && frozen != null) {
             saving = true
             scope.launch {
                 try {
                     withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(destination)?.bufferedWriter()?.use { it.write(frozen) }
+                        val document = voiceSpeechBenchmarkExport(frozen)
+                        context.contentResolver.openOutputStream(destination)?.bufferedWriter()?.use { it.write(document) }
                             ?: error("Destination unavailable")
                     }
                     notice = "Speech benchmark exported."
@@ -385,18 +458,25 @@ private fun VoiceSpeechBenchmarkExportControl(report: VoiceSpeechBenchmarkReport
                     saving = false
                 }
             }
+        } else if (destination != null) {
+            notice = "The pending export was interrupted. Choose a destination again."
         }
     }
     TextButton(
         onClick = {
-            captured = voiceSpeechBenchmarkExport(report)
+            exportState.pending = report
             notice = null
             export.launch("speech-benchmark-${report.startedAtMillis}.json")
         },
-        enabled = !saving && captured == null,
+        enabled = !saving && exportState.pending == null,
         modifier = Modifier.testTag("voice_speech_benchmark_export")
     ) { Text(if (saving) "Saving…" else "Export benchmark results") }
     notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+}
+
+/** A large frozen result survives rotation in memory; it must never enter a saved-state Bundle. */
+internal class VoiceSpeechBenchmarkExportState : ViewModel() {
+    var pending by mutableStateOf<VoiceSpeechBenchmarkReport?>(null)
 }
 
 private fun format(value: Double) = String.format(Locale.ROOT, "%.2f", value)

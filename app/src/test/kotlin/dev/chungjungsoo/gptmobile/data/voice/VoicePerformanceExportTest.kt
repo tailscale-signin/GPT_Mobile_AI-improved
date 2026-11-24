@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
@@ -65,7 +66,7 @@ class VoicePerformanceExportTest {
 
     @Test fun absentMeasurementsStayUnknownAndDoNotCertifyPhysicalPerformance() {
         val json = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot())).jsonObject
-        assertEquals(3, json.getValue("schemaVersion").jsonPrimitive.int)
+        assertEquals(4, json.getValue("schemaVersion").jsonPrimitive.int)
         assertEquals(JsonNull, json["captureQueueMs"])
         assertEquals(JsonNull, json["thermalStatus"])
         assertEquals(JsonNull, json["latestSynthesis"])
@@ -167,7 +168,7 @@ class VoicePerformanceExportTest {
             prepareMs = 300, synthesisMs = 100, tokenCount = 41, verifiedAudio = true, observedAtMillis = 1000,
             profileAvailable = true, profileId = 7, profileReused = true, cacheHit = true, currentPrepareMs = 0,
             graphPreparedThisCall = false, cachedShapeCount = 2, cacheLimit = 2, cacheEstimatedBytes = 1024,
-            audioRms = .1, audioPeak = .2, clippedSamples = 0, nonSilentSamples = 1200
+            audioRms = .1, audioPeak = .2, clippedSamples = 0, nonSilentSamples = 1200, audioMeasurementAvailable = true
         )
         val observed = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionEvidence = evidence)))
             .jsonObject.getValue("latestSynthesis").jsonObject.getValue("executionEvidence").jsonObject
@@ -209,5 +210,29 @@ class VoicePerformanceExportTest {
                 assertEquals(field, JsonNull, observed[field])
             }
         }
+    }
+
+    @Test fun earlyValidationFailureCannotExportUnmeasuredZeroesAndSignedDurationEvidenceSurvives() {
+        val evidence = VoiceSpeechExecutionEvidence(
+            VoiceSpeechBackend.QNN_GPU, "qnn-gpu", "model", "runtime", "device", VoiceSpeechStage.VALIDATING,
+            failure = VoiceSpeechFailureCode.OUTPUT_INVALID, observedAtMillis = 1000,
+            audioMeasurementAvailable = false, audioRms = 0.0, audioPeak = 0.0, clippedSamples = 0, nonSilentSamples = 0,
+            validationReason = "TOKEN_DURATION_INVALID", outputFrames = 600,
+            durationStatsAvailable = true, durationSumOverflow = false, durationCount = 2,
+            durationSum = -1, durationMin = -2, durationMax = 1, cacheAdmission = "BOUNDED_THREE_SHAPES"
+        )
+        val observed = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionEvidence = evidence)))
+            .jsonObject.getValue("latestSynthesis").jsonObject.getValue("executionEvidence").jsonObject
+        assertEquals(JsonPrimitive(false), observed["audioMeasurementAvailable"])
+        for (field in listOf("audioRms", "audioPeak", "clippedSamples", "nonSilentSamples")) assertEquals(JsonNull, observed[field])
+        assertEquals(JsonPrimitive("TOKEN_DURATION_INVALID"), observed["validationReason"])
+        assertEquals(JsonPrimitive(-2L), observed["durationMin"])
+        assertEquals(JsonPrimitive(-1L), observed["durationSum"])
+        assertEquals(JsonPrimitive("BOUNDED_THREE_SHAPES"), observed["cacheAdmission"])
+        val malformed = evidence.copy(validationReason = "private driver text", durationSumOverflow = true)
+        val rejected = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionEvidence = malformed)))
+            .jsonObject.getValue("latestSynthesis").jsonObject.getValue("executionEvidence").jsonObject
+        assertEquals(JsonNull, rejected["validationReason"])
+        assertEquals(JsonNull, rejected["durationSum"])
     }
 }

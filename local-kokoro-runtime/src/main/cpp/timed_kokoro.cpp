@@ -16,6 +16,7 @@
 #include <unistd.h>
 
 #include "kokoro_measurement.h"
+#include "kokoro_output_validation.h"
 #include "kokoro_pronunciation.h"
 #include "kokoro_execution_provider.h"
 #include "kokoro_shape_cache.h"
@@ -262,6 +263,7 @@ struct Model : Frontend {
     profile_finalize_ms = 0;
     cache_evictions_before = sessions.Evictions();
     audio_measurement = {};
+    output_validation = {};
     qualification = {};
     active = nullptr;
     prepare_ms = 0;
@@ -335,26 +337,35 @@ struct Model : Frontend {
     SetStage("validating", kokoro_runtime::SpeechPhase::Validating);
     kokoro_runtime::ElapsedMilliseconds validation_timer(validation_ms);
     Require(!cancelled.load(), "Kokoro generation cancelled");
-    Require(out.size() == 2, "Kokoro timing output missing");
+    using OutputReason = kokoro_runtime::OutputValidationReason;
+    output_validation.output_count = out.size();
+    kokoro_runtime::RequireOutput(out.size() == 2, OutputReason::OutputCount, output_validation);
+    kokoro_runtime::RequireOutput(out[0].IsTensor(), OutputReason::AudioTensorType, output_validation);
+    kokoro_runtime::RequireOutput(out[1].IsTensor(), OutputReason::TimingTensorType, output_validation);
+    // If ORT itself rejects metadata, retain an allowlisted reason rather than
+    // misreporting untouched zero-valued audio measurements as observed silence.
+    output_validation.reason = OutputReason::TensorMetadataUnavailable;
     auto audio = out[0].GetTensorTypeAndShapeInfo();
     auto timing = out[1].GetTensorTypeAndShapeInfo();
     size_t frames = audio.GetElementCount();
-    Require(audio.GetElementType() == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT &&
-            frames > 0 && frames <= 30 * kSampleRate &&
-            timing.GetElementType() == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64 &&
-            timing.GetElementCount() == phrase.tokens.size(), "Invalid Kokoro output shape");
-    auto durations = out[1].GetTensorData<int64_t>();
-    int64_t units = 0;
-    for (size_t i = 0; i < phrase.tokens.size(); ++i) {
-      Require(durations[i] > 0 && durations[i] <= static_cast<int64_t>(frames) / kSamplesPerUnit - units,
-              "Invalid Kokoro token duration");
-      units += durations[i];
+    output_validation.audio_frames = frames <= INT64_MAX ? static_cast<int64_t>(frames) : INT64_MAX;
+    output_validation.audio_type = audio.GetElementType();
+    output_validation.audio_rank = audio.GetDimensionsCount();
+    const auto timing_count = timing.GetElementCount();
+    output_validation.timing_count = timing_count <= INT64_MAX ? static_cast<int64_t>(timing_count) : INT64_MAX;
+    output_validation.timing_type = timing.GetElementType();
+    output_validation.timing_rank = timing.GetDimensionsCount();
+    output_validation.reason = OutputReason::None;
+    if (timing.GetElementType() == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64 &&
+        timing_count == phrase.tokens.size() && timing_count <= 511) {
+      kokoro_runtime::ObserveDurations(out[1].GetTensorData<int64_t>(), timing_count, output_validation);
     }
-    Require(units * kSamplesPerUnit == static_cast<int64_t>(frames), "Kokoro timing and PCM disagree");
+    kokoro_runtime::ValidateOutputStructure(output_validation, phrase.tokens.size(), kSampleRate, kSamplesPerUnit,
+        ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64);
+    const auto durations = out[1].GetTensorData<int64_t>();
     const auto *pcm = out[0].GetTensorData<float>();
     audio_measurement = kokoro_runtime::MeasureAudio(pcm, frames);
-    Require(audio_measurement.finite, "Kokoro returned non-finite PCM");
-    Require(audio_measurement.NonSilent(), "Kokoro returned silent PCM");
+    kokoro_runtime::ValidateMeasuredAudio(audio_measurement, output_validation);
 
     auto cls = env->FindClass("dev/melo/kokoro/TimedKokoro$Audio");
     if (!cls) return nullptr;
@@ -409,6 +420,7 @@ struct Model : Frontend {
   mutable kokoro_runtime::SpeechProgress progress;
   mutable bool cache_hit = false, profile_reused = false, graph_prepared_this_call = false;
   mutable kokoro_runtime::AudioMeasurement audio_measurement;
+  mutable kokoro_runtime::OutputValidationObservation output_validation;
   mutable std::string discovery;
   mutable kokoro_runtime::Qualification qualification;
   mutable kokoro_runtime::SelectedDevice selected_device;
@@ -432,7 +444,8 @@ jlongArray ModelEvidence(JNIEnv *env, const Model *model) {
   std::memcpy(&rms_bits, &model->audio_measurement.rms, sizeof(rms_bits));
   std::memcpy(&peak_bits, &model->audio_measurement.peak, sizeof(peak_bits));
   const bool profiled = model->qualification.accelerator.kernels > 0 || model->qualification.cpu.kernels > 0;
-  const std::array<jlong, 33> values{4, model->qualification.accelerator.kernels,
+  const auto &validation = model->output_validation;
+  const std::array<jlong, 48> values{5, model->qualification.accelerator.kernels,
       model->qualification.cpu.kernels, model->qualification.accelerator.microseconds,
       model->qualification.cpu.microseconds, model->prepare_ms, model->synthesis_ms,
       model->phrase_tokens, model->selected_device.type, model->selected_device.vendor,
@@ -444,7 +457,13 @@ jlongArray ModelEvidence(JNIEnv *env, const Model *model) {
       model->profile_reused ? 1 : 0, model->graph_prepared_this_call ? 1 : 0,
       model->frontend_ms, model->validation_ms, model->sessions.Evictions() - model->cache_evictions_before,
       model->profile_finalize_ms, model->sessions.Budget(), model->active ? model->sessions.ActiveBytes() : -1,
-      model->available_memory_bytes, static_cast<jlong>(model->cache_admission)};
+      model->available_memory_bytes, static_cast<jlong>(model->cache_admission),
+      static_cast<jlong>(validation.reason), validation.audio_measured ? 1 : 0,
+      validation.output_count, validation.audio_frames, validation.audio_type, validation.audio_rank,
+      validation.timing_count, validation.timing_type, validation.timing_rank,
+      validation.duration_stats_available ? 1 : 0, validation.duration_sum,
+      validation.duration_min, validation.duration_max, validation.duration_sum_overflow ? 1 : 0,
+      validation.audio_measured && model->audio_measurement.finite ? 1 : 0};
   auto result = env->NewLongArray(values.size());
   if (result) env->SetLongArrayRegion(result, 0, values.size(), values.data());
   return result;

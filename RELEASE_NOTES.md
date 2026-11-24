@@ -14,12 +14,26 @@ Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains 
 - Open the conversation database on its owned IO startup path before parallel recovery, with separate native-load, key, migration-lock and verification timings.
 - Reuse only exact already-redacted workspace rows within one bounded capture, rechecking capture authority on cache hits and clearing retained data at capture exit.
 - Require same-run CPU-reference duration, token-timing and signal consistency for speech benchmark and Auto ranking; retain explicit mismatch, missing-reference and cancellation evidence.
-- Use observed memory headroom for at most two exact accelerator token shapes, cap retained estimates at 1,280 MiB, preserve 512 MiB available reserve and prevent repeated RSS double-counting.
+- Use observed memory headroom for at most three exact accelerator token shapes, cap retained estimates at 1,280 MiB, preserve 512 MiB available reserve and prevent repeated RSS double-counting.
 - Expose total, retained and evicted voice measurement counts and explicit missing speech, accelerator-utilization and end-to-end latency evidence.
 
 CPU-reference speech checks establish bounded numerical consistency, not perceptual equivalence or physical GPU/NPU speedup. Capture-local reuse avoids repeated redaction only; device startup, database hydration and export latency still require measurement.
 
 Production accelerator admission establishes numerical consistency on the fixed representative CPU-reference workload. It does not prove perceptual equivalence or correctness for every future utterance; native per-phrase validation remains required.
+
+## Speech benchmark evidence and engine comparison
+
+- Distinguish unmeasured PCM from measured silence, and retain fixed validation reasons with bounded tensor and token-duration statistics. Historical failed snapshots leave unavailable audio statistics unknown.
+- Retain up to three exact accelerator graph shapes only when the existing 1,280 MiB estimate ceiling and 512 MiB available-memory reserve admit them. Unknown or pressured memory remains conservative; active graph estimates are not allocator limits.
+- Stop an ordinary synthesis benchmark candidate after a same-run CPU-reference mismatch, keep its first mismatch and completed work, and continue other candidates. An explicit deep-diagnostics setting can retain later observations without qualifying invalid output.
+- Add preparation, chunk and backend deadlines that request cancellation and separately record native retirement. A deadline never frees or reuses an in-flight native handle.
+- Add a synthesis-only Stability mode with 20 warm repeats per fixture. Quick, Full, thermal exclusions and the minimum-20 percentile rule remain explicit.
+- Compare installed native Kokoro, LiteRT Kokoro, Phonon and Pocket engines using fixed spoken fixtures, actual voice/model/runtime identity, incremental PCM delivery and the production playback path. Starting a benchmark never downloads a missing model.
+- Preserve schema 5 results and bounded local history, including partial SDK callback traces and cleanup outcomes. Requested SDK delegates remain distinct from observed provider execution; unavailable SDK thread control remains unknown.
+- Separate native generation wall time, graph preparation and native inference costs from SDK PCM-production intervals and complete stream-call time. Keep later callback totals when the bounded trace is full, and compute streamed audio duration from accumulated frames.
+- Hold a frozen export in ViewModel memory while choosing its destination, then encode and write it off the UI thread; large Stability reports no longer enter Android saved-state bundles.
+
+The added engine benchmark measures structural PCM, callback delivery and playback behavior. It does not establish cross-engine intelligibility, perceptual equivalence, acoustic latency, energy savings or an automatic engine winner. The supplied 631bad14 phone logs are baseline observations, not verification of these changes.
 
 ## Release validation
 
@@ -61,7 +75,7 @@ Production accelerator admission establishes numerical consistency on the fixed 
 - Offer controlled zero-offset and current-route calibration modes without overwriting saved route calibration. Honor explicitly selected one-through-four thread counts.
 - Separate execution completion from slow startup, stalls, thermal limits and incomplete evidence. A playback recommendation requires the complete controlled full suite and verified requested-provider execution; small samples do not imply a p95 result.
 - Bound foreground native cleanup while keeping audio and model ownership until the worker actually retires. Keep each warm reply's observer isolated and save progress serially outside the UI thread.
-- Export mode-correct schema 3 records with explicit unmeasured capabilities. Preserve historical numeric receipts without restoring stale qualification, and retain complete current evidence in bounded 4 MiB history storage by evicting older whole runs.
+- Export mode-correct schema 5 records with explicit unmeasured capabilities. Preserve historical numeric receipts without restoring stale qualification, and retain complete current evidence in bounded 4 MiB history storage by evicting older whole runs.
 
 - Keep retained baseline-review decisions authoritative, while suppressing unsupported runtime or repeated-permission questions only in answer-derived questions. Preserve comparison inventory separately from completed source review.
 - Retry the original Gradle invocation once, within its existing total deadline, only for the exact pinned CMake SDK non-ZIP installation failure and without weakening dependency verification or deterministic-failure handling.
@@ -334,7 +348,7 @@ The exact release commit must pass the required main workflows, artifact identit
 - Detect introduced single names, partner/family relationships and parenthesized self aliases, seed identity references across the whole request, and recheck privacy settings after evidence persistence and queued preparation.
 - Keep indicators conservative across retry, edits, selected revisions, mixed masking policies and later unmasked sends. The prior diagnostic export lacks raw request bodies, so historical words are not retroactively claimed to have stayed local. Automatic category detection remains heuristic; custom private terms remain available.
 
-Silent inference and audible playback are separate speech measurements. First PCM records a completed native chunk; presented audio uses the production AudioTrack timestamp or playback head. Caption checks measure observed word coverage and clock consistency. Acoustic speaker latency, perceptual word alignment, battery energy and hardware utilization percentages remain unmeasured. GPU/NPU results require compatible real hardware and actual accelerator execution; unsupported or failed trials retain their observed status.
+Silent inference and audible playback are separate speech measurements. Native first PCM records a completed chunk and SDK first PCM records a delivered callback; presented audio uses the production AudioTrack timestamp or playback head. Caption checks measure observed word coverage and clock consistency. Acoustic speaker latency, perceptual word alignment, battery energy and hardware utilization percentages remain unmeasured. GPU/NPU results require compatible real hardware and actual accelerator execution; unsupported or failed trials retain their observed status.
 
 Prepared Android compilation requires at least 8,960 MiB of observed RAM/cgroup headroom for its fixed 6 GiB heap. The existing 8 GiB container default is refused; an operator must explicitly approve sufficient resources. The preflight does not reserve future memory.
 

@@ -1,0 +1,95 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "speech-benchmark-control-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "ce0689733e9e46d4600aa58d1b199cb50d4b9277",
+  "working_branch": "task/speech-benchmark-control",
+  "pr_number": 2367,
+  "intent": "Stop mismatched native benchmark candidates promptly, preserve optional deep diagnostics, bound stop requests without releasing active native ownership, and expose a twenty-repeat stability mode.",
+  "state": "IMPLEMENTED_PENDING_COMBINED_VALIDATION",
+  "source_capture": {
+    "file": "speech-benchmark-1795470489503.json",
+    "source_commit": "631bad141287b2ed6581d42b1a1627256359e36f",
+    "app_build": 149
+  },
+  "constraints": [
+    "Preserve independent backend measurements and incomplete evidence.",
+    "A deadline is a cancellation request; native and model ownership remain held until actual retirement.",
+    "Do not apply native Kokoro token-duration equivalence to a different speech engine.",
+    "Physical device performance and final combined-source CI remain separate qualification gates."
+  ],
+  "validation": [
+    {
+      "kind": "BOUNDED_HOST_SOURCE_TESTS",
+      "status": "PASSED",
+      "compiler": "Kotlin 2.4.20",
+      "jvm_target": 21,
+      "junit": "4.13.2",
+      "test_count": 82,
+      "test_classes": [
+        "VoiceSpeechBenchmarkControlTest",
+        "VoiceSpeechBenchmarkWatchdogTest",
+        "VoiceSpeechBenchmarkTest",
+        "VoiceSpeechBenchmarkCancellationTest",
+        "VoiceSpeechAudioReferenceTest",
+        "VoiceSpeechWorkloadTest",
+        "VoiceSpeechBenchmarkEvidenceExportTest",
+        "VoiceSpeechFailureEvidenceTest"
+      ],
+      "scope": "Actual selected core, root export/evidence, SDK DTO/playback model sources and native Java ABI compiled together. Unchanged Android boundary constants and speechChunks declaration extracted from source. Does not exercise Android playback, model loading, JNI or device performance.",
+      "source_manifest_sha256": "5fb4e76afb074266c3e7024ac4a02a2254c669b5bfbc3bb84c1f9a1d1f64af16",
+      "junit_log_sha256": "33c74724b48d00e0aebcbc13afa68565588fd394f589f405cd153c845cd957cd",
+      "compiler_heap_mb": 512,
+      "compiler_max_metaspace_mb": 256
+    },
+    {
+      "kind": "DELIBERATE_COUNTERFACTUAL_REGRESSION_CHECK",
+      "status": "EXPECTED_FAILURES_OBSERVED",
+      "test_count": 19,
+      "failure_count": 7,
+      "mutations": [
+        "Disable incremental CPU-reference mismatch stop.",
+        "Disable the latched watchdog cancellation callback."
+      ],
+      "receipt_sha256": "03ff9989e556b719bfa9f27e96f7572f447291f1efe6aa1d99a112077178ee84",
+      "junit_log_sha256": "c5a61d67b7c7f1266b1f676a805ca2e4fced9e8923d842fc748916724490807c",
+      "scope": "Separate scratch copies only; committed sources retain both protections."
+    },
+    {
+      "kind": "KTLINT",
+      "status": "PASSED",
+      "version": "1.3.1",
+      "tool_sha256": "a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1",
+      "source_count": 7
+    },
+    {
+      "kind": "COMPILER_RESOURCE_RETRY",
+      "status": "BOUNDED_RETRY_PASSED",
+      "initial_heap_mb": 1024,
+      "initial_result": "Terminated by signal 9 without diagnostics; cause unconfirmed.",
+      "retry_heap_mb": 512,
+      "scope": "No Gradle memory settings or validation admission rules changed."
+    },
+    {
+      "kind": "INDEPENDENT_OWNERSHIP_REVIEW",
+      "status": "NO_REMAINING_ACTIONABLE_RACE_FOUND",
+      "reviewer": "native_voice_review",
+      "scope": "Reviewed cancellation-arm race, throwing publisher cleanup, stale timer phase/backend boundaries, and owner-only retirement."
+    },
+    {
+      "kind": "CANONICAL_COMBINED_VALIDATION",
+      "status": "PENDING_INTEGRATION",
+      "scope": "Parent integration owns generated references, canonical validation, Android/Gradle tests and physical device qualification."
+    }
+  ],
+  "owned_source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt": "8787040223626c431d15c842ef075fc5fe22a8927d63799e4fb9994ee508cc5b",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt": "cf3018345635a88bbb6ab09ba4116eaffeaffb65fc07725493eff80bfafc5a44",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEngine.kt": "9aeda61f136c6184c8b2f56e1f0a07ea3dd7056df340c15eec79e05d98a6eefc",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdog.kt": "5c75f3977b618642744e7883fa82ff85e7a67a22a858d1694a7b002ad46fc011",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt": "88a1d52a6668d2f0d02308a2a6d45f6a5b979495276aaf15b65d7f1df8efbf31",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt": "08e6fe60e9bbdd4d2a1d97dfb58178a50becdf84108b5960c5e9787ae6cfc305",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt": "8f335d31ab7d4eb5b617ae53d457434afae683a47fbb52470bc6a695b8700c3c"
+  }
+}

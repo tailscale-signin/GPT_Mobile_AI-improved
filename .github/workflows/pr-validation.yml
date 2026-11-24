@@ -59,6 +59,10 @@ jobs:
 
       - uses: ./.github/actions/setup-android
 
+      - name: Verify native speech cache and evidence contracts
+        timeout-minutes: 5
+        run: bash scripts/check_speech_native_contracts.sh
+
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
         run: bash scripts/install_android_native_dependencies.sh

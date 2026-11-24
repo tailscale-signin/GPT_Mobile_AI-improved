@@ -96,7 +96,7 @@ class VoiceSpeechAudioReferenceTest {
 
     private fun run(seed: Long = 0, units: (VoiceSpeechBackend, String) -> Int): VoiceSpeechBenchmarkReport {
         var clock = 0L
-        val configuration = VoiceSpeechBenchmarkConfiguration(VoiceSpeechBenchmarkMode.QUICK, listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU), KokoroVoice.HEART, 4, 1.25f, "a".repeat(64), "runtime", 149, 37, "b".repeat(64), backendOrderSeed = seed)
+        val configuration = VoiceSpeechBenchmarkConfiguration(VoiceSpeechBenchmarkMode.QUICK, listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU), KokoroVoice.HEART, 4, 1.25f, "a".repeat(64), "runtime", 149, 37, "b".repeat(64), backendOrderSeed = seed, deepDiagnostics = true)
         return VoiceSpeechBenchmarkRunner(
             create = { backend ->
                 clock += 10_000_000

@@ -271,7 +271,7 @@
         "Keep native progress polling separate from synthesis-owned evidence and retain audio/model ownership until actual retirement.",
         "Playback comparison requires the current controlled workload protocol, independent fixture coverage and observed provider execution.",
         "Benchmark and Auto ranking require same-run CPU-reference duration, token timing and signal consistency; numeric consistency does not establish perceptual equivalence.",
-        "Retain at most two exact accelerator token shapes under observed memory headroom and a hard estimate ceiling; unknown memory retains only the active shape.",
+        "Retain at most three exact accelerator token shapes under observed memory headroom and a hard estimate ceiling; unknown memory retains only the active shape.",
         "One playback-scoped quiet limiter spans streaming callbacks and phrases; validate raw PCM first and account only retained audio in queued frames and cue positions.",
         "An observed cue prefix may extend in place; a fully trimmed ending clears only the current presented word during refill, without advancing the caption clock, consuming a later onset or bypassing audio-focus pause.",
         "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone."
@@ -696,6 +696,95 @@
       "invariants": [
         "Acceptance uses the same pinned emulator action after exact upstream commit/tree/clean-source and source/runtime digest verification removes only its premature MENU unlock. The real launcher/ANR/foreground readiness predicates, API matrix, memory and time limits remain unchanged.",
         "An upstream revision, source digest, tracked or untracked mutation, or unexpected patch shape prevents execution before either target is written. Host command-order tests do not replace actual healthy API34/API36 instrumentation."
+      ]
+    },
+    {
+      "id": "speech-benchmark-evidence",
+      "title": "Speech engine comparisons, bounded deadlines and measurement evidence",
+      "terms": [
+        "speech benchmark",
+        "Stability speech benchmark",
+        "native validation reason",
+        "unmeasured PCM",
+        "three shape cache",
+        "CPU reference mismatch",
+        "speech engine comparison",
+        "benchmark export",
+        "SDK callbacks"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkResult.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePcmMeasurement.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineFactory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechEngineBenchmarkCard.kt",
+        "local-kokoro-runtime/src/main/cpp/kokoro_output_validation.h",
+        "local-kokoro-runtime/src/main/cpp/kokoro_shape_cache.h",
+        "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+        "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
+        "scripts/check_speech_native_contracts.sh",
+        ".github/workflows/pr-validation.yml",
+        ".github/workflows/speech-engine-smoke.yml",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnership.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkUiState.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePlaybackBenchmarkTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
+        "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp",
+        "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java",
+        "local-kokoro-runtime/src/testHost/kokoro_qnn_model_qualification.py",
+        "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "bash scripts/check_speech_native_contracts.sh",
+        "python3 -m unittest discover -s local-kokoro-runtime/src/testHost -p test_kokoro_reference_comparison.py"
+      ],
+      "documents": [
+        "docs/repairs/speech-benchmark-1795470489503-task.json",
+        "docs/repairs/speech-benchmark-control-2026-11-23-task.json",
+        "docs/architecture/repository-guide.md",
+        "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
+        "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json",
+        "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json"
+      ],
+      "invariants": [
+        "Unmeasured PCM is unknown, measured silence is explicit, and signed duration evidence never wraps or invents a zero sum after overflow.",
+        "Native shape residency remains memory admitted under the unchanged estimate ceiling and reserve; cold graph preparation is still required.",
+        "Stop a native candidate at its first known same-run CPU-reference mismatch unless deep diagnostics is explicit; preserve invalid evidence and independent candidates without granting qualification.",
+        "A preparation, chunk or backend deadline requests stop and publishes pending cleanup; only actual retirement permits reuse, and observer errors cannot skip cleanup.",
+        "Synthesis Stability collects20 warm repeats per fixture while percentile eligibility and thermal qualification remain explicit.",
+        "Only installed models may run; starting a benchmark never downloads a model or weakens captured conversation privacy.",
+        "SDK comparisons preserve actual voice, model, runtime and callback receipts without claiming native token timing, observed processor placement or perceptual quality.",
+        "SDK callback traces retain at most128 entries while total frames, costs and omission counts remain explicit; later callbacks never become caption violations solely because the trace is full.",
+        "Keep native generation wall time including graph preparation distinct from native inference and SDK retained-PCM production intervals; complete SDK stream-call time includes callback waits.",
+        "Keep frozen export reports in ViewModel memory and encode onIO; large reports must not enter Android saved-state bundles.",
+        "Preserve legacy numeric history without restoring stale qualification, and bound full stored history to4MiB by evicting older whole runs.",
+        "A failed native close retains the process-wide owner token and restart requirement across screen recreation; a stale lease cannot quarantine or release a replacement owner."
       ]
     }
   ]

@@ -69,6 +69,13 @@ internal class VoiceSpeechBenchmarkStore internal constructor(private val direct
                             } else {
                                 result
                             }
+                        },
+                        engineResults = report.engineResults.map { result ->
+                            if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) {
+                                result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN)
+                            } else {
+                                result
+                            }
                         }
                     )
                 } else {

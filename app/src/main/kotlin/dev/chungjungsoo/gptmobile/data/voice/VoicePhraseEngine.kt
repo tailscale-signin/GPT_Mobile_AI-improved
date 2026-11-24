@@ -65,6 +65,9 @@ internal interface VoicePhraseEngineFactory {
     val selectedBackend: VoiceSpeechBackend get() = VoiceSpeechBackend.CPU
     val preparationTimeoutMs: Long get() = 30_000
     val requiresKokoroAssets: Boolean get() = true
+
+    /** A failed native destructor cannot authorize a replacement owner or model removal. */
+    val nativeCleanupPending: Boolean get() = false
     fun isReady(): Boolean = true
 
     /** Includes model/runtime/configuration revision; changing it invalidates the warm engine. */

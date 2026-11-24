@@ -20,7 +20,7 @@ internal fun voicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: 
     }
     val synthesis = latest?.takeIf { it.generatedAudioMs > 0 }
     val document = buildJsonObject {
-        put("schemaVersion", 3)
+        put("schemaVersion", 4)
         put("scope", "current_app_process")
         put("seriesWindow", "since_last_performance_reset")
         put("latestSynthesisWindow", "most_recent_synthesis_may_precede_series_reset")
@@ -172,9 +172,27 @@ private fun performanceExecutionJson(evidence: VoiceSpeechExecutionEvidence) = b
     number("cacheBudgetBytes", evidence.cacheBudgetBytes, 16L * 1024 * 1024 * 1024)
     number("activeShapeEstimatedBytes", evidence.activeShapeEstimatedBytes, 16L * 1024 * 1024 * 1024)
     number("availableMemoryBytes", evidence.availableMemoryBytes, 256L * 1024 * 1024 * 1024)
-    put("cacheAdmission", evidence.cacheAdmission?.takeIf { it in setOf("CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES") }?.let(::JsonPrimitive) ?: JsonNull)
-    amplitude("audioRms", evidence.audioRms)
-    amplitude("audioPeak", evidence.audioPeak)
-    number("clippedSamples", evidence.clippedSamples, 720_000)
-    number("nonSilentSamples", evidence.nonSilentSamples, 720_000)
+    put("cacheAdmission", safeSpeechCacheAdmission(evidence.cacheAdmission)?.let(::JsonPrimitive) ?: JsonNull)
+    flag("audioMeasurementAvailable", evidence.audioMeasurementAvailable)
+    val measured = evidence.audioMeasurementAvailable == true
+    flag("audioFinite", evidence.audioFinite.takeIf { measured })
+    amplitude("audioRms", evidence.audioRms.takeIf { measured })
+    amplitude("audioPeak", evidence.audioPeak.takeIf { measured })
+    number("clippedSamples", evidence.clippedSamples.takeIf { measured }, 720_000)
+    number("nonSilentSamples", evidence.nonSilentSamples.takeIf { measured }, 720_000)
+    put("validationReason", safeSpeechValidationReason(evidence.validationReason)?.let(::JsonPrimitive) ?: JsonNull)
+    number("outputTensorCount", evidence.outputTensorCount)
+    number("outputFrames", evidence.outputFrames)
+    number("outputElementType", evidence.outputElementType, 255)
+    number("outputRank", evidence.outputRank, 64)
+    number("durationCount", evidence.durationCount)
+    number("durationElementType", evidence.durationElementType, 255)
+    number("durationRank", evidence.durationRank, 64)
+    flag("durationStatsAvailable", evidence.durationStatsAvailable)
+    val durationMeasured = evidence.durationStatsAvailable == true
+    flag("durationSumOverflow", evidence.durationSumOverflow.takeIf { durationMeasured })
+    // Signed durations are useful evidence for TOKEN_DURATION_INVALID; never coerce them to zero.
+    put("durationSum", evidence.durationSum?.takeIf { durationMeasured && evidence.durationSumOverflow != true }?.let(::JsonPrimitive) ?: JsonNull)
+    put("durationMin", evidence.durationMin?.takeIf { durationMeasured }?.let(::JsonPrimitive) ?: JsonNull)
+    put("durationMax", evidence.durationMax?.takeIf { durationMeasured }?.let(::JsonPrimitive) ?: JsonNull)
 }

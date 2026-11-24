@@ -923,7 +923,7 @@ private fun VoiceChatSessionScreen(
                         voice = kokoroVoice,
                         threads = kokoroThreads,
                         speechRate = rate,
-                        enabled = !benchmarkRunning && !state.awaitingReply && kokoroModel.status == LocalVoiceModelStatus.READY && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
+                        enabled = !benchmarkRunning && !state.awaitingReply && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
                         beforeStart = {
                             session.pause("speech_benchmark_started")
                             localRecognition.releaseWarmModel()

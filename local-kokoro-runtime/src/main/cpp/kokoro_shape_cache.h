@@ -13,7 +13,7 @@ constexpr int64_t kShapeCacheSingleBudgetBytes = 640LL * 1024 * 1024;
 constexpr int64_t kShapeCacheMaximumBudgetBytes = 2 * kShapeCacheSingleBudgetBytes;
 constexpr int64_t kShapeCacheHeadroomBytes = 512LL * 1024 * 1024;
 
-enum class ShapeCacheAdmission : int64_t { CpuSingle, MemoryUnknown, MemoryPressure, BoundedTwoShapes };
+enum class ShapeCacheAdmission : int64_t { CpuSingle, MemoryUnknown, MemoryPressure, BoundedTwoShapes, BoundedThreeShapes };
 struct ShapeCacheAllowance {
   size_t limit;
   int64_t budget;
@@ -23,7 +23,7 @@ struct ShapeCacheAllowance {
 // MemAvailable excludes resident sessions. Admit only available incremental
 // memory above the reserve, with an independent hard retention ceiling. Unknown
 // memory never enables an idle accelerator session. These are residency
-// estimates, not a native allocator limit or a promise that two shapes fit.
+// estimates, not a native allocator limit or a promise that three shapes fit.
 inline ShapeCacheAllowance AdmitShapeCache(bool accelerator, int64_t available,
     int64_t retained, int64_t prospective) {
   if (!accelerator) return {1, kShapeCacheSingleBudgetBytes, ShapeCacheAdmission::CpuSingle};
@@ -32,8 +32,8 @@ inline ShapeCacheAllowance AdmitShapeCache(bool accelerator, int64_t available,
   const auto bounded_retained = std::clamp<int64_t>(retained, 0, kShapeCacheMaximumBudgetBytes);
   const auto budget = bounded_retained + std::min(spare, kShapeCacheMaximumBudgetBytes - bounded_retained);
   const bool room = spare > 0 && spare >= std::max<int64_t>(0, prospective);
-  return {room ? size_t{2} : size_t{1}, budget,
-      room ? ShapeCacheAdmission::BoundedTwoShapes : ShapeCacheAdmission::MemoryPressure};
+  return {room ? size_t{3} : size_t{1}, budget,
+      room ? ShapeCacheAdmission::BoundedThreeShapes : ShapeCacheAdmission::MemoryPressure};
 }
 
 inline int64_t AddResidentGrowth(int64_t estimate, int64_t before, int64_t after) {
@@ -43,7 +43,7 @@ inline int64_t AddResidentGrowth(int64_t estimate, int64_t before, int64_t after
 }
 
 // One worker owns this cache. We keep exact shapes, never padded tokens. The
-// additional idle session has both a count limit and a conservative residency
+// additional idle sessions have both a count limit and a conservative residency
 // estimate budget. The active model may itself exceed that budget; in that
 // case it is the only retained entry. This is not a native allocator limit.
 template <typename T> class ShapeCache {

@@ -86,7 +86,22 @@ internal data class VoiceSpeechExecutionEvidence(
     val cacheBudgetBytes: Long? = null,
     val activeShapeEstimatedBytes: Long? = null,
     val availableMemoryBytes: Long? = null,
-    val cacheAdmission: String? = null
+    val cacheAdmission: String? = null,
+    val audioMeasurementAvailable: Boolean? = null,
+    val audioFinite: Boolean? = null,
+    val validationReason: String? = null,
+    val outputTensorCount: Long? = null,
+    val outputFrames: Long? = null,
+    val outputElementType: Long? = null,
+    val outputRank: Long? = null,
+    val durationCount: Long? = null,
+    val durationElementType: Long? = null,
+    val durationRank: Long? = null,
+    val durationSum: Long? = null,
+    val durationMin: Long? = null,
+    val durationMax: Long? = null,
+    val durationStatsAvailable: Boolean? = null,
+    val durationSumOverflow: Boolean? = null
 ) {
     fun diagnostics(): Map<String, Any> = buildMap {
         put("speech_backend_selected", selectedBackend.name)
@@ -127,10 +142,29 @@ internal data class VoiceSpeechExecutionEvidence(
         validationMs?.takeIf { it >= 0 }?.let { put("speech_validation_ms", it) }
         cacheEvictions?.takeIf { it >= 0 }?.let { put("speech_graph_cache_evictions", it) }
         profileFinalizeMs?.takeIf { it >= 0 }?.let { put("speech_profile_finalize_ms", it) }
-        audioRms?.takeIf { it.isFinite() && it >= 0 }?.let { put("speech_audio_rms", it) }
-        audioPeak?.takeIf { it.isFinite() && it >= 0 }?.let { put("speech_audio_peak", it) }
-        clippedSamples?.takeIf { it >= 0 }?.let { put("speech_audio_clipped_samples", it) }
-        nonSilentSamples?.takeIf { it >= 0 }?.let { put("speech_audio_non_silent_samples", it) }
+        audioMeasurementAvailable?.let { put("speech_audio_measurement_available", it) }
+        if (audioMeasurementAvailable == true) {
+            audioFinite?.let { put("speech_audio_finite", it) }
+            audioRms?.takeIf { it.isFinite() && it in 0.0..1_000_000.0 }?.let { put("speech_audio_rms", it) }
+            audioPeak?.takeIf { it.isFinite() && it in 0.0..1_000_000.0 }?.let { put("speech_audio_peak", it) }
+            clippedSamples?.takeIf { it in 0..720_000 }?.let { put("speech_audio_clipped_samples", it) }
+            nonSilentSamples?.takeIf { it in 0..720_000 }?.let { put("speech_audio_non_silent_samples", it) }
+        }
+        safeSpeechValidationReason(validationReason)?.let { put("speech_validation_reason", it) }
+        outputTensorCount?.takeIf { it >= 0 }?.let { put("speech_output_tensor_count", it) }
+        outputFrames?.takeIf { it >= 0 }?.let { put("speech_output_frames", it) }
+        outputElementType?.takeIf { it in 0..255 }?.let { put("speech_output_element_type", it) }
+        outputRank?.takeIf { it in 0..64 }?.let { put("speech_output_rank", it) }
+        durationCount?.takeIf { it >= 0 }?.let { put("speech_duration_count", it) }
+        durationElementType?.takeIf { it in 0..255 }?.let { put("speech_duration_element_type", it) }
+        durationRank?.takeIf { it in 0..64 }?.let { put("speech_duration_rank", it) }
+        durationStatsAvailable?.let { put("speech_duration_stats_available", it) }
+        if (durationStatsAvailable == true) {
+            durationSumOverflow?.let { put("speech_duration_sum_overflow", it) }
+            durationSum?.takeUnless { durationSumOverflow == true }?.let { put("speech_duration_sum", it) }
+            durationMin?.let { put("speech_duration_min", it) }
+            durationMax?.let { put("speech_duration_max", it) }
+        }
         safeSpeechDiscoverySummary(discoverySummary)?.let { put("speech_discovery_summary", it) }
         put("speech_prepare_ms", prepareMs)
         put("speech_synthesis_ms", synthesisMs)
@@ -155,7 +189,17 @@ internal fun safeSpeechDiscoverySummary(value: String?): String? = value?.takeIf
     it.length in 1..512 && it.all { character -> character.isLetterOrDigit() && character.code < 128 || character in "_.=,:;-" }
 }
 
-internal fun safeSpeechCacheAdmission(value: String?): String? = value?.takeIf { it in setOf("CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES") }
+internal fun safeSpeechCacheAdmission(value: String?): String? = value?.takeIf {
+    it in setOf("CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES", "BOUNDED_THREE_SHAPES")
+}
+
+internal fun safeSpeechValidationReason(value: String?): String? = value?.takeIf {
+    it in setOf(
+        "OUTPUT_COUNT", "AUDIO_TENSOR_TYPE", "AUDIO_FRAME_COUNT", "AUDIO_TOO_LONG", "TIMING_TENSOR_TYPE",
+        "TIMING_TOKEN_COUNT", "TOKEN_DURATION_INVALID", "TIMING_PCM_MISMATCH", "NONFINITE_PCM", "SILENT_PCM",
+        "TENSOR_METADATA_UNAVAILABLE"
+    )
+}
 
 /** Never reads the engine's previous success after a throw: this snapshot belongs to this failed native call. */
 internal fun speechFailureExecutionEvidence(error: Exception, requested: VoiceSpeechBackend, deviceKey: String): VoiceSpeechExecutionEvidence? {
@@ -183,8 +227,10 @@ internal fun speechFailureExecutionEvidence(error: Exception, requested: VoiceSp
         profileAvailable = native.profileAvailable, profileId = native.profileId, cacheHit = native.cacheHit,
         currentPrepareMs = native.currentPrepareMs, cachedShapeCount = native.cachedShapeCount,
         cacheLimit = native.cacheLimit, cacheEstimatedBytes = native.cacheEstimatedBytes,
-        audioRms = native.audioRms, audioPeak = native.audioPeak, clippedSamples = native.clippedSamples,
-        nonSilentSamples = native.nonSilentSamples, profileReused = native.profileReused,
+        audioRms = native.audioRms.takeIf { native.audioMeasurementAvailable == true },
+        audioPeak = native.audioPeak.takeIf { native.audioMeasurementAvailable == true },
+        clippedSamples = native.clippedSamples.takeIf { native.audioMeasurementAvailable == true },
+        nonSilentSamples = native.nonSilentSamples.takeIf { native.audioMeasurementAvailable == true }, profileReused = native.profileReused,
         graphPreparedThisCall = native.graphPreparedThisCall,
         discoverySummary = safeSpeechDiscoverySummary(native.discoverySummary),
         failedInputBytes = failure.inputBytes, failedInputByteLimit = failure.inputByteLimit,
@@ -192,7 +238,13 @@ internal fun speechFailureExecutionEvidence(error: Exception, requested: VoiceSp
         frontendMs = native.frontendMs, validationMs = native.validationMs,
         cacheEvictions = native.cacheEvictions, profileFinalizeMs = native.profileFinalizeMs,
         cacheBudgetBytes = native.cacheBudgetBytes, activeShapeEstimatedBytes = native.activeShapeEstimatedBytes,
-        availableMemoryBytes = native.availableMemoryBytes, cacheAdmission = safeSpeechCacheAdmission(native.cacheAdmission)
+        availableMemoryBytes = native.availableMemoryBytes, cacheAdmission = safeSpeechCacheAdmission(native.cacheAdmission),
+        audioMeasurementAvailable = native.audioMeasurementAvailable, audioFinite = native.audioFinite,
+        validationReason = safeSpeechValidationReason(native.validationReason), outputTensorCount = native.outputTensorCount,
+        outputFrames = native.outputFrames, outputElementType = native.outputElementType, outputRank = native.outputRank,
+        durationCount = native.durationCount, durationElementType = native.durationElementType, durationRank = native.durationRank,
+        durationSum = native.durationSum, durationMin = native.durationMin, durationMax = native.durationMax,
+        durationStatsAvailable = native.durationStatsAvailable, durationSumOverflow = native.durationSumOverflow
     )
 }
 

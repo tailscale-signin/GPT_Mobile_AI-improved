@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 
@@ -18,6 +19,8 @@ internal class MediaPipeVoicePhraseEngineFactory(
     private val generation = AtomicLong()
     private val pendingLock = Any()
     private var pending: MediaPipeSpeechTask? = null
+    private val cleanupPending = AtomicBoolean()
+    private var unretiredTask: MediaPipeSpeechTask? = null
 
     init {
         require(speakingRate.isFinite() && speakingRate in .5f..2f)
@@ -33,6 +36,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
 
     override val selectedBackend: VoiceSpeechBackend get() = backend
     override val requiresKokoroAssets: Boolean get() = false
+    override val nativeCleanupPending: Boolean get() = cleanupPending.get()
     override fun isReady(): Boolean = modelStore.isReady(engine)
     override val identity = "${MediaPipeSpeechCatalog.RUNTIME_ID}:${model.sha256}:${backend.name}:${speakingRate.toBits()}:$voiceId"
 
@@ -42,6 +46,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
     }
 
     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+        check(!nativeCleanupPending) { "Native speech cleanup is unconfirmed; restart the app before another preparation." }
         // directory/lexicon/threads belong to the legacy engine contract. The SDK exposes no
         // thread-count control, and its model/voice frontend is wholly inside the verified bundle.
         val ticket = generation.get()
@@ -73,8 +78,10 @@ internal class MediaPipeVoicePhraseEngineFactory(
             val closeFailure = runCatching { task?.close() }.exceptionOrNull()
             if (closeFailure == null) {
                 lease.close()
-            } else if (closeFailure !== failure) {
-                failure.addSuppressed(closeFailure)
+            } else {
+                unretiredTask = task
+                cleanupPending.set(true)
+                if (closeFailure !== failure) failure.addSuppressed(closeFailure)
             }
             throw failure
         }

@@ -275,7 +275,7 @@
         "Keep native progress polling separate from synthesis-owned evidence and retain audio/model ownership until actual retirement.",
         "Playback comparison requires the current controlled workload protocol, independent fixture coverage and observed provider execution.",
         "Benchmark and Auto ranking require same-run CPU-reference duration, token timing and signal consistency; numeric consistency does not establish perceptual equivalence.",
-        "Retain at most two exact accelerator token shapes under observed memory headroom and a hard estimate ceiling; unknown memory retains only the active shape.",
+        "Retain at most three exact accelerator token shapes under observed memory headroom and a hard estimate ceiling; unknown memory retains only the active shape.",
         "One playback-scoped quiet limiter spans streaming callbacks and phrases; validate raw PCM first and account only retained audio in queued frames and cue positions.",
         "An observed cue prefix may extend in place; a fully trimmed ending clears only the current presented word during refill, without advancing the caption clock, consuming a later onset or bypassing audio-focus pause.",
         "Streaming reserve learning uses retained-PCM delivery gaps before phrase completion, excludes callback and bounded-queue waits, preserves an active-stream maximum and eight completed-stream maxima, and keeps whole-phrase ratio/word-cost accounting separate. Existing reserve, queue, caption, pause and cancellation bounds remain authoritative; synthetic tests do not establish acoustic continuity on a target phone."
@@ -701,6 +701,95 @@
         "Acceptance uses the same pinned emulator action after exact upstream commit/tree/clean-source and source/runtime digest verification removes only its premature MENU unlock. The real launcher/ANR/foreground readiness predicates, API matrix, memory and time limits remain unchanged.",
         "An upstream revision, source digest, tracked or untracked mutation, or unexpected patch shape prevents execution before either target is written. Host command-order tests do not replace actual healthy API34/API36 instrumentation."
       ]
+    },
+    {
+      "id": "speech-benchmark-evidence",
+      "title": "Speech engine comparisons, bounded deadlines and measurement evidence",
+      "terms": [
+        "speech benchmark",
+        "Stability speech benchmark",
+        "native validation reason",
+        "unmeasured PCM",
+        "three shape cache",
+        "CPU reference mismatch",
+        "speech engine comparison",
+        "benchmark export",
+        "SDK callbacks"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkResult.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePcmMeasurement.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineFactory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechEngineBenchmarkCard.kt",
+        "local-kokoro-runtime/src/main/cpp/kokoro_output_validation.h",
+        "local-kokoro-runtime/src/main/cpp/kokoro_shape_cache.h",
+        "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+        "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
+        "scripts/check_speech_native_contracts.sh",
+        ".github/workflows/pr-validation.yml",
+        ".github/workflows/speech-engine-smoke.yml",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnership.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkUiState.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePlaybackBenchmarkTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
+        "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp",
+        "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java",
+        "local-kokoro-runtime/src/testHost/kokoro_qnn_model_qualification.py",
+        "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "bash scripts/check_speech_native_contracts.sh",
+        "python3 -m unittest discover -s local-kokoro-runtime/src/testHost -p test_kokoro_reference_comparison.py"
+      ],
+      "documents": [
+        "docs/repairs/speech-benchmark-1795470489503-task.json",
+        "docs/repairs/speech-benchmark-control-2026-11-23-task.json",
+        "docs/architecture/repository-guide.md",
+        "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
+        "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json",
+        "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json"
+      ],
+      "invariants": [
+        "Unmeasured PCM is unknown, measured silence is explicit, and signed duration evidence never wraps or invents a zero sum after overflow.",
+        "Native shape residency remains memory admitted under the unchanged estimate ceiling and reserve; cold graph preparation is still required.",
+        "Stop a native candidate at its first known same-run CPU-reference mismatch unless deep diagnostics is explicit; preserve invalid evidence and independent candidates without granting qualification.",
+        "A preparation, chunk or backend deadline requests stop and publishes pending cleanup; only actual retirement permits reuse, and observer errors cannot skip cleanup.",
+        "Synthesis Stability collects20 warm repeats per fixture while percentile eligibility and thermal qualification remain explicit.",
+        "Only installed models may run; starting a benchmark never downloads a model or weakens captured conversation privacy.",
+        "SDK comparisons preserve actual voice, model, runtime and callback receipts without claiming native token timing, observed processor placement or perceptual quality.",
+        "SDK callback traces retain at most128 entries while total frames, costs and omission counts remain explicit; later callbacks never become caption violations solely because the trace is full.",
+        "Keep native generation wall time including graph preparation distinct from native inference and SDK retained-PCM production intervals; complete SDK stream-call time includes callback waits.",
+        "Keep frozen export reports in ViewModel memory and encode onIO; large reports must not enter Android saved-state bundles.",
+        "Preserve legacy numeric history without restoring stale qualification, and bound full stored history to4MiB by evicting older whole runs.",
+        "A failed native close retains the process-wide owner token and restart requirement across screen recreation; a stale lease cannot quarantine or release a replacement owner."
+      ]
     }
   ],
   "file_blobs": {
@@ -719,15 +808,20 @@
       "bytes": 13042,
       "sha256": "f3b4a480ce1ea9fd0001199644fb96af6fd849a4ecc6a9f4caa3fcda6e8e254d"
     },
+    ".github/workflows/pr-validation.yml": {
+      "blob_sha": "e6050ed5cf6b90b29df559cea27fe33a8667c141",
+      "bytes": 26492,
+      "sha256": "85bde98a1a24fbfed2e4129bd0425109357c5612e33262ba62665d048d9a6bb8"
+    },
     ".github/workflows/release-0950-acceptance.yml": {
       "blob_sha": "e014d5d4585a20f7571542da5dcc705f1d7aa411",
       "bytes": 10474,
       "sha256": "5a01576356b45ec9a7045502526b8a42c58bda3c7fef69a829dd051e1ea86ca7"
     },
     ".github/workflows/speech-engine-smoke.yml": {
-      "blob_sha": "9f33aaafb5f418f785ee2a1679c5ee0cdccb6910",
-      "bytes": 1990,
-      "sha256": "b8b58f3aa472a1bba9e41427e646ebb7cdd011329d7a3d502503dc461607b529"
+      "blob_sha": "f10820c75acfac02c741f90412b2d067ca165c03",
+      "bytes": 2194,
+      "sha256": "5b9be487d2f5987347f69c01c5fc85220718cf3cdd72be14c172a1affc4ce45a"
     },
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundTransportInstrumentedTest.kt": {
       "blob_sha": "d32e8d2c6b486e6b4df8afcf7a49974d6dd5de78",
@@ -1185,9 +1279,9 @@
       "sha256": "11d9817716542c53cf6903898d36baae90175300d11328e1af7547896b511284"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineFactory.kt": {
-      "blob_sha": "d1f87f7b6d5ec4acf7115a9c9f47e0b4d47acc24",
-      "bytes": 3816,
-      "sha256": "ddcd5a29c7d3b1f2c09c0aa24e5e19a735707a102876178288ef54fb4c208b86"
+      "blob_sha": "97c9bbc9ae8aad1e0fe843b8986b662a70eb8383",
+      "bytes": 4252,
+      "sha256": "9670ffad4161ac21e8a32ad4f03151ac2131e6f6849d81f59951a8a4da77c224"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeWordCueMapper.kt": {
       "blob_sha": "5545683c59c7aeb39cc3ff6719aaca4283807568",
@@ -1195,9 +1289,9 @@
       "sha256": "863a6efe875624ea070db57529fb9f258e348b1bb8179f2b5b4b4acb9d357b36"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt": {
-      "blob_sha": "a6b5b048d12130cb8bcf91f200dbd984f176a90d",
-      "bytes": 22763,
-      "sha256": "eef33eba9d7313b29d2a1d66351041c5ca46b401d47f47943d6853cbf75b7eb4"
+      "blob_sha": "f07195b07a5444bb21d1b5153e028602814089af",
+      "bytes": 23751,
+      "sha256": "4ebf729c2f8bbb0a854a08790beef71a4b30130f5838e9168400039b8d1f8e44"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendAudioAdmission.kt": {
       "blob_sha": "38fc434ba0aadea6584541e8418d26e05dbc97fa",
@@ -1225,9 +1319,9 @@
       "sha256": "91a94d9a4bcadb46dbb0f6cbd01e054e0e0c2d8e5d7434f8c0572082f62927ab"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt": {
-      "blob_sha": "c02bddb512a4e6849369b67b887b7128c122f998",
-      "bytes": 10438,
-      "sha256": "f0f044f7963a6019acfe20c54ce8a683beb79a319aa6c66ffa0cd7f18d59730e"
+      "blob_sha": "01372e6870331f18abbfac0f51b1e39d3ccfdd59",
+      "bytes": 11854,
+      "sha256": "2f63c06bffd78f52e42f17e260e8e93f2a908a94fc4a6a545a2ee958c66be1f0"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceHistory.kt": {
       "blob_sha": "b741cfd612f3986c4261126dffe85bf721b05950",
@@ -1235,9 +1329,9 @@
       "sha256": "6d7d197c790e40e19a0a1b0b2e9c4c4153d85fa997585350115be305dd707899"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt": {
-      "blob_sha": "05182cee24c4cc6f7c0a069ddbbe60131ebbb73b",
-      "bytes": 4482,
-      "sha256": "722232ab31b9bdb45b0841dba7160148927539d7c99ade37e3c19d5a0cbcb217"
+      "blob_sha": "8338bf1c2f9fb8f219d4039ff2763787248e9cdd",
+      "bytes": 4628,
+      "sha256": "670a92f0904d633f645d0a825ed2b019acdc6b3d4d4606f5b1f91c9690ec3553"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackControl.kt": {
       "blob_sha": "62be7f2267b83dc27e5953dbb32191efb8f12542",
@@ -1265,39 +1359,79 @@
       "sha256": "d43c158cb8c43a268a3a6691042acce6e8b3742d7567c3efb9811a4205bf4b7a"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt": {
-      "blob_sha": "9463bb94070baceeaa0086219f9a41ef7a2828ac",
-      "bytes": 27272,
-      "sha256": "9143636691a6fbe37ab816266f073027a5cea3e672b18e613c25244a29303907"
+      "blob_sha": "a8b682880b2e0e8137e65ed07b8020ba6b3f2aae",
+      "bytes": 30543,
+      "sha256": "8787040223626c431d15c842ef075fc5fe22a8927d63799e4fb9994ee508cc5b"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEngine.kt": {
+      "blob_sha": "26377851b5cadbd4c1f31b0891389cdc1ec0fc73",
+      "bytes": 657,
+      "sha256": "9aeda61f136c6184c8b2f56e1f0a07ea3dd7056df340c15eec79e05d98a6eefc"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt": {
-      "blob_sha": "3c74462e54f3fd79fe243c16fa5cbb69f55d8838",
-      "bytes": 56803,
-      "sha256": "b5367aace26aea2aea9a1702ebbf919691adbffc85ac2158a72d284b5f8faa88"
+      "blob_sha": "793f18ada9bffd97dac5858e37cbd8107fab22a4",
+      "bytes": 68229,
+      "sha256": "60e6010719ced9edca9bbf2e9a4e9bbe9c6d439c36acfc3fa9899c215d464982"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt": {
-      "blob_sha": "ddc29ca0eb8bcd23add86a38439a3d1bf4dbfc0a",
-      "bytes": 22304,
-      "sha256": "4a405bf4e8aa859407b6abcf1d8cd0023b50cd883ed70cc4b49929d0464e03ed"
+      "blob_sha": "a847987f00d9045d5c779c97d38f230a0a0ffb1f",
+      "bytes": 29428,
+      "sha256": "cf3018345635a88bbb6ab09ba4116eaffeaffb65fc07725493eff80bfafc5a44"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStore.kt": {
+      "blob_sha": "57fe59ca189047d0e2c16b66cf7037a0a670d80f",
+      "bytes": 4286,
+      "sha256": "4222d9bfaa44b8eab4ed365399c01327723d54c647f5b612cb820a2cdb15a688"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngine.kt": {
+      "blob_sha": "db96f593f5824f5696671731e30cdff01a2dde16",
+      "bytes": 3233,
+      "sha256": "e1d4fdce909930f755699b373794d96bde9ada7735376d1a6cdc298965ed754d"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdog.kt": {
+      "blob_sha": "5d97930b1907c05811a54f8af3890c36cb79fd4c",
+      "bytes": 6756,
+      "sha256": "5c75f3977b618642744e7883fa82ff85e7a67a22a858d1694a7b002ad46fc011"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkExport.kt": {
+      "blob_sha": "5e0dbc47610114acab3c4ccb1c40ec805de75392",
+      "bytes": 12506,
+      "sha256": "5e17244645bbb11a9bfd3b53b33c7f525892fd41eaa9e71c9c053ee1a877c39c"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkResult.kt": {
+      "blob_sha": "5160336d5b72792b3a26b04328b496f52113fb0f",
+      "bytes": 4268,
+      "sha256": "ac341f51fdffe506164d03f8104d7e9939f270a958c3e1334792ab3b976591a8"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunner.kt": {
+      "blob_sha": "044f63bcbb10adee24dc262e80c2f60c3804b807",
+      "bytes": 18110,
+      "sha256": "82c3579b1902be8521ce8b23beb55764894a12ce20d039c56ec64f8970f653db"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePcmMeasurement.kt": {
+      "blob_sha": "11b6a7e299fa0af7c7f9f35984ce2ff0bddd4cdb",
+      "bytes": 3379,
+      "sha256": "14f259eca73d65535107a2f60439e696e17d806550f77ee7073006148abf0b7e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt": {
-      "blob_sha": "a186da8a31634770ee82768d88c56d97ecf7498b",
-      "bytes": 19472,
-      "sha256": "5f1950c018c2cd45b12c8302073eea8e450a624cbdbafbdd71b6f073d9b9fec8"
+      "blob_sha": "3b4d93a5a391155628bb6d1184c9764aa1580bb1",
+      "bytes": 22852,
+      "sha256": "8104c99d58c22992df03f51612bd0cf16a44a608c94d66e5703f3e61c260ecea"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt": {
-      "blob_sha": "00678349de2f07c6d69a7b63762c907b0b6cf691",
-      "bytes": 13719,
-      "sha256": "9706b379133926434939505e03a79722a840759537309d040e0d2f6aa43e89cb"
+      "blob_sha": "8cb5b80b8eb16622637ec5c118574321009b2571",
+      "bytes": 17511,
+      "sha256": "4aa619cd96fe271c42a3bce27da317782724a464aa267888fa76f2ba79caea4c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocol.kt": {
-      "blob_sha": "b64d154a31f2bc3c9d7afe31c15465574d65f77e",
-      "bytes": 4677,
-      "sha256": "9c117d8cf2d5e7c37341fb295a98d54a1c174088b2780e10cd547c4037973580"
+      "blob_sha": "2c474880cc678043d4a1b70a6f9dd0237f09823d",
+      "bytes": 4710,
+      "sha256": "ef3ee45ffa7f4a43c13b8d21f2f05cc5e5f4bf29ce09e1b519f774a5f3664496"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt": {
-      "blob_sha": "8ac5e68baccadb4d08a8b34e8854d9a76d1ab168",
-      "bytes": 28594,
-      "sha256": "acb6d4a6c39a7a35a24640c152e52873e3f7ee63c061422057daa2b12c5ff4a4"
+      "blob_sha": "fd925cd4b18544fe008e4c5fa2242872d09f254e",
+      "bytes": 29827,
+      "sha256": "160bc865f5ff245bdff09a98267f284414d981868dcb65705e21670d0a5a57b6"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkload.kt": {
       "blob_sha": "3299995249f416b95918fe6352c30864154ebd5b",
@@ -1430,14 +1564,39 @@
       "sha256": "b9444a711d698e4f6befdc1bd4bc0b4864eb4a94bb9966260c0511469631f6e5"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt": {
-      "blob_sha": "aa9df065dc9bf0edb1ad2ae8848b271db0384d19",
-      "bytes": 68295,
-      "sha256": "f45ba98a409687e12e6f5c5f9e7e4f6de428ae7ad13820644dbc483ce3e0f098"
+      "blob_sha": "1a3fe7fcb7bc97461757ee0d097ac468b44c7b28",
+      "bytes": 68242,
+      "sha256": "181027a9b5084d454e509dc32122b754be2af04425479f603b739ae05ee42fba"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceNavigation.kt": {
       "blob_sha": "fbc963ae404f654861b89c2ed8c6d5cd27bddfb0",
       "bytes": 13323,
       "sha256": "6f4737f773dad8034999c83a081b861ee0e622ad408886701048ec0967a5b313"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnership.kt": {
+      "blob_sha": "57313b5ad9eaf7250959c6c7796f166fed7cc804",
+      "bytes": 1923,
+      "sha256": "91741c3b7e2a7fa345292b29688041fbd6ab9d1e4b5c2ea236329662a839ee7f"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt": {
+      "blob_sha": "92c168fbedc9595c9928200e5277297d7eeb4516",
+      "bytes": 40871,
+      "sha256": "839e81575eee15643f0e8c8020b3539c96ac2ce86b8e52db664185139daecb1e"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkUiState.kt": {
+      "blob_sha": "6ed91a0ad9f19eaa3c92ac2a64b96ee77fac43ae",
+      "bytes": 867,
+      "sha256": "505901679c324cf5d1dc2a419fa751bf5c3032ccab2de87d12479e9424ddb591"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkViewModel.kt": {
+      "blob_sha": "d4a54ddd95ca20f4c89a6df69b0e62812013e700",
+      "bytes": 25101,
+      "sha256": "fbadaa570c313c9dfe56965e7d629d2576985bcae6340537742d6e49c8db1283"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechEngineBenchmarkCard.kt": {
+      "blob_sha": "1ebe27a1249bf360bd0d80e19203d1ffb507a1dc",
+      "bytes": 5094,
+      "sha256": "63143fc2d39cf91aad6d9f70847969a653b7fa5cb711bcf46dd6492d971ec898"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt": {
       "blob_sha": "5f252acf59abc75b822081603bebdd45e776bb10",
@@ -1830,9 +1989,9 @@
       "sha256": "aaa359cd50af846cc2a48068bbe30853070eb1e1453a3e61b1e74e86302fefd4"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt": {
-      "blob_sha": "09f47e755f1367b8930f82c762ebdf32430ebb60",
-      "bytes": 7014,
-      "sha256": "30574d216afd6d2c6716d5da00d68e69736caa8bfa3caacf23480571cedbe78c"
+      "blob_sha": "4991a366de9a1d7f6a811ec555b6354bbfbdd6ae",
+      "bytes": 8453,
+      "sha256": "40a204952bf4f78e7cc1bd72c48823c87d558d0ece9302a85c22838f2c1268d6"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineTest.kt": {
       "blob_sha": "d3ef6b0c4cc7c0a7825b0366c7a164fa21fcfa4c",
@@ -1885,9 +2044,9 @@
       "sha256": "f18df32ee99938b70945b40d7514c64ea7ace8211dd39f4a751c1f62bc7b1cd0"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt": {
-      "blob_sha": "031bf906e2aa63a68519e000b890f15539ea0a64",
-      "bytes": 15001,
-      "sha256": "e1deaca2115c016c875b5369d52ef81cd7722ee41aaf273f1111dcad9d805876"
+      "blob_sha": "1be712299ad73fbdeb76b584a7f4870cdd7e4746",
+      "bytes": 17163,
+      "sha256": "64b256fdd2e5bdea1e1c0582fd4d63fec2c77c625e4479cc4311cddbe92b59e6"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceHistoryTest.kt": {
       "blob_sha": "b63aca4e34c23ef5db5b8b734d268bb77192a0f4",
@@ -1915,19 +2074,54 @@
       "sha256": "02a7de2b5f3fe82c52d2a5023a46012b528a0545accc0e3ff37e933b0300bb9e"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt": {
-      "blob_sha": "5bcb635fdf3ead7bed805094bb714dc442974ca3",
-      "bytes": 7762,
-      "sha256": "19abcb6cf18023914c143aab846664dd88cb338171a8ba6cb0543f3324dd61c8"
+      "blob_sha": "3bc51d24b03673ba36307e5999269592eb5989f3",
+      "bytes": 7786,
+      "sha256": "88a1d52a6668d2f0d02308a2a6d45f6a5b979495276aaf15b65d7f1df8efbf31"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkCancellationTest.kt": {
       "blob_sha": "fd74155cf5e69feb00226539ebefe742a01e2b35",
       "bytes": 12704,
       "sha256": "a31e4c4518f948dac65a7ff02271fbf4a89e2f6ffc0600d91e95167a49bdc46e"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt": {
+      "blob_sha": "8a55fe6d27d2804d957750aa6656a50ef28b045c",
+      "bytes": 17525,
+      "sha256": "08e6fe60e9bbdd4d2a1d97dfb58178a50becdf84108b5960c5e9787ae6cfc305"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt": {
+      "blob_sha": "a37bf0e8e83920295d0f2362ab97aec40e5738a2",
+      "bytes": 12643,
+      "sha256": "fd0019455f1977698ce010da4495b4b151a12f6f15ca6e8b431dc1468baa3f91"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt": {
+      "blob_sha": "4b55b0909e14b24bfcdbf88a1a851395533363ee",
+      "bytes": 6792,
+      "sha256": "d6c4d8e98946878f1a670ad66e0051d551661682fde3c08457dc3544d433fc60"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt": {
       "blob_sha": "0f710e78ba3f2b88ea8937d727d9c234eccbc0ba",
       "bytes": 19867,
       "sha256": "d81cbd2304cae4e86dbe89e3d73747308cfbb86f800a63790b912076673b10d2"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt": {
+      "blob_sha": "518a2ced2fcf87b266c9644df3d4c3cf1e24c933",
+      "bytes": 6188,
+      "sha256": "8f335d31ab7d4eb5b617ae53d457434afae683a47fbb52470bc6a695b8700c3c"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt": {
+      "blob_sha": "f0000b3591edebc5b6976d19cd487e21305a2e05",
+      "bytes": 23427,
+      "sha256": "9cc630ee055b3230060d8f15123eeaceb7ab8e2e0a2200667085f63e9e4c6959"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePlaybackBenchmarkTest.kt": {
+      "blob_sha": "45bd839b33cde952bf1e2c9e433e3609ca7ae3f9",
+      "bytes": 10278,
+      "sha256": "d7f8f6b935c5c75806e0bddc1687935fd63c0284db3d86786c3f4a7b1c7e8f80"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt": {
+      "blob_sha": "c5d26e49116d9340e33ac7102e57da96124f9178",
+      "bytes": 9824,
+      "sha256": "282a5217e89603ba0e455bf940f6f2b6c4f7b6dfb40c007e350e285fdb49a84d"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackMeasurementTest.kt": {
       "blob_sha": "2a512f54a06631ad098bcb669798771c5f427aa8",
@@ -2039,6 +2233,11 @@
       "bytes": 5974,
       "sha256": "c5df2ebb16457aa4cce8447bf5855b99429c00615888bf8cbb9e86b50fdaa36d"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt": {
+      "blob_sha": "7c6d853ea051de5b32e3fd7e0604df52fa639515",
+      "bytes": 7113,
+      "sha256": "0e2a1b5ca1b1ad9fc689618364a23367a9c72e7ea1386805406fe11ac86d991b"
+    },
     "authentication/incident_report_contract.py": {
       "blob_sha": "53ef00f3cec87dc5c1148592c4a88556e8e47f79",
       "bytes": 53095,
@@ -2119,6 +2318,21 @@
       "bytes": 5175,
       "sha256": "6921292b3c1d61d8b2608700eb4dddaea71f4dc611e85074628dd6752dc3010e"
     },
+    "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json": {
+      "blob_sha": "02b1c059d2dcb70ac80fb25f6a977a0fa787a73d",
+      "bytes": 12410,
+      "sha256": "32ae7dd7c706f871ef4211275c24fb2b75e2fad38b09d3d303f93f5292cab166"
+    },
+    "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json": {
+      "blob_sha": "595e5b40871013a714b81ae550280c7dc120532e",
+      "bytes": 1809,
+      "sha256": "64df510e9401229f758629ee9915efe2ee7daf852119d1a7767cad727de44bab"
+    },
+    "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json": {
+      "blob_sha": "295939127df2ce43e1bd0233a245d8ef3a6d5c90",
+      "bytes": 82469,
+      "sha256": "a113d703a2288115d897a2be9722b565fe7c42c29a377333be1b9ddf5bfc5f1e"
+    },
     "docs/repairs/gateway-stream-ownership-2026-11-23-task.json": {
       "blob_sha": "961825824124ab42ded2661d82970177cec70d3c",
       "bytes": 7057,
@@ -2153,6 +2367,16 @@
       "blob_sha": "8984542e211d46d6732302cab919755dd5b0a0f0",
       "bytes": 4834,
       "sha256": "d1ccfb7daacbfdd582a6ca976c4ba3a42d1e3e8232c0f4c7f768df6ee0e1129a"
+    },
+    "docs/repairs/speech-benchmark-1795470489503-task.json": {
+      "blob_sha": "bf8dbcfd664790f073288340141c0e8e81ebca9b",
+      "bytes": 13238,
+      "sha256": "45ebef7ffcdb4eeea8680ba85e9b77731f2dea117edd16be49782cc6205ff98f"
+    },
+    "docs/repairs/speech-benchmark-control-2026-11-23-task.json": {
+      "blob_sha": "95967d6fdd79c5409836749c36dc2b1710b5d626",
+      "bytes": 5173,
+      "sha256": "5caeaebf00771f5059cd7ed748a2f9078a79ebfd8af41c42e5abbac5aca28c56"
     },
     "docs/repairs/speech-playback-reliability-2026-11-23.md": {
       "blob_sha": "6bc8bdd992c40bf03ea86b00ed1feb12cbcec2ba",
@@ -2315,9 +2539,14 @@
       "sha256": "ab782ced924658c66e8a348f62b9af5358ea59732eab77b112e9c1dc70b5e34b"
     },
     "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp": {
-      "blob_sha": "e636e97ed2b4f94a3eb99eb541f7c529d9ec5a79",
-      "bytes": 6530,
-      "sha256": "0be1c2bd56826c05d5b81cb2b0c7357f9e8be277aa15e19fa542202b7f2f5141"
+      "blob_sha": "9e1b96a07d1d050577e3d1aebb87c0d1ffe22378",
+      "bytes": 12650,
+      "sha256": "c55003bf3aebdd022677abb1b7b0cafa0fd7cfe05d3eacfda7b59d0d7fffa246"
+    },
+    "local-kokoro-runtime/src/main/cpp/kokoro_output_validation.h": {
+      "blob_sha": "f06ff42646f4d9236c02796e523e45b5783bddae",
+      "bytes": 4314,
+      "sha256": "becfa79c0ff2839fea24ac0c74bd51090c2fa0ff7e6627b6d6015b7fc3a6cbac"
     },
     "local-kokoro-runtime/src/main/cpp/kokoro_profile.h": {
       "blob_sha": "c9bc4628cabdee7f8cbf27ffd4b1831ca768b0ed",
@@ -2345,19 +2574,24 @@
       "sha256": "287da2c914e2c0d82864360578ae1fd0e3707cdf11faaf7f157c8f6fae3fb0c7"
     },
     "local-kokoro-runtime/src/main/cpp/kokoro_shape_cache.h": {
-      "blob_sha": "d1355b92aed8cff5b2821018ee622dbe9892cdd4",
-      "bytes": 4762,
-      "sha256": "83ce319f84b4e6e64c409b8bcbde83739bfe09b14683e74abec241a244179fc5"
+      "blob_sha": "c732812451210ceec1545505b8b6216bbfdc1592",
+      "bytes": 4788,
+      "sha256": "9ed88e6e73c0f334d6beefe56ee79e3f4da3b833b47ec7bf6da07a7b5601d1bb"
     },
     "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp": {
-      "blob_sha": "6970574bb61ec00068841aef7f7386eb2eb9bc55",
-      "bytes": 32369,
-      "sha256": "26ee68b5b77d84df5603a33d9d9b3cd53db7778dcb14ef68f6fed8c0cd2549e5"
+      "blob_sha": "c57e2d8c4e67266b4d84775441c76a4992b783a3",
+      "bytes": 33952,
+      "sha256": "df125b7413bed85ece3b5a0d3ff315fb556886fabe3f205f8d41e75b9acca408"
     },
     "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java": {
-      "blob_sha": "0d93608d2636356d69a1eac2f591970040077aad",
-      "bytes": 9977,
-      "sha256": "02f0867c351019eaa96371065d461bd16e6b0da2f8b1d33ecf2ecb9b5d50f1bb"
+      "blob_sha": "0a0443c4a2d38a2a9b3e8fabc6c88ccea2918954",
+      "bytes": 13739,
+      "sha256": "1327aacca85378acca429f3668fa10b5b255c2fe1744fe779d3306a8f141abfa"
+    },
+    "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java": {
+      "blob_sha": "64ca16a8034b12f697bd8e7e28855d965189cdfe",
+      "bytes": 5725,
+      "sha256": "8a8b7f60e32be0ca3c26f67fa40cfdaf32a9bb7ce0a57765241f7b4157f16942"
     },
     "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeProfileLifecycleIntegration.java": {
       "blob_sha": "2106384122897ddd232f86d68d8f6a3ec2cc461a",
@@ -2368,6 +2602,16 @@
       "blob_sha": "b6f353034f0c82358eaf9cd3c154e392d8eba8a3",
       "bytes": 9647,
       "sha256": "fda17cf627be0057cb9439197107882506b66a80b066895e972ec4cc7d3bdb08"
+    },
+    "local-kokoro-runtime/src/testHost/kokoro_qnn_model_qualification.py": {
+      "blob_sha": "c38953def92a16c5f9d45d10693d1123ab116f77",
+      "bytes": 8212,
+      "sha256": "0ff223aa22bc150dbe5fcd59236db495e567d85f538b2efaa0251f75b9ef6616"
+    },
+    "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py": {
+      "blob_sha": "5d126a7aac807d34175db4e29b53ec963543a6bb",
+      "bytes": 2296,
+      "sha256": "55ad031434237beaf5c8a59af56ac63d30c51b7bf02dbb6c79270280d6187ae4"
     },
     "macrobenchmark/src/main/kotlin/dev/chungjungsoo/gptmobile/benchmark/AppPerformanceBenchmark.kt": {
       "blob_sha": "4efbf07da015dcde53732880577ff34448dd5780",
@@ -2388,6 +2632,11 @@
       "blob_sha": "ecca2617b4d68afb8f18dd1498cf477528591958",
       "bytes": 8266,
       "sha256": "2abef420b6bf2001f1b25a4b280ef9d42665a770b958211c1e3d9b3197c52f7f"
+    },
+    "scripts/check_speech_native_contracts.sh": {
+      "blob_sha": "54be8f35220b46995c99a3b107d2c2ae371cd9a6",
+      "bytes": 915,
+      "sha256": "b41656ab13cd9956f04d62671433b92cc377016270bc877740e2b7bba4032d15"
     },
     "scripts/prepare_emulator_action.py": {
       "blob_sha": "f1155eaa971edeaa273df5826f09b94d983e51d0",

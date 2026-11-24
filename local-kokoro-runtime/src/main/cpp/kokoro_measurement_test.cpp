@@ -1,4 +1,5 @@
 #include "kokoro_measurement.h"
+#include "kokoro_output_validation.h"
 #include "kokoro_shape_cache.h"
 #include "kokoro_gpu_discovery.h"
 #include <limits>
@@ -7,6 +8,86 @@
 namespace {
 void Require(bool pass) { if (!pass) throw std::runtime_error("Speech measurement regression"); }
 struct Session { explicit Session(int value) : value(value) {} int value; };
+kokoro_runtime::OutputValidationObservation Output(int64_t frames, int64_t tokens) {
+  kokoro_runtime::OutputValidationObservation result;
+  result.output_count = 2;
+  result.audio_frames = frames; result.audio_type = 1; result.audio_rank = 1;
+  result.timing_count = tokens; result.timing_type = 7; result.timing_rank = 1;
+  return result;
+}
+void InvalidStructure(kokoro_runtime::OutputValidationObservation &value, int64_t expected,
+    kokoro_runtime::OutputValidationReason reason) {
+  try {
+    kokoro_runtime::ValidateOutputStructure(value, expected, 24000, 600, 1, 7);
+    throw std::runtime_error("Invalid structure passed");
+  } catch (const kokoro_runtime::OutputFailure &failure) {
+    Require(failure.reason == reason && value.reason == reason && !value.audio_measured);
+  }
+}
+void ValidationObservations() {
+  using namespace kokoro_runtime;
+  const int64_t normal[] = {12, 2, 3};
+  auto value = Output(17 * 600, 3);
+  ObserveDurations(normal, 3, value);
+  ValidateOutputStructure(value, 3, 24000, 600, 1, 7);
+  Require(value.duration_stats_available && value.duration_sum == 17 && value.duration_min == 2 && value.duration_max == 12);
+  Require(!value.audio_measured);  // Structural success is not a waveform scan.
+  auto too_long = Output(93 * 45 * 600, 93);
+  std::vector<int64_t> saturated(93, 45);
+  ObserveDurations(saturated.data(), saturated.size(), too_long);
+  InvalidStructure(too_long, 93, OutputValidationReason::AudioTooLong);
+  Require(too_long.duration_sum == 4185 && too_long.duration_min == 45 && too_long.duration_max == 45);
+  auto short_timing = value; short_timing.timing_count = 2;
+  InvalidStructure(short_timing, 3, OutputValidationReason::TimingTokenCount);
+  auto wrong_type = value; wrong_type.audio_type = 7;
+  InvalidStructure(wrong_type, 3, OutputValidationReason::AudioTensorType);
+  auto wrong_timing_type = value; wrong_timing_type.timing_type = 1;
+  InvalidStructure(wrong_timing_type, 3, OutputValidationReason::TimingTensorType);
+  auto no_output = value; no_output.output_count = 1;
+  InvalidStructure(no_output, 3, OutputValidationReason::OutputCount);
+  auto empty = value; empty.audio_frames = 0;
+  InvalidStructure(empty, 3, OutputValidationReason::AudioFrameCount);
+  auto mismatch = value; mismatch.audio_frames++;
+  InvalidStructure(mismatch, 3, OutputValidationReason::TimingPcmMismatch);
+  const int64_t invalid[] = {12, 0, 5};
+  auto invalid_timing = value; ObserveDurations(invalid, 3, invalid_timing);
+  InvalidStructure(invalid_timing, 3, OutputValidationReason::TokenDurationInvalid);
+  const int64_t overflow[] = {INT64_MAX, 1, 1};
+  auto overflow_timing = value; ObserveDurations(overflow, 3, overflow_timing);
+  InvalidStructure(overflow_timing, 3, OutputValidationReason::TokenDurationInvalid);
+  Require(overflow_timing.duration_sum_overflow && overflow_timing.duration_max == INT64_MAX);
+  const int64_t underflow[] = {INT64_MIN, -1, 1};
+  auto underflow_timing = value; ObserveDurations(underflow, 3, underflow_timing);
+  InvalidStructure(underflow_timing, 3, OutputValidationReason::TokenDurationInvalid);
+  Require(underflow_timing.duration_sum_overflow && underflow_timing.duration_min == INT64_MIN);
+  auto bounded = Output(600, 512);
+  ObserveDurations(normal, 512, bounded);  // Must not read beyond the supplied array.
+  Require(!bounded.duration_stats_available);
+  const float silence[] = {0, 0, 0};
+  try { ValidateMeasuredAudio(MeasureAudio(silence, 3), value); throw std::runtime_error("Silence passed"); }
+  catch (const OutputFailure &error) { Require(error.reason == OutputValidationReason::SilentPcm && value.audio_measured); }
+  value = Output(600, 1);
+  const float corrupt[] = {std::numeric_limits<float>::infinity()};
+  try { ValidateMeasuredAudio(MeasureAudio(corrupt, 1), value); throw std::runtime_error("Nonfinite PCM passed"); }
+  catch (const OutputFailure &error) { Require(error.reason == OutputValidationReason::NonFinitePcm && value.audio_measured); }
+}
+
+int ReplayLongShapes(size_t maximum) {
+  using namespace kokoro_runtime;
+  constexpr int64_t mib = 1024 * 1024;
+  ShapeCache<Session> cache(maximum, kShapeCacheMaximumBudgetBytes);
+  int preparations = 0;
+  for (int repeat = 0; repeat < 3; ++repeat) for (const int tokens : {84, 71, 84, 27}) {
+    const int64_t bytes = (tokens == 84 ? 453 : tokens == 71 ? 335 : 309) * mib;
+    const auto found = cache.Find(tokens);
+    auto allowance = AdmitShapeCache(true, 3500 * mib, cache.Bytes(), found ? 0 : bytes);
+    allowance.limit = std::min(maximum, allowance.limit);
+    cache.Configure(allowance);
+    if (!found) { cache.Insert(tokens, bytes, std::make_unique<Session>(tokens)); ++preparations; }
+    Require(cache.Bytes() <= kShapeCacheMaximumBudgetBytes && cache.Size() <= maximum);
+  }
+  return preparations;
+}
 uint32_t vendor = 0x5143, available = 1;
 uint64_t type = 4;
 bool fail_enumeration = false, fail_info = false;
@@ -34,6 +115,7 @@ kokoro_runtime::OpenClApi Api() {
 }
 
 int main() {
+  ValidationObservations();
   const float silence[] = {0, 0, 0};
   Require(!kokoro_runtime::MeasureAudio(silence, 3).NonSilent());
   const float signal[] = {0, .5f, -.5f, 1.f, -1.2f};
@@ -73,7 +155,7 @@ int main() {
   constexpr int64_t mib = 1024 * 1024;
   constexpr int64_t short_bytes = 323715810, medium_bytes = 410095616;
   auto allowance = kokoro_runtime::AdmitShapeCache(true, 2 * 1024 * mib, short_bytes, medium_bytes);
-  Require(allowance.limit == 2 && allowance.budget <= kokoro_runtime::kShapeCacheMaximumBudgetBytes);
+  Require(allowance.limit == 3 && allowance.budget <= kokoro_runtime::kShapeCacheMaximumBudgetBytes);
   kokoro_runtime::ShapeCache<Session> alternating(1, kokoro_runtime::kShapeCacheSingleBudgetBytes);
   alternating.Configure(allowance);
   alternating.Insert(25, short_bytes, std::make_unique<Session>(25));
@@ -96,6 +178,24 @@ int main() {
   alternating.Configure(kokoro_runtime::AdmitShapeCache(true, 8 * 1024 * mib, medium_bytes, 1400 * mib));
   alternating.Insert(117, 1400 * mib, std::make_unique<Session>(117));
   Require(alternating.Size() == 1 && alternating.Bytes() > alternating.Budget());
+
+  // Counterfactual: the exact 84/71/84/27 workload prepares seven times with
+  // two slots, and only its three initial shapes with admitted three slots.
+  Require(ReplayLongShapes(2) == 7 && ReplayLongShapes(3) == 3);
+  kokoro_runtime::ShapeCache<Session> three(3, kokoro_runtime::kShapeCacheMaximumBudgetBytes);
+  three.Insert(84, 453 * mib, std::make_unique<Session>(84));
+  three.Insert(71, 335 * mib, std::make_unique<Session>(71));
+  three.Insert(27, 309 * mib, std::make_unique<Session>(27));
+  Require(three.Size() == 3 && three.Bytes() == 1097 * mib);
+  Require(three.Find(84)->value == 84);  // Promote before pressure trims idle entries.
+  three.Configure(kokoro_runtime::AdmitShapeCache(true, 500 * mib, three.Bytes(), 0));
+  Require(three.Size() == 1 && three.Find(84)->value == 84 && three.Evictions() == 2);
+  three.Configure(kokoro_runtime::AdmitShapeCache(true, 3500 * mib, three.Bytes(), 500 * mib));
+  three.Insert(71, 500 * mib, std::make_unique<Session>(71));
+  three.Insert(27, 500 * mib, std::make_unique<Session>(27));
+  Require(three.Size() == 2 && three.Bytes() <= kokoro_runtime::kShapeCacheMaximumBudgetBytes);
+  three.Configure(kokoro_runtime::AdmitShapeCache(true, 0, three.Bytes(), 0));
+  Require(three.Size() == 1 && three.Find(27)->value == 27);
 
   using Code = kokoro_runtime::GpuDiscoveryCode;
   Require(kokoro_runtime::ProbeQualcommGpu({}).code == Code::ApiUnavailable);

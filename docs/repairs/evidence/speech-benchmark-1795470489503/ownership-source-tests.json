@@ -1,0 +1,25 @@
+{
+  "kind": "FOCUSED_BENCHMARK_OWNER_HOST_TESTS",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "head": "06081bb6a583c240c5ba88735ef6b568f3862037",
+  "compilerVersion": "2.4.20",
+  "compilerHeapMb": 256,
+  "compilerMaxMetaspaceMb": 192,
+  "jvmTarget": 21,
+  "scope": "Exact standalone ownership and UI-state projection source with ordinary JUnit methods. Links the earlier source-hashed combined DTO jar through Kotlin friend paths; no Android stubs, ViewModel construction, provider calls or broad suite rerun.",
+  "testClass": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+  "linkedCombinedJarSha256": "3840143ee24bc12628c923cc4c26f2b88684b002f71559603c45e5a63774b5cf",
+  "linkedCombinedManifestSha256": "030e84e877e5bb3060f97354a71e2eac5788533b5b9c132cdecffbd79e818811",
+  "sources": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnership.kt": "91741c3b7e2a7fa345292b29688041fbd6ab9d1e4b5c2ea236329662a839ee7f",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkUiState.kt": "505901679c324cf5d1dc2a419fa751bf5c3032ccab2de87d12479e9424ddb591",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt": "0e2a1b5ca1b1ad9fc689618364a23367a9c72e7ea1386805406fe11ac86d991b"
+  },
+  "compileExitCode": 0,
+  "junitExitCode": 0,
+  "executedTestCount": 6,
+  "junitLogSha256": "a1949284fc6e8de40be65bd54f7a9c0d217eaf69c8221234bd550f7315ff3631",
+  "sourceChangedSinceSnapshot": [],
+  "sourceBinding": "Exact owned source hashes; prior source-hashed DTO jar is an explicit compile dependency, not Android execution.",
+  "originalManifestSha256": "fe311db44178e0d533d06509fef850ba6068fec2d429bc893db27a2280757cfe"
+}

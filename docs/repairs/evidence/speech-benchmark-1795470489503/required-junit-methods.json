@@ -1,0 +1,1436 @@
+{
+  "schema": "speech-benchmark.changed-junit-methods.v1",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "comparisonBase": "029b7e5a1b268b9a1ef611a60e04396ab604044f",
+  "workingHead": "06081bb6a583c240c5ba88735ef6b568f3862037",
+  "scope": "Ordinary app/src/test Kotlin JUnit methods in test files changed from the specified public base. Pure JVM and Robolectric cases are inventoried separately from execution evidence. No provider calls or privacy comparison harness are run.",
+  "files": [
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
+      "baseSha256": "30574d216afd6d2c6716d5da00d68e69736caa8bfa3caacf23480571cedbe78c",
+      "currentSha256": "40a204952bf4f78e7cc1bd72c48823c87d558d0ece9302a85c22838f2c1268d6",
+      "junitMethodCount": 6,
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "baseSha256": "e1deaca2115c016c875b5369d52ef81cd7722ee41aaf273f1111dcad9d805876",
+      "currentSha256": "64b256fdd2e5bdea1e1c0582fd4d63fec2c77c625e4479cc4311cddbe92b59e6",
+      "junitMethodCount": 11,
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+      "baseSha256": "19abcb6cf18023914c143aab846664dd88cb338171a8ba6cb0543f3324dd61c8",
+      "currentSha256": "88a1d52a6668d2f0d02308a2a6d45f6a5b979495276aaf15b65d7f1df8efbf31",
+      "junitMethodCount": 6,
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "baseSha256": null,
+      "currentSha256": "08e6fe60e9bbdd4d2a1d97dfb58178a50becdf84108b5960c5e9787ae6cfc305",
+      "junitMethodCount": 13,
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "baseSha256": null,
+      "currentSha256": "fd0019455f1977698ce010da4495b4b151a12f6f15ca6e8b431dc1468baa3f91",
+      "junitMethodCount": 7,
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt",
+      "baseSha256": null,
+      "currentSha256": "d6c4d8e98946878f1a670ad66e0051d551661682fde3c08457dc3544d433fc60",
+      "junitMethodCount": 7,
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt",
+      "baseSha256": null,
+      "currentSha256": "8f335d31ab7d4eb5b617ae53d457434afae683a47fbb52470bc6a695b8700c3c",
+      "junitMethodCount": 6,
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "baseSha256": null,
+      "currentSha256": "9cc630ee055b3230060d8f15123eeaceb7ab8e2e0a2200667085f63e9e4c6959",
+      "junitMethodCount": 11,
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePlaybackBenchmarkTest.kt",
+      "baseSha256": null,
+      "currentSha256": "d7f8f6b935c5c75806e0bddc1687935fd63c0284db3d86786c3f4a7b1c7e8f80",
+      "junitMethodCount": 2,
+      "requiresAndroidRobolectric": true
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "baseSha256": "0a3e3f7567d025c8d69205e26812b69a4ddc3c9b6dee3ce7e86b37d63c3d0ddf",
+      "currentSha256": "282a5217e89603ba0e455bf940f6f2b6c4f7b6dfb40c007e350e285fdb49a84d",
+      "junitMethodCount": 8,
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
+      "baseSha256": "970b5ec1f0dc57ee855f97b0ddf32ffb06eb6a01e9dc22eb1fdbda20b24c29d9",
+      "currentSha256": "0e2a1b5ca1b1ad9fc689618364a23367a9c72e7ea1386805406fe11ac86d991b",
+      "junitMethodCount": 6,
+      "requiresAndroidRobolectric": false
+    }
+  ],
+  "addedMethods": [
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest#failedPreparationDestructorQuarantinesFactoryAndKeepsItsModelLease",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "failedPreparationDestructorQuarantinesFactoryAndKeepsItsModelLease",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
+      "line": 136,
+      "endLine": 161,
+      "methodSourceSha256": "4c82e35ff236a6d4b0013097ab08a14cc37e689286b0069d3a6a478177d32f19",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#earlyValidationFailureCannotExportUnmeasuredZeroesAndSignedDurationEvidenceSurvives",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "earlyValidationFailureCannotExportUnmeasuredZeroesAndSignedDurationEvidenceSurvives",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 215,
+      "endLine": 237,
+      "methodSourceSha256": "e173af0c0e7cd41e784e3be537bd7612fe92a08f4f83e2d2faf60b6dc8bbb3ca",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#firstMismatchedGpuChunkStopsOnlyThatBackendAndRetainsItsObservation",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "firstMismatchedGpuChunkStopsOnlyThatBackendAndRetainsItsObservation",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 12,
+      "endLine": 30,
+      "methodSourceSha256": "fad0b522748f3479cbf1c3c42d9e0ba8e6f6dfd9f71ca2d48fc059369185095f",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#explicitDeepDiagnosticsContinuesMismatchedAudioWithoutQualifyingIt",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "explicitDeepDiagnosticsContinuesMismatchedAudioWithoutQualifyingIt",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 32,
+      "endLine": 42,
+      "methodSourceSha256": "7b2231f53e551f5d6d477f678cb54025cadeaa69a396d295ba29eaac1e4b50c7",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#rotatedOrderRetainsUncomparedWorkAndLaterCpuReferenceStillRejectsIt",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "rotatedOrderRetainsUncomparedWorkAndLaterCpuReferenceStillRejectsIt",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 44,
+      "endLine": 51,
+      "methodSourceSha256": "53665960e4d0c448dd4b9cdce3da326de67255d154d12752b9ce9b429ef34f5b",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#chunkDeadlinePublishesPendingStopAndWaitsForTheActualCallAndClose",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "chunkDeadlinePublishesPendingStopAndWaitsForTheActualCallAndClose",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 53,
+      "endLine": 88,
+      "methodSourceSha256": "7caf247746a2013f50eb76c7bd5181475e799cd096267d78c96be32bc927298f",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#preparationDeadlineCancelsPendingFactoryThenClosesItsReturnedEngineWithoutSynthesis",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "preparationDeadlineCancelsPendingFactoryThenClosesItsReturnedEngineWithoutSynthesis",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 90,
+      "endLine": 108,
+      "methodSourceSha256": "049f3c4bc2374d7af9bae9e896118e8d9706e8a681b657e11a7f4ad929438eca",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#backendDeadlineCountsWholeWorkloadAndPreservesEarlierSamplesAndPartialChunk",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "backendDeadlineCountsWholeWorkloadAndPreservesEarlierSamplesAndPartialChunk",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 110,
+      "endLine": 121,
+      "methodSourceSha256": "cd934570f898f94bc3a7b27f32e3476a9e7586d1118c91a349377012058046da",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#userCancellationWinsAndDoesNotBecomeALateAutomaticDeadline",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "userCancellationWinsAndDoesNotBecomeALateAutomaticDeadline",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 123,
+      "endLine": 137,
+      "methodSourceSha256": "7468e0c118afbda9d939841690a8c918888a4b7384f4df93ccf06caef8ab97a6",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#failedClosePreventsAnotherBackendAndDoesNotClaimRetirement",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "failedClosePreventsAnotherBackendAndDoesNotClaimRetirement",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 139,
+      "endLine": 150,
+      "methodSourceSha256": "74dc21344a6745b980c00e4a6186cb698b5091495b591e32c10d0e46807c56fa",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#cancellationDuringWatchdogPublicationCannotEscapeTheOwnerFinally",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "cancellationDuringWatchdogPublicationCannotEscapeTheOwnerFinally",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 152,
+      "endLine": 175,
+      "methodSourceSha256": "a632ae2e662b0c4771163ce9f583316f3550c5efd4a234705b57aa98a10fccb7",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#failingTimeoutObserverCannotPreventCancellationOrNativeClose",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "failingTimeoutObserverCannotPreventCancellationOrNativeClose",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 177,
+      "endLine": 193,
+      "methodSourceSha256": "231f219375e7d2f02fb7d552ffe05ec77d127e9a74e4c0c2aa66ed236946ca2a",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#stabilityProducesTwentyWarmObservationsForEachIndependentPercentile",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "stabilityProducesTwentyWarmObservationsForEachIndependentPercentile",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 195,
+      "endLine": 209,
+      "methodSourceSha256": "b070c8e0cefe277c57ebbfbc916615880fd3e37b79a72ad835532ff7734b8ff1",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#otherModelsCannotEnterNativeEquivalenceOrRunTheNativeBenchmarkByMistake",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "otherModelsCannotEnterNativeEquivalenceOrRunTheNativeBenchmarkByMistake",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 211,
+      "endLine": 227,
+      "methodSourceSha256": "89635a87bc5a344d8a546ce1633b747120bcb3583a22bef0380f98aef1d450f1",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest#unmeasuredNativeAudioZerosRemainUnknownInFailureObservation",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "unmeasuredNativeAudioZerosRemainUnknownInFailureObservation",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkControlTest.kt",
+      "line": 229,
+      "endLine": 242,
+      "methodSourceSha256": "4a5d63af177469ad3ba61a040ecb9293ab9ae7587daa0c7fb2defab76b80a816",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest#failureAvailabilityAndValidationScalarsSurviveCurrentRoundTripAndLegacyZeroesRemainUnknown",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "failureAvailabilityAndValidationScalarsSurviveCurrentRoundTripAndLegacyZeroesRemainUnknown",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "line": 36,
+      "endLine": 57,
+      "methodSourceSha256": "8e5c3e0f562f0a1c407eba4acb090fd5d4318953bbaf41f47c406f85017f8807",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest#deadlineRequestAndNativeRetirementStaySeparateInPersistedRunningAndFinishedReports",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "deadlineRequestAndNativeRetirementStaySeparateInPersistedRunningAndFinishedReports",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "line": 59,
+      "endLine": 81,
+      "methodSourceSha256": "7fd4c1c7d86119703f4389183a10fcc69b4bbe2a6463c5ac4ca1f3b229197b12",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest#signedInvalidDurationsAndOverflowRemainDistinctThroughHistory",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "signedInvalidDurationsAndOverflowRemainDistinctThroughHistory",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "line": 83,
+      "endLine": 95,
+      "methodSourceSha256": "f1c58bcac3f3c78537011b5d1f896e7e82d869e94825360e818244810e2e54b7",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest#playbackGenerationWallCostDoesNotMasqueradeAsInferenceWithoutGraphPreparation",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "playbackGenerationWallCostDoesNotMasqueradeAsInferenceWithoutGraphPreparation",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "line": 97,
+      "endLine": 110,
+      "methodSourceSha256": "dc726dad789a5e7c095ec33f79ba78d0d626834ec1fc5373ed309941cfa5ee23",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest#sdkStabilityRetainsAllSamplesAndBoundedCallbackReceiptsWithoutClaimingProviderOrQuality",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "sdkStabilityRetainsAllSamplesAndBoundedCallbackReceiptsWithoutClaimingProviderOrQuality",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "line": 138,
+      "endLine": 157,
+      "methodSourceSha256": "c88ea1dd396cf8430df1e533979945012ecb74f00bcdee2f352d02a31967ffa9",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest#impossibleSdkPlacementAndCallbackCountsCannotBeRestoredAsEvidence",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "impossibleSdkPlacementAndCallbackCountsCannotBeRestoredAsEvidence",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "line": 159,
+      "endLine": 168,
+      "methodSourceSha256": "bb69916052ab6f638b3551ad76cde1fae5c7da8c4e3e07cc6b8665d7b3c4b565",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest#boundedSdkPlaybackTracesKeepCompleteTotalsAndCannotInventNativeExecution",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "boundedSdkPlaybackTracesKeepCompleteTotalsAndCannotInventNativeExecution",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "line": 170,
+      "endLine": 202,
+      "methodSourceSha256": "11a87677e8d51f86cf2b45cbb1f0d8f0ba4613f8eef2ca57b42e5c6b08edf46b",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest#realCallbackAndConsumerWaitBelongToTheCompleteStreamWallClock",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "realCallbackAndConsumerWaitBelongToTheCompleteStreamWallClock",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt",
+      "line": 14,
+      "endLine": 37,
+      "methodSourceSha256": "4947c36fae7b9286a327e08d6fcf6c9d12d085c526c07c434eabd16aba369060",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest#consumerCancellationCannotBecomeStructurallyCompleteEvenIfProducerIgnoresItsReturn",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "consumerCancellationCannotBecomeStructurallyCompleteEvenIfProducerIgnoresItsReturn",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt",
+      "line": 39,
+      "endLine": 47,
+      "methodSourceSha256": "6d599cc301381f49943c3c8fbc6b9868a5af745b4b4d03e78ac4928b9ea1882d",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest#aDelayedStreamRetainsItsOriginalReceiptAndInvalidPcmNeverValidatesANewReply",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "aDelayedStreamRetainsItsOriginalReceiptAndInvalidPcmNeverValidatesANewReply",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt",
+      "line": 49,
+      "endLine": 69,
+      "methodSourceSha256": "d05e3f2a9d816db40d932dc08928e92fc558b4f187035a96d20b486d37c126da",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest#failedDestructionPublishesAnExplicitQuarantineSignal",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "failedDestructionPublishesAnExplicitQuarantineSignal",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt",
+      "line": 71,
+      "endLine": 82,
+      "methodSourceSha256": "342995b06e0e17a9f02d66a98b5ded44c4c93a69c6df7ebc7db73648f147a75f",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest#structuralPlaybackDoesNotSupplyNativeProviderOrCrossEngineQualification",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "structuralPlaybackDoesNotSupplyNativeProviderOrCrossEngineQualification",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt",
+      "line": 84,
+      "endLine": 100,
+      "methodSourceSha256": "ddb60d751ed45ef8d635117029906a90427dac0fe3414f3cc4f41b1f986a73bf",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest#boundedSdkReceiptsPreserveExactFrameDurationWithoutInventingCaptionViolations",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "boundedSdkReceiptsPreserveExactFrameDurationWithoutInventingCaptionViolations",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt",
+      "line": 102,
+      "endLine": 114,
+      "methodSourceSha256": "cafcd2185261ef066e4c01f1e1986bd46f81823d91d77f030b9b939899390963",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest#nativeReceiptsRetainTheirExactCoverageRequirement",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "nativeReceiptsRetainTheirExactCoverageRequirement",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStreamingEngineTest.kt",
+      "line": 116,
+      "endLine": 123,
+      "methodSourceSha256": "b7f20c3d2c460b4117c12e1d5646bc41058223aed1e3f8f7d3a4a9fdb6d8a333",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest#realSchedulerRequestsStopWhileTheOwnerIsStillBlocked",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "realSchedulerRequestsStopWhileTheOwnerIsStillBlocked",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt",
+      "line": 13,
+      "endLine": 34,
+      "methodSourceSha256": "884bd61b75d2eeed283682010c6ee347e060047b720d80436d201cadfc1628b8",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest#previousPhaseTimerCannotCancelTheNextChunk",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "previousPhaseTimerCannotCancelTheNextChunk",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt",
+      "line": 36,
+      "endLine": 64,
+      "methodSourceSha256": "d42a4a9340f407c4e1cb64bd307b38735057a02f0e7d177cb9f0527e8b0d1236",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest#wholeBackendDeadlineSurvivesIndividualPhaseCompletion",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "wholeBackendDeadlineSurvivesIndividualPhaseCompletion",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt",
+      "line": 66,
+      "endLine": 88,
+      "methodSourceSha256": "a50c48fb9b91f6abcd5939cb4358932353cb606afe3d211bbc505b0f50e5616d",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest#ownerCheckpointCatchesExpiredWorkEvenBeforeDelayedSchedulerCallback",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "ownerCheckpointCatchesExpiredWorkEvenBeforeDelayedSchedulerCallback",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt",
+      "line": 90,
+      "endLine": 109,
+      "methodSourceSha256": "62f50a7c6d3b5b9ea4eb8f922ede2f761aff863ef8dc26e5baa4eb5ddc05bb08",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest#retiredBackendIgnoresItsLateTimerAndCannotStopAReplacement",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "retiredBackendIgnoresItsLateTimerAndCannotStopAReplacement",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt",
+      "line": 111,
+      "endLine": 131,
+      "methodSourceSha256": "981f0dc2246e3fc8ded7969210c2a7a9aea65b88a79d2960764a1ca4b3eae44b",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest#cancellationBeforeArmingOrBetweenPhasesReturnsWithoutSchedulingNewWork",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "cancellationBeforeArmingOrBetweenPhasesReturnsWithoutSchedulingNewWork",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdogTest.kt",
+      "line": 133,
+      "endLine": 159,
+      "methodSourceSha256": "8e1aa622e891ea058f16330348682677b8f5572b7a5efda107b7107f3082c5a9",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#everySdkEngineUsesTheSelectedFactoryAndRetainsAllFixedInputWithoutInventedPlacement",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "everySdkEngineUsesTheSelectedFactoryAndRetainsAllFixedInputWithoutInventedPlacement",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 20,
+      "endLine": 82,
+      "methodSourceSha256": "51517f0dab711e245be45a6a1ceea9ebc6bdacd7888f4e48edb11278a791e97d",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#cancellationRetainsPartialPcmAndNeverDestroysTheBlockedProducer",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "cancellationRetainsPartialPcmAndNeverDestroysTheBlockedProducer",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 84,
+      "endLine": 128,
+      "methodSourceSha256": "bda9b87fc25161c5d35412c0ed84e6f784da4e9a9a8165e7665a474a77621165",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#chunkDeadlinePreservesTheFirstCallbackAndClosesAfterTheCallReturns",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "chunkDeadlinePreservesTheFirstCallbackAndClosesAfterTheCallReturns",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 130,
+      "endLine": 166,
+      "methodSourceSha256": "ed78b76c34c1a35e9f5c52d5d484f73096a7876376d577ff84baa539c8efe03b",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#throwingRetirementObserverCannotSkipCloseOrFailedCloseQuarantine",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "throwingRetirementObserverCannotSkipCloseOrFailedCloseQuarantine",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 168,
+      "endLine": 200,
+      "methodSourceSha256": "79289597dbd5cf8428c594ebea3d00e2e6a29739ed19c5d1712a4ab0fa3a7fde",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#blockedDeadlinePublishesImmutableEvidenceBeforeReturnAndSurvivesAThrowingObserver",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "blockedDeadlinePublishesImmutableEvidenceBeforeReturnAndSurvivesAThrowingObserver",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 202,
+      "endLine": 276,
+      "methodSourceSha256": "4f8a6b8131742ad5add1402933937d50fdd7fc0fcbc173aa4fd8fe93a5ff24f0",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#explicitStopSuppressesLaterDeadlineAndRequestsNativeCancellationOnlyOnce",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "explicitStopSuppressesLaterDeadlineAndRequestsNativeCancellationOnlyOnce",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 278,
+      "endLine": 325,
+      "methodSourceSha256": "da4140dca329620ad8683902ce152d2f56a2b14c5d3532ce0c64551e3b4be256",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#failedPreparationRetirementPreventsTheNextDelegateFromStarting",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "failedPreparationRetirementPreventsTheNextDelegateFromStarting",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 327,
+      "endLine": 354,
+      "methodSourceSha256": "990a2b9b698a706b23bfd88ba71acdf65d64ed3c1491b01062fa1e6d5b2fc66f",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#failedEngineCloseKeepsOwnershipQuarantinedAndDoesNotStartAnotherBackend",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "failedEngineCloseKeepsOwnershipQuarantinedAndDoesNotStartAnotherBackend",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 356,
+      "endLine": 378,
+      "methodSourceSha256": "29198b4b90f3377644cefa6ae8444d0367d04592b59b855dbd2438fcef99664f",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#missingModelNeverCreatesAnEngineOrStartsADownload",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "missingModelNeverCreatesAnEngineOrStartsADownload",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 380,
+      "endLine": 398,
+      "methodSourceSha256": "92b43c4cb1edeb0f99a1aa2a469d78e0a17fe0bf0737c07547450b6a53a7c674",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#silentOrNonFinitePcmFailsWithoutBecomingACompleteSample",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "silentOrNonFinitePcmFailsWithoutBecomingACompleteSample",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 400,
+      "endLine": 416,
+      "methodSourceSha256": "f15dbee8c30b6293d3cf595b482c0637d132d46108f8c2fdef7b7ad5d90b6094",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest#stabilityPercentilesNeedTwentySuccessfulWarmSamplesOfTheSameFixture",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "stabilityPercentilesNeedTwentySuccessfulWarmSamplesOfTheSameFixture",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkRunnerTest.kt",
+      "line": 418,
+      "endLine": 442,
+      "methodSourceSha256": "5571c0cc63d2bd39f2e2bfcb3a57da8ff146380ea4c70b880b7151f484648fd7",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEnginePlaybackBenchmarkTest#allSdkSelectionsReachTheirFactoryAndTheControlledProductionInputWithoutNativeAssets",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEnginePlaybackBenchmarkTest",
+      "methodName": "allSdkSelectionsReachTheirFactoryAndTheControlledProductionInputWithoutNativeAssets",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePlaybackBenchmarkTest.kt",
+      "line": 43,
+      "endLine": 88,
+      "methodSourceSha256": "60765ec58f08b40d81d2f9b2a8423ac4266e82849498477fedbabf3785c3366e",
+      "requiresAndroidRobolectric": true
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEnginePlaybackBenchmarkTest#incrementalPcmReachesActualAudioTrackWhileStopRetainsTheProducerAndPrivateContext",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEnginePlaybackBenchmarkTest",
+      "methodName": "incrementalPcmReachesActualAudioTrackWhileStopRetainsTheProducerAndPrivateContext",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePlaybackBenchmarkTest.kt",
+      "line": 90,
+      "endLine": 152,
+      "methodSourceSha256": "e667ff07b5c82c696ff56cb6a4476bf01697ac7c6cd54577eb5d24e73b4f5a98",
+      "requiresAndroidRobolectric": true
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest#oversizedOutputKeepsDurationEvidenceWithoutInventingSilentPcm",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "oversizedOutputKeepsDurationEvidenceWithoutInventingSilentPcm",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "line": 62,
+      "endLine": 100,
+      "methodSourceSha256": "bdfe7fbb8d2080c71a4096511f9c39d9af3b3bd597034588096537c512ef67ea",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest#aMeasuredSilentFailureIsDistinctFromUnmeasuredAndLegacyFailures",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "aMeasuredSilentFailureIsDistinctFromUnmeasuredAndLegacyFailures",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "line": 102,
+      "endLine": 134,
+      "methodSourceSha256": "82888a416310587e1fe0c02b64b2c07b9437cb4f51131f221efa99c47daaa529",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest#aFreshViewModelStateShowsTheSharedRestartRequirementAndCannotReleaseQuarantine",
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "aFreshViewModelStateShowsTheSharedRestartRequirementAndCannotReleaseQuarantine",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
+      "line": 74,
+      "endLine": 88,
+      "methodSourceSha256": "e330c0dff6194ea5b50bcdeee8dd91e31426a4f1a0f0975100818743f9edadaf",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest#anAlreadyOpenObserverReceivesLateFailedCleanupAndKeepsSpeechBlocked",
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "anAlreadyOpenObserverReceivesLateFailedCleanupAndKeepsSpeechBlocked",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
+      "line": 90,
+      "endLine": 106,
+      "methodSourceSha256": "dfe0d0d5fb65838e4cb5dd4be470784729e45804ef0cbf9c8c2606cdcf94227a",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest#executorRetirementCannotHideADestructorFailureBeforeOrDuringCompletion",
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "executorRetirementCannotHideADestructorFailureBeforeOrDuringCompletion",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
+      "line": 108,
+      "endLine": 149,
+      "methodSourceSha256": "b454243183dc6f0fa232ea85c8651189e2ab36edaaf7e5dadc0002efa077afde",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest#confirmedSuccessfulRetirementReleasesOnlyItsCurrentOwner",
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "confirmedSuccessfulRetirementReleasesOnlyItsCurrentOwner",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
+      "line": 151,
+      "endLine": 169,
+      "methodSourceSha256": "e624942fcbc190d06d744d16e4e0ffc56e34f92904d7ba89d78dac38a7c85d6f",
+      "requiresAndroidRobolectric": false
+    }
+  ],
+  "changedMethods": [
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#absentMeasurementsStayUnknownAndDoNotCertifyPhysicalPerformance",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "absentMeasurementsStayUnknownAndDoNotCertifyPhysicalPerformance",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 67,
+      "endLine": 77,
+      "methodSourceSha256": "527e501cc6e47c23cbbf2c638dec599a3dfb9c1f0d70d9ff1bfc5d7cca74a211",
+      "requiresAndroidRobolectric": false,
+      "baseMethodSourceSha256": "a94727afa1588a2147af45da26257f3545e18818e2a5d915349b32592fb4fdaa"
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#collectedProfileKeepsCachedEvidenceDistinctFromCurrentPreparation",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "collectedProfileKeepsCachedEvidenceDistinctFromCurrentPreparation",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 164,
+      "endLine": 194,
+      "methodSourceSha256": "d9d80008f917c672d330e29a49ed586771f488b44cb187974aedc6f5d6b095fc",
+      "requiresAndroidRobolectric": false,
+      "baseMethodSourceSha256": "016da461e729addaa53345efc896ddf0ff14bcbb25f5682afbb7179ae046b8b4"
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest#cpuOnlyRetainsTheFailedCallProfileWithoutQualifyingAudio",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "cpuOnlyRetainsTheFailedCallProfileWithoutQualifyingAudio",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "line": 21,
+      "endLine": 40,
+      "methodSourceSha256": "15ceb0461b9a6e1dac0ea62629d096040cf07a1795cfc55278961f1c2e897009",
+      "requiresAndroidRobolectric": false,
+      "baseMethodSourceSha256": "a2cdbc62fd9a7d855e3fc254cbf35d3971ac2731c46e604389b77bd5c335a09f"
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest#aLateOldCompletionCannotReleaseOrCancelTheNewOwner",
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "aLateOldCompletionCannotReleaseOrCancelTheNewOwner",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
+      "line": 58,
+      "endLine": 72,
+      "methodSourceSha256": "5aed40437ab0cceb439e7fe79e59ee847eec36f49787b16715daff7a64b71602",
+      "requiresAndroidRobolectric": false,
+      "baseMethodSourceSha256": "994d7b6acff0a5a8300adf7ab674d2aaa849d12fd2f123400a096c84e8f86885"
+    }
+  ],
+  "unchangedMethodsInChangedFiles": [
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest#refreshAndReadinessNeverDownloadAndInstallUsesThePinnedAsset",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "refreshAndReadinessNeverDownloadAndInstallUsesThePinnedAsset",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
+      "line": 38,
+      "endLine": 54,
+      "methodSourceSha256": "1f7662dfb28de1ad3897e2522937acecda606590acfa78bea6bfa5de22b3e329",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest#incorrectHashOrLengthCannotPublishANativeLoadableModel",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "incorrectHashOrLengthCannotPublishANativeLoadableModel",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
+      "line": 56,
+      "endLine": 64,
+      "methodSourceSha256": "5c763c4924933679878af959edd17538e85d6f4b729e6f27ffb0dc04556f8299",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest#nativeLeasePreventsRemovalAndSameLengthTamperingInvalidatesIt",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "nativeLeasePreventsRemovalAndSameLengthTamperingInvalidatesIt",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
+      "line": 66,
+      "endLine": 88,
+      "methodSourceSha256": "e223f0c3dd08b6fd1d1bdf10608696ddb44c06560bb0a56151653414638acb72",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest#cacheIdentitySeparatesRateAndDelegateAndPrunesOnlyUnusedConfigurations",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "cacheIdentitySeparatesRateAndDelegateAndPrunesOnlyUnusedConfigurations",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
+      "line": 90,
+      "endLine": 104,
+      "methodSourceSha256": "0f6a6882b74ca8bc0bb1f5afdfa1f43113849af1e64f2e09395c763154ff4c64",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest#factoryIdentityAndConfigurationIncludeRateVoiceModelAndRequestedDelegate",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "factoryIdentityAndConfigurationIncludeRateVoiceModelAndRequestedDelegate",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
+      "line": 106,
+      "endLine": 134,
+      "methodSourceSha256": "cdfa7325ebda238fe2822feea06c0049f933fe0ffd7c3c27e9b4845d66e0070c",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#streamingModelAndDelegateRequestNeverBecomeProcessorOrThreadEvidence",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "streamingModelAndDelegateRequestNeverBecomeProcessorOrThreadEvidence",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 19,
+      "endLine": 41,
+      "methodSourceSha256": "e314a90745d15bbe894b919e03ef3a440431de5ef475635b31b4fab4b38e6ead",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#graphicsOnlyExportIdentifiesMissingSpeechAndUtilizationWithoutInventingZeros",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "graphicsOnlyExportIdentifiesMissingSpeechAndUtilizationWithoutInventingZeros",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 43,
+      "endLine": 65,
+      "methodSourceSha256": "9bed9609d9cba3be7b24a00b6ba7bc4c0c70aff53dba6f19dffbc38c6f405a55",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#coldWarmAndActualProvidersKeepTheirOwnRecordedSeries",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "coldWarmAndActualProvidersKeepTheirOwnRecordedSeries",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 79,
+      "endLine": 95,
+      "methodSourceSha256": "3b6d5ff10912689e0ca542275aed8ad3fe0edf5935481c47f6ae21efe537f136",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#unknownLabelsCannotExportConversationTextOrDeviceNames",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "unknownLabelsCannotExportConversationTextOrDeviceNames",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 97,
+      "endLine": 106,
+      "methodSourceSha256": "5a58a796e2b86f9785d4100972f52ce207650ba54083698ce7164e6fcd978803",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#frozenExportIsUnaffectedByResetOrSubsequentObservations",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "frozenExportIsUnaffectedByResetOrSubsequentObservations",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 108,
+      "endLine": 117,
+      "methodSourceSha256": "d795933218b1fa750fd4d5cc68b8babe3ef4ea21aceb0143f5c27a1b50f7c562",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#selectedAccelerationAndActualCpuFallbackStayDistinctWithoutDeviceIdentifiers",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "selectedAccelerationAndActualCpuFallbackStayDistinctWithoutDeviceIdentifiers",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 119,
+      "endLine": 143,
+      "methodSourceSha256": "b1973002014af2a4df87a1c4016529c6fd8c0b7c0fe5602bd9f06382fbc85d10",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#cacheAdmissionReportsBudgetAndUnknownMemoryWithoutClaimingUtilization",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "cacheAdmissionReportsBudgetAndUnknownMemoryWithoutClaimingUtilization",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 145,
+      "endLine": 162,
+      "methodSourceSha256": "458cc050e17306c899fadbc3edb05f1ea015ab261acbd93cd46d06e3f42226d3",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest#unknownOrUnavailableProfilesCannotExportCountersAndInvalidNumbersStayUnknown",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "unknownOrUnavailableProfilesCannotExportCountersAndInvalidNumbersStayUnknown",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
+      "line": 196,
+      "endLine": 213,
+      "methodSourceSha256": "78b51cbd261b91be8ea64161365638ec2902eacc5a1b4a7d16ef4ecbb4016d44",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest#observedShortGpuOutputCannotWinDespiteGenuineExecutionAndLowerTime",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "observedShortGpuOutputCannotWinDespiteGenuineExecutionAndLowerTime",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+      "line": 14,
+      "endLine": 30,
+      "methodSourceSha256": "dc517c91672c4bf7ec2a576fdd8bff25c95d40d9571a203d5ca01293231f1116",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest#nearReferenceDurationCanQualifyAcrossAllBackendOrders",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "nearReferenceDurationCanQualifyAcrossAllBackendOrders",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+      "line": 32,
+      "endLine": 38,
+      "methodSourceSha256": "bf6358d88c8288b9de880a9044ff58c24e4a62fe76bdc3f00b7c0ef66f9db4d3",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest#equalFixtureTotalsCannotHideOppositeChunkDurationErrors",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "equalFixtureTotalsCannotHideOppositeChunkDurationErrors",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+      "line": 40,
+      "endLine": 59,
+      "methodSourceSha256": "1d7e07b5ab918b9e3a781679461133ede58abd55512db6c3568fea82e06c478c",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest#numericalSignalAndTokenTimingCorruptionHaveDistinctReasons",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "numericalSignalAndTokenTimingCorruptionHaveDistinctReasons",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+      "line": 61,
+      "endLine": 69,
+      "methodSourceSha256": "8e9ad19c35a0bbe31aef733e965ee51a631146c3866ac87cc0572120967ad326",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest#missingBaselineOrLegacyMeasurementsNeverQualifyAndExportsExcludeWaveforms",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "missingBaselineOrLegacyMeasurementsNeverQualifyAndExportsExcludeWaveforms",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+      "line": 71,
+      "endLine": 87,
+      "methodSourceSha256": "dfdae01cbc702ae9768841b8e5da371e4f61a73fa90471f25e9ecf1d2fe9bd9d",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest#cancelledOrFailedSuiteRetainsComparisonsButCannotRank",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "cancelledOrFailedSuiteRetainsComparisonsButCannotRank",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+      "line": 89,
+      "endLine": 95,
+      "methodSourceSha256": "96ef1efb4b1078dead31ba8a5d304b6d29438d0586357cae86bf2e3de52c5901",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest#newNativeFailureRetainsCurrentPhaseAndCacheCostsWithoutQualifyingAudio",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "newNativeFailureRetainsCurrentPhaseAndCacheCostsWithoutQualifyingAudio",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "line": 42,
+      "endLine": 60,
+      "methodSourceSha256": "2da788b7263f36355958a0a8f06456e0451d75a760d004b4f6b53b3188baf37d",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest#frontendPreparationAndGenericFailuresCannotBorrowPreviousEvidence",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "frontendPreparationAndGenericFailuresCannotBorrowPreviousEvidence",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "line": 136,
+      "endLine": 142,
+      "methodSourceSha256": "87aec2cb7c810a2ea1706234e33f2b93813f4c099b2ce6f5d486698b0cc2652c",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest#currentPreparationFailureRetainsElapsedCompilationWithoutInventingExecutionOrActiveResidency",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "currentPreparationFailureRetainsElapsedCompilationWithoutInventingExecutionOrActiveResidency",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "line": 144,
+      "endLine": 170,
+      "methodSourceSha256": "5cd04d514721cc006d0c07f5728c0453da6ee64490c87fd58e3b18f64d05ff8b",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest#typedOpenFailuresDoNotMislabelTheBenchmarkWorkloadOrDisableHardware",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "typedOpenFailuresDoNotMislabelTheBenchmarkWorkloadOrDisableHardware",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "line": 172,
+      "endLine": 193,
+      "methodSourceSha256": "252d3740d818035ff0c5a8737b3dcafa6473b776a893c9f86efb51c63d3a448c",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest#unavailableFailedProfileDoesNotClaimAnExecutedProcessor",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "unavailableFailedProfileDoesNotClaimAnExecutedProcessor",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "line": 195,
+      "endLine": 204,
+      "methodSourceSha256": "b7fe2965547ecd6daf547f79c0e81759903e2b4d531ca9c9f9ae01fc333f49d8",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "identity": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest#aFreshObserverRemainsBlockedUntilTheCancelledOwnersTeardownCompletes",
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "aFreshObserverRemainsBlockedUntilTheCancelledOwnersTeardownCompletes",
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
+      "line": 21,
+      "endLine": 56,
+      "methodSourceSha256": "ed0058aa2350670553aa93ca17fa863400d6d93200fe097fd6206bcf08bd7461",
+      "requiresAndroidRobolectric": false
+    }
+  ],
+  "removedMethods": [],
+  "expectedHostedXmlMethods": [
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "refreshAndReadinessNeverDownloadAndInstallUsesThePinnedAsset",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "incorrectHashOrLengthCannotPublishANativeLoadableModel",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "nativeLeasePreventsRemovalAndSameLengthTamperingInvalidatesIt",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "cacheIdentitySeparatesRateAndDelegateAndPrunesOnlyUnusedConfigurations",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "factoryIdentityAndConfigurationIncludeRateVoiceModelAndRequestedDelegate",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStoreTest",
+      "methodName": "failedPreparationDestructorQuarantinesFactoryAndKeepsItsModelLease",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "streamingModelAndDelegateRequestNeverBecomeProcessorOrThreadEvidence",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "graphicsOnlyExportIdentifiesMissingSpeechAndUtilizationWithoutInventingZeros",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "absentMeasurementsStayUnknownAndDoNotCertifyPhysicalPerformance",
+      "changeCategory": "changedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "coldWarmAndActualProvidersKeepTheirOwnRecordedSeries",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "unknownLabelsCannotExportConversationTextOrDeviceNames",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "frozenExportIsUnaffectedByResetOrSubsequentObservations",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "selectedAccelerationAndActualCpuFallbackStayDistinctWithoutDeviceIdentifiers",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "cacheAdmissionReportsBudgetAndUnknownMemoryWithoutClaimingUtilization",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "collectedProfileKeepsCachedEvidenceDistinctFromCurrentPreparation",
+      "changeCategory": "changedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "unknownOrUnavailableProfilesCannotExportCountersAndInvalidNumbersStayUnknown",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceExportTest",
+      "methodName": "earlyValidationFailureCannotExportUnmeasuredZeroesAndSignedDurationEvidenceSurvives",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "observedShortGpuOutputCannotWinDespiteGenuineExecutionAndLowerTime",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "nearReferenceDurationCanQualifyAcrossAllBackendOrders",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "equalFixtureTotalsCannotHideOppositeChunkDurationErrors",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "numericalSignalAndTokenTimingCorruptionHaveDistinctReasons",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "missingBaselineOrLegacyMeasurementsNeverQualifyAndExportsExcludeWaveforms",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methodName": "cancelledOrFailedSuiteRetainsComparisonsButCannotRank",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "firstMismatchedGpuChunkStopsOnlyThatBackendAndRetainsItsObservation",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "explicitDeepDiagnosticsContinuesMismatchedAudioWithoutQualifyingIt",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "rotatedOrderRetainsUncomparedWorkAndLaterCpuReferenceStillRejectsIt",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "chunkDeadlinePublishesPendingStopAndWaitsForTheActualCallAndClose",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "preparationDeadlineCancelsPendingFactoryThenClosesItsReturnedEngineWithoutSynthesis",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "backendDeadlineCountsWholeWorkloadAndPreservesEarlierSamplesAndPartialChunk",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "userCancellationWinsAndDoesNotBecomeALateAutomaticDeadline",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "failedClosePreventsAnotherBackendAndDoesNotClaimRetirement",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "cancellationDuringWatchdogPublicationCannotEscapeTheOwnerFinally",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "failingTimeoutObserverCannotPreventCancellationOrNativeClose",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "stabilityProducesTwentyWarmObservationsForEachIndependentPercentile",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "otherModelsCannotEnterNativeEquivalenceOrRunTheNativeBenchmarkByMistake",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkControlTest",
+      "methodName": "unmeasuredNativeAudioZerosRemainUnknownInFailureObservation",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "failureAvailabilityAndValidationScalarsSurviveCurrentRoundTripAndLegacyZeroesRemainUnknown",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "deadlineRequestAndNativeRetirementStaySeparateInPersistedRunningAndFinishedReports",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "signedInvalidDurationsAndOverflowRemainDistinctThroughHistory",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "playbackGenerationWallCostDoesNotMasqueradeAsInferenceWithoutGraphPreparation",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "sdkStabilityRetainsAllSamplesAndBoundedCallbackReceiptsWithoutClaimingProviderOrQuality",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "impossibleSdkPlacementAndCallbackCountsCannotBeRestoredAsEvidence",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methodName": "boundedSdkPlaybackTracesKeepCompleteTotalsAndCannotInventNativeExecution",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "realCallbackAndConsumerWaitBelongToTheCompleteStreamWallClock",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "consumerCancellationCannotBecomeStructurallyCompleteEvenIfProducerIgnoresItsReturn",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "aDelayedStreamRetainsItsOriginalReceiptAndInvalidPcmNeverValidatesANewReply",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "failedDestructionPublishesAnExplicitQuarantineSignal",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "structuralPlaybackDoesNotSupplyNativeProviderOrCrossEngineQualification",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "boundedSdkReceiptsPreserveExactFrameDurationWithoutInventingCaptionViolations",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStreamingEngineTest",
+      "methodName": "nativeReceiptsRetainTheirExactCoverageRequirement",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "realSchedulerRequestsStopWhileTheOwnerIsStillBlocked",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "previousPhaseTimerCannotCancelTheNextChunk",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "wholeBackendDeadlineSurvivesIndividualPhaseCompletion",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "ownerCheckpointCatchesExpiredWorkEvenBeforeDelayedSchedulerCallback",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "retiredBackendIgnoresItsLateTimerAndCannotStopAReplacement",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWatchdogTest",
+      "methodName": "cancellationBeforeArmingOrBetweenPhasesReturnsWithoutSchedulingNewWork",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "everySdkEngineUsesTheSelectedFactoryAndRetainsAllFixedInputWithoutInventedPlacement",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "cancellationRetainsPartialPcmAndNeverDestroysTheBlockedProducer",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "chunkDeadlinePreservesTheFirstCallbackAndClosesAfterTheCallReturns",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "throwingRetirementObserverCannotSkipCloseOrFailedCloseQuarantine",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "blockedDeadlinePublishesImmutableEvidenceBeforeReturnAndSurvivesAThrowingObserver",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "explicitStopSuppressesLaterDeadlineAndRequestsNativeCancellationOnlyOnce",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "failedPreparationRetirementPreventsTheNextDelegateFromStarting",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "failedEngineCloseKeepsOwnershipQuarantinedAndDoesNotStartAnotherBackend",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "missingModelNeverCreatesAnEngineOrStartsADownload",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "silentOrNonFinitePcmFailsWithoutBecomingACompleteSample",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEngineBenchmarkRunnerTest",
+      "methodName": "stabilityPercentilesNeedTwentySuccessfulWarmSamplesOfTheSameFixture",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEnginePlaybackBenchmarkTest",
+      "methodName": "allSdkSelectionsReachTheirFactoryAndTheControlledProductionInputWithoutNativeAssets",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": true
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEnginePlaybackBenchmarkTest",
+      "methodName": "incrementalPcmReachesActualAudioTrackWhileStopRetainsTheProducerAndPrivateContext",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": true
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "cpuOnlyRetainsTheFailedCallProfileWithoutQualifyingAudio",
+      "changeCategory": "changedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "newNativeFailureRetainsCurrentPhaseAndCacheCostsWithoutQualifyingAudio",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "oversizedOutputKeepsDurationEvidenceWithoutInventingSilentPcm",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "aMeasuredSilentFailureIsDistinctFromUnmeasuredAndLegacyFailures",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "frontendPreparationAndGenericFailuresCannotBorrowPreviousEvidence",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "currentPreparationFailureRetainsElapsedCompilationWithoutInventingExecutionOrActiveResidency",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "typedOpenFailuresDoNotMislabelTheBenchmarkWorkloadOrDisableHardware",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methodName": "unavailableFailedProfileDoesNotClaimAnExecutedProcessor",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "aFreshObserverRemainsBlockedUntilTheCancelledOwnersTeardownCompletes",
+      "changeCategory": "unchangedMethodsInChangedFiles",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "aLateOldCompletionCannotReleaseOrCancelTheNewOwner",
+      "changeCategory": "changedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "aFreshViewModelStateShowsTheSharedRestartRequirementAndCannotReleaseQuarantine",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "anAlreadyOpenObserverReceivesLateFailedCleanupAndKeepsSpeechBlocked",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "executorRetirementCannotHideADestructorFailureBeforeOrDuringCompletion",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    },
+    {
+      "className": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceSpeechBenchmarkOwnershipTest",
+      "methodName": "confirmedSuccessfulRetirementReleasesOnlyItsCurrentOwner",
+      "changeCategory": "addedMethods",
+      "requiresAndroidRobolectric": false
+    }
+  ],
+  "counts": {
+    "files": 11,
+    "addedMethods": 54,
+    "changedMethods": 4,
+    "unchangedMethodsInChangedFiles": 25,
+    "removedMethods": 0,
+    "expectedHostedXmlMethods": 83
+  },
+  "executionStatus": "INVENTORY_ONLY_NOT_A_TEST_PASS_RECEIPT"
+}

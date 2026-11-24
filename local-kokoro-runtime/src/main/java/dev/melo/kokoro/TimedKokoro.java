@@ -5,7 +5,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /** One synthesis worker owns this model and closes it after its final phrase. */
 public final class TimedKokoro implements AutoCloseable {
     public static final int SAMPLE_RATE = 24000;
-    public static final String RUNTIME_ID = "ort1.28.2-qnn2.7-qairt2.51-convex2-profile4-cache2-progress1-parser2";
+    public static final String RUNTIME_ID = "ort1.28.2-qnn2.7-qairt2.51-convex2-profile5-cache3-progress1-parser2-validation1";
     public static final int MAX_INPUT_BYTES = 128;
     static { System.loadLibrary("timed_kokoro"); }
 
@@ -66,10 +66,20 @@ public final class TimedKokoro implements AutoCloseable {
         /** Nullable for historical snapshots; retention estimates are not allocator limits. */
         public final Long cacheBudgetBytes, activeShapeEstimatedBytes, availableMemoryBytes;
         public final String cacheAdmission;
+        /** Legacy complete receipts prove a scan; legacy failures leave availability unknown. */
+        public final Boolean audioMeasurementAvailable;
+        public final Boolean audioFinite;
+        /** Fixed reason code and bounded scalar metadata; never PCM, phrase text or driver detail. */
+        public final String validationReason;
+        public final Long outputTensorCount, outputFrames, outputElementType, outputRank;
+        public final Long durationCount, durationElementType, durationRank, durationSum, durationMin, durationMax;
+        public final Boolean durationStatsAvailable, durationSumOverflow;
 
         private Evidence(long[] data, String discoverySummary) {
-            if (data == null || !((data.length == 25 && data[0] == 2) || (data.length == 29 && data[0] == 3) || (data.length == 33 && data[0] == 4)))
+            if (data == null || !((data.length == 25 && data[0] == 2) || (data.length == 29 && data[0] == 3) ||
+                    (data.length == 33 && data[0] == 4) || (data.length == 48 && data[0] == 5)))
                 throw new IllegalStateException("Invalid speech execution evidence");
+            if (data[0] == 5) validateCurrentEvidence(data);
             acceleratorKernels = (int) data[1];
             cpuKernels = (int) data[2];
             acceleratorMicros = data[3];
@@ -102,8 +112,46 @@ public final class TimedKokoro implements AutoCloseable {
             cacheBudgetBytes = data.length >= 33 ? data[29] : null;
             activeShapeEstimatedBytes = data.length >= 33 && data[30] >= 0 ? data[30] : null;
             availableMemoryBytes = data.length >= 33 && data[31] > 0 ? data[31] : null;
-            cacheAdmission = data.length >= 33 && data[32] >= 0 && data[32] <= 3 ?
-                    new String[] {"CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES"}[(int) data[32]] : null;
+            cacheAdmission = data.length >= 33 && data[32] >= 0 && data[32] <= 4 ?
+                    new String[] {"CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES", "BOUNDED_THREE_SHAPES"}[(int) data[32]] : null;
+            final boolean current = data[0] == 5;
+            audioMeasurementAvailable = current ? Boolean.valueOf(data[34] == 1) : validatedAudio ? Boolean.TRUE : null;
+            audioFinite = current && data[34] == 1 ? Boolean.valueOf(data[47] == 1) : validatedAudio ? Boolean.TRUE : null;
+            validationReason = current && data[33] != 0 ? new String[] {
+                    "NONE", "OUTPUT_COUNT", "AUDIO_TENSOR_TYPE", "AUDIO_FRAME_COUNT", "AUDIO_TOO_LONG",
+                    "TIMING_TENSOR_TYPE", "TIMING_TOKEN_COUNT", "TOKEN_DURATION_INVALID", "TIMING_PCM_MISMATCH",
+                    "NONFINITE_PCM", "SILENT_PCM", "TENSOR_METADATA_UNAVAILABLE"
+            }[(int) data[33]] : null;
+            outputTensorCount = current && data[35] >= 0 ? data[35] : null;
+            outputFrames = current && data[36] >= 0 ? data[36] : null;
+            outputElementType = current && data[37] >= 0 ? data[37] : null;
+            outputRank = current && data[38] >= 0 ? data[38] : null;
+            durationCount = current && data[39] >= 0 ? data[39] : null;
+            durationElementType = current && data[40] >= 0 ? data[40] : null;
+            durationRank = current && data[41] >= 0 ? data[41] : null;
+            durationStatsAvailable = current ? data[42] == 1 : null;
+            durationSumOverflow = current && data[42] == 1 ? data[46] == 1 : null;
+            durationSum = current && data[42] == 1 && data[46] == 0 ? data[43] : null;
+            durationMin = current && data[42] == 1 ? data[44] : null;
+            durationMax = current && data[42] == 1 ? data[45] : null;
+        }
+
+        private static void validateCurrentEvidence(long[] data) {
+            boolean valid = data[33] >= 0 && data[33] <= 11 && data[32] >= 0 && data[32] <= 4;
+            for (int index : new int[] {11, 12, 14, 23, 24, 34, 42, 46, 47}) valid &= data[index] == 0 || data[index] == 1;
+            for (int index = 35; index <= 41; index++) valid &= data[index] >= -1;
+            valid &= data[16] >= 0 && data[16] <= 3 && data[17] >= 1 && data[17] <= 3;
+            valid &= data[16] <= data[17];
+            if (data[42] == 1) valid &= data[39] > 0 && data[39] <= 511 && data[40] == 7 && data[44] <= data[45];
+            if (data[46] == 1) valid &= data[42] == 1;
+            if (data[34] == 1) {
+                valid &= data[35] == 2 && data[36] > 0 && data[36] <= 30L * SAMPLE_RATE && data[37] == 1 && data[38] >= 0 &&
+                        data[39] > 0 && data[39] <= 511 && data[40] == 7 && data[41] >= 0 && data[42] == 1 && data[46] == 0 &&
+                        data[43] > 0 && data[43] <= 30L * SAMPLE_RATE / 600 && data[43] * 600 == data[36] && data[44] > 0;
+            } else valid &= data[47] == 0;
+            if (data[11] == 1) valid &= data[34] == 1 && data[47] == 1 && data[33] == 0;
+            if (data[33] == 9 || data[33] == 10) valid &= data[34] == 1;
+            if (!valid) throw new IllegalStateException("Invalid speech execution evidence");
         }
     }
 

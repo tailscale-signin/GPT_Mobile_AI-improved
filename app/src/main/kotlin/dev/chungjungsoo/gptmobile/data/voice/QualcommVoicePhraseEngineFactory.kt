@@ -340,10 +340,10 @@ internal class QualcommVoicePhraseEngineFactory(
         cachedShapeCount = native.cachedShapeCount,
         cacheLimit = native.cacheLimit,
         cacheEstimatedBytes = native.cacheEstimatedBytes,
-        audioRms = native.audioRms,
-        audioPeak = native.audioPeak,
-        clippedSamples = native.clippedSamples,
-        nonSilentSamples = native.nonSilentSamples,
+        audioRms = native.audioRms.takeIf { native.audioMeasurementAvailable == true },
+        audioPeak = native.audioPeak.takeIf { native.audioMeasurementAvailable == true },
+        clippedSamples = native.clippedSamples.takeIf { native.audioMeasurementAvailable == true },
+        nonSilentSamples = native.nonSilentSamples.takeIf { native.audioMeasurementAvailable == true },
         profileReused = native.profileReused,
         graphPreparedThisCall = native.graphPreparedThisCall,
         discoverySummary = safeSpeechDiscoverySummary(native.discoverySummary),
@@ -358,7 +358,22 @@ internal class QualcommVoicePhraseEngineFactory(
         cacheBudgetBytes = native.cacheBudgetBytes,
         activeShapeEstimatedBytes = native.activeShapeEstimatedBytes,
         availableMemoryBytes = native.availableMemoryBytes,
-        cacheAdmission = safeSpeechCacheAdmission(native.cacheAdmission)
+        cacheAdmission = safeSpeechCacheAdmission(native.cacheAdmission),
+        audioMeasurementAvailable = native.audioMeasurementAvailable,
+        audioFinite = native.audioFinite,
+        validationReason = safeSpeechValidationReason(native.validationReason),
+        outputTensorCount = native.outputTensorCount,
+        outputFrames = native.outputFrames,
+        outputElementType = native.outputElementType,
+        outputRank = native.outputRank,
+        durationCount = native.durationCount,
+        durationElementType = native.durationElementType,
+        durationRank = native.durationRank,
+        durationSum = native.durationSum,
+        durationMin = native.durationMin,
+        durationMax = native.durationMax,
+        durationStatsAvailable = native.durationStatsAvailable,
+        durationSumOverflow = native.durationSumOverflow
     )
 
     private fun failureEvidence(failure: VoiceBackendCapability) = VoiceSpeechExecutionEvidence(

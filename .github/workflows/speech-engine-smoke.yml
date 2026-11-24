@@ -35,6 +35,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y libgles2 libegl1 libgl1 libglib2.0-0t64 libportaudio2
           python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-voice-mediapipe-smoke.txt
+      - name: Verify numerical speech reference controls
+        timeout-minutes: 2
+        run: python -m unittest discover -s local-kokoro-runtime/src/testHost -p test_kokoro_reference_comparison.py -v
       - name: Execute the pinned checkpoint through the real SDK
         shell: bash
         env:

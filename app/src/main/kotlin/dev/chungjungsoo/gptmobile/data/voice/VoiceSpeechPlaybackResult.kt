@@ -93,7 +93,13 @@ internal data class VoiceSpeechPlaybackResult(
     val preparationPhases: Map<String, Long> = emptyMap(),
     val timeoutLimitMs: Long? = null,
     val timeoutElapsedMs: Long? = null,
-    val timeoutScope: String? = null
+    val timeoutScope: String? = null,
+    val streamedAudioValidated: Boolean? = null,
+    val requestedDelegate: String? = null,
+    val observedProviderStatus: String? = null,
+    val engineStreamCalls: Int? = null,
+    val engineStreamWallMs: Long? = null,
+    val omittedPcmRecords: Int = 0
 ) {
     val captionManifestValid: Boolean
         get() = protocolVersion == VoiceSpeechPlaybackProtocol.VERSION &&
@@ -109,6 +115,14 @@ internal data class VoiceSpeechPlaybackResult(
 
     val synthesisRealTimeFactor: Double? get() = (totalSynthesisMs.toDouble() / totalAudioMs).takeIf { totalAudioMs > 0 && chunks > 0 && it.isFinite() }
 
+    val streamingStructureVerified: Boolean get() = requestedBackend.isStreamingLocal &&
+        requestedDelegate == requestedSpeechDelegate(requestedBackend) &&
+        observedProviderStatus == "NOT_EXPOSED_BY_SDK" &&
+        streamedAudioValidated == true &&
+        (engineStreamCalls ?: 0) > 0 &&
+        chunks > 0 &&
+        totalAudioMs > 0
+
     /** Completion and interactive suitability are independent verdicts. Targets are product budgets, not acoustic claims. */
     val quality: VoiceSpeechPlaybackQuality
         get() = when {
@@ -117,12 +131,13 @@ internal data class VoiceSpeechPlaybackResult(
             cancellationTarget != null && cleanupState != "RETIRED" -> VoiceSpeechPlaybackQuality.INCOMPLETE
             cancellationTarget != null && state == VoiceSpeechPlaybackState.CANCELLED && failure == null && cancellationMs?.let { it <= VoiceSpeechPlaybackProtocol.CANCELLATION_TARGET_MS } == true -> VoiceSpeechPlaybackQuality.CANCELLATION_VALIDATED
             state == VoiceSpeechPlaybackState.FAILED || state == VoiceSpeechPlaybackState.UNSUPPORTED -> VoiceSpeechPlaybackQuality.FAILED
-            state != VoiceSpeechPlaybackState.COMPLETE || !executionVerified || !captionManifestValid || firstPresentedAudioMs == null || cleanupState != "RETIRED" -> VoiceSpeechPlaybackQuality.INCOMPLETE
+            state != VoiceSpeechPlaybackState.COMPLETE || !(executionVerified || streamingStructureVerified) || !captionManifestValid || firstPresentedAudioMs == null || cleanupState != "RETIRED" -> VoiceSpeechPlaybackQuality.INCOMPLETE
             thermalBefore !in 0..1 || thermalAfter !in 0..1 -> VoiceSpeechPlaybackQuality.THERMAL_LIMITED
             bufferRestarts > 0 || (activePlaybackUnderruns ?: 0) > 0 -> VoiceSpeechPlaybackQuality.COMPLETE_WITH_STALLS
             firstPresentedAudioMs > VoiceSpeechPlaybackProtocol.FIRST_AUDIO_TARGET_MS -> VoiceSpeechPlaybackQuality.SLOW_START
             expectedResident && engineReused != true -> VoiceSpeechPlaybackQuality.INCOMPLETE
             activePlaybackUnderruns == null -> VoiceSpeechPlaybackQuality.INCOMPLETE
+            streamingStructureVerified -> VoiceSpeechPlaybackQuality.STREAMING_PLAYBACK_OBSERVED
             else -> VoiceSpeechPlaybackQuality.PLAYBACK_VALIDATED
         }
 }
@@ -174,6 +189,8 @@ internal class VoiceSpeechPlaybackMeasurement(
     private var reused: Boolean? = null
     private var synthesis = 0L
     private var audioMs = 0L
+    private var streamingFrames = 0L
+    private var omittedPcmRecords = 0
     private var chunks = 0
     private var validatedChunks = 0
     private var underruns: Int? = null
@@ -263,7 +280,13 @@ internal class VoiceSpeechPlaybackMeasurement(
     @Synchronized override fun pcmReady(synthesisMs: Long, audioFrames: Int, sampleRate: Int, evidence: VoiceSpeechExecutionEvidence?) {
         if (stoppedAt != null) return
         if (firstPcm == null) firstPcm = elapsed()
-        val duration = audioFrames.coerceAtLeast(0).toLong() * 1000 / sampleRate.coerceAtLeast(1)
+        val duration = if (backend.isStreamingLocal && sampleRate == VOICE_PCM_SAMPLE_RATE) {
+            val before = streamingFrames * 1_000 / sampleRate
+            streamingFrames += audioFrames.coerceAtLeast(0)
+            streamingFrames * 1_000 / sampleRate - before
+        } else {
+            audioFrames.coerceAtLeast(0).toLong() * 1000 / sampleRate.coerceAtLeast(1)
+        }
         synthesis += synthesisMs.coerceAtLeast(0)
         audioMs += duration
         chunks++
@@ -281,6 +304,8 @@ internal class VoiceSpeechPlaybackMeasurement(
                 evidence?.acceleratorKernels?.takeIf { evidence.profileAvailable == true }, evidence?.cpuKernels?.takeIf { evidence.profileAvailable == true }, evidence?.let(VoiceSpeechBenchmarkFailureObservation::from),
                 attemptAudio
             )
+        } else if (backend.isStreamingLocal) {
+            omittedPcmRecords++
         } else {
             violations++
         }
@@ -420,7 +445,8 @@ internal class VoiceSpeechPlaybackMeasurement(
             failedAttemptMs = (attemptStarted ?: preparationAttemptStarted.takeIf { native != null && chunks == 0 })?.let { (ended - it).coerceAtLeast(0) }.takeIf { failure != null || native != null }, failureObservation = native?.observation,
             cancellationTarget = plan?.cancellationTarget, cancellationTargetReached = cancellationTargetReached, arrivalIntervalMs = plan?.arrivalIntervalMs ?: 0,
             underrunsByPhase = phaseUnderruns.toMap(), preparationPhases = preparationPhases.toMap(),
-            timeoutLimitMs = native?.timeoutLimitMs, timeoutElapsedMs = native?.timeoutElapsedMs, timeoutScope = native?.timeoutScope
+            timeoutLimitMs = native?.timeoutLimitMs, timeoutElapsedMs = native?.timeoutElapsedMs, timeoutScope = native?.timeoutScope,
+            omittedPcmRecords = omittedPcmRecords
         )
     }
 

@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -130,6 +131,33 @@ class MediaPipeSpeechModelStoreTest {
         }
         withTimeout(2_000) { store.remove(model.engine) }
         assertFalse(store.isReady(model.engine))
+    }
+
+    @Test fun failedPreparationDestructorQuarantinesFactoryAndKeepsItsModelLease() = runBlocking {
+        val store = store { bytes }
+        store.install(model.engine)
+        val factory = MediaPipeVoicePhraseEngineFactory(store, model.engine, VoiceSpeechBackend.PHONON_CPU, 1f) {
+            object : MediaPipeSpeechTask {
+                override fun voiceIds(): Set<String> = emptySet()
+                override fun openStream(text: String, voiceId: String): MediaPipeSpeechStream = error("No inference")
+                override fun cancel() = Unit
+                override fun close(): Unit = error("Synthetic native destructor failure")
+            }
+        }
+        assertThrows(IOException::class.java) { factory.create(files.root, "unused", 2) }
+        assertTrue(factory.nativeCleanupPending)
+        assertThrows(IllegalStateException::class.java) { factory.create(files.root, "unused", 2) }
+        val published = File(store.localStore(model.engine).modelDirectory(), model.fileName)
+        val removal = async { store.remove(model.engine) }
+        try {
+            withTimeout(2_000) {
+                while (!store.localStore(model.engine).state.value.message.orEmpty().contains("Waiting")) delay(10)
+            }
+            assertTrue(published.isFile)
+            assertFalse(removal.isCompleted)
+        } finally {
+            removal.cancelAndJoin()
+        }
     }
 
     private fun acquire(store: MediaPipeSpeechModelStore, backend: VoiceSpeechBackend = VoiceSpeechBackend.PHONON_CPU, rate: Float = 1f) =

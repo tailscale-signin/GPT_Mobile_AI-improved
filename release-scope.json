@@ -95,7 +95,7 @@
     "Separate full agent-system comparisons from model benchmarks, reject comparison of unexecuted checks, and retain optional-runtime and provider qualification limits.",
     "Start speech when all bounded PCM queue slots are occupied even when partial phrase tails leave accepted duration below the measured reserve; retain queue and reserve limits, lifecycle fences and deadline behavior.",
     "Report invalid retained journal projections as typed recovery-integrity failures while omitting unverified observed digests and counts; preserve legacy file decoding and provable recovery, settled-call deduplication and prior budget refusal checks.",
-    "Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.",
+    "Apply the same evidence requirements to requests beginning with \u201cPlease,\u201d preserving their original wording and source references.",
     "Keep automatic phone-map recipes within native capabilities while retaining explicit Gateway analysis and source provenance.",
     "Preserve actual Gateway graph exchange evidence through local privacy rejection and clear only a proven unsent new index attempt.",
     "Propagate wrapped MCP cancellation before reconnect or replay while retaining earlier response and interruption facts.",
@@ -311,7 +311,8 @@
     "Route bounded retrospective questions about issues in the current conversation through the existing local session audit, retaining pending task identity and rejecting compound repository actions, quoted prompts and overlong lookalikes.",
     "Refresh GitHub preview repetition only for a new bounded immutable source capture with matching call, repository, connection, range, commit and digest; retain saved-source distinctions, same-source suppression, existing cadence and factual authority.",
     "Run the existing actual-Git intact, missing-object and restored-history regression in the mandatory PR/main scanner gate with its same pinned scanner, preserving all30 detection controls, redaction and full-history traversal; reject unknown or repeated mode arguments before repository access.",
-    "Improve voice vocabulary and literal pronunciation corrections across native Kokoro, SDK and Android speech, preserving meaningful formatted elements, numeric semantics, original caption ranges and cancellation ownership."
+    "Improve voice vocabulary and literal pronunciation corrections across native Kokoro, SDK and Android speech, preserving meaningful formatted elements, numeric semantics, original caption ranges and cancellation ownership.",
+    "Establish one-time empty-owner presentation for Gateway native acceptance, retain all strict control hit assertions, and add bounded failure diagnostics with a matching complete package manifest."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -873,9 +874,11 @@
     "docs/repairs/voice-streaming-modernization-2026-11-23-task.json",
     "docs/repairs/voice-streaming-report-compatibility-2026-11-23-task.json",
     "docs/repairs/voice-thermal-qualification-review-2026-11-23-task.json",
+    "docs/repairs/windows-owner-presentation-2026-11-24-task.json",
     "gateway/contracts/v18/capabilities.json",
     "gateway/contracts/v18/gateway-v18-capabilities-full.json",
     "gateway/manifest-v14.json",
+    "gateway/tests/test_gateway_desktop_native_ui.py",
     "gateway/tests/test_gateway_voice.py",
     "gateway/v14/__init__.py",
     "gateway/v14/identity.py",

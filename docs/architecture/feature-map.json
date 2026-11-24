@@ -1555,7 +1555,8 @@
         "gateway/benchmarks/README.md",
         "docs/repairs/github-comparison-context-2026-11-24-task.json",
         "docs/repairs/github-chat-continuation-intent-checkpoint.json",
-        "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json"
+        "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json",
+        "docs/repairs/voice-ci-fixtures-litert-closure-2026-11-24-task.json"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1566,7 +1567,8 @@
         "A recoverable rejection can shrink the next request only within its original permissions and resource budget.",
         "Score comparisons require independently measured work under matching task, policy, environment and budget identities.",
         "Production score comparisons require explicit SESSION_ONLY memory and versioned digests of the exact admitted conversation and follow-up instruction values; unbound historical memory remains unknown, and raw private inputs are not exported.",
-        "Explicit read-only questions about the selected repository retain its target context, and a prose-only GitHub answer receives at most one evidence-acquisition retry before terminating."
+        "Explicit read-only questions about the selected repository retain its target context, and a prose-only GitHub answer receives at most one evidence-acquisition retry before terminating.",
+        "A LiteRT-LM primary cannot execute a helper-selected recovery read; saved execution consent stays inactive without falling through to an advice choice, while existing advice eligibility and internal-tools ownership remain unchanged."
       ]
     },
     {
@@ -2030,9 +2032,9 @@
       "sha256": "3f89ef9db742d799c300b0e46ead456360c3f49d1072c45c21cada6a636cb7ed"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryConsult.kt": {
-      "blob_sha": "5524c66433030510f3391a26ea64722e9b6e9f2e",
-      "bytes": 3636,
-      "sha256": "9b4c1d6e802483fc4a204411d2f8c5fe75a212f0ba62fc549a2495d7962ecf5d"
+      "blob_sha": "d367949f5766c2f0cb52feb0c07e547bb865a198",
+      "bytes": 4447,
+      "sha256": "6f8d287db3e08c1a99aa87f14a78a3729e0af19b79522fe549f90dd60ba9cf5e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryReadSession.kt": {
       "blob_sha": "bc2f27efb915af15a76e16c858386972c64fb628",
@@ -2760,9 +2762,9 @@
       "sha256": "aa55ed6043c34e56f39b1bfd6a43e7ebb7563eafd85bac0502b69660e1adf15c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerSettings.kt": {
-      "blob_sha": "fb16e8d0acc2a85fe308c4b2cadc93cf3aa9768a",
-      "bytes": 39614,
-      "sha256": "befc67a7eca3725fe93b3675d52c97e19c35cf542106c7aba066b97fdd9fedad"
+      "blob_sha": "d2079bdc4230a1feef3f77e648ad4106efdc6595",
+      "bytes": 39995,
+      "sha256": "879b350c5ec013becacf9d05f8946d4270ce76ce420b7ad58559bc4d40f09d47"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubQualificationPanel.kt": {
       "blob_sha": "5dfaceadbc93967d6499800b621ca53ffd548340",
@@ -3255,9 +3257,9 @@
       "sha256": "8931961a91127a90c0362f4be78c06fb655142ae2addc847b7fd51ab7dd27744"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryReadSessionTest.kt": {
-      "blob_sha": "a80cf135c5f83317e4633ea092edd53fa228d772",
-      "bytes": 10607,
-      "sha256": "f27c6be81c93d6b38cba50e278c61836ec917992b05c59e592b1af9a15efdfcf"
+      "blob_sha": "933eee87f5d904af3f34479cb1868242d84427e9",
+      "bytes": 15805,
+      "sha256": "81923ffbc846b8672b279f16c3bf211128af8810890db82eb928ed6c52943f53"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryBindingTest.kt": {
       "blob_sha": "cdc9881e6cacd564edd53f54f2dff48dcfe038cf",
@@ -3575,9 +3577,9 @@
       "sha256": "bc85014efac44fc3aace0afac83a5beb625d2f6fa7e9a60861926fe5fad67c0a"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectoryTest.kt": {
-      "blob_sha": "ff15828fb89b8e1b8a7818ea413b9f7b110e422e",
-      "bytes": 8459,
-      "sha256": "d7b8f48406ce0d489bd29b365e865c0e904c82f9ca6d26de7d714ad2e59d00e7"
+      "blob_sha": "571347fb144212fdd7d85a3029e43509b76c4819",
+      "bytes": 8307,
+      "sha256": "6bd36a288396b9f5d39afd969240008df4ff96c8deeb7c2fb52d713f4c84526c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocolTest.kt": {
       "blob_sha": "36c197a1dc447154dec71635b3df742e7ec9d588",
@@ -4328,6 +4330,11 @@
       "blob_sha": "e56fbd89ae7b954bb33f7ddf1d6c2e164e09875f",
       "bytes": 11168,
       "sha256": "10071e9956359ffabf15647d25a41e072fb8c2b6ea481e8f51683099945f8591"
+    },
+    "docs/repairs/voice-ci-fixtures-litert-closure-2026-11-24-task.json": {
+      "blob_sha": "87bcb499e8b99d4174ffd54e04d2684e3f1956ed",
+      "bytes": 1962,
+      "sha256": "fe25f704e4ccd1deebc610d2663351cae8ff938b73ce48a15ebaadcab0044ceb"
     },
     "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23-task.json": {
       "blob_sha": "9e47f51a069b2b59406ea372e91b4170519e8d85",

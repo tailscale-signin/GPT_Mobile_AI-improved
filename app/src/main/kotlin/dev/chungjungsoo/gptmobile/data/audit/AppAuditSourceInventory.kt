@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "b590d7c8933c98f290de2416974c7ff49d8ceb96be105f1da37d8caeb9f68c85"
+    val sourceDigest: String = "9ad7c324f7748f50f002cc16b2fefe1490e5708b2d36ef6cbbd31b088b867eb8"
     val fileCount: Int = 3110
-    val lineCount: Int = 527583
+    val lineCount: Int = 527604
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -25,7 +25,7 @@ object AppAuditSourceInventory {
     )
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 75, 8749),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 606, 107178),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 606, 107181),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 200, 9297),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 250, 44743),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 104, 24444),
@@ -36,7 +36,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14881),
         AppAuditSourceArea("gateway_client", "Android gateway client", 39, 6999),
         AppAuditSourceArea("network", "Networking and readiness", 114, 11729),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 293, 53301),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 293, 53319),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14068),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 47, 5091),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 111, 15091),

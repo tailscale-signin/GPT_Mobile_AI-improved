@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b590d7c8933c98f290de2416974c7ff49d8ceb96be105f1da37d8caeb9f68c85",
+  "source_digest": "9ad7c324f7748f50f002cc16b2fefe1490e5708b2d36ef6cbbd31b088b867eb8",
   "file_count": 3110,
-  "indexed_line_count": 527583,
+  "indexed_line_count": 527604,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -41,7 +41,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 606,
-      "indexed_line_count": 107178
+      "indexed_line_count": 107181
     },
     {
       "id": "accessibility_and_localization",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 293,
-      "indexed_line_count": 53301
+      "indexed_line_count": 53319
     },
     {
       "id": "research",
@@ -7970,8 +7970,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryConsult.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "9b4c1d6e802483fc4a204411d2f8c5fe75a212f0ba62fc549a2495d7962ecf5d",
-      "indexed_lines": 57
+      "sha256": "6f8d287db3e08c1a99aa87f14a78a3729e0af19b79522fe549f90dd60ba9cf5e",
+      "indexed_lines": 75
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryReadSession.kt",
@@ -16811,8 +16811,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerSettings.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "befc67a7eca3725fe93b3675d52c97e19c35cf542106c7aba066b97fdd9fedad",
-      "indexed_lines": 548
+      "sha256": "879b350c5ec013becacf9d05f8946d4270ce76ce420b7ad58559bc4d40f09d47",
+      "indexed_lines": 551
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerViewModel.kt",

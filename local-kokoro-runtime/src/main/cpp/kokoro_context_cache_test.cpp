@@ -1,6 +1,7 @@
 #include "kokoro_context_cache.h"
 
 #include <iostream>
+#include <limits>
 
 namespace {
 using namespace kokoro_runtime;
@@ -8,6 +9,10 @@ namespace fs = std::filesystem;
 
 void Check(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
+}
+template <typename Action>
+bool Rejected(Action action) {
+  try { action(); return false; } catch (const std::exception &) { return true; }
 }
 void Put(const fs::path &path, const std::string &value) {
   std::ofstream file(path, std::ios::binary); file << value;
@@ -127,9 +132,55 @@ void TestRetentionAndWriteFailure() {
   CompiledContextCache unavailable((directory.path / "missing").string(), a);
   Check(!unavailable.available() && unavailable.BeginExport().empty(), "Missing app cache was treated as prepared");
 }
+void TestPrivatePreparationSource() {
+  Directory directory, outside;
+  const auto key = Digest("prepared-source");
+  {
+    CompiledContextCache cache(directory.path.string(), key);
+    Check(cache.BeginExport(std::numeric_limits<int64_t>::max()).empty() &&
+        cache.status == ContextCacheStatus::Unavailable, "Transient preparation bytes were not included in free-space admission");
+  }
+  {
+    CompiledContextCache cache(directory.path.string(), key);
+    const auto context = cache.BeginExport();
+    const auto source_path = fs::path(context).parent_path() / ".source.onnx";
+    {
+      ContextSourceSnapshot source(context);
+      Check(Rejected([&] { source.Validate(); }), "An empty source snapshot was accepted");
+      Put(source.path(), "canonical-source");
+      source.Validate();
+      Check(truncate(source.path().c_str(), ContextSourceSnapshot::kMaximumBytes + 1) == 0, "Sparse size fixture failed");
+      Check(Rejected([&] { source.Validate(); }), "Oversized BASIC source was accepted");
+    }
+    Check(!fs::exists(source_path), "Source snapshot was retained after unwinding");
+    Put(outside.path / "keep", "unchanged");
+    fs::create_symlink(outside.path / "keep", source_path);
+    Check(Rejected([&] { ContextSourceSnapshot invalid(context); }), "Pre-existing source symlink was followed");
+    Check(DigestFile((outside.path / "keep").string(), 9) == Digest("unchanged"), "Source admission mutated an outside file");
+    fs::remove(source_path);
+    ContextSourceSnapshot source(context);
+    Put(source.path(), "canonical-source");
+    Put(context, "compiled-context");
+    Check(!cache.Commit() && cache.status == ContextCacheStatus::WriteFailed,
+        "A temporary source was included in a published compiled-context entry");
+  }
+  {
+    CompiledContextCache cache(directory.path.string(), key);
+    const auto context = cache.BeginExport();
+    ContextSourceSnapshot source(context);
+    Put(source.path(), "canonical-source");
+    source.Validate();
+    source.Remove();
+    Put(context, "compiled-context");
+    Check(cache.Commit(), "Removing the source prevented valid context publication");
+  }
+  Check(!fs::exists(directory.path / key / ".source.onnx"), "Published cache retained its intermediate");
+  Check(Rejected([&] { ContextSourceSnapshot invalid((outside.path / "context.onnx").string()); }),
+      "Source snapshot escaped the private pending transaction");
+}
 }
 
 int main() {
-  TestDigests(); TestPublicationAndIdentity(); TestConfinement(); TestRetentionAndWriteFailure();
+  TestDigests(); TestPublicationAndIdentity(); TestConfinement(); TestRetentionAndWriteFailure(); TestPrivatePreparationSource();
   std::cout << "Compiled-context atomic publication, identity, corruption, confinement, locking and LRU controls passed\n";
 }

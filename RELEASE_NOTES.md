@@ -1,6 +1,8 @@
-# Android 0.9.66.15 — smoother voice chat and reliable execution
+# Android 0.9.66.16 — smoother voice chat and reliable execution
 
-Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
+Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
+
+Application native-library stripping now uses the same pinned NDK as the native modules. Audited default and GenieX vendor libraries retain their exact bytes, with all runtimes, ABIs, APK size limits and release verification gates preserved.
 
 ## GitHub engineering intelligence
 

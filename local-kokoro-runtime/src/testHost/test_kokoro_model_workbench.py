@@ -63,6 +63,17 @@ class ModelWorkbenchExecutionTest(unittest.TestCase):
         self.assertFalse(manifest["physicalDeviceQualified"])
         self.assertEqual(self.model_hash, workbench.digest(self.model))
 
+    def test_duration_trace_follows_the_prediction_branch_before_the_waveform(self):
+        model = onnx.load(self.model)
+        model.graph.node.extend([helper.make_node("Round", ["scaled"], ["rounded"]),
+                                 helper.make_node("Cast", ["rounded"], ["duration"], to=TensorProto.INT64)])
+        model.graph.output.extend([helper.make_tensor_value_info("duration", TensorProto.INT64, [1, "tokens"])])
+        onnx.save(model, self.model)
+        self.model_hash = workbench.digest(self.model)
+        traced = self.run_model("trace", self.root / "duration-checkpoints", "--duration-path")
+        self.assertEqual(["float_tokens", "rounded", "duration", "audio"], traced["traceOrder"])
+        self.assertTrue(traced["instrumentationMayChangePartitions"])
+
     def test_real_cpu_capture_compares_identical_graph_and_detects_first_divergence(self):
         trace = self.root / "trace"
         manifest = self.run_model("trace", trace, "--tensor", "scaled", "--tensor", "audio")

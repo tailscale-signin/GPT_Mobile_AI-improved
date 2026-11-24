@@ -36,9 +36,7 @@ internal class VoiceSpeechBuffer(
             while (consumed < speechEnd) {
                 val tail = visible.substring(consumed)
                 val wordLimit = if (!startedSpeech) {
-                    // Prefer the completed opening clause over a four-word fragment.
-                    // A bounded eight-word fallback still starts long/unpunctuated answers.
-                    8
+                    if (adaptive) VoiceAdaptivePlayback.OPENING_WORDS else 8
                 } else if (adaptive) {
                     (feedback?.suggestedFollowUpWords ?: 12).coerceIn(6, 24)
                 } else {
@@ -58,7 +56,8 @@ internal class VoiceSpeechBuffer(
                 val arrivalBoundary = words.lastOrNull()?.range?.last?.plus(1)?.takeIf {
                     adaptive && words.size >= 2 && now() - (firstPendingAt ?: now()) >= budgetMs
                 }
-                val boundary = clause?.takeIf { it <= 96 } ?: listOfNotNull(clause, wordEnd, bounded, arrivalBoundary).minOrNull()?.takeIf { it <= characterLimit } ?: break
+                val naturalClause = clause?.takeIf { it <= 96 && (startedSpeech || !adaptive || completeWord.findAll(tail.substring(0, it)).take(wordLimit + 1).count() <= wordLimit) }
+                val boundary = naturalClause ?: listOfNotNull(clause, wordEnd, bounded, arrivalBoundary).minOrNull()?.takeIf { it <= characterLimit } ?: break
                 val chunk = tail.substring(0, boundary)
                 chunks += chunk
                 if (chunk.isNotBlank()) startedSpeech = true

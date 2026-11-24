@@ -59,7 +59,7 @@ internal object CatalogMissRecovery {
             val admitted = tools[target] ?: continue
             if (available.none { (it as? JsonObject)?.get("name") == JsonPrimitive(target) }) continue
             // Only bounded reading tools may reuse the original arguments automatically.
-            if (admitted.name !in nativeReads && admitted.capabilities !in readCapabilities) continue
+            if (admitted.capabilities !in readCapabilities) continue
             if (ToolArgumentValidator.errors(miss.arguments, admitted.inputSchema).isNotEmpty() || ToolArgumentValidator.errors(miss.arguments, admitted.contractSchema).isNotEmpty()) continue
             if (calls.any { it.name == target && it.arguments == miss.arguments && results[it.callId]?.dispatched == true }) continue
             return ProviderEvent.ToolCall(readId, admitted.name, miss.arguments)

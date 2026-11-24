@@ -517,12 +517,56 @@ def prepare(args):
     return new_artifact(args.output_dir, generate)
 
 
+def duration_checkpoints(graph, types):
+    """Choose bounded prediction checkpoints from the native two-output contract."""
+    import onnx
+    outputs = list(graph.output)
+    if len(outputs) != 2 or outputs[1].type.tensor_type.elem_type != onnx.TensorProto.INT64:
+        raise ValueError("Duration tracing requires the Kokoro waveform and int64 token-duration outputs")
+    waveform, duration = (value.name for value in outputs)
+    required = {duration}
+    candidates = []
+    # ONNX nodes are topologically ordered. Track only ancestors of duration,
+    # excluding weights, shape calculation and the independent waveform branch.
+    prediction_ops = {"LSTM", "Gemm", "MatMul", "Conv", "ConvInteger", "Sigmoid", "ReduceSum",
+                      "Div", "Round", "Clip", "Max", "Cast", "QuantizeLinear", "DequantizeLinear"}
+    for node in reversed(graph.node):
+        selected = [name for name in node.output if name in required]
+        if not selected:
+            continue
+        required.update(name for name in node.input if name)
+        if node.op_type in prediction_ops:
+            candidates.extend(name for name in selected if name in types and types[name].type.HasField("tensor_type"))
+    return list(dict.fromkeys([*reversed(candidates[:12]), duration, waveform]))
+
+
+def kernel_placement(events):
+    by_provider = collections.Counter()
+    durations = collections.Counter()
+    operators = collections.Counter()
+    for event in events:
+        args = event.get("args", {})
+        provider = args.get("provider")
+        micros = event.get("dur", 0)
+        if (event.get("cat") != "Node" or not event.get("name", "").endswith("_kernel_time") or
+                not isinstance(provider, str) or not provider or not isinstance(micros, (int, float)) or
+                not math.isfinite(micros) or micros <= 0):
+            continue
+        by_provider[provider] += 1
+        durations[provider] += micros
+        operators[(provider, args.get("op_name") or "unknown")] += micros
+    total = sum(durations.values())
+    return dict(by_provider), {
+        "basis": "summed_profiled_node_kernel_microseconds",
+        "providerMicros": dict(durations),
+        "qnnKernelTimeShare": durations["QNNExecutionProvider"] / total if total else None,
+        "topOperators": [{"provider": provider, "operator": op, "micros": micros}
+                         for (provider, op), micros in operators.most_common(24)]}
+
+
 def trace(args):
     import onnx
     model = load_model(args.model, args.model_sha256)
-    wanted = list(dict.fromkeys(args.tensor))
-    if not 1 <= len(wanted) <= MAX_TRACE_TENSORS:
-        raise ValueError("Select between one and 64 named intermediate tensors")
     # Seed each stochastic node independently in this diagnostic copy. This is
     # explicitly recorded because instrumentation can also change partitioning.
     for index, node in enumerate(all_nodes(model.graph)):
@@ -533,9 +577,14 @@ def trace(args):
             node.attribute.append(onnx.helper.make_attribute("seed", float(args.seed + index)))
     model = onnx.shape_inference.infer_shapes(model, strict_mode=False, data_prop=True)
     types = {v.name: v for v in [*model.graph.input, *model.graph.value_info, *model.graph.output]}
+    wanted = duration_checkpoints(model.graph, types) if getattr(args, "duration_path", False) else list(dict.fromkeys(args.tensor))
+    if not 1 <= len(wanted) <= MAX_TRACE_TENSORS:
+        raise ValueError("Select between one and 64 named intermediate tensors")
     order = [name for node in model.graph.node for name in node.output if name in wanted]
     if set(order) != set(wanted) or any(name not in types or not types[name].type.HasField("tensor_type") for name in wanted):
         raise ValueError("Every selected intermediate requires an inferred tensor type in the top-level graph")
+    if getattr(args, "duration_path", False):
+        order = wanted
     existing = {v.name for v in model.graph.output}
     model.graph.output.extend(types[name] for name in order if name not in existing)
 
@@ -599,10 +648,8 @@ def capture(args):
             if profile_path.stat().st_size > MAX_CAPTURE_BYTES:
                 raise ValueError("Profile exceeds the memory limit")
             events = json.loads(profile_path.read_text())
-            providers = collections.Counter(e.get("args", {}).get("provider") for e in events
-                                             if e.get("cat") == "Node" and e.get("name", "").endswith("_kernel_time")
-                                             and e.get("dur", 0) > 0)
-            if args.backend != "cpu" and providers["QNNExecutionProvider"] == 0:
+            providers, placement = kernel_placement(events)
+            if args.backend != "cpu" and not providers.get("QNNExecutionProvider"):
                 raise ValueError("QNN registration without observed QNN execution is not a successful capture")
             checked_file(model, manifest["modelSha256"])
             checked_file(case, args.case_sha256, MAX_CAPTURE_BYTES)
@@ -611,7 +658,7 @@ def capture(args):
                     "inputSha256": args.case_sha256, "backend": args.backend,
                     "onnxruntimeVersion": ort.__version__, "outputsFile": archive.name,
                     "outputsSha256": digest(archive), "traceOrder": manifest.get("traceOrder", names),
-                    "kernelEvents": dict(providers), "profileFile": profile_path.name,
+                    "kernelEvents": providers, "kernelPlacement": placement, "profileFile": profile_path.name,
                     "qnnPluginSha256": digest(library) if library else None,
                     "qnnBackendSha256": digest(args.qnn_backend) if library else None,
                     "scope": "host-emulator" if args.backend == "qnn-emulator" else "runtime-tensor-diagnostic"}
@@ -731,7 +778,9 @@ def main(argv=None):
             sub.add_argument("--calibration", type=Path)
             sub.add_argument("--overrides", type=Path)
         elif command == "trace":
-            sub.add_argument("--tensor", action="append", required=True)
+            selection = sub.add_mutually_exclusive_group(required=True)
+            selection.add_argument("--tensor", action="append")
+            selection.add_argument("--duration-path", action="store_true", help="Trace prediction, token durations and waveform from the native output contract")
             sub.add_argument("--seed", type=int, default=7)
         elif command == "stages":
             sub.add_argument("--specification", required=True, type=Path)

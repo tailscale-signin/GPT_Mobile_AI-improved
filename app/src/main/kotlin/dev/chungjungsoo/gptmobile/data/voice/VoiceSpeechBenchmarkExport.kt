@@ -104,6 +104,9 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
     put("minimumPercentileSamples", VoiceSpeechBenchmarkBackendResult.MIN_PERCENTILE_SAMPLES)
     put("playbackCancellationBasis", "audio_stop_acknowledgement_before_native_retirement")
     put("captionValidationScope", "independent_fixed_fixture_ranges_plus_clock_consistency_not_acoustic_alignment")
+    if (!report.configuration.playback) {
+        put("fixtureOrder", if (report.configuration.workload == VoiceSpeechBenchmarkWorkload.INTERLEAVED_UTTERANCES) "INTERLEAVED_LENGTHS" else "GROUPED_REPEATS")
+    }
     put("orderingProtocol", "recorded_cyclic_rotation_across_runs_not_randomized_within_run")
     put("plannedBackendOrder", buildJsonArray { report.configuration.plannedBackendOrder.forEach { add(JsonPrimitive(it.name)) } })
     put("playbackLatencyMs", JsonNull)
@@ -267,6 +270,7 @@ private fun speechBenchmarkResultJson(report: VoiceSpeechBenchmarkReport, r: Voi
     put("requestedBackend", r.requestedBackend.name)
     put("state", r.state.name)
     nullable("sessionPrepareMs", r.sessionPrepareMs)
+    nullable("prepareToFirstPcmTargetMet", r.samples.firstOrNull()?.prepareToFirstPcmMs?.let { it < VoiceSpeechBenchmarkTargets.PREPARE_TO_FIRST_PCM_MS })
     nullable("preparationThermalBefore", r.preparationThermalBefore)
     nullable("failure", r.failure?.name)
     nullable("failureStage", r.failureStage?.name)
@@ -290,6 +294,29 @@ private fun speechBenchmarkResultJson(report: VoiceSpeechBenchmarkReport, r: Voi
     put("incompleteChunks", buildJsonArray { r.incompleteChunks.takeIf { includeRecords }.orEmpty().forEach { add(chunkJson(it)) } })
     put("executionVerified", r.executionVerified)
     put("audioReference", audioReferenceJson(report.audioReference(r)))
+    put(
+        "rejectedOutputComparison",
+        report.rejectedOutput(r)?.let {
+            buildJsonObject {
+                put("basis", "REJECTED_TENSOR_SCALARS_MATCHED_CPU_INPUT")
+                put("referenceFrames", it.cpuFrames)
+                put("rejectedFrames", it.candidateFrames)
+                put("durationRatio", it.durationRatio)
+                put("tokenTimingDistance", number(it.tokenTimingDistance))
+            }
+        } ?: JsonNull
+    )
+    put(
+        "distinctFirstInferenceProfiles",
+        r.firstInferenceProfiles()?.let {
+            buildJsonObject {
+                put("count", it.count)
+                put("acceleratorMicros", it.acceleratorMicros)
+                put("cpuMicros", it.cpuMicros)
+                put("acceleratorKernelTimeShare", number(it.acceleratorShare))
+            }
+        } ?: JsonNull
+    )
     put("shapeObservations", shapeObservationsJson(r))
     nullable("cancellationStage", r.cancellationStage?.name)
     nullable("cancellationNativeStage", r.cancellationNativeStage?.name)
@@ -330,6 +357,8 @@ private fun speechBenchmarkResultJson(report: VoiceSpeechBenchmarkReport, r: Voi
                         nullable("p95WarmMs", s.p95WarmMs)
                         put("medianFirstPcmMs", number(s.medianFirstPcmMs))
                         put("medianWarmRtf", number(s.medianWarmRtf))
+                        nullable("warmFirstPcmTargetMet", s.medianFirstPcmMs?.let { it < VoiceSpeechBenchmarkTargets.WARM_FIRST_PCM_MS })
+                        nullable("longSpeechRtfTargetMet", s.medianWarmRtf?.takeIf { fixture == VoiceSpeechBenchmarkFixture.LONG }?.let { it < VoiceSpeechBenchmarkTargets.LONG_SPEECH_RTF })
                         put("totalGenerationMs", s.totalGenerationMs)
                         put("totalAudioMs", number(s.totalAudioMs))
                         put("completedChunks", s.completedChunks)

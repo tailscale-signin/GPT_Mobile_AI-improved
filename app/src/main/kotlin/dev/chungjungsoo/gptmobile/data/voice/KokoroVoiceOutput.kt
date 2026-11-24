@@ -631,9 +631,13 @@ internal class KokoroVoiceOutput(
     }
 
     private fun warmFirstCpuInference(model: LoadedModel, voice: KokoroVoice, speed: Float, generation: Long) {
-        // Explicit CPU selection alone opts in. Accelerators retain their existing
-        // admission and benchmark paths; Gateway never receives a warmup phrase.
-        if (model.key.factory.selectedBackend != VoiceSpeechBackend.CPU || powerManager?.currentThermalStatus !in 0..1) return
+        val selected = model.key.factory.selectedBackend
+        if ((selected != VoiceSpeechBackend.CPU && selected != VoiceSpeechBackend.AUTO) ||
+            model.engine.executionProvider != "cpu" ||
+            powerManager?.currentThermalStatus !in 0..1
+        ) {
+            return
+        }
         val hardware = DeviceHardwareGovernor.inspectHardwareState(application)
         if (hardware.isModeratePressure || hardware.isThrottlingRequired) return
         fun authorized() = !closed && active == null && !calibrating && warmupGeneration == generation && loaded === model

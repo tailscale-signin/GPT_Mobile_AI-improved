@@ -4,6 +4,14 @@ Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains 
 
 Application native-library stripping uses the same pinned NDK as the native modules. Release packaging drops the unused MediaPipe proofreading and summarization binary, retains the private-memory embedder and speech JNI libraries, and losslessly compresses distribution APKs before signing. The packager checks the SHA-256 of every entry and verifies Android alignment. The universal APK has a 250 MiB limit and each single-ABI APK has a 180 MiB limit.
 
+## Speech benchmark and playback
+
+- Auto can warm its admitted CPU session on voice entry. Adaptive playback takes a short opening clause or up to six complete opening words before adjusting phrase lengths to the audio queue.
+- Synthesis benchmarks can alternate short, medium and long fixtures. Reports show the native rejection reason, matching CPU frame counts, timing differences when recoverable, and distinct first-inference kernel time.
+- HTP cache reports distinguish storage, firmware, identity and directory failures. A validated disk load can identify a context stored by an earlier process. Model diagnostics can trace the token-duration branch and rank CPU and accelerator operators by measured kernel time.
+
+GPU and HTP speech qualification and listening quality require measured results on the target phone. A rejected tensor comparison, a cache hit or an instrumented model capture alone does not qualify an accelerator.
+
 ## November 24 issue fixes
 
 - GitHub chat can reopen an exact missing local result page, make room for it before optional history, and recover a pull request read after the branch head changes.

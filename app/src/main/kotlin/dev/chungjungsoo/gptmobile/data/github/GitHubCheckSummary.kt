@@ -37,10 +37,13 @@ internal fun gitHubCheckSummary(checks: JsonObject, status: JsonObject, waitForA
         if (expected != observed.size) return "UNKNOWN"
         if (pending) return "RUNNING"
         val contexts = status["statuses"] as? kotlinx.serialization.json.JsonArray
-        if (statuses > 0 && (contexts == null || contexts.size < statuses)) return "UNKNOWN"
-        val names = contexts.orEmpty().mapNotNull { it.jsonObject["context"]?.jsonPrimitive?.contentOrNull }
-        if (names.distinct().size != names.size) return "UNKNOWN"
-        if (contexts.orEmpty().any { it.jsonObject["state"]?.jsonPrimitive?.contentOrNull == "pending" }) return "RUNNING"
+        if (contexts.orEmpty().size != statuses) return "UNKNOWN"
+        val names = contexts.orEmpty().map { (it as? JsonObject)?.get("context")?.jsonPrimitive?.contentOrNull }
+        if (names.any { it.isNullOrBlank() } || names.distinct().size != names.size) return "UNKNOWN"
+        val states = contexts.orEmpty().map { it.jsonObject["state"]?.jsonPrimitive?.contentOrNull }
+        if ("pending" in states) return "RUNNING"
+        if (states.any { it == "error" || it == "failure" }) return "FAILED"
+        if (states.any { it != "success" }) return "UNKNOWN"
     }
     if (conclusions.any { it in setOf("failure", "cancelled", "timed_out", "action_required", "startup_failure") } || statuses > 0 && statusState in setOf("failure", "error")) return "FAILED"
     if (pending) return "RUNNING"

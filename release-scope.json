@@ -355,7 +355,11 @@
     "Add behavior coverage that admits the observed two-ABI package, rejects it one byte below its measured size and verifies both single-ABI ceilings remain unchanged.",
     "Measure release APKs for size-policy, packaging and native-input changes on ordinary pull requests. Recover phone indexing from the map status returned for the authorized revision.",
     "Preserve a bound local phone deadline in public reporting, restore reply playback after explicitly sending an interrupted voice draft, and bind incomplete research diagnostics to the same refreshed authorized evidence as the partial report and receipt.",
-    "Wait for terminal commit-wide CI and resume the bound saved diagnosis once. Look up each unavailable tool once per catalog revision and retry only a verified, authorized reading schema with valid original arguments."
+    "Wait for terminal commit-wide CI and resume the bound saved diagnosis once. Look up each unavailable tool once per catalog revision and retry only a verified, authorized reading schema with valid original arguments.",
+    "Bound the first adaptive speech phrase to six words and permit silent first inference when Auto selects the admitted local CPU. Preserve caption source spans, cancellation and refill pacing.",
+    "Alternate short, medium and long benchmark fixtures across repetitions. Show rejected tensor measurements against the matched CPU input and count each recorded first-inference profile once.",
+    "Report HTP cache admission causes and verified disk reuse from an earlier process. Provide duration-path tensor tracing and operator-level kernel timing for same-model GPU and calibrated HTP diagnosis.",
+    "Require declared read capabilities before replaying a missing tool call and retain pending, incomplete and duplicate commit-status contexts during CI diagnosis."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -394,7 +398,8 @@
     "Pronunciation checks verify readable text, source-aligned captions and frontend token compatibility; they do not establish phone acoustic accuracy, general multilingual support or sentence-dependent homograph correctness.",
     "Production GitHub intelligence scores and comparisons with ChatGPT or Codex require matched live qualification runs. Proposed performance targets remain unmeasured without the corresponding observations.",
     "Recovery reads selected by a helper are unavailable when the primary profile uses LiteRt-LM. Saved recovery-read choices remain visible but inactive; advice-only recovery keeps its existing eligibility rules.",
-    "The 8,424,218-byte margin was measured on the earlier signed universal APK. Physical-device performance requires a separate handset benchmark."
+    "The 8,424,218-byte margin was measured on the earlier signed universal APK. Physical-device performance requires a separate handset benchmark.",
+    "GPU and HTP speech qualification and listening quality require measured results on the target phone. A rejected tensor comparison, a cache hit or an instrumented model capture alone does not qualify an accelerator."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -1248,7 +1253,15 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchWorker.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiWatchTask.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatChecks.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CatalogMissRecoveryTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CatalogMissRecoveryTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummaryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBufferTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkloadTest.kt",
+    "docs/repairs/kokoro-benchmark-99ad5781-task.json",
+    "scripts/generate_app_audit_inventory.py",
+    "scripts/tests/test_app_audit_inventory.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

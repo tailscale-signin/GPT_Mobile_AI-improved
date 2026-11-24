@@ -79,7 +79,7 @@ class VoiceSpeechWorkloadTest {
 
     @Test fun nativeAndAlternatingWorkloadsAreBoundedAndHaveDifferentVersionedIdentities() {
         val hashes = VoiceSpeechBenchmarkWorkload.entries.map(VoiceSpeechWorkload::fixtureHash)
-        assertEquals(3, hashes.distinct().size)
+        assertEquals(VoiceSpeechBenchmarkWorkload.entries.size, hashes.distinct().size)
         for (fixture in VoiceSpeechBenchmarkFixture.entries) {
             assertEquals(1, VoiceSpeechWorkload.phrases(fixture, VoiceSpeechBenchmarkWorkload.NATIVE_PHRASE).size)
             val varied = VoiceSpeechWorkload.phrases(fixture, VoiceSpeechBenchmarkWorkload.VARIED_SHAPES)
@@ -87,6 +87,16 @@ class VoiceSpeechWorkloadTest {
             assertTrue(varied.zipWithNext().all { it.first != it.second })
             varied.forEach(VoiceSpeechWorkload::validate)
         }
+    }
+
+    @Test fun interleavedRunVisitsEachLengthBeforeReturningToTheSameFixture() {
+        val fixtures = VoiceSpeechBenchmarkFixture.entries
+        val interleaved = VoiceSpeechWorkload.schedule(VoiceSpeechBenchmarkWorkload.INTERLEAVED_UTTERANCES, VoiceSpeechBenchmarkMode.QUICK)
+        val grouped = VoiceSpeechWorkload.schedule(VoiceSpeechBenchmarkWorkload.UTTERANCE, VoiceSpeechBenchmarkMode.QUICK)
+        assertEquals(grouped.toSet(), interleaved.toSet())
+        assertEquals((0..2).flatMap { repeat -> fixtures.map { it to repeat } }, interleaved)
+        assertEquals(List(3) { fixtures.first() }, grouped.take(3).map { it.first })
+        fixtures.forEach { assertEquals(VoiceSpeechWorkload.phrases(it), VoiceSpeechWorkload.phrases(it, VoiceSpeechBenchmarkWorkload.INTERLEAVED_UTTERANCES)) }
     }
 
     @Test fun autoCalibrationUsesTwoCompleteTraversalsOfTheSameProductionPlanner() {

@@ -287,6 +287,12 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
         VoiceSpeechBenchmarkOutcome.HISTORICAL -> "Historical workload · comparison unavailable"
     }
     Text(outcome, style = MaterialTheme.typography.titleSmall)
+    if (report.outcome == VoiceSpeechBenchmarkOutcome.PARTIAL) {
+        report.results.filter { it.failure != null }.forEach { result ->
+            val reason = result.failureObservation?.validationReason ?: result.failure?.name
+            Text("${result.requestedBackend.label} · ${reason.orEmpty().lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+    }
     if (nativeEngine) {
         Text("${report.configuration.nativeModelVariant.displayName} · HTP policy: ${report.configuration.htpPerformanceMode.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
     } else {
@@ -415,6 +421,18 @@ private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendRe
                 observation.validationReason?.let { Text("Validation: ${it.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall) }
                 if (observation.audioMeasurementAvailable != true) Text("PCM statistics were not measured or are unknown for this failure.", style = MaterialTheme.typography.bodySmall)
                 VoiceContextPreparationDetails(observation.graphPreparationSource, observation.contextCacheStatus, observation.contextLoadMs, observation.contextStoreMs, observation.contextBytes, observation.contextFallback)
+            }
+            report.rejectedOutput(result)?.let {
+                Text(
+                    "Rejected output ${it.candidateFrames} frames / CPU ${it.cpuFrames} frames · duration ratio ${format(it.durationRatio)}" +
+                        it.tokenTimingDistance?.let { distance -> " · normalized token timing difference ${format(distance)}" }.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            result.firstInferenceProfiles()?.let { profiles ->
+                profiles.acceleratorShare?.let { share ->
+                    Text("${profiles.count} distinct first-inference profiles · ${format(share * 100)}% accelerator kernel time", style = MaterialTheme.typography.bodySmall)
+                }
             }
             result.sessionPrepareMs?.let { Text("Fresh session: $it ms", style = MaterialTheme.typography.bodySmall) }
             result.samples.firstOrNull()?.prepareToFirstPcmMs?.let { Text("Prepare to first PCM: $it ms", style = MaterialTheme.typography.bodySmall) }

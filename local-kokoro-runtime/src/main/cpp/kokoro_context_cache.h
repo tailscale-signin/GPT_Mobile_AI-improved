@@ -1,6 +1,7 @@
 #ifndef MELO_KOKORO_CONTEXT_CACHE_H_
 #define MELO_KOKORO_CONTEXT_CACHE_H_
 
+#include <cerrno>
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -15,7 +16,9 @@ namespace kokoro_runtime {
 
 enum class GraphPreparation : int64_t { None, CpuDynamic, Compiled, DiskContext, Resident };
 enum class ContextCacheStatus : int64_t {
-  Disabled, Miss, Hit, Stored, Invalidated, Unavailable, Pending, WriteFailed, TooLarge, Busy, NotAccessed
+  Disabled, Miss, Hit, Stored, Invalidated, Unavailable, Pending, WriteFailed, TooLarge, Busy, NotAccessed,
+  InvalidConfiguration, IdentityUnavailable, FirmwareUnavailable, DirectoryUnavailable, LockUnavailable,
+  InventoryUnavailable, SpaceQueryFailed, InsufficientStorage, HitPreviousProcess
 };
 struct ContextCacheLimits {
   size_t entries = 6;
@@ -71,20 +74,26 @@ class CompiledContextCache {
   CompiledContextCache(const std::string &root, const std::string &identity,
       ContextCacheLimits limits = {}) : identity_(identity), limits_(limits) {
     if (root.empty()) return;
-    status = ContextCacheStatus::Unavailable;
+    status = ContextCacheStatus::InvalidConfiguration;
     try {
       if (!IsSha256(identity) || limits.entries == 0 || limits.bytes <= 0 || limits.entry_bytes <= 0 ||
           limits.entry_bytes > limits.bytes || limits.free_reserve_bytes < 0) return;
+      status = ContextCacheStatus::DirectoryUnavailable;
       const std::filesystem::path requested(root);
       if (!requested.is_absolute() || std::filesystem::canonical(requested) != requested) return;
       struct stat metadata{};
       if (lstat(root.c_str(), &metadata) || !S_ISDIR(metadata.st_mode) || metadata.st_uid != geteuid() ||
           (metadata.st_mode & (S_IWGRP | S_IWOTH))) return;
       root_ = requested;
+      status = ContextCacheStatus::LockUnavailable;
       lock_ = open((root_ / ".lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
       if (lock_ < 0 || fstat(lock_, &metadata) || !S_ISREG(metadata.st_mode) || metadata.st_uid != geteuid()) return;
-      if (flock(lock_, LOCK_EX | LOCK_NB)) { status = ContextCacheStatus::Busy; return; }
+      if (flock(lock_, LOCK_EX | LOCK_NB)) {
+        if (errno == EWOULDBLOCK || errno == EAGAIN) status = ContextCacheStatus::Busy;
+        return;
+      }
       locked_ = true;
+      status = ContextCacheStatus::InventoryUnavailable;
       path_ = root_ / identity_;
       // Interrupted exports are never inputs. Only owned names inside the
       // canonical app cache are retired; remove_all does not follow symlinks.
@@ -94,9 +103,9 @@ class CompiledContextCache {
         const auto name = entry.path().filename().string();
         if (name.rfind("pending-", 0) == 0 && SafeName(name)) Remove(entry.path());
       }
-      status = ContextCacheStatus::Miss;
       Trim(0, 0);
-    } catch (...) { status = ContextCacheStatus::Unavailable; Release(); }
+      status = ContextCacheStatus::Miss;
+    } catch (...) { Release(); }
   }
   CompiledContextCache(const CompiledContextCache &) = delete;
   CompiledContextCache &operator=(const CompiledContextCache &) = delete;
@@ -109,7 +118,7 @@ class CompiledContextCache {
       if (!std::filesystem::exists(path_) && !std::filesystem::is_symlink(path_)) return {};
       if (!Verify()) { Invalidate(); return {}; }
       std::filesystem::last_write_time(path_, std::filesystem::file_time_type::clock::now());
-      status = ContextCacheStatus::Hit;
+      status = previous_process_ ? ContextCacheStatus::HitPreviousProcess : ContextCacheStatus::Hit;
       return (path_ / "context.onnx").string();
     } catch (...) { Invalidate(); return {}; }
   }
@@ -117,10 +126,12 @@ class CompiledContextCache {
     if (!locked_) return {};
     try {
       struct statvfs space{};
-      if (temporary_bytes < 0 || statvfs(root_.c_str(), &space) ||
-          static_cast<long double>(space.f_bavail) * space.f_frsize <
+      if (temporary_bytes < 0 || statvfs(root_.c_str(), &space)) {
+        status = ContextCacheStatus::SpaceQueryFailed; return {};
+      }
+      if (static_cast<long double>(space.f_bavail) * space.f_frsize <
               static_cast<long double>(limits_.entry_bytes) + limits_.free_reserve_bytes + temporary_bytes) {
-        status = ContextCacheStatus::Unavailable; return {};
+        status = ContextCacheStatus::InsufficientStorage; return {};
       }
       std::string pattern = (root_ / "pending-XXXXXX").string();
       auto *directory = mkdtemp(pattern.data());
@@ -138,7 +149,9 @@ class CompiledContextCache {
         throw std::runtime_error("Speech context export missing");
       int64_t total = 0;
       std::ostringstream manifest;
-      manifest << "kokoro-ep-context-v1\n" << identity_ << '\n';
+      const auto origin = ProcessOrigin();
+      manifest << (origin.empty() ? "kokoro-ep-context-v1" : "kokoro-ep-context-v2") << '\n' << identity_ << '\n';
+      if (!origin.empty()) manifest << origin << '\n';
       for (const auto &file : files) {
         total += file.bytes;
         manifest << file.bytes << ' ' << file.digest << ' ' << file.name << '\n';
@@ -220,13 +233,31 @@ class CompiledContextCache {
     std::sort(files.begin(), files.end(), [](const File &a, const File &b) { return a.name < b.name; });
     return files;
   }
+  // This opaque marker stays inside the private manifest. Only the observed
+  // cross-process hit is exported. Legacy entries remain usable without it.
+  static std::string ProcessOrigin() {
+    static const auto secret = [] {
+      char random[32];
+      std::ifstream input("/dev/urandom", std::ios::binary);
+      return input.read(random, sizeof(random)) ? std::string(random, sizeof(random)) : std::string{};
+    }();
+    return secret.empty() ? std::string{} : Digest(secret + std::to_string(getpid()));
+  }
   bool Verify() {
     const auto files = Inventory(path_, false);
     const auto manifest_file = std::find_if(files.begin(), files.end(), [](const File &file) { return file.name == "manifest"; });
     if (manifest_file == files.end() || manifest_file->bytes > 8192) return false;
     std::ifstream input(path_ / "manifest");
     std::string line;
-    if (!std::getline(input, line) || line != "kokoro-ep-context-v1" || !std::getline(input, line) || line != identity_) return false;
+    if (!std::getline(input, line)) return false;
+    const bool has_origin = line == "kokoro-ep-context-v2";
+    if ((!has_origin && line != "kokoro-ep-context-v1") || !std::getline(input, line) || line != identity_) return false;
+    previous_process_ = false;
+    if (has_origin) {
+      if (!std::getline(input, line) || !IsSha256(line)) return false;
+      const auto current = ProcessOrigin();
+      previous_process_ = !current.empty() && line != current;
+    }
     std::set<std::string> seen{"manifest"};
     int64_t total = manifest_file->bytes;
     while (std::getline(input, line)) {
@@ -271,6 +302,7 @@ class CompiledContextCache {
   std::filesystem::path root_, path_, staging_;
   int lock_ = -1;
   bool locked_ = false;
+  bool previous_process_ = false;
 };
 
 }  // namespace kokoro_runtime

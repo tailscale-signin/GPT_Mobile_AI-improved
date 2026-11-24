@@ -18,6 +18,16 @@ class VoiceSpeechBufferTest {
         assertEquals(listOf("Finished."), buffer.append(first + followUp + "Finished.", final = true, earlyStart = true, followUpWords = words))
     }
 
+    @Test fun adaptiveOpeningPreservesANaturalClauseAndBoundsLongOpeningsWithoutLosingText() {
+        val buffer = VoiceSpeechBuffer()
+        val reply = "One two three four five six seven eight nine ten more words."
+        val opening = buffer.append(reply, final = false, earlyStart = true, adaptive = true).orEmpty()
+        assertEquals("One two three four five six ", opening.first())
+        val rest = buffer.append(reply, final = true, earlyStart = true, adaptive = true).orEmpty()
+        assertEquals(reply, (opening + rest).joinToString(""))
+        assertEquals(listOf("Here is the answer. "), VoiceSpeechBuffer().append("Here is the answer. More", false, earlyStart = true, adaptive = true))
+    }
+
     @Test fun openingPrefersTheCompleteClauseOverAnArbitraryFourWordFragment() {
         val buffer = VoiceSpeechBuffer()
         assertEquals(emptyList<String>(), buffer.append("The current season of ", final = false, earlyStart = true))

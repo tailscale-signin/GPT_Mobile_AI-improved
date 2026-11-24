@@ -174,133 +174,131 @@ internal class VoiceSpeechBenchmarkRunner(
                 checkActive()
                 result = result.copy(state = VoiceSpeechBenchmarkBackendState.RUNNING)
                 update(index, result)
-                for (fixture in VoiceSpeechBenchmarkFixture.entries) {
+                for ((fixture, iteration) in VoiceSpeechWorkload.schedule(report.configuration.workload, report.configuration.mode)) {
                     val phrases = plans.getValue(fixture)
-                    for (iteration in 0..report.configuration.mode.warmRepeats) {
+                    checkActive()
+                    var prepareToFirstPcmMs: Long? = null
+                    result = result.copy(incompleteFixture = fixture, incompleteRepeat = iteration, incompleteChunks = emptyList())
+                    for ((chunkIndex, phrase) in phrases.withIndex()) {
+                        // A throwing generate may retain an earlier native receipt. Only this
+                        // returned call's observation can identify its actual execution provider.
+                        attemptEvidence = null
+                        attemptStarted = null
+                        attemptedInputBytes = phrase.toByteArray(Charsets.UTF_8).size
                         checkActive()
-                        var prepareToFirstPcmMs: Long? = null
-                        result = result.copy(incompleteFixture = fixture, incompleteRepeat = iteration, incompleteChunks = emptyList())
-                        for ((chunkIndex, phrase) in phrases.withIndex()) {
-                            // A throwing generate may retain an earlier native receipt. Only this
-                            // returned call's observation can identify its actual execution provider.
-                            attemptEvidence = null
-                            attemptStarted = null
-                            attemptedInputBytes = phrase.toByteArray(Charsets.UTF_8).size
+                        val before = thermalStatus()
+                        if ((before ?: -1) >= 2) {
+                            report = report.copy(issue = VoiceSpeechBenchmarkIssue.THERMAL_LIMIT)
+                            throw CancellationException("Thermal limit")
+                        }
+                        report = report.copy(activeFixture = fixture, activeRepeat = iteration, activeChunk = chunkIndex)
+                        emit()
+                        val ready = checkNotNull(engine)
+                        val chunk = VoiceNativeEngineGate.exclusive {
                             checkActive()
-                            val before = thermalStatus()
-                            if ((before ?: -1) >= 2) {
-                                report = report.copy(issue = VoiceSpeechBenchmarkIssue.THERMAL_LIMIT)
-                                throw CancellationException("Thermal limit")
+                            ready.resetCancellation()
+                            checkActive()
+                            val started = nanoTime()
+                            attemptStarted = started
+                            if (!watchdog.beginPhase(VoiceSpeechBenchmarkDeadlineScope.CHUNK)) throw CancellationException("Speech benchmark synthesis cancelled")
+                            checkActive()
+                            val audio = ready.generate(phrase, report.configuration.voice.speakerId, report.configuration.speechRate)
+                            val generationMs = elapsed(started)
+                            if (chunkIndex == 0 && result.samples.isEmpty()) prepareToFirstPcmMs = elapsed(preparedAt)
+                            checkActive()
+                            val evidence = ready.executionEvidence
+                            attemptEvidence = evidence
+                            check(audio.samples.isNotEmpty() && audio.samples.all { it.isFinite() } && audio.samples.any { it != 0f }) { "OUTPUT_INVALID" }
+                            try {
+                                kokoroWordFrames(audio.durations, audio.wordTokens, audio.wordTokens.size / 2, audio.samples.size)
+                            } catch (_: IllegalArgumentException) {
+                                error("OUTPUT_INVALID")
                             }
-                            report = report.copy(activeFixture = fixture, activeRepeat = iteration, activeChunk = chunkIndex)
-                            emit()
-                            val ready = checkNotNull(engine)
-                            val chunk = VoiceNativeEngineGate.exclusive {
-                                checkActive()
-                                ready.resetCancellation()
-                                checkActive()
-                                val started = nanoTime()
-                                attemptStarted = started
-                                if (!watchdog.beginPhase(VoiceSpeechBenchmarkDeadlineScope.CHUNK)) throw CancellationException("Speech benchmark synthesis cancelled")
-                                checkActive()
-                                val audio = ready.generate(phrase, report.configuration.voice.speakerId, report.configuration.speechRate)
-                                val generationMs = elapsed(started)
-                                if (chunkIndex == 0 && result.samples.isEmpty()) prepareToFirstPcmMs = elapsed(preparedAt)
-                                checkActive()
-                                val evidence = ready.executionEvidence
-                                attemptEvidence = evidence
-                                check(audio.samples.isNotEmpty() && audio.samples.all { it.isFinite() } && audio.samples.any { it != 0f }) { "OUTPUT_INVALID" }
-                                try {
-                                    kokoroWordFrames(audio.durations, audio.wordTokens, audio.wordTokens.size / 2, audio.samples.size)
-                                } catch (_: IllegalArgumentException) {
-                                    error("OUTPUT_INVALID")
-                                }
-                                check(evidence?.verifiedAudio == true) { "OUTPUT_INVALID" }
-                                val observed = checkNotNull(evidence)
-                                val audioObservation = VoiceSpeechAudioObservation.measure(phrase, audio)
-                                check(audioObservation.tokenDurations.size == observed.tokenCount) { "OUTPUT_INVALID" }
-                                check(observed.effectiveProvider == VoiceSpeechBenchmarkBackendResult.provider(result.requestedBackend)) { "CPU_ONLY" }
-                                if (result.requestedBackend != VoiceSpeechBackend.CPU) {
-                                    check(observed.profileAvailable == true) { "EXECUTION_EVIDENCE_MISSING" }
-                                    check(observed.acceleratorKernels > 0) { "CPU_ONLY" }
-                                }
-                                VoiceSpeechBenchmarkChunk(
-                                    index = chunkIndex,
-                                    inputBytes = attemptedInputBytes,
-                                    inputSha256 = VoiceSpeechWorkload.digest(phrase),
-                                    generationMs = generationMs,
-                                    audioMs = audio.samples.size * 1000.0 / SAMPLE_RATE,
-                                    effectiveProvider = observed.effectiveProvider,
-                                    acceleratorKernels = observed.acceleratorKernels,
-                                    cpuKernels = observed.cpuKernels,
-                                    acceleratorMicros = observed.acceleratorMicros,
-                                    cpuMicros = observed.cpuMicros,
-                                    graphPrepareMs = observed.prepareMs,
-                                    tokenCount = observed.tokenCount,
-                                    validatedAudio = observed.verifiedAudio,
-                                    thermalBefore = before,
-                                    thermalAfter = thermalStatus(),
-                                    hardwareType = observed.hardwareType,
-                                    profileAvailable = observed.profileAvailable,
-                                    profileId = observed.profileId,
-                                    profileReused = observed.profileReused,
-                                    cacheHit = observed.cacheHit,
-                                    currentPrepareMs = observed.currentPrepareMs,
-                                    graphPreparedThisCall = observed.graphPreparedThisCall,
-                                    cachedShapeCount = observed.cachedShapeCount,
-                                    cacheLimit = observed.cacheLimit,
-                                    cacheEstimatedBytes = observed.cacheEstimatedBytes,
-                                    audioRms = audioObservation.rms,
-                                    audioPeak = audioObservation.peak,
-                                    clippedSamples = audioObservation.clippedSamples,
-                                    nonSilentSamples = audioObservation.nonSilentSamples,
-                                    discoverySummary = observed.discoverySummary,
-                                    frontendMs = observed.frontendMs, validationMs = observed.validationMs, cacheEvictions = observed.cacheEvictions, profileFinalizeMs = observed.profileFinalizeMs,
-                                    nativeSynthesisMs = observed.synthesisMs,
-                                    audioObservation = audioObservation,
-                                    cacheBudgetBytes = observed.cacheBudgetBytes,
-                                    activeShapeEstimatedBytes = observed.activeShapeEstimatedBytes,
-                                    availableMemoryBytes = observed.availableMemoryBytes,
-                                    cacheAdmission = observed.cacheAdmission,
-                                    graphPreparationSource = observed.graphPreparationSource,
-                                    contextCacheStatus = observed.contextCacheStatus,
-                                    contextLoadMs = observed.contextLoadMs,
-                                    contextStoreMs = observed.contextStoreMs,
-                                    contextBytes = observed.contextBytes,
-                                    contextCacheEvictions = observed.contextCacheEvictions,
-                                    contextFallback = observed.contextFallback,
-                                    htpPerformanceMode = observed.htpPerformanceMode
-                                ).also {
-                                    watchdog.endPhase()
-                                    checkActive()
-                                    attemptStarted = null
-                                }
+                            check(evidence?.verifiedAudio == true) { "OUTPUT_INVALID" }
+                            val observed = checkNotNull(evidence)
+                            val audioObservation = VoiceSpeechAudioObservation.measure(phrase, audio)
+                            check(audioObservation.tokenDurations.size == observed.tokenCount) { "OUTPUT_INVALID" }
+                            check(observed.effectiveProvider == VoiceSpeechBenchmarkBackendResult.provider(result.requestedBackend)) { "CPU_ONLY" }
+                            if (result.requestedBackend != VoiceSpeechBackend.CPU) {
+                                check(observed.profileAvailable == true) { "EXECUTION_EVIDENCE_MISSING" }
+                                check(observed.acceleratorKernels > 0) { "CPU_ONLY" }
                             }
-                            result = result.copy(incompleteChunks = result.incompleteChunks + chunk)
-                            update(index, result)
-                            if (!report.configuration.deepDiagnostics && backend != VoiceSpeechBackend.CPU) {
-                                val reference = report.results.singleOrNull { it.requestedBackend == VoiceSpeechBackend.CPU }
-                                    ?.samples?.singleOrNull { it.fixture == fixture && it.repeat == iteration }
-                                    ?.chunks?.singleOrNull { it.index == chunk.index }
-                                if (VoiceSpeechAudioReference.compare(reference?.audioObservation, chunk.audioObservation).status == VoiceSpeechAudioReferenceStatus.MISMATCH) {
-                                    result = result.copy(stopReason = VoiceSpeechBenchmarkStopReason.AUDIO_REFERENCE_MISMATCH)
-                                    error("OUTPUT_INVALID")
-                                }
+                            VoiceSpeechBenchmarkChunk(
+                                index = chunkIndex,
+                                inputBytes = attemptedInputBytes,
+                                inputSha256 = VoiceSpeechWorkload.digest(phrase),
+                                generationMs = generationMs,
+                                audioMs = audio.samples.size * 1000.0 / SAMPLE_RATE,
+                                effectiveProvider = observed.effectiveProvider,
+                                acceleratorKernels = observed.acceleratorKernels,
+                                cpuKernels = observed.cpuKernels,
+                                acceleratorMicros = observed.acceleratorMicros,
+                                cpuMicros = observed.cpuMicros,
+                                graphPrepareMs = observed.prepareMs,
+                                tokenCount = observed.tokenCount,
+                                validatedAudio = observed.verifiedAudio,
+                                thermalBefore = before,
+                                thermalAfter = thermalStatus(),
+                                hardwareType = observed.hardwareType,
+                                profileAvailable = observed.profileAvailable,
+                                profileId = observed.profileId,
+                                profileReused = observed.profileReused,
+                                cacheHit = observed.cacheHit,
+                                currentPrepareMs = observed.currentPrepareMs,
+                                graphPreparedThisCall = observed.graphPreparedThisCall,
+                                cachedShapeCount = observed.cachedShapeCount,
+                                cacheLimit = observed.cacheLimit,
+                                cacheEstimatedBytes = observed.cacheEstimatedBytes,
+                                audioRms = audioObservation.rms,
+                                audioPeak = audioObservation.peak,
+                                clippedSamples = audioObservation.clippedSamples,
+                                nonSilentSamples = audioObservation.nonSilentSamples,
+                                discoverySummary = observed.discoverySummary,
+                                frontendMs = observed.frontendMs, validationMs = observed.validationMs, cacheEvictions = observed.cacheEvictions, profileFinalizeMs = observed.profileFinalizeMs,
+                                nativeSynthesisMs = observed.synthesisMs,
+                                audioObservation = audioObservation,
+                                cacheBudgetBytes = observed.cacheBudgetBytes,
+                                activeShapeEstimatedBytes = observed.activeShapeEstimatedBytes,
+                                availableMemoryBytes = observed.availableMemoryBytes,
+                                cacheAdmission = observed.cacheAdmission,
+                                graphPreparationSource = observed.graphPreparationSource,
+                                contextCacheStatus = observed.contextCacheStatus,
+                                contextLoadMs = observed.contextLoadMs,
+                                contextStoreMs = observed.contextStoreMs,
+                                contextBytes = observed.contextBytes,
+                                contextCacheEvictions = observed.contextCacheEvictions,
+                                contextFallback = observed.contextFallback,
+                                htpPerformanceMode = observed.htpPerformanceMode
+                            ).also {
+                                watchdog.endPhase()
+                                checkActive()
+                                attemptStarted = null
                             }
                         }
-                        val chunks = result.incompleteChunks
-                        val first = chunks.first()
-                        val last = chunks.last()
-                        val sample = VoiceSpeechBenchmarkSample(
-                            fixture, iteration, chunks.sumOf { it.generationMs }, first.generationMs, prepareToFirstPcmMs,
-                            chunks.sumOf { it.audioMs }, last.effectiveProvider,
-                            last.acceleratorKernels, last.cpuKernels, last.acceleratorMicros, last.cpuMicros,
-                            chunks.sumOf { it.currentPrepareMs ?: 0 }, chunks.sumOf { it.tokenCount }, chunks.all { it.validatedAudio },
-                            first.thermalBefore, last.thermalAfter, last.hardwareType, chunks
-                        )
-                        result = result.copy(samples = result.samples + sample, incompleteFixture = null, incompleteRepeat = null, incompleteChunks = emptyList())
+                        result = result.copy(incompleteChunks = result.incompleteChunks + chunk)
                         update(index, result)
+                        if (!report.configuration.deepDiagnostics && backend != VoiceSpeechBackend.CPU) {
+                            val reference = report.results.singleOrNull { it.requestedBackend == VoiceSpeechBackend.CPU }
+                                ?.samples?.singleOrNull { it.fixture == fixture && it.repeat == iteration }
+                                ?.chunks?.singleOrNull { it.index == chunk.index }
+                            if (VoiceSpeechAudioReference.compare(reference?.audioObservation, chunk.audioObservation).status == VoiceSpeechAudioReferenceStatus.MISMATCH) {
+                                result = result.copy(stopReason = VoiceSpeechBenchmarkStopReason.AUDIO_REFERENCE_MISMATCH)
+                                error("OUTPUT_INVALID")
+                            }
+                        }
                     }
+                    val chunks = result.incompleteChunks
+                    val first = chunks.first()
+                    val last = chunks.last()
+                    val sample = VoiceSpeechBenchmarkSample(
+                        fixture, iteration, chunks.sumOf { it.generationMs }, first.generationMs, prepareToFirstPcmMs,
+                        chunks.sumOf { it.audioMs }, last.effectiveProvider,
+                        last.acceleratorKernels, last.cpuKernels, last.acceleratorMicros, last.cpuMicros,
+                        chunks.sumOf { it.currentPrepareMs ?: 0 }, chunks.sumOf { it.tokenCount }, chunks.all { it.validatedAudio },
+                        first.thermalBefore, last.thermalAfter, last.hardwareType, chunks
+                    )
+                    result = result.copy(samples = result.samples + sample, incompleteFixture = null, incompleteRepeat = null, incompleteChunks = emptyList())
+                    update(index, result)
                 }
                 result = result.copy(state = VoiceSpeechBenchmarkBackendState.COMPLETE)
             } catch (_: CancellationException) {

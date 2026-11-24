@@ -20,7 +20,7 @@ class KokoroPhrasePlanTest {
 
     @Test fun measuredWordCostConstrainsTheNextPhraseToAvailablePcm() {
         val adaptive = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
-        assertEquals(8, adaptive.phraseWords(0))
+        assertEquals(6, adaptive.phraseWords(0))
         adaptive.observe(4_000, 5_000, spokenWords = 16)
         assertEquals(6, adaptive.phraseWords(1_000))
         assertEquals(10, adaptive.phraseWords(3_000))

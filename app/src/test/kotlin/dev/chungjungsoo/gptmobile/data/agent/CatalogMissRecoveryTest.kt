@@ -63,6 +63,8 @@ class CatalogMissRecoveryTest {
         assertEquals(read.name, action.name)
         assertEquals(args, action.arguments)
         assertNull(CatalogMissRecovery.next(history, tools, setOf(action.callId)))
+        val conflictingReader = read.copy(capabilities = setOf(AgentToolCapability.PAGE_READER, AgentToolCapability.GITHUB))
+        assertNull(CatalogMissRecovery.next(history, listOf(catalog, conflictingReader), emptySet()))
         val invalid = miss("1", "old_reader", arguments = JsonObject(emptyMap()), suggested = read.name)
         assertNull(CatalogMissRecovery.next(listOf(invalid, response(lookup, read.name)), tools, emptySet()))
         val write = read.copy(name = "create_issue", capabilities = setOf(AgentToolCapability.GITHUB))

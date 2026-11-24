@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "67dce0e844603c704bf87c51112de243eac73c48",
+  "workingBranch": "fix/release-universal-apk-budget-2026-11-24",
+  "startingHead": "0b449850d4a22dfdd501466b948b598d9237f4c4",
+  "pullRequest": 2528,
+  "intent": "Resolve the build-149 speech and issue audit, preserve concurrent fixes, and qualify the coordinated Android and Gateway publication.",
+  "deviceBaseline": {
+    "run": "1795534579047-99ad5781",
+    "qualified": [
+      "CPU",
+      "QNN_HTP"
+    ],
+    "failed": "QNN_GPU",
+    "reason": "CLIPPED_PCM",
+    "gpuFrames": 25800,
+    "cpuFrames": 61200,
+    "htpNewShapes": 6,
+    "htpPreparationMs": 52060
+  },
+  "status": "IMPLEMENTED",
+  "integratedCompanion": "bcd4494a32f059dc0d76664ddcf7189cfcdb55b4",
+  "verification": [
+    "C++ cache transaction test with separate writer and reader processes and a legacy manifest",
+    "C++ native output validation harness",
+    "JVM native evidence parser including cross-process and invalid receipts",
+    "35 dependency-free model-workbench tests",
+    "13 actual ONNX/ONNX Runtime preparation, capture and comparison tests using the repository hash-locked dependencies, including the new duration-branch trace",
+    "Release scope validated across 848 changed paths"
+  ],
+  "deviceQualification": "Fresh on-device playback and hardware qualification are pending. The build-149 device report is the baseline."
+}

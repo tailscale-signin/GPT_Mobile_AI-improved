@@ -122,7 +122,12 @@ public final class KokoroEvidenceContractTest {
         long[] falseStored = stored.clone(); falseStored[12] = 0; rejected(falseStored);
         long[] falseResident = resident.clone(); falseResident[14] = 0; rejected(falseResident);
         long[] badPath = stored.clone(); badPath[48] = 5; rejected(badPath);
-        long[] badState = stored.clone(); badState[49] = 11; rejected(badState);
+        long[] noStorage = stored.clone(); noStorage[49] = 18; noStorage[52] = 0;
+        require("INSUFFICIENT_STORAGE".equals(parse(noStorage).contextCacheStatus), "Cache admission cause was unavailable");
+        long[] restarted = stored.clone(); restarted[48] = 3; restarted[49] = 19;
+        require("HIT_PREVIOUS_PROCESS".equals(parse(restarted).contextCacheStatus), "Cross-process disk hit was lost");
+        restarted[48] = 2; rejected(restarted);
+        long[] badState = stored.clone(); badState[49] = 20; rejected(badState);
         long[] badMode = stored.clone(); badMode[55] = 3; rejected(badMode);
         long[] tooLargeContext = stored.clone(); tooLargeContext[52] = 268435457; rejected(tooLargeContext);
         long[] badFallback = stored.clone(); badFallback[54] = 2; rejected(badFallback);

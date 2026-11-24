@@ -53,6 +53,20 @@ class PassiveNumpyArchive:
 
 
 class ModelArtifactTest(unittest.TestCase):
+    def test_profile_placement_uses_kernel_durations_and_preserves_cpu_convolutions(self):
+        def event(provider, op, duration):
+            return {"cat": "Node", "name": "node_kernel_time", "dur": duration,
+                    "args": {"provider": provider, "op_name": op}}
+        cpu, qnn = "CPUExecutionProvider", "QNNExecutionProvider"
+        events = [event(cpu, "ConvInteger", 80), event(cpu, "ConvInteger", 4), event(qnn, "Conv", 16),
+                  event(qnn, "Conv", 0), {"cat": "Session", "name": "run", "dur": 500}]
+        counts, placement = workbench.kernel_placement(events)
+        self.assertEqual({cpu: 2, qnn: 1}, counts)
+        self.assertEqual({cpu: 84, qnn: 16}, placement["providerMicros"])
+        self.assertEqual(.16, placement["qnnKernelTimeShare"])
+        self.assertEqual({"provider": cpu, "operator": "ConvInteger", "micros": 84}, placement["topOperators"][0])
+        self.assertIsNone(workbench.kernel_placement([])[1]["qnnKernelTimeShare"])
+
     def test_hash_and_size_bind_input(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "model"

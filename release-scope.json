@@ -302,7 +302,8 @@
     "Extend local CPU model preparation with one silent fixed-phrase inference bound to the resident model, voice, rate and known cool thermal state; live replies cancel optional warmup and stale deadlines cannot cancel subsequent speech.",
     "Record optional per-backend whole-device battery-counter endpoints and observed power events with explicit interrupted, charging, unsupported, unchanged and reset states; preserve honest history/export availability and keep energy attribution outside model ranking.",
     "Expose engineering latency/RTF/clipping/accelerator-share goals separately from measurements, and export bounded observed CPU/QNN operator hotspots without node names or hardware-utilization claims.",
-    "Honor standalone strict remote acceptance, all existing reconciliation codes and explicit typed retry/replay refusal before creating HTTP provider waits or manual budget timing; retain only raw boolean-false replay evidence and preserve original observations, alias normalization and clean/explicit-NO/string controls through both adapters."
+    "Honor standalone strict remote acceptance, all existing reconciliation codes and explicit typed retry/replay refusal before creating HTTP provider waits or manual budget timing; retain only raw boolean-false replay evidence and preserve original observations, alias normalization and clean/explicit-NO/string controls through both adapters.",
+    "Drain the Compose/Android host frame after hiding the privacy comparison panel before polling disposal cleanup; preserve the real lifecycle cancellation path, held streams, every assertion and original timeouts."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -353,6 +354,7 @@
   "allowedPaths": [
     ".github/workflows/native-memory-smoke.yml",
     ".github/workflows/pr-validation.yml",
+    ".github/workflows/qnn-runtime-candidate.yml",
     ".github/workflows/release-0950-acceptance.yml",
     ".github/workflows/release-build.yml",
     ".github/workflows/speech-engine-smoke.yml",
@@ -722,6 +724,7 @@
     "docs/architecture/repository-guide.md",
     "docs/architecture/repository-index.json",
     "docs/architecture/voice-streaming.md",
+    "docs/audits/qnn-runtime-candidate.json",
     "docs/ci-cd/provider-acceptance-2026-11-24-task.md",
     "docs/ci-cd/provider-http-remote-evidence-2026-11-24-task.md",
     "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json",
@@ -784,6 +787,7 @@
     "docs/repairs/privacy-export-ui-scroll-2026-11-23-task.json",
     "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json",
     "docs/repairs/privacy-independent-review-2026-11-23-task.json",
+    "docs/repairs/privacy-lifecycle-disposal-idle-2026-11-24-task.json",
     "docs/repairs/privacy-modal-provenance-2026-11-23-task.json",
     "docs/repairs/privacy-mode-audit-2026-11-23-task.json",
     "docs/repairs/privacy-mode-audit-2026-11-23.md",
@@ -836,6 +840,7 @@
     "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py",
     "release-scope.json",
     "scripts/audit_locked_dependencies.py",
+    "scripts/build_qualcomm_dispatch_candidate.py",
     "scripts/check_android_lint_memory.py",
     "scripts/check_chat_method_size.py",
     "scripts/check_ci_policy.py",

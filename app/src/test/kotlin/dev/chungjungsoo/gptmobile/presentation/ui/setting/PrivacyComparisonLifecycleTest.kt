@@ -156,6 +156,8 @@ class PrivacyComparisonLifecycleTest {
                 assertEquals(8, opened.size)
                 visible = false
             }
+            // Commit the host frame that disposes the panel before polling external cleanup state.
+            compose.waitForIdle()
             compose.waitUntil(timeoutMillis = 5_000) { cleanedStreams.get() == 2 && !model.state.value.running }
             compose.waitForIdle()
             compose.onNodeWithTag("privacy_comparison_toggle").assertDoesNotExist()

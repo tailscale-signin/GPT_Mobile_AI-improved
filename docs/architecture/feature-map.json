@@ -2789,9 +2789,9 @@
       "sha256": "71bf0e75057d6efc72bec92773b527640ec18b68b45259324e903dc0cd00de99"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt": {
-      "blob_sha": "53b372ec92cd407e857fe4ea0e8e16bbaab7fc56",
-      "bytes": 9751,
-      "sha256": "98b4329d782971f2e1918bc71fd0cadf4530139c254b531258ac6cfd3be0bf1d"
+      "blob_sha": "ccc75afbd612128085c9f466534a05844d77c625",
+      "bytes": 9885,
+      "sha256": "4f0df7bc346e210a78745a51437896eea0673f3ea14651f520c9e676c2e5a405"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt": {
       "blob_sha": "494fd13e56be8403162cc8b6fdb2ddc5d7b9e3dd",

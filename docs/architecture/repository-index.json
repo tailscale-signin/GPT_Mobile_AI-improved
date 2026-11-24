@@ -1031,6 +1031,7 @@
         ".github/workflows/post-merge-validation.yml",
         ".github/workflows/pr-validation.yml",
         ".github/workflows/prepare-release.yml",
+        ".github/workflows/qnn-runtime-candidate.yml",
         ".github/workflows/recover-verified-android144-gateway18.yml",
         ".github/workflows/release-0950-acceptance.yml",
         ".github/workflows/release-build.yml",

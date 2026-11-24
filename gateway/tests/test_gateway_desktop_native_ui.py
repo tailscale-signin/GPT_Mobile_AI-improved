@@ -20,6 +20,8 @@ def descendants(widget):
 
 class DesktopNativeAcceptance(unittest.TestCase):
     def setUp(self):
+        self._setup_complete = False
+        self.addCleanup(self._cleanup_incomplete_setup)
         try:
             self.window = tk.Tk()
         except tk.TclError as error:
@@ -29,6 +31,20 @@ class DesktopNativeAcceptance(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         atomic_json(self.root / 'settings.json', DEFAULTS)
+        # Present the empty owner before any production window constructor runs.
+        self.window.update_idletasks()
+        self.window.deiconify()
+        self.window.lift()
+        self.window.focus_force()
+        self.window.update()
+        self.assertTrue(self.window.winfo_viewable(), 'The empty test owner must be viewable')
+        self.assertIs(self.window, self.window.focus_displayof(),
+                      'The empty test owner must hold the current display focus')
+        self._setup_complete = True
+
+    def _cleanup_incomplete_setup(self):
+        if not self._setup_complete:
+            self.tearDown()
 
     def tearDown(self):
         if hasattr(self, 'window'):
@@ -38,6 +54,45 @@ class DesktopNativeAcceptance(unittest.TestCase):
                 pass
         if hasattr(self, 'temp'):
             self.temp.cleanup()
+
+    def assert_hit_target(self, target, window, x, y, message='The control must be the topmost hit target'):
+        hit = window.winfo_containing(x, y)
+        if hit is not target:
+            def read(query):
+                try:
+                    return query()
+                except (tk.TclError, KeyError):
+                    return 'unavailable'
+
+            def widget_state(widget):
+                if widget is None:
+                    return None
+                if not isinstance(widget, tk.Misc) or widget.tk is not self.window.tk:
+                    return 'outside-application-or-unavailable'
+                return {
+                    'path': str(widget)[:160],
+                    'geometry': read(lambda: widget.winfo_geometry()[:96]),
+                    'root': read(lambda: (widget.winfo_rootx(), widget.winfo_rooty())),
+                    'mapped': read(widget.winfo_ismapped),
+                    'viewable': read(widget.winfo_viewable),
+                }
+
+            def application_stack():
+                paths = self.window.tk.splitlist(self.window.tk.call('wm', 'stackorder', self.window._w))
+                return {'paths': [str(path)[:160] for path in paths[:16]], 'omitted': max(0, len(paths) - 16)}
+
+            # These observations never pump events, change focus or repeat the hit query.
+            details = {
+                'point': (x, y),
+                'target': widget_state(target),
+                'hit': widget_state(hit),
+                'window': widget_state(window),
+                'focus': widget_state(read(window.focus_displayof)),
+                'screen': read(lambda: (self.window.winfo_screenwidth(), self.window.winfo_screenheight())),
+                'application_stack': read(application_stack),
+            }
+            message = f'{message}; nativeHit={details}'
+        self.assertIs(target, hit, message)
 
     def test_daily_destinations_render_and_send_stays_visible_at_minimum_size(self):
         from desktop.dashboard import Dashboard, PAGES
@@ -62,14 +117,14 @@ class DesktopNativeAcceptance(unittest.TestCase):
                     column_x = x + min(12, row_width // 2)
                     row_y = y + row_height // 2
                     self.assertEqual('cell', listing.identify_region(column_x, row_y))
-                    self.assertIs(listing, self.window.winfo_containing(listing.winfo_rootx() + column_x,
-                                                                       listing.winfo_rooty() + row_y),
-                                  'Saved rows must not be obscured by another widget')
+                    self.assert_hit_target(listing, self.window, listing.winfo_rootx() + column_x,
+                                           listing.winfo_rooty() + row_y,
+                                           'Saved rows must not be obscured by another widget')
                     heading_y = next((offset for offset in range(y) if listing.identify_region(column_x, offset) == 'heading'), None)
                     self.assertIsNotNone(heading_y, 'The saved-list heading must be present')
-                    self.assertIs(listing, self.window.winfo_containing(listing.winfo_rootx() + column_x,
-                                                                       listing.winfo_rooty() + heading_y),
-                                  'Saved-list headings must not be obscured by another widget')
+                    self.assert_hit_target(listing, self.window, listing.winfo_rootx() + column_x,
+                                           listing.winfo_rooty() + heading_y,
+                                           'Saved-list headings must not be obscured by another widget')
                     listing.delete(row)
                 elif page == 'Benchmarks':
                     panel = dashboard.benchmark_panel
@@ -131,9 +186,9 @@ class DesktopNativeAcceptance(unittest.TestCase):
                 self.assertGreaterEqual(control.winfo_rooty(), settings.winfo_rooty())
                 self.assertLessEqual(control.winfo_rootx() + control.winfo_width(), settings.winfo_rootx() + settings.winfo_width())
                 self.assertLessEqual(control.winfo_rooty() + control.winfo_height(), settings.winfo_rooty() + settings.winfo_height())
-                self.assertIs(control, settings.winfo_containing(control.winfo_rootx() + control.winfo_width() // 2,
-                                                                control.winfo_rooty() + control.winfo_height() // 2),
-                              f'{control} must remain the topmost hit target at its visible center')
+                self.assert_hit_target(control, settings, control.winfo_rootx() + control.winfo_width() // 2,
+                                       control.winfo_rooty() + control.winfo_height() // 2,
+                                       f'{control} must remain the topmost hit target at its visible center')
             panel.fields['profile'].set(validation.CUSTOM_PROFILE)
             panel.profile_changed()
             self.assertTrue(panel.advanced_visible.get())
@@ -146,8 +201,8 @@ class DesktopNativeAcceptance(unittest.TestCase):
                 self.assertGreaterEqual(control.winfo_rooty(), settings.winfo_rooty())
                 self.assertLessEqual(control.winfo_rootx() + control.winfo_width(), settings.winfo_rootx() + settings.winfo_width())
                 self.assertLessEqual(control.winfo_rooty() + control.winfo_height(), settings.winfo_rooty() + settings.winfo_height())
-                self.assertIs(control, settings.winfo_containing(control.winfo_rootx() + control.winfo_width() // 2,
-                                                                control.winfo_rooty() + control.winfo_height() // 2))
+                self.assert_hit_target(control, settings, control.winfo_rootx() + control.winfo_width() // 2,
+                                       control.winfo_rooty() + control.winfo_height() // 2)
             for open_dialog in (panel.discover_behavior_checks, panel.configure_release_checks):
                 dialog = open_dialog()
                 self.assertIsNotNone(dialog)
@@ -164,15 +219,15 @@ class DesktopNativeAcceptance(unittest.TestCase):
             self.assertEqual(original, panel.commands.get('1.0', 'end-1c'), 'Tab must move focus, not insert invisible JSON text')
             self.assertIs(panel.contract, settings.focus_get())
             self.assertTrue(panel.contract.winfo_viewable())
-            self.assertIs(panel.contract, settings.winfo_containing(panel.contract.winfo_rootx() + panel.contract.winfo_width() // 2,
-                                                                   panel.contract.winfo_rooty() + panel.contract.winfo_height() // 2),
-                          'Focused contract editor must be the topmost hit target; '
-                          f'canvasRoot=({panel.viewport.winfo_rootx()},{panel.viewport.winfo_rooty()}), '
-                          f'canvasSize=({panel.viewport.winfo_width()},{panel.viewport.winfo_height()}), '
-                          f'editorSize=({panel.editor.winfo_width()},{panel.editor.winfo_height()}), '
-                          f'contractRoot=({panel.contract.winfo_rootx()},{panel.contract.winfo_rooty()}), '
-                          f'contractSize=({panel.contract.winfo_width()},{panel.contract.winfo_height()}), '
-                          f'scroll={panel.viewport.yview()}, region={panel.viewport.bbox("all")}')
+            self.assert_hit_target(panel.contract, settings, panel.contract.winfo_rootx() + panel.contract.winfo_width() // 2,
+                                   panel.contract.winfo_rooty() + panel.contract.winfo_height() // 2,
+                                   'Focused contract editor must be the topmost hit target; '
+                                   f'canvasRoot=({panel.viewport.winfo_rootx()},{panel.viewport.winfo_rooty()}), '
+                                   f'canvasSize=({panel.viewport.winfo_width()},{panel.viewport.winfo_height()}), '
+                                   f'editorSize=({panel.editor.winfo_width()},{panel.editor.winfo_height()}), '
+                                   f'contractRoot=({panel.contract.winfo_rootx()},{panel.contract.winfo_rooty()}), '
+                                   f'contractSize=({panel.contract.winfo_width()},{panel.contract.winfo_height()}), '
+                                   f'scroll={panel.viewport.yview()}, region={panel.viewport.bbox("all")}')
             panel.advanced_toggle.invoke()
             self.window.update()
             self.assertFalse(panel.advanced.winfo_viewable())
@@ -213,10 +268,10 @@ class DesktopNativeAcceptance(unittest.TestCase):
                                                  panel.viewport.winfo_rootx() + panel.viewport.winfo_width(), str(control))
                             self.assertLessEqual(control.winfo_rooty() + control.winfo_height(),
                                                  panel.viewport.winfo_rooty() + panel.viewport.winfo_height(), str(control))
-                            self.assertIs(control, settings.winfo_containing(
-                                control.winfo_rootx() + control.winfo_width() // 2,
-                                control.winfo_rooty() + control.winfo_height() // 2),
-                                f'{control} must remain the topmost hit target at its visible center')
+                            self.assert_hit_target(control, settings,
+                                                   control.winfo_rootx() + control.winfo_width() // 2,
+                                                   control.winfo_rooty() + control.winfo_height() // 2,
+                                                   f'{control} must remain the topmost hit target at its visible center')
                 self.assertFalse(panel.cancel.is_set())
                 panel.cancel_button.invoke()
                 self.assertTrue(panel.cancel.is_set(), 'Visible Cancel must retain its cancellation action')

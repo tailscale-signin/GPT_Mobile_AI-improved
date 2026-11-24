@@ -644,6 +644,33 @@
       ]
     },
     {
+      "id": "gateway-desktop-presentation",
+      "title": "Gateway desktop presentation and native acceptance",
+      "terms": [
+        "gateway desktop",
+        "window visibility",
+        "native hit target"
+      ],
+      "paths": [
+        "gateway/desktop/ui.py",
+        "gateway/desktop/dashboard.py"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_desktop_native_ui.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/windows-owner-presentation-2026-11-24-task.json"
+      ],
+      "invariants": [
+        "The fixture presents its empty owner before production window construction; production controls remain subject to strict screen hit tests.",
+        "Failure diagnostics retain one captured hit and bounded content-free application geometry, focus and stacking observations.",
+        "Gateway packaging binds every included source and test byte to the reviewed source inventory."
+      ]
+    },
+    {
       "id": "chat-rendering",
       "title": "Settled Markdown rendering and chat presentation",
       "terms": [
@@ -3448,6 +3475,11 @@
       "bytes": 4210,
       "sha256": "4d8bb6f2f795713bb69dc946c34ee045a619e8e295d0f2e5f3cce258ddb7f0e5"
     },
+    "docs/repairs/windows-owner-presentation-2026-11-24-task.json": {
+      "blob_sha": "921c965acfc045c03b55565d50bac1bf19a5aaed",
+      "bytes": 8587,
+      "sha256": "ded28e0c6de8dd4d624cc48f94ed75e4cc3f1784406c22780db45e6f270fa633"
+    },
     "gateway/benchmarks/PHONE_ACTIONS.md": {
       "blob_sha": "9913058470a289d738bd01936de858dd6e42c9e7",
       "bytes": 9604,
@@ -3478,6 +3510,16 @@
       "bytes": 27760,
       "sha256": "7070cc0246bd692aa3611b3795b93a324134afc8178203e8493b0ebd6fbcaecc"
     },
+    "gateway/desktop/dashboard.py": {
+      "blob_sha": "789fdbb19fc66837fb7b9d423fac8d000fc6c050",
+      "bytes": 26645,
+      "sha256": "445fb6e0e38d990fa00e5cd2ce23f0857b955799edf9a540f25470668b9740d4"
+    },
+    "gateway/desktop/ui.py": {
+      "blob_sha": "7a86958a30b55c6219f3fedf3551b42394d62b63",
+      "bytes": 26225,
+      "sha256": "f03fa8b47a420e25fb37ef087bcf5533be7451ff64c94666e4e5a61007deeda4"
+    },
     "gateway/tests/test_gateway_agent_adapters.py": {
       "blob_sha": "55b8ef2c179a8d6006fe15dec88c484b5e054565",
       "bytes": 85763,
@@ -3507,6 +3549,11 @@
       "blob_sha": "2fb955f632cf5ea2a28ada3e7c3bde41fb5e99b3",
       "bytes": 54138,
       "sha256": "777af9ccdfb2e2076bcbc57d3de366d78864a2af6a5fff95ae6e13dbe0e3761c"
+    },
+    "gateway/tests/test_gateway_desktop_native_ui.py": {
+      "blob_sha": "95b10c9ec1c3f71fa91067d383f87dcbc98655bf",
+      "bytes": 23841,
+      "sha256": "5106b35e83396f89070606030705a336c7cde699d6d84b6df6c805bf3fd13fa3"
     },
     "gateway/tests/test_gateway_graph_context.py": {
       "blob_sha": "5d1f5a8fe519ff65c64bb162dfe02e935bcbb708",

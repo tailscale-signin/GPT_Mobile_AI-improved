@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "task": "incident-policy-vocabulary-parity-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "cffc64e0a99bc2ba6244f43ed76f014a6e53d5bf",
+  "integrationBase": "7e728578c2899d1ecafa284552466f075f46ecb4",
+  "workingBranch": "work/privacy-policy-vocabulary-2026-11-24",
+  "pullRequest": 2367,
+  "recordedBeforeSourceEdits": true,
+  "recordedAtUtc": "2026-11-24T04:34:31.176340+00:00",
+  "status": "SOURCE_FROZEN_NORMAL_CI_PENDING",
+  "intent": "Retain the exact intelligenceLevel, recoveryConsultConsent, engineeringTeamConsent and recoveryExecutionConsent GitHub-profile policy-change names emitted by ConfiguredDispatchAuthority in both Android and receiver closed vocabularies. Values and unknown names remain excluded; no dispatch or replay authority changes.",
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt",
+    "authentication/incident_report_contract.py",
+    "authentication/test_incident_report_contract.py"
+  ],
+  "preEditSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt": "e292dc83e4484bc87a5bed5cdf0ed922b0e6665f9179d37b313c0fb13a3a09ba",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt": "55ab4fa7fc9c1c19d7a6a90a01425d0a240520815793d09bc4cc95ac65da6e50",
+    "authentication/incident_report_contract.py": "0bf1e2d975e87c04a0c6c032923654c8c185a7594ccb94269595bbe631ecc403",
+    "authentication/test_incident_report_contract.py": "33cc88dbdf261d2bb0b7189b7578c25f78735ec440ffcb195c6d1936e4d877cf"
+  },
+  "observedFailure": {
+    "head": "cffc64e0a99bc2ba6244f43ed76f014a6e53d5bf",
+    "checkout": "574299393405fa73d9108a446c28c2e47d2e809e",
+    "runId": 45325746922,
+    "jobIds": [
+      138214835756,
+      138214835998
+    ],
+    "method": "test_policy_field_vocabulary_matches_native_and_actual_production_producers",
+    "assertion": "12 != 15",
+    "sourceEvidenceReceiptSha256": "1b1acdb215938b3ea8baef5d09d342f3e12f7f0fe92c9cd36a585c379fce796e",
+    "limits": "Observed on both Ubuntu Python lanes; later exact-vocabulary equality was not reached. No local reproduction claimed."
+  },
+  "acceptance": [
+    "Add exactly four fixed producer names to both policy-field sets; preserve every previous name and all validation logic.",
+    "Keep producer-to-consumer equality; update expected override and total sizes from12/77 to16/81.",
+    "Add ordinary producer-to-report content-exclusion and server acceptance/unknown-name rejection controls while preserving all prior test methods and assertions except the exact expected counts.",
+    "Preserve incoming attestation-retention source, every foreign feature mapping, release versions, publication requirements and main gates.",
+    "Canonical fast host checks and pinned ktlint1.3.1 only; normal hosted CI supplies app and affected authentication runtime qualification."
+  ],
+  "qualification": {
+    "canonicalHost": "Required on the frozen integration; external exact-input receipt records the command, exit status and unchanged source hashes.",
+    "formatting": "Pinned ktlint1.3.1 formatted the two handwritten Kotlin files successfully; the frozen integration must also pass the canonical changed-Kotlin check.",
+    "ordinaryProjectRuntime": "PENDING_NORMAL_HOSTED_CI",
+    "sourceReview": "Separate hash-bound independent review is required before shared publication; no application/runtime result is implied by source review."
+  },
+  "implementation": {
+    "fieldAdditions": [
+      "githubProfileOverride.intelligenceLevel",
+      "githubProfileOverride.recoveryConsultConsent",
+      "githubProfileOverride.engineeringTeamConsent",
+      "githubProfileOverride.recoveryExecutionConsent"
+    ],
+    "githubOverrideNameCount": 16,
+    "policyFieldNameCount": 81,
+    "sourceSha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt": "9b6e868161010a2440fb3fb1d40b6009e28c7c01ce9ddcc67d2b4483a8404d85",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt": "b5fe2390957282670adbfae6da6661946cb5253865432919d663d2221b376125",
+      "authentication/incident_report_contract.py": "917a189df090dd51cfc8d0038327fdfb4463de0e9760b917867eb8031eec9c86",
+      "authentication/test_incident_report_contract.py": "ded97b09844494be49f18188820f295a5a3a2fb7df53b70e5a2f8bc5a5929486"
+    },
+    "newOrdinaryMethods": [
+      "IssueReportIncidentCapsuleTest.intelligencePolicyNamesFromAuthorityRetainOnlyClosedChangeEvidence",
+      "IncidentReportContractTest.test_intelligence_policy_names_preserve_approved_bytes_and_reject_unknown_lookalikes"
+    ],
+    "testScope": "The Kotlin method uses the actual fixed-name authority producer and diagnostic capture/approved serialization with four fictional setting values. The Python method covers all four exact names, byte-preserving report acceptance and unknown/raw-value rejection. No local execution of either suite is claimed.",
+    "priorKotlinMethods": 30,
+    "currentKotlinMethods": 31,
+    "priorPythonMethods": 115,
+    "currentPythonMethods": 116,
+    "wholeFileInversePreservation": true,
+    "historicalStaticPreservationReceiptSha256": [
+      "00b32936c2494455a76afcb13a7223c7bf394f852caa6aa1f1da52be81a0c880"
+    ],
+    "staticPreservationReceiptSha256": "2ccb522db65fac78968366185521d9fa11928e135915149578c28e2ca0dd6f83"
+  },
+  "additionalIntent": {
+    "recordedBeforeAdditionalSourceEdits": true,
+    "recordedAtUtc": "2026-11-24T04:40:13.505267+00:00",
+    "incomingHead": "7e728578c2899d1ecafa284552466f075f46ecb4",
+    "incomingTree": "14807bd8cd4a14e61e3c178267e1f6594f0a11bd",
+    "finding": "The same fixed producer added recoveryExecutionConsent; both consumers remain77. Extend the exact-name repair to four additions and counts16/81 without changing unknown-name handling or authority."
+  }
+}

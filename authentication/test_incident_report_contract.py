@@ -2569,6 +2569,35 @@ class IncidentReportContractTest(unittest.TestCase):
                 with self.assertRaises(ReportError):
                     issue_from_report(self.report(rejected))
 
+    def test_intelligence_policy_names_preserve_approved_bytes_and_reject_unknown_lookalikes(self):
+        names = ("intelligenceLevel", "recoveryConsultConsent", "engineeringTeamConsent", "recoveryExecutionConsent")
+        for name in names:
+            field = "githubProfileOverride." + name
+            with self.subTest(field=field):
+                fields = {"changed_policy_fields": [field], "changed_policy_field_count": 1,
+                          "changed_policy_unknown_count": 0, "changed_policy_malformed_count": 0,
+                          "changed_policy_omitted_count": 0, "changed_policy_observation": "OBSERVED"}
+                capture = self.capture(values=fields)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                issue_from_report(report)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                self.assertNotIn("request_replay_allowed", capture["values"])
+                self.assertNotIn("remoteAcceptance", report["context"])
+                for unknown in (field + ".PRIVATE_SELECTION", field + "=PRIVATE_POLICY_VALUE", name):
+                    with self.subTest(unknown=unknown):
+                        rejected = self.capture(values={**fields, "changed_policy_fields": [unknown]})
+                        with self.assertRaises(ValueError):
+                            validate_diagnostics(rejected)
+                        with self.assertRaises(ReportError):
+                            issue_from_report(self.report(rejected))
+                raw_value = self.capture(values={**fields, field: "PRIVATE_POLICY_VALUE"})
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(raw_value)
+                with self.assertRaises(ReportError):
+                    issue_from_report(self.report(raw_value))
+
     def test_policy_field_vocabulary_matches_native_and_actual_production_producers(self):
         root = Path(__file__).resolve().parents[1]
         base = root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile"
@@ -2587,12 +2616,12 @@ class IncidentReportContractTest(unittest.TestCase):
         reported_keys = re.search(r"return\s+listOf\(([^)]*)\)", override_helper)
         self.assertIsNotNone(reported_keys)
         override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', reported_keys.group(1))}
-        self.assertEqual(12, len(override_keys))
+        self.assertEqual(16, len(override_keys))
         behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
         behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
         self.assertEqual(9, len(behavior_keys))
         self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
-        self.assertEqual(77, len(capsule.POLICY_FIELD_NAMES))
+        self.assertEqual(81, len(capsule.POLICY_FIELD_NAMES))
 
     def test_replay_capacity_reason_and_estimates_are_bounded_incident_fields(self):
         code = "REPLAY_EVIDENCE_REQUIRED"

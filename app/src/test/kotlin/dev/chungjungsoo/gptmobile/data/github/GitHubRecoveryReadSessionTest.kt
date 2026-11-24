@@ -87,17 +87,26 @@ class GitHubRecoveryReadSessionTest {
             }
         }
         val writer = object : AgentProviderSession {
-            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
-                ProviderEvent.TextDelta((exchanges.single().results.single().content as ToolResultContent.Text).text),
-                ProviderEvent.Completed
-            )
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> {
+                assertTrue(tools.isEmpty())
+                val exchange = exchanges.single()
+                val call = exchange.calls.single()
+                val result = exchange.results.single()
+                assertEquals(call.callId, result.callId)
+                assertFalse(result.isError)
+                assertEquals(JsonPrimitive(scope.commitSha), result.executionReceipt?.get("head_sha"))
+                val sourcePath = (result.content as ToolResultContent.Text).text.lineSequence().single { it.startsWith("src/") }
+                return flowOf(ProviderEvent.TextDelta(sourcePath), ProviderEvent.Completed)
+            }
         }
         val escalated = GitHubRecoveryReadSession(writer, scope, setOf(search.name), "one-read", { selection }, { _, _ -> true })
         val events = AgentRunner(AgentRunLimits(maxRounds = 2, maxToolCalls = 1)).run(escalated, listOf(reader)).toList()
         val finished = events.filterIsInstance<AgentRunEvent.ToolFinished>().single()
         assertEquals(1, executions)
         assertEquals(JsonPrimitive(scope.commitSha), finished.result.executionReceipt?.get("head_sha"))
-        assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().any { (it.event as? ProviderEvent.TextDelta)?.text == "src/Retry.kt" })
+        val delivery = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals("src/Retry.kt", delivery.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals(ProviderEvent.Completed, delivery.last())
     }
 
     @Test fun recoveryTransportRetryCannotInvokeTheAlternateProfileTwiceOrForwardPriorReceipts() = runTest {

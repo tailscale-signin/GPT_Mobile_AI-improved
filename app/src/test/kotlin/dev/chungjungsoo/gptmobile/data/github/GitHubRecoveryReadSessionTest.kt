@@ -150,4 +150,77 @@ class GitHubRecoveryReadSessionTest {
         assertNull(GitHubRecoveryConsult.candidates(options, scope, owner, listOf(cloud.copy(model = "changed")), policy.withRemoteWorkersAllowed(true), execution = true)[cloudGrant])
         assertNull(GitHubRecoveryConsult.candidates(options, scope, owner, profiles, policy.copy(fallbackPolicy = DelegationFallback.ASK).withRemoteWorkersAllowed(true), execution = true)[cloudGrant])
     }
+
+    @Test fun internalToolPrimaryKeepsItsRoundWithoutSelectingOrAdmittingARecoveryRead() = runTest {
+        var selections = 0
+        var admissions = 0
+        var primaryRounds = 0
+        val definitions = listOf(search, read)
+        val priorCall = requireNotNull(GitHubRecoveryReadSession.parse(selection.response, scope, definitions, "prior"))
+        val priorResult = AgentToolResult("prior", ToolResultContent.Text("retained source receipt"), false)
+        val priorExchanges = listOf(AgentToolExchange(listOf(priorCall), listOf(priorResult)))
+        val primaryEvents = listOf(ProviderEvent.TextDelta("Primary retained its evidence."), ProviderEvent.Completed)
+        val internalPrimary = object : AgentProviderSession {
+            override val handlesToolsInternally = true
+
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> {
+                assertEquals(definitions, tools)
+                assertEquals(priorExchanges, exchanges)
+                primaryRounds++
+                return flowOf(*primaryEvents.toTypedArray())
+            }
+        }
+        val session = GitHubRecoveryReadSession(internalPrimary, scope, setOf(search.name), "unused-recovery", {
+            selections++
+            selection
+        }, { _, _ ->
+            admissions++
+            true
+        })
+
+        assertTrue(session.handlesToolsInternally)
+        assertEquals(primaryEvents, session.streamRound(definitions, priorExchanges).toList())
+        assertEquals(primaryEvents, session.streamRound(definitions, priorExchanges).toList())
+        assertEquals(2, primaryRounds)
+        assertEquals(0, selections)
+        assertEquals(0, admissions)
+    }
+
+    @Test fun liteRtPrimaryCannotActivateSavedRecoveryReadConsentAndPreservesAdviceEligibilityRules() {
+        val owner = PlatformV2(uid = scope.mainProfileUid, name = "Primary", model = "primary-model", compatibleType = ClientType.LITERT_LM)
+        val local = PlatformV2(uid = "local", name = "Device", model = "local-model", compatibleType = ClientType.LITERT_LM)
+        val cloud = PlatformV2(uid = "remote", name = "Cloud", model = "stronger", compatibleType = ClientType.OPENAI)
+        val profiles = listOf(owner, local, cloud)
+        val policy = ModelDelegationSettings(enabled = true, approvedWorkerUids = listOf(local.uid, cloud.uid), fallbackPolicy = DelegationFallback.APPROVED_ORDER).withRemoteWorkersAllowed(true)
+        assertTrue(requireNotNull(GitHubRecoveryConsult.executionUnavailableReason(owner)).contains("LiteRT-LM"))
+        assertNull(GitHubRecoveryConsult.executionUnavailableReason(owner.copy(compatibleType = ClientType.OPENAI)))
+        for (helper in listOf(local, cloud)) {
+            val savedGrant = GitHubRepositoryStateStore.digest("read-recovery-v1|" + GitHubRecoveryConsult.consent(scope, owner, helper))
+            val options = GitHubChatProfileOverride(githubTools = true, intelligenceLevel = GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE, recoveryExecutionConsent = savedGrant)
+            val candidates = GitHubRecoveryConsult.candidates(options, scope, owner, profiles, policy, execution = true)
+            assertTrue(candidates.isEmpty())
+            assertNull(candidates[options.recoveryExecutionConsent])
+            assertEquals(savedGrant, options.recoveryExecutionConsent)
+            assertNull(options.recoveryConsultConsent)
+            assertNull(GitHubRecoveryConsult.target(options, scope, owner, profiles, policy))
+            val localAdvice = options.copy(recoveryExecutionConsent = null, recoveryConsultConsent = GitHubRecoveryConsult.consent(scope, owner, local))
+            assertNull(GitHubRecoveryConsult.target(localAdvice, scope, owner, profiles, policy))
+            val cloudAdvice = options.copy(recoveryExecutionConsent = null, recoveryConsultConsent = GitHubRecoveryConsult.consent(scope, owner, cloud))
+            assertNull(GitHubRecoveryConsult.target(cloudAdvice, scope, owner, profiles, policy))
+        }
+    }
+
+    @Test fun unavailableSavedRecoveryReadDoesNotFallBackToAnAdviceChoice() {
+        val advisor = PlatformV2(uid = "advisor", name = "Advisor", model = "local-model", compatibleType = ClientType.LITERT_LM)
+        val reader = PlatformV2(uid = "reader", name = "Reader", model = "remote-model")
+        val options = GitHubChatProfileOverride(recoveryConsultConsent = "advice-grant", recoveryExecutionConsent = "read-grant")
+        val advisors = mapOf("advice-grant" to advisor)
+
+        assertNull(GitHubRecoveryConsult.selectedProfile(options, advisors, emptyMap()))
+        assertEquals("read-grant", options.recoveryExecutionConsent)
+        assertEquals("advice-grant", options.recoveryConsultConsent)
+        assertEquals(reader, GitHubRecoveryConsult.selectedProfile(options, advisors, mapOf("read-grant" to reader)))
+        assertEquals(advisor, GitHubRecoveryConsult.selectedProfile(options.copy(recoveryExecutionConsent = null), advisors, emptyMap()))
+        assertNull(GitHubRecoveryConsult.selectedProfile(options.copy(recoveryExecutionConsent = null, recoveryConsultConsent = null), advisors, emptyMap()))
+    }
 }

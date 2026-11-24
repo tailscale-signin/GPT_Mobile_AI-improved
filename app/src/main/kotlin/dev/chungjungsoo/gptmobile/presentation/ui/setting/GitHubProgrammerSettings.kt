@@ -328,9 +328,11 @@ private fun GitHubRecoveryConsultSetting(state: GitHubProgrammerState, onChange:
     val executionConsent = state.profileSettings.recoveryExecutionConsent
     val consent = executionConsent ?: adviceConsent
     if (state.profileSettings.intelligenceLevel != GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE && consent == null) return
+    val executionUnavailableReason = state.profiles.singleOrNull { it.uid == state.profileUid }
+        ?.let(dev.chungjungsoo.gptmobile.data.github.GitHubRecoveryConsult::executionUnavailableReason)
     val candidates = if (state.privacyModeLocked == false) state.recoveryAdvisors else emptyMap()
-    val executionProfiles = if (state.privacyModeLocked == false) state.recoveryExecutionProfiles else emptyMap()
-    val selected = executionProfiles[executionConsent] ?: candidates[adviceConsent]
+    val executionProfiles = if (state.privacyModeLocked == false && executionUnavailableReason == null) state.recoveryExecutionProfiles else emptyMap()
+    val selected = dev.chungjungsoo.gptmobile.data.github.GitHubRecoveryConsult.selectedProfile(state.profileSettings, candidates, executionProfiles)
     var expanded by remember { mutableStateOf(false) }
     Column {
         Text("Recovery profile", style = MaterialTheme.typography.titleSmall)
@@ -358,6 +360,7 @@ private fun GitHubRecoveryConsultSetting(state: GitHubProgrammerState, onChange:
         }
         val guidance = when {
             state.privacyModeLocked == true -> "Private chats use the selected profile for recovery."
+            executionUnavailableReason != null -> executionUnavailableReason
             executionProfiles.isNotEmpty() -> "Recovery read sends the request and unfinished criterion to your chosen model. It can select one pinned search or source read. The primary receives the evidence and owns all writes. One invocation per task, up to 256 output tokens within your spend limit."
             candidates.isEmpty() -> "Open a saved GitHub chat, enable delegation and automatic fallback, and approve a second profile. Network profiles also require remote worker permission."
             else -> "For this repository and branch, the on-device advisor can suggest a next step after an empty answer or unfinished criterion. It receives the request and sends a text proposal to the primary profile."

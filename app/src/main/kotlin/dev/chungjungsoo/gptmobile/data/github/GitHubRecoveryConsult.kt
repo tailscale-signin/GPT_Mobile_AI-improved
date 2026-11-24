@@ -14,6 +14,23 @@ import kotlinx.serialization.json.JsonPrimitive
 internal object GitHubRecoveryConsult {
     const val ROLE = "github-recovery-consult"
 
+    fun executionUnavailableReason(primary: PlatformV2): String? =
+        if (primary.compatibleType == ClientType.LITERT_LM) {
+            "Recovery reads are unavailable with a LiteRT-LM primary profile. A saved recovery read choice stays inactive; you can clear it by choosing Selected profile only."
+        } else {
+            null
+        }
+
+    fun selectedProfile(
+        preferences: GitHubChatProfileOverride,
+        advisors: Map<String, PlatformV2>,
+        recoveryReaders: Map<String, PlatformV2>
+    ): PlatformV2? = if (preferences.recoveryExecutionConsent != null) {
+        recoveryReaders[preferences.recoveryExecutionConsent]
+    } else {
+        advisors[preferences.recoveryConsultConsent]
+    }
+
     fun consent(context: GitHubConversationContext, primary: PlatformV2, helper: PlatformV2): String =
         GitHubRepositoryStateStore.digest(listOf(GitHubChatDecisions.workspaceKey(context), ConfiguredDispatchAuthority.profileRevision(primary), ConfiguredDispatchAuthority.profileRevision(helper)).joinToString("|"))
 
@@ -40,6 +57,7 @@ internal object GitHubRecoveryConsult {
         policy: ModelDelegationSettings,
         execution: Boolean = false
     ): Map<String, PlatformV2> {
+        if (execution && executionUnavailableReason(primary) != null) return emptyMap()
         if (!preferences.githubTools || preferences.intelligenceLevel != GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE || primary.uid != context.mainProfileUid || !policy.enabled || policy.processingOwnership >= 100) return emptyMap()
         if (policy.fallbackPolicy in setOf(DelegationFallback.NONE, DelegationFallback.ASK) || policy.fallbackPolicy == null && !policy.fallbackToAnotherProfile) return emptyMap()
         return profiles.filter { helper ->

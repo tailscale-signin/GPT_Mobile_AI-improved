@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2367,
+  "base_sha": "cf0c6c6489d5d7c83ce69ebee60b787ecedf7c05",
+  "owner": "release_root",
+  "intent": "Close the retained Robolectric fixture and LiteRT recovery-read holds while preserving the concurrently integrated Windows SQLite repair and adding direct closure assertions.",
+  "status": "FOCUSED_SOURCE_PASSED_PENDING_EXACT_HEAD_CI",
+  "acceptance": [
+    "The seven existing cache-directory behaviors use a static Os shadow that is stable after another Robolectric test initializes the platform OS object.",
+    "All four SQLite fixture connections are explicitly closed and their retained handles reject further operations.",
+    "A LiteRT-LM primary exposes recovery-read execution as unavailable, keeps saved execution consent inactive, and preserves advice-only selection.",
+    "An internal-tools primary never starts helper recovery selection or admission.",
+    "Generated app inventory, repository reference, Gateway manifest, release scope and notes bind the final source component."
+  ],
+  "focused_evidence": {
+    "cache_component": "59aef13a0717bd5daa259a875faba8c1183c96f6",
+    "cache_controls": "Seven isolated, eight default-Os-first and sixteen alternating-configuration cases passed against the exact cache test bytes.",
+    "litert_controls": "Five current production files and GitHubRecoveryReadSessionTest compiled with the pinned Kotlin 2.4.20 compiler and Android app/dependency APIs; all nine tests passed.",
+    "sqlite_controls": "The previously qualified four-handle assertions were composed on the concurrent explicit-closing repair; Python syntax and whitespace checks passed locally.",
+    "scope": "Focused host controls do not establish physical Android, hosted Windows or complete application qualification."
+  },
+  "qualification": "Exact-head hosted Android and Windows workflows remain the final behavior authority."
+}

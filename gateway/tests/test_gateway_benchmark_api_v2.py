@@ -149,7 +149,9 @@ class QualificationAdmissionTests(unittest.TestCase):
         revision = 'a' * 64
         self.binding['profile_revision'] = value['manifest']['expected_route']['profile_revision'] = revision
         self.service.runtime = SimpleNamespace(GATEWAY_JOB_DB_PATH=Path(self.directory.name) / 'jobs.sqlite3')
+        fixture_connections = []
         with closing(sqlite3.connect(self.service.runtime.GATEWAY_JOB_DB_PATH)) as db, db:
+            fixture_connections.append(db)
             db.execute('CREATE TABLE gateway_control_devices(id TEXT,role TEXT,repositories TEXT,revoked INTEGER)')
             db.execute('INSERT INTO gateway_control_devices VALUES(?,?,?,0)', ('alice', 'owner', '["owner/fixture"]'))
         saved = self.qualifications.create(owner, value)
@@ -157,10 +159,16 @@ class QualificationAdmissionTests(unittest.TestCase):
         for role, repos, revoked in [('owner', '[]', 0), ('viewer', '["owner/fixture"]', 0), ('owner', '["owner/fixture"]', 1)]:
             with self.subTest(role=role, repos=repos, revoked=revoked):
                 with closing(sqlite3.connect(self.service.runtime.GATEWAY_JOB_DB_PATH)) as db, db:
+                    fixture_connections.append(db)
                     db.execute('UPDATE gateway_control_devices SET role=?,repositories=?,revoked=?', (role, repos, revoked))
                 with self.assertRaises(PermissionError):
                     self.qualifications.intelligence_score(owner, revision)
         self.assertEqual([], self.admissions)
+        self.assertEqual(4, len(fixture_connections))
+        for index, connection in enumerate(fixture_connections):
+            with self.subTest(fixture_connection=index):
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    connection.execute('SELECT 1')
 
     def test_all_requests_are_validated_before_any_admission(self):
         mutations = (

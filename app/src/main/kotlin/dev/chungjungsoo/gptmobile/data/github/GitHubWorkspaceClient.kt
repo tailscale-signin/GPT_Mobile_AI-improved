@@ -2218,6 +2218,13 @@ class GitHubWorkspaceClient(
         val requestedStart = args["start_line"]?.jsonPrimitive?.content?.toIntOrNull()
         val requestedEnd = args["end_line"]?.jsonPrimitive?.content?.toIntOrNull()
         if (requestedStart != null) require(requestedStart >= 1 && (requestedEnd ?: requestedStart + 99) >= requestedStart && (requestedEnd ?: requestedStart + 99) - requestedStart < 2000)
+        val sizeGate = if (requestedStart == null) {
+            GitHubCiSizeGate.find(lines)
+        } else {
+            val from = (requestedStart - 1).coerceAtMost(lines.size)
+            val until = minOf(lines.size.toLong(), requestedEnd?.toLong() ?: requestedStart.toLong() + 99).toInt()
+            GitHubCiSizeGate.find(lines.subList(from, until), requestedStart)
+        }
         val selected = if (requestedStart != null) {
             ((requestedStart - 1)..minOf(lines.lastIndex, (requestedEnd ?: requestedStart + 99) - 1)).toSet()
         } else {
@@ -2244,6 +2251,7 @@ class GitHubWorkspaceClient(
             emptySet()
         }
         return buildJsonObject {
+            sizeGate?.let { put("apk_size_failure", it) }
             put("diagnosis", GitHubCiDiagnosis.group(excerpts, changedPaths))
             put("changed_file_scope", "First page of the exact commit's changed files; absence of a match is not proof of no relationship")
             put("status", "available")

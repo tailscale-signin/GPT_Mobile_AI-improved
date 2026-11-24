@@ -244,7 +244,7 @@ POLICY_FIELD_NAMES = {
 POLICY_COUNTS = {'changed_policy_field_count', 'changed_policy_unknown_count', 'changed_policy_malformed_count', 'changed_policy_omitted_count'}
 POLICY_DIAGNOSTICS = POLICY_COUNTS | {'changed_policy_fields', 'changed_policy_observation'}
 
-FAILED_EVENT_FIELDS = {'failed_event_code_present', 'failed_event_invocation_present', 'failed_event_details_present'}
+FAILED_EVENT_FIELDS = {'failed_event_provider_text_seen', 'failed_event_answer_emitted', 'failed_event_code_present', 'failed_event_invocation_present', 'failed_event_details_present'}
 COMMON = {
     'sqlite_constraint_kind',
     'dispatch_policy_sections',

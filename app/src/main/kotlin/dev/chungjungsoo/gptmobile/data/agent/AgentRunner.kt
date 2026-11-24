@@ -347,6 +347,7 @@ class AgentRunner(
                     collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, deliveredResultDigests, retainedUnknownOutcome || unknownOutcomes.isNotEmpty(), admittedReplayLimit, pendingSavedPages)
                 }
                 observedToolCalls += round.observedCalls
+                if (round.savedPageDelivery) continue
                 if (round.batchRejected) {
                     if (limits.combined?.requested?.singlePass == true) {
                         emit(failed("TOOL_BATCH_REJECTED", round.failure ?: "Tool batch rejected. Retry this profile explicitly; no calls from this batch were executed."))
@@ -1955,7 +1956,8 @@ class AgentRunner(
         val failureDetails: JsonObject? = null,
         val invocationId: String? = null,
         val applicationReportEmitted: Boolean = false,
-        val evidenceCorrectionEligible: Boolean = false
+        val evidenceCorrectionEligible: Boolean = false,
+        val savedPageDelivery: Boolean = false
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -2022,6 +2024,7 @@ class AgentRunner(
         var unboundUsageObserved = false
         var deliveredCallIds: Set<String> = emptySet()
         var deliveredBodies: Map<String, String> = emptyMap()
+        var deliveryOnly = false
         var invocationStage = "planning"
         var invocationStarted = false
 
@@ -2068,23 +2071,35 @@ class AgentRunner(
                 )
                 return@flow
             }
-            val replay = prepareReplay(
-                exchanges = exchanges,
-                maxReplayTokens = replayLimit,
-                maxResultTokens = limits.maxReplayResultTokens,
-                consumedCallIds = consumedCallIds,
-                deliveredResultDigests = deliveredResultDigests,
-                requiredSavedPageDigests = requiredSavedPageDigests
-            )
+            val originalResults = exchanges.flatMap { it.results }.associateBy { it.callId }
+            suspend fun project(required: Map<String, String?>) = prepareReplay(exchanges, replayLimit, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests, required)
+            fun delivered(projection: ReplayProjection) = projection.exchanges.flatMap { it.results }.filter { originalResults[it.callId]?.content == it.content }
+            var replay = project(requiredSavedPageDigests)
+            var exact = delivered(replay)
+            deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
+            val mayStage = requiredSavedPageDigests.size > 1 &&
+                requiredSavedPageDigests.values.none { it == null } &&
+                !hasUnknownOutcome &&
+                !session.handlesToolsInternally &&
+                limits.combined == null &&
+                !verificationOnlyRequested
+            if (mayStage && requiredSavedPageDigests.none { (id, digest) -> deliveredBodies[id] == digest }) {
+                val first = requiredSavedPageDigests.keys.mapNotNull(originalResults::get)
+                    .filter { ToolResultDeliveryProof.digest(it.content, replayRenderCache) == requiredSavedPageDigests[it.callId] }
+                    .minByOrNull { replayRenderCache.measure(it.content).tokens }
+                if (first != null) {
+                    replay = project(mapOf(first.callId to requiredSavedPageDigests[first.callId]))
+                    exact = delivered(replay)
+                    deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
+                }
+            }
+            val owed = requiredSavedPageDigests.filter { (id, digest) -> digest == null || deliveredBodies[id] != digest }
+            deliveryOnly = mayStage && owed.isNotEmpty() && owed.size < requiredSavedPageDigests.size
+            if (deliveryOnly) deliveredBodies = deliveredBodies.filterKeys { it in requiredSavedPageDigests && it !in owed }
+            deliveredCallIds = if (deliveryOnly) deliveredBodies.keys else exact.mapTo(mutableSetOf()) { it.callId }
             val rawReplayTokens = replay.rawTokens
             val replayExchanges = replay.exchanges
-            val originalResults = exchanges.flatMap { it.results }.associateBy { it.callId }
-            val deliveredResults = replayExchanges.flatMap { it.results }.filter { originalResults[it.callId]?.content == it.content }
-            deliveredCallIds = deliveredResults.mapTo(mutableSetOf()) { it.callId }
-            // Hash the actual provider projection, never the fuller checkpoint result
-            // with the same call ID. The proof is committed only after success below.
-            deliveredBodies = ToolResultDeliveryProof.capture(deliveredResults, replayRenderCache)
-            if (requiredSavedPageDigests.any { (id, digest) -> digest == null || deliveredBodies[id] != digest }) {
+            if (owed.isNotEmpty() && !deliveryOnly) {
                 emit(
                     ProviderEvent.Failed(
                         if (requiredSavedPageDigests.values.any { it == null }) {
@@ -2145,6 +2160,13 @@ class AgentRunner(
             }
             // Include synchronous stream construction failures in the upstream boundary.
             val preparedExchanges = replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) }
+            if (requiredSavedPageDigests.isNotEmpty()) {
+                val onWire = ToolResultDeliveryProof.capture(preparedExchanges.flatMap { it.results }, replayRenderCache)
+                if (requiredSavedPageDigests.keys.any { it in deliveredBodies && onWire[it] != deliveredBodies[it] }) {
+                    emit(ProviderEvent.Failed("The final provider projection changed a required saved page. Its original receipt is available for recovery.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                    return@flow
+                }
+            }
             val exchangeError = AgentContractValidation.exchangeError(preparedExchanges)
             if (exchangeError != null) {
                 emit(
@@ -2161,7 +2183,7 @@ class AgentRunner(
                 invocationStage = "model_invocation"
                 invocationStarted = true
                 emitAll(
-                    session.streamRound(exposedDefinitions, preparedExchanges)
+                    (if (deliveryOnly) SavedPageDeliveryRound.read(session, preparedExchanges) else session.streamRound(exposedDefinitions, preparedExchanges))
                         .onEach { event ->
                             // Observe ownership before buffering can make mixed lineage UNKNOWN.
                             // Legacy bare text remains eligible; owned output cannot become a draft again.
@@ -2362,7 +2384,7 @@ class AgentRunner(
             deliveredResultDigests.putAll(deliveredBodies)
             while (deliveredResultDigests.size > ToolResultDeliveryProof.MAX_RESULTS) deliveredResultDigests.remove(deliveredResultDigests.keys.first())
         }
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId, applicationReportEmitted, evidenceCorrectionEligible = evidenceCorrectionEligible)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId, applicationReportEmitted, evidenceCorrectionEligible = evidenceCorrectionEligible, savedPageDelivery = deliveryOnly && completed && failure == null)
     }
 
     private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {

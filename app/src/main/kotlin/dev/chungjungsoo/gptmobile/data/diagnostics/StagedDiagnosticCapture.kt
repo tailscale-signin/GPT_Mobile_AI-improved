@@ -130,7 +130,15 @@ class DiagnosticStageSink internal constructor(
 
     // Bound source materialization on the first reduced-memory pass, not only
     // after an allocation failure has already interrupted critical evidence.
-    internal val sourcePageSize: Int get() = if (options.reducedMemory || options.cooperativeHeapRecovery) 1 else 16
+    internal val sourcePageSize: Int
+        get() = if (options.reducedMemory ||
+            options.cooperativeHeapRecovery ||
+            minimumObservedHeadroomBytes?.let { it - minimumHeadroom < maxOf(4L * 1024 * 1024, minimumHeadroom / 2) } == true
+        ) {
+            1
+        } else {
+            16
+        }
     internal var heapDeferral: JsonObject? = null
         private set
     private var minimumObservedHeadroomBytes: Long? = null
@@ -368,7 +376,17 @@ object StagedDiagnosticCapture {
         val collectionStarted = System.nanoTime()
         // Reserve useful evidence by capturing every cheap section before history can exhaust the archive budget.
         // Prioritize configuration without changing its guard or the caller's durable stage plan.
-        val ordered = stages.sortedWith(compareBy<DiagnosticCaptureStage> { !it.critical }.thenBy { !it.lowMemorySafe }.thenBy { it.content != DiagnosticStageContent.CONFIGURATION })
+        val ordered = stages.sortedWith(
+            compareBy<DiagnosticCaptureStage> { !it.critical }.thenBy { !it.lowMemorySafe }
+                .thenBy { it.content != DiagnosticStageContent.CONFIGURATION }
+                .thenBy {
+                    when (it.id) {
+                        "run_journal" -> 0
+                        "timeline" -> 1
+                        else -> 2
+                    }
+                }
+        )
         for (stage in ordered) {
             currentCoroutineContext().ensureActive()
             options.guard()

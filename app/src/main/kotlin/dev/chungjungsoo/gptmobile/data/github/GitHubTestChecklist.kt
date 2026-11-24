@@ -1108,6 +1108,8 @@ internal object GitHubTestChecklist {
         val next = if (acquisitionAllowed) continuation(task, tools, receipts, localOnly = true) ?: continuation(task, tools, receipts, localOnly = false) else null
         val rejected = pending.count { page -> observations.lastOrNull { it["tool"] == page["tool"] && it["arguments"] == page["arguments"] }?.get("success") == JsonPrimitive(false) }
         return buildJsonObject {
+            put("scope_version", if (GitHubChecklistScope.PRESET_SCOPE in task) 2 else 1)
+            put("catalog_scope", if (integration(task)) "FULL_CATALOG" else "OBSERVED_CAPABILITIES")
             put("mode", if (exhaustive) "COMPLETE_INVENTORY_REQUESTED" else "BOUNDED_SMOKE_SAMPLE")
             put("pending_count", pending.size)
             put("failed_page_count", rejected)

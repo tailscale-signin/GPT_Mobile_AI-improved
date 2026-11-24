@@ -178,6 +178,7 @@ internal data class IssueReportDiagnostics(
         if (VoiceExecutionDiagnostics.requiresStreamingBackendSupport(values)) add(VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE)
         if ((values.keys + omittedFields + unavailableFields).any { it == "claim_extraction_validation_stage" || it == "github_prerequisite_observation" }) add("GITHUB_VALIDATION_CONTEXT_V1")
         if ("voice_playback_audio_mode" in values || "voice_playback_audio_mode" in omittedFields) add("AUDIO_FOCUS_MODE_V1")
+        if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.failedEventOutputFields }) add(IssueReportIncidentCapsule.FAILED_EVENT_OUTPUT_FEATURE)
         if (values["voice_playback_focus_attempts"] == JsonPrimitive(3)) add(VOICE_FOCUS_RETRIES_FEATURE)
         if ((values.keys + omittedFields).any { it in voiceCapturePlaybackFields || it in voicePackStateFields }) add("VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in composerEvidenceFields }) add("COMPOSER_IME_EVIDENCE_V1")

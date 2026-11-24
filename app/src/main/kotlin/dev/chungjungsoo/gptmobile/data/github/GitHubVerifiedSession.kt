@@ -114,6 +114,17 @@ internal class GitHubVerifiedSession(
     }
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.SavedPageDeliveryRound] != null) {
+            validatePublication()
+            val denied = evidence.taskAdmissionFailure()
+            when {
+                denied != null -> emit(denied)
+                handlesToolResultRecovery || verificationOnlyRequested || delegate.handlesToolsInternally || tools.isNotEmpty() ->
+                    emit(ProviderEvent.Failed("This session cannot admit a private saved-page read.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                else -> emitAll(delegate.streamRound(emptyList(), exchanges))
+            }
+            return@flow
+        }
         observedAdvertisedToolCount = null
         if (GitHubStatusRequest.matches(task)) statusPlanTools = tools
         val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(GitHubTaskContinuity.request(task))
@@ -1259,6 +1270,13 @@ internal class GitHubVerifiedSession(
                 val heading = if (it.failureDetails?.get("stop_reason") == kotlinx.serialization.json.JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) "Time limit reached" else "Task paused"
                 "**$heading.** ${it.message}\n\n"
             }.orEmpty()
+            val packagingEvidence = if (GitHubCiObservationReport.matches(task) && effectivePartial) {
+                GitHubCiSizeGate.retained(publicationReceipts).values.distinct().takeLast(3)
+                    .filter { gate -> !text.contains(gate.getValue("job_id").toString()) || !text.contains(gate.getValue("over_budget_bytes").toString()) }
+                    .joinToString("") { "\n\n" + GitHubCiSizeGate.describe(it) }
+            } else {
+                ""
+            }
             val failures = if (GitHubTaskCoverage.boundedDiagnostic(task)) withContext(computationDispatcher) { GitHubFailureSummary.render(publicationReceipts) } else ""
             val retentionNotice = if (retention["saved_view_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(false)) {
                 "\n\n**Evidence retention incomplete:** Some saved result pages could not be durably retained. Accepted operation receipts remain recorded. Recover and persist the same captured result; do not repeat a mutation to regenerate its output."
@@ -1280,7 +1298,7 @@ internal class GitHubVerifiedSession(
                 ""
             }
             Publication(
-                cause + reconciliationNotice + approvalNotice + text + resources?.let(GitHubAnswerPresentation::resourceNotice).orEmpty() + failures + retentionNotice,
+                cause + reconciliationNotice + approvalNotice + text + packagingEvidence + resources?.let(GitHubAnswerPresentation::resourceNotice).orEmpty() + failures + retentionNotice,
                 effectivePartial,
                 effectiveReport,
                 publicationEpoch,

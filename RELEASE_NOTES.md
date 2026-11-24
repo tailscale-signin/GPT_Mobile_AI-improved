@@ -2,6 +2,8 @@
 
 Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
+Build 150 also corrects the hosted reporter contract for failed-event output flags, including omissions. GitHub CI diagnosis carries a measured APK size failure with its commit, run, attempt, job and log lines through replay and verification. Exhaustive pagination requests survive a chat restart. Context-limited saved pages can reach the selected model in successive read-only rounds. Diagnostic export collects the run journal and timeline before bulk history and uses smaller database pages as heap headroom falls.
+
 Application native-library stripping uses the same pinned NDK as the native modules. Release packaging drops the unused MediaPipe proofreading and summarization binary, retains the private-memory embedder and speech JNI libraries, and losslessly compresses distribution APKs before signing. The packager checks the SHA-256 of every entry and verifies Android alignment. The universal APK has a 250 MiB limit and each single-ABI APK has a 180 MiB limit.
 
 ## Evidence-guided engineering and progress

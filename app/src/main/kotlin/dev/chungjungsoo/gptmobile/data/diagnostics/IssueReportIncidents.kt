@@ -584,12 +584,16 @@ internal object IssueReportIncidents {
         if (fields["catalog_rejection_count"] != JsonPrimitive(1) || fields["tool_reason_code"] != JsonPrimitive("UNKNOWN_TOOL")) return false
         val queued = mutablePending.value
         val index = queued.indexOfFirst {
-            val earlier = it.context?.diagnostics?.values.orEmpty()
+            val previousContext = it.context ?: return@indexOfFirst false
+            val earlier = previousContext.diagnostics?.values.orEmpty()
             it.errorCode == code &&
-                it.context?.runIdHash == run &&
+                previousContext.runIdHash == run &&
                 earlier["catalog_revision_hash"] == catalog &&
                 earlier["missing_tool_hash"] == missingTool &&
-                earlier["tool_reason_code"] == fields["tool_reason_code"]
+                previousContext.operation == evidence.operation &&
+                previousContext.checkpointBindingHash == evidence.checkpointBindingHash &&
+                previousContext.recoveryAction == evidence.recoveryAction &&
+                listOf("tool_reason_code", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "round_catalog_discovery_available").all { name -> earlier[name] == fields[name] }
         }
         if (index < 0) return false
         val first = queued[index]
@@ -600,7 +604,8 @@ internal object IssueReportIncidents {
         val samples = (diagnostic.values["catalog_rejected_call_hashes"] as? kotlinx.serialization.json.JsonArray).orEmpty()
         if (JsonPrimitive(call) in samples || call == context.callIdHash) return true
         val count = "catalog_rejection_count" to JsonPrimitive((previous + 1).coerceAtMost(100_000))
-        val hashes = (samples + listOfNotNull(context.callIdHash?.let(::JsonPrimitive), JsonPrimitive(call))).distinct().take(8)
+        val prior = (listOfNotNull(context.callIdHash?.let(::JsonPrimitive)) + samples).distinct()
+        val hashes = prior.take(7) + JsonPrimitive(call)
         val updatedDiagnostic = diagnostic.copy(values = diagnostic.values + count + ("catalog_rejected_call_hashes" to kotlinx.serialization.json.JsonArray(hashes))).validated()
             ?: diagnostic.copy(values = diagnostic.values + count).validated() ?: return false
         val updated = first.copy(context = context.copy(diagnostics = updatedDiagnostic))

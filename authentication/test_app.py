@@ -589,7 +589,7 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
         additions.append("RECOVERY_REPORT_EVIDENCE_V1")
         additions.append("CATALOG_MISSING_TOOL_IDENTITY_V1")
-        additions.extend(["GITHUB_POLICY_SELECTION_FIELDS_V1", "VOICE_FOCUS_RETRY_COUNT_V1"])
+        additions.extend(["GITHUB_POLICY_SELECTION_FIELDS_V1", "VOICE_FOCUS_RETRY_COUNT_V1", "FAILED_EVENT_OUTPUT_FIELDS_V1"])
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
         additions.insert(additions.index("PRIVACY_ELIGIBILITY_EVIDENCE_V1") + 1, "PRIVACY_FINAL_REQUEST_EVIDENCE_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
@@ -693,6 +693,33 @@ class IssueReportHttpTest(unittest.TestCase):
                     self.assertIn(f"| {field} | `{value}` |", self.issued[-1]["body"])
                     self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
         self.assertEqual(8, len(self.issued))
+
+    def test_failed_event_output_flags_and_omissions_survive_submission_and_idempotent_replay(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        from authentication.issue_reports import ADMISSION_WINDOW
+        fixtures = IncidentReportContractTest()
+        self.assertIn("FAILED_EVENT_OUTPUT_FIELDS_V1", self.client.get("/health/ready?capabilities=extended").json()["reportDiagnosticFeatures"])
+        flags = {"failed_event_provider_text_seen": True, "failed_event_answer_emitted": False}
+        for omitted in (False, True):
+            self.now += ADMISSION_WINDOW + 1
+            capture = fixtures.capture("INCIDENT", {} if omitted else flags)
+            if omitted:
+                capture["omittedFields"] = sorted(flags)
+            report = fixtures.report(capture)
+            report["reportId"] = str(uuid4())
+            approved = json.dumps(report, separators=(",", ":")).encode()
+            for _ in range(2):
+                receipt = self.client.post("/v1/issue-reports", content=approved, headers={"content-type": "application/json"})
+                self.assertEqual(200, receipt.status_code, receipt.text)
+            self.assertEqual(approved, json.dumps(report, separators=(",", ":")).encode())
+            for name in flags:
+                self.assertIn(name, self.issued[-1]["body"])
+        for field, value in (("failed_event_answer_emitted", "false"), ("failed_event_unknown", True)):
+            self.now += ADMISSION_WINDOW + 1
+            report = fixtures.report(fixtures.capture("INCIDENT", {field: value}))
+            report["reportId"] = str(uuid4())
+            self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual(2, len(self.issued))
 
     def test_advertised_visible_output_recovery_contract_accepts_exact_approved_http_reports(self):
         from authentication.test_incident_report_contract import IncidentReportContractTest

@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import java.io.File
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -56,6 +58,56 @@ class ToolBatchDeliveryProofTest {
         journal.execute(call()) { result }
         journal.finish()
         return journal
+    }
+
+    @Test fun oversizedSavedBatchIsDeliveredAcrossRoundsAndTheCheckpointKeepsEveryPageProof() = runBlocking {
+        val file = File.createTempFile("saved-pages-in-parts", ".json").apply { delete() }
+        try {
+            val history = (0 until 12).map { index ->
+                val fixture = GitHubSavedPageCapacityTest.Fixture("narrow-batch-$index")
+                val call = requireNotNull(fixture.next(tokens = 3000)).copy(callId = "page-$index")
+                AgentToolExchange(listOf(call), listOf(fixture.read(call)))
+            }
+            val journal = ToolBatchCheckpoint(file, "same-grant")
+            for (exchange in history) {
+                val call = exchange.calls.single()
+                journal.enqueue(listOf(call))
+                journal.execute(call) { exchange.results.single() }
+            }
+            journal.finish()
+            val required = ToolResultDeliveryProof.capture(history.flatMap { it.results })
+            val budget = (1800..12_000 step 100).first { tokens ->
+                val allowances = GitHubReplayRecovery.savedPageResultAllowances(history, emptySet(), tokens, 512)
+                val replay = ToolExchangeCompactor.compact(history, tokens, 512, resultTokenAllowances = allowances, requiredSavedPageDigests = required)
+                val seen = ToolResultDeliveryProof.capture(replay.flatMap { it.results })
+                required.count { (id, digest) -> seen[id] == digest } in 1 until required.size
+            }
+            var privateReads = 0
+            var regularReads = 0
+            val model = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    val partial = kotlinx.coroutines.currentCoroutineContext()[SavedPageDeliveryRound] != null
+                    if (partial) privateReads++ else regularReads++
+                    emit(ProviderEvent.TextDelta(if (partial) "private acknowledgement" else "Reviewed the retained pages."))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val limits = AgentRunLimits(githubTask = true, maxReplayTokens = budget, maxReplayResultTokens = 512, maxRounds = 24)
+            val admittedTool = object : AgentTool {
+                override val definition = GitHubSavedPageCapacityTest.Fixture().tools.single()
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("No tool should be re-executed while delivering saved pages")
+            }
+            val visible = AgentRunner(limits, journal).run(model, listOf(admittedTool), selectDefinitions = { emptyList() }).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertTrue("Expected multiple privately acknowledged pages at $budget tokens: $visible", privateReads > 0)
+            assertEquals(1, regularReads)
+            assertFalse(visible.filterIsInstance<ProviderEvent.TextDelta>().any { it.text == "private acknowledgement" })
+            assertTrue(visible.filterIsInstance<ProviderEvent.Failed>().isEmpty())
+            val reopened = ToolBatchCheckpoint(file, "same-grant").recoverySnapshot()
+            assertTrue(required.all { (id, digest) -> reopened.deliveredResultDigests[id] == digest })
+            assertTrue(reopened.unsettledCalls.isEmpty())
+        } finally {
+            file.delete()
+        }
     }
 
     @Test fun ingressCompactionCannotPromoteSummaryDeliveryToTheOriginalIntervalAfterRestart() = runBlocking {

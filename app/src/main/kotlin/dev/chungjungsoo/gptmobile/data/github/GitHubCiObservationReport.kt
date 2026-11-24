@@ -38,6 +38,7 @@ internal object GitHubCiObservationReport {
         val head = eligible.values.lastOrNull { it["head_observation"] == JsonPrimitive(true) }
             ?.text("source_head_sha")?.takeIf(sha::matches) ?: return null
         val observed = GitHubObservedWorkflowRuns.current(eligible.values, JsonPrimitive(head))
+        if (!checkSnapshotOnly) packagingFailure(task, head, eligible, observed, now, epoch)?.let { return it }
         val checkReceipt = eligible.entries.lastOrNull { (_, row) ->
             GitHubStatusEvidence.fresh(row, now, epoch) &&
                 (GitHubStatusEvidence.operation(row, "github_ci", "status") || GitHubStatusEvidence.operation(row, "github_context", "checks")) &&
@@ -185,6 +186,77 @@ internal object GitHubCiObservationReport {
                 "This is a bounded finding from saved receipts. It does not establish that older or unreturned attempts have no failures, that skipped jobs executed, or that all required checks passed. No new tests were run. A particular older failed attempt needs its own run and attempt identity."
         }
         return text to report
+    }
+
+    private fun packagingFailure(task: String, head: String, receipts: Map<String, JsonObject>, runs: List<JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject>? {
+        if (runs.any { it.text("status") != "completed" || it.text("conclusion") !in setOf("success", "skipped", "neutral", "failure") }) return null
+        val run = runs.singleOrNull { it.text("conclusion") == "failure" } ?: return null
+        val (receiptId, gate) = GitHubCiSizeGate.retained(receipts).entries.lastOrNull { (_, gate) ->
+            gate["head_sha"] == JsonPrimitive(head) && gate["run_id"] == run["id"] && gate["run_attempt"] == run["run_attempt"]
+        } ?: return null
+        val source = receipts.getValue(receiptId)
+        fun sameConnection(row: JsonObject) = row.text("tool") == source.text("tool") && row["repository"] == source["repository"] && row["binding"] == source["binding"]
+        val checks = GitHubStatusEvidence.checks(receipts, head, now, epoch)
+        if (checks.outcomes.getOrDefault("running", 0) > 0 || checks.outcomes.getOrDefault("failure", 0) > 1) return null
+        val runReceipt = receipts.entries.lastOrNull { (_, row) ->
+            sameConnection(row) && GitHubStatusEvidence.fresh(row, now, epoch) && GitHubObservedWorkflowRuns.current(listOf(row), JsonPrimitive(head)).any { it == run }
+        } ?: return null
+        val jobsReceipt = receipts.entries.lastOrNull { (_, row) ->
+            val data = GitHubStatusEvidence.data(row) ?: return@lastOrNull false
+            val args = row["arguments"] as? JsonObject ?: return@lastOrNull false
+            val jobs = data["jobs"] as? JsonArray ?: return@lastOrNull false
+            val job = jobs.filterIsInstance<JsonObject>().singleOrNull { it.text("conclusion") == "failure" } ?: return@lastOrNull false
+            sameConnection(row) &&
+                GitHubStatusEvidence.operation(row, "github_ci", "jobs") &&
+                args["run_id"] == run["id"] &&
+                data["head_sha"] == JsonPrimitive(head) &&
+                data["run_attempt"] == run["run_attempt"] &&
+                args["run_attempt"] in setOf(null, run["run_attempt"]) &&
+                data["page"] == JsonPrimitive(1) &&
+                data["has_more"] == JsonPrimitive(false) &&
+                data["total_count"] == JsonPrimitive(jobs.size) &&
+                data["pagination_inconsistent"] != JsonPrimitive(true) &&
+                jobs.all { it is JsonObject && it.text("status") == "completed" && it.text("conclusion") in setOf("success", "neutral", "skipped", "failure") } &&
+                job["id"] == gate["job_id"] &&
+                job["head_sha"] in setOf(null, JsonPrimitive(head)) &&
+                job["run_attempt"] in setOf(null, run["run_attempt"]) &&
+                job["run_id"] in setOf(null, run["id"])
+        } ?: return null
+        val ids = JsonArray(listOf(runReceipt.key, jobsReceipt.key, receiptId).distinct().map(::JsonPrimitive))
+        val requirements = JsonArray(
+            GitHubRequestCompletion.requirements(task).map { requirement ->
+                buildJsonObject {
+                    put("id", GitHubRequestCompletion.id(requirement))
+                    put("requirement", requirement)
+                    put("status", "PASSED")
+                    put("acceptance_state", "PASS")
+                    put("evidence_receipt_ids", ids)
+                }
+            }
+        )
+        val text = GitHubCiSizeGate.describe(gate) +
+            "\n\nThe failed size gate explains the captured job outcome. The retained measurements provide no evidence of a signing or runner failure. " +
+            "The proposed repair still requires a new build. Evidence receipts: `${runReceipt.key}`, `${jobsReceipt.key}`, `$receiptId`."
+        return text to buildJsonObject {
+            put("schema", "github.ci-observation.v1")
+            put("task", task)
+            put("task_outcome", "COMPLETED")
+            put("observation_state", "OBSERVED_PACKAGING_FAILURE")
+            put("completion_scope", "FAILED_JOB_IN_RETURNED_WORKFLOW_SET")
+            put("head_sha", head)
+            put("apk_size_failure", gate)
+            put("completion_verified", true)
+            put("answer_verified", true)
+            put("claims_verified", true)
+            put("partial", false)
+            put("full_history_verified", false)
+            put("build_health_verified", false)
+            put("new_test_execution_verified", false)
+            put("requirements", requirements)
+            put("remaining_requirements", JsonArray(emptyList()))
+            put("evidence_receipt_ids", ids)
+            put("verified_at_ms", now)
+        }
     }
 
     private fun checkSnapshot(id: String, receipt: JsonObject, head: String): GitHubStatusEvidence.CheckInventory? {

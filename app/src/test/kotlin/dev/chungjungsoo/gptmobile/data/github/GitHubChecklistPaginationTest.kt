@@ -83,14 +83,16 @@ class GitHubChecklistPaginationTest {
             records["sample$index"] = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches","page":${index + 11}},"result":{}}""")
         }
         val prompt = GitHubWorkflowPreset.selected("test_integration").prompt()
-        val legacy = prompt + "\nFinish all pending read pages using the exact authorized continuation recipes before declaring pagination complete."
-        for (bounded in listOf(prompt, legacy)) {
-            assertFalse(GitHubChecklistScope.exhaustive(bounded))
-            assertFalse(remote["arguments"] == GitHubTestChecklist.nextCall(bounded, tools, records)?.arguments)
+        val explicit = "Finish all pending read pages using the exact authorized continuation recipes before declaring pagination complete."
+        val legacy = prompt.substringBefore(" [github-integration-scope:") + "\n" + explicit
+        assertFalse(GitHubChecklistScope.exhaustive(prompt))
+        assertFalse(remote["arguments"] == GitHubTestChecklist.nextCall(prompt, tools, records)?.arguments)
+        assertEquals(JsonPrimitive(2), GitHubTestChecklist.paginationResume(prompt, records, tools)["scope_version"])
+        for (full in listOf(legacy, "$prompt\n$explicit", "$legacy\nFetch all branches.")) {
+            assertTrue(GitHubChecklistScope.exhaustive(full))
+            assertEquals(remote["arguments"], GitHubTestChecklist.nextCall(full, tools, records)?.arguments)
+            assertEquals(JsonPrimitive("COMPLETE_INVENTORY_REQUESTED"), GitHubTestChecklist.paginationResume(full, records, tools)["mode"])
         }
-        val full = "$legacy\nFetch all branches."
-        assertTrue(GitHubChecklistScope.exhaustive(full))
-        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall(full, tools, records)?.arguments)
         assertEquals(listOf(remote), GitHubTestChecklist.pendingPages(records))
     }
 

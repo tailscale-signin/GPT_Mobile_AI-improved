@@ -2,7 +2,8 @@ package dev.chungjungsoo.gptmobile.data.github
 
 internal data class GitHubWorkflowPreset(val id: String, val title: String, val objective: String, val acceptance: List<String>, val toolCalls: Int, val minutes: Int) {
     fun prompt() = "$objective\n\nAcceptance criteria:\n" + acceptance.joinToString("\n") { "- $it" } +
-        "\n\nBudget: at most $toolCalls tool calls and $minutes minutes. Preserve a checkpoint and identify remaining work if the budget ends.\n[github-workflow-preset:$id]"
+        "\n\nBudget: at most $toolCalls tool calls and $minutes minutes. Preserve a checkpoint and identify remaining work if the budget ends.\n[github-workflow-preset:$id]" +
+        if (id == "test_integration") " " + GitHubChecklistScope.PRESET_SCOPE else ""
 
     companion object {
         const val DEFAULT_ID = "heavy_work"

@@ -51,9 +51,19 @@ internal object DiagnosticRecordChunks {
 
     internal fun sha256(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        // JSON can exceed the remaining heap reserve. Hash through the encoder's
-        // bounded buffer instead of allocating a second complete UTF-8 payload.
-        OutputStreamWriter(DigestOutputStream(discard, digest), Charsets.UTF_8).use { it.write(value) }
+        if (value.length <= 2048) return hex(digest.digest(value.toByteArray(Charsets.UTF_8)))
+        // Some Writer implementations copy an entire String to a temporary char array.
+        // Keep a single encoder across chunks so a split UTF-16 pair hashes correctly.
+        val buffer = CharArray(4096)
+        OutputStreamWriter(DigestOutputStream(discard, digest), Charsets.UTF_8).use { writer ->
+            var offset = 0
+            while (offset < value.length) {
+                val count = minOf(buffer.size, value.length - offset)
+                value.toCharArray(buffer, 0, offset, offset + count)
+                writer.write(buffer, 0, count)
+                offset += count
+            }
+        }
         return hex(digest.digest())
     }
 

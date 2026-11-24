@@ -27,6 +27,37 @@ import org.junit.Test
 class StagedDiagnosticCaptureTest {
     private val available = DiagnosticCaptureOptions(minimumHeadroomBytes = 0)
 
+    @Test fun journalAndTimelinePrecedeWorkspaceAndShrinkPagesBeforeHeapDeferral() = temporary { directory ->
+        runBlocking {
+            val sampleOrder = mutableListOf<String>()
+            val sizes = mutableListOf<Int>()
+            val mib = 1024L * 1024
+            var headroom = 40 * mib
+            val stages = listOf("workspace", "timeline", "run_journal").map { id ->
+                stage(id) { sink ->
+                    sampleOrder += id
+                    if (id == "workspace") {
+                        sink.checkBudget()
+                        sizes += sink.sourcePageSize
+                        headroom = 20 * mib
+                        sink.checkBudget()
+                        sizes += sink.sourcePageSize
+                    }
+                    sink.record(id)
+                }
+            }
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "journal-before-history",
+                stages,
+                available.copy(minimumHeadroomBytes = 16 * mib, memorySampler = { memory(headroom) })
+            )
+            assertTrue(result.complete)
+            assertEquals(listOf("run_journal", "timeline", "workspace"), sampleOrder)
+            assertEquals(listOf(16, 1), sizes)
+        }
+    }
+
     @Test fun reducedMemoryUsesSingleRowPagesBeforeAnyCriticalSourceAllocation() = temporary { directory ->
         runBlocking {
             val observedPages = mutableListOf<Int>()

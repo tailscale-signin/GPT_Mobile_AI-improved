@@ -389,7 +389,8 @@
     "Document the five historical test-identity migrations and the public V3 summary correction explicitly; restore prior inactive-state, remote-consent, engine-count and no-live-generation controls inside the replacement tests.",
     "Bind restored saved-page selectors to the issued cursor and exact admitted arguments. Normalize a mixed legacy request to its cursor only after selector proof and current schema validation; retain original authority, page contents, attempt limits and no-dispatch behavior.",
     "Exercise automatic catalog recovery through the actual runner: only the bound local catalog can resolve a missing-tool call; foreign or unavailable catalogs cannot acquire dispatch or retry authority.",
-    "Retain all 41 existing streaming and synthesis test identities while explicitly correcting four fixtures: separate temporary dictionary leases from quarantined model leases, assert the six-word opening, and verify feedback-sized continuation plus the final tail without losing source text."
+    "Retain all 41 existing streaming and synthesis test identities while explicitly correcting four fixtures: separate temporary dictionary leases from quarantined model leases, assert the six-word opening, and verify feedback-sized continuation plus the final tail without losing source text.",
+    "Accept Android failed-event flags and omissions at the hosted reporter, preserve measured APK-size CI failures through saved receipts and claim verification, honor explicit integration pagination on resume, and deliver oversized batches of saved pages incrementally with exact acknowledgements. Capture the run journal and timeline ahead of bulk history and reduce hashing and database allocations under heap pressure."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1382,7 +1383,19 @@
     "authentication/test_report_extensions.py",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundaryTest.kt",
     "docs/repairs/benchmark-feature-integration-2026-11-24-task.json",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt"
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageDeliveryRound.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticDatabaseSource.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticRecordChunks.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistScope.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiLogPage.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiSizeGate.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPartialReport.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowPreset.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticRecordChunksTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCaptureTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistPaginationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchDeliveryProofTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

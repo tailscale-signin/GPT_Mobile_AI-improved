@@ -119,7 +119,7 @@ class PrivacyComparisonPanelTest {
         compose.onNodeWithTag("privacy_comparison_toggle").performClick()
         PrivacyComparisonLegStatus.entries.filter { it != PrivacyComparisonLegStatus.COMPLETE }.forEach { status ->
             compose.runOnIdle { legStatus = status }
-            compose.onNodeWithTag("privacy_comparison_pair_status_travel").assertTextContains("Pair incomplete.")
+            compose.onNodeWithTag("privacy_comparison_pair_status_travel").assertTextContains("Pair incomplete. Both completed responses are required for comparison.")
             compose.onNodeWithText("Fixture criteria: not scored.").assertExists()
             compose.onNodeWithText("Fixture criteria met:", substring = true).assertDoesNotExist()
             compose.onNodeWithText("First answer text: Not observed. Completed answer: Not observed. Elapsed: 22 ms.").assertExists()
@@ -162,7 +162,7 @@ class PrivacyComparisonPanelTest {
             }
         }
         compose.onNodeWithTag("privacy_comparison_toggle").performClick()
-        compose.onNodeWithTag("privacy_comparison_pair_status_travel").assertTextContains("different or unverified settings")
+        compose.onNodeWithTag("privacy_comparison_pair_status_travel").assertTextContains("The protected route uses different or unverified settings. Treat these as separate results.")
         compose.onAllNodesWithText("Fixture criteria met: 1/1.").assertCountEquals(2)
         compose.onNodeWithText("Comparison incomplete").assertExists()
         compose.onNodeWithText("Comparison finished").assertDoesNotExist()

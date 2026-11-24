@@ -140,7 +140,7 @@ class PrivacyComparisonLifecycleTest {
             }
             compose.waitForIdle()
             compose.onNodeWithText("Comparison cancelled; recorded responses retained").assertExists()
-            compose.onNodeWithTag("privacy_comparison_pair_status_travel").assertTextContains("Pair incomplete.")
+            compose.onNodeWithTag("privacy_comparison_pair_status_travel").assertTextContains("Pair incomplete. Both completed responses are required for comparison.")
             compose.runOnIdle {
                 assertFalse(model.state.value.running)
                 assertEquals(1, runIds.size)

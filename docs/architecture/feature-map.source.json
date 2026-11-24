@@ -155,7 +155,8 @@
         "docs/architecture/repository-guide.md",
         "docs/repairs/privacy-receiving-accounting-2026-11-23-task.json",
         "docs/repairs/privacy-paired-comparison-2026-11-23-task.json",
-        "docs/repairs/privacy-comparison-authority-cancellation-2026-11-23-task.json"
+        "docs/repairs/privacy-comparison-authority-cancellation-2026-11-23-task.json",
+        "docs/repairs/privacy-comparison-ui-expectations-2026-11-24-task.json"
       ],
       "invariants": [
         "Saved private-chat authority follows its conversation and queued work independently of global availability.",

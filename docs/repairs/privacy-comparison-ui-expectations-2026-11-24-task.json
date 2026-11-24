@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-comparison-ui-expectations-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "029b7e5a1b268b9a1ef611a60e04396ab604044f",
+  "workingBranch": "work/privacy-paired-comparison-2026-11-23",
+  "pullRequest": 2367,
+  "recordedBeforeSourceEdits": true,
+  "status": "SOURCE_FROZEN_INDEPENDENTLY_REVIEWED_PENDING_NORMAL_CI",
+  "intent": "Correct three incomplete expected text literals in existing privacy comparison UI assertions, retaining exact matching, every behavior assertion and all production source.",
+  "scope": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonPanelTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt"
+  ],
+  "preEditCheckpoint": {
+    "panelSha256": "105c924177c2b7160f2736e79acbd40104ab48dadbfdd9a07ff9d77a72f1bd26",
+    "lifecycleSha256": "f0996ee3832c7a3a188b46501dc7bf38769a641bae89ca9951c167126e8b103d",
+    "productionChanged": false,
+    "ordinaryMethods": 5
+  },
+  "sourceBasis": {
+    "workflowRun": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45289407829",
+    "jobId": 138094050238,
+    "head": "fa1230722f7c247e4ca1b8b04ccd1a4ae7811b72",
+    "checkout": "21096918b3a3a1d9075decc55ea641fe39997b13",
+    "tree": "7be36b25423009b343b7506ba2db56e50d3dc105",
+    "artifactId": 14875682939,
+    "artifactSha256": "f01362054fd31b347ea217a213837de658efbee9ee127957e6d62ed6694d7027",
+    "fullReceiptSha256": "5201839f0238b7cbefe7d976098314fec27dacda9cf6c03f70213f606859c540",
+    "observed": "Exactly three assertion failures; actual tagged nodes contain the complete intended incomplete-pair and unverified-settings messages. The shortened expected strings do not equal a complete text item under assertTextContains's default substring=false.",
+    "failedMethods": [
+      "PrivacyComparisonPanelTest.everyIncompleteLegRemainsUnscoredAndUnknownTimingsAreNeverRenderedAsZero",
+      "PrivacyComparisonPanelTest.strictRouteDifferencesKeepSeparateRubricResultsAndMissingPairsCannotCompleteTheRun",
+      "PrivacyComparisonLifecycleTest.stoppingRetainedScreenCancelsTheHeldRunAndResumeDoesNotRestart"
+    ],
+    "apiProof": "Pinned Compose ui-test-android 1.12.1 artifact and retained classes match repository verification metadata. Read-only bytecode inspection confirms assertTextContains$default sets substring=false and ignoreCase=false; no library or application behavior was executed.",
+    "executionLimits": "The failing lifecycle method reached real ON_STOP cleanup, retained-results and resume transition; later no-restart counters, explicit restart and disposal assertions were not reached. Failing panel methods likewise require their later assertions to execute on corrected source."
+  },
+  "acceptance": [
+    "Replace only the two Pair incomplete. expected literals and the one different or unverified settings expected literal with their complete existing production message.",
+    "Keep assertTextContains and its exact, case-sensitive defaults; do not enable broad substring matching or change imports, tags, schedulers, deadlines, fixtures or assertions.",
+    "Reversing exactly those three literal replacements must reconstruct both prior test files byte-for-byte.",
+    "Preserve every current production file and all 54 comparison methods; do not delete, ignore or shorten any test.",
+    "Run canonical host checks, pinned formatting and exact release-scope validation on the frozen integration; ordinary committed project CI must execute all five affected methods and the complete required suite.",
+    "Do not run local Kotlin, Android, Gradle or standalone private-composed harnesses; preserve every concurrent shared append and the other implementation owners."
+  ],
+  "qualification": {
+    "sourceReview": "CLEAR: independent two-file reversal/source review 49001fb47faa042bcbab23a84191dc501b8f9cbede521af48fd6b2b9cec45eba and lifecycle review ff0bbf1a45bf4225af8cb2f727b8096f17391a67772b132979230149649caefa bind exact final test bytes. The root independently reconstructed both prior files.",
+    "canonicalHost": "Required on the frozen candidate before guarded append; retained external source-input/log receipt records actual result without a circular ledger hash.",
+    "formatting": "Pinned ktlint 1.3.1 passed the two exact modified Kotlin files; full changed-file formatting is required on frozen integration.",
+    "ordinaryProjectRuntime": "PENDING_NORMAL_HOSTED_CI",
+    "localKotlinOrAndroidOrGradle": "NOT_RUN",
+    "diagnosisReceiptSha256": "082946b4f423f4702d10a661b65c01789be7491fa3684862aa878a03d2e98787"
+  },
+  "implementation": {
+    "panelSha256": "f45fc6f52c397e78d25bfbfef926ff9c58895edc3134cdb0817bb11029dba9c3",
+    "lifecycleSha256": "98b4329d782971f2e1918bc71fd0cadf4530139c254b531258ac6cfd3be0bf1d",
+    "expectedLiteralReplacements": 3,
+    "fullPriorFilesReconstructedByExactReversal": true,
+    "allComparisonMethodsPreserved": 54,
+    "productionUnchanged": true,
+    "matcherApiAndDefaultsUnchanged": true
+  },
+  "integration": {
+    "parentCommit": "d74dcb445b3381920f373b3f09a7cb9e1c5877d8",
+    "parentTree": "60363a5423fb53814ddcb9d24b16872289118b6c",
+    "preservation": "Rebased only the private, unpublished six-path UI expectation repair onto the complete shared native-benchmark append. All incoming production and test changes are preserved; the two reviewed test hashes remain exact."
+  }
+}

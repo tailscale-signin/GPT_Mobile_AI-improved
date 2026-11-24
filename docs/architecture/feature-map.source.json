@@ -1545,7 +1545,8 @@
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
-        "gateway/benchmarks/README.md"
+        "gateway/benchmarks/README.md",
+        "docs/repairs/github-comparison-context-2026-11-24-task.json"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1554,7 +1555,8 @@
       "invariants": [
         "Model-generated plans and delegated advice cannot grant repository write authority.",
         "A recoverable rejection can shrink the next request only within its original permissions and resource budget.",
-        "Score comparisons require independently measured work under matching task, policy, environment and budget identities."
+        "Score comparisons require independently measured work under matching task, policy, environment and budget identities.",
+        "Production score comparisons require explicit SESSION_ONLY memory and versioned digests of the exact admitted conversation and follow-up instruction values; unbound historical memory remains unknown, and raw private inputs are not exported."
       ]
     },
     {

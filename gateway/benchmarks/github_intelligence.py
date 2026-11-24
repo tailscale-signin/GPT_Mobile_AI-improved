@@ -7,6 +7,9 @@ from v14.batch import digest as workspace_digest
 from v14.engineering_defaults import effective_execution_budget
 
 VERSION = 'gateway.github-intelligence.v1'
+CASE_CONTRACT_SCHEMA = 'gateway.github-intelligence-case.v2'
+CONVERSATION_CONTEXT_SCHEMA = 'gateway.engineering-conversation-context.v1'
+USER_INSTRUCTIONS_SCHEMA = 'gateway.engineering-user-instructions.v1'
 # Each dimension identifies the real jobs on which its observation is meaningful.
 RUBRIC = {
     'task_completion': (25, ('unfamiliar_bug', 'source_paging', 'ci_repair', 'existing_pr',
@@ -35,7 +38,10 @@ def case_observations(job, scenario, signal, completed):
     expected = next((c for c in criteria if c.get('id') == scenario), None)
     # Bind actual admitted tasks, host policy, resources and tools, omitting only
     # per-arm identities. Hash the objective and requirements locally for export.
+    # Persistent history is profile/binding scoped and is not frozen in this
+    # contract. Its observations remain available, but cannot qualify a comparison.
     comparable = (expected and request.get('objective') and request.get('source_sha') and
+                  request.get('memory_mode') == 'SESSION_ONLY' and
                   type(actor) is int and actor > 0 and re.fullmatch(r'[0-9a-f]{64}', str(permissions)) and
                   data.get('qualification_permissions_changed') is not True and
                   re.fullmatch(r'[0-9a-f]{40}', str(initial_base)) and binding.get('tool_owner') == 'GATEWAY' and binding.get('privacy_scope')
@@ -44,17 +50,26 @@ def case_observations(job, scenario, signal, completed):
                   re.search(r'(?:@|^)sha256:[0-9a-f]{64}$', str(environment)))
     settings = ('task_scope', 'context_variant', 'memory_mode', 'sampling_policy', 'execution_mode',
                 'batch_policy_version', 'batch_preferences', 'specialist_roles', 'repair_attempts', 'duration_hours')
-    contract = digest({'repository': request['repository'], 'source': request['source_sha'],
+    contract = digest({'schema': CASE_CONTRACT_SCHEMA, 'repository': request['repository'], 'source': request['source_sha'],
                        'scenario': scenario, 'objective': request['objective'], 'criteria': criteria,
                        'policy': policy, 'environment': environment, 'initial_base_sha': initial_base,
                        'github_actor': actor, 'permissions': permissions, 'privacy_scope': binding['privacy_scope'],
                        'tool_owner': binding['tool_owner'], 'tool_policy': sorted(tool_policy), 'budget': effective_execution_budget(request),
+                       # Match the normal engineering producer's get semantics: absent and null
+                       # both send None. Preserve ordered messages and every present field, but
+                       # keep their private contents inside a local digest, never the report.
+                       'conversation_context': {'schema': CONVERSATION_CONTEXT_SCHEMA,
+                                                'sha256': digest(job.get('conversation_context'))},
+                       # The producer uses [] only when this field is absent;
+                       # explicit null and all sent command identities stay distinct.
+                       'user_instructions': {'schema': USER_INSTRUCTIONS_SCHEMA,
+                                             'sha256': digest(data.get('user_instructions', []))},
                        'settings': {k: request.get(k) for k in settings}}) if comparable else None
     measures = {}
     terminal = job['state'] in {'COMPLETED', 'FAILED', 'CANCELLED'}
     blocked = job['state'] == 'NEEDS_INPUT' and scenario in RUBRIC['evidence_accuracy'][1] and signal
     if not (terminal or blocked):
-        return {'caseContract': contract, 'measures': measures}
+        return {'caseContractSchema': CASE_CONTRACT_SCHEMA, 'caseContract': contract, 'measures': measures}
 
     head = data.get('head_sha')
     verified = data.get('completion_verification') or {}
@@ -103,7 +118,7 @@ def case_observations(job, scenario, signal, completed):
             actionable = receipt.get('next_action') not in (None, '', 'none') and bool(report.get('summary'))
             specific = bool(report.get('blocked_steps') or (report.get('post_merge') or {}).get('status') == 'FAILED')
             measures['response_quality'] = int(accurate and actionable and specific)
-    return {'caseContract': contract, 'measures': measures}
+    return {'caseContractSchema': CASE_CONTRACT_SCHEMA, 'caseContract': contract, 'measures': measures}
 
 
 def score(report):
@@ -129,6 +144,7 @@ def score(report):
                  r.get('selected_route_verified') is True and r.get('comparison_route') == route and
                  r.get('measurement_complete') is True and r.get('repository') == report.get('test_repository') and
                  r.get('source_sha') == route.get('base_sha') and
+                 r.get('intelligence', {}).get('caseContractSchema') == CASE_CONTRACT_SCHEMA and
                  re.fullmatch(r'[0-9a-f]{64}', str(r.get('intelligence', {}).get('caseContract')))
                  for r in rows))
     dims = {}
@@ -148,7 +164,7 @@ def compare(left, right):
             or left['expected_route']['settings_digest'] != right['expected_route']['settings_digest']
             or left['expected_route'] == right['expected_route']
             or {r['job_id'] for r in left['cases']} & {r['job_id'] for r in right['cases']}):
-        raise ValueError('Comparison needs distinct measured runs with identical tasks, source, environment, policy, settings and budgets')
+        raise ValueError('Comparison needs distinct measured runs with identical tasks, source, environment, policy, settings and budgets; use session-only memory and identical admitted conversation and follow-up inputs')
     return {'schema': VERSION, 'taskSetDigest': scores[0]['taskSetDigest'],
             'arms': [{'route': report['expected_route'], **result} for report, result in zip((left, right), scores)],
             'rightMinusLeftPoints': scores[1]['pointsOutOf100'] - scores[0]['pointsOutOf100']}

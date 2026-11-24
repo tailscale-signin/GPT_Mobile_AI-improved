@@ -1,0 +1,66 @@
+{
+  "scope": "Read-only incoming reporter integration review; source preservation only, no full-history pass",
+  "integratedBase": "8583a25645dfac7778c1277b60bce22d36441973",
+  "incomingHead": "1973d18aca6be64b326d6b8f90faddccc9c4580f",
+  "paths": [
+    {
+      "path": ".gitleaks.toml",
+      "workingSha256": "1be75e153720f00ac3ba81411c4abec10129e795eaa15200bb9c0291f5dee148",
+      "identicalToIntegratedBase": true,
+      "identicalToIncoming": false
+    },
+    {
+      "path": "scripts/test_gitleaks_model_pin.py",
+      "workingSha256": "eaea04a95dc8343e03bc5584ea1b3d7b76d21135e8f13c711a1f3565a2d136d3",
+      "identicalToIntegratedBase": true,
+      "identicalToIncoming": false
+    },
+    {
+      "path": "scripts/test_secret_history_integrity.py",
+      "workingSha256": "8c865bee6d4348380e1466194b86ea37c6edd7fc587db26881af28f09fab19dc",
+      "identicalToIntegratedBase": false,
+      "identicalToIncoming": false
+    },
+    {
+      "path": "scripts/scan_secret_history.sh",
+      "workingSha256": "d3c62151d7cf40467999121e949ab5bdaf9195635b075b8d6b4d97b4f5744074",
+      "identicalToIntegratedBase": false,
+      "identicalToIncoming": true
+    },
+    {
+      "path": "scripts/report_secret_history.py",
+      "workingSha256": "4bae92d11ea7f1fc7bc86d4eeb0bb344b364a70659f55046702f33c6210e9fb8",
+      "identicalToIntegratedBase": false,
+      "identicalToIncoming": true
+    },
+    {
+      "path": "scripts/tests/test_secret_history_reporting.py",
+      "workingSha256": "e34128069269eba2fd4940076c302e3748347278977d6f822f5f6c0a5031878a",
+      "identicalToIntegratedBase": false,
+      "identicalToIncoming": true
+    },
+    {
+      "path": ".github/workflows/pr-validation.yml",
+      "workingSha256": "65cb38c06ce0da976030445eac84b4a74ff092d2097346af7092bdc947150d8e",
+      "identicalToIntegratedBase": true,
+      "identicalToIncoming": true
+    }
+  ],
+  "checks": {
+    "composeImported": true,
+    "composeInInputs": true,
+    "reporterInInputs": true,
+    "scannerControls": 38,
+    "composeControls": [
+      "compose_exact_declaration",
+      "compose_different_value",
+      "compose_different_path",
+      "compose_different_field",
+      "compose_trailing_content",
+      "compose_prefix_content",
+      "compose_secret_after",
+      "compose_secret_before"
+    ],
+    "stagedCodeConflictPaths": []
+  }
+}

@@ -12,21 +12,26 @@ import kotlin.math.roundToLong
  * Cumulative/repeated spans are emitted once. Cues beyond the audio produced so far
  * stay pending, so truncated or invalid metadata cannot point past audible PCM.
  */
-internal class MediaPipeWordCueMapper(text: String) {
-    private val boundaries = VoiceStreamFrames.utf8Boundaries(text)
+internal class MediaPipeWordCueMapper(
+    text: String,
+    private val frameLimit: Long = VoiceStreamFrames.MAX_STREAM_FRAMES,
+    private val cueLimit: Int = VoiceStreamFrames.MAX_CUES
+) {
+    private val boundaries = VoiceIncrementalTextMap().also { it.append(text) }
     private val pending = TreeMap<Int, VoiceWordCue>()
     private val emitted = mutableSetOf<Pair<Int, Int>>()
     private var lastEndByte = 0
     private var lastEndFrame = 0L
 
+    fun appendText(text: String) = boundaries.append(text)
+
     fun accept(timestamps: List<WordTimestamp>, availableFrames: Long): List<VoiceWordCue> {
-        timestamps.take(VoiceStreamFrames.MAX_CUES).forEach { timestamp ->
+        timestamps.take(cueLimit).forEach { timestamp ->
             val start = timestamp.startChar
             val end = timestamp.endChar
             if (start < lastEndByte ||
                 end <= start ||
-                boundaries.getOrNull(start)?.takeIf { it >= 0 } == null ||
-                boundaries.getOrNull(end)?.takeIf { it >= 0 } == null ||
+                !boundaries.contains(start, end) ||
                 (start to end) in emitted
             ) {
                 return@forEach
@@ -34,8 +39,8 @@ internal class MediaPipeWordCueMapper(text: String) {
             if (!timestamp.startSec.isFinite() || !timestamp.endSec.isFinite() || timestamp.startSec < 0f || timestamp.endSec <= timestamp.startSec) return@forEach
             val startFrame = (timestamp.startSec.toDouble() * VOICE_PCM_SAMPLE_RATE).roundToLong()
             val endFrame = (timestamp.endSec.toDouble() * VOICE_PCM_SAMPLE_RATE).roundToLong()
-            if (startFrame < lastEndFrame || endFrame <= startFrame || endFrame > VoiceStreamFrames.MAX_STREAM_FRAMES) return@forEach
-            if (pending.size + emitted.size >= VoiceStreamFrames.MAX_CUES) return@forEach
+            if (startFrame < lastEndFrame || endFrame <= startFrame || endFrame > frameLimit) return@forEach
+            if (pending.size + emitted.size >= cueLimit) return@forEach
             pending.putIfAbsent(start, VoiceWordCue(start, end, startFrame, endFrame, VoiceWordCueProvenance.ESTIMATED))
         }
         val ready = mutableListOf<VoiceWordCue>()

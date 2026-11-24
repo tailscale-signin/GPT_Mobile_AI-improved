@@ -1,0 +1,33 @@
+{
+  "status": "READ_ONLY_REVIEW_CLEAR",
+  "recordedAt": "2026-11-24T03:49:32.157951+00:00",
+  "reviewer": "speech_latency_options",
+  "sourceCommit": "36feec9ef050f423fd2d8a45a736d508d16c5f3a",
+  "sourceTree": "ecbf3fcc17f17f9f9b96af53973ebf1d7849522a",
+  "sourceSha256": {
+    "scripts/kokoro_model_workbench.py": "7d454ab4266339af5628e0fc6837dad0ed63592b173d8051e9bb2934792018e4",
+    "scripts/tests/test_kokoro_model_workbench.py": "ca296c61c1b487eeb125dc4ffcaa51b151ab04bdf866f91c290e10f80051a8e1",
+    "local-kokoro-runtime/src/testHost/test_kokoro_model_workbench.py": "ec0f8c915bab38f94b72c473cfef29cc690a937ddf3e6d95acbde74c38cb044b"
+  },
+  "reviewedExecutionReceiptSha256": "2fe19dbad3aea7ef9ac44b0333eb05af0c31771ac1f5194c1a227c19ac3de8ac",
+  "independentReviewChecks": {
+    "pythonVersion": "3.12.14",
+    "zipfileImplementationSha256": "83031a1582b84054fdde260a372f8ed25d9dedfbfcbedcef2bc015bcca7c5332",
+    "eocdSelection": "Same22-byte no-comment fast path and otherwise same bounded last-signature search as actual CPython _EndRecData. Exact comment/trailing-byte restriction is stricter.",
+    "parserOrigin": "directoryOffset+directorySize==selectedEOCD offset makes ZipFile concat correction zero. Archive-level ZIP64 locator is rejected even when ordinary EOCD contains no sentinels; central ZIP64 size/offset sentinels are rejected before ZipFile.",
+    "bounds": "At most64 actual central headers; each46-byte header plus declared16-bit lengths remains before EOCD. Every30-byte local header and bounded compressed span ends before central directory. At most65557-byte tail+4-byte locator check+64*(46+30) fixed header reads.",
+    "maxCentralDirectoryBytes": 12585664,
+    "maxGuardReadRequestBytes": 70425,
+    "numpyCompatibility": "Local ZIP64 size sentinels and extras remain supported. Existing NumPy/ONNX suite adds actual np.savez and np.savez_compressed roundtrips; pure positive control covers64 members/comments/local ZIP64.",
+    "unchangedPriorTestMethods": 37,
+    "priorTestsRetention": "Independently AST-compared against8583:26 pure and11 tiny-model methods unchanged, none removed.",
+    "snapshotProvenance": "read_npz AST unchanged: bounded private snapshot is SHA256-checked before guard, ZipFile and np.load consume that same snapshot; all other existing workbench functions except preflight_npz are AST unchanged.",
+    "reviewedTestReceipt": "Owner receipt records34 pure+12 tiny synthetic model methods passed; six baseline regression methods fail with35 subcase assertion failures and zero errors."
+  },
+  "limitations": [
+    "This review did not rerun owner test suites or execute phone/full Kokoro models.",
+    "Metadata admission limits are not a measured process peak-memory guarantee.",
+    "Archive-level ZIP64 and concatenated/trailing layouts are deliberately rejected; normal NumPy local ZIP64 remains supported."
+  ],
+  "blockingFindings": []
+}

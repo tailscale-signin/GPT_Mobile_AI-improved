@@ -1,0 +1,116 @@
+{
+  "baseCommit": "8583a25645dfac7778c1277b60bce22d36441973",
+  "baselineTests": {
+    "run": 6,
+    "failingMethods": [
+      "test_npz_ambiguous_end_records_and_trailing_bytes_precede_zipfile",
+      "test_npz_archive_zip64_footer_cannot_override_validated_directory",
+      "test_npz_checks_actual_directory_count_when_end_record_lies",
+      "test_npz_invalid_directory_lengths_offsets_and_local_headers_precede_zipfile",
+      "test_npz_preflight_keeps_the_opened_stream_when_its_path_is_replaced",
+      "test_npz_rejects_65_directory_entries_before_zipfile_metadata_allocation"
+    ],
+    "assertionFailuresIncludingSubtests": 35,
+    "errors": 0
+  },
+  "retention": {
+    "scripts/tests/test_kokoro_model_workbench.py": {
+      "priorMethodsRetainedUnchanged": 26,
+      "currentMethods": 34,
+      "newMethods": [
+        "test_npz_accepts_64_members_comments_and_numpy_style_local_zip64",
+        "test_npz_ambiguous_end_records_and_trailing_bytes_precede_zipfile",
+        "test_npz_archive_zip64_footer_cannot_override_validated_directory",
+        "test_npz_checks_actual_directory_count_when_end_record_lies",
+        "test_npz_directory_guard_reads_only_bounded_tail_and_fixed_headers",
+        "test_npz_invalid_directory_lengths_offsets_and_local_headers_precede_zipfile",
+        "test_npz_preflight_keeps_the_opened_stream_when_its_path_is_replaced",
+        "test_npz_rejects_65_directory_entries_before_zipfile_metadata_allocation"
+      ]
+    },
+    "local-kokoro-runtime/src/testHost/test_kokoro_model_workbench.py": {
+      "priorMethodsRetainedUnchanged": 11,
+      "currentMethods": 12,
+      "newMethods": [
+        "test_real_numpy_local_zip64_archive_passes_directory_guard_and_round_trip"
+      ]
+    }
+  },
+  "sources": {
+    "scripts/kokoro_model_workbench.py": "7d454ab4266339af5628e0fc6837dad0ed63592b173d8051e9bb2934792018e4",
+    "scripts/tests/test_kokoro_model_workbench.py": "ca296c61c1b487eeb125dc4ffcaa51b151ab04bdf866f91c290e10f80051a8e1",
+    "local-kokoro-runtime/src/testHost/test_kokoro_model_workbench.py": "ec0f8c915bab38f94b72c473cfef29cc690a937ddf3e6d95acbde74c38cb044b"
+  },
+  "scope": "Bounded ZIP metadata admission and tiny synthetic NumPy/ONNX host behavior only; no physical-device, Kokoro listening, performance, or measured peak-memory claim.",
+  "checks": [
+    {
+      "label": "pure",
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/tests",
+        "-p",
+        "test_kokoro_model_workbench.py",
+        "-v"
+      ],
+      "environment": {},
+      "exitCode": 0,
+      "logSha256": "92175c340fe9e91669b5223fdd9b3b4b84600caa4a8541dea8e5fc451f2dedfc",
+      "testsRun": 34
+    },
+    {
+      "label": "tiny-model",
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "local-kokoro-runtime/src/testHost",
+        "-p",
+        "test_kokoro_model_workbench.py",
+        "-v"
+      ],
+      "environment": {
+        "PYTHONPATH": "/workspace/scratch/3e488fb5a6e6/workbench-recovery-validation/python",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "PYTHONDONTWRITEBYTECODE": "1"
+      },
+      "exitCode": 0,
+      "logSha256": "b1ebf96dd75b6f7cbf52ac4457a4c69f327f34f32cfd1c230f9adaf12b790646",
+      "testsRun": 12
+    },
+    {
+      "label": "diff-check",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "environment": {},
+      "exitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "baselineLogSha256": "ecfeee9623b6c4728f4515f28e80faa77aafedd8587e07a94979fe08db9088c2",
+  "limits": [
+    "Archive-level ZIP64 directories and concatenated/trailing archive layouts are rejected; NumPy local ZIP64 sizes/extras remain supported.",
+    "Directory count/encoded-byte bounds are admission limits, not a measured peak-memory envelope.",
+    "No physical accelerator or full Kokoro model execution was run by these tests."
+  ],
+  "commit": "36feec9ef050f423fd2d8a45a736d508d16c5f3a",
+  "tree": "ecbf3fcc17f17f9f9b96af53973ebf1d7849522a",
+  "integrationParent": "33b823fface6d270fd48c59a4763183496623ba6",
+  "gitBlobs": {
+    "scripts/kokoro_model_workbench.py": "247ea0749240eb7383ada398ca71625e713ae370",
+    "scripts/tests/test_kokoro_model_workbench.py": "474a398146e2572829f777ac4f764f0d66e3c1df",
+    "local-kokoro-runtime/src/testHost/test_kokoro_model_workbench.py": "d8bd92fa16fc1d5a94b251a5bf9f068acff98efd"
+  },
+  "reconciliation": "Rebased the scoped commit from8583 onto33b823. The three tested source files are byte-identical after rebase; the intervening integration changed none of them."
+}

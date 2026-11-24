@@ -43,6 +43,9 @@ internal interface KokoroOutput {
     fun bindReply(id: String) = Unit
     fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) = Unit
     fun close()
+
+    /** Call off main after close. A native retirement failure never authorizes replacement. */
+    fun awaitClosed(timeoutMs: Long): Boolean = true
 }
 
 /** Owns the microphone and playback backend for the visible voice session. */

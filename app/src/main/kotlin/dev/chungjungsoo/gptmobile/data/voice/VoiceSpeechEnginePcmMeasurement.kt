@@ -27,10 +27,14 @@ internal class VoiceSpeechEnginePcmMeasurement(
     private var activeFrames: VoiceStreamFrames? = null
     private val timeline = mutableListOf<VoiceSpeechEnginePcmReceipt>()
 
-    fun beginStream(input: String) {
+    fun beginStream(input: String, incrementalInput: Boolean = false) {
         check(activeFrames == null) { "BENCHMARK_STREAM_ALREADY_OPEN" }
         require(++calls <= VoiceSpeechWorkload.MAX_CHUNKS) { "BENCHMARK_STREAM_LIMIT" }
-        activeFrames = VoiceStreamFrames(input)
+        activeFrames = if (incrementalInput) {
+            VoiceStreamFrames.incremental(VoiceIncrementalTextMap().also { it.append(input) })
+        } else {
+            VoiceStreamFrames(input)
+        }
     }
 
     fun accept(chunk: VoicePcmChunk) {

@@ -122,6 +122,38 @@ class VoiceSpeechBenchmarkStreamingEngineTest {
         assertEquals(1, result.captionTimingViolations)
     }
 
+    @Test fun incrementalReceiptKeepsOneStreamAndDoesNotInventACompleteInputHash() {
+        val receipt = VoiceSpeechEnginePlaybackObservation()
+        val measurement = VoiceSpeechPlaybackMeasurement(VoiceSpeechBackend.PHONON_CPU, 0)
+        val delegate = object : VoicePhraseEngine {
+            override val supportsStreaming = true
+            override val supportsIncrementalInput = true
+            override fun streamInput(nextText: () -> String?, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                assertEquals("first ", nextText())
+                assertTrue(emit(VoicePcmChunk(floatArrayOf(.1f))))
+                assertEquals("second", nextText())
+                assertTrue(emit(VoicePcmChunk(floatArrayOf(.1f))))
+                assertNull(nextText())
+            }
+            override fun resetCancellation() = Unit
+            override fun cancel() = Unit
+            override fun close() = Unit
+        }
+        val bridge = VoiceSpeechBenchmarkStreamingEngine(delegate, { measurement }, { receipt })
+        val deltas = listOf("first ", "second").iterator()
+        measurement.attemptStarted("previous complete phrase")
+        bridge.streamInput({ if (deltas.hasNext()) deltas.next() else null }, 0, 1f) {
+            measurement.pcmReady(1, it.samples.size, it.sampleRate, null)
+            true
+        }
+        assertTrue(receipt.validated())
+        assertEquals(1, receipt.callCount())
+        val result = measurement.result(VoiceSpeechPlaybackState.COMPLETE, 0)
+        assertEquals(2, result.chunkRecords.size)
+        assertTrue(result.chunkRecords.all { it.inputSha256 == null && it.inputBytes == null })
+        assertNull(result.failedInputBytes)
+    }
+
     private fun engine(cancelled: AtomicBoolean = AtomicBoolean(), produce: ((VoicePcmChunk) -> Boolean) -> Unit) = object : VoicePhraseEngine {
         override val supportsStreaming = true
         override val executionProvider = "mediapipe-phonon-cpu-requested"

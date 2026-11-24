@@ -255,4 +255,145 @@ class VoiceSpeechBenchmarkEvidenceExportTest {
             assertNull(speechBenchmarkReportFromJson(JsonObject(json + ("playbackResults" to JsonArray(listOf(forged))))))
         }
     }
+
+    @Test fun compiledContextEvidenceAndSelectedModelConfigurationRoundTripWithoutConferringAcceleration() {
+        val observation = failure(false).copy(
+            graphPreparationSource = "DISK_CONTEXT",
+            contextCacheStatus = "HIT",
+            contextLoadMs = 47,
+            contextStoreMs = 0,
+            contextBytes = 65_536,
+            contextCacheEvictions = 1,
+            contextFallback = false,
+            htpPerformanceMode = "high_performance"
+        )
+        val config = configuration().copy(
+            backends = listOf(VoiceSpeechBackend.QNN_HTP),
+            modelSha256 = KokoroModelVariant.ORIGINAL_FP32.modelSha256,
+            nativeModelVariant = KokoroModelVariant.ORIGINAL_FP32,
+            htpPerformanceMode = "high_performance",
+            sustainedTargetAudioMs = 600_000,
+            kokoroBucket = MediaPipeKokoroBucket.TOKENS_256,
+            incrementalInput = false
+        )
+        val report = VoiceSpeechBenchmarkReport(
+            10,
+            config,
+            VoiceSpeechBenchmarkRunState.COMPLETE,
+            results = listOf(VoiceSpeechBenchmarkBackendResult(VoiceSpeechBackend.QNN_HTP, VoiceSpeechBenchmarkBackendState.FAILED, failure = VoiceSpeechFailureCode.OUTPUT_INVALID, failureObservation = observation))
+        )
+        val json = speechBenchmarkJson(report, local = true)
+        assertEquals(report, speechBenchmarkReportFromJson(json))
+        val public = speechBenchmarkJson(report)
+        val exportedConfig = public.getValue("configuration").jsonObject
+        assertEquals(JsonPrimitive("ORIGINAL_FP32"), exportedConfig["nativeModelVariant"])
+        assertEquals(JsonPrimitive(KokoroModelVariant.ORIGINAL_FP32.modelSha256), exportedConfig["modelSha256"])
+        assertEquals(JsonPrimitive("high_performance"), exportedConfig["htpPerformanceMode"])
+        assertEquals(JsonPrimitive(600_000L), exportedConfig["sustainedTargetAudioMs"])
+        assertFalse(exportedConfig.containsKey("localDeviceKey"))
+        assertNull(report.recommendation())
+        assertFalse(report.results.single().executionVerified)
+
+        val row = json.getValue("results").jsonArray.single().jsonObject
+        val exported = row.getValue("failureObservation").jsonObject
+        assertEquals(JsonPrimitive("DISK_CONTEXT"), exported["graphPreparationSource"])
+        assertEquals(JsonPrimitive("HIT"), exported["contextCacheStatus"])
+        assertEquals(JsonPrimitive(47L), exported["contextLoadMs"])
+        assertEquals(JsonPrimitive(false), exported["contextFallback"])
+        val cacheKeys = setOf("graphPreparationSource", "contextCacheStatus", "contextLoadMs", "contextStoreMs", "contextBytes", "contextCacheEvictions", "contextFallback", "htpPerformanceMode")
+        val old = JsonObject(json + mapOf("schemaVersion" to JsonPrimitive(5), "results" to JsonArray(listOf(JsonObject(row + ("failureObservation" to JsonObject(exported - cacheKeys)))))))
+        val historical = checkNotNull(speechBenchmarkReportFromJson(old)).results.single().failureObservation!!
+        assertNull(historical.graphPreparationSource)
+        assertNull(historical.contextCacheStatus)
+        assertNull(historical.contextLoadMs)
+        assertNull(historical.contextFallback)
+
+        for (changes in listOf(
+            mapOf("contextBytes" to JsonPrimitive(256L * 1024 * 1024 + 1)),
+            mapOf("contextLoadMs" to JsonPrimitive(-1)),
+            mapOf("contextCacheStatus" to JsonPrimitive("device-private-path")),
+            mapOf("graphPreparationSource" to JsonPrimitive("MEASURED_GPU_SPEEDUP")),
+            mapOf("htpPerformanceMode" to JsonPrimitive("unsafe"))
+        )) {
+            val invalid = JsonObject(row + ("failureObservation" to JsonObject(exported + changes)))
+            assertNull(speechBenchmarkReportFromJson(JsonObject(json + ("results" to JsonArray(listOf(invalid))))))
+        }
+    }
+
+    private fun sustainedReport(): VoiceSpeechBenchmarkReport {
+        val config = configuration().copy(
+            playback = true,
+            playbackScenarios = listOf(VoiceSpeechPlaybackScenario.SUSTAINED),
+            sustainedTargetAudioMs = 60_000
+        )
+        var clock = 0L
+        val series = VoiceSpeechSustainedSeries(config.sustainedTargetAudioMs) { clock }
+        val rows = VoiceSpeechPlaybackProtocol.expandedPlans(config, 3).map { plan ->
+            val chunk = VoiceSpeechPlaybackChunk(0, 100, 100, 20_000, 9, VoiceSpeechWorkload.digest("the voice"), "cpu", true, null, null, null)
+            clock += 21_000_000_000
+            series.observe(
+                VoiceSpeechPlaybackResult(
+                    VoiceSpeechBackend.CPU, VoiceSpeechPlaybackState.COMPLETE, firstPresentedAudioMs = 150,
+                    elapsedMs = 21_000, totalSynthesisMs = 100, totalAudioMs = 20_000, chunks = 1, validatedChunks = 1,
+                    effectiveProvider = "cpu", protocolVersion = VoiceSpeechPlaybackProtocol.VERSION,
+                    scenario = plan.scenario, repeat = plan.repeat, expectedResident = plan.expectedResident, engineReused = plan.expectedResident,
+                    fixtureHash = plan.manifest.hash, manifestWordsExpected = plan.manifest.spans.size,
+                    manifestWordsPrepared = plan.manifest.spans.size, manifestWordsObserved = plan.manifest.spans.size, unexpectedCaptionWords = 0,
+                    chunkRecords = listOf(chunk), cleanupState = "RETIRED", thermalBefore = 0, thermalAfter = 0, activePlaybackUnderruns = 0
+                )
+            )
+        }
+        return VoiceSpeechBenchmarkReport(
+            10,
+            config,
+            VoiceSpeechBenchmarkRunState.COMPLETE,
+            results = listOf(VoiceSpeechBenchmarkBackendResult(VoiceSpeechBackend.CPU, VoiceSpeechBenchmarkBackendState.COMPLETE)),
+            playbackResults = rows
+        )
+    }
+
+    @Test fun sustainedDurationReceiptsRoundTripAndLegacyMissingOrForgedTotalsCannotQualify() {
+        val report = sustainedReport()
+        val json = speechBenchmarkJson(report, local = true)
+        val restored = checkNotNull(speechBenchmarkReportFromJson(json))
+        assertEquals(report, restored)
+        assertTrue(VoiceSpeechSustainedSeries.qualified(restored.playbackResults, 60_000))
+        val last = json.getValue("playbackResults").jsonArray.last().jsonObject
+        assertEquals(JsonPrimitive(60_000L), last["sustainedTargetAudioMs"])
+        assertEquals(JsonPrimitive(60_000L), last["sustainedObservedAudioMs"])
+        assertEquals(JsonPrimitive(63_000L), last["sustainedWallElapsedMs"])
+        assertEquals(JsonPrimitive(240_000L), last["sustainedWallDeadlineMs"])
+        assertEquals(JsonPrimitive(3), last["sustainedCompletedRepeats"])
+        assertEquals(JsonPrimitive("TARGET_REACHED"), last["sustainedQualification"])
+        assertNull(restored.recommendation())
+
+        fun replacedLast(changes: Map<String, kotlinx.serialization.json.JsonElement>) = JsonObject(
+            json + ("playbackResults" to JsonArray(json.getValue("playbackResults").jsonArray.dropLast(1) + JsonObject(last + changes)))
+        )
+        val forged = checkNotNull(speechBenchmarkReportFromJson(replacedLast(mapOf("sustainedObservedAudioMs" to JsonPrimitive(600_000L)))))
+        assertFalse(VoiceSpeechSustainedSeries.qualified(forged.playbackResults, 60_000))
+        val missing = checkNotNull(speechBenchmarkReportFromJson(replacedLast(mapOf("sustainedQualification" to JsonNull))))
+        assertFalse(VoiceSpeechSustainedSeries.qualified(missing.playbackResults, 60_000))
+        for (changes in listOf(
+            mapOf("sustainedCompletedRepeats" to JsonPrimitive(17)),
+            mapOf("sustainedObservedAudioMs" to JsonPrimitive(-1)),
+            mapOf("sustainedWallDeadlineMs" to JsonPrimitive(1_320_001L)),
+            mapOf("sustainedTargetAudioMs" to JsonPrimitive(120_000L)),
+            mapOf("sustainedQualification" to JsonPrimitive("LOOKS_FAST"))
+        )) {
+            assertNull(speechBenchmarkReportFromJson(replacedLast(changes)))
+        }
+
+        val keys = setOf("sustainedTargetAudioMs", "sustainedObservedAudioMs", "sustainedWallElapsedMs", "sustainedWallDeadlineMs", "sustainedCompletedRepeats", "sustainedQualification")
+        val legacyRows = json.getValue("playbackResults").jsonArray.map { JsonObject(it.jsonObject - keys + ("protocolVersion" to JsonPrimitive(3))) }
+        val legacyConfig = JsonObject(json.getValue("configuration").jsonObject - "sustainedTargetAudioMs" + ("playbackProtocolVersion" to JsonPrimitive(3)))
+        val legacy = checkNotNull(speechBenchmarkReportFromJson(JsonObject(json + mapOf("schemaVersion" to JsonPrimitive(5), "configuration" to legacyConfig, "playbackResults" to JsonArray(legacyRows)))))
+        assertFalse(legacy.configuration.currentProtocol)
+        assertEquals(VoiceSpeechBenchmarkOutcome.HISTORICAL, legacy.outcome)
+        assertTrue(legacy.playbackResults.all { it.sustainedQualification == null && it.quality == VoiceSpeechPlaybackQuality.UNASSESSED })
+        val resaved = checkNotNull(speechBenchmarkReportFromJson(speechBenchmarkJson(legacy, local = true)))
+        assertEquals(legacy, resaved)
+        assertNull(resaved.recommendation())
+        assertFalse(VoiceSpeechSustainedSeries.qualified(resaved.playbackResults, 60_000))
+    }
 }

@@ -261,7 +261,15 @@ internal class VoiceSpeechBenchmarkRunner(
                                     cacheBudgetBytes = observed.cacheBudgetBytes,
                                     activeShapeEstimatedBytes = observed.activeShapeEstimatedBytes,
                                     availableMemoryBytes = observed.availableMemoryBytes,
-                                    cacheAdmission = observed.cacheAdmission
+                                    cacheAdmission = observed.cacheAdmission,
+                                    graphPreparationSource = observed.graphPreparationSource,
+                                    contextCacheStatus = observed.contextCacheStatus,
+                                    contextLoadMs = observed.contextLoadMs,
+                                    contextStoreMs = observed.contextStoreMs,
+                                    contextBytes = observed.contextBytes,
+                                    contextCacheEvictions = observed.contextCacheEvictions,
+                                    contextFallback = observed.contextFallback,
+                                    htpPerformanceMode = observed.htpPerformanceMode
                                 ).also {
                                     watchdog.endPhase()
                                     checkActive()
@@ -318,7 +326,7 @@ internal class VoiceSpeechBenchmarkRunner(
                 if (failure.code.isInputFailure) report = report.copy(issue = VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD)
                 val native = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(12).filterIsInstance<dev.melo.kokoro.TimedKokoro.Failure>().firstOrNull()
                 val workload = error as? VoiceSpeechWorkloadFailure
-                val observed = attemptEvidence ?: speechFailureExecutionEvidence(native ?: error, result.requestedBackend, report.configuration.deviceKey)
+                val observed = attemptEvidence ?: speechFailureExecutionEvidence(native ?: error, result.requestedBackend, report.configuration.deviceKey, report.configuration.modelSha256)
                 result = result.copy(
                     state = failure.state,
                     failure = failure.code,

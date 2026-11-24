@@ -15,8 +15,13 @@
 #include <unordered_map>
 #include <vector>
 #include <unistd.h>
+#if defined(__ANDROID__)
+#include <sys/system_properties.h>
+#endif
 
 #include "kokoro_measurement.h"
+#include "kokoro_cancellation.h"
+#include "kokoro_context_cache.h"
 #include "kokoro_output_validation.h"
 #include "kokoro_pronunciation.h"
 #include "kokoro_execution_provider.h"
@@ -153,12 +158,17 @@ struct ModelSession {
   kokoro_runtime::Qualification qualification;
   kokoro_runtime::SelectedDevice selected_device;
   std::string discovery;
+  std::string context_identity;
+  std::unique_ptr<kokoro_runtime::CompiledContextCache> context_cache;
 };
 
 struct Model : Frontend {
   Model(const sherpa_onnx::OfflineTtsModelConfig &config, const std::string &library_dir,
-      const std::string &profile_prefix, const char **opening_stage = nullptr) : Frontend(config.kokoro.tokens, config.kokoro.lexicon, opening_stage),
-      config(config), library_dir(library_dir), profile_prefix(profile_prefix) {
+      const std::string &profile_prefix, const std::string &context_directory,
+      const std::string &context_identity, const std::string &htp_performance_mode,
+      const char **opening_stage = nullptr) : Frontend(config.kokoro.tokens, config.kokoro.lexicon, opening_stage),
+      config(config), library_dir(library_dir), profile_prefix(profile_prefix), context_directory(context_directory),
+      context_identity(context_identity), htp_performance_mode(htp_performance_mode) {
     if (opening_stage) *opening_stage = "preparing";
     // Include model transformation/workspace headroom and per-session voices.
     // This estimate is disclosed, supplemented by observed RSS growth, and is
@@ -170,11 +180,82 @@ struct Model : Frontend {
     if (config.provider == "cpu") EnsureSession(0);
   }
 
+  std::string ContextIdentity(int64_t token_count) const {
+    if (config.provider != "qnn-htp" || context_directory.empty() || !kokoro_runtime::IsSha256(context_identity)) return {};
+    // Discover before loading a context, and bind the actual device rather than
+    // trusting a phone label. Every binary affecting the compiled graph is
+    // content-bound as well as the Java runtime/device/options identity.
+    kokoro_runtime::SelectDevices(*kokoro_runtime::Environment(), config.provider, library_dir);
+    const auto device = kokoro_runtime::LastSelectedDevice();
+    try {
+      if (context_seed.empty()) {
+        auto seed = context_identity + "|" + Ort::GetVersionString() + "|" +
+            kokoro_runtime::DigestFile(config.kokoro.model, 512LL * 1024 * 1024);
+        for (const auto *name : {"libtimed_kokoro.so", "libkokoro_qnn_adapter.so", "libonnxruntime_providers_qnn.so", "libQnnHtp.so"})
+          seed += "|" + kokoro_runtime::DigestFile(library_dir + "/" + name, 512LL * 1024 * 1024);
+        std::vector<std::string> helpers;
+        for (const auto &entry : std::filesystem::directory_iterator(library_dir)) {
+          const auto name = entry.path().filename().string();
+          if ((name.rfind("libQnnHtp", 0) == 0 && name != "libQnnHtp.so") || name == "libQnnSystem.so" || name == "libHtpPrepare.so")
+            helpers.push_back(name);
+          if (helpers.size() > 32) throw std::runtime_error("Speech runtime identity bounds");
+        }
+        std::sort(helpers.begin(), helpers.end());
+        for (const auto &name : helpers) seed += "|" + name + "=" +
+            kokoro_runtime::DigestFile(library_dir + "/" + name, 512LL * 1024 * 1024);
+#if defined(__ANDROID__)
+        // Vendor/DSP firmware can change separately from the system image.
+        // Hash detected versions; never expose these strings in diagnostics.
+        for (const auto *property : {"ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint"}) {
+          char value[PROP_VALUE_MAX]{};
+          const auto size = __system_property_get(property, value);
+          if (size <= 0) { context_status = kokoro_runtime::ContextCacheStatus::Unavailable; return {}; }
+          seed += "|" + std::string(value, size);
+        }
+#endif
+        context_seed = kokoro_runtime::Digest(seed);
+      }
+      return kokoro_runtime::Digest(context_seed + "|qnn-htp|" + std::to_string(config.num_threads) + "|" +
+          htp_performance_mode + "|" + std::to_string(token_count) + "|" + std::to_string(device.type) + "|" +
+          std::to_string(device.vendor) + "|" + std::to_string(device.id));
+    } catch (const std::exception &) {
+      context_status = kokoro_runtime::ContextCacheStatus::Unavailable;
+      return {};  // Cache identity I/O cannot prevent the original model run.
+    }
+  }
+
+  void ObserveContext(const ModelSession &session) const {
+    if (!session.context_cache) return;
+    context_status = session.context_cache->status;
+    context_bytes = session.context_cache->bytes;
+    context_evictions = session.context_cache->evictions;
+  }
+
+  void RejectContext(ModelSession &session, bool invalid_output) const noexcept {
+    try {
+      if (session.context_cache) {
+        if (invalid_output) session.context_cache->Invalidate();
+        ObserveContext(session);
+        session.context_cache.reset();
+      } else if (invalid_output && !session.context_identity.empty()) {
+        kokoro_runtime::CompiledContextCache cache(context_directory, session.context_identity);
+        cache.Invalidate();
+        context_status = cache.status;
+        context_evictions += cache.evictions;
+      }
+    } catch (...) {}  // Preserve the original inference/cancellation failure.
+  }
+
   void EnsureSession(int64_t token_count) const {
     const auto key = config.provider == "cpu" ? 0 : token_count;
     current_prepare_ms = 0;
     graph_prepared_this_call = false;
     cache_hit = false;
+    preparation_source = kokoro_runtime::GraphPreparation::None;
+    context_status = config.provider == "qnn-htp" && !context_directory.empty() ?
+        kokoro_runtime::ContextCacheStatus::NotAccessed : kokoro_runtime::ContextCacheStatus::Disabled;
+    context_load_ms = context_store_ms = context_bytes = context_evictions = 0;
+    context_fallback = false;
     active = sessions.Find(key);
     if (active && !active->reusable) {
       // Keep a failed attempt alive until its evidence has been copied. On its
@@ -188,6 +269,7 @@ struct Model : Frontend {
     ConfigureCache(sessions.Bytes(), active ? 0 : estimated_session_bytes);
     if (active) {
       cache_hit = true;
+      preparation_source = kokoro_runtime::GraphPreparation::Resident;
       RestoreEvidence();
       return;
     }
@@ -206,10 +288,56 @@ struct Model : Frontend {
     session->profile_id = next_profile_id.fetch_add(1);
     const auto resident_before = ResidentBytes();
     const auto started = kokoro_runtime::SteadyMillis();
-    session->model = std::make_unique<sherpa_onnx::OfflineTtsKokoroModel>(config, library_dir,
-        profile_prefix + "-" + std::to_string(token_count) + "-" + std::to_string(session->profile_id), token_count);
-    Require(session->model->GetMetaData().sample_rate == kSampleRate &&
-            session->model->GetMetaData().max_token_len == max_tokens, "Unexpected Kokoro pack");
+    const auto profile = profile_prefix + "-" + std::to_string(token_count) + "-" + std::to_string(session->profile_id);
+    const auto create = [&](const std::string &model_path, const std::string &export_path, const std::string &attempt) {
+      auto selected_config = config;
+      selected_config.kokoro.model = model_path;
+      auto value = std::make_unique<sherpa_onnx::OfflineTtsKokoroModel>(selected_config, library_dir,
+          profile + attempt, token_count, export_path, htp_performance_mode);
+      Require(value->GetMetaData().sample_rate == kSampleRate &&
+              value->GetMetaData().max_token_len == max_tokens, "Unexpected Kokoro pack");
+      return value;
+    };
+    session->context_identity = ContextIdentity(token_count);
+    if (!session->context_identity.empty()) {
+      session->context_cache = std::make_unique<kokoro_runtime::CompiledContextCache>(context_directory, session->context_identity);
+      std::string cached;
+      {
+        kokoro_runtime::ElapsedMilliseconds timer(context_load_ms);
+        cached = session->context_cache->Lookup();
+        context_fallback = session->context_cache->status == kokoro_runtime::ContextCacheStatus::Invalidated;
+        if (!cached.empty()) {
+          try {
+            session->model = create(cached, "", "-context");
+            preparation_source = kokoro_runtime::GraphPreparation::DiskContext;
+          } catch (const std::bad_alloc &) { throw; }
+          catch (const std::exception &) {
+            session->context_cache->Invalidate();
+            context_fallback = true;
+          }
+        }
+      }
+      ObserveContext(*session);
+    }
+    if (!session->model) {
+      const auto export_path = session->context_cache ? session->context_cache->BeginExport() : std::string{};
+      preparation_source = config.provider == "cpu" ? kokoro_runtime::GraphPreparation::CpuDynamic : kokoro_runtime::GraphPreparation::Compiled;
+      try {
+        session->model = create(config.kokoro.model, export_path, "-compile");
+      } catch (const std::bad_alloc &) { throw; }
+      catch (const std::exception &) {
+        if (export_path.empty()) throw;
+        // Unsupported export/cache I/O is optional. Retry the original graph
+        // exactly once without EPContext configuration; retain normal errors.
+        session->context_cache->Discard();
+        session->context_cache->status = kokoro_runtime::ContextCacheStatus::WriteFailed;
+        ObserveContext(*session);
+        session->context_cache.reset();
+        context_fallback = true;
+        session->model = create(config.kokoro.model, "", "-uncached");
+      }
+      ObserveContext(*session);
+    }
     session->selected_device = config.provider == "cpu" ? kokoro_runtime::SelectedDevice{} : kokoro_runtime::LastSelectedDevice();
     session->discovery = kokoro_runtime::LastDiscovery();
     session->prepare_ms = kokoro_runtime::SteadyMillis() - started;
@@ -254,8 +382,12 @@ struct Model : Frontend {
     const auto finish = [&](const Model *) {
       // A previously qualified profile remains valid. An interrupted first
       // attempt must retire its unfinished profile before the shape is reused.
-      if (!completed && attempt_session && config.provider != "cpu" && !profile_reused)
-        attempt_session->reusable = false;
+      if (!completed && attempt_session && config.provider != "cpu") {
+        const bool output_failed = !cancelled.load() &&
+            (std::strcmp(stage, "synthesis") == 0 || std::strcmp(stage, "validating") == 0);
+        if (!profile_reused || output_failed) attempt_session->reusable = false;
+        RejectContext(*attempt_session, output_failed);
+      }
       progress.Finish(kokoro_runtime::SteadyMillis());
     };
     std::unique_ptr<const Model, decltype(finish)> attempt(this, finish);
@@ -279,6 +411,10 @@ struct Model : Frontend {
     profile_reused = false;
     current_prepare_ms = 0;
     graph_prepared_this_call = false;
+    preparation_source = kokoro_runtime::GraphPreparation::None;
+    context_status = kokoro_runtime::ContextCacheStatus::NotAccessed;
+    context_load_ms = context_store_ms = context_bytes = context_evictions = 0;
+    context_fallback = false;
     Require(!cancelled.load(), "Kokoro generation cancelled");
     if (!std::isfinite(speed) || speed < .5f || speed > 2.f)
       throw kokoro_runtime::InputFailure("FRONTEND_INVALID_SPEED", input_bytes);
@@ -340,6 +476,8 @@ struct Model : Frontend {
     ConfigureCache(sessions.Bytes() - sessions.ActiveBytes() + active_bytes, 0);
     sessions.UpdateActiveBytes(active_bytes);
     SetStage("validating", kokoro_runtime::SpeechPhase::Validating);
+    jobject result = nullptr;
+    {
     kokoro_runtime::ElapsedMilliseconds validation_timer(validation_ms);
     Require(!cancelled.load(), "Kokoro generation cancelled");
     using OutputReason = kokoro_runtime::OutputValidationReason;
@@ -386,31 +524,47 @@ struct Model : Frontend {
     std::vector<jlong> java_times(durations, durations + phrase.tokens.size());
     env->SetLongArrayRegion(times, 0, java_times.size(), java_times.data());
     env->SetIntArrayRegion(words, 0, phrase.word_tokens.size(), phrase.word_tokens.data());
-    auto result = env->NewObject(cls, constructor, samples, times, words);
+    result = env->NewObject(cls, constructor, samples, times, words);
+    }
     Require(!cancelled.load(), "Kokoro generation cancelled");
     if (result && !env->ExceptionCheck()) {
-      completed = true;
-      SetStage("ready", kokoro_runtime::SpeechPhase::Ready);
+      kokoro_runtime::FinalizeSpeechGeneration(cancellation_lock, cancelled, [&] {
+        if (active->context_cache) {
+          // A compiled file is not an execution receipt. Publish only after this
+          // exact session has produced structurally valid PCM and real EP events.
+          if (active->context_cache->status == kokoro_runtime::ContextCacheStatus::Pending) {
+            kokoro_runtime::ElapsedMilliseconds timer(context_store_ms);
+            active->context_cache->Commit();
+          }
+          ObserveContext(*active);
+          active->context_cache.reset();
+        }
+      }, [&] {
+        SetStage("ready", kokoro_runtime::SpeechPhase::Ready);
+        completed = true;
+      });
     }
     return result;
   }
 
   void Cancel() {
-    std::lock_guard<std::mutex> lock(cancellation_lock);
-    cancelled.store(true);
-    run_options.SetTerminate();
+    kokoro_runtime::CancelSpeechGeneration(cancellation_lock, cancelled, [&] { run_options.SetTerminate(); });
   }
 
   // Called by the serial synthesis owner once at the start of a new reply.
   void ResetCancellation() {
-    std::lock_guard<std::mutex> lock(cancellation_lock);
-    run_options.UnsetTerminate();
-    cancelled.store(false);
+    kokoro_runtime::ResetSpeechGeneration(cancellation_lock, cancelled, [&] { run_options.UnsetTerminate(); });
   }
 
   sherpa_onnx::OfflineTtsModelConfig config;
   std::string library_dir;
   std::string profile_prefix;
+  std::string context_directory, context_identity, htp_performance_mode;
+  mutable std::string context_seed;
+  mutable kokoro_runtime::GraphPreparation preparation_source = kokoro_runtime::GraphPreparation::None;
+  mutable kokoro_runtime::ContextCacheStatus context_status = kokoro_runtime::ContextCacheStatus::Disabled;
+  mutable int64_t context_load_ms = 0, context_store_ms = 0, context_bytes = 0, context_evictions = 0;
+  mutable bool context_fallback = false;
   mutable kokoro_runtime::ShapeCache<ModelSession> sessions{1, kCacheBudgetBytes};
   mutable ModelSession *active = nullptr;
   int64_t estimated_session_bytes = kCacheBudgetBytes;
@@ -431,7 +585,7 @@ struct Model : Frontend {
   mutable kokoro_runtime::SelectedDevice selected_device;
   mutable const char *stage = "frontend";
   Ort::RunOptions run_options;
-  std::mutex cancellation_lock;
+  mutable std::mutex cancellation_lock;
   std::atomic<bool> cancelled{false};
 };
 
@@ -450,7 +604,7 @@ jlongArray ModelEvidence(JNIEnv *env, const Model *model) {
   std::memcpy(&peak_bits, &model->audio_measurement.peak, sizeof(peak_bits));
   const bool profiled = model->qualification.accelerator.kernels > 0 || model->qualification.cpu.kernels > 0;
   const auto &validation = model->output_validation;
-  const std::array<jlong, 48> values{5, model->qualification.accelerator.kernels,
+  const std::array<jlong, 56> values{6, model->qualification.accelerator.kernels,
       model->qualification.cpu.kernels, model->qualification.accelerator.microseconds,
       model->qualification.cpu.microseconds, model->prepare_ms, model->synthesis_ms,
       model->phrase_tokens, model->selected_device.type, model->selected_device.vendor,
@@ -468,7 +622,12 @@ jlongArray ModelEvidence(JNIEnv *env, const Model *model) {
       validation.timing_count, validation.timing_type, validation.timing_rank,
       validation.duration_stats_available ? 1 : 0, validation.duration_sum,
       validation.duration_min, validation.duration_max, validation.duration_sum_overflow ? 1 : 0,
-      validation.audio_measured && model->audio_measurement.finite ? 1 : 0};
+      validation.audio_measured && model->audio_measurement.finite ? 1 : 0,
+      static_cast<jlong>(model->preparation_source), static_cast<jlong>(model->context_status),
+      model->context_load_ms, model->context_store_ms, model->context_bytes, model->context_evictions,
+      model->context_fallback ? 1 : 0,
+      model->config.provider != "qnn-htp" ? -1 : model->htp_performance_mode == "burst" ? 1 :
+      model->htp_performance_mode == "high_performance" ? 2 : 0};
   auto result = env->NewLongArray(values.size());
   if (result) env->SetLongArrayRegion(result, 0, values.size(), values.data());
   return result;
@@ -526,7 +685,8 @@ void ReportModelFailure(JNIEnv *env, const Model *model, const std::exception &e
 
 extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_TimedKokoro_open(
     JNIEnv *env, jclass, jstring model, jstring voices, jstring tokens, jstring lexicon, jint threads,
-    jstring provider, jstring library_dir, jstring profile_prefix) {
+    jstring provider, jstring library_dir, jstring profile_prefix, jstring context_directory,
+    jstring context_identity, jstring htp_performance_mode) {
   const char *opening_stage = "configuration";
   const char *requested_provider = "unverified";
   const auto report = [&](int native_code) {
@@ -550,7 +710,10 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_TimedKokoro_open(
     config.kokoro.voices = FromJava(env, voices);
     config.kokoro.tokens = FromJava(env, tokens);
     config.kokoro.lexicon = FromJava(env, lexicon);
-    return reinterpret_cast<jlong>(new Model(config, FromJava(env, library_dir), FromJava(env, profile_prefix), &opening_stage));
+    const auto mode = FromJava(env, htp_performance_mode);
+    Require(kokoro_runtime::ValidHtpPerformanceMode(mode), "Invalid HTP performance mode");
+    return reinterpret_cast<jlong>(new Model(config, FromJava(env, library_dir), FromJava(env, profile_prefix),
+        FromJava(env, context_directory), FromJava(env, context_identity), mode, &opening_stage));
   } catch (const std::bad_alloc &) {
     ReportError(env, "java/lang/OutOfMemoryError", "Kokoro allocation failed");
   } catch (const Ort::Exception &error) {

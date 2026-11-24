@@ -16,7 +16,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-internal enum class BenchmarkExportContent { BENCHMARKS, APP_AUDIT }
+internal enum class BenchmarkExportContent { BENCHMARKS, APP_AUDIT, VOICE_PERFORMANCE, VOICE_SPEECH }
 
 internal data class BenchmarkExportArtifact(
     val id: String,
@@ -29,6 +29,8 @@ internal data class BenchmarkExportArtifact(
 ) {
     val fileName: String get() = "${when {
         content == BenchmarkExportContent.APP_AUDIT -> "app-audit"
+        content == BenchmarkExportContent.VOICE_PERFORMANCE -> "voice-performance"
+        content == BenchmarkExportContent.VOICE_SPEECH -> "speech-benchmark"
         includesPrivateProfileDetails -> "benchmark-private"
         detailed -> "benchmark-debug"
         else -> "benchmarks"
@@ -43,7 +45,7 @@ internal class BenchmarkExportArtifactStore(
     private val now: () -> Long = System::currentTimeMillis
 ) {
     suspend fun prepare(detailed: Boolean, contentKind: BenchmarkExportContent = BenchmarkExportContent.BENCHMARKS, includePrivateProfileDetails: Boolean = false, write: suspend (OutputStream) -> Unit): BenchmarkExportArtifact = withContext(Dispatchers.IO) {
-        require(contentKind != BenchmarkExportContent.APP_AUDIT || !detailed)
+        require(contentKind == BenchmarkExportContent.BENCHMARKS || !detailed)
         require(!includePrivateProfileDetails || detailed)
         val folder = directory()
         check(folder.isDirectory || folder.mkdirs()) { "Unable to create the private export folder." }
@@ -192,7 +194,7 @@ internal class BenchmarkExportArtifactStore(
             // Exports retained before the privacy change may include private fields.
             properties.getProperty("content") != BenchmarkExportContent.APP_AUDIT.name && properties.getProperty("profilePrivacy") != "redacted"
         )
-        require(artifact.content != BenchmarkExportContent.APP_AUDIT || !artifact.detailed)
+        require(artifact.content == BenchmarkExportContent.BENCHMARKS || !artifact.detailed)
         require(artifact.createdAt > 0 && artifact.bytes > 0 && artifact.sha256.matches(Regex("[0-9a-f]{64}")))
         require(File(folder, "$id.json").length() == artifact.bytes)
         artifact

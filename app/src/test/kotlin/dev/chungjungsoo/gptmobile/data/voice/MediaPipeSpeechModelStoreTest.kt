@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import com.google.mediapipe.tasks.audio.texttospeech.AudioChunk
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
@@ -158,6 +159,82 @@ class MediaPipeSpeechModelStoreTest {
         } finally {
             removal.cancelAndJoin()
         }
+    }
+
+    @Test fun compiledModelCacheIsSharedAcrossVoicesButSeparatedByBucket() = runBlocking {
+        val store = store { bytes }
+        store.install(model.engine)
+        val first = store.acquire(model.engine, VoiceSpeechBackend.PHONON_CPU, 1f, "freya", 64)
+        val otherVoice = store.acquire(model.engine, VoiceSpeechBackend.PHONON_CPU, 1f, "claire", 64)
+        val otherBucket = store.acquire(model.engine, VoiceSpeechBackend.PHONON_CPU, 1f, "freya", 128)
+        try {
+            assertEquals(first.cacheDirectory, otherVoice.cacheDirectory)
+            assertNotEquals(first.cacheDirectory, otherBucket.cacheDirectory)
+        } finally {
+            first.close()
+            otherVoice.close()
+            otherBucket.close()
+        }
+    }
+
+    @Test fun voiceChangeKeepsResidentIdentityAndInputModeChangesExperimentIdentity() {
+        val store = store { bytes }
+        fun factory(voice: String, incremental: Boolean) = MediaPipeVoicePhraseEngineFactory(
+            store,
+            model.engine,
+            VoiceSpeechBackend.PHONON_CPU,
+            1f,
+            voice,
+            incrementalInput = incremental
+        )
+        val first = factory("freya", true)
+        val otherVoice = factory("claire", true)
+        val phraseMode = factory("freya", false)
+        assertNotEquals(first.identity, otherVoice.identity)
+        assertEquals(first.residentIdentity, otherVoice.residentIdentity)
+        assertNotEquals(first.identity, phraseMode.identity)
+        assertEquals(0, first.effectiveTargetBucket)
+    }
+
+    @Test fun kokoroBucketAndDelegateArePassedToThePinnedSdkAndChangeCacheIdentity(): Unit = runBlocking {
+        val kokoro = model.copy(engine = MediaPipeSpeechEngine.KOKORO, defaultVoice = "af_heart")
+        val store = MediaPipeSpeechModelStore(files.newFolder(), files.newFolder(), scope, listOf(kokoro)) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String) = LocalVoiceAssetStream(ByteArrayInputStream(bytes), bytes.size.toLong())
+                override fun cancel() = Unit
+            }
+        }
+        store.install(kokoro.engine)
+        val configurations = mutableListOf<MediaPipeSpeechTaskConfiguration>()
+        val inputs = mutableListOf<String>()
+        val completeText = "The selected bucket must not truncate this input. ".repeat(40)
+        val identities = mutableSetOf<String>()
+        for (bucket in MediaPipeKokoroBucket.entries) {
+            val factory = MediaPipeVoicePhraseEngineFactory(store, kokoro.engine, VoiceSpeechBackend.LITERT_KOKORO_GPU, 1f, "af_heart", bucket) { configuration ->
+                configurations += configuration
+                object : MediaPipeSpeechTask {
+                    override fun voiceIds() = setOf("af_heart")
+                    override fun openStream(text: String, voiceId: String): MediaPipeSpeechStream {
+                        inputs += text
+                        var read = false
+                        return object : MediaPipeSpeechStream {
+                            override fun readNext(): AudioChunk? = if (read) null else AudioChunk(floatArrayOf(.1f)).also { read = true }
+                            override fun cancel() = Unit
+                            override fun close() = Unit
+                        }
+                    }
+                    override fun cancel() = Unit
+                    override fun close() = Unit
+                }
+            }
+            assertTrue(identities.add(factory.identity))
+            factory.create(files.root, "unused", 2).use { it.stream(completeText, 0, 1f) { true } }
+        }
+        assertEquals(listOf(0, 64, 128, 256), configurations.map { it.targetBucket })
+        assertTrue(configurations.all { it.requestGpu })
+        assertEquals(4, configurations.map { it.cacheDirectory }.toSet().size)
+        assertEquals(List(4) { completeText }, inputs)
+        assertThrows(IllegalArgumentException::class.java) { configurations.first().copy(targetBucket = 63) }
     }
 
     private fun acquire(store: MediaPipeSpeechModelStore, backend: VoiceSpeechBackend = VoiceSpeechBackend.PHONON_CPU, rate: Float = 1f) =

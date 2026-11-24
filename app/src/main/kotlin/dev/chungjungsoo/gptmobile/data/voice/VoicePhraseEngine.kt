@@ -48,6 +48,7 @@ internal interface VoicePhraseEngine : AutoCloseable {
     val executionEvidence: VoiceSpeechExecutionEvidence? get() = null
     val executionProgress: VoiceSpeechProgress? get() = null
     val supportsStreaming: Boolean get() = false
+    val supportsIncrementalInput: Boolean get() = false
     fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio = throw UnsupportedOperationException("This engine streams PCM")
 
     /**
@@ -58,6 +59,18 @@ internal interface VoicePhraseEngine : AutoCloseable {
     fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean): Unit =
         throw UnsupportedOperationException("This engine generates complete phrases")
 
+    /**
+     * One reply owns one stream. nextText runs on a dedicated input worker and returns
+     * stable, ordered text or null exactly at input completion. It must respond to
+     * interruption. emit remains on the synthesis owner with playback backpressure.
+     * Cancellation retires both workers before releasing a stream or model lease.
+     */
+    fun streamInput(nextText: () -> String?, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean): Unit =
+        throw UnsupportedOperationException("This engine accepts complete phrase input")
+
+    /** Selected only while the previous synthesis owner has retired. */
+    fun selectVoice(voiceId: String): Unit = throw UnsupportedOperationException("This engine uses numeric speakers")
+
     /** Optional CPU-only inference of a fixed public phrase. Discard PCM and keep reply evidence untouched. */
     fun warmFirstInference(speaker: Int, speed: Float): Boolean = false
     fun resetCancellation()
@@ -66,6 +79,9 @@ internal interface VoicePhraseEngine : AutoCloseable {
 
 internal interface VoicePhraseEngineFactory {
     val selectedBackend: VoiceSpeechBackend get() = VoiceSpeechBackend.CPU
+
+    /** Thread calibration must use the same model artifact as the selected native engine. */
+    val cpuCalibrationFactory: VoicePhraseEngineFactory get() = TimedKokoroPhraseEngineFactory
     val preparationTimeoutMs: Long get() = 30_000
     val requiresKokoroAssets: Boolean get() = true
 
@@ -75,7 +91,11 @@ internal interface VoicePhraseEngineFactory {
 
     /** Includes model/runtime/configuration revision; changing it invalidates the warm engine. */
     val identity: String
+
+    /** Model residency may outlive a per-utterance voice selection. */
+    val residentIdentity: String get() = identity
     fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine
+    fun prepareForPlayback(engine: VoicePhraseEngine) = Unit
 
     /** Stops qualification before the engine has been published to the playback owner. */
     fun cancelPending() = Unit
@@ -83,9 +103,22 @@ internal interface VoicePhraseEngineFactory {
 
 internal object TimedKokoroPhraseEngineFactory : VoicePhraseEngineFactory {
     override val identity = "kokoro-cpu-${TimedKokoro.RUNTIME_ID}-${KokoroModelPack.MODEL_SHA256}"
-    override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+    override val cpuCalibrationFactory: VoicePhraseEngineFactory get() = this
+    private val original by lazy {
+        object : VoicePhraseEngineFactory {
+            override val identity = "kokoro-cpu-${TimedKokoro.RUNTIME_ID}-${KokoroModelVariant.ORIGINAL_FP32.modelSha256}"
+            override val cpuCalibrationFactory: VoicePhraseEngineFactory get() = this
+            override fun create(directory: File, lexicon: String, threads: Int) = createVariant(directory, lexicon, threads, KokoroModelVariant.ORIGINAL_FP32)
+        }
+    }
+
+    fun forVariant(variant: KokoroModelVariant): VoicePhraseEngineFactory = if (variant == KokoroModelVariant.INT8) this else original
+
+    override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine = createVariant(directory, lexicon, threads, KokoroModelVariant.INT8)
+
+    private fun createVariant(directory: File, lexicon: String, threads: Int, variant: KokoroModelVariant): VoicePhraseEngine {
         val engine = TimedKokoro(
-            File(directory, KokoroModelPack.MODEL).absolutePath,
+            File(directory, variant.modelFile).absolutePath,
             File(directory, KokoroModelPack.VOICES).absolutePath,
             File(directory, KokoroModelPack.TOKENS).absolutePath,
             File(directory, lexicon).absolutePath,

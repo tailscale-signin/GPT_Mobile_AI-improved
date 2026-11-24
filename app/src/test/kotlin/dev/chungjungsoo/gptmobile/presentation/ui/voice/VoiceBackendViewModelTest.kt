@@ -7,9 +7,12 @@ import androidx.test.core.app.ApplicationProvider
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBackendCapabilityStore
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import io.mockk.coEvery
@@ -69,6 +72,16 @@ class VoiceBackendViewModelTest {
             runCurrent()
             assertNotEquals(original.identity, model.state.value.factory.identity)
             assertEquals("bf_emma", KokoroVoice.EMMA.streamingVoiceId())
+            val emma = model.state.value.factory
+            model.configureSpeech(KokoroVoice.HEART, 1.25f)
+            runCurrent()
+            assertEquals(emma.residentIdentity, model.state.value.factory.residentIdentity)
+            assertNotEquals(emma.identity, model.state.value.factory.identity)
+            model.configureSpeech(KokoroVoice.HEART, 1.25f, MediaPipeKokoroBucket.TOKENS_64, false)
+            runCurrent()
+            val experiment = model.state.value.factory as MediaPipeVoicePhraseEngineFactory
+            assertEquals(64, experiment.effectiveTargetBucket)
+            assertFalse(experiment.incrementalInput)
             assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, preferences.state.value?.value?.backend)
             model.selectBackend(VoiceSpeechBackend.PHONON_CPU)
             runCurrent()
@@ -118,6 +131,11 @@ class VoiceBackendViewModelTest {
             runCurrent()
             assertNotEquals(rate.identity, model.state.value.factory.identity)
             assertTrue(model.state.value.loaded)
+            val compact = model.state.value.factory
+            model.configureSpeech(KokoroVoice.EMMA, 1.25f, modelVariant = KokoroModelVariant.ORIGINAL_FP32)
+            runCurrent()
+            assertNotEquals(compact.identity, model.state.value.factory.identity)
+            assertTrue(model.state.value.factory.identity.contains(KokoroModelVariant.ORIGINAL_FP32.modelSha256))
         } finally {
             owners.clear()
             applicationScope.cancel()

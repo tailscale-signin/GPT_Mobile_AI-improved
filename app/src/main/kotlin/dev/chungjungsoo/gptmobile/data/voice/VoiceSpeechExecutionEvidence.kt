@@ -101,7 +101,15 @@ internal data class VoiceSpeechExecutionEvidence(
     val durationMin: Long? = null,
     val durationMax: Long? = null,
     val durationStatsAvailable: Boolean? = null,
-    val durationSumOverflow: Boolean? = null
+    val durationSumOverflow: Boolean? = null,
+    val graphPreparationSource: String? = null,
+    val contextCacheStatus: String? = null,
+    val contextLoadMs: Long? = null,
+    val contextStoreMs: Long? = null,
+    val contextBytes: Long? = null,
+    val contextCacheEvictions: Long? = null,
+    val contextFallback: Boolean? = null,
+    val htpPerformanceMode: String? = null
 ) {
     fun diagnostics(): Map<String, Any> = buildMap {
         put("speech_backend_selected", selectedBackend.name)
@@ -138,6 +146,14 @@ internal data class VoiceSpeechExecutionEvidence(
         activeShapeEstimatedBytes?.let { put("speech_active_shape_estimated_bytes", it) }
         availableMemoryBytes?.let { put("speech_cache_available_memory_bytes", it) }
         safeSpeechCacheAdmission(cacheAdmission)?.let { put("speech_cache_admission", it) }
+        safeSpeechGraphPreparation(graphPreparationSource)?.let { put("speech_graph_preparation_source", it) }
+        safeSpeechContextCacheStatus(contextCacheStatus)?.let { put("speech_context_cache_status", it) }
+        contextLoadMs?.takeIf { it >= 0 }?.let { put("speech_context_load_ms", it) }
+        contextStoreMs?.takeIf { it >= 0 }?.let { put("speech_context_store_ms", it) }
+        contextBytes?.takeIf { it in 0..268_435_456L }?.let { put("speech_context_bytes", it) }
+        contextCacheEvictions?.takeIf { it >= 0 }?.let { put("speech_context_cache_evictions", it) }
+        contextFallback?.let { put("speech_context_fallback", it) }
+        safeSpeechHtpPerformanceMode(htpPerformanceMode)?.let { put("speech_htp_performance_mode", it) }
         frontendMs?.takeIf { it >= 0 }?.let { put("speech_frontend_ms", it) }
         validationMs?.takeIf { it >= 0 }?.let { put("speech_validation_ms", it) }
         cacheEvictions?.takeIf { it >= 0 }?.let { put("speech_graph_cache_evictions", it) }
@@ -193,6 +209,18 @@ internal fun safeSpeechCacheAdmission(value: String?): String? = value?.takeIf {
     it in setOf("CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES", "BOUNDED_THREE_SHAPES")
 }
 
+internal fun safeSpeechGraphPreparation(value: String?): String? = value?.takeIf {
+    it in setOf("NONE", "CPU_DYNAMIC", "COMPILED", "DISK_CONTEXT", "RESIDENT")
+}
+
+internal fun safeSpeechContextCacheStatus(value: String?): String? = value?.takeIf {
+    it in setOf("DISABLED", "MISS", "HIT", "STORED", "INVALIDATED", "UNAVAILABLE", "PENDING", "WRITE_FAILED", "TOO_LARGE", "BUSY", "NOT_ACCESSED")
+}
+
+internal fun safeSpeechHtpPerformanceMode(value: String?): String? = value?.takeIf {
+    it in setOf("balanced", "burst", "high_performance")
+}
+
 internal fun safeSpeechValidationReason(value: String?): String? = value?.takeIf {
     it in setOf(
         "OUTPUT_COUNT", "AUDIO_TENSOR_TYPE", "AUDIO_FRAME_COUNT", "AUDIO_TOO_LONG", "TIMING_TENSOR_TYPE",
@@ -202,7 +230,7 @@ internal fun safeSpeechValidationReason(value: String?): String? = value?.takeIf
 }
 
 /** Never reads the engine's previous success after a throw: this snapshot belongs to this failed native call. */
-internal fun speechFailureExecutionEvidence(error: Exception, requested: VoiceSpeechBackend, deviceKey: String): VoiceSpeechExecutionEvidence? {
+internal fun speechFailureExecutionEvidence(error: Exception, requested: VoiceSpeechBackend, deviceKey: String, modelSha256: String = KokoroModelPack.MODEL_SHA256): VoiceSpeechExecutionEvidence? {
     val failure = error as? TimedKokoro.Failure ?: return null
     val native = failure.currentEvidence ?: return null
     val stage = VoiceSpeechStage.entries.firstOrNull { it.name.equals(failure.stage, ignoreCase = true) }
@@ -216,7 +244,7 @@ internal fun speechFailureExecutionEvidence(error: Exception, requested: VoiceSp
         else -> "unverified"
     }
     return VoiceSpeechExecutionEvidence(
-        requested, effective, KokoroModelPack.MODEL_SHA256, TimedKokoro.RUNTIME_ID, deviceKey, stage,
+        requested, effective, modelSha256, TimedKokoro.RUNTIME_ID, deviceKey, stage,
         failure = VoiceSpeechFailureCode.entries.firstOrNull { it.name == failure.code } ?: VoiceSpeechFailureCode.EXECUTION_FAILED,
         acceleratorKernels = native.acceleratorKernels, cpuKernels = native.cpuKernels,
         acceleratorMicros = native.acceleratorMicros, cpuMicros = native.cpuMicros,
@@ -244,7 +272,12 @@ internal fun speechFailureExecutionEvidence(error: Exception, requested: VoiceSp
         outputFrames = native.outputFrames, outputElementType = native.outputElementType, outputRank = native.outputRank,
         durationCount = native.durationCount, durationElementType = native.durationElementType, durationRank = native.durationRank,
         durationSum = native.durationSum, durationMin = native.durationMin, durationMax = native.durationMax,
-        durationStatsAvailable = native.durationStatsAvailable, durationSumOverflow = native.durationSumOverflow
+        durationStatsAvailable = native.durationStatsAvailable, durationSumOverflow = native.durationSumOverflow,
+        graphPreparationSource = safeSpeechGraphPreparation(native.graphPreparationSource),
+        contextCacheStatus = safeSpeechContextCacheStatus(native.contextCacheStatus),
+        contextLoadMs = native.contextLoadMs, contextStoreMs = native.contextStoreMs,
+        contextBytes = native.contextBytes, contextCacheEvictions = native.contextCacheEvictions,
+        contextFallback = native.contextFallback, htpPerformanceMode = safeSpeechHtpPerformanceMode(native.htpPerformanceMode)
     )
 }
 

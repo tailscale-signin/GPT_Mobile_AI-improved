@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/qnn-runtime-candidate.yml'
       - 'scripts/build_qualcomm_dispatch_candidate.py'
+      - 'scripts/build_qnn_gpu_precision_probe.py'
+      - 'scripts/native/qnn_gpu_precision_probe.cpp'
       - 'scripts/rebuild_qualcomm_dispatch.py'
       - 'docs/audits/qnn-runtime-candidate.json'
   workflow_dispatch:
@@ -47,6 +49,12 @@ jobs:
             --output-dir artifacts/qnn-runtime-candidate \
             --ndk "$ANDROID_HOME/ndk/29.0.14206865" \
             --jobs 2 2>&1 | tee artifacts/qnn-runtime-candidate-build.log
+      - name: Compile the native GPU precision configuration diagnostic
+        run: |
+          python3 scripts/build_qnn_gpu_precision_probe.py \
+            --qairt-sdk "$RUNNER_TEMP/qnn-runtime-candidate/qairt/2.52.0.261104" \
+            --ndk "$ANDROID_HOME/ndk/29.0.14206865" \
+            --output-dir artifacts/qnn-gpu-precision-probe
       - name: Retain candidate and exact build receipt
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

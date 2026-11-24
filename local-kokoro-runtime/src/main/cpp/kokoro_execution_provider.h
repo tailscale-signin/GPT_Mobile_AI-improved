@@ -57,17 +57,16 @@ inline std::shared_ptr<Ort::Env> Environment() {
   return env;
 }
 
-inline Ort::SessionOptions Options(Ort::Env &env, int threads,
-    const std::string &provider, const std::string &library_dir,
-    const std::string &profile_prefix, int64_t token_count) {
-  Ort::SessionOptions options;
-  options.SetIntraOpNumThreads(threads);
-  options.SetInterOpNumThreads(1);
-  options.AddConfigEntry("session.intra_op.allow_spinning", "0");
-  options.AddConfigEntry("session.inter_op.allow_spinning", "0");
-  if (provider == "cpu") { LastDiscovery() = "stage=cpu;profile=unavailable"; return options; }
+inline bool ValidHtpPerformanceMode(const std::string &mode) {
+  return mode == "balanced" || mode == "burst" || mode == "high_performance";
+}
+
+// Resolve the actual EP device before a compiled-context identity is admitted.
+// A product/SoC name never substitutes for provider-backed device discovery.
+inline std::vector<Ort::ConstEpDevice> SelectDevices(Ort::Env &env,
+    const std::string &provider, const std::string &library_dir) {
   if ((provider != "qnn-gpu" && provider != "qnn-htp") ||
-      library_dir.empty() || library_dir.front() != '/' || profile_prefix.empty())
+      library_dir.empty() || library_dir.front() != '/')
     throw std::runtime_error("Invalid Kokoro execution provider configuration");
 #if defined(__ANDROID__) && defined(__aarch64__)
   LastSelectedDevice() = {};
@@ -98,23 +97,46 @@ inline Ort::SessionOptions Options(Ort::Env &env, int threads,
   }
   if (selected.empty()) throw std::runtime_error("No Qualcomm speech device");
   LastDiscovery() = DeviceDiscovery("selected", devices, library_dir);
-  // QAIRT 2.51 and the plugin 2.7.0 are pinned together in Gradle. Explicit
+  return selected;
+#else
+  (void)env;
+  LastDiscovery() = "stage=platform;androidArm64=0";
+  throw std::runtime_error("Qualcomm speech requires Android arm64");
+#endif
+}
+
+inline Ort::SessionOptions Options(Ort::Env &env, int threads,
+    const std::string &provider, const std::string &library_dir,
+    const std::string &profile_prefix, int64_t token_count,
+    const std::string &context_path = "", const std::string &htp_performance_mode = "balanced") {
+  Ort::SessionOptions options;
+  options.SetIntraOpNumThreads(threads);
+  options.SetInterOpNumThreads(1);
+  options.AddConfigEntry("session.intra_op.allow_spinning", "0");
+  options.AddConfigEntry("session.inter_op.allow_spinning", "0");
+  if (!ValidHtpPerformanceMode(htp_performance_mode)) throw std::runtime_error("Invalid HTP performance mode");
+  if (provider == "cpu") { LastDiscovery() = "stage=cpu;profile=unavailable"; return options; }
+  if (profile_prefix.empty()) throw std::runtime_error("Invalid speech profile prefix");
+  const auto selected = SelectDevices(env, provider, library_dir);
+  // QAIRT 2.52 and the plugin 2.8.0 are pinned together in Gradle. Explicit
   // backend paths ensure the GPU selection cannot accidentally use HTP or CPU.
   std::unordered_map<std::string, std::string> settings{
       {"backend_path", library_dir + (provider == "qnn-gpu" ? "/libQnnGpu.so" : "/libQnnHtp.so")}};
-  if (provider == "qnn-htp") settings.emplace("htp_performance_mode", "balanced");
+  if (provider == "qnn-htp") settings.emplace("htp_performance_mode", htp_performance_mode);
   if (token_count < 3 || token_count > 511) throw std::runtime_error("Invalid speech graph shape");
   // The pinned Kokoro export names its input sequence dimension explicitly.
   // Specialize real token counts; padding would alter durations and spoken audio.
   options.AddFreeDimensionOverrideByName("sequence_length", token_count);
+  if (!context_path.empty()) {
+    if (provider != "qnn-htp" || context_path.front() != '/') throw std::runtime_error("Invalid speech context export");
+    options.AddConfigEntry("ep.context_enable", "1");
+    options.AddConfigEntry("ep.context_file_path", context_path.c_str());
+    options.AddConfigEntry("ep.context_embed_mode", "1");
+  }
   options.AppendExecutionProvider_V2(env, selected, settings);
   options.AddConfigEntry("session.record_ep_graph_assignment_info", "1");
   options.EnableProfiling(profile_prefix.c_str());
   return options;
-#else
-  LastDiscovery() = "stage=platform;androidArm64=0";
-  throw std::runtime_error("Qualcomm speech requires Android arm64");
-#endif
 }
 
 // Qualification is based on a completed inference's kernel events, not the list

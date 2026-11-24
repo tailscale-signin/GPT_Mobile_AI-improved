@@ -16,10 +16,17 @@
       "prior_method_count": 128,
       "added_method_count": 4,
       "execution": "REQUIRED_IN_FINAL_ORDINARY_CI_NOT_ESTABLISHED_BY_THIS_MANIFEST"
+    },
+    "sdk_spacing_extension": {
+      "task": "docs/repairs/voice-accelerator-rebuild-2026-11-24-task.json",
+      "prior_method_count": 132,
+      "added_method_count": 5,
+      "execution": "REQUIRED_IN_FINAL_ORDINARY_CI_NOT_ESTABLISHED_BY_THIS_MANIFEST",
+      "historical_four_method_component_receipt": "PRESERVED_WITHOUT_EXPANDING_ITS_CLAIM"
     }
   },
   "expected_class_count": 9,
-  "expected_method_count": 132,
+  "expected_method_count": 137,
   "ordinary_ci": {
     "status": "REQUIRED_NOT_ESTABLISHED_BY_THIS_MANIFEST",
     "require_every_method": true,
@@ -227,17 +234,22 @@
     {
       "class_name": "dev.chungjungsoo.gptmobile.data.voice.VoiceStreamingPhrasePlanTest",
       "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt",
-      "source_git_blob_sha": "e81c64f1bd7308f4d0d5d759cc33c3c0582afade",
+      "source_git_blob_sha": "e79c1af8bb10a9cceb4a37049450e27d9958653d",
       "source_ref": null,
-      "required_method_count": 4,
+      "required_method_count": 9,
       "required_methods": [
         "aLongSavedReplyIsSplitBeforeInferenceWithoutLosingItsText",
         "pronunciationExpansionsKeepOriginalCaptionOffsetsInLaterPhrases",
         "unbrokenUnicodeTextDoesNotSplitSurrogatesOrDropCombiningMarks",
-        "sdkCorrectionsUseFullSymbolicTermsAndKeepOriginalWordCues"
+        "sdkCorrectionsUseFullSymbolicTermsAndKeepOriginalWordCues",
+        "separatorAfterTheExactCharacterCeilingRemainsInTheFollowingChunk",
+        "repeatedWhitespaceBoundariesRemainExactAtEveryCharacterCeiling",
+        "anUnbrokenWordDoesNotGainASeparatorAtTheSameCharacterBoundary",
+        "aWhitespaceTailDoesNotCreateAStandaloneSpeechRequest",
+        "aSeparatorMustFitWithSpeechWithoutWideningTheCharacterCeiling"
       ],
       "required_in_ordinary_ci": true,
-      "local_component_execution_by_speech_text_worker": "PASS_OBSERVED_ALL_LISTED_METHODS"
+      "local_component_execution_by_speech_text_worker": "HISTORICAL_PASS_FOR_FOUR_METHODS_ONLY; restored spacing controls have separate scoped evidence and all nine methods require final ordinary CI"
     },
     {
       "class_name": "dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceTuningPreferencesTest",

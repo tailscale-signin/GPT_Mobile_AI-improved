@@ -22,6 +22,7 @@ EVIDENCE_PATH = "docs/repairs/evidence/speech-playback-reliability-2026-11-23/na
 CALIBRATION_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol.kt"
 MOCKK_EVIDENCE_PATH = "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json"
 MOCKK_ARTIFACT = "mockk-agent-api-jvm-1.14.11.jar"
+COMPOSE_EVIDENCE_PATH = "docs/repairs/privacy-lifecycle-disposal-idle-2026-11-24-task.json"
 WAVEFORM_EVIDENCE_PATH = "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json"
 MODEL_PACK_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt"
 HISTORY_OPTIONS = "--all --full-history --diff-merges=first-parent --root"
@@ -82,6 +83,28 @@ def waveform_model_line(known_digest):
     if pack_pins != [known_digest]:
         raise ValueError("waveform_model_pin_contract")
     return '      "tokens.txt": "' + known_digest + '",'
+
+
+def compose_dependency_line():
+    document = json.loads((ROOT / COMPOSE_EVIDENCE_PATH).read_text(encoding="utf-8"))
+    if not isinstance(document, dict) or not isinstance(document.get("sourceBasis"), dict):
+        raise ValueError("compose_dependency_pin_contract")
+    digest = document["sourceBasis"].get("apiArtifactSha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("compose_dependency_pin_contract")
+    try:
+        verification = ElementTree.parse(ROOT / "gradle/verification-metadata.xml")
+    except ElementTree.ParseError:
+        raise ValueError("compose_dependency_pin_contract") from None
+    pins = [pin.get("value")
+            for component in verification.findall(".//{*}component")
+            if (component.get("group"), component.get("name"), component.get("version")) ==
+            ("androidx.compose.ui", "ui-test-android", "1.12.1")
+            for artifact in component.findall("{*}artifact") if artifact.get("name") == "ui-test.aar"
+            for pin in artifact.findall("{*}sha256")]
+    if pins != [digest]:
+        raise ValueError("compose_dependency_pin_contract")
+    return '    "apiArtifactSha256": "' + digest + '"'
 
 
 def isolated_environment():
@@ -152,6 +175,9 @@ def main():
         alternate_mockk = f'    "{MOCKK_ARTIFACT}": "{alternate_digest}",'
         waveform_line = waveform_model_line(known_digest)
         alternate_waveform = waveform_line.replace(known_digest, alternate_digest)
+        compose_line = compose_dependency_line()
+        alternate_compose = '    "apiArtifactSha256": "' + alternate_digest + '"'
+        nearby_api_key = '    "apiKey": "' + alternate_digest + '",'
         cases = [
             ("exact_evidence", EVIDENCE_PATH, exact_line, 0),
             ("existing_native_harness", NATIVE_PATH, exact_line, 0),
@@ -183,6 +209,14 @@ def main():
             ("waveform_prefix_content", WAVEFORM_EVIDENCE_PATH, '"extra": true, ' + waveform_line.lstrip(), 1),
             ("waveform_secret_after", WAVEFORM_EVIDENCE_PATH, waveform_line + "\n" + alternate_waveform, 1, 3),
             ("waveform_secret_before", WAVEFORM_EVIDENCE_PATH, alternate_waveform + "\n" + waveform_line, 1),
+            ("compose_exact_declaration", COMPOSE_EVIDENCE_PATH, compose_line, 0),
+            ("compose_different_value", COMPOSE_EVIDENCE_PATH, alternate_compose, 1),
+            ("compose_different_path", COMPOSE_EVIDENCE_PATH.replace("-task.json", "-other.json"), compose_line, 1),
+            ("compose_different_field", COMPOSE_EVIDENCE_PATH, compose_line.replace("apiArtifactSha256", "apiKey"), 1),
+            ("compose_trailing_content", COMPOSE_EVIDENCE_PATH, compose_line + ', "extra": true,', 1),
+            ("compose_prefix_content", COMPOSE_EVIDENCE_PATH, '"extra": true, ' + compose_line.lstrip(), 1),
+            ("compose_secret_after", COMPOSE_EVIDENCE_PATH, compose_line + "\n" + nearby_api_key, 1, 3),
+            ("compose_secret_before", COMPOSE_EVIDENCE_PATH, nearby_api_key + "\n" + compose_line, 1),
         ]
         with tempfile.TemporaryDirectory(prefix="gitleaks-model-pin-") as temporary:
             parent = Path(temporary)

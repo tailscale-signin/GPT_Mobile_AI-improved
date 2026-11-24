@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -49,7 +50,26 @@ class ProvenanceTest(unittest.TestCase):
 
     def test_qnn_upgrade_requires_matching_dispatch_inputs(self):
         def mutate(paths):
-            paths["VERSIONS"].write_text(paths["VERSIONS"].read_text().replace('qnn = "2.51.0"', 'qnn = "2.52.0"'))
+            paths["VERSIONS"].write_text(re.sub(r'^qnn = "[^"]+"', 'qnn = "999.0.0"', paths["VERSIONS"].read_text(), flags=re.MULTILINE))
+        self.assertEqual(1, self.check_mutation(mutate, allow=True))
+
+    def test_qnn_plugin_upgrade_requires_matching_inventory(self):
+        def mutate(paths):
+            paths["VERSIONS"].write_text(re.sub(r'^qnnSpeech = "[^"]+"', 'qnnSpeech = "999.0.0"', paths["VERSIONS"].read_text(), flags=re.MULTILINE))
+        self.assertEqual(1, self.check_mutation(mutate, allow=True))
+
+    def test_qnn_plugin_cannot_be_relabelled_without_its_native_artifact(self):
+        def mutate(paths):
+            manifest = json.loads(paths["MANIFEST"].read_text())
+            manifest["libraries"]["lib/arm64-v8a/libonnxruntime_providers_qnn.so"]["source"] = "com.qualcomm.qti:onnxruntime-android-qnn:999.0.0"
+            paths["MANIFEST"].write_text(json.dumps(manifest))
+        self.assertEqual(1, self.check_mutation(mutate, allow=True))
+
+    def test_missing_qnn_plugin_is_rejected(self):
+        def mutate(paths):
+            manifest = json.loads(paths["MANIFEST"].read_text())
+            del manifest["libraries"]["lib/arm64-v8a/libonnxruntime_providers_qnn.so"]
+            paths["MANIFEST"].write_text(json.dumps(manifest))
         self.assertEqual(1, self.check_mutation(mutate, allow=True))
 
     def test_mixed_qnn_distribution_is_rejected(self):

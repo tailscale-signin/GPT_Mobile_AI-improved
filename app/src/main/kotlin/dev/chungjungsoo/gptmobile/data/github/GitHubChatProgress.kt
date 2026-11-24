@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -46,6 +47,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var pendingSummary: ApiState.ActivitySummary? = null
     private var pendingSummaryRevision = -1L
     private var lastSummaryKey = ""
+    private var lastSummaryEvidenceEpoch = -1L
     private val publishedAuthoredSummaries = linkedSetOf<Pair<String, String>>()
     private val resourceStates = linkedMapOf<String, String>()
     private val sourceIdentities = linkedMapOf<String, String>()
@@ -116,10 +118,15 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         lastSummaryRevision = revision
         val key = GitHubProgressPresentation.summaryKey(candidate.text)
         val publication = key to summaryEvidenceKey(factKeys)
-        if (key.isBlank() || key == lastSummaryKey || candidate.modelAuthored && publication in publishedAuthoredSummaries) return null
+        // Fresh captured evidence can support the same authored explanation without
+        // intervening prose. Source-owned summaries retain their text deduplication.
+        val repeatedLast = key == lastSummaryKey &&
+            (!candidate.modelAuthored || summaryEvidenceEpoch == lastSummaryEvidenceEpoch)
+        if (key.isBlank() || repeatedLast || candidate.modelAuthored && publication in publishedAuthoredSummaries) return null
         val introduction = initial && generated == null
         summary = candidate.text
         lastSummaryKey = key
+        lastSummaryEvidenceEpoch = summaryEvidenceEpoch
         lastSummaryAt = at
         initial = false
         selectedAuthoredSummary = candidate.modelAuthored
@@ -134,7 +141,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             factKeys.forEach(reportedFactKeys::add)
             while (reportedFactKeys.size > 256) reportedFactKeys.remove(reportedFactKeys.first())
         }
-        return candidate
+        return candidate.copy(publicationId = UUID.randomUUID().toString())
     }
 
     /** Use saved call identity and typed state, never a timer, display text or counter change. */
@@ -164,13 +171,14 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         acknowledgeTransitions()
         summary = text
         lastSummaryKey = GitHubProgressPresentation.summaryKey(text)
+        lastSummaryEvidenceEpoch = summaryEvidenceEpoch
         initial = false
         selectedAuthoredSummary = false
         transitions.map { GitHubProgressPresentation.lineKey(it.text) }.forEach(reportedFactKeys::add)
         while (reportedFactKeys.size > 256) reportedFactKeys.remove(reportedFactKeys.first())
         // Immediate transitions do not postpone or replace the 45s/135s routine
         // cadence. Their fact keys still prevent duplicate routine narration.
-        return ApiState.ActivitySummary(text, modelAuthored = false)
+        return ApiState.ActivitySummary(text, modelAuthored = false, publicationId = UUID.randomUUID().toString())
     }
 
     private fun admitCounter(liveKey: String, text: String): Boolean {

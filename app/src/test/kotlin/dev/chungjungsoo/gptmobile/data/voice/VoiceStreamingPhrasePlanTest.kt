@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,5 +57,70 @@ class VoiceStreamingPhrasePlanTest {
         val range = phrase.sourceCharacters[start]
         assertEquals("C#", text.substring(range))
         assertTrue(phrase.sourceCharacters.subList(start, start + 5).all { it == range })
+    }
+
+    @Test fun separatorAfterTheExactCharacterCeilingRemainsInTheFollowingChunk() {
+        val input = "a".repeat(128) + " b"
+        val plan = VoiceStreamingPhrasePlan(input, emptyMap(), 1f)
+        val first = plan.next(8)!!
+        val second = plan.next(8)!!
+
+        assertEquals("a".repeat(128), first.text)
+        assertEquals(" b", second.text)
+        assertEquals(listOf(128..128, 129..129), second.sourceCharacters)
+        assertEquals(input, first.text + second.text)
+        assertEquals(null, plan.next(8))
+    }
+
+    @Test fun repeatedWhitespaceBoundariesRemainExactAtEveryCharacterCeiling() {
+        for ((speed, ceiling) in listOf(.5f to 64, 1f to 128, 1.5f to 192)) {
+            for (separator in listOf(" ", "\t", "\n", " \t\n")) {
+                val input = "a".repeat(ceiling) + separator + "b".repeat(ceiling) + separator + "c".repeat(ceiling) + separator + "end"
+                val plan = VoiceStreamingPhrasePlan(input, emptyMap(), speed)
+                val phrases = generateSequence { plan.next(4) }.toList()
+
+                assertEquals(input, phrases.joinToString("") { it.text })
+                assertTrue(phrases.all { it.text.length <= ceiling && it.text.isNotBlank() })
+                for (phrase in phrases) {
+                    assertEquals(phrase.text, phrase.sourceCharacters.joinToString("") { input.substring(it) })
+                }
+            }
+        }
+    }
+
+    @Test fun anUnbrokenWordDoesNotGainASeparatorAtTheSameCharacterBoundary() {
+        for (length in listOf(129, 256, 257, 513)) {
+            val input = "a".repeat(length - 1) + "b"
+            val plan = VoiceStreamingPhrasePlan(input, emptyMap(), 1f)
+            val phrases = generateSequence { plan.next(8) }.toList()
+
+            assertEquals(input, phrases.joinToString("") { it.text })
+            assertTrue(phrases.all { it.text.length <= 128 && it.text.none(Char::isWhitespace) })
+            assertEquals(input.indices.map { it..it }, phrases.flatMap { it.sourceCharacters })
+        }
+    }
+
+    @Test fun aWhitespaceTailDoesNotCreateAStandaloneSpeechRequest() {
+        val plan = VoiceStreamingPhrasePlan("a".repeat(128) + " \t\n", emptyMap(), 1f)
+
+        assertEquals("a".repeat(128), plan.next(8)!!.text)
+        assertEquals(null, plan.next(8))
+        assertEquals(null, plan.next(8))
+        assertEquals(null, VoiceStreamingPhrasePlan(" \t\n", emptyMap(), 1f).next(8))
+    }
+
+    @Test fun aSeparatorMustFitWithSpeechWithoutWideningTheCharacterCeiling() {
+        val fitting = "a".repeat(128) + " ".repeat(127) + "b"
+        val fittingPlan = VoiceStreamingPhrasePlan(fitting, emptyMap(), 1f)
+        val fittingPhrases = generateSequence { fittingPlan.next(8) }.toList()
+        assertEquals(fitting, fittingPhrases.joinToString("") { it.text })
+        assertTrue(fittingPhrases.all { it.text.length <= 128 && it.text.isNotBlank() })
+
+        for (tail in listOf(" ".repeat(128) + "b", " ".repeat(127) + "🙂")) {
+            val plan = VoiceStreamingPhrasePlan("a".repeat(128) + tail, emptyMap(), 1f)
+            assertEquals("a".repeat(128), plan.next(8)!!.text)
+            val failure = assertThrows(IllegalArgumentException::class.java) { plan.next(8) }
+            assertEquals("STREAM_INPUT_LIMIT", failure.message)
+        }
     }
 }

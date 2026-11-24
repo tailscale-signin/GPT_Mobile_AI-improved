@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 import java.util.Locale
 
 private val summaryWhitespace = Regex("\\s+")
+private data class ProgressSummaryIdentity(val id: String?, val sequence: Long?, val modelAuthored: Boolean, val lineage: dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage?)
 private val legacyActivitySummary = Regex("^I have (?:completed [0-9]+ repository operations\\.|received the request; no repository operation has completed yet\\.) ")
 
 /** Only explicitly public prose can replace a generic activity summary, including retained messages. */
@@ -83,6 +84,7 @@ internal fun gitHubResponsePresentation(text: String, timeline: List<AssistantTi
 internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false, active: Boolean = false): List<AssistantTimelineItem> {
     val previews = mutableSetOf<String>()
     val summaryPositions = mutableMapOf<String, Int>()
+    val summaryEvents = mutableMapOf<ProgressSummaryIdentity, Int>()
     val counterPositions = mutableMapOf<String, Int>()
     val semanticPositions = mutableMapOf<String, Int>()
     val activationOrder = mutableMapOf<String, Long>()
@@ -118,6 +120,20 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
                     coalesced.add(current)
                 } else {
                     coalesced[position] = current
+                }
+            }
+            item.statusSummary && (item.modelAuthored || item.progressId != null || item.progressSequence != null) -> {
+                // Admission already distinguishes new evidence from repeated prose.
+                // Equal text can describe a real state returning after a different
+                // finding; only the same persisted event is a replay.
+                val identified = item.progressId != null || item.progressSequence != null
+                val key = ProgressSummaryIdentity(item.progressId, item.progressSequence, item.modelAuthored, item.outputLineage)
+                val previous = if (identified) summaryEvents[key] else null
+                if (previous != null) {
+                    coalesced[previous] = item
+                } else if (identified || coalesced.lastOrNull { it.statusSummary } != item) {
+                    if (identified) summaryEvents[key] = coalesced.size
+                    coalesced.add(item)
                 }
             }
             item.statusSummary -> {

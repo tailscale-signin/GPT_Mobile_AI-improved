@@ -65,22 +65,30 @@ class VoiceSpeechBenchmarkStoreTest {
         file.writeText("not a report")
         val store = VoiceSpeechBenchmarkStore(directory)
         assertTrue(store.read().isEmpty())
-        file.writeBytes(ByteArray(4 * 1024 * 1024 + 1))
+        file.outputStream().use { output ->
+            output.write(JsonArray(listOf(speechBenchmarkJson(report(1), local = true))).toString().toByteArray())
+            val padding = ByteArray(8192) { ' '.code.toByte() }
+            repeat(1024) { output.write(padding) }
+        }
+        assertTrue(file.length() > 8 * 1024 * 1024)
         assertTrue(store.read().isEmpty())
         assertTrue(store.save(report(10)))
         assertEquals(10L, store.read().single().startedAtMillis)
     }
 
     @Test fun fullCurrentProtocolEvidenceAboveTwoMiBSurvivesWhileOlderRunsAreEvicted() {
+        // Preserve the retained selector; the current fixture also exceeds the former 4 MiB limit.
         // Exercise the allowed trace envelope, not a claim that this schedule occurred on hardware.
         val config = report(1).configuration.copy(
             mode = VoiceSpeechBenchmarkMode.FULL,
             backends = VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS,
             playback = true,
-            playbackScenarios = VoiceSpeechPlaybackScenario.entries
+            playbackScenarios = VoiceSpeechPlaybackScenario.entries,
+            sustainedTargetAudioMs = 600_000
         )
         val rows = config.backends.flatMap { backend ->
-            VoiceSpeechPlaybackProtocol.plans(config).map { plan ->
+            var sustainedAudioMs = 0L
+            VoiceSpeechPlaybackProtocol.expandedPlans(config, VoiceSpeechSustainedSeries.MAX_REPLIES).map { plan ->
                 val provider = VoiceSpeechBenchmarkBackendResult.provider(backend)
                 val phrases = plan.segments.flatMap { checkNotNull(KokoroSpeechText.timed(it) { true }.phrases) }
                 val chunks = phrases.mapIndexed { index, phrase ->
@@ -89,15 +97,30 @@ class VoiceSpeechBenchmarkStoreTest {
                         VoiceSpeechWorkload.digest(phrase.speech), provider, true, null, null, null
                     )
                 }
+                val sustained = plan.scenario == VoiceSpeechPlaybackScenario.SUSTAINED
+                if (sustained) sustainedAudioMs += chunks.sumOf { it.audioMs }
                 VoiceSpeechPlaybackResult(
-                    backend, VoiceSpeechPlaybackState.COMPLETE, elapsedMs = 179_000,
+                    backend, VoiceSpeechPlaybackState.COMPLETE, firstPresentedAudioMs = 100, elapsedMs = 30_000,
                     totalSynthesisMs = chunks.sumOf { it.generationMs }, totalAudioMs = chunks.sumOf { it.audioMs }, chunks = chunks.size, validatedChunks = chunks.size,
                     protocolVersion = VoiceSpeechPlaybackProtocol.VERSION, scenario = plan.scenario, repeat = plan.repeat,
-                    warmup = plan.warmup, expectedResident = plan.expectedResident, fixtureHash = plan.manifest.hash,
-                    manifestWordsExpected = plan.manifest.spans.size, chunkRecords = chunks, cancellationTarget = plan.cancellationTarget,
+                    warmup = plan.warmup, expectedResident = plan.expectedResident, engineReused = plan.expectedResident, fixtureHash = plan.manifest.hash,
+                    manifestWordsExpected = plan.manifest.spans.size, manifestWordsPrepared = plan.manifest.spans.size,
+                    manifestWordsObserved = plan.manifest.spans.size, unexpectedCaptionWords = 0, chunkRecords = chunks, cancellationTarget = plan.cancellationTarget,
                     arrivalIntervalMs = plan.arrivalIntervalMs, cleanupState = "RETIRED",
-                    progress = List(128) { VoiceSpeechProgressObservation(VoiceSpeechStage.PREPARING, 10, it + 1L, 89_000, 119_999, false) },
-                    reserves = List(128) { VoiceSpeechReserveObservation("refill", 100, 5900, 5999, "producer_idle", it * 1_000L, it * 1_000L + 100) },
+                    sustainedTargetAudioMs = config.sustainedTargetAudioMs.takeIf { sustained },
+                    sustainedObservedAudioMs = sustainedAudioMs.takeIf { sustained },
+                    sustainedWallElapsedMs = ((plan.repeat + 1) * 30_000L).takeIf { sustained },
+                    sustainedWallDeadlineMs = VoiceSpeechSustainedSeries.deadlineMs(config.sustainedTargetAudioMs).takeIf { sustained },
+                    sustainedCompletedRepeats = (plan.repeat + 1).takeIf { sustained },
+                    sustainedQualification = if (!sustained) {
+                        null
+                    } else if (plan.repeat == VoiceSpeechSustainedSeries.MAX_REPLIES - 1) {
+                        "INSUFFICIENT_DURATION"
+                    } else {
+                        "IN_PROGRESS"
+                    },
+                    progress = List(128) { VoiceSpeechProgressObservation(VoiceSpeechStage.PREPARING, 10, it + 1L, 29_000, 29_999, false) },
+                    reserves = List(128) { VoiceSpeechReserveObservation("refill", 100, 5900, 5999, "producer_idle", it * 100L, it * 100L + 100) },
                     calibrations = List(32) { VoiceSpeechCalibrationObservation("bluetooth", 0, it.toLong()) }
                 )
             }
@@ -110,8 +133,10 @@ class VoiceSpeechBenchmarkStoreTest {
             playbackResults = rows
         )
         val bytes = Json.encodeToString(JsonArray.serializer(), JsonArray(listOf(speechBenchmarkJson(large, local = true)))).toByteArray().size
-        assertTrue("The regression must exercise the previous capacity limit", bytes > 2 * 1024 * 1024)
-        assertTrue(bytes < 4 * 1024 * 1024)
+        assertEquals(39 * config.backends.size, rows.size)
+        assertEquals(16 * config.backends.size, rows.count { it.scenario == VoiceSpeechPlaybackScenario.SUSTAINED })
+        assertTrue("The regression must exercise the previous capacity limit", bytes > 4 * 1024 * 1024)
+        assertTrue(bytes < 8 * 1024 * 1024)
         val directory = temporary.newFolder()
         val store = VoiceSpeechBenchmarkStore(directory)
         assertTrue(store.save(large))
@@ -121,7 +146,7 @@ class VoiceSpeechBenchmarkStoreTest {
         val restored = VoiceSpeechBenchmarkStore(directory).read()
         assertEquals(listOf(3L, 2L), restored.map { it.startedAtMillis })
         assertEquals(newest, restored.first())
-        assertTrue(File(directory, "results-v1.json").length() <= 4 * 1024 * 1024)
+        assertTrue(File(directory, "results-v1.json").length() <= 8 * 1024 * 1024)
     }
 
     @Test fun interruptedUtteranceKeepsItsCompletedChunksAndOriginalOrderPlan() {

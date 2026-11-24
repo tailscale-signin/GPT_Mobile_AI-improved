@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSHA": "d48509ecc158182f339d36b68fc3016821f0c669",
+  "workingBranch": "task/voice-rebuild-sdk",
+  "parentPR": 2367,
+  "recordedBeforeSourceEditAt": "2026-11-24T01:38:18.696999+00:00",
+  "intent": "Implement configurable Kokoro sequence buckets, persistent incremental SDK reply text streams with bounded PCM and caption ownership, and resident model reuse across per-utterance voice changes. Preserve native and Gateway paths.",
+  "owner": "speech_latency_options",
+  "status": "SDK_HOST_VALIDATED_PENDING_FULL_ANDROID_CI",
+  "upstream": "MediaPipe tasks-audio1.2.3 actual AAR javap confirms TtsStream pushText/finishInput/readNext and explicit StartStream finishInput=false C API; no SDK version change.",
+  "constraints": [
+    "No remote writes; root integrates and performs current-head publication gates.",
+    "No unvalidated hardware speed claims.",
+    "Bounded input/cues/audio timeline, cancellation and native retirement remain required.",
+    "Root owns central generated references and release-scope edits."
+  ],
+  "validation": {
+    "unit": {
+      "result": "PASS",
+      "tests": 88,
+      "command": "PATH=/workspace/scratch/02b2dec72938/kokoro-lab/jdk-21.0.13.1+2/bin:$PATH python3 /workspace/scratch/3e488fb5a6e6/rebuild-sdk-validation/run.py",
+      "manifestSha256": "4963e8eab8c54ae6ff08ff974862ef7077d5451dce065e44c06e733c74c27118",
+      "scope": "Actual changed SDK/benchmark/bucket/caption source plus shared CPU policy and same-variant native calibration identity with actual pinned tasks-audio/tasks-core1.2.3 classes; narrow compiler against recorded parent source dependency jar. Native output, preference/ViewModel, JNI/model execution and phone performance are not executed. Full combined Android/CI remains required.",
+      "compilerHeapMiB": 192,
+      "compilerMetaspaceMiB": 128,
+      "snapshotChanges": []
+    },
+    "canonical": "PENDING_ROOT_COMPOSED_CANDIDATE",
+    "format": "PASS: ktlint1.3.1 format on modified Kotlin files; git diff --check",
+    "androidChanges": "Actual-output, deferred-owner, preference and ViewModel regressions added; full Android/Robolectric gate still required. Native model-variant and calibration APIs are merged.",
+    "exportControlCompose": {
+      "result": "PASS",
+      "manifestSha256": "1ffe0edbca4d6d0b875552f4b3caaf9fd644d336568dfe610b1c62e937820479",
+      "scope": "Read-only root VoiceDiagnosticExportControl compiled with actual Kotlin2.4.20 Compose compiler, Android37, Compose1.12.1, Activity1.13, Lifecycle2.11/SavedState1.5 dependencies and root tested export ViewModel jar. No Android rendering or provider execution."
+    },
+    "benchmarkViewModelRefactor": {
+      "status": "SCOPED_KOTLIN_AND_D8_PASS_CANONICAL_APK_PENDING",
+      "reportedFailingRun": 45304806684,
+      "reportedFailingJob": 138148217124,
+      "reportedMethod": "VoiceSpeechBenchmarkViewModel.execute",
+      "reportedDexUnits": 17000,
+      "reportedDexLimit": 16383,
+      "rootBeforeRefactorSha256": "3143bf01a89bef0daa4d8413e386e43d4f6dd3c59a12e7c80aa6ba49882158e5",
+      "sourceSha256": "e1a2501ba71eae37f1c1f5244a707aafba1e409b5631981d9cd45c5e7811e3ab",
+      "checks": "Actual root VM/state/ownership, Qualcomm factory, model/capability/history stores, battery and retirement source compiled with real Android37/Lifecycle2.11/Hilt2.60.1;144MiB heap/96MiB metaspace. D8 37/minAPI31 measures execute6552 and all compiled helpers below16383. PlaybackBenchmark hardware implementation is an explicit source-inspected API boundary. This is a scoped compile/size check, not Android execution or the canonical APK gate.",
+      "compilerManifestSha256": "17537919dd504483a1f483c4d7bf76dec583918675c87953e00a34ee9519a1b7",
+      "dexManifestSha256": "3012275aa0d4895dcdcb9ad58c24e0a6cd596b4e7a81c3743e68f61da8c0a609",
+      "isolatedExecuteDexCodeUnits": 6552
+    },
+    "benchmarkSettingsCompose": {
+      "result": "PASS",
+      "compilerManifestSha256": "9b9b0d394795afe997ca353142df6a4419dae282c863394a3733864a2be91209",
+      "dexManifestSha256": "c695ab4206e95ba981ac6a2d8d2a1d5b724c103b9f10388a4755f82809fd527a",
+      "isolatedLargestMethodCodeUnits": 7480,
+      "scope": "Actual current benchmark Settings and SDK result-card source with actual Kotlin2.4.20 Compose compiler and Android/Compose/Hilt dependencies, plus exact VoiceChoice/section implementations. Fading popup rendering is an explicit API boundary, and the compiled parent VM declares its playback hardware boundary. No rendered UI or Android behavior claim. Scoped D8 largest method7480; full packaged APK gate remains required."
+    }
+  },
+  "implementation": [
+    "SDK target buckets AUTO/64/128/256 are part of factory identity and cache namespace and reach TextToSpeechOptions. No text is truncated to a guessed token count.",
+    "One incremental stream per SDK reply uses separate interruptible input owner, bounded input/cues/timeline, exact-once finish, cancellation and dual-owner retirement before native destruction. Failed retirement retains stream/task/model lease.",
+    "Per-utterance voice changes retain model/task with a separate resident identity; voice selection occurs only while idle.",
+    "Original segment/UTF8/pronunciation caption mapping remains intact over the reply; quiet-frame map grows as needed within declared bound.",
+    "Silent benchmarks exercise actual factory input mode and retain whole-fixture input hash; unsealed playback does not invent whole-attempt input identity.",
+    "Production preference, VoiceSettings screen and factory orchestration expose bucket and input mode; malformed preferences use defaults.",
+    "Auto CPU threads consume the shared cached device governor and thermal forecast; explicit benchmark and user settings remain fixed. Optional ADPF sessions target only the app-owned CPU synthesis worker, with measured generate-call duration and bounded presentation deadlines.",
+    "Original FP32 and compact INT8 have independent installations and a persisted selection; live settings changes retire the old runtime off main before publishing the replacement store. Initial preference hydration precedes initial store exposure.",
+    "Failed model destruction retains the native lease, makes awaitClosed fail, and prevents replacement in that output. Deferred output preserves the closed owner until retirement is confirmed.",
+    "Failed native factory preparation also retains its factory and surrounding asset lease while native cleanup remains pending; shutdown always retires executors after component callback unregistration failure. Added direct retirement and bucket complete-input regressions.",
+    "Split the benchmark ViewModel coroutine into bounded publication, playback, per-backend, native/SDK and lease-retirement helpers after parent reported the canonical DEX method-size failure. Preserve a single report/energy owner and release ownership in finally even if report finalization fails; sustained thermal stops retain results and stop further backends after cleanup priority."
+  ],
+  "upstreamArtifacts": {
+    "/workspace/scratch/ac674a79f1f9/tts-sdk-inspection/tasks-audio-1.2.3/classes.jar": "7959641ee8339a0914f8dfbccbf858443b32473c17dc570f3867cd514c316c97",
+    "/workspace/scratch/ac674a79f1f9/tts-sdk-inspection/tasks-core-1.2.3/classes.jar": "06e395cd0586fbb42a806a4770be86ddb2dfd71f32bce37e0ce2f44b99d89aa3"
+  },
+  "remaining": [
+    "Combined Android/Compose/Robolectric compile/test, generated references, full current-head CI and physical device acceptance owned by root"
+  ],
+  "recovery": {
+    "baseSHA": "07dee675074a272b72c4abd7f41a4c61720639a6",
+    "workingBranch": "task/voice-recovery-sdk",
+    "recordedBeforeSourceEditAt": "2026-11-24T03:14:59.488482+00:00",
+    "intent": "Restore missing descriptor-confined cache preparation and real incremental SDK model smoke after workspace loss; preserve merged vocabulary changes and core implementation.",
+    "status": "SCOPED_HOST_VALIDATION_PASS_PENDING_COMBINED_HOSTED_CI",
+    "historicalValidation": "Earlier validation sections describe the lost source/environment only. They do not establish current recovered-tree compilation, tests, model execution or publication.",
+    "freshValidation": {
+      "incrementalCheckpointSmoke": {
+        "result": "PYTHON_CONTROLS_AND_SCOPED_ANDROID_API_COMPILE_PASS_MODEL_EXECUTION_PENDING",
+        "protocolTests": 8,
+        "androidVerifierRunnerTests": 13,
+        "sourceSHA256": {
+          "scripts/smoke_mediapipe_speech.py": "bcb9f05294cde3830c87ec4a741dce36c69f98a582cc4f3dcd9086c147e91ef0",
+          "scripts/check_mediapipe_android_smoke.py": "db86615ab1c275ae798c79c4800e9f6042ccdfee2cd031204f6d8dc3b8e68335",
+          "scripts/tests/test_mediapipe_speech.py": "e05d81ec958ce6461f1d831fb0b0e701d3b5627cfa3e36447ed7a994785df11d",
+          "scripts/tests/test_mediapipe_android_smoke.py": "35d0cf3d198873748441aabdaace1938fd00d95179f595533215dae56b368ac1",
+          "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechNativeSmokeTest.kt": "81c0444cf0d931dfca52a6754cea15871b3483e3876525cf7a59815ac27ff3d8"
+        },
+        "scope": "Fresh stdlib controls execute the restored orchestration/verifier against controlled SDK/ADB boundaries. They do not claim real-model inference, JNI, Android execution or current full-source compilation.",
+        "format": "ktlint1.3.1 and git diff --check passed on recovered source",
+        "realModelGate": "Each existing Linux and Android engine row requires single input and true incremental input, PCM before second text/finish, complete Unicode cue coverage, open-input cancellation, retired owner and same-task recovery. Hosted exact-source execution remains required."
+      },
+      "sdkApiAndBehavior": {
+        "result": "PASS",
+        "tests": 34,
+        "compilerHeapMiB": 192,
+        "compilerMetaspaceMiB": 128,
+        "manifestSha256": "0b098932f5a36fcd145b4604dc59bb59484f903d5c5a0f7813d50facd1db1326",
+        "command": "python /workspace/scratch/3e488fb5a6e6/recovery-sdk-validation/compile_sources.py",
+        "scope": "Actual recovered SDK task/engine, Android JNI smoke, cache helper/test and incoming pronunciation/phrase source compiled with Kotlin2.4.20, Android37, tasks-audio/tasks-core1.2.3 and AndroidJUnit4 APIs. Actual TimedKokoro Java ABI compiled with Java21. Exact unchanged interface/DTO/enum declarations form the recorded dependency boundary. 34 actual-source JVM tests exercise controlled SDK streams, cues, incremental mapping, pronunciation and phrase planning. Whole Qualcomm factory/app/Compose and actual JNI/model/instrumentation execution are outside this focused check.",
+        "changedDuringCompile": [],
+        "publisherVerifiedSdkAarSha256": {
+          "tasks-audio-1.2.3": "745809088d3f3c1ab714731dc9eed8b44b9310f25cbb9e67eebb2107403b7575",
+          "tasks-core-1.2.3": "39dafa4a851b520839cea7cf1a80e873082bd2eb3a136990dfd89061569638d7"
+        }
+      },
+      "compiledContextDirectory": {
+        "result": "PASS",
+        "tests": 7,
+        "runtime": "Robolectric4.17 / API34",
+        "jvmHeapMiB": 384,
+        "manifestSha256": "ada1cf0b9700e932ba7d91ac5ca4e35438262436b41dcee40f901b5c46c3f6e6",
+        "command": "python /workspace/scratch/3e488fb5a6e6/recovery-sdk-validation/run_cache_tests.py",
+        "sourceSha256": {
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectory.kt": "418bcad01d08e8857e8692e66f26999b4f372109552b51e62fa2a616fdce338d",
+          "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectoryTest.kt": "d7b8f48406ce0d489bd29b365e865c0e904c82f9ca6d26de7d714ad2e59d00e7"
+        },
+        "factorySourceSha256": "150802acfae1d142da5d28c85908f6f677044bc374eef5b7380c39d7ff58f044",
+        "scope": "Fresh actual recovered helper and seven tests on Robolectric API34 with explicit POSIX fault shadow. Temporary paths/permissions/symlinks/inodes are actual host filesystem observations; controlled directory descriptors are not physical Android execution.",
+        "boundaryCorrection": "Robolectric default ShadowBlockGuardOs.close is intentionally a no-op. Explicit BlockGuard shadow forwards the helper actual Os.close/finally path to the tracked descriptor release. All descriptor-leak assertions remain enabled. This correction changes only the test boundary.",
+        "cases": [
+          "new0700 directory and safe open flags",
+          "existing0775 repair through owned descriptor",
+          "symlink refusal without target chmod",
+          "regular-file refusal before chmod",
+          "foreign-UID refusal before chmod",
+          "denied or ineffective chmod disables optional persistence",
+          "path replacement rejected by final device/inode check"
+        ],
+        "productionReview": "HTP factory calls descriptor-confined preparation only with an existing nonempty cache identity. Any preparation or close IOException/ErrnoException/SecurityException returns an empty optional cache path. Native canonical/lstat/ownership/write-bit guard is unchanged. Independently reviewed by native owner.",
+        "format": "ktlint1.3.1 and git diff --check"
+      },
+      "incomingPronunciationIntegration": {
+        "result": "READ_ONLY_REVIEW_CLEAR_WITH_FOCUSED_SOURCE_TESTS",
+        "scope": "Reviewed incoming be94 preference forwarding, shared projection, streaming phrase planning and Android chunk source offsets. Preserves original source identity, literal bounded replacements and existing incremental ownership. Relevant actual pronunciation/phrase/mapping tests are included in the34-test closure."
+      }
+    },
+    "updatedAt": "2026-11-24T03:24:43.854122+00:00",
+    "spacingComponent": {
+      "recordedBeforeSourceEditAt": "2026-11-24T03:25:16.390858+00:00",
+      "intent": "Restore the captured shared af149 separator fix and nine captured regressions while retaining current be94 shared pronunciation projection and its symbolic-term test.",
+      "originalCommit": "af14995fd39e33110bfe80d9a6301c42398f5eac",
+      "originalParentPrefix": "87ed",
+      "currentLocalBase": "e487f2d4db9f4c3cc7fb202eed89b20909fe3fc7",
+      "capturedDiffSha256": "376c298e10730e8197b6d3eccde05e6f03100bb4d25b09098dce3ce69390e65b",
+      "sourceType": "COMPLETE_CAPTURED_DIFF_FOR_NAMED_FILES",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMapTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt"
+      ],
+      "beforeSha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt": "8a191ea789a065bb6265ee6c61cd8faad2767af6d3ada3b914fa8fccb80adb37",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMapTest.kt": "49bbb9009afc138ab80f89c39ef3e2e3d50aa8299dbb8f2cccb3b99aca8567ab",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt": "06ea732ad35d2ac321512e4d29809a0796d3741cdd1de46308e7b0cb01cde49b"
+      },
+      "exclusions": "The original fourth task ledger was not captured. This records a fresh recovery and does not assert original full blob identity.",
+      "status": "SCOPED_REGRESSION_PASS_PENDING_COMBINED_HOSTED_CI",
+      "updatedAt": "2026-11-24T03:26:02.318176+00:00",
+      "sourceSha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt": "2dfd25bc17c1843d6877d3316d82163d708f19275ae81989439e931b33c7cb0e",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt": "f02c36d5f04576466c7763cb2b7afea48d952ab6089a0fc7c76cbd54dd4a2e80",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMapTest.kt": "460b96bb2ea8e4632bf0f2f3091b5596737994481772a3e29c3ccccb05430195"
+      },
+      "sourceGitBlobs": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt": "26dfe3c5dc67da7b40a532f6b3a8820b4fc68e59",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMapTest.kt": "a7fe1d20d4b9f52e9c84b42bcbaad5c0f6a822aa",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt": "e79c1af8bb10a9cceb4a37049450e27d9958653d"
+      },
+      "reconciliation": "Production and incremental-map test hunks applied from the captured diff. Planner test additions were inserted around the incoming be94 symbolic-term test, preserving all captured nine new methods and all current methods. Shared pronunciation projection remains unchanged. Original full blob identity is not claimed for reconciled files.",
+      "validation": {
+        "result": "PASS",
+        "command": "python /workspace/scratch/3e488fb5a6e6/recovery-sdk-validation/spacing/validate_spacing.py",
+        "tests": 18,
+        "oldMethods": 8,
+        "incomingPronunciationMethods": 1,
+        "capturedRegressionMethods": 9,
+        "baselineFailures": 7,
+        "baselineControl": "The unchanged recovered planner compiled with all18 tests and failed exactly the seven separator retention, bounded-separator and UTF8/source-mapping regression cases. Existing tests and unbroken-word/whitespace-tail controls passed.",
+        "fixedControl": "The integrated planner compiled with the same dependencies and all18 tests passed.",
+        "scope": "Fresh exact recovered af149 planner and two regression classes, retaining be94 projection/incoming symbolic-term test; unchanged dependencies from the recorded actual-source SDK compile jar. No model/device/production output execution claim.",
+        "manifestSha256": "24901ce69ad60e7cedacbcdfa663739e13ed8c22b1554f81c25c4917fcc7f3bb",
+        "changedDuringCompile": [],
+        "compilerHeapMiB": 192,
+        "compilerMetaspaceMiB": 128,
+        "format": "ktlint1.3.1 and git diff --check passed"
+      },
+      "callerReview": "Current KokoroVoiceOutput phrase and incremental paths consume this planner without stripping its separator. The current SDK benchmark incremental and perphrase paths also consume its text directly. Caption projections retain original source ranges; new segment synthetic separators remain unowned. No provider or native ownership logic changed."
+    }
+  }
+}

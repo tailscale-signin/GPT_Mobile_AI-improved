@@ -5,7 +5,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /** One synthesis worker owns this model and closes it after its final phrase. */
 public final class TimedKokoro implements AutoCloseable {
     public static final int SAMPLE_RATE = 24000;
-    public static final String RUNTIME_ID = "ort1.28.2-qnn2.7-qairt2.51-convex2-profile5-cache3-progress1-parser3-validation2";
+    public static final String RUNTIME_ID = "ort1.28.2-qnn2.8-qairt2.52-convex2-profile6-cache3-progress1-parser3-validation2-context1";
     public static final int MAX_INPUT_BYTES = 128;
     static { System.loadLibrary("timed_kokoro"); }
 
@@ -76,12 +76,17 @@ public final class TimedKokoro implements AutoCloseable {
         public final Long outputTensorCount, outputFrames, outputElementType, outputRank;
         public final Long durationCount, durationElementType, durationRank, durationSum, durationMin, durationMax;
         public final Boolean durationStatsAvailable, durationSumOverflow;
+        /** Current preparation path; absent in historical v2-v5 receipts. */
+        public final String graphPreparationSource, contextCacheStatus, htpPerformanceMode;
+        public final Long contextLoadMs, contextStoreMs, contextBytes, contextCacheEvictions;
+        public final Boolean contextFallback;
 
         private Evidence(long[] data, String discoverySummary) {
             if (data == null || !((data.length == 25 && data[0] == 2) || (data.length == 29 && data[0] == 3) ||
-                    (data.length == 33 && data[0] == 4) || (data.length == 48 && data[0] == 5)))
+                    (data.length == 33 && data[0] == 4) || (data.length == 48 && data[0] == 5) ||
+                    (data.length == 56 && data[0] == 6)))
                 throw new IllegalStateException("Invalid speech execution evidence");
-            if (data[0] == 5) validateCurrentEvidence(data);
+            if (data[0] >= 5) validateCurrentEvidence(data);
             acceleratorKernels = (int) data[1];
             cpuKernels = (int) data[2];
             acceleratorMicros = data[3];
@@ -116,7 +121,7 @@ public final class TimedKokoro implements AutoCloseable {
             availableMemoryBytes = data.length >= 33 && data[31] > 0 ? data[31] : null;
             cacheAdmission = data.length >= 33 && data[32] >= 0 && data[32] <= 4 ?
                     new String[] {"CPU_SINGLE", "MEMORY_UNKNOWN", "MEMORY_PRESSURE", "BOUNDED_TWO_SHAPES", "BOUNDED_THREE_SHAPES"}[(int) data[32]] : null;
-            final boolean current = data[0] == 5;
+            final boolean current = data[0] >= 5;
             audioMeasurementAvailable = current ? Boolean.valueOf(data[34] == 1) : validatedAudio ? Boolean.TRUE : null;
             audioFinite = current && data[34] == 1 ? Boolean.valueOf(data[47] == 1) : validatedAudio ? Boolean.TRUE : null;
             validationReason = current && data[33] != 0 ? new String[] {
@@ -136,6 +141,17 @@ public final class TimedKokoro implements AutoCloseable {
             durationSum = current && data[42] == 1 && data[46] == 0 ? data[43] : null;
             durationMin = current && data[42] == 1 ? data[44] : null;
             durationMax = current && data[42] == 1 ? data[45] : null;
+            graphPreparationSource = data.length >= 56 ? new String[] {"NONE", "CPU_DYNAMIC", "COMPILED", "DISK_CONTEXT", "RESIDENT"}[(int) data[48]] : null;
+            contextCacheStatus = data.length >= 56 ? new String[] {
+                    "DISABLED", "MISS", "HIT", "STORED", "INVALIDATED", "UNAVAILABLE", "PENDING", "WRITE_FAILED", "TOO_LARGE", "BUSY", "NOT_ACCESSED"
+            }[(int) data[49]] : null;
+            contextLoadMs = data.length >= 56 ? data[50] : null;
+            contextStoreMs = data.length >= 56 ? data[51] : null;
+            contextBytes = data.length >= 56 ? data[52] : null;
+            contextCacheEvictions = data.length >= 56 ? data[53] : null;
+            contextFallback = data.length >= 56 ? data[54] == 1 : null;
+            htpPerformanceMode = data.length >= 56 && data[55] >= 0 ?
+                    new String[] {"balanced", "burst", "high_performance"}[(int) data[55]] : null;
         }
 
         private static void validateCurrentEvidence(long[] data) {
@@ -153,6 +169,15 @@ public final class TimedKokoro implements AutoCloseable {
             } else valid &= data[47] == 0;
             if (data[11] == 1) valid &= data[34] == 1 && data[47] == 1 && data[33] == 0 && data[21] == 0;
             if (data[33] == 9 || data[33] == 10) valid &= data[34] == 1;
+            if (data.length >= 56) {
+                valid &= data[48] >= 0 && data[48] <= 4 && data[49] >= 0 && data[49] <= 10 &&
+                        (data[54] == 0 || data[54] == 1) && data[55] >= -1 && data[55] <= 2;
+                for (int index = 50; index <= 53; index++) valid &= data[index] >= 0;
+                valid &= data[52] <= 256L * 1024 * 1024;
+                if (data[48] == 3) valid &= data[49] == 2 || data[49] == 4;
+                if (data[48] == 4) valid &= data[14] == 1;
+                if (data[49] == 3) valid &= data[11] == 1 && data[12] == 1 && data[1] > 0 && data[52] > 0;
+            }
             if (data[33] == 12) {
                 double peak = Double.longBitsToDouble(data[20]);
                 valid &= data[34] == 1 && data[47] == 1 && data[21] > 0 && data[21] <= data[36] &&
@@ -190,7 +215,19 @@ public final class TimedKokoro implements AutoCloseable {
 
     public TimedKokoro(String model, String voices, String tokens, String lexicon, int threads,
             String provider, String libraryDirectory, String profilePrefix) {
-        handle = open(model, voices, tokens, lexicon, threads, provider, libraryDirectory, profilePrefix);
+        this(model, voices, tokens, lexicon, threads, provider, libraryDirectory, profilePrefix, "", "", "balanced");
+    }
+
+    /** Cache identity is a digest of the verified model/runtime/options and detected phone firmware. */
+    public TimedKokoro(String model, String voices, String tokens, String lexicon, int threads,
+            String provider, String libraryDirectory, String profilePrefix,
+            String contextDirectory, String contextIdentity, String htpPerformanceMode) {
+        if (!htpPerformanceMode.equals("balanced") && !htpPerformanceMode.equals("burst") && !htpPerformanceMode.equals("high_performance"))
+            throw new IllegalArgumentException("Invalid HTP performance mode");
+        if (!contextDirectory.isEmpty() && (!contextDirectory.startsWith("/") || !contextIdentity.matches("[0-9a-f]{64}")))
+            throw new IllegalArgumentException("Invalid speech context cache configuration");
+        handle = open(model, voices, tokens, lexicon, threads, provider, libraryDirectory, profilePrefix,
+                contextDirectory, contextIdentity, htpPerformanceMode);
     }
 
     public Audio generate(String phrase, int speaker, float speed) {
@@ -250,7 +287,8 @@ public final class TimedKokoro implements AutoCloseable {
     }
 
     private static native long open(String model, String voices, String tokens, String lexicon, int threads,
-            String provider, String libraryDirectory, String profilePrefix);
+            String provider, String libraryDirectory, String profilePrefix,
+            String contextDirectory, String contextIdentity, String htpPerformanceMode);
     private static native int executedAcceleratorNodes(long handle);
     private static native long[] executionEvidence(long handle);
     private static native long[] executionProgress(long handle);

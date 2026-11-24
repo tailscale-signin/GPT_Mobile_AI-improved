@@ -1114,7 +1114,68 @@
         "Advisory first-PCM, RTF, zero-clipping and accelerator-share targets are distinct from observations and do not confer qualification.",
         "Operator summaries expose only bounded public categories and first-shape profile count/time with explicit reuse and omission; observed CPU placement does not prove an unsupported operator.",
         "Explicit unknown audio measurement availability stays unknown on restore; only legacy absence may use the existing compatibility inference.",
-        "Persistent context export must pass generation and reload qualification before production activation; the recorded failed host export does not qualify on-disk caching or physical hardware."
+        "HTP context files are published only after native audio and profile validation, bound to exact model/runtime/provider/device/shape/options identities, verified on load and revalidated for playback; source-model retry remains bounded. Minimal host context success does not qualify full-model or physical speech."
+      ]
+    },
+    {
+      "id": "voice-runtime-model-variants",
+      "title": "Verified Kokoro model variants and coherent QNN runtime builds",
+      "terms": [
+        "original FP32 Kokoro",
+        "GPU precision transport",
+        "first tensor divergence",
+        "HTP calibration",
+        "static stage extraction",
+        "QAIRT 2.52 dispatch"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelVariant.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
+        "scripts/kokoro_model_workbench.py",
+        "scripts/build_qualcomm_dispatch_candidate.py",
+        "scripts/build_qnn_gpu_precision_probe.py",
+        "scripts/native/qnn_gpu_precision_probe.cpp",
+        ".github/workflows/qnn-runtime-candidate.yml",
+        ".github/workflows/speech-engine-smoke.yml",
+        "scripts/prepare_qnn_host_probe.py",
+        "scripts/check_qnn_provenance.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelVariantTest.kt",
+        "scripts/tests/test_kokoro_model_workbench.py",
+        "local-kokoro-runtime/src/testHost/test_kokoro_model_workbench.py",
+        "scripts/tests/test_qualcomm_dispatch_candidate.py",
+        "scripts/tests/test_qnn_provenance.py",
+        "scripts/tests/test_qnn_host_probe_inputs.py",
+        "local-kokoro-runtime/src/testHost/kokoro_epcontext_compatibility_probe.py",
+        "scripts/tests/test_kokoro_host_identity.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "python3 -m unittest discover -s local-kokoro-runtime/src/testHost -p test_kokoro_model_workbench.py -v",
+        "python3 scripts/build_qualcomm_dispatch_candidate.py --check-inputs-only"
+      ],
+      "documents": [
+        "docs/audits/kokoro-original-fp32.json",
+        "docs/audits/kokoro-model-workbench.md",
+        "docs/audits/qnn-runtime-candidate.json",
+        "docs/audits/kokoro-workbench-python.json",
+        "docs/repairs/voice-runtime-rebuild-2026-11-24-task.json",
+        "docs/audits/qnn-runtime-promotion-2.52.json",
+        "docs/audits/qnn-dispatch-build-2.52.json",
+        "docs/audits/qnn-host-context-2.8-ort-1.28.json",
+        "docs/audits/qnn-host-probe-publisher-2.8.json"
+      ],
+      "invariants": [
+        "Original FP32 and compact INT8 installations have distinct model, cache and CPU-comparison identities; default INT8 behavior remains stable.",
+        "All generated model artifacts bind exact source and input hashes, publish atomically and cannot grant listening or playback admission.",
+        "Exact-shape specialization does not pad or truncate tokens, guarantee static data-dependent axes, or replace the production renderer with unvalidated stages.",
+        "QNN capture requires actual provider kernel events; the native precision probe uses the documented GPU graph custom configuration and does not invent an EP option.",
+        "A shared QAIRT upgrade requires a matching verified dispatch, package checksums, native inventory and APK verification; isolated candidate artifacts do not change production pins.",
+        "The embedded-context host emulator regression preserves metadata, CPU nodes and initializers, and requires real QNN plus CPU events; it cannot qualify physical hardware, the full Kokoro graph or speech quality.",
+        "Native host fixtures verify actual plugin/QAIRT package identities and reject disagreement with the compiled application identity; historical2.7 execution cannot be relabelled as current2.8 evidence.",
+        "Model tooling binds the private tensor snapshot to the expected hash before preflight or allocation, validates bounded unambiguous NPY payloads, and prevents atomic reports from aliasing model/manifest/archive inputs."
       ]
     },
     {
@@ -1137,7 +1198,10 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentation.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubDecisionCard.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryChart.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryChart.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/ApiState.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensions.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubActivityLines.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PublicProgressInstructionsTest.kt",
@@ -1147,7 +1211,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgressTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressNarratorTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryRenderTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryRenderTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensionsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubActivityLinesTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -1155,7 +1221,8 @@
       "documents": [
         "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23.md",
         "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json",
-        "docs/repairs/github-progress-source-identity-2026-11-24-task.json"
+        "docs/repairs/github-progress-source-identity-2026-11-24-task.json",
+        "docs/repairs/github-consecutive-source-preview-2026-11-24-task.json"
       ],
       "invariants": [
         "Primary preview instructions remain outside the bounded repository snapshot and leave tool-free finalization; no extra remote narration call is added.",
@@ -1165,7 +1232,169 @@
         "Issue and pull-request titles are descriptive data, not evidence of current failures or check counts.",
         "Charts and exports preserve structured check counts, source identity and complete or incomplete captured coverage.",
         "Routine summaries retain the existing 45-second first and 135-second follow-up cadence.",
-        "Only a bounded, call-bound immutable source capture can refresh preview repetition after a commit or result change; saved, negative, malformed or mismatched receipts do not gain current-source or completion authority."
+        "Only a bounded, call-bound immutable source capture can refresh preview repetition after a commit or result change; saved, negative, malformed or mismatched receipts do not gain current-source or completion authority.",
+        "Only admitted summaries receive a fresh opaque publication identity; the collector rejects replay before sequence allocation, preserves distinct same-text publications within one invocation and carries identity through display. Caller-supplied identities are overwritten without mutating the input."
+      ]
+    },
+    {
+      "id": "voice-context-persistence",
+      "title": "Validated HTP context persistence and preparation evidence",
+      "terms": [
+        "compiled graph cache",
+        "saved context",
+        "resident graph",
+        "cold NPU startup",
+        "context fallback"
+      ],
+      "paths": [
+        "local-kokoro-runtime/src/main/cpp/kokoro_context_cache.h",
+        "local-kokoro-runtime/src/main/cpp/kokoro_digest.h",
+        "local-kokoro-runtime/src/main/cpp/kokoro_execution_provider.h",
+        "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+        "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStore.kt",
+        "local-kokoro-runtime/src/main/cpp/kokoro_cancellation.h",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectory.kt",
+        "scripts/prepare_kokoro_native_host.py",
+        ".github/workflows/speech-engine-smoke.yml"
+      ],
+      "tests": [
+        "local-kokoro-runtime/src/main/cpp/kokoro_context_cache_test.cpp",
+        "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java",
+        "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeContextIntegration.java",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+        "local-kokoro-runtime/src/main/cpp/kokoro_cancellation_test.cpp",
+        "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroContextSignalContractTest.java",
+        "scripts/tests/test_kokoro_native_host_inputs.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectoryTest.kt"
+      ],
+      "commands": [
+        "bash scripts/check_speech_native_contracts.sh",
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/voice-accelerator-rebuild-2026-11-24.md",
+        "docs/audits/qnn-host-context-2.8-ort-1.28.json"
+      ],
+      "invariants": [
+        "Cache publication follows successful PCM, timing and observed-provider validation; no context can grant execution or CPU-reference playback admission.",
+        "Canonical private paths, atomic publication, digests, nonblocking process ownership and bounded eviction protect cached artifacts.",
+        "A bad context receives one bounded source-model retry; unsupported GPU context persistence remains disabled.",
+        "Engine load, compilation, disk-context load and resident reuse are distinct observations; legacy absence stays unknown.",
+        "Slow cache finalization does not hold the cancellation lock; completion rechecks accepted cancellation under the same short lock before publishing audio or Ready.",
+        "The Android private directory requires no-follow descriptor, application UID, directory type,0700 mode and stable device/inode/canonical path checks; failure disables disk persistence.",
+        "Full-model context qualification requires the actual JNI production source and pinned model/runtime. Unseeded vocoder nodes use explicit signal consistency controls, not bitwise waveform or listening-equivalence claims."
+      ]
+    },
+    {
+      "id": "voice-incremental-runtime",
+      "title": "Incremental speech input, model ownership and thermal scheduling",
+      "terms": [
+        "incremental speech",
+        "Kokoro token bucket",
+        "resident voice switch",
+        "thermal CPU threads",
+        "performance hints"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeKokoroBucket.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechTask.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeVoicePhraseEngineFactory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMap.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuSchedulingPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceHint.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRuntimeViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
+        "scripts/smoke_mediapipe_speech.py",
+        "scripts/check_mediapipe_android_smoke.py",
+        ".github/workflows/speech-engine-smoke.yml",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeIncrementalSpeechTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMapTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechModelStoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/DeferredKokoroOutputTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuSchedulingPolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStoreTest.kt",
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechNativeSmokeTest.kt",
+        "scripts/tests/test_mediapipe_speech.py",
+        "scripts/tests/test_mediapipe_android_smoke.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/voice-accelerator-rebuild-2026-11-24.md",
+        "docs/repairs/voice-rebuild-sdk-2026-11-24-task.json"
+      ],
+      "invariants": [
+        "Incremental SDK input uses one reply stream with exact source mapping, bounded text and PCM delivery, backpressure, cancellation and actual retirement before lease release.",
+        "Token bucket selection reaches the actual SDK API and never truncates the supplied reply; model, backend, bucket and input mode participate in resident identity.",
+        "Supported voice changes reuse immutable model weights while each utterance captures the selected voice; model-variant replacement retires the previous store owner.",
+        "Failed native close retains ownership and prevents replacement; a cancellation or UI return cannot imply retirement.",
+        "Auto CPU scheduling follows the shared device governor; explicit thread selections and benchmark settings remain fixed. Performance hints target only app-owned worker IDs.",
+        "All three real SDK checkpoints must deliver PCM before the second fragment and finishInput, then retain complete source cue coverage; open-input cancellation requires retirement and same-task recovery. Android receipt v2 rejects missing or stale source/model/runtime/incremental evidence.",
+        "SDK chunk boundaries retain actual separators and original source/UTF-8 ranges for playback and benchmarks; synthetic replacements cannot consume neighboring source text or exceed existing chunk bounds."
+      ]
+    },
+    {
+      "id": "voice-export-and-sustained",
+      "title": "Recoverable voice exports and measured sustained playback",
+      "terms": [
+        "export crash",
+        "voice log export",
+        "process recreation",
+        "five minute speech",
+        "ten minute speech",
+        "sustained qualification"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceDiagnosticExportControl.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceDiagnosticExportViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkExportArtifactStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceExportJsonWriter.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechSustainedSeries.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocol.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkViewModel.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceDiagnosticExportViewModelTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkExportArtifactStoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechSustainedSeriesTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/voice-accelerator-rebuild-2026-11-24.md",
+        "docs/repairs/voice-accelerator-rebuild-2026-11-24-task.json"
+      ],
+      "invariants": [
+        "Exports stream bounded JSON records into validated private artifacts off the UI thread; saved state stores a small receipt ID and never the JSON payload.",
+        "Picker, provider-close and process-recreation failures retain a retryable artifact; publication occurs only after destination close succeeds.",
+        "Protocol v4 sustained tests count only completed, validated, presented audio toward 1, 5 or 10 minutes, retaining exact owner and manifest evidence under repeat and wall-time bounds.",
+        "Cumulative qualification is recomputed from individual receipts; cancelled, thermally interrupted, short or legacy runs cannot claim duration success.",
+        "Sustained elapsed totals do not enter speed ranking because candidates may execute different repeat counts; complete sustained qualification remains required.",
+        "Local history streams under an 8MiB envelope and evicts complete older runs rather than truncating retained evidence."
       ]
     },
     {

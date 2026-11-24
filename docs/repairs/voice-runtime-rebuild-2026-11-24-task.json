@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSha": "d48509ecc158182f339d36b68fc3016821f0c669",
+  "observedPublicHead": "1cc96b1936c1b3f6442cc89441cce3c6ee77daaa",
+  "workingBranch": "task/voice-rebuild-runtime",
+  "parentPullRequest": 2367,
+  "recordedBeforeSourceEdit": true,
+  "status": "IMPLEMENTED_COHERENT_RUNTIME_PROMOTED_INTEGRATION_PENDING",
+  "intent": "Provide reproducible verified voice runtime source builds and model calibration/differential diagnostics; qualify a coherent QNN EP 2.8 / QAIRT 2.52 candidate without weakening shared LiteRT dispatch provenance or claiming unexecuted hardware success.",
+  "ownership": [
+    "Native build configuration and runtime dependency provenance",
+    "Reproducible runtime and model diagnostic tooling",
+    "Focused host tests and exact validation evidence"
+  ],
+  "preservation": [
+    "The native runtime worker owns C++/Java runtime behavior, model patches and EPContext cache implementation.",
+    "Do not relabel or regenerate checksums to hide dependency mismatches.",
+    "Preserve the CPU baseline and shared QAIRT/LiteRT dispatch consistency.",
+    "Physical GPU/NPU correctness, performance and thermal qualification require actual compatible device execution.",
+    "No remote writes from this worker."
+  ],
+  "findings": [
+    "QAIRT is a shared process dependency used by speech and LiteRT-LM; a production version bump also requires verified matching dispatch inputs and binary.",
+    "QNN EP 2.8.0 and QAIRT 2.52.0 are published upstream; the release documents Android ORT 1.29.0 as its validated dependency.",
+    "No GPU precision provider option is documented; a native QNN graph configuration or tested provider patch is required."
+  ],
+  "validation": {
+    "modelVariantHost": "PASS: actual Kotlin 2.4.20/JDK21 production pack/store/variant sources; 3 tests",
+    "artifactSafety": "PASS: 4 Python stdlib tests",
+    "modelWorkbenchExecution": "PASS: 5 real ONNX/ORT tests, including actual A16W8 calibration and CPU capture",
+    "candidateSafety": "PASS: 3 Python stdlib tests",
+    "nativeGpuProbeCompile": "PASS: actual NDK29 ARM64 Android API28 compile, -Wall -Wextra -Werror; 16KiB LOAD and only libc/libm/libdl dependencies",
+    "pythonSyntax": "PASS",
+    "fullAndroidBuild": "PARENT_INTEGRATION_REQUIRED",
+    "nativeCMakeContracts": "Cache test source from native b45 merged; actual native worker tests remain source-owned by that commit; CMake target registered",
+    "physicalDevice": "NOT_RUN",
+    "nativeGpuProbeSourceSha256": "60585ca59ad5a3f95a6d9fc13a432385eb2e2dbfa16e844d8adc6f4f4aef7657",
+    "fastSourceGate": "PASS on the coherent upgrade: 725 Python tests, generated-reference checks, dependency catalog, secret scan, Android regex, resources and strict QNN EP2.8/QAIRT2.52 dispatch provenance",
+    "workflowYaml": "PASS: both changed workflows parsed; fixed block-scalar issue found by full fast suite",
+    "runtimeProvenance": "PASS: strict upgraded QNN EP 2.8 / QAIRT 2.52 / rebuilt LiteRT dispatch gate; 10 provenance regression tests",
+    "hostLibraryExtraction": "PASS: 4 safety regression tests plus actual full publisher-wheel download, digest verification and bounded extraction",
+    "embeddedContextCompatibility": "PASS: actual QNN 2.8 / QAIRT 2.52 host emulator with ORT 1.28.0; metadata/I/O/CPU initializer preservation, QNN+CPU events, <=4.77e-7 CPU float difference, bitwise prepared/reloaded output; repeated using exact CI preparation flow",
+    "nativeAarStructural": "PASS: all 19 packaged Qualcomm AAR library hashes/sizes matched the verified publisher artifacts; every Android host library has 16KiB LOAD alignment; DSP skeletons identified separately"
+  },
+  "runtimeUpgrade": {
+    "production": "ORT1.28.2 preserved; QNN EP2.8 + QAIRT2.52 + actual matching NDK29-built dispatch promoted together with verified Gradle hashes/locks and native inventory",
+    "candidate": "Hosted source build passed and authenticated artifact downloaded/verified; original immutable candidate descriptor retained",
+    "hostedRun": 45309295693,
+    "hostedHead": "b50c29febaeb54808a4561955220f5b33bd09253",
+    "localBlocker": "Historical local Bazel disk exhaustion resolved by the passing isolated hosted source build",
+    "hostedArtifact": 14882976564,
+    "dispatchSha256": "8a8b31aa09b5f0998955014ee4c8e2811f993461cfc797d95b30e3999b417e06"
+  }
+}

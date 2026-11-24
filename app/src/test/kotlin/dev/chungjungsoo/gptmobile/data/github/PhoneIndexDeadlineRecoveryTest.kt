@@ -57,6 +57,28 @@ import org.junit.Test
 
 /** Both deadline owners execute the real native facade, admission, session and persistent store. */
 class PhoneIndexDeadlineRecoveryTest {
+    @Test fun overlappingIndexReadsShareTheBatchAndRecheckAccessForStatus() = runBlocking {
+        Fixture().use { fixture ->
+            val tool = fixture.tool()
+            val owner = async { tool.execute("owner", arguments("index")) }
+            withTimeout(8000) { fixture.secondBlobEntered.await() }
+            val joined = async { tool.execute("second-chat", arguments("index")) }
+            withTimeout(8000) {
+                while (fixture.repositoryReads.get() < 2) kotlinx.coroutines.delay(10)
+            }
+            val independent = withTimeout(8000) { tool.execute("separate-status", arguments("status")) }
+            assertFalse(independent.isError)
+            assertEquals(JsonPrimitive(1), body(independent).getValue("graph").jsonObject["processed_files"])
+            owner.cancelAndJoin()
+            val snapshot = withTimeout(8000) { joined.await() }
+            assertFalse(snapshot.isError)
+            assertEquals(1, fixture.firstBlobReads.get())
+            assertEquals(1, fixture.secondBlobReads.get())
+            assertTrue(body(snapshot).containsKey("index_cursor"))
+            assertEquals(0, fixture.mutations.get())
+        }
+    }
+
     @Test fun runnerDeadlineReadsBackAndResumesPersistedPhoneProgress() = runBlocking {
         Fixture().use { fixture -> verifyInterruptedProgress(fixture, budgeted = false) }
     }

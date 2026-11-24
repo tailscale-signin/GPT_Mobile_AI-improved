@@ -138,12 +138,17 @@ class FailureDetailsTest(unittest.TestCase):
         self.assertFalse(valid_value("changed_policy_fields", ["githubProfileOverride.private-token"]))
 
     def test_unknown_values_and_wrong_area_are_rejected(self):
+        sample = self.snapshot("APP", {"anr_trace_state": "MAIN_THREAD_CAPTURED", "anr_frame_count": 3})
+        self.assertEqual(sample, validate_diagnostics(sample))
         for area, values in [
             ("TOOL", {"tool_action": "private/path"}),
             ("TOOL", {"tool_error_code": "PRIVATE_ERROR"}),
             ("TOOL", {"unknown_field_count": -1}),
             ("TOOL", {"unknown_field_count": True}),
             ("APP", {"chat_failure_code_state": "raw exception"}),
+            ("APP", {"anr_frame_count": 33}),
+            ("APP", {"anr_trace_state": "android.os.Looper.loop"}),
+            ("TOOL", {"anr_frame_count": 1}),
             ("TOOL", {"provider_wait_eligible": True}),
             ("PROVIDER", {"provider_failure_code": "private error text"}),
             ("VOICE", {"voice_reply_state": "private answer text"}),

@@ -324,8 +324,8 @@ jobs:
           test -n "$(find release-artifacts -name '*.apk' -print -quit)"
           python3 scripts/check_local_runtime_apk.py release-artifacts/*.apk
           python3 scripts/check_no_telemetry.py release-artifacts/*.apk
-          python3 scripts/check_apk_size.py release-artifacts --build-type release --report release-apk-size-report.json
           python3 scripts/inventory_optional_payloads.py release-artifacts/*.apk --output release-artifacts/optional-payload-inventory.json
+          python3 scripts/check_apk_size.py release-artifacts --build-type release --report release-apk-size-report.json
           python3 scripts/check_mediapipe_jni.py app/build/outputs/bundle/release/*.aab
           python3 scripts/check_objectbox_jni.py app/build/outputs/bundle/release/*.aab
           python3 scripts/check_play_bundle.py app/build/outputs/bundle/release/*.aab
@@ -414,7 +414,9 @@ jobs:
         with:
           retention-days: 14
           name: signed-apk-size-${{ github.sha }}
-          path: release-apk-size-report.json
+          path: |
+            release-apk-size-report.json
+            release-artifacts/optional-payload-inventory.json
           if-no-files-found: ignore
 
       - name: Retain release performance and shrinker reports

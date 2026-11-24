@@ -237,6 +237,10 @@ internal object ToolReportDiagnostics {
                 pathReceipt["retryable"] == JsonPrimitive(false)
             ) {
                 (pathReceipt["discovery_available"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("round_catalog_discovery_available", it) }
+                (pathReceipt["catalog_revision_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let {
+                    put("catalog_revision_hash", it)
+                    put("catalog_rejection_count", 1)
+                }
             }
             (pathReceipt["available_tool_count"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..100_000 }?.let { put("round_catalog_tool_count", it) }
         }
@@ -341,6 +345,7 @@ internal object ToolReportDiagnostics {
                         else -> "OTHER_SCHEMA_CONSTRAINT"
                     }
                     put("catalog_selector_state", selector)
+                    if (names is JsonArray) put("catalog_selector_count", names.size.coerceAtMost(100_000))
                 }
                 "github_read" -> if (result.errorCode in setOf("EVIDENCE_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION")) {
                     val evidence = (arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content

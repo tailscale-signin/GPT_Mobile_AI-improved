@@ -1546,6 +1546,7 @@ internal class GitHubOperationTool(
                     properties["follow_pr"] = field("boolean")
                     properties["pr_number"] = field("integer")
                     properties["run_id"] = field("integer")
+                    properties["run_attempt"] = integer(1, Int.MAX_VALUE, "Expected workflow attempt for a fixed run_id.")
                     properties["commit_sha"] = field("string")
                     properties["wait_timeout_seconds"] = integer(1, 30, "Bound initial reads and inline polling to this interval; returns observed outcomes without creating a background subscription. Omit for background watching.")
                 }

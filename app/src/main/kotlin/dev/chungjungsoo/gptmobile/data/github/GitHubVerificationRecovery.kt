@@ -57,6 +57,14 @@ internal object GitHubVerificationRecovery {
         }
     }
 
+    fun watchPlanningChange(receipt: JsonObject): Boolean {
+        if (receipt.text("tool").githubOperationFamily() != "github_watch_checks" || receipt.text("error_code") != "DISPATCH_POLICY_CHANGED") return false
+        val execution = receipt["execution"] as? JsonObject ?: return false
+        if (execution["requires_reconciliation"] == JsonPrimitive(true)) return false
+        val fields = (execution["changed_policy_fields"] as? JsonArray)?.map { (it as? JsonPrimitive)?.contentOrNull }?.toSet() ?: return false
+        return "githubProfileOverride.intelligenceLevel" in fields && fields.all { it in setOf("githubProfileOverride", "githubProfileOverride.intelligenceLevel") }
+    }
+
     private fun policyAdvice(failures: List<JsonObject>): String {
         val fields = failures.filter { it.text("error_code") in ToolFailureMetadata.authorityInvalidationCodes }.flatMap {
             (((it["execution"] as? JsonObject)?.get("changed_policy_fields") as? JsonArray).orEmpty())

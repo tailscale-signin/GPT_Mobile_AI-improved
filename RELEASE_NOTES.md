@@ -4,6 +4,16 @@ Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains 
 
 Application native-library stripping now uses the same pinned NDK as the native modules. Audited default and GenieX vendor libraries retain their exact bytes, with all runtimes, ABIs, APK size limits and release verification gates preserved.
 
+## November 24 issue fixes
+
+- GitHub chat can reopen an exact missing local result page, make room for it before optional history, and recover a pull request read after the branch head changes.
+- Running CI can look up a matching workflow, register or reattach its watch, and report why monitoring is pending. Watches distinguish workflow attempts. Integration reports identify the blocked capability and the prerequisites to resume.
+- Concurrent phone index requests share the same authorized batch. Each caller checks repository access, and an interrupted batch can resume from its saved revision and issued cursor.
+- Voice chat keeps recognized words editable after Android silences the microphone mid-turn. Sending the partial transcript requires a user action.
+- URL reads share a small result allowance across sources. Catalog discovery handles empty selectors, and repeated missing-tool reports retain the catalog revision and occurrence count. Partial research reports identify the delivery check and source counts.
+- Failure diagnostics distinguish a later failure after visible output. Android freeze reports retain a bounded main-thread fingerprint when the operating system supplies a trace for the affected process.
+- Release pull requests build the unsigned packages when the publication request or Android version changes. The publisher retains its APK payload inventory for size-gate diagnostics.
+
 ## GitHub engineering intelligence
 
 GitHub engineering now uses four intelligence levels, relevance-ranked replay and recoverable acceptance plans. Named workers, review, branch restaging and production benchmark scores retain revision, permission and evidence checks.

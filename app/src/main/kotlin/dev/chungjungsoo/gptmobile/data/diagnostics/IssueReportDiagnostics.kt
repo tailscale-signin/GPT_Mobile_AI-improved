@@ -233,12 +233,14 @@ internal data class IssueReportDiagnostics(
 
     companion object {
         const val INCIDENT_DETAIL_FEATURE = "RUNTIME_INCIDENT_DETAILS_V1"
+        internal val researchCriteria = setOf("WRITER_INCOMPLETE", "NO_ACQUISITION_PACKET", "NO_READABLE_SOURCES", "DELIVERY_VERIFICATION", "EMPTY_REPORT", "UNKNOWN_CITATION", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED", "MISSING_SECTION", "OMITTED_LEADING_STUDY", "OMITTED_UNREAD_LEAD", "UNSOURCED_SCIENTIFIC_PARAGRAPH", "METADATA_PRESENTED_AS_READ", "NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE", "UNREGISTERED_REFERENCE_URL", "DIRECT_REFERENCE_MISSING", "QUESTION_EVIDENCE_NOT_CITED", "QUESTION_EVIDENCE_UNCOVERED", "QUESTION_EVIDENCE_METADATA_REQUIRED", "EVIDENCE_CLAIM_NOT_COVERED", "COUNTEREVIDENCE_NOT_DISCLOSED")
+        private val researchEvidenceFields = setOf("research_delivery_criterion", "research_unread_sources", "research_read_sources", "research_blocked_sources", "research_blocker_receipt_hash")
         internal val requiredSchemaDetailFields = setOf("required_schema_count", "required_catalog_schema_tokens", "required_recovery_schema_tokens", "required_github_operation_tokens")
         private val incidentDetailsByArea = mapOf(
             "PROVIDER" to requiredSchemaDetailFields + setOf("dispatch_gateway_selection_change", "reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),
-            "APP" to setOf("native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash"),
-            "INCIDENT" to setOf("dispatch_gateway_selection_change"),
-            "TOOL" to setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode"),
+            "APP" to setOf("native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash", "anr_trace_state", "anr_frame_count"),
+            "INCIDENT" to researchEvidenceFields + setOf("dispatch_gateway_selection_change", "failure_boundary"),
+            "TOOL" to setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode", "catalog_revision_hash", "catalog_rejection_count", "catalog_selector_count"),
             "ACCEPTANCE" to setOf("acceptance_verified_claim_count", "acceptance_unmeasured_claim_count", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash")
         )
         private val incidentDetailFields = incidentDetailsByArea.values.flatten().toSet()
@@ -374,7 +376,7 @@ internal data class IssueReportDiagnostics(
         )
         private val commonHashes = setOf("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash")
         private val hashFields = commonHashes + profileSelectionHashes + setOf(
-            "native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash",
+            "native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash", "research_blocker_receipt_hash", "catalog_revision_hash",
             "graph_index_attempt_hash",
             "reasoning_template_hash", "conflict_conversation_hash", "conflict_pending_tool_ids_hash",
             "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash", "provider_cooldown_scope_hash",
@@ -403,6 +405,7 @@ internal data class IssueReportDiagnostics(
             "voice_warmup_ms"
         )
         private val counts = replayBudgetCounts + capacityEvidenceCounts + githubSchemaBudgetFields + requiredSchemaDetailFields + setOf(
+            "research_unread_sources", "research_read_sources", "research_blocked_sources", "catalog_rejection_count", "catalog_selector_count",
             "search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count",
             "tool_budget_bytes_available",
             "github_cooldown_remaining_requests",
@@ -425,6 +428,9 @@ internal data class IssueReportDiagnostics(
             "dispatch_gateway_selection_change" to setOf("SELECTED", "CLEARED", "REPLACED"),
             "read_handle_kind" to setOf("SAVED_CURSOR", "NO_HANDLE", "DIGEST_SHAPED", "VERIFICATION_RECEIPT", "NONCANONICAL_HANDLE"),
             "native_trace_format" to setOf("text", "protobuf", "binary", "unknown"),
+            "anr_trace_state" to setOf("UNAVAILABLE", "NO_MATCHING_FRAMES", "MAIN_THREAD_CAPTURED"),
+            "failure_boundary" to setOf("AFTER_VISIBLE_OUTPUT", "BEFORE_VISIBLE_OUTPUT"),
+            "research_delivery_criterion" to researchCriteria,
             "native_trace_reason" to setOf("no_trace_stream", "empty_trace", "trace_read_failed", "trace_access_failed", "unrecognized_binary_tombstone", "no_recognized_tombstone_fields", "text_prefix_limit", "signal_and_library_frames", "malformed_protobuf", "trace_process_mismatch", "trace_limit_before_evidence", "no_recognized_protobuf_fields", "protobuf_prefix_limit", "protobuf_crashed_thread"),
             "native_signal" to setOf("SIGABRT", "SIGSEGV", "SIGBUS", "SIGFPE", "SIGILL", "SIGTRAP", "SIGSYS", "SIGKILL", "SIGQUIT", "SIGTERM", "SIGPIPE", "SIGSTKFLT", "SIGXCPU", "SIGXFSZ"),
             "reasoning_probe_enable_thinking" to dev.chungjungsoo.gptmobile.data.context.reasoningProbeNegatives,
@@ -438,7 +444,7 @@ internal data class IssueReportDiagnostics(
             "conflict_stream_job_relation" to setOf("MATCHES_VERIFIED_STREAM_JOB", "DIFFERS_VERIFIED_STREAM_JOB", "NO_VERIFIED_STREAM_JOB", "ACTIVE_JOB_NOT_REPORTED"),
             "acceptance_capability_scope" to setOf("FULL_CATALOG", "OBSERVED_CAPABILITIES"),
             "reconciliation_source" to setOf("SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"),
-            "replay_budget_state" to setOf("NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT"),
+            "replay_budget_state" to setOf("NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT", "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH"),
             "graph_transport_kind" to graphTransportKinds,
             "graph_local_phase" to graphLocalPhases,
             "graph_local_reason" to graphLocalReasons,
@@ -776,6 +782,7 @@ internal data class IssueReportDiagnostics(
             val range = when (key) {
                 "reconciliation_tracked_signature_count", in searchAttemptFields -> 0L..1024L
                 "native_trace_frames" -> 0L..16L
+                "anr_frame_count" -> 0L..32L
                 "reasoning_probe_attempts" -> 0L..4L
                 "composer_generation" -> 1L..16_000_000L
                 "composer_events_dropped" -> 0L..16_000_000L

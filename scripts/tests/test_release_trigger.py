@@ -84,6 +84,20 @@ class ReleaseTriggerTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("publish=false\n", output)
 
+    def test_unsigned_pr_builds_version_or_joint_release_changes_on_any_branch(self):
+        output = self.root / "pr-output"
+        def selected():
+            output.write_text("")
+            subprocess.run([sys.executable, str(SCRIPT), "--unsigned-pr", self.before], cwd=self.root,
+                           env={**os.environ, "GITHUB_OUTPUT": str(output)}, check=True)
+            return output.read_text()
+        self.assertEqual("build=false\n", selected())
+        self.config.write_text(BASE_CONFIG.replace("122", "123"))
+        self.assertEqual("build=true\n", selected())
+        self.config.write_text(BASE_CONFIG)
+        (self.root / "release-scope.json").write_text(json.dumps({"publicationRequest": {"versionCode": 122}}))
+        self.assertEqual("build=true\n", selected())
+
     def test_android_successor_requests_both_publications_with_unchanged_gateway(self):
         gateway = self.root / "gateway/v14/__init__.py"
         gateway.parent.mkdir(parents=True)

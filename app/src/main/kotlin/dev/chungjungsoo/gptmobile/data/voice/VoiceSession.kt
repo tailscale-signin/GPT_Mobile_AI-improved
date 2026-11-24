@@ -508,7 +508,15 @@ class VoiceSession(
             )
             // Partial speech is user input, not a disposable failed attempt.
             automaticRetry = retry && !draftPending
-            update(state.copy(retryAtMillis = now() + if (retryable) maxOf(500, retryMillis) else retryMillis, recoveryAction = recoveryAction))
+            val review = draftPending && captureFailure?.code == "MICROPHONE_CAPTURE_SILENCED"
+            update(
+                state.copy(
+                    phase = if (review) VoicePhase.REVIEWING else state.phase,
+                    notice = if (review) "Microphone input was interrupted. Review your captured words before sending." else state.notice,
+                    retryAtMillis = now() + if (retryable) maxOf(500, retryMillis) else retryMillis,
+                    recoveryAction = recoveryAction
+                )
+            )
         }
         audio.listen(object : VoiceAudio.Listener {
             override fun ready() {

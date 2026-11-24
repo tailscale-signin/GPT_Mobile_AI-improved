@@ -628,6 +628,16 @@ class ProgressiveToolCatalogTest {
         assertFalse(result.isError)
         assertTrue(result.content.toString().contains("authorized_inventory"))
         assertEquals(before, catalog.selected(tools))
+        val emptyAlias = catalog.execute(
+            "empty-array",
+            buildJsonObject {
+                put("action", "catalog")
+                put("names", JsonArray(emptyList()))
+            }
+        )
+        assertFalse(emptyAlias.isError)
+        assertTrue(emptyAlias.content.toString().contains("authorized_inventory"))
+        assertEquals(before, catalog.selected(tools))
     }
 
     @Test fun repositorySynonymsPrioritizeCompactToolsAndRetainAuthorizedGatewayTools() {

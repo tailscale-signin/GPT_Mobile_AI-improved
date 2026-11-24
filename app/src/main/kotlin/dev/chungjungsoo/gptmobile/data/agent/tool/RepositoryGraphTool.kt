@@ -447,6 +447,10 @@ internal class RepositoryGraphTool(
                 put("call_id", result.callId)
                 put("action", requireNotNull(arguments["action"]))
                 put("map_source", "phone")
+                if (repositoryScope != null && !accountIdentity.isNullOrBlank()) {
+                    put("scope_hash", dev.chungjungsoo.gptmobile.data.agent.PhoneIndexInterruption.scopeHash(repositoryScope, accountIdentity))
+                    put("source_head_sha", repositoryScope.commitSha)
+                }
                 put(
                     "phase",
                     if (!result.isError) {

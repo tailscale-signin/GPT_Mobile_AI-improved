@@ -115,6 +115,26 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
+    @Test fun lateSilencingDrainsCapturedAudioAndDeliversOnlyAnEditableTranscript() {
+        val error = LocalVoiceCaptureException("Input silenced", "MICROPHONE_CAPTURE_SILENCED", "capture_read", capturedSamples = 1600)
+        val capture = FakeCapture(readFailure = error).apply { chunks.add(FloatArray(1600) { 0.1f }) }
+        val decoder = FakeDecoder().apply { finalOnFinish = "captured words" }
+        val fixture = Fixture(decoder, capture = capture)
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(listOf("captured words"), fixture.partials)
+            assertEquals(listOf("VOICE_MICROPHONE_BUSY"), fixture.codes)
+            assertTrue(fixture.finals.isEmpty())
+            assertTrue(fixture.retryableErrors.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
     @Test fun persistentSystemSilencingReleasesEachRecorderBeforeSessionBackoff() {
         val failure = LocalVoiceCaptureException("Input silenced", "MICROPHONE_CAPTURE_SILENCED", "capture_read", retryable = true)
         val first = FakeCapture(readFailure = failure)
@@ -603,6 +623,7 @@ class MoonshineVoiceRecognizerTest {
         val worker = Executors.newSingleThreadExecutor()
         val releases = AtomicInteger()
         val finals = mutableListOf<String>()
+        val partials = mutableListOf<String>()
         val errors = mutableListOf<String>()
         val retryableErrors = mutableListOf<String>()
         val retryDelays = mutableListOf<Long>()
@@ -637,7 +658,9 @@ class MoonshineVoiceRecognizerTest {
         val listener = object : VoiceAudio.Listener {
             override fun ready() = Unit
             override fun level(value: Float) = Unit
-            override fun partial(text: String) = Unit
+            override fun partial(text: String) {
+                partials += text
+            }
             override fun final(text: String) {
                 finals += text
             }
@@ -668,6 +691,7 @@ class MoonshineVoiceRecognizerTest {
     }
 
     private class FakeDecoder(private val closeFailure: Throwable? = null, private val accept: FakeDecoder.() -> Unit = {}) : LocalSpeechDecoder {
+        var finalOnFinish: String? = null
         lateinit var events: (LocalSpeechEvent) -> Unit
         val threads = ConcurrentLinkedQueue<Thread>()
         val closed = CountDownLatch(1)
@@ -681,6 +705,7 @@ class MoonshineVoiceRecognizerTest {
         }
         override fun finish() {
             threads.add(Thread.currentThread())
+            finalOnFinish?.let { events(LocalSpeechEvent.Final(it)) }
         }
         override fun close() {
             threads.add(Thread.currentThread())

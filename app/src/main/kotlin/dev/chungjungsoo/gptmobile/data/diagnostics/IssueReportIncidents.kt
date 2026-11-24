@@ -295,6 +295,7 @@ internal object IssueReportIncidents {
             // neither raw exception text nor stack details are stored in this index.
             val fingerprint = evidence.exceptionFingerprint ?: error?.let(IssueReportContext::exceptionFingerprint)
             val key = FailureKey(feature, publicCode, evidence.runIdHash, evidence.invocationIdHash, evidence.callIdHash, evidence.jobIdHash, evidence.activeJobIdHash, evidence.stage, fingerprint)
+            if (feature == ReportFeature.TOOLS && mergeCatalogRejection(evidence, publicCode)) return
             evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
             addEvent('E', feature, publicCode)
             val cause = IssueReportIncidentCapsule.identity(evidence, publicCode)
@@ -573,6 +574,32 @@ internal object IssueReportIncidents {
         events.addLast(RecentEvent(now, line, code != null && level in "WEF"))
     }
 
+    private fun mergeCatalogRejection(evidence: IssueReportContext, code: String): Boolean {
+        val run = evidence.runIdHash ?: return false
+        val fields = evidence.diagnostics?.values ?: return false
+        val catalog = fields["catalog_revision_hash"] ?: return false
+        if (fields["catalog_rejection_count"] != JsonPrimitive(1) || fields["tool_reason_code"] != JsonPrimitive("UNKNOWN_TOOL")) return false
+        val queued = mutablePending.value
+        val index = queued.indexOfFirst {
+            val earlier = it.context?.diagnostics?.values.orEmpty()
+            it.errorCode == code &&
+                it.context?.runIdHash == run &&
+                earlier["catalog_revision_hash"] == catalog &&
+                earlier["tool_reason_code"] == fields["tool_reason_code"]
+        }
+        if (index < 0) return false
+        val first = queued[index]
+        val context = first.context ?: return false
+        val diagnostic = context.diagnostics ?: return false
+        val previous = (diagnostic.values["catalog_rejection_count"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return false
+        val updatedDiagnostic = diagnostic.copy(values = diagnostic.values + ("catalog_rejection_count" to JsonPrimitive((previous + 1).coerceAtMost(100_000))))
+        val updated = first.copy(context = context.copy(diagnostics = updatedDiagnostic))
+        mutablePending.value = queued.toMutableList().also { it[index] = updated }
+        ReportDiagnosticSnapshots.retain(updatedDiagnostic)
+        pendingCorrelations.trySend(updated)
+        return true
+    }
+
     private fun addPending(report: IssueReport) {
         if (mutablePending.value.size < PENDING_LIMIT && mutablePending.value.none { it.reportId == report.reportId }) {
             mutablePending.value = (mutablePending.value + report).take(PENDING_LIMIT)
@@ -632,7 +659,16 @@ internal object IssueReportIncidents {
         } else {
             null
         }
-        val evidence = IssueReportContext.fromFields("PROCESS_EXIT", appDiagnosticFields(code) + trace?.reportFields().orEmpty(), occurredAtMillis = exit.timestamp)
+        val traceFields = if (code == "APP_NOT_RESPONDING") {
+            try {
+                anrExitFields(exit.traceInputStream, exit.pid)
+            } catch (_: Exception) {
+                mapOf("anr_trace_state" to "UNAVAILABLE")
+            }
+        } else {
+            trace?.reportFields().orEmpty()
+        }
+        val evidence = IssueReportContext.fromFields("PROCESS_EXIT", appDiagnosticFields(code) + traceFields, occurredAtMillis = exit.timestamp)
         evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
         val report = IssueReport.debug(ReportFeature.APP, code, emptyList(), context = evidence)
         persist(report)

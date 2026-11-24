@@ -3,7 +3,8 @@ package dev.chungjungsoo.gptmobile.data.voice
 /** Only stable text is spoken. Repeated snapshots add no queue entries. */
 internal class VoiceSpeechBuffer(
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val includeDetails: Boolean = false
+    private val includeDetails: Boolean = false,
+    private val preserveLiteralTerms: Boolean = false
 ) {
     constructor(clock: () -> Long) : this(clock, false)
     private var previous = ""
@@ -15,7 +16,11 @@ internal class VoiceSpeechBuffer(
         val end = minOf(text.length, 12000).let { if (it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
         val boundedText = text.substring(0, end)
         if (!final && boundedText == previous && !adaptive) return emptyList()
-        val visible = VoiceSpeechText.project(text, final = final, includeDetails = includeDetails)
+        val visible = if (preserveLiteralTerms) {
+            VoiceSpeechText.forPlayback(text, final = final, includeDetails = includeDetails)
+        } else {
+            VoiceSpeechText.project(text, final = final, includeDetails = includeDetails)
+        }
         // Captions and unspoken words can be revised. Only the part already queued for
         // playback is irrevocable, including a final persistence trim of trailing space.
         val shared = minOf(consumed, visible.length)

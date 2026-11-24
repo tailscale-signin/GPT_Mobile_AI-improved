@@ -1,0 +1,20 @@
+JUnit version 4.13.2
+....E...E.
+Time: 0.188
+There were 2 failures:
+1) literalSpansCannotJumpOverInteriorReferenceSuppression(dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest)
+org.junit.ComparisonFailure: expected:<Before x[ reference] > but was:<Before x[_0123456789abcdef0123456789abcdef] >
+	at org.junit.Assert.assertEquals(Assert.java:117)
+	at org.junit.Assert.assertEquals(Assert.java:146)
+	at dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.assertInteriorFiltering(VoiceLiteralPronunciationPipelineTest.kt:130)
+	at dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.literalSpansCannotJumpOverInteriorReferenceSuppression(VoiceLiteralPronunciationPipelineTest.kt:119)
+2) literalSpansCannotJumpOverInteriorRawOrEntityEncodedSourceAddresses(dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest)
+org.junit.ComparisonFailure: expected:<Before x[ ]. > but was:<Before x[_https://example.test/R#1]. >
+	at org.junit.Assert.assertEquals(Assert.java:117)
+	at org.junit.Assert.assertEquals(Assert.java:146)
+	at dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.assertInteriorFiltering(VoiceLiteralPronunciationPipelineTest.kt:130)
+	at dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.literalSpansCannotJumpOverInteriorRawOrEntityEncodedSourceAddresses(VoiceLiteralPronunciationPipelineTest.kt:112)
+
+FAILURES!!!
+Tests run: 8,  Failures: 2
+

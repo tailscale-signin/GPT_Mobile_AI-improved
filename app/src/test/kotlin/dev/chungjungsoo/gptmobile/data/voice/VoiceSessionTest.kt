@@ -10,6 +10,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSessionTest {
+    @Test fun literalPlaybackCaptionUsesTheSameProjectionForLiveAndReplayAndRejectsOldCallbacks() {
+        var observer: ((Int, String, IntRange) -> Unit)? = null
+        val spoken = mutableListOf<String>()
+        val output = object : VoiceAudio {
+            override val streamsReplies = true
+            override fun listen(listener: VoiceAudio.Listener) = error("Playback must not open the microphone")
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = kotlin.error("Streaming playback expected")
+            override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
+                observer = spoken
+            }
+            override fun openReply(complete: () -> Unit, error: (String) -> Unit) = object : VoiceReplyPlayback {
+                override fun enqueue(text: String) {
+                    spoken += text
+                }
+                override fun finish() = Unit
+            }
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val playback = VoiceSession(output, { error("Playback must not dispatch a prompt") }, {})
+        playback.access(true, false, true)
+        val input = "Read snake_case and R#1."
+        assertTrue(playback.beginMessage("literal", manual = true))
+        playback.streamReply("literal", "$input ")
+        val liveText = spoken.single()
+        assertEquals("$input ", liveText)
+        val liveObserver = requireNotNull(observer)
+        liveObserver(0, liveText, 5..14)
+        assertEquals(5..14, playback.state.spokenRange)
+        assertEquals(liveText, VoiceCaption.from(playback.state)?.text)
+        playback.reply("literal", input)
+        val beforeReplay = spoken.size
+        playback.replay()
+        assertEquals(input, spoken.drop(beforeReplay).joinToString("").trim())
+        assertNull(playback.state.spokenRange)
+        liveObserver(0, liveText, 20..22)
+        assertNull(playback.state.spokenRange)
+        requireNotNull(observer)(0, input, 20..22)
+        assertEquals(20..22, playback.state.spokenRange)
+        assertEquals(input, VoiceCaption.from(playback.state)?.text)
+        playback.close()
+        requireNotNull(observer ?: liveObserver)(0, input, 5..14)
+        assertNull(playback.state.spokenRange)
+    }
+
     @Test fun fullDetailsPlaybackIsExplicitAndTheNextAnswerResetsItsProjection() {
         val output = Audio().apply { streamsReplies = true }
         val playback = VoiceSession(output, { error("Manual replay must not dispatch a prompt") }, {})

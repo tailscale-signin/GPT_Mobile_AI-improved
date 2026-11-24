@@ -1,0 +1,319 @@
+{
+  "schemaVersion": 1,
+  "mode": "before",
+  "sourceBase": "33b823fface6d270fd48c59a4763183496623ba6",
+  "startedAtUtc": "2026-11-24T03:55:49.951063+00:00",
+  "scope": "Actual pure speech buffer, projection, override, native text vocabulary and SDK phrase-planning code; exact extracted scalar/type boundaries are listed separately. No Android, VoiceSession execution, JNI/model/provider/device or full application build claim.",
+  "compilerHeapMiB": 192,
+  "compilerMetaspaceMiB": 128,
+  "testHeapMiB": 192,
+  "fullAndroidAdmission": "NOT_ADMITTED_CGROUP_HEADROOM_UNKNOWN",
+  "sourceInputs": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
+      "bytes": 35587,
+      "sha256": "d394d2e41ff985367ba674be794c52f1926324f5835d4f4970193fd96dd7dd0f",
+      "workingSha256Before": "cc03c94d546ed73e7702cf7703bcf5208179d56c9185f0d112ca8305858a0117"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
+      "bytes": 5132,
+      "sha256": "4f73d30005ed949193a5280fa7e1806afc92fc39b49ffa5da9a5149cdc27c9b8",
+      "workingSha256Before": "1eab5ce9bb1ad86dc9a6d9327ffb58e1646bfb27687cbe8c3fe5d25cf02b4a30"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverrides.kt",
+      "bytes": 5251,
+      "sha256": "43a609cf36f6e18ca3bd251d38db6d6b48d2978a1a51de4c9684f1aecaa9e707",
+      "workingSha256Before": "3da7c1c60e2cf7aaf9a07af063906a969f3b7b2c08b819d5421dd0e5e1493148"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlan.kt",
+      "bytes": 2730,
+      "sha256": "2dfd25bc17c1843d6877d3316d82163d708f19275ae81989439e931b33c7cb0e",
+      "workingSha256Before": "2dfd25bc17c1843d6877d3316d82163d708f19275ae81989439e931b33c7cb0e"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/ReasoningTagScanner.kt",
+      "bytes": 10540,
+      "sha256": "c4e398159fbe183935089dc7b82ac3ded7db1c71c72cd9a92147f94de47f8c12",
+      "workingSha256Before": "c4e398159fbe183935089dc7b82ac3ded7db1c71c72cd9a92147f94de47f8c12"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
+      "bytes": 31941,
+      "sha256": "6fb985e895dc55c1cc428628e18f1523c8a43deff7c52496082a8140e2757478",
+      "workingSha256Before": "6fb985e895dc55c1cc428628e18f1523c8a43deff7c52496082a8140e2757478"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroLexicon.kt",
+      "bytes": 1719,
+      "sha256": "2c52fc37806ed3d05d9e80042ceca3aff434cad4f8a782f263fa3d9738a4177c",
+      "workingSha256Before": "2c52fc37806ed3d05d9e80042ceca3aff434cad4f8a782f263fa3d9738a4177c"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt",
+      "bytes": 4363,
+      "sha256": "36990d41041060bfe3060e0fc3ec22eaf444ad36cdad43cb4a3974a1aa4695eb",
+      "workingSha256Before": "36990d41041060bfe3060e0fc3ec22eaf444ad36cdad43cb4a3974a1aa4695eb"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt",
+      "bytes": 741,
+      "sha256": "a6a971240552df15c5ae025828bd3db63bafcdf13d5a426c5fac93e46d563344",
+      "workingSha256Before": "a6a971240552df15c5ae025828bd3db63bafcdf13d5a426c5fac93e46d563344"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt",
+      "bytes": 6861,
+      "sha256": "c182f856f3821776ae3452d18c15b5cb887210b8f71cf90e124e5541223cfaf9",
+      "workingSha256Before": "c182f856f3821776ae3452d18c15b5cb887210b8f71cf90e124e5541223cfaf9"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceIncrementalTextMap.kt",
+      "bytes": 4417,
+      "sha256": "62ce399607a79aa7fc68da2b1e55c744e950906d7c2fabe41a878e494c27b25e",
+      "workingSha256Before": "62ce399607a79aa7fc68da2b1e55c744e950906d7c2fabe41a878e494c27b25e"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
+      "bytes": 6875,
+      "sha256": "91a94d9a4bcadb46dbb0f6cbd01e054e0e0c2d8e5d7434f8c0572082f62927ab",
+      "workingSha256Before": "91a94d9a4bcadb46dbb0f6cbd01e054e0e0c2d8e5d7434f8c0572082f62927ab"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeKokoroBucket.kt",
+      "bytes": 935,
+      "sha256": "ee5d75d6b0c31211b2b60171b7bf595901f64d221a327763c760afe1df633866",
+      "workingSha256Before": "ee5d75d6b0c31211b2b60171b7bf595901f64d221a327763c760afe1df633866"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+      "bytes": 46349,
+      "sha256": "a100f2eee081edda2bf3f9d97d9f2f2f644e78cdce1f91f8ffa4d1378b70e074",
+      "workingSha256Before": "331767e161ad395d308a4c5d5f58aa325fdb538c36222e05e4fafdc25b4c4e48"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol.kt",
+      "bytes": 2469,
+      "sha256": "3a1b01c95c39e1229656c696c001a58012bd4f747427e27e88400b8b6bae05be",
+      "workingSha256Before": "3a1b01c95c39e1229656c696c001a58012bd4f747427e27e88400b8b6bae05be"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt",
+      "bytes": 6188,
+      "sha256": "9013b754e197307e593735f05edbaa408791f84734238180c490694c850edf7c",
+      "workingSha256Before": "9013b754e197307e593735f05edbaa408791f84734238180c490694c850edf7c"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt",
+      "bytes": 25029,
+      "sha256": "bf4a1fede77a58d4626e5365ef83e2cefaf89ecfec0390c54eaf03d26e6604d8",
+      "workingSha256Before": "bf4a1fede77a58d4626e5365ef83e2cefaf89ecfec0390c54eaf03d26e6604d8"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
+      "bytes": 7316,
+      "sha256": "b487354bfaf8507efe9a1f13545e16bc0bc044864ca55ce3b7a932f8ce903c30",
+      "workingSha256Before": "b487354bfaf8507efe9a1f13545e16bc0bc044864ca55ce3b7a932f8ce903c30"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechTextTest.kt",
+      "bytes": 15163,
+      "sha256": "89d050f878845c41455255a26f32e61f8e4e4aff082047f114131db697c5b383",
+      "workingSha256Before": "89d050f878845c41455255a26f32e61f8e4e4aff082047f114131db697c5b383"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt",
+      "bytes": 12066,
+      "sha256": "94ce1008f95acd9924abc0e79579d1045daf54a00285f871f0ec463b7dba567f",
+      "workingSha256Before": "94ce1008f95acd9924abc0e79579d1045daf54a00285f871f0ec463b7dba567f"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt",
+      "bytes": 26423,
+      "sha256": "1766c7baa4635c7dc9143d131649be73f47e5ad60d1d1ab780c68d34b74f1591",
+      "workingSha256Before": "1766c7baa4635c7dc9143d131649be73f47e5ad60d1d1ab780c68d34b74f1591"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBufferTest.kt",
+      "bytes": 13166,
+      "sha256": "0d23c6534bc68dc7a91f24ee449905b0519c0aa0bb58d386ee3b1c4476ae2d62",
+      "workingSha256Before": "0d23c6534bc68dc7a91f24ee449905b0519c0aa0bb58d386ee3b1c4476ae2d62"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePronunciationOverridesTest.kt",
+      "bytes": 3827,
+      "sha256": "3a571c723564d0718f5502dde05462592a39103b5804787493bd1d79997195c1",
+      "workingSha256Before": "3a571c723564d0718f5502dde05462592a39103b5804787493bd1d79997195c1"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamingPhrasePlanTest.kt",
+      "bytes": 6558,
+      "sha256": "f02c36d5f04576466c7763cb2b7afea48d952ab6089a0fc7c76cbd54dd4a2e80",
+      "workingSha256Before": "f02c36d5f04576466c7763cb2b7afea48d952ab6089a0fc7c76cbd54dd4a2e80"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt",
+      "bytes": 6581,
+      "sha256": "3f15cbac3afdecc2d76e3ae272851db13a2376b4cce83a155fc59928094b4866",
+      "workingSha256Before": "3f15cbac3afdecc2d76e3ae272851db13a2376b4cce83a155fc59928094b4866"
+    },
+    {
+      "path": "app/src/test/resources/voice/kokoro/lexicon-us-en.fixture.txt",
+      "bytes": 508,
+      "sha256": "bfc8cfe35fbd30a881e6dfaa8f2665ca6c3309b1d01454ac91af6a660178b254",
+      "workingSha256Before": "bfc8cfe35fbd30a881e6dfaa8f2665ca6c3309b1d01454ac91af6a660178b254"
+    },
+    {
+      "path": "app/src/test/resources/voice/kokoro/lexicon-gb-en.fixture.txt",
+      "bytes": 526,
+      "sha256": "9a41f652fadec04ff2c2ee050f51aeada156a1cc19d8d0e5ba6226a3ca813d8b",
+      "workingSha256Before": "9a41f652fadec04ff2c2ee050f51aeada156a1cc19d8d0e5ba6226a3ca813d8b"
+    }
+  ],
+  "boundaries": [
+    {
+      "name": "SpeechChunksBoundary.kt",
+      "origin": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
+      "bytes": 729,
+      "sha256": "c8f85e7a74efc9ee064d233aeea3cb4a1f383e86c98d1a2df935c63055510578",
+      "detail": "Exact complete production speechChunks function; VoiceSession and its external collaborators are not executed in this harness."
+    },
+    {
+      "name": "CalibrationRateBoundary.kt",
+      "origin": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol.kt",
+      "bytes": 186,
+      "sha256": "211af7b0d3940dcab38766bf2257076b716f3525515915a7fbc1ed39ab487426",
+      "detail": "Exact production rate function used by the unchanged SDK phrase character bound; no calibration execution."
+    },
+    {
+      "name": "FeedbackBoundary.kt",
+      "origin": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt",
+      "bytes": 954,
+      "sha256": "bc80bd32204b8ef7cd763750cbbe0f25331f47e8553216029de47abb742ad27c",
+      "detail": "Exact full immutable measurement DTO and defaults; adaptive controller is outside this text-only scope."
+    },
+    {
+      "name": "ExecutionEvidenceBoundary.kt",
+      "origin": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt",
+      "bytes": 4007,
+      "sha256": "25646146f85413edb080c952ceca22b39dea158322255cf4bbec060c7e7744f8",
+      "detail": "Exact stage/failure enums and full evidence DTO constructor, without unrelated native renderer imports or qualification methods."
+    },
+    {
+      "name": "PcmContractBoundary.kt",
+      "origin": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
+      "bytes": 3307,
+      "sha256": "16edd9ab345182883487351b18c632951e6d019412ae3c472f2525ce556fceae",
+      "detail": "Exact PCM/progress DTOs and VoicePhraseEngine interface; factory/native progress extension outside the text/cue-mapping harness."
+    }
+  ],
+  "dependencies": [
+    {
+      "path": "/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-compiler-embeddable-2.4.20.jar",
+      "bytes": 58593245,
+      "sha256": "cf97161430683fb9af96dc6a7017ffae1fe8737b80d12eee11f2fe3e76f8ded8"
+    },
+    {
+      "path": "/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-stdlib-2.4.20.jar",
+      "bytes": 1853314,
+      "sha256": "2226de463d309d4a5500a481320b3dea515a6981dcae1def531fbc158884e25f"
+    },
+    {
+      "path": "/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-script-runtime-2.4.20.jar",
+      "bytes": 46531,
+      "sha256": "fc5a19df78be445d84e8352e0d01098a6a8181324aa50c6f7bf850338e81e1b4"
+    },
+    {
+      "path": "/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-daemon-embeddable-2.4.20.jar",
+      "bytes": 393409,
+      "sha256": "eef72cf8f17e6d98d33e5b7c7e1cab31a1cf5fc34084dd5e563e7b1f3ef53435"
+    },
+    {
+      "path": "/workspace/scratch/475c39cc6da0/host-tests/deps/kotlinx-coroutines-core-jvm-1.11.0.jar",
+      "bytes": 1577052,
+      "sha256": "d1d75aa01dffbb4d1c520e67e4c4e7f5f6174718e7cb4632412503f2f0e604fa"
+    },
+    {
+      "path": "/workspace/scratch/475c39cc6da0/host-tests/deps/annotations-13.0.jar",
+      "bytes": 17536,
+      "sha256": "ace2a10dc8e2d5fd34925ecac03e4988b2c0f851650c94b8cef49ba1bd111478"
+    },
+    {
+      "path": "/workspace/scratch/475c39cc6da0/host-tests/deps/junit-4.13.2.jar",
+      "bytes": 384581,
+      "sha256": "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3"
+    },
+    {
+      "path": "/workspace/scratch/475c39cc6da0/host-tests/deps/hamcrest-core-1.3.jar",
+      "bytes": 45024,
+      "sha256": "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9"
+    }
+  ],
+  "prechangeProbeAdaptation": {
+    "reason": "The legacy production Buffer has no preservation opt-in parameter. The prechange probe calls its original constructor; all expected outcomes and assertions remain exactly the new test bodies.",
+    "originalSha256": "3f15cbac3afdecc2d76e3ae272851db13a2376b4cce83a155fc59928094b4866",
+    "compiledProbeSha256": "8458f2832e354542de7344ed3d987b64eae001d15b61060b0e0d5ed7b05e6477",
+    "replacements": 8
+  },
+  "compileCommand": [
+    "java",
+    "-Xmx192m",
+    "-XX:MaxMetaspaceSize=128m",
+    "-cp",
+    "/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-compiler-embeddable-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-stdlib-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-script-runtime-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-daemon-embeddable-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlinx-coroutines-core-jvm-1.11.0.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/annotations-13.0.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/junit-4.13.2.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/hamcrest-core-1.3.jar",
+    "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
+    "-no-stdlib",
+    "-no-reflect",
+    "-jvm-target",
+    "21",
+    "-classpath",
+    "/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-compiler-embeddable-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-stdlib-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-script-runtime-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-daemon-embeddable-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlinx-coroutines-core-jvm-1.11.0.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/annotations-13.0.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/junit-4.13.2.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/hamcrest-core-1.3.jar",
+    "-d",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/tests.jar",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/CalibrationRateBoundary.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/ExecutionEvidenceBoundary.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/FeedbackBoundary.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/KokoroLexicon.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/KokoroPcmBatches.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/KokoroSpeechText.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/KokoroSpeechTextTest.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/KokoroSpeechVocabularyTest.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/MediaPipeKokoroBucket.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/PcmContractBoundary.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/ReasoningTagScanner.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/SpeechChunksBoundary.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoiceIncrementalTextMap.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoiceLiteralPronunciationPipelineTest.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoicePcmCaptions.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoicePronunciationOverrides.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoicePronunciationOverridesTest.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoiceSpeechBackend.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoiceSpeechBuffer.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoiceSpeechBufferTest.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoiceSpeechText.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoiceSpeechTextTest.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoiceStreamFrames.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoiceStreamingPhrasePlan.kt",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/source/VoiceStreamingPhrasePlanTest.kt"
+  ],
+  "compileExitCode": 0,
+  "compileLogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "junitCommand": [
+    "java",
+    "-Xmx192m",
+    "-XX:MaxMetaspaceSize=128m",
+    "-cp",
+    "/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/tests.jar:/workspace/scratch/5876cb54899c/qualification/literal-pronunciation-component/before-4/resources:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-compiler-embeddable-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-stdlib-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-script-runtime-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlin-daemon-embeddable-2.4.20.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/kotlinx-coroutines-core-jvm-1.11.0.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/annotations-13.0.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/junit-4.13.2.jar:/workspace/scratch/475c39cc6da0/host-tests/deps/hamcrest-core-1.3.jar",
+    "org.junit.runner.JUnitCore",
+    "dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest"
+  ],
+  "junitExitCode": 1,
+  "junitLogSha256": "7625f4ecc441ac24d564d6f81def30a7ad38f3e6bbcc5355b2a5b262ca85040c",
+  "actualJUnitSummary": [
+    "Tests run: 6,  Failures: 6"
+  ],
+  "changedInputs": [],
+  "finishedAtUtc": "2026-11-24T03:56:02.945681+00:00"
+}

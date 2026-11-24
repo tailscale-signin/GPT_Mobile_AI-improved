@@ -3249,18 +3249,28 @@ class ChatViewModel @Inject constructor(
     private val _diagnosticExportNotice = MutableStateFlow<String?>(null)
     val diagnosticExportNotice = _diagnosticExportNotice.asStateFlow()
 
-    suspend fun hasResumableDiagnosticCapture(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun hasResumableDiagnosticCapture(contentMode: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticContentMode = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticContentMode.REDACTED): Boolean = withContext(Dispatchers.IO) {
         val room = _chatRoom.value
         !room.isTemporary &&
             listOf(false, true).any { full ->
                 dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCapture.findResumableSession(
                     dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureStorage.directory(context, room.id),
-                    diagnosticCaptureIdentity(room.id, full)
+                    diagnosticCaptureIdentity(room.id, full, contentMode)
                 ) != null
             }
     }
 
-    suspend fun exportDebugFile(directory: java.io.File, reducedMemory: Boolean = false, resume: Boolean = false, fullHistory: Boolean = false): java.io.File = withContext(Dispatchers.IO) {
+    fun forensicDiagnosticPreview(): String {
+        val latest = _groupedMessages.value.userMessages.lastOrNull()?.content.orEmpty()
+        val preview = buildString {
+            append("Conversation: ").append(_chatRoom.value.title.take(160))
+            if (latest.isNotBlank()) append("\n\nVisible local message sample:\n").append(latest.take(320))
+            append("\n\nThe full archive can include earlier original messages, restored answers, model thoughts, workspace content and local network configuration. This preview is a sample, not the complete archive.")
+        }
+        return (dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(kotlinx.serialization.json.JsonPrimitive(preview), _platformsInApp.value.mapNotNull { it.token }) as kotlinx.serialization.json.JsonPrimitive).content
+    }
+
+    suspend fun exportDebugFile(directory: java.io.File, reducedMemory: Boolean = false, resume: Boolean = false, fullHistory: Boolean = false, contentMode: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticContentMode = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticContentMode.REDACTED): java.io.File = withContext(Dispatchers.IO) {
         check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
         val room = _chatRoom.value
         val source = checkNotNull(diagnosticDatabase) { "Diagnostic database is unavailable." }
@@ -3281,6 +3291,7 @@ class ChatViewModel @Inject constructor(
             reducedMemory = reduced,
             resume = resume,
             fullHistory = fullHistory,
+            contentMode = contentMode,
             stillAuthorized = {
                 if (!debugMode.value || _chatRoom.value.id != room.id || _chatRoom.value.isTemporary != room.isTemporary) {
                     throw CancellationException("Diagnostic capture context changed.")

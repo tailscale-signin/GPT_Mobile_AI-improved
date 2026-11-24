@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure packaged chat/voice/coordinator DEX against ART's fixed code-unit limit.
+"""Measure packaged chat/voice/coordinator/OpenAI DEX against ART's fixed code-unit limit.
 
 Like check_research_dispatch_size.py, read code_item.insns_size, which counts
 16-bit code units including instruction payloads, not decoded opcodes. ART warns
@@ -22,6 +22,8 @@ CHAT = 'Ldev/chungjungsoo/gptmobile/presentation/ui/chat/'
 VOICE = 'Ldev/chungjungsoo/gptmobile/presentation/ui/voice/'
 SCREEN = CHAT + 'ChatScreenKt;'
 GATEWAY_COORDINATOR = 'Ldev/chungjungsoo/gptmobile/data/agent/AgentRunCoordinator'
+PROVIDER_TRANSPORT = 'Ldev/chungjungsoo/gptmobile/data/network/OpenAI'
+PROVIDER_API = PROVIDER_TRANSPORT + 'APIImpl;'
 GATEWAY_RECOVERY_METHODS = (
     'recoverInterruptedGatewayRuns', 'recoverSavedGatewayRuns', 'recoverSavedGatewayRun',
     'parkUnavailableGatewayResult', 'inspectSavedGatewayResult', 'savedGatewayRecoveryError',
@@ -33,7 +35,7 @@ def measured_method(owner, method):
     # Capture every execution phase and generated continuation, even when a
     # refactor renames it. The original oversized execute body was outside the
     # narrower Gateway-recovery allowlist.
-    return owner.startswith((CHAT, VOICE, GATEWAY_COORDINATOR))
+    return owner.startswith((CHAT, VOICE, GATEWAY_COORDINATOR, PROVIDER_TRANSPORT))
 
 
 def gateway_recovery_method(owner, method):
@@ -125,7 +127,7 @@ def dex_methods(data, dex_name):
     for index in range(word(96)):
         entry = word(100) + index * 32
         owner = type_name(word(entry))
-        if not owner.startswith((CHAT, VOICE, GATEWAY_COORDINATOR)):
+        if not owner.startswith((CHAT, VOICE, GATEWAY_COORDINATOR, PROVIDER_TRANSPORT)):
             continue
         if owner in owners:
             raise ValueError('Duplicate chat/voice class definition')
@@ -214,7 +216,8 @@ def inspect_apk(apk):
     return rows, dex_names
 
 
-def report_apk(apk, source_commit=None, require_gateway_recovery=False, require_agent_execution=False):
+def report_apk(apk, source_commit=None, require_gateway_recovery=False, require_agent_execution=False,
+               require_provider_transport=False):
     report = {
         'schema_version': 1, 'apk': apk.name, 'status': 'ERROR',
         'source_commit': source_commit,
@@ -222,7 +225,7 @@ def report_apk(apk, source_commit=None, require_gateway_recovery=False, require_
         'exclusive_max_code_units': ART_CODE_UNIT_LIMIT,
         'art_warning_condition': 'code_item.insns_size >= UINT16_MAX / 4',
         'measurement': '16-bit DEX code units, including variable-width instructions and payloads',
-        'scope': ['chat UI and generated classes', 'voice UI and generated classes', 'Agent coordinator, execution, Gateway recovery and generated classes'],
+        'scope': ['chat UI and generated classes', 'voice UI and generated classes', 'Agent coordinator, execution, Gateway recovery and generated classes', 'OpenAI provider transport, extracted phases and generated classes'],
         'limitation': 'Static packaged size; not evidence of device ART compilation or frame-time performance',
     }
     try:
@@ -254,6 +257,12 @@ def report_apk(apk, source_commit=None, require_gateway_recovery=False, require_
             errors.append('Missing actual Agent execution entry point; wrappers are insufficient')
         report['agent_coordinator_methods'] = coordinator
         report['gateway_recovery_methods'] = gateway_recovery
+        provider = [row for row in rows if row['class'].startswith(PROVIDER_TRANSPORT)]
+        if require_provider_transport:
+            for method in ('streamChatCompletion', 'streamResponses'):
+                if not any(row['class'] == PROVIDER_API and row['method'] == method for row in provider):
+                    errors.append(f'Missing actual OpenAI {method} entry point; wrappers are insufficient')
+        report['provider_transport_methods'] = provider
         report.update({
             'dex_files': dex_names, 'method_count': len(rows),
             'primary_methods': primary, 'oversized_methods': oversized,
@@ -272,8 +281,10 @@ def main(argv=None):
     arguments.add_argument('--source-commit', default=os.environ.get('GITHUB_SHA'))
     arguments.add_argument('--require-gateway-recovery', action='store_true')
     arguments.add_argument('--require-agent-execution', action='store_true')
+    arguments.add_argument('--require-provider-transport', action='store_true')
     args = arguments.parse_args(argv)
-    report = report_apk(args.apk, args.source_commit, args.require_gateway_recovery, args.require_agent_execution)
+    report = report_apk(args.apk, args.source_commit, args.require_gateway_recovery, args.require_agent_execution,
+                        args.require_provider_transport)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps({key: report.get(key) for key in (

@@ -6,6 +6,228 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResilientStreamingClientTest {
+    @Test fun seventeenthNodeTerminalFailuresCannotRunCallbacksOrEraseDispatchUncertainty() = kotlinx.coroutines.test.runTest {
+        val failures = listOf(
+            javax.net.ssl.SSLProtocolException("TLS terminal"),
+            kotlinx.coroutines.CancellationException("cancelled terminal")
+        ).map { terminal ->
+            var failure: Throwable = terminal
+            repeat(16) { failure = IOException("HTTP 502: network is unreachable", failure) }
+            failure
+        }
+        assertIncompleteChainsKeepDispatchUncertainty(failures)
+    }
+
+    @Test fun cyclicCausesCannotRunCallbacksOrEraseDispatchUncertainty() = kotlinx.coroutines.test.runTest {
+        val first = IOException("HTTP 502: network is unreachable")
+        val second = IOException("HTTP 502: DNS_RECOVERY", first)
+        first.initCause(second)
+        assertIncompleteChainsKeepDispatchUncertainty(listOf(first))
+    }
+
+    @Test fun completeSixteenNodeDnsFailureStillRunsOrderedRecovery() = kotlinx.coroutines.test.runTest {
+        var failure: Throwable = java.net.UnknownHostException("fixture")
+        repeat(15) { failure = IOException("HTTP 502: network is unreachable", failure) }
+        val guard = ProviderDispatchRetryGuard(
+            ProviderRequestConfig("https://gateway.example/v1", null, extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))
+        )
+        guard.dispatched()
+        val callbacks = mutableListOf<String>()
+        var attempts = 0
+        val result = ResilientStreamingClient.executeWithRetry(
+            ResilientStreamingClient.RetryConfig(maxAttempts = 2, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+            shouldRetryFailure = { cause ->
+                callbacks += "failure"
+                if (ResilientStreamingClient.causesNeedNetworkRecovery(cause)) guard.rejectedBeforeExecution()
+                guard.mayRetry(hasPayload = false)
+            },
+            shouldRetry = {
+                callbacks += "general"
+                guard.mayRetry(hasPayload = false)
+            },
+            onRetry = { _, _, _ -> callbacks += "retry" }
+        ) {
+            if (++attempts == 1) throw failure
+            "recovered"
+        }
+        org.junit.Assert.assertEquals(NetworkFailureKind.DNS, networkFailureKind(failure))
+        assertTrue(ResilientStreamingClient.isRetryable(failure))
+        org.junit.Assert.assertEquals("recovered", result)
+        org.junit.Assert.assertEquals(2, attempts)
+        org.junit.Assert.assertEquals(listOf("failure", "general", "retry"), callbacks)
+        assertFalse(guard.remoteOutcomeUnknown)
+    }
+
+    @Test fun typedTerminalFailuresNeverInvokeEitherRetryGate() = kotlinx.coroutines.test.runTest {
+        for (failure in callbackVetoFailures()) {
+            assertTrue(networkFailureKind(failure) in setOf(NetworkFailureKind.TLS, NetworkFailureKind.CANCELLED))
+            assertTrue(ResilientStreamingClient.causesNeedNetworkRecovery(failure))
+            var attempts = 0
+            var failureGateCalls = 0
+            var generalGateCalls = 0
+            var retries = 0
+            val caught = runCatching {
+                ResilientStreamingClient.executeWithRetry(
+                    ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+                    shouldRetryFailure = {
+                        failureGateCalls++
+                        true
+                    },
+                    shouldRetry = {
+                        generalGateCalls++
+                        true
+                    },
+                    onRetry = { _, _, _ -> retries++ }
+                ) {
+                    attempts++
+                    throw failure
+                }
+            }.exceptionOrNull()
+            org.junit.Assert.assertSame(failure, caught)
+            org.junit.Assert.assertEquals(1, attempts)
+            org.junit.Assert.assertEquals(0, failureGateCalls)
+            org.junit.Assert.assertEquals(0, generalGateCalls)
+            org.junit.Assert.assertEquals(0, retries)
+        }
+    }
+
+    @Test fun typedTerminalFailuresPreserveTheActualGatewayDispatchUncertainty() = kotlinx.coroutines.test.runTest {
+        for (failure in callbackVetoFailures()) {
+            val guard = ProviderDispatchRetryGuard(
+                ProviderRequestConfig("https://gateway.example/v1", null, extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))
+            )
+            guard.dispatched()
+            assertTrue(guard.remoteOutcomeUnknown)
+            var attempts = 0
+            var retries = 0
+            val caught = runCatching {
+                ResilientStreamingClient.executeWithRetry(
+                    ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+                    shouldRetryFailure = { cause ->
+                        if (ResilientStreamingClient.causesNeedNetworkRecovery(cause)) guard.rejectedBeforeExecution()
+                        guard.mayRetry(hasPayload = false)
+                    },
+                    shouldRetry = { guard.mayRetry(hasPayload = false) },
+                    onRetry = { _, _, _ -> retries++ }
+                ) {
+                    attempts++
+                    throw failure
+                }
+            }.exceptionOrNull()
+            org.junit.Assert.assertSame(failure, caught)
+            org.junit.Assert.assertEquals(1, attempts)
+            org.junit.Assert.assertEquals(0, retries)
+            assertTrue("Misleading recovery wording must not erase a dispatched mutation's uncertainty", guard.remoteOutcomeUnknown)
+            assertFalse(guard.mayRetry(hasPayload = false))
+        }
+    }
+
+    @Test fun ordinaryNetworkRecoveryStillRunsFailureSpecificGateBeforeTheDispatchGate() = kotlinx.coroutines.test.runTest {
+        val guard = ProviderDispatchRetryGuard(
+            ProviderRequestConfig("https://gateway.example/v1", null, extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))
+        )
+        val callbacks = mutableListOf<String>()
+        var attempts = 0
+        val result = ResilientStreamingClient.executeWithRetry(
+            ResilientStreamingClient.RetryConfig(maxAttempts = 2, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+            shouldRetryFailure = { failure ->
+                callbacks += "failure"
+                if (ResilientStreamingClient.causesNeedNetworkRecovery(failure)) guard.rejectedBeforeExecution()
+                guard.mayRetry(hasPayload = false)
+            },
+            shouldRetry = {
+                callbacks += "general"
+                guard.mayRetry(hasPayload = false)
+            },
+            onRetry = { _, _, _ -> callbacks += "retry" }
+        ) {
+            guard.dispatched()
+            if (++attempts == 1) throw java.net.UnknownHostException("fixture")
+            "recovered"
+        }
+        org.junit.Assert.assertEquals("recovered", result)
+        org.junit.Assert.assertEquals(2, attempts)
+        org.junit.Assert.assertEquals(listOf("failure", "general", "retry"), callbacks)
+    }
+
+    @Test fun typedTlsCausesCannotBecomeRetryableThroughDeepIoOrHttpWrappers() {
+        for (depth in listOf(1, 2, 9, 16)) {
+            for (cause in listOf(
+                javax.net.ssl.SSLProtocolException("SSLV3_ALERT_BAD_RECORD_MAC"),
+                javax.net.ssl.SSLException("TLS transport failed"),
+                java.security.cert.CertPathValidatorException("certificate path failed")
+            )) {
+                var failure: Throwable = cause
+                repeat(depth - 1) { failure = IOException("HTTP 502: transient wrapper", failure) }
+                org.junit.Assert.assertEquals(NetworkFailureKind.TLS, networkFailureKind(failure))
+                assertFalse("Typed TLS at cause depth $depth must not authorize replay", ResilientStreamingClient.isRetryable(failure))
+            }
+        }
+    }
+
+    @Test fun tlsFailuresStopTheActualRetryLoopBeforeAnotherAttempt() = kotlinx.coroutines.test.runTest {
+        var deepCertificate: Throwable = java.security.cert.CertPathValidatorException("certificate path failed")
+        repeat(15) { deepCertificate = IOException("HTTP 502: transient wrapper", deepCertificate) }
+        for (failure in listOf(
+            javax.net.ssl.SSLProtocolException("SSLV3_ALERT_BAD_RECORD_MAC"),
+            IOException("HTTP 502: transient wrapper", javax.net.ssl.SSLProtocolException("TLS record error")),
+            deepCertificate
+        )) {
+            var attempts = 0
+            var retries = 0
+            val caught = runCatching {
+                ResilientStreamingClient.executeWithRetry(
+                    ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+                    onRetry = { _, _, _ -> retries++ }
+                ) {
+                    attempts++
+                    throw failure
+                }
+            }.exceptionOrNull()
+            org.junit.Assert.assertSame(failure, caught)
+            org.junit.Assert.assertEquals(1, attempts)
+            org.junit.Assert.assertEquals(0, retries)
+        }
+    }
+
+    @Test fun ordinaryTransientFailuresStillUseTheBoundedRetryLoop() = kotlinx.coroutines.test.runTest {
+        for (failure in listOf(IOException("HTTP 502: backend unavailable"), java.net.SocketTimeoutException("socket timed out"))) {
+            var attempts = 0
+            val retries = mutableListOf<Int>()
+            val result = ResilientStreamingClient.executeWithRetry(
+                ResilientStreamingClient.RetryConfig(maxAttempts = 2, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+                onRetry = { attempt, _, _ -> retries += attempt }
+            ) {
+                if (++attempts == 1) throw failure
+                "recovered"
+            }
+            org.junit.Assert.assertEquals("recovered", result)
+            org.junit.Assert.assertEquals(2, attempts)
+            org.junit.Assert.assertEquals(listOf(1), retries)
+        }
+    }
+
+    @Test fun cancellationNeverStartsAnotherClientAttemptEvenWhenDeeplyWrapped() = kotlinx.coroutines.test.runTest {
+        var wrapped: Throwable = kotlinx.coroutines.CancellationException("cancelled")
+        repeat(15) { wrapped = IOException("HTTP 502: transient wrapper", wrapped) }
+        for (failure in listOf(kotlinx.coroutines.CancellationException("cancelled"), wrapped)) {
+            var attempts = 0
+            var retries = 0
+            val caught = runCatching {
+                ResilientStreamingClient.executeWithRetry(
+                    ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+                    onRetry = { _, _, _ -> retries++ }
+                ) {
+                    attempts++
+                    throw failure
+                }
+            }.exceptionOrNull()
+            org.junit.Assert.assertSame(failure, caught)
+            org.junit.Assert.assertEquals(1, attempts)
+            org.junit.Assert.assertEquals(0, retries)
+        }
+    }
+
     @Test fun provider429HonorsRetryAfterAndStopsAfterThreeInteractiveAttempts() = kotlinx.coroutines.test.runTest {
         var attempts = 0
         val waits = mutableListOf<Long>()
@@ -91,8 +313,8 @@ class ResilientStreamingClientTest {
     }
 
     @Test
-    fun `TLS record errors permit bounded retry but trust failures never do`() {
-        assertTrue(ResilientStreamingClient.isRetryable(javax.net.ssl.SSLProtocolException("SSLV3_ALERT_BAD_RECORD_MAC")))
+    fun `TLS record errors and trust failures never permit automatic retry`() {
+        assertFalse(ResilientStreamingClient.isRetryable(javax.net.ssl.SSLProtocolException("SSLV3_ALERT_BAD_RECORD_MAC")))
         assertFalse(ResilientStreamingClient.isRetryable(IOException("wrapped", javax.net.ssl.SSLPeerUnverifiedException("hostname mismatch"))))
         assertFalse(ResilientStreamingClient.isRetryable(IOException("wrapped", java.security.cert.CertificateException("expired"))))
     }
@@ -149,5 +371,62 @@ class ResilientStreamingClientTest {
                 throwable = error
             )
         )
+    }
+
+    private data class IncompleteRetryObservation(
+        val failure: Throwable,
+        val caught: Throwable?,
+        val attempts: Int,
+        val callbacks: List<String>,
+        val outcomeUnknown: Boolean,
+        val guardAllowsRetry: Boolean
+    )
+
+    private suspend fun assertIncompleteChainsKeepDispatchUncertainty(failures: List<Throwable>) {
+        val observations = failures.map { failure ->
+            val guard = ProviderDispatchRetryGuard(
+                ProviderRequestConfig("https://gateway.example/v1", null, extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))
+            )
+            guard.dispatched()
+            val callbacks = mutableListOf<String>()
+            var attempts = 0
+            val caught = runCatching {
+                ResilientStreamingClient.executeWithRetry(
+                    ResilientStreamingClient.RetryConfig(maxAttempts = 2, initialDelayMs = 1, maxDelayMs = 1, jitterRatio = 0.0),
+                    shouldRetryFailure = { cause ->
+                        callbacks += "failure"
+                        if (ResilientStreamingClient.causesNeedNetworkRecovery(cause)) guard.rejectedBeforeExecution()
+                        guard.mayRetry(hasPayload = false)
+                    },
+                    shouldRetry = {
+                        callbacks += "general"
+                        guard.mayRetry(hasPayload = false)
+                    },
+                    onRetry = { _, _, _ -> callbacks += "retry" }
+                ) {
+                    attempts++
+                    throw failure
+                }
+            }.exceptionOrNull()
+            IncompleteRetryObservation(failure, caught, attempts, callbacks.toList(), guard.remoteOutcomeUnknown, guard.mayRetry(hasPayload = false))
+        }
+        for (observed in observations) {
+            org.junit.Assert.assertSame(observed.failure, observed.caught)
+            org.junit.Assert.assertEquals(1, observed.attempts)
+            org.junit.Assert.assertEquals(emptyList<String>(), observed.callbacks)
+            assertTrue(observed.outcomeUnknown)
+            assertFalse(observed.guardAllowsRetry)
+            assertFalse(ResilientStreamingClient.isRetryable(observed.failure))
+        }
+    }
+
+    private fun callbackVetoFailures(): List<Throwable> = listOf(
+        javax.net.ssl.SSLProtocolException("network is unreachable"),
+        java.security.cert.CertPathValidatorException("network is unreachable"),
+        kotlinx.coroutines.CancellationException("network is unreachable")
+    ).flatMap { cause ->
+        var wrapped: Throwable = cause
+        repeat(15) { wrapped = IOException("HTTP 502: network is unreachable", wrapped) }
+        listOf(cause, wrapped)
     }
 }

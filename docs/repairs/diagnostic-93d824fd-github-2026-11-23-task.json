@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSha": "59e61ba6fa277b8cab839ad219b7189895a10deb",
+  "baseTree": "92447436fb3bec81b653553c2947bbf4e1a0c5e6",
+  "mainSha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "work/93d824fd-github",
+  "parentPullRequest": 2367,
+  "owner": "93d824fd GitHub replay audit lane",
+  "recordedBeforeSourceEdit": true,
+  "status": "IMPLEMENTED_PENDING_QUALIFICATION",
+  "intent": "Repair fresh PR-head read planning, preserve bounded observed search selectors, and retain saved-page replay diagnostics through Android and service sanitizers. Qualify existing saved-page admission corrections without weakening exact-body evidence or request limits.",
+  "findings": [
+    "F1 existing native saved-page delivery allowance correction requires final-source project tests",
+    "F2 list PR head outranks newer same-PR headers and stale-head read failure is not recovered",
+    "F3 generic inventory projection drops path and blob SHA needed by smoke read planning",
+    "F8 saved-page missing-body subtype and pending-page counter are absent from the public reporting contract"
+  ],
+  "preservation": [
+    "Keep existing test methods and assertions.",
+    "Preserve immutable commit binding, current authorization, uncertain-write fences and accepted tool/time allowances.",
+    "Only bounded read-only PR context recovery; never replay mutation on head change.",
+    "Do not change unrelated provider, graph, UI, export, generated inventory, feature map or release scope.",
+    "Root integrates and regenerates metadata, rechecks public head, and owns hosted qualification/merge/publication."
+  ],
+  "qualification": {
+    "focusedProjectTests": "BLOCKED_BEFORE_CONFIGURATION: ordinary Gradle9.8/JDK21 focused :app:testDebugUnitTest failed constructing BuildLifecycleAwareVirtualFileSystem with IOException No space left on device. Targeted --no-watch-fs --no-daemon retry failed identically. No Kotlin test pass claimed.",
+    "serviceContractTests": "PASS: python3 -m unittest authentication.test_incident_report_contract authentication.test_app;185 tests,4.058s.",
+    "pinnedKtlint": "PASS: ktlint1.3.1 check on all8 changed/new Kotlin files, exit0; git diff --check exit0.",
+    "canonicalHost": "Root runs after generated metadata integration",
+    "finalHostedAndPhysical": "REQUIRED_NOT_RUN",
+    "serviceCapabilityRecheck": "PASS: python3 -m unittest authentication.test_app;73 tests,3.174s after coordinated replay/graph/provider capability additions."
+  },
+  "sourceEvidence": {
+    "captureAppSha": "631bad141287b2ed6581d42b1a1627256359e36f",
+    "diagnosticSession": "93d824fd-d842-4716-b2d9-ab90f08bea91",
+    "scope": "Retained diagnostics and exact source inspection; full device reproduction is required to establish correction."
+  },
+  "integrationBaseSha": "c76bcaad4e720fdee86887174d8a267f281d6100",
+  "incomingPreserved": "Fast-forwarded c76bcaad before source edits; acceptance-criterion retention changes and tests preserved.",
+  "implementation": {
+    "F2": "Fresh same-PR/task/repository/tool head selection; one shared live header refresh and one pinned retry per read action; exact authorized facade and schema required; no mutation replay.",
+    "F3": "Bounded validated path/blob selectors and commit revision survive stored projection; dependent range and alias reads require selected task/repository/revision.",
+    "F8": "Android/service preserve REQUIRED_SAVED_PAGE_NOT_PRESENT and pending_saved_page_count, with narrow receiver capability negotiation.",
+    "F1": "Existing full-body saved-page allowance and delivery-digest fixes preserved; six project regressions remain for hosted/device qualification."
+  },
+  "remainingRisks": [
+    "No new on-device reproduction was run; the retained capture predates this source.",
+    "Final Android project compilation and regression tests require a functioning Gradle/SDK environment.",
+    "Generated diagnostic schema/inventory/reference/scope regeneration and final-source CI are owned by root.",
+    "Concurrent public head updates require exact-head preservation/revalidation before publication."
+  ],
+  "localCommits": [
+    "b67d84249f46: fresh scoped PR/search selectors and bounded read recovery"
+  ],
+  "coordinatedCapabilities": [
+    "SAVED_PAGE_REPLAY_EVIDENCE_V1",
+    "GRAPH_LOCAL_CONTEXT_FAILURE_V1 (graph lane owns implementation)",
+    "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1 (provider lane owns implementation)"
+  ],
+  "followUpReview": {
+    "finding": "Parent review found older successful PR reads could still suppress a fresh-head read, and earlier success prevented recovery of a later stale read.",
+    "correction": "Compare successful observed/result lease to current head; select latest scoped failed action for bounded recovery; keep one refresh per PR and one retry per action.",
+    "testsAdded": [
+      "oldSuccessfulReadDoesNotQualifyTheNewHeadAndCurrentHeadIsNotReadTwice",
+      "latestStaleReadCanRecoverAfterAnOlderSuccessButNoSecondRecoveryIsGranted"
+    ],
+    "qualification": "ktlint1.3.1 formatting passed; Android project execution remains blocked by same environment failure."
+  },
+  "legacySearchFollowUp": {
+    "recordedBeforeSourceEdit": true,
+    "intent": "Use validated surviving raw/excerpt search selectors independently from old empty planning records; if none survive, permit only one currently authorized pinned search reacquisition without changing coverage or budget.",
+    "qualification": "ktlint1.3.1 check on3 changed/new Kotlin files passed; git diff --check passed.3 new ordinary project regressions added; Android execution remains blocked before configuration by recorded Gradle ENOSPC, no Kotlin test pass claimed.",
+    "preservation": "All present revision claims must match selected repository/task commit; exact currently visible tool+schema, original query, immutable commit, normal execution budget, stable single recovery identity, and original partial fetched/complete/consumed metadata preserved."
+  }
+}

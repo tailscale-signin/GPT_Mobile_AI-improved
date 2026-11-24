@@ -53,7 +53,7 @@ internal fun planResponseContinuation(
     val replayBudget = (promptCeiling - cost(required(bare)) - if (draft.isBlank()) 80 else 160)
         .coerceIn(0, 8192).toInt()
     val replayExchanges = if (fitProviderBudget && !preserveFullInput && exchanges.isNotEmpty() && ToolExchangeCompactor.estimateTokens(exchanges) > replayBudget) {
-        ToolExchangeCompactor.compact(exchanges, replayBudget, (replayBudget / 3).coerceAtLeast(1))
+        ToolExchangeCompactor.compact(exchanges, replayBudget, (replayBudget / 3).coerceAtLeast(1), taskRequest = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content?.takeIf { retainedTaskContext.isNotBlank() })
     } else {
         exchanges
     }

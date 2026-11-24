@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-streaming-report-compatibility-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "764f0b8f34854d6eb63fdfc4cac91cce8b236c10",
+  "workingBranch": "audit/streaming-report-fix",
+  "pullRequest": 2367,
+  "status": "LOCAL_COMPLETE_ANDROID_CI_REQUIRED",
+  "intent": "Keep new streaming voice report enum values closed and mirrored, and negotiate support only when those new values are actually present.",
+  "finding": {
+    "classification": "REPORT_CONTRACT_MISMATCH",
+    "introducedBy": "c2d24b795656ccc3ee430b12107abf5f2104a727",
+    "failingRegression": "authentication.test_incident_report_contract.IncidentReportContractTest.test_voice_execution_count_and_enums_are_closed_and_match_native_contract",
+    "baseline": "Existing test fails because four selected-backend values are absent from the receiver; MEDIAPIPE engine and three fallback sources are also missing."
+  },
+  "compatibility": {
+    "feature": "VOICE_STREAMING_BACKEND_EVIDENCE_V1",
+    "ordinaryPayloads": "Retain VOICE_EXECUTION_EVIDENCE_V1 and plain readiness response.",
+    "newValues": "Require new capability only for actually emitted new values, including nested incident/snapshot/context surfaces.",
+    "privacy": "No raw speech, audio, provider request IDs, URLs or additional free-form fields."
+  },
+  "validation": {
+    "baseline": "One existing receiver parity test failed on unchanged source.",
+    "candidate": "198 focused receiver, HTTP and reporter-configuration tests pass, including the previously failing parity test, all eight new value round trips, legacy readiness and missing-capability rejection controls. Five tests in the ordinary VoiceExecutionDiagnosticsTest class execute against the actual production helper using cached Kotlin/JVM dependencies, without boundary ports or rewritten sources. Changed Kotlin passes ktlint 1.3.1.",
+    "canonical": "bash scripts/validate-local.sh fast passed, including 692 repository tests, generated-reference checks, secret/dependency checks, Android regex/resource/icon preflights and git diff --check. Final checkpoint/reference-only updates were rechecked after recording these results.",
+    "clientIntegration": "Three ordinary project tests cover saved snapshot/context restoration, refusal before dispatch/POST when only legacy V1 is advertised, exact approved-byte submission with the new capability, and ordinary V1 compatibility. Local focused Gradle stopped before project configuration because Gradle virtual-filesystem service initialization raised No space left on device; these tests require hosted Android CI.",
+    "readiness": "Plain readiness remains exactly 1022 bytes and extended readiness is 2604 bytes. Only extended readiness advertises VOICE_STREAMING_BACKEND_EVIDENCE_V1; the configured-hosted-receiver probe requires current support and the earlier implemented TLS_TRANSPORT_PHASE_EVIDENCE_V1 and GITHUB_READ_REVISION_EVIDENCE_V1. Client negotiation remains conditional on emitted values, and native GitHub builds with no configured hosted origin do not probe an invented service.",
+    "hostEnvironment": "Python 3.12.14, FastAPI 0.141.1, Starlette 1.6.0 and HTTPX 0.28.1. Kotlin compiler 2.4.20 and JUnit 4.13.2 on JDK 21. Pinned Gateway dependency and Android project qualification remain separate hosted checks.",
+    "limits": [
+      "No hosted receiver deployment claim; receivers lacking the new feature remain usable for ordinary V1 reports and reject new-value report dispatch locally.",
+      "No complete Android build or local execution of submission/context integration tests; no SDK or build-admission workaround was used.",
+      "No physical voice, GPU/NPU, audio latency or hardware qualification."
+    ]
+  },
+  "concurrency": "Own reporting source/tests only. Preserve separate TLS callback-ordering and streaming playback owners. Parent reconciles an independently reserved enum-only receiver append from the shared public head without replacing either test set.",
+  "publication": "Local commit only; parent coordinates combined qualification and publication."
+}

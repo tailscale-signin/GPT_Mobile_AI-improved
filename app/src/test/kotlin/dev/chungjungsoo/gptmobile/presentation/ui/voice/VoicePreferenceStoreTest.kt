@@ -13,7 +13,9 @@ import androidx.work.Operation
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.common.util.concurrent.ListenableFuture
+import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
@@ -230,12 +232,19 @@ class VoicePreferenceStoreTest {
         }
     }
 
+    @Test fun singleThreadCalibrationChoiceSurvivesPreferenceRestore() {
+        assertEquals(1, readVoicePreferences(mapOf("kokoro_threads" to 1)).kokoroThreads)
+        assertEquals(1, readVoicePreferences(mapOf("kokoro_threads" to 0)).kokoroThreads)
+        assertEquals(4, readVoicePreferences(mapOf("kokoro_threads" to 99)).kokoroThreads)
+    }
+
     @Test fun malformedFieldsDoNotDiscardValidChoicesOrGrantOnlineSpeech() {
         val value = readVoicePreferences(
             mapOf(
                 "online" to "true", "captions" to false, "rate" to Float.NaN, "kokoro_threads" to "4",
                 "language" to "en-CA", "review" to true, "voice" to 12, "automatic" to "false",
-                "recognition_backend" to "UNKNOWN", "kokoro_voice" to "EMMA", "spoken_replies" to false
+                "recognition_backend" to "UNKNOWN", "kokoro_voice" to "EMMA", "spoken_replies" to false,
+                "litert_kokoro_bucket" to "UNSUPPORTED", "incremental_speech_input" to "false", "native_kokoro_model_variant" to "UNKNOWN"
             )
         )
         assertFalse(value.online)
@@ -245,6 +254,9 @@ class VoicePreferenceStoreTest {
         assertEquals(VoicePauseDuration.NATURAL, value.pause)
         assertEquals(VoicePerformanceMode.AUTO, value.performance)
         assertTrue(value.speakWhileGenerating)
+        assertEquals(MediaPipeKokoroBucket.AUTO, value.kokoroBucket)
+        assertTrue(value.incrementalSpeech)
+        assertEquals(KokoroModelVariant.INT8, value.nativeModelVariant)
         assertEquals(2, value.kokoroThreads)
         assertEquals("en-CA", value.language)
         assertEquals("", value.voice)
@@ -272,7 +284,10 @@ class VoicePreferenceStoreTest {
                 rate = 1f,
                 pause = VoicePauseDuration.MINIMAL,
                 performance = VoicePerformanceMode.FAST,
-                speakWhileGenerating = false
+                speakWhileGenerating = false,
+                kokoroBucket = MediaPipeKokoroBucket.TOKENS_128,
+                incrementalSpeech = false,
+                nativeModelVariant = KokoroModelVariant.ORIGINAL_FP32
             )
             model.save(expected)
             views.clear()

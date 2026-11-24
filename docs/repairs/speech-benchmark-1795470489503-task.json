@@ -1,0 +1,277 @@
+{
+  "schemaVersion": 1,
+  "task": "speech-benchmark-1795470489503",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "localWorkingBranch": "task/speech-benchmark-1795470489503",
+  "startingHead": "ce0689733e9e46d4600aa58d1b199cb50d4b9277",
+  "latestObservedPublicHead": "029b7e5a1b268b9a1ef611a60e04396ab604044f",
+  "pullRequest": 2367,
+  "status": "SOURCE_IMPLEMENTED_PENDING_FINAL_HOSTED_QUALIFICATION",
+  "intent": "Implement every remaining code and measurement improvement identified in the build149 speech benchmark audit, preserve concurrent work, qualify the complete latest PR and actual main, and verify signed Android and Gateway publication.",
+  "acceptance": [
+    "Preserve CPU-reference protection for numerically invalid accelerator audio and retain requested versus observed provider distinctions.",
+    "Native validation exports an allowlisted precise reason and bounded tensor/duration statistics; unmeasured audio statistics remain unknown rather than zero.",
+    "Three exact NPU shapes may be retained only under the existing memory ceiling and headroom rules; pressure and unknown-memory paths remain conservative.",
+    "Ordinary benchmarks stop a candidate after a known same-run CPU-reference mismatch, preserve partial evidence, and continue independent valid candidates; explicit deep diagnostics can continue.",
+    "Preparation, chunk and backend deadlines request cancellation and retain phase/request/native-retirement evidence without prematurely reusing or freeing native work.",
+    "A bounded Stability mode collects at least20 warm repetitions per fixture while preserving percentile eligibility and failure/thermal exclusions.",
+    "Installed native Kokoro, LiteRT Kokoro, Phonon and Pocket can be benchmarked with an explicit engine and compatible provider selection; genuine incremental PCM and actual playback measurements remain separate from acoustic and semantic quality.",
+    "Exports and bounded local history retain engine/runtime/model/voice/rate/settings, current native evidence, control outcomes and legacy historical reports without private text/audio/device identifiers.",
+    "Preserve the already integrated streaming pause/accounting fixes and independently owned live-stream buffering and emulator-startup corrections.",
+    "Qualify applicable final-head checks, normally merge with a source guard, require all configured actual-main gates, and verify successor Android0.9.66.15/code149 and Gateway18.1.3 publication."
+  ],
+  "qualification": {
+    "local": "Combined actual-source host suite112/112 and final exact owner suite6/6 passed with stable source hashes. Native C++/Java evidence contract checks and six Python numerical controls passed. Intermediate canonical fast validation708/708 passed with7061tracked inputs unchanged. The final committed-tree canonical and pinned-format receipts are recorded separately before guarded append; full Android, JNI/model/device and publication gates remain separate.",
+    "hosted": "PENDING_FINAL_COMBINED_HEAD",
+    "publication": "NOT_PUBLISHED",
+    "physicalDeviceClaims": "NOT_MEASURED; supplied source631bad14 benchmark is baseline evidence only",
+    "requiredMainWorkflows": [
+      "Build Android APK",
+      "CodeQL Advanced",
+      "PR Validation",
+      "Post-merge correctness",
+      "v0.9.50 Android acceptance",
+      "Gateway stability",
+      "Gateway Windows installer",
+      "Development environments",
+      "Speech engine model smoke",
+      "Minified native memory smoke"
+    ],
+    "combinedHost": {
+      "status": "PASSED",
+      "testCount": 112,
+      "manifest": "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
+      "originalManifestSha256": "030e84e877e5bb3060f97354a71e2eac5788533b5b9c132cdecffbd79e818811",
+      "junitLogSha256": "2c586ed7feba8b20a43967b729690238a688b8283309fe23f7ec1d8cec70ac5e",
+      "scope": "Actual selected core, SDK runner/stream bridge, evidence, export, playback receipt and nativeJava ABI sources with explicitly extracted unchanged platform boundary declarations; not Android output, ViewModel lifecycle, model-store, JNI, model, or device execution.",
+      "priorAttempt": "Harness inventory initially omitted the present concurrent VoiceStreamDeliveryCadence source. Added that actual dependency and retained the failed-attempt log before the successful rerun."
+    },
+    "independentReviews": [
+      "Core and SDK stop/retirement ownership, stale callback isolation, observer exceptions, private context and no replacement after failed close: no remaining actionable issue found.",
+      "Export/history measurement availability, signed overflow, native-versus-SDK cost scopes, all seven evidence regression cases and ViewModel frozen export: no blocking issue found.",
+      "CI additions preserve existing gates and bind actual source; physical/JNI/model execution remains separately required.",
+      "Final late-close/capture races: always retain playback owner and await retirement before inspecting cleanup failure. Exact owner methods passed and independent source review found no remaining actionable ownership race."
+    ],
+    "ordinaryAndroidExecution": "REQUIRED_FINAL_SOURCE: all original and new tests, including actual SDK playback/AudioTrack, factory/model-lease and ViewModel/ownership lifecycle controls; complete XML and established dedicated heap execution remain required.",
+    "nativeHost": {
+      "status": "PASSED",
+      "logSha256": "500bceb4b96fbb9a13863f11615bc30ab0096c0c129e0b665af115261c32e0f8",
+      "command": "bash scripts/check_speech_native_contracts.sh",
+      "scope": "Actual C++17 measurement/cache tests and Java v2-v5 evidence ABI; does not runJNI, ORT/model inference or physical hardware."
+    },
+    "numericalControls": {
+      "status": "PASSED",
+      "testCount": 6,
+      "command": "python3 -m unittest discover -s local-kokoro-runtime/src/testHost -p test_kokoro_reference_comparison.py",
+      "scope": "Controlled numeric comparator regressions, not physical GPU correctness or performance."
+    },
+    "preservation": {
+      "publicBase": "029b7e5a1b268b9a1ef611a60e04396ab604044f",
+      "requiredMainWorkflowsUnchanged": 10,
+      "publicScopePathsRetained": 380,
+      "priorLimitationsUnchanged": 28,
+      "priorLimitationExpanded": "The native completed-chunk firstPCM definition now separately describes SDK delivered-callback firstPCM; acoustic/perceptual/energy/utilization/hardware restrictions remain intact.",
+      "newLimitations": 1
+    },
+    "ownershipHost": {
+      "status": "PASSED",
+      "testCount": 6,
+      "manifest": "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json",
+      "originalManifestSha256": "fe311db44178e0d533d06509fef850ba6068fec2d429bc893db27a2280757cfe",
+      "junitLogSha256": "a1949284fc6e8de40be65bd54f7a9c0d217eaf69c8221234bd550f7315ff3631",
+      "scope": "Actual pure Ownership and UiState sources plus complete ordinary ownership test, linked to the prior source-hashed DTO jar; no Android stubs, ViewModel execution or provider calls."
+    },
+    "requiredOrdinaryMethods": {
+      "inventory": "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json",
+      "comparisonBase": "029b7e5a1b268b9a1ef611a60e04396ab604044f",
+      "added": 54,
+      "changed": 4,
+      "unchangedInChangedFiles": 25,
+      "removed": 0,
+      "requiredXmlMethods": 83,
+      "classes": 11,
+      "status": "INVENTORY_ONLY_EXECUTION_REQUIRED_ON_FINAL_SOURCE"
+    }
+  },
+  "additionalEvidence": [
+    {
+      "file": "speech-benchmark-1795475229182.json",
+      "sha256": "2c1c0b84c86a49cbe9103575c4aa05ac2bb7476dd8e0d313a787cdfa6ad63a8d",
+      "sourceCommit": "631bad141287b2ed6581d42b1a1627256359e36f",
+      "runtimeId": "ort1.28.2-qnn2.7-qairt2.51-convex2-profile4-cache2-progress1-parser2",
+      "mode": "FULL",
+      "playback": true,
+      "scenarios": [
+        "COLD_START"
+      ],
+      "threads": 4,
+      "elapsedMs": 235605,
+      "backendOrder": [
+        "QNN_GPU",
+        "QNN_HTP",
+        "CPU"
+      ],
+      "outcome": "PARTIAL",
+      "findings": {
+        "CPU": {
+          "samples": 3,
+          "states": [
+            "COMPLETE",
+            "COMPLETE",
+            "COMPLETE"
+          ],
+          "firstPresentedAudioMs": [
+            6505,
+            6593,
+            6537
+          ],
+          "activeUnderruns": [
+            0,
+            0,
+            0
+          ],
+          "drainUnderruns": [
+            1,
+            1,
+            1
+          ],
+          "bufferRestarts": [
+            0,
+            0,
+            0
+          ],
+          "longestRefillMs": [
+            0,
+            0,
+            0
+          ],
+          "quality": [
+            "SLOW_START",
+            "SLOW_START",
+            "SLOW_START"
+          ],
+          "thermalStatuses": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ]
+        },
+        "QNN_HTP": {
+          "samples": 3,
+          "states": [
+            "COMPLETE",
+            "COMPLETE",
+            "COMPLETE"
+          ],
+          "firstPresentedAudioMs": [
+            12773,
+            12374,
+            12402
+          ],
+          "activeUnderruns": [
+            2,
+            2,
+            2
+          ],
+          "drainUnderruns": [
+            1,
+            1,
+            1
+          ],
+          "bufferRestarts": [
+            2,
+            2,
+            2
+          ],
+          "longestRefillMs": [
+            8552,
+            8468,
+            8487
+          ],
+          "quality": [
+            "COMPLETE_WITH_STALLS",
+            "COMPLETE_WITH_STALLS",
+            "COMPLETE_WITH_STALLS"
+          ],
+          "thermalStatuses": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              0
+            ]
+          ]
+        },
+        "QNN_GPU": {
+          "samples": 1,
+          "states": [
+            "FAILED"
+          ],
+          "firstPresentedAudioMs": [
+            null
+          ],
+          "activeUnderruns": [
+            0
+          ],
+          "drainUnderruns": [
+            0
+          ],
+          "bufferRestarts": [
+            0
+          ],
+          "longestRefillMs": [
+            0
+          ],
+          "quality": [
+            "FAILED"
+          ],
+          "thermalStatuses": [
+            [
+              0,
+              0
+            ]
+          ]
+        }
+      },
+      "qualification": "Observed on previous631bad14 source; supports existing CPU protection and stutter work; does not validate current implementation, warm reuse, streaming SDK engines, acoustic output, or energy."
+    }
+  ],
+  "preservedConcurrentCommits": [
+    "1a74d7a4f0c2479c5bf88b807a1bde2e193174a5",
+    "80794bd5827d176c002ef2b71293be8731342ce6",
+    "fa1230722f7c247e4ca1b8b04ccd1a4ae7811b72",
+    "59e61ba6fa277b8cab839ad219b7189895a10deb",
+    "c76bcaad4e720fdee86887174d8a267f281d6100",
+    "029b7e5a1b268b9a1ef611a60e04396ab604044f"
+  ],
+  "design": [
+    "JNI v5 distinguishes measured PCM from structural failure; signed duration values and overflow remain explicit without raw audio/text.",
+    "Native graph residency admits up to three exact shapes under the unchanged1280MiB estimate ceiling and512MiB available reserve; first-use cold graph compilation remains necessary.",
+    "CPU-reference failure detection applies only when an exact same-run fixture/repeat/chunk reference exists; rotated candidates measured beforeCPU are evaluated retrospectively.",
+    "Native and SDK phase/backend stop requests retain active ownership until close completes. Cleanup failure quarantines ownership and prevents another run.",
+    "SDK silent firstPCM observes actual nonempty callbacks. Audible firstPCM follows retained PCM in the real playback path; requested delegate never becomes observed processor evidence.",
+    "At most128 SDK callback records are retained per sample/row; actual callback/frame/time totals and omission counts remain explicit up to16384 bounded callbacks.",
+    "Native totalSynthesisMs remains a legacy alias for completed chunk generation wall time including graph preparation. SDK audible totalSynthesisMs remains deliveredPCM production intervals; whole stream-call duration is recorded separately.",
+    "Frozen export reports live only in ViewModel memory while choosing a destination; encoding and file writing run onIO, never in saved-state bundles.",
+    "No automatic cross-engine winner or phonetic/perceptual equivalence is inferred from structural PCM or matching fixture text.",
+    "Process-wide failed-close quarantine and its restart notice survive screen recreation. Playback owners are retained even when their pending-retirement list has emptied; native cleanup is checked only after retirement is observed before any owner/model release."
+  ]
+}

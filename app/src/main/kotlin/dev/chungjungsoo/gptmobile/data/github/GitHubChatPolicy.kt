@@ -30,7 +30,11 @@ data class GitHubChatProfileOverride(
     val copilotExecutionOwner: GitHubCopilotExecutionOwner = GitHubCopilotExecutionOwner.ANDROID_DIRECT,
     val graphSharingConsent: String? = null,
     val workspaceCheckConsent: String? = null,
-    val engineeringGatewayDefaultApplied: Boolean = false
+    val engineeringGatewayDefaultApplied: Boolean = false,
+    val intelligenceLevel: GitHubIntelligenceLevel = GitHubIntelligenceLevel.INTELLIGENT,
+    val recoveryConsultConsent: String? = null,
+    val engineeringTeamConsent: String? = null,
+    val recoveryExecutionConsent: String? = null
 )
 
 /** Selects the task controller. GitHub executes accepted cloud work in either mode. */
@@ -137,8 +141,21 @@ internal object GitHubChatPolicy {
         val config = settings(features, uid, original?.github) ?: return original
         val request = requireNotNull(original)
         val connection = requireNotNull(request.github).connectionUid
+        val recovery = config.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE &&
+            config.recoveryExecutionConsent != null &&
+            !request.allToolsDisabled &&
+            request.delegation?.enabled != false &&
+            "delegate_to_model" !in request.disabledToolIds &&
+            connection !in request.disabledToolIds
         val enabled = buildSet {
             add("github_decide")
+            if (config.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE &&
+                config.engineeringTeamConsent != null &&
+                request.delegation?.enabled != false &&
+                "delegate_to_model" !in request.disabledToolIds
+            ) {
+                add("delegate_to_model")
+            }
             if (config.githubTools) add(connection)
             if (config.webSearch) addAll(setOf("web_search", "read_url"))
         }
@@ -152,12 +169,13 @@ internal object GitHubChatPolicy {
             maxTools = maxOf(request.maxTools ?: 0, 64),
             maxToolCalls = minOf(request.maxToolCalls ?: Int.MAX_VALUE, callLimit(config.engineeringMode)),
             reasoning = request.reasoning,
-            delegation = null,
+            delegation = request.delegation.takeIf { recovery || "delegate_to_model" in enabled },
+            githubRecoveryExecutionAllowed = recovery,
             research = null,
             combined = null
         )
     }
 
-    fun delegation(original: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, context: GitHubConversationContext?): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings =
-        if (context == null) original else original.copy(enabled = false, orchestrationEnabled = false, reviewerEnabled = false, automaticResearch = false, researchEnabled = false, fallbackToAnotherProfile = false, processingOwnership = 100, approvedWorkerUids = emptyList())
+    fun delegation(original: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, context: GitHubConversationContext?, team: GitHubEngineeringTeam? = null): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings =
+        if (context == null) original else team?.restrict(original) ?: original.copy(enabled = false, orchestrationEnabled = false, reviewerEnabled = false, automaticResearch = false, researchEnabled = false, fallbackToAnotherProfile = false, processingOwnership = 100, approvedWorkerUids = emptyList())
 }

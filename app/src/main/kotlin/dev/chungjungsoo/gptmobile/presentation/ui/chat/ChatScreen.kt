@@ -156,6 +156,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
 import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticContentMode
 import dev.chungjungsoo.gptmobile.data.diagnostics.UiOperationContext
 import dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
@@ -679,12 +680,29 @@ private fun ChatScreenContent(
     if (showExportOptions) {
         val diagnosticNotice by chatViewModel.diagnosticExportNotice.collectAsStateWithLifecycle()
         var resumableCapture by remember { mutableStateOf(false) }
-        LaunchedEffect(chatRoom.id, diagnosticNotice) { resumableCapture = chatViewModel.hasResumableDiagnosticCapture() }
+        var resumableForensicCapture by remember { mutableStateOf(false) }
+        LaunchedEffect(chatRoom.id, diagnosticNotice) {
+            resumableCapture = chatViewModel.hasResumableDiagnosticCapture()
+            resumableForensicCapture = chatViewModel.hasResumableDiagnosticCapture(DiagnosticContentMode.FULL_FORENSIC)
+        }
         ChatExportDialog(
             onDismiss = { showExportOptions = false },
             debugMode = debugMode,
             includeUserMessages = chatToolConfig.github != null,
             diagnosticNotice = diagnosticNotice,
+            forensicPreview = chatViewModel::forensicDiagnosticPreview,
+            onForensicDebugExport = {
+                showExportOptions = false
+                scope.launch { exportChat(context, chatViewModel, ChatExportFormat.DEBUG, fullHistory = true, contentMode = DiagnosticContentMode.FULL_FORENSIC) }
+            },
+            onResumeForensicExport = if (resumableForensicCapture) {
+                {
+                    showExportOptions = false
+                    scope.launch { exportChat(context, chatViewModel, ChatExportFormat.DEBUG, resume = true, contentMode = DiagnosticContentMode.FULL_FORENSIC) }
+                }
+            } else {
+                null
+            },
             onFullDebugExport = {
                 showExportOptions = false
                 scope.launch { exportChat(context, chatViewModel, ChatExportFormat.DEBUG, fullHistory = true) }
@@ -2662,7 +2680,7 @@ private fun ChatTopBar(
         )
         if (privacyLocked) {
             Text(
-                "Private chat · Privacy stays on for this conversation",
+                "Private policy locked · Yellow marks confirmed local replacements",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag("chat_permanent_privacy")
@@ -2754,7 +2772,7 @@ fun ChatDropdownMenu(
     }
 }
 
-private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat, reducedMemory: Boolean = false, resume: Boolean = false, fullHistory: Boolean = false) {
+private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat, reducedMemory: Boolean = false, resume: Boolean = false, fullHistory: Boolean = false, contentMode: DiagnosticContentMode = DiagnosticContentMode.REDACTED) {
     try {
         if (format == ChatExportFormat.DEBUG) {
             Toast.makeText(context, "Preparing detailed conversation diagnostics…", Toast.LENGTH_SHORT).show()
@@ -2762,7 +2780,7 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
         val file = if (format == ChatExportFormat.DEBUG) {
             withContext(Dispatchers.IO) {
                 val output = File(context.cacheDir, "chat-exports").apply { mkdirs() }
-                chatViewModel.exportDebugFile(output, reducedMemory, resume, fullHistory)
+                chatViewModel.exportDebugFile(output, reducedMemory, resume, fullHistory, contentMode)
             }
         } else {
             val (fileName, fileContent) = chatViewModel.exportChat(format)

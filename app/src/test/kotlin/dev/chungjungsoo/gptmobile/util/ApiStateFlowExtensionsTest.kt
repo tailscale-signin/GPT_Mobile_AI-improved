@@ -252,6 +252,139 @@ class ApiStateFlowExtensionsTest {
         assertEquals(2, timeline.filter { it.progressCheckpoint }.mapNotNull { it.progressId }.distinct().size)
     }
 
+    @Test fun admittedAuthoredStateCyclesKeepTheirSequenceAndLineageThroughDisplay() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        val open = ApiState.ActivitySummary("Issue #2440 is open.", modelAuthored = true, invocationId = "primary")
+        val closed = open.copy(text = "Issue #2440 is closed.")
+        flowOf(ApiState.GitHubRoundStarted, open, open, closed, open, open, ApiState.Error("Interrupted"))
+            .collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+
+        val summaries = timeline.filter { it.statusSummary }
+        assertEquals(listOf(open.text, closed.text, open.text), summaries.map { it.content })
+        assertEquals(3, summaries.mapNotNull { it.progressSequence }.distinct().size)
+        assertEquals(3, summaries.mapNotNull { it.progressId }.distinct().size)
+        assertTrue(summaries.all { it.outputLineage == OutputLineage(OutputOrigin.MODEL_TEXT, "primary") })
+        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityLines(timeline, "Track the issue", active = true).filter { it.statusSummary })
+    }
+
+    @Test fun identicalSummaryTextKeepsSeparateAuthorshipAndSuppressesOnlyUnchangedReplay() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        val first = ApiState.ActivitySummary("The issue is open.", modelAuthored = true, invocationId = "first-primary")
+        val second = first.copy(invocationId = "second-primary")
+        flowOf(ApiState.GitHubRoundStarted, first.copy(modelAuthored = false, invocationId = null), first, first, second, second, ApiState.Error("Interrupted"))
+            .collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+
+        val summaries = timeline.filter { it.statusSummary }
+        assertEquals(listOf(false, true, true), summaries.map { it.modelAuthored })
+        assertEquals(listOf(null, "first-primary", "second-primary"), summaries.map { it.outputLineage?.invocationId })
+        assertEquals(listOf(null, OutputOrigin.MODEL_TEXT, OutputOrigin.MODEL_TEXT), summaries.map { it.outputLineage?.origin })
+        assertEquals(3, summaries.mapNotNull { it.progressSequence }.distinct().size)
+    }
+
+    @Test fun admittedRecordedStateCyclesRemainVisibleWithoutModelAttribution() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        val open = ApiState.ActivitySummary("Issue #2440 is open.")
+        val closed = open.copy(text = "Issue #2440 is closed.")
+        flowOf(ApiState.GitHubRoundStarted, open, open, closed, open, open, ApiState.Error("Interrupted"))
+            .collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+
+        val summaries = timeline.filter { it.statusSummary }
+        assertEquals(listOf(open.text, closed.text, open.text), summaries.map { it.content })
+        assertTrue(summaries.all { !it.modelAuthored && it.outputLineage == null })
+        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityLines(timeline, "Track the issue", active = true).filter { it.statusSummary })
+    }
+
+    @Test fun capturedSourcePublicationsKeepIdenticalTextAndInvocationThroughCollectorAndDisplay() = runBlocking {
+        var clock = 0L
+        var timeline = emptyList<AssistantTimelineItem>()
+        val progress = dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress("Review cancellation") { clock }
+        val prose = ApiState.ActivitySummary("Reader.kt retries before recording the response. I’ll check cancellation next.", modelAuthored = true, invocationId = "same-invocation", publicationId = "upstream-placeholder")
+        val original = prose.copy()
+        val publications = mutableListOf<ApiState.ActivitySummary>()
+        flow<ApiState> {
+            emit(ApiState.GitHubRoundStarted)
+            progress.tick().forEach { emit(it) }
+            observeCapturedProgressSource(progress, "source-a", "a".repeat(40))
+            assertEquals(null, progress.forward(prose))
+            clock = 45_000
+            val first = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+            publications += first
+            emit(first)
+            emit(first)
+            observeCapturedProgressSource(progress, "source-b", "b".repeat(40))
+            assertEquals(null, progress.forward(prose))
+            clock = 179_999
+            assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+            clock = 180_000
+            val second = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+            publications += second
+            emit(second)
+            emit(second)
+            emit(first)
+            observeCapturedProgressSource(progress, "source-b", "b".repeat(40))
+            observeCapturedProgressSource(progress, "same-source-b-new-call", "b".repeat(40))
+            clock = 315_000
+            assertEquals(null, progress.forward(prose))
+            assertEquals(null, progress.forward(prose.copy(text = "**Reader.kt** retries before recording the response. I will check cancellation next.")))
+            assertEquals(null, progress.forward(first))
+            assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+            emit(ApiState.Error("Interrupted"))
+        }.collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+
+        val summaries = timeline.filter { it.statusSummary && it.modelAuthored }
+        assertEquals(listOf(prose.text, prose.text), summaries.map { it.content })
+        assertEquals(2, publications.mapNotNull { it.publicationId }.distinct().size)
+        assertTrue(publications.all { it.publicationId != original.publicationId })
+        assertEquals(original, prose)
+        assertEquals(publications.map { it.publicationId }, summaries.map { it.progressId })
+        assertEquals(2, summaries.mapNotNull { it.progressSequence }.distinct().size)
+        assertTrue(summaries.all { it.outputLineage == OutputLineage(OutputOrigin.MODEL_TEXT, "same-invocation") })
+        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityLines(timeline, "Review cancellation", active = true).filter { it.statusSummary && it.modelAuthored })
+    }
+
+    @Test fun separateProgressControllersKeepDistinctPublicationsWithoutChangingTheirInput() = runBlocking {
+        val prose = ApiState.ActivitySummary("Reader.kt records the response before returning.", modelAuthored = true, invocationId = "same-invocation", publicationId = "upstream-placeholder")
+        val original = prose.copy()
+        fun publish(id: String): ApiState.ActivitySummary {
+            var clock = 0L
+            val controller = dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress("Review cancellation") { clock }
+            controller.tick()
+            observeCapturedProgressSource(controller, id, "a".repeat(40))
+            assertEquals(null, controller.forward(prose))
+            clock = 45_000
+            return controller.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+        }
+        val first = publish("first-controller-source")
+        val second = publish("second-controller-source")
+        var timeline = emptyList<AssistantTimelineItem>()
+        flowOf(ApiState.GitHubRoundStarted, first, first, ApiState.GitHubRoundStarted, second, second, first, ApiState.Error("Interrupted"))
+            .collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+
+        val summaries = timeline.filter { it.statusSummary }
+        assertEquals(listOf(prose.text, prose.text), summaries.map { it.content })
+        assertEquals(2, summaries.mapNotNull { it.progressId }.distinct().size)
+        assertEquals(listOf(first.publicationId, second.publicationId), summaries.map { it.progressId })
+        assertTrue(listOf(first, second).all { it.publicationId != null && it.publicationId != original.publicationId })
+        assertEquals(original, prose)
+        assertEquals(listOf(1L, 2L), summaries.map { it.progressSequence })
+        assertTrue(summaries.all { it.outputLineage == OutputLineage(OutputOrigin.MODEL_TEXT, "same-invocation") })
+        assertEquals(summaries, dev.chungjungsoo.gptmobile.presentation.ui.chat.gitHubActivityLines(timeline, "Review cancellation", active = true).filter { it.statusSummary })
+    }
+
+    private fun observeCapturedProgressSource(progress: dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress, id: String, commit: String) {
+        fun json(value: String) = kotlinx.serialization.json.Json.parseToJsonElement(value) as kotlinx.serialization.json.JsonObject
+        val call = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall(id, "github_read__connection", json("""{"owner":"sample-owner","repo":"project","path":"src/Reader.kt","commit_sha":"$commit","start_line":1,"end_line":4}"""))
+        val upstream = dev.chungjungsoo.gptmobile.data.agent.AgentToolResult(
+            id,
+            dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json(json("""{"commit_sha":"$commit","items":[{"path":"src/Reader.kt","start_line":1,"end_line":4,"range_complete":true,"content":"The captured source records a response."}]}""")),
+            false,
+            executionReceipt = json("""{"read_source":"LIVE","parent_result_successful":true,"requires_reconciliation":false,"resource_context":{"owner":"sample-owner","repo":"project"}}""")
+        )
+        val result = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews().present("collector-source-test", "github_read", call.name, upstream, call.arguments)
+        assertTrue(progress.observeResult(call, result) != null)
+        progress.observe(ApiState.GatewayProgressChanged(dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress(event = "tool_completed", toolName = call.name, toolCallId = id, toolArgs = call.arguments)))
+    }
+
     @Test fun githubSummaryAndPreviewRemainSeparateAcrossStreamingAndFailure() = runBlocking {
         var timeline = emptyList<AssistantTimelineItem>()
         flowOf(

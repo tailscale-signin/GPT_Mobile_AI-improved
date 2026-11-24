@@ -2,11 +2,13 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import android.app.Application
 import androidx.room.Room
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase
@@ -316,7 +318,7 @@ class DiagnosticDatabaseSourceTest {
         val context = RuntimeEnvironment.getApplication()
         val destination = File(context.cacheDir, "latest-large-workspace-export").apply { mkdirs() }
         try {
-            val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Large workspace"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false, fullHistory = true) {}
+            val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Large workspace"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false, fullHistory = true, contentMode = DiagnosticContentMode.FULL_FORENSIC) {}
             ZipFile(result.file).use { zip ->
                 val names = zip.entries().asSequence().map { it.name }.toList()
                 assertTrue(names.indexOf("latest-state.jsonl") < names.indexOf("workspace.jsonl"))
@@ -741,6 +743,76 @@ class DiagnosticDatabaseSourceTest {
         assertTrue(omissions.isEmpty())
     }
 
+    @Test fun stagedToolResultsOmitOriginalContentAndRetainExecutionEvidenceByDefault() = runBlocking {
+        val runId = "tool-content-redaction"
+        val chat = createRun(runId, null)
+        val connectionLabel = "synthetic-private-connection-label"
+        val originals = listOf("synthetic-original-text", "synthetic-original-display", "synthetic-original-json", "synthetic-original-json-text")
+        val execution = buildJsonObject {
+            put("schema", "gptmobile.tool-execution.v1")
+            put("error_code", "GITHUB_PATH_IS_DIRECTORY")
+            put("phase", "PREFLIGHT_REJECTED")
+            put("dispatched", false)
+            put("requires_reconciliation", false)
+        }
+        val results = listOf(
+            ToolEventResultType.CHECKPOINT to ToolResultCheckpoint.encode(originals[0], ToolEventResultType.TEXT, "{\"record\":\"" + originals[1], executionReceipt = execution),
+            ToolEventResultType.CHECKPOINT to ToolResultCheckpoint.encode("{\"beneficiary\":\"" + originals[2] + "\"}", ToolEventResultType.JSON, "{\"beneficiary\":\"" + originals[2] + "\"}", executionReceipt = execution),
+            ToolEventResultType.JSON to "{\"beneficiary\":\"" + originals[2] + "\"}",
+            // The projector parses JSON-looking TEXT too; the declared type
+            // cannot turn this original output into structural evidence.
+            ToolEventResultType.TEXT to "{\"beneficiary\":\"" + originals[3] + "\"}"
+        )
+        results.forEachIndexed { index, (type, result) ->
+            database.agentPersistenceDao().insertToolEvent(
+                ToolEvent(
+                    "tool-content-event-" + index, runId, index, "tool-content-call-" + index, "synthetic-connection-uid", connectionLabel,
+                    "synthetic_tool", "synthetic_tool", "{}", result, type, if (index < 2) "FAILED" else "COMPLETED",
+                    isError = index < 2, startedAt = 1000L + index, completedAt = 2000L + index
+                )
+            )
+        }
+        val context = RuntimeEnvironment.getApplication()
+        val destination = File(context.cacheDir, "tool-content-export").apply { mkdirs() }
+        try {
+            val room = ChatRoomV2(id = chat, title = "Tool evidence")
+            val exported = writeStagedChatDiagnostics(context, destination, room, emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false, fullHistory = true) {}
+            ZipFile(exported.file).use { zip ->
+                for (entryName in listOf("latest-state.jsonl", "tool-receipts.jsonl")) {
+                    val rows = zip.getInputStream(zip.getEntry(entryName)).bufferedReader().use { reader ->
+                        reader.lineSequence().map { Json.parseToJsonElement(it).jsonObject }
+                            .filter { it["table"] == JsonPrimitive("tool_events") && it["fields"] is JsonObject }.toList()
+                    }
+                    assertEquals(entryName, results.size, rows.size)
+                    for (row in rows) {
+                        val fields = row.getValue("fields").jsonObject
+                        assertEquals(JsonPrimitive(DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED), fields["connection_name_snapshot"])
+                        assertTrue(fields.getValue("event_id").jsonPrimitive.content.startsWith("tool-content-event-"))
+                        assertEquals(JsonPrimitive("synthetic_tool"), fields["tool_name"])
+                        assertTrue(fields.getValue("completed_at").jsonPrimitive.long >= 2000)
+                        if (fields["result_type"] == JsonPrimitive(ToolEventResultType.CHECKPOINT)) {
+                            assertEquals(execution, fields.getValue("result").jsonObject["execution"])
+                        } else {
+                            assertEquals(JsonPrimitive(DiagnosticContentRedactor.PRIVATE_CONTENT_OMITTED), fields["result"])
+                        }
+                    }
+                }
+                val allRecords = zip.entries().asSequence().filterNot { it.isDirectory }.joinToString("\n") { entry ->
+                    zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                }
+                for (original in originals + connectionLabel) assertFalse(original, allRecords.contains(original))
+            }
+            assertEquals(exported.manifest, StagedDiagnosticCapture.verify(exported.file))
+            val forensic = writeStagedChatDiagnostics(context, destination, room, emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false, fullHistory = true, contentMode = DiagnosticContentMode.FULL_FORENSIC) {}
+            val originalRows = ZipFile(forensic.file).use { zip -> zip.getInputStream(zip.getEntry("tool-receipts.jsonl")).bufferedReader().use { it.readText() } }
+            for (original in originals + connectionLabel) assertTrue(original, originalRows.contains(original))
+            assertEquals(forensic.manifest, StagedDiagnosticCapture.verify(forensic.file))
+        } finally {
+            DiagnosticCaptureStorage.deleteChat(context, chat)
+            destination.deleteRecursively()
+        }
+    }
+
     @Test fun allReceiptsBeyondOneHundredHaveExplicitCoverageAndProjectedTimeline() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Selected")).toInt()
         val messages = listOf(
@@ -801,7 +873,7 @@ class DiagnosticDatabaseSourceTest {
         val context = RuntimeEnvironment.getApplication()
         val destination = File(context.cacheDir, "large-message-export").apply { mkdirs() }
         try {
-            val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Chunk verification"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false, fullHistory = true) {}
+            val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Chunk verification"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false, fullHistory = true, contentMode = DiagnosticContentMode.FULL_FORENSIC) {}
             val lines = ZipFile(result.file).use { zip ->
                 zip.getInputStream(zip.getEntry("conversation.jsonl")).bufferedReader().use { it.readLines() }
             }

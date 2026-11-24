@@ -1027,6 +1027,21 @@ class GitHubVerifiedSessionTest {
         assertEquals(2, fixture.book.snapshot().first.size)
     }
 
+    @Test fun fixtureAndExecutionPrerequisitesAreVisibleBeforeTheNextIntegrationToolCall() = runBlocking {
+        val fixture = GraphDiscoveryFixture()
+        val compact = fixture.observeInventoryAndRepository()
+        fixture.session.streamRound(compact, emptyList()).collect { event ->
+            if (event is ProviderEvent.ToolCall) {
+                assertTrue(fixture.progress.any { it.contains("existing exact approval interaction") })
+                assertTrue(fixture.progress.any { it.contains("actual run/job receipts at the selected SHA") })
+            }
+        }
+        val approval = fixture.book.fixtureApprovalPreflight()
+        assertEquals(JsonPrimitive("ASK"), approval["decision_mode"])
+        assertEquals(JsonPrimitive("CONDITIONAL"), approval["state"])
+        assertEquals(JsonPrimitive(false), approval["mutation_dispatched"])
+    }
+
     private class GraphDiscoveryFixture(
         graphName: String = "repository_graph__selected",
         authorizeGraph: Boolean = true,
@@ -1050,11 +1065,12 @@ class GitHubVerifiedSessionTest {
         val catalog = ProgressiveToolCatalog(definitions, task, initialNames = setOf(context.name), githubMode = true)
         val authorized = definitions + catalog.definition
         val book = GitHubEvidenceBook("task", "owner/repo", "main", authorized.map { it.name }.toSet(), now = { 1000L }, fixtureDecisionMode = GitHubDecisionMode.ASK)
+        val progress = mutableListOf<String>()
         val session = GitHubVerifiedSession(
             object : AgentProviderSession {
                 override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("Graph preparation uses existing authorized recipes")
             },
-            book, task, { 8192 }, { error("No verifier is needed to prepare the graph") }, {}, {}, now = { 1000L },
+            book, task, { 8192 }, { error("No verifier is needed to prepare the graph") }, {}, { progress += it }, now = { 1000L },
             authorizedTools = authorized, remainingToolCalls = { remaining }
         )
 

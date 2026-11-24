@@ -78,7 +78,11 @@ data class PrivacyProtectionReceipt(
     }
 }
 
-internal data class PrivateProtectedText(val text: String, val receipt: PrivacyProtectionReceipt)
+internal data class PrivateProtectedText(
+    val text: String,
+    val receipt: PrivacyProtectionReceipt,
+    val ordinaryModalProof: PrivateOrdinaryModalProof? = null
+)
 
 /** Revisions and edits cannot inherit evidence from a different body. */
 fun MessageV2.effectivePrivacyProtectedValues(): List<String> {

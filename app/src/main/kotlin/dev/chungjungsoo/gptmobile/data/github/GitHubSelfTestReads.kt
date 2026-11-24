@@ -19,37 +19,7 @@ internal object GitHubSelfTestReads {
      * or historical PR may demonstrate a read capability, but never becomes a write target. */
     fun pullNumber(receipts: List<JsonObject>): JsonPrimitive? {
         val retired = GitHubSelfTestFixtures.retiredReadPredicate(receipts.mapIndexed { index, receipt -> index.toString() to receipt }.toMap())
-        return pullSelector(receipts.filterNot(retired))?.get("number") as? JsonPrimitive
-    }
-
-    private fun pullSelector(receipts: List<JsonObject>): JsonObject? {
-        val eligible = receipts.asReversed().filter {
-            it["trusted"] == JsonPrimitive(true) &&
-                it["success"] == JsonPrimitive(true) &&
-                it["verification_eligible"] != JsonPrimitive(false) &&
-                it["repository_role"] != JsonPrimitive("READ_SOURCE") &&
-                it.text("tool").githubOperationFamily() == "github_pr"
-        }
-        fun number(value: JsonElement?): JsonPrimitive? = (value as? JsonPrimitive)?.contentOrNull
-            ?.takeIf { it.matches(Regex("[1-9][0-9]{0,9}")) }?.toIntOrNull()?.let(::JsonPrimitive)
-        val rows = eligible.flatMap { receipt ->
-            val root = GitHubInventoryObservation.planningRoot(receipt) ?: return@flatMap emptyList()
-            if ((receipt["arguments"] as? JsonObject)?.text("action") != "list") return@flatMap emptyList()
-            ((root["pull_requests"] ?: root["items"]) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-        }
-        return (rows.filter { it.text("state") == "open" } + rows).firstNotNullOfOrNull { row -> number(row["number"])?.let { JsonObject(row + ("number" to it)) } }
-            ?: eligible.firstNotNullOfOrNull { receipt ->
-                val args = receipt["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
-                if (args.text("action") !in setOf("headers", "context", "comments", "reviews", "threads", "create")) return@firstNotNullOfOrNull null
-                val root = GitHubInventoryObservation.planningRoot(receipt)
-                val pull = root?.get("pull_request") as? JsonObject
-                val returned = number(pull?.get("number") ?: root?.get("pull_number") ?: root?.get("number"))
-                val requested = number(args["pull_number"])
-                if (returned != null && requested != null && requested != returned) return@firstNotNullOfOrNull null
-                (returned ?: requested)?.let { id ->
-                    JsonObject((pull ?: root).orEmpty().filterKeys { it in setOf("head", "head_sha", "state") } + ("number" to id))
-                }
-            }
+        return GitHubSelfTestPullReads.select(receipts.filterNot(retired))?.row?.get("number") as? JsonPrimitive
     }
 
     fun next(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): ProviderEvent.ToolCall? = available(tools, receipts).firstOrNull()
@@ -106,7 +76,9 @@ internal object GitHubSelfTestReads {
         val job = workflowJobs.job
         val needsJobDependency = GitHubSelfTestWorkflowJobs.needsJobDependency(tools, observations)
         val jobsRun = if (needsJobDependency) workflowJobs.nextRun else run
-        val pr = pullSelector(observations)
+        val pull = GitHubSelfTestPullReads.select(observations)
+        val pr = pull?.row
+        ready += GitHubSelfTestPullReads.recover(tools, observations, pull)
         val issue = records("github_issue", "list", "items", "issues").firstOrNull { "pull_request" !in it }
         val release = records("github_release", "list", "items", "releases").firstOrNull()
             ?: roots("github_release", "status").firstNotNullOfOrNull { root ->
@@ -114,8 +86,8 @@ internal object GitHubSelfTestReads {
                     ?: root.takeIf { it["published"] == JsonPrimitive(true) && it["tag_name"] is JsonPrimitive }
             }
         val tag = records("github_release", "tags", "items", "tags").firstOrNull()
-        val paths = records("github_search", "search", "matches", "results", "files", "items")
-        val path = paths.firstNotNullOfOrNull { it["path"] as? JsonPrimitive }
+        val path = GitHubInventoryObservation.searchPath(observations)
+        if (path == null) legacySearchSource(tools, observations)?.let { ready += it }
         val recipes = buildList<Pair<String, JsonObject>> {
             fun recipe(tool: String, action: String, vararg fields: Pair<String, JsonElement?>) {
                 add(
@@ -211,7 +183,9 @@ internal object GitHubSelfTestReads {
             issue?.get("number")?.let { id -> listOf("headers", "context", "comments", "history").forEach { recipe("github_issue", it, "issue_number" to id) } }
         }
         for ((name, recipe) in recipes) {
-            val tool = githubFamilyTools(tools, name).firstOrNull { valid(it, recipe) } ?: continue
+            if (name == "github_pr" && ready.any { it.name.githubOperationFamily() == name && it.arguments["action"] == recipe["action"] && it.arguments["pull_number"] == recipe["pull_number"] }) continue
+            val pullRead = name == "github_pr" && recipe.text("action") in setOf("headers", "context", "comments", "reviews", "threads")
+            val tool = githubFamilyTools(tools, name).firstOrNull { valid(it, recipe) && (!pullRead || it.name == pull?.receipt?.text("tool")) } ?: continue
             // A live-required capability should make its first admissible read
             // live. Re-reading every cached inventory page wastes the fixture
             // and verification budget without increasing capability coverage.
@@ -220,7 +194,18 @@ internal object GitHubSelfTestReads {
             } else {
                 recipe
             }
-            val prior = observations.filter { tool.name.githubReadFacadeMatches(it.text("tool")) && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }
+            val prior = observations.filter {
+                val previous = it["arguments"] as? JsonObject
+                tool.name.githubReadFacadeMatches(it.text("tool")) &&
+                    previous?.text("action") == args.text("action") &&
+                    (
+                        !pullRead ||
+                            previous["pull_number"] == args["pull_number"] &&
+                            it["binding"] == pull?.receipt?.get("binding") &&
+                            it["repository"] == pull?.receipt?.get("repository") &&
+                            (it["success"] != JsonPrimitive(true) || args["expected_head_sha"] !is JsonPrimitive || GitHubSelfTestPullReads.observedAt(it, args["expected_head_sha"] as JsonPrimitive))
+                        )
+            }
             val legacyEmptyTasks = name == "github_pr" &&
                 args.text("action") == "copilot_tasks" &&
                 prior.singleOrNull()?.let { failed ->
@@ -279,11 +264,45 @@ internal object GitHubSelfTestReads {
     internal fun valid(tool: AgentToolDefinition, args: JsonObject): Boolean = ToolArgumentValidator.errors(args, tool.inputSchema).isEmpty() &&
         (args.keys == setOf("view_cursor") || GitHubOperationArguments.errors(tool.name.githubOperationFamily(), args).isEmpty())
 
+    /** Reacquire one lost selector under the existing budget; no missing source row is synthesized. */
+    private fun legacySearchSource(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): ProviderEvent.ToolCall? {
+        val selected = GitHubSelfTestPrerequisites.selected(receipts) ?: return null
+        val revision = GitHubInventoryQuery.commitSha(selected.head) ?: return null
+        for (receipt in GitHubInventoryObservation.searchReceipts(receipts).asReversed()) {
+            val inventory = receipt["inventory_observation"] as? JsonObject ?: continue
+            if (inventory["schema"] != JsonPrimitive("github.inventory-observation.v1") ||
+                ((inventory["fetched"] as? JsonPrimitive)?.longOrNull ?: 0) <= 0 ||
+                (receipt["result"] as? JsonObject)?.get("observationTruncated") != JsonPrimitive(true) &&
+                inventory["planning_records"] !is JsonArray
+            ) {
+                continue
+            }
+            if (GitHubActionIdentity.digest(receipt) == null) continue
+            val name = receipt.text("tool")
+            val original = receipt["arguments"] as? JsonObject ?: continue
+            val tool = tools.singleOrNull { it.modelVisible && it.name == name } ?: continue
+            val id = "search-source-" + GitHubEvidenceBook.digest("${receipt.text("binding")}|${receipt.text("repository")}|$name|$revision").take(24)
+            if (selected.receipts.any { it.text("call_id") == id || it.text("call_id").startsWith("$id-") }) continue
+            val later = selected.receipts.drop(selected.receipts.indexOf(receipt) + 1).filter { it.text("tool") == name && (it["arguments"] as? JsonObject)?.text("action") == "search" }
+            if (later.any { it["success"] != JsonPrimitive(true) || JsonObject((it["arguments"] as JsonObject) - "verify_live") == JsonObject(original - "verify_live") }) continue
+            val arguments = JsonObject(
+                original + buildJsonObject {
+                    put("commit_sha", revision)
+                    if ((tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true) put("verify_live", true)
+                }
+            )
+            if (dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(name, arguments) && valid(tool, arguments)) return ProviderEvent.ToolCall(id, name, arguments)
+        }
+        return null
+    }
+
     fun isDependency(call: ProviderEvent.ToolCall): Boolean = priority(call) <= 1
 
     private fun priority(call: ProviderEvent.ToolCall): Int = when {
         call.callId.startsWith("policy-read-") -> 0
+        call.callId.startsWith("pr-head-refresh-") || call.callId.startsWith("pr-head-retry-") -> 0
         call.callId.startsWith("inventory-source-") -> 0
+        call.callId.startsWith("search-source-") -> 0
         call.callId.startsWith("graph-reconciliation-") -> 0
         call.name.githubOperationFamily() == "github_issue" && call.arguments.text("action") == "list" -> 1
         call.name.githubOperationFamily() == "github_release" && call.arguments.text("action") in setOf("tags", "list") -> 1

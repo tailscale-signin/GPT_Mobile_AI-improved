@@ -88,6 +88,37 @@ class ChatMethodSizeTest(unittest.TestCase):
     def report(self, *dexes):
         return SIZE.report_apk(self.archive(*dexes), COMMIT)
 
+    def test_provider_transport_measures_both_entry_points_and_every_extracted_continuation(self):
+        for owner, method in (
+            (SIZE.PROVIDER_API, 'streamChatCompletion'),
+            (SIZE.PROVIDER_TRANSPORT + 'APIImpl$streamChatCompletion$1;', 'invokeSuspend'),
+            (SIZE.PROVIDER_TRANSPORT + 'APIImpl$ChatCompletionStream;', 'readSseChatResponse'),
+            (SIZE.PROVIDER_TRANSPORT + 'APIImpl$ChatCompletionStream$run$1;', 'invokeSuspend'),
+            (SIZE.PROVIDER_TRANSPORT + 'APIImpl$streamResponses$1;', 'invokeSuspend'),
+            (SIZE.PROVIDER_TRANSPORT + 'FutureExtractedPhase;', 'process'),
+        ):
+            with self.subTest(owner=owner, method=method):
+                definitions = primary_definitions()
+                definitions[SIZE.PROVIDER_API] = {'streamChatCompletion': 20, 'streamResponses': 20}
+                definitions.setdefault(owner, {})[method] = SIZE.ART_CODE_UNIT_LIMIT
+                report = SIZE.report_apk(self.archive(executable_fixture(definitions)), COMMIT,
+                                         require_provider_transport=True)
+                self.assertEqual('FAIL', report['status'])
+                self.assertEqual([(owner, method)], [(row['class'], row['method']) for row in report['oversized_methods']])
+                definitions[owner][method] -= 1
+                report = SIZE.report_apk(self.archive(executable_fixture(definitions)), COMMIT,
+                                         require_provider_transport=True)
+                self.assertEqual('PASS', report['status'], report)
+
+    def test_provider_gate_requires_actual_api_definitions_instead_of_only_wrappers(self):
+        definitions = primary_definitions()
+        definitions[SIZE.PROVIDER_TRANSPORT + 'APIImpl$streamChatCompletion$1;'] = {'invokeSuspend': 20}
+        report = SIZE.report_apk(self.archive(executable_fixture(definitions)), COMMIT,
+                                 require_provider_transport=True)
+        self.assertEqual('FAIL', report['status'])
+        self.assertEqual(2, len(report['errors']))
+        self.assertTrue(all('Missing actual OpenAI' in message for message in report['errors']))
+
     def test_gateway_recovery_entry_and_suspended_bodies_are_measured(self):
         owner = SIZE.GATEWAY_COORDINATOR + ';'
         continuation = SIZE.GATEWAY_COORDINATOR + '$recoverSavedGatewayRun$1;'

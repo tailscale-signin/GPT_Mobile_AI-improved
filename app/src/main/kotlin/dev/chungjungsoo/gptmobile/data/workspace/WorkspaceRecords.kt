@@ -65,6 +65,9 @@ interface WorkspaceDao {
     @Query("SELECT * FROM workspace_records WHERE kind = 'github_engineering_memory' AND runId = :scope AND id GLOB 'engineering:*:decision:*' ORDER BY updatedAt DESC LIMIT 64")
     suspend fun engineeringDecisions(scope: String): List<WorkspaceRecord>
 
+    @Query("SELECT * FROM workspace_records WHERE kind = 'github_engineering_memory' AND runId = :scope AND chatId = :chatId AND id GLOB 'engineering:*:coverage:*' ORDER BY updatedAt DESC, rowid DESC LIMIT 8")
+    suspend fun engineeringCheckpoints(scope: String, chatId: Int): List<WorkspaceRecord>
+
     @Query("SELECT * FROM workspace_records WHERE chatId = :chatId AND kind = 'github_checks' ORDER BY updatedAt DESC LIMIT 20")
     fun observeGitHubChecks(chatId: Int): Flow<List<WorkspaceRecord>>
 

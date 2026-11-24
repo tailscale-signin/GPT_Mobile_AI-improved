@@ -5,6 +5,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePerformanceHistoryTest {
+    @Test fun last64FramePercentilesDoNotClaimTheWholeObservedPopulation() {
+        val history = VoicePerformanceHistory()
+        repeat(6295) { index -> history.observe("frame_duration", if (index < 6231) 400 else 5, publish = false) }
+        history.framesDropped(3)
+        history.framesDropped(-1)
+        history.publish()
+        val snapshot = history.snapshots.value
+        val frame = snapshot.rows.single()
+        assertEquals(6295L, snapshot.sampledFrames)
+        assertEquals(3L, snapshot.droppedFrameSamples)
+        assertEquals(64, frame.count)
+        assertEquals(6295L, frame.observedSamples)
+        assertEquals(5L, frame.p95Ms)
+        history.clear()
+        assertEquals(VoicePerformanceSnapshot(), history.snapshots.value)
+        history.observe("frame_duration", 9)
+        assertEquals(1L, history.snapshots.value.rows.single().observedSamples)
+    }
+
     @Test fun percentilesKeepColdAndWarmEnginesSeparateAndBoundSamples() {
         val history = VoicePerformanceHistory(8)
         (1L..12).forEach { history.observe("text_to_audio", it * 10, "KOKORO", true) }
@@ -12,6 +31,7 @@ class VoicePerformanceHistoryTest {
         val rows = history.snapshots.value.rows
         val warm = rows.single { it.warm == true }
         assertEquals(8, warm.count)
+        assertEquals(12L, warm.observedSamples)
         assertEquals(80L, warm.p50Ms)
         assertEquals(120L, warm.p95Ms)
         assertEquals(900L, rows.single { it.warm == false }.p50Ms)

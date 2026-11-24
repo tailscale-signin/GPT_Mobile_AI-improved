@@ -195,8 +195,24 @@ internal object GitHubEvidencePolicy {
             }
             return verify(claim, receipts, now, epoch, projected, allowHistorical = historicalReview(task))
         }
+        val engineeringTask = GitHubRequestCompletion.requiresRepositoryEvidence(task)
         val renderedLines = claims.map { raw ->
             val claim = raw as? JsonObject ?: error("Malformed claim")
+            if (engineeringTask &&
+                claim.string("kind") in setOf("inferred", "recommendation", "not_measured") &&
+                GitHubAnswerPresentation.runtimeClaim(claim.string("text") + " " + claim.string("subject")) &&
+                !(
+                    claim.string("kind") in setOf("inferred", "recommendation") &&
+                        GitHubAnswerPresentation.repositoryRuntimeDiscussion(claim.string("text"))
+                    )
+            ) {
+                checked += buildJsonObject {
+                    put("kind", "not_measured")
+                    put("status", "NOT_MEASURED")
+                    put("reason", "RUNTIME_STATE_REQUIRES_LEDGER")
+                }
+                return@map ""
+            }
             when (claim.string("kind")) {
                 "calculation" -> {
                     val result = JsonObject(GitHubVerifiedCalculation.evaluate(claim, ::verifySelected) + ("kind" to JsonPrimitive("calculation"))).also { checked += it }
@@ -246,7 +262,22 @@ internal object GitHubEvidencePolicy {
                             put("text", safe(interpretation))
                             put("sources", JsonArray(results))
                         }
-                        if (claim.string("kind") == "recommendation") "- **Recommendation (inference):** ${safe(interpretation)}" else "- **Interpretation:** ${safe(interpretation)} (not a confirmed diagnosis)"
+                        val summary = if (claim.string("kind") == "recommendation") "- **Recommendation (inference):** ${safe(interpretation)}" else "- **Interpretation:** ${safe(interpretation)} (not a confirmed diagnosis)"
+                        val sources = results.distinctBy { it["receipt_id"] to it["pointer"] }
+                        val references = sources.take(2).map { verified ->
+                            val receipt = receipts.getValue(verified.string("receipt_id"))
+                            val pointer = verified.string("pointer")
+                            // Source excerpts may contain entire functions. Cite their range, never duplicate the payload in the recommendation.
+                            val excerpt = if ("#L" in pointer) GitHubEvidenceExcerpts.collect(receipt)[pointer] else null
+                            val citation = if (excerpt != null) {
+                                "${safe(excerpt.string("resource"))} lines ${excerpt.string("start_line")}–${excerpt.string("end_line")} at ${safe(excerpt.string("revision")).take(12)}"
+                            } else {
+                                val field = label(pointer, receipt)
+                                if ((verified["observed"] as? JsonPrimitive)?.content.orEmpty().length in 1..96) "$field · ${linkedValue(verified, receipts)}" else field
+                            }
+                            "$citation (${asOf(verified["observed_at_ms"])})"
+                        }
+                        "$summary\n  Supported by ${references.joinToString(" · ")}" + if (sources.size > 2) " and ${sources.size - 2} further observations." else "."
                     }
                 }
                 "not_measured" -> {
@@ -310,7 +341,8 @@ internal object GitHubEvidencePolicy {
         // Baseline selection belongs to the durable review state. An extractor
         // cannot reopen a completed decision because its optional context omitted it.
         val questions = if (reviewState == null) {
-            (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.take(4)
+            (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                .filterNot { engineeringTask && GitHubAnswerPresentation.runtimeClaim(it) && !GitHubAnswerPresentation.repositoryRuntimeDiscussion(it) }.take(4)
         } else if (reviewState["user_input_required"] == JsonPrimitive(true)) {
             listOf(reviewState.string("detail"))
         } else {

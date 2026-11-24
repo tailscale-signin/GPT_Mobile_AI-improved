@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 internal typealias SpokenRangeObserver = (Int, String, IntRange) -> Unit
 
-internal data class VoicePcmCue(val frame: Long, val segment: Int, val text: String, val range: IntRange, val endFrame: Long = frame)
+internal data class VoicePcmCue(val frame: Long, val segment: Int, val text: String, val range: IntRange, val endFrame: Long = frame, val provenance: VoiceWordCueProvenance = VoiceWordCueProvenance.NATIVE_DURATION)
 
 /** The pinned pack produces 600 PCM samples per predicted duration unit, at the requested speed. */
 internal fun kokoroWordFrames(durations: LongArray, wordTokens: IntArray, wordCount: Int, samples: Int): IntArray {
@@ -20,14 +20,69 @@ internal fun kokoroWordFrames(durations: LongArray, wordTokens: IntArray, wordCo
     }
 }
 
-/** The synthesis worker registers a whole phrase before the output worker can consume its PCM. */
+/** The synthesis worker registers known cue timing before the output worker can consume its PCM. */
 internal class VoicePcmCaptions {
     private val pending = ArrayDeque<VoicePcmCue>()
     private var produced = 0L
     private var current: VoicePcmCue? = null
     private var lastConsumed = 0L
+    private var openStreamCue: Pair<Long, VoicePcmCue>? = null
+    private var lastStreamEnd = 0L
+    private var currentRevised = false
+
+    @Synchronized fun streamStart(): Long = produced
+
+    /** Register cue metadata before accepting each PCM chunk, without buffering an entire utterance. */
+    @Synchronized fun appendStream(segment: Int, text: String, streamStart: Long, cues: List<VoiceStreamCue>, frames: Int) {
+        require(streamStart in 0..produced && frames >= 0)
+        for (cue in cues) {
+            require(cue.range.isEmpty() || cue.range.first >= 0 && cue.range.last < text.length)
+            require(cue.startFrame >= 0 && cue.endFrame > cue.startFrame)
+            if (!cue.range.isEmpty()) {
+                val mapped = VoicePcmCue(streamStart + cue.startFrame, segment, text, cue.range, streamStart + cue.endFrame, cue.provenance)
+                val open = openStreamCue
+                if (!cue.finalEnd || open != null) require(mapped.endFrame <= produced + frames) { "STREAM_CUE_UNOBSERVED" }
+                val retained = if (open == null) {
+                    require(mapped.frame >= lastStreamEnd) { "STREAM_CUE_OVERLAP" }
+                    pending.addLast(mapped)
+                    mapped
+                } else {
+                    val previous = open.second
+                    require(
+                        open.first == streamStart &&
+                            previous.frame == mapped.frame &&
+                            previous.segment == mapped.segment &&
+                            previous.text == mapped.text &&
+                            previous.range == mapped.range &&
+                            previous.provenance == mapped.provenance &&
+                            mapped.endFrame >= previous.endFrame
+                    ) { "STREAM_CUE_REVISION" }
+                    if (mapped == previous) {
+                        previous
+                    } else {
+                        // An open cue is always the last queued cue or the current one.
+                        // Replace it in place, rather than retaining one event per callback.
+                        if (pending.lastOrNull() === previous) {
+                            pending.removeLast()
+                            pending.addLast(mapped)
+                        } else {
+                            check(current === previous && pending.isEmpty()) { "STREAM_CUE_STATE" }
+                            current = mapped
+                            currentRevised = true
+                        }
+                        mapped
+                    }
+                }
+                openStreamCue = if (cue.finalEnd) null else streamStart to retained
+                lastStreamEnd = retained.endFrame
+                if (cue.finalEnd) pending.addLast(VoicePcmCue(retained.endFrame, segment, text, IntRange.EMPTY, provenance = cue.provenance))
+            }
+        }
+        produced += frames
+    }
 
     @Synchronized fun append(segment: Int, text: String, ranges: List<IntRange>, boundaries: IntArray, frames: Int) {
+        require(openStreamCue == null)
         require(boundaries.size == ranges.size * 2)
         require(frames >= 0 && boundaries.all { it in 0..frames } && boundaries.asSequence().zipWithNext().all { (a, b) -> a <= b })
         var word = 0
@@ -45,12 +100,32 @@ internal class VoicePcmCaptions {
             }
         }
         produced += frames
+        lastStreamEnd = produced
     }
 
-    @Synchronized fun consumed(frames: Long, advancing: Boolean = true): VoicePcmCue? {
-        if (frames <= 0 || !advancing) return null
+    @Synchronized fun consumed(frames: Long, advancing: Boolean = true, completedThrough: Long? = null): VoicePcmCue? {
+        if (frames <= 0) return null
+        if (!advancing) {
+            if (completedThrough == null) return null
+            val active = current?.takeUnless { it.range.isEmpty() } ?: return null
+            val end = pending.firstOrNull()?.takeIf {
+                it.range.isEmpty() &&
+                    it.frame == active.endFrame &&
+                    it.frame <= minOf(frames, lastConsumed, completedThrough) &&
+                    it.segment == active.segment &&
+                    it.text == active.text &&
+                    it.provenance == active.provenance
+            } ?: return null
+            // A zero-output tail can finalize the already-presented word during refill.
+            // Clear only that word; neither the clock nor a following word may advance.
+            pending.removeFirst()
+            current = end
+            currentRevised = false
+            return end
+        }
         lastConsumed = maxOf(lastConsumed, frames)
-        var cue: VoicePcmCue? = null
+        var cue: VoicePcmCue? = current.takeIf { currentRevised }
+        currentRevised = false
         while (pending.isNotEmpty() && pending.first().frame <= lastConsumed) cue = pending.removeFirst()
         if (cue != null) current = cue
         return cue

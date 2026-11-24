@@ -59,7 +59,7 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
             val capturing = state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING) || state.hasDraft
             val response = !capturing && state.reply.isNotBlank()
             val text = if (response) {
-                state.playbackCaption ?: VoiceSpeechText.project(state.reply, final = state.replyComplete || !state.awaitingReply, includeDetails = state.readingDetails)
+                state.playbackCaption ?: VoiceSpeechText.forPlayback(state.reply, final = state.replyComplete || !state.awaitingReply, includeDetails = state.readingDetails)
             } else {
                 state.transcript
             }

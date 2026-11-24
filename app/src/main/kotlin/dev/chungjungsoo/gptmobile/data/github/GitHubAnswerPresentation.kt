@@ -1,7 +1,64 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
+
 /** Presentation is selected from the user's task; factual values still come only from verified receipts. */
 internal object GitHubAnswerPresentation {
+    private val runtimeSubject = Regex("""(?i)\b(?:tool[- ]?(?:call[s]?|budget|allowance|limit|access|availability)|(?:call|execution|current|remaining|request) (?:budget|allowance)|(?:tool|write|branch|commit|test[- ]execution|pull[- ]request) (?:tools?|capabilit(?:y|ies)|permissions?|access)|(?:available|remaining|more|no) (?:tool )?calls|(?:tools?|capabilities|permissions?) (?:are |were |remain )?(?:unavailable|missing|disabled|exhausted)|(?:environment|session|workspace) (?:that |which )?(?:with|without|lacks?|has|supports?|cannot)|(?:cannot|can't|unable to) (?:write|run tests|create (?:a )?branch|open (?:a )?pull request))\b""")
+    fun runtimeClaim(text: String): Boolean = runtimeSubject.containsMatchIn(text)
+
+    private val repositoryRuntimeOwner = Regex("""(?i)\b(?:(?:app(?:lication)?|project|repository|codebase|workflow|pipeline)['’]s\s+(?:(?:configured|maximum|default|effective|remaining)\s+)*|(?:ci|workflow|pipeline|build|test)(?:\s+(?:runner|job|process|sandbox))?(?:['’]s)?\s+)$""")
+    private val repositoryRuntimeRelation = Regex("""(?i)\b(?:app(?:lication)?|project|repository|codebase|ci|workflow|pipeline)(?:['’]s\s+(?:[\p{L}_][\p{L}\p{N}_-]*\s+){1,5}|\s+)(?:(?:should|could|can|must|will)\s+)?(?:derive|report|show|display|expose|provide|preserve|define|configure|track|limit|enforce|use|require|support)s?\s+(?:(?:the|its|a|an|configured|remaining|available|maximum|effective|allowed|default)\s+)*$""")
+    private val currentExecutionSubject = Regex("""(?i)\b(?:(?:i|we) (?:(?:now|still|currently) )?(?:am|are|have|lack|need|cannot|can't|can|must|used|exhausted)|(?:can|could|should|may|must|will) (?:i|we)|(?:my|our) (?:tool[- ]?calls?|budget|allowance|permissions?|capabilities|environment|session|workspace)|(?:this|current|active) (?:agent|assistant|session|workspace|environment|run|round)(?:['’]s)?)\b""")
+    private val permissionHandoff = Regex("""(?i)\b(?:changes?|work|task|implementation|fix(?:es)?)\b.*\b(?:performed|done|continued|resumed|moved|switched)\b.*\b(?:environment|workspace|session)\b""")
+
+    /** Topic scope does not verify a claim; repository interpretations still need verified sources. */
+    fun repositoryRuntimeDiscussion(text: String): Boolean {
+        val clauses = text.split(Regex("""(?<=[.!?;])\s+|\r?\n"""))
+            .filter(::runtimeClaim)
+        return clauses.isNotEmpty() &&
+            clauses.all { clause ->
+                val runtimeStart = requireNotNull(runtimeSubject.find(clause)).range.first
+                val subject = clause.substring(0, runtimeStart)
+                (repositoryRuntimeOwner.containsMatchIn(subject) || repositoryRuntimeRelation.containsMatchIn(subject)) &&
+                    !currentExecutionSubject.containsMatchIn(clause) &&
+                    !permissionHandoff.containsMatchIn(clause)
+            }
+    }
+
+    fun resources(budget: JsonObject, authorized: List<AgentToolDefinition>, advertised: List<AgentToolDefinition>): JsonObject = buildJsonObject {
+        for (field in listOf("remaining_calls", "effective_call_limit", "used_calls", "remaining_source", "verification_reserve")) {
+            budget[field]?.let { put(field, it) }
+        }
+        fun families(definitions: List<AgentToolDefinition>) = definitions.asSequence().filter { it.modelVisible }
+            .map { it.name.substringBefore("__") }.filter { it.startsWith("github_") || it in setOf("github", "repository_workspace", "repository_graph", GitHubAuthorizedCatalog.TOOL) }
+            .distinct().sorted().take(64).map(::JsonPrimitive).toList()
+        put("authorized_tool_families", JsonArray(families(authorized)))
+        put("advertised_tool_families", JsonArray(families(advertised)))
+    }
+
+    fun resourceNotice(resources: JsonObject): String = buildString {
+        val remaining = (resources["remaining_calls"] as? JsonPrimitive)?.intOrNull
+        val limit = (resources["effective_call_limit"] as? JsonPrimitive)?.intOrNull
+        val available = (resources["advertised_tool_families"] as? JsonArray).orEmpty()
+        val catalog = (resources["authorized_tool_families"] as? JsonArray).orEmpty()
+        if (remaining != null) {
+            append("\n\nTool calls remaining: ").append(remaining)
+            if (limit != null) append(" of ").append(limit)
+            append('.')
+        }
+        fun names(values: List<kotlinx.serialization.json.JsonElement>) = values.joinToString(", ") { (it as JsonPrimitive).content }
+        if (available.isNotEmpty()) append("\n\nTools offered in this round: ").append(names(available)).append('.')
+        val discoverable = catalog.filterNot { it in available }
+        if (discoverable.isNotEmpty()) append("\n\nOther tools in the authorized catalog: ").append(names(discoverable)).append('.')
+    }
+
     fun title(task: String): String {
         val text = task.lowercase()
         return when {
@@ -17,13 +74,14 @@ internal object GitHubAnswerPresentation {
     fun render(task: String, facts: List<String>, notes: List<String>, excerpts: List<String>, questions: List<String>): String = buildString {
         append("# ").append(title(task)).append("\n\n")
         // Explanations appear before supporting details. Do not turn the API's object structure into the answer.
-        val interpretations = notes.filter { it.startsWith("- **Interpretation:") }
-        val limits = notes - interpretations.toSet()
+        val interpretations = notes.filter { it.startsWith("- **Interpretation:") }.distinct()
+        val recommendations = notes.filter { it.startsWith("- **Recommendation (inference):") }.distinct()
+        val limits = notes - interpretations.toSet() - recommendations.toSet()
         if (interpretations.isNotEmpty()) {
             append(interpretations.first().removePrefix("- ")).append('\n')
             if (interpretations.size > 1) append("\n## Findings\n\n").append(interpretations.drop(1).joinToString("\n\n")).append('\n')
-        } else {
-            append(if (facts.isEmpty() && excerpts.isEmpty()) "The available evidence does not yet establish the requested result.\n" else "Current observations are listed below; unresolved work is identified separately.\n")
+        } else if (facts.isEmpty() && excerpts.isEmpty() && recommendations.isEmpty() && limits.isEmpty()) {
+            append("The available evidence does not yet establish the requested result.\n")
         }
         val usefulFacts = if (title(task) == "Investigation findings") facts.filterNot { it.substringBefore(" |", "").endsWith(" · Path") || it.contains(" · Path |") } else facts
         if (usefulFacts.isNotEmpty()) {
@@ -48,6 +106,7 @@ internal object GitHubAnswerPresentation {
             }
         }
         if (excerpts.isNotEmpty()) append("\n## Source evidence\n\n").append(excerpts.distinct().joinToString("\n\n")).append('\n')
+        if (recommendations.isNotEmpty()) append("\n## Recommendations\n\n").append(recommendations.joinToString("\n")).append('\n')
         if (limits.isNotEmpty()) append("\n## Open items\n\n").append(limits.distinct().joinToString("\n")).append('\n')
         if (questions.isNotEmpty()) append("\n## Next steps\n\n").append(questions.distinct().joinToString("\n") { "- $it" })
     }

@@ -1,6 +1,8 @@
 name: Minified native memory smoke
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main, feat/unified-reliability-v2-2026-10-13]
     paths:
@@ -16,6 +18,9 @@ on:
       - 'app/native-smoke-test-rules.pro'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/memory/**'
       - 'app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/memory/**'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/**'
+      - 'app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/voice/**'
+      - 'local-kokoro-runtime/**'
       - 'gradle/**'
       - 'scripts/check_mediapipe_jni.py'
       - 'scripts/check_objectbox_jni.py'
@@ -25,6 +30,10 @@ on:
       - 'scripts/tests/test_objectbox_jni.py'
       - 'scripts/tests/test_native_memory_smoke.py'
       - 'scripts/run_native_memory_smoke.sh'
+      - 'scripts/run_mediapipe_android_smoke.sh'
+      - 'scripts/check_mediapipe_android_smoke.py'
+      - 'scripts/tests/test_mediapipe_android_smoke.py'
+      - 'scripts/smoke_mediapipe_speech.py'
       - '.github/workflows/native-memory-smoke.yml'
   workflow_dispatch:
 
@@ -118,7 +127,38 @@ jobs:
       - name: Verify the minified native package
         run: |
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/nativeSmoke/*.apk
+          python3 scripts/check_mediapipe_jni.py app/build/outputs/apk/nativeSmoke/*.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/nativeSmoke/*.apk
+      - name: Stage one verified APK pair for every speech engine
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, shutil, subprocess
+          root = pathlib.Path('app/build/outputs/apk')
+          output = pathlib.Path('app/build/native-smoke-apks')
+          output.mkdir(parents=True, exist_ok=True)
+          selected = {
+              'app-x86_64.apk': list(root.glob('nativeSmoke/*x86_64*.apk')),
+              'test.apk': list(root.glob('androidTest/nativeSmoke/*.apk')),
+          }
+          manifest = {'schema': 'native-smoke-apks-v1', 'source_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'apks': {}}
+          for name, candidates in selected.items():
+              if len(candidates) != 1:
+                  raise SystemExit(f'Expected one {name}, found {len(candidates)}')
+              destination = output / name
+              shutil.copyfile(candidates[0], destination)
+              with destination.open('rb') as source:
+                  digest = hashlib.file_digest(source, 'sha256').hexdigest()
+              manifest['apks'][name] = {'sha256': digest, 'bytes': destination.stat().st_size}
+          (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
+      - name: Share the single minified app and instrumentation build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: minified-native-smoke-apks
+          path: app/build/native-smoke-apks/
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
       - name: Exercise encoder, vector index and GGUF CPU inference
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -143,3 +183,60 @@ jobs:
             native-smoke-production-memory.log
             ${{ runner.temp }}/native-smoke-production-gc.log*
           if-no-files-found: ignore
+
+  speech:
+    name: Android speech JNI (${{ matrix.engine }})
+    needs: smoke
+    runs-on: ubuntu-latest
+    # Six minutes for the bounded model provisioner, five for emulator boot,
+    # and six for the 300-second named test plus instrumentation teardown.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [kokoro, phonon, pocket]
+    env:
+      MEDIAPIPE_SMOKE_EVIDENCE_DIR: app/build/native-speech-smoke/${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set speech smoke staging paths
+        run: |
+          printf 'MEDIAPIPE_SMOKE_MODEL_DIR=%s/mediapipe-speech-models\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'MEDIAPIPE_SMOKE_APK_DIR=%s/native-smoke-apks\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Retrieve the verified APKs from this workflow run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: minified-native-smoke-apks
+          path: ${{ env.MEDIAPIPE_SMOKE_APK_DIR }}
+          digest-mismatch: error
+      - name: Provision the exact catalog checkpoint outside Android
+        timeout-minutes: 6
+        run: >-
+          python3 scripts/smoke_mediapipe_speech.py --engine '${{ matrix.engine }}'
+          --download-only --model-dir "$MEDIAPIPE_SMOKE_MODEL_DIR"
+          --output "$MEDIAPIPE_SMOKE_EVIDENCE_DIR/provisioning.json"
+      - name: Enable KVM
+        run: sudo chmod 666 /dev/kvm
+      - name: Require the named real-model speech JNI test
+        timeout-minutes: 12
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-boot-timeout: 300
+          ram-size: 3072M
+          # The test reserves four checkpoint sizes for native cache/unpacking,
+          # in addition to the APKs and the separately staged model.
+          disk-size: 6G
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
+          script: bash scripts/run_mediapipe_android_smoke.sh '${{ matrix.engine }}'
+      - name: Save per-engine JNI and cancellation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-speech-jni-${{ matrix.engine }}
+          path: ${{ env.MEDIAPIPE_SMOKE_EVIDENCE_DIR }}/
+          retention-days: 14
+          if-no-files-found: error

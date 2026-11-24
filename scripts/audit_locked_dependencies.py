@@ -41,7 +41,8 @@ def inventory(root, verified_inventory=False):
         for path, metadata in json.loads(lock.read_text())['packages'].items():
             if 'node_modules/' in path and not metadata.get('link'):
                 packages.add(('npm', metadata.get('name') or path.rsplit('node_modules/', 1)[1], metadata['version']))
-    for lock in ('gateway/requirements.txt', 'gateway/desktop/requirements-build.txt', 'scripts/requirements-ci.txt'):
+    for lock in ('gateway/requirements.txt', 'gateway/desktop/requirements-build.txt', 'scripts/requirements-ci.txt',
+                 'scripts/requirements-voice-mediapipe-smoke.txt'):
         for name, version in re.findall(r'^([\w.-]+)==([^\s;\\]+)', (root / lock).read_text(), re.M):
             packages.add(('PyPI', name, version))
     return sorted(packages)

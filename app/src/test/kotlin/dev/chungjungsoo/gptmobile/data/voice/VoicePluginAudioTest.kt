@@ -6,6 +6,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePluginAudioTest {
+    @Test fun pronunciationSettingsReachSystemAndLocalOutputsWithTheSameValidatedTerms() {
+        val output = LocalOutput()
+        val plugin = VoicePluginAudio(system, local, output) {}
+        plugin.configurePronunciation(mapOf("São" to "sow", "C++" to "see plus plus", "invalid" to "<script>"))
+        val expected = mapOf("são" to "sow", "c++" to "see plus plus")
+        assertEquals(expected, system.pronunciations)
+        assertEquals(expected, output.pronunciations)
+        plugin.configurePronunciation(emptyMap())
+        assertTrue(system.pronunciations.isEmpty())
+        assertTrue(output.pronunciations.isEmpty())
+    }
+
     @Test fun voiceConversationRequiresKokoroAndNeverFallsBackToAndroidSpeech() {
         val failures = mutableListOf<String>()
         var fallbackCalls = 0
@@ -57,6 +69,10 @@ class VoicePluginAudioTest {
     }
 
     private class SystemAudio : VoiceAudio {
+        var pronunciations: Map<String, String> = emptyMap()
+        override fun configurePronunciation(overrides: Map<String, String>) {
+            pronunciations = overrides
+        }
         var starts = 0
         var stops = 0
         var closes = 0
@@ -98,6 +114,10 @@ class VoicePluginAudioTest {
     }
 
     private class LocalOutput : KokoroOutput {
+        var pronunciations: Map<String, String> = emptyMap()
+        override fun configurePronunciation(overrides: Map<String, String>) {
+            pronunciations = overrides
+        }
         var voice: KokoroVoice? = null
         var onError: ((String, Boolean) -> Unit)? = null
         var onComplete: (() -> Unit)? = null

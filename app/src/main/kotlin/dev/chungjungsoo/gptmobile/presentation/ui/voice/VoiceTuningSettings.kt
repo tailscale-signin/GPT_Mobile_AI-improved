@@ -31,7 +31,8 @@ internal fun VoiceTuningSettings(
     history: VoicePerformanceHistory,
     feedback: StateFlow<VoiceSynthesisFeedback>?,
     benchmark: (((String) -> Unit) -> Unit)?,
-    adjustCaptionOffset: (Int) -> Unit
+    adjustCaptionOffset: (Int) -> Unit,
+    supportsCpuThreads: Boolean = true
 ) {
     VoiceSettingsSection("Listening response")
     VoiceChoice("Listening style", value.listeningStyle.name, VoiceListeningStyle.entries.map { it.name to it.label }, { change(value.copy(listeningStyle = VoiceListeningStyle.valueOf(it))) })
@@ -44,7 +45,7 @@ internal fun VoiceTuningSettings(
     VoiceSettingsSection("Caption alignment")
     VoiceCaptionAdjustment(value.captionOffsetMs, feedback, adjustCaptionOffset)
     VoiceSettingsSection("Performance")
-    VoiceCalibrationControl(benchmark)
+    if (supportsCpuThreads) VoiceCalibrationControl(benchmark)
     VoiceSynthesisStatus(feedback)
     VoicePerformancePanel(history, feedback?.collectAsStateWithLifecycle()?.value)
 }
@@ -72,8 +73,8 @@ private fun VoicePronunciationEditor(value: Map<String, String>, save: (Map<Stri
             value = editor,
             onValueChange = { if (it.length <= 32_000) editor = it },
             modifier = Modifier.fillMaxWidth().testTag("voice_pronunciation_editor"),
-            label = { Text("Word = spoken pronunciation") },
-            supportingText = { Text("One entry per line. Example: Melo = mellow") },
+            label = { Text("Word or term = spoken pronunciation") },
+            supportingText = { Text("One entry per line, up to 100. Names and terms work too: Melo = mellow, C++ = see plus plus. Write the pronunciation in English words.") },
             minLines = 2,
             maxLines = 6,
             isError = parsed == null
@@ -104,7 +105,8 @@ private fun VoiceCalibrationControl(benchmark: (((String) -> Unit) -> Unit)?) {
 private fun VoiceSynthesisStatus(feedback: StateFlow<VoiceSynthesisFeedback>?) {
     val sample = feedback?.collectAsStateWithLifecycle()?.value ?: return
     if (sample.generatedAudioMs <= 0) return
-    Text("${sample.executionProvider} · ${sample.threads} threads · ${if (sample.warm) "warm" else "cold"}", style = MaterialTheme.typography.labelLarge)
+    val threads = if (sample.executionProvider.startsWith("mediapipe-")) "runtime-managed threads" else "${sample.threads} threads"
+    Text("${sample.executionProvider} · $threads · ${if (sample.warm) "warm" else "cold"}", style = MaterialTheme.typography.labelLarge)
     sample.executionEvidence?.let { evidence ->
         Text("Selected ${evidence.selectedBackend.label} · ${if (evidence.verifiedAudio) "audio and timing validated" else "validation pending"}", style = MaterialTheme.typography.bodySmall)
         if (evidence.profileAvailable == true) {

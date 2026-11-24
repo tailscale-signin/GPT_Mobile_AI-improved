@@ -59,6 +59,10 @@ jobs:
 
       - uses: ./.github/actions/setup-android
 
+      - name: Verify native speech cache and evidence contracts
+        timeout-minutes: 5
+        run: bash scripts/check_speech_native_contracts.sh
+
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
         run: bash scripts/install_android_native_dependencies.sh
@@ -217,11 +221,12 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon \
+          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon --info \
             --tests '*ResearchSessionStoreHeapTest' --tests '*StreamingDebugBundleTest' \
             --tests '*BenchmarkStreamingExportHeapTest' \
-            --tests '*BenchmarkColdStreamingExportHeapTest' 2>&1 | tee heap.log
-          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon \
+            --tests '*BenchmarkColdStreamingExportHeapTest' \
+            --tests '*WorkspaceDiagnosticCaptureHeapTest' 2>&1 | tee heap.log
+          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon --info \
             -Pgptmobile.diagnosticHeapStress=true --tests '*StagedDiagnosticCaptureHeapTest' 2>&1 | tee -a heap.log
 
       - name: Publish Test Results
@@ -250,7 +255,7 @@ jobs:
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
           python3 scripts/check_apk_size.py app/build/outputs/apk/debug --build-type debug --report apk-size-report.json
           for apk in app/build/outputs/apk/debug/*.apk; do
-            python3 scripts/check_chat_method_size.py "$apk" --require-gateway-recovery --require-agent-execution --source-commit "$GITHUB_SHA" --report "build/reports/chat-method-size/${apk##*/}.json"
+            python3 scripts/check_chat_method_size.py "$apk" --require-gateway-recovery --require-agent-execution --require-provider-transport --source-commit "$GITHUB_SHA" --report "build/reports/chat-method-size/${apk##*/}.json"
             python3 scripts/check_research_dispatch_size.py "$apk"
           done
 
@@ -467,7 +472,7 @@ jobs:
           python3 scripts/check_change_size.py --base "$CHANGE_BASE"
           python3 scripts/scan_secrets.py
       - name: Scan reachable Git history for credentials
-        run: bash scripts/scan_secret_history.sh
+        run: bash scripts/scan_secret_history.sh --verify-integrity
       - name: Review newly introduced dependency vulnerabilities
         if: github.event_name == 'pull_request'
         env:

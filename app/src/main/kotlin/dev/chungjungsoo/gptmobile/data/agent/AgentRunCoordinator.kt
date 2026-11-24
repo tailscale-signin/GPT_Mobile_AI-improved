@@ -1424,7 +1424,8 @@ class AgentRunCoordinator @Inject constructor(
                 val reason = if (ProviderWaitSchedulingResult.claimExtractionCheckpoint(profileFailure?.recoveryDetails)) {
                     ProviderWaitSchedulingResult.NoWaitReason.CLAIM_EXTRACTION_CHECKPOINT_REQUIRED
                 } else {
-                    ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE
+                    ProviderWaitSchedulingResult.retainedNoWaitReason(profileFailure?.recoveryDetails)
+                        ?: ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE
                 }
                 retainWaitDecision(null, ProviderWaitSchedulingResult.refused(reason))
             }

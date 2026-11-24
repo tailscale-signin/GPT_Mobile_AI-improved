@@ -28,6 +28,108 @@ import org.robolectric.annotation.LooperMode
 @Config(manifest = Config.NONE, sdk = [34])
 @LooperMode(LooperMode.Mode.PAUSED)
 class AndroidVoiceAudioTest {
+    @Test fun interiorSourceAddressesStayFilteredBeforeAndroidLiteralCorrections() {
+        val candidates = mapOf(
+            "x_https://example.test/private" to "x_https",
+            "R#www.example.test" to "R#www.example.test",
+            "x_h&#116;tps://example.test/private" to "x_h",
+            "x_https&#58;//example.test/private" to "x_https",
+            "x_0123456789abcdef0123456789abcdef" to "x_0123456789abcdef0123456789abcdef"
+        )
+        for ((candidate, key) in candidates) {
+            var initialized: TextToSpeech.OnInitListener? = null
+            val engine = mock(TextToSpeech::class.java)
+            val audio = AndroidVoiceAudio(RuntimeEnvironment.getApplication(), java.util.concurrent.Executor { it.run() }) { _, listener ->
+                initialized = listener
+                engine
+            }
+            audio.allowOnlineSpeech = true
+            val original = "Before $candidate After."
+            val expected = VoiceSpeechText.project(original)
+            val prepared = requireNotNull(VoiceSpeechBuffer(preserveLiteralTerms = true).append(original, final = true)).joinToString("")
+            assertTrue(VoicePronunciationOverrides.valid(key, "leaked"))
+            audio.configurePronunciation(mapOf(key to "leaked"))
+            try {
+                audio.speak(prepared, {}, { error(it) })
+                requireNotNull(initialized).onInit(TextToSpeech.SUCCESS)
+                shadowOf(Looper.getMainLooper()).idle()
+                verify(engine).speak(eq<CharSequence>(expected), eq(TextToSpeech.QUEUE_ADD), isNull(), anyString())
+            } finally {
+                audio.close()
+            }
+        }
+    }
+
+    @Test fun bufferLiteralCorrectionsKeepAndroidSnapshotCaptionAndCancellationOwnership() {
+        var initialized: TextToSpeech.OnInitListener? = null
+        val engine = mock(TextToSpeech::class.java)
+        val audio = AndroidVoiceAudio(RuntimeEnvironment.getApplication(), java.util.concurrent.Executor { it.run() }) { _, listener ->
+            initialized = listener
+            engine
+        }
+        audio.allowOnlineSpeech = true
+        val original = "Read snake_case and R#1."
+        val prepared = requireNotNull(VoiceSpeechBuffer(preserveLiteralTerms = true).append(original, final = true)).joinToString("")
+        assertEquals(original, prepared)
+        val ranges = mutableListOf<Triple<Int, String, IntRange>>()
+        audio.bindSpokenRange { index, text, range -> ranges += Triple(index, text, range) }
+        audio.configurePronunciation(mapOf("snake_case" to "custom", "R#1" to "release"))
+        try {
+            audio.speak(prepared, {}, { error(it) })
+            audio.configurePronunciation(mapOf("snake_case" to "changed", "R#1" to "changed"))
+            requireNotNull(initialized).onInit(TextToSpeech.SUCCESS)
+            shadowOf(Looper.getMainLooper()).idle()
+            val callbacks = ArgumentCaptor.forClass(UtteranceProgressListener::class.java)
+            verify(engine).setOnUtteranceProgressListener(callbacks.capture())
+            val utterance = ArgumentCaptor.forClass(String::class.java)
+            verify(engine).speak(eq<CharSequence>("Read custom and release."), eq(TextToSpeech.QUEUE_ADD), isNull(), utterance.capture())
+            callbacks.value.onRangeStart(utterance.value, 5, 11, 0)
+            callbacks.value.onRangeStart(utterance.value, 16, 23, 1)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(listOf(Triple(0, original, 5..14), Triple(0, original, 20..22)), ranges)
+            audio.stop()
+            callbacks.value.onRangeStart(utterance.value, 5, 11, 2)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(2, ranges.size)
+        } finally {
+            audio.close()
+        }
+    }
+
+    @Test fun savedCorrectionsReachAndroidSpeechWhileCallbacksKeepOriginalCaptions() {
+        var initialized: TextToSpeech.OnInitListener? = null
+        val engine = mock(TextToSpeech::class.java)
+        val audio = AndroidVoiceAudio(RuntimeEnvironment.getApplication(), java.util.concurrent.Executor { it.run() }) { _, listener ->
+            initialized = listener
+            engine
+        }
+        audio.allowOnlineSpeech = true
+        val original = "São uses C++."
+        val ranges = mutableListOf<Triple<Int, String, IntRange>>()
+        audio.bindSpokenRange { index, text, range -> ranges += Triple(index, text, range) }
+        audio.configurePronunciation(mapOf("São" to "sow", "C++" to "see plus plus"))
+        try {
+            audio.speak(original, {}, { error(it) })
+            // A pending utterance owns its correction snapshot even if settings change.
+            audio.configurePronunciation(mapOf("São" to "changed"))
+            requireNotNull(initialized).onInit(TextToSpeech.SUCCESS)
+            shadowOf(Looper.getMainLooper()).idle()
+            val callbacks = ArgumentCaptor.forClass(UtteranceProgressListener::class.java)
+            verify(engine).setOnUtteranceProgressListener(callbacks.capture())
+            val utterance = ArgumentCaptor.forClass(String::class.java)
+            verify(engine).speak(eq<CharSequence>("sow uses see plus plus."), eq(TextToSpeech.QUEUE_ADD), isNull(), utterance.capture())
+            callbacks.value.onRangeStart(utterance.value, 9, 12, 0)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(listOf(Triple(0, original, 9..11)), ranges)
+            audio.stop()
+            callbacks.value.onRangeStart(utterance.value, 13, 17, 1)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1, ranges.size)
+        } finally {
+            audio.close()
+        }
+    }
+
     @Test fun diagnosticTimingUsesRealTtsCallbacksAndRejectsCancelledUtterances() {
         var time = 10L
         val trace = VoiceDiagnosticTrace({ time }, { 1000 + time }, { true }, {})

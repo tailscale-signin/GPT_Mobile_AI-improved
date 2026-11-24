@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "task": "diagnostic-93d824fd-waveform-model-pin-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "5575c6fac0ddd21b8d4772f051a5c87360f9d0ad",
+  "baseTree": "ed463d047a37d305047a3db9ccad796b7c5bcb91",
+  "parentPullRequest": 2367,
+  "workingBranch": "work/93d824fd-waveform-pin",
+  "owner": "root/source_recovery_audit",
+  "integrationOwner": "root",
+  "recordedUtc": "2026-11-24T01:57:43.011013+00:00",
+  "status": "INTEGRATED_SOURCE_REVIEW_CLEAR_PENDING_HOSTED_FULL_HISTORY",
+  "intent": "Extend the existing exact public model-file pin exception to one newly published waveform evidence path, retaining all existing credential scanner policy and controls.",
+  "authorization": "Root reserved this exact path extension in the owned PR2367 block before edits at approximately2026-11-24T01:57Z.",
+  "publicHeadRecheck": {
+    "requestedSource": "a38d3fc593bb16aa898212c46824d8d3de27aea2",
+    "head": "5575c6fac0ddd21b8d4772f051a5c87360f9d0ad",
+    "checkedUtc": "2026-11-24T01:57:15Z",
+    "equivalentFixPresent": false,
+    "scannerAndPinPathsUnchanged": true,
+    "adoption": "The fresh head is a sole-parent provider change above a38; the isolated branch adopts it while the reproduction remains pinned to the original a38 diff.",
+    "recheckedBeforeCommit": true,
+    "finalHead": "5575c6fac0ddd21b8d4772f051a5c87360f9d0ad",
+    "finalCheckedUtc": "2026-11-24T01:58:56Z"
+  },
+  "failureEvidence": {
+    "source": "a38d3fc593bb16aa898212c46824d8d3de27aea2",
+    "tree": "f0bdb248f53110464604ccd5c8a95c7cfd52b093",
+    "scope": "NEW_SINGLE_PUBLIC_COMMIT_ONLY_NOT_FULL_HISTORY",
+    "rule": "generic-api-key",
+    "path": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json",
+    "line": 13,
+    "fieldPath": [
+      "inputs",
+      "sha256",
+      "tokens.txt"
+    ],
+    "classification": "PUBLIC_MODEL_CHECKSUM_FALSE_POSITIVE",
+    "proof": "Bind the new evidence field to the existing model_digest() pin, its native harness and current application model pack; never generalize to another value, field or evidence path."
+  },
+  "ownedPaths": [
+    ".gitleaks.toml",
+    "scripts/test_gitleaks_model_pin.py",
+    "docs/repairs/diagnostic-93d824fd-waveform-model-pin-2026-11-24-task.json"
+  ],
+  "constraints": [
+    "Add only the one exact new evidence path to the existing exact model-pin allowlist; preserve its AND condition and anchored line literal.",
+    "Preserve all22 prior control ASTs and scanner identity/redaction guards; add positive and changed value/path/field/prefix/trailing/adjacent-value controls.",
+    "Leave scanner8.30.1, archive pin, --redact=100 and --all --full-history --diff-merges=first-parent --root unchanged.",
+    "No credential or matched values in logs or ledgers; the existing public pin appears only where needed in config or generated fixtures.",
+    "Root owns integrated generated metadata, canonical validation, final full-history CI and public append; do not duplicate those gates or publish from this component."
+  ],
+  "plannedValidation": [
+    "Run the actual pinned scanner with baseline and candidate configurations against all existing and new controls.",
+    "Run baseline and candidate scans on the exact original a38 single-commit diff and require one finding to zero; do not claim complete-history qualification.",
+    "Verify the approved pin bindings, prior control ASTs, unchanged scanner policy and syntax/whitespace."
+  ],
+  "validation": {
+    "scanner": {
+      "version": "8.30.1",
+      "archiveSha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "binaryComparedWithVerifiedArchive": true,
+      "redactionPercent": 100
+    },
+    "actualScannerControls": {
+      "cases": 30,
+      "existingCasesPreserved": 22,
+      "candidatePassed": 30,
+      "baselinePassed": 27,
+      "baselineExpectedFailures": [
+        "waveform_exact_declaration",
+        "waveform_secret_after",
+        "waveform_secret_before"
+      ],
+      "candidatePassedOnFirstRun": true,
+      "prior22CaseAstsUnchanged": true,
+      "priorHelperAstsUnchanged": true,
+      "identityAndRedactionGuardsUnchanged": true,
+      "sourcePinBinding": "The evidence inputs.sha256[tokens.txt] equals model_digest() from the native harness and the sole current KokoroModelPack TOKENS file pin."
+    },
+    "frozenPublicCommitDiff": {
+      "source": "a38d3fc593bb16aa898212c46824d8d3de27aea2",
+      "tree": "f0bdb248f53110464604ccd5c8a95c7cfd52b093",
+      "scope": "EXACT_A38_SINGLE_COMMIT_DIFF_NOT_FULL_HISTORY",
+      "commitCount": 1,
+      "baselineFindings": 1,
+      "candidateFindings": 0,
+      "baselineExitCode": 1,
+      "candidateExitCode": 0,
+      "scannerVersion": "8.30.1",
+      "redactionPercent": 100,
+      "baselineConfigSha256": "e247e5f29f0e9ab288fbabbf5ce1180c63c019c50c4118870bd294747c743076",
+      "candidateConfigSha256": "c7347823d82fd986509319383994945964a3510405de25ae63c9a13ba8800cc9",
+      "finalHostedFullHistory": "REQUIRED_ON_INTEGRATED_PUBLIC_SOURCE"
+    },
+    "securityPolicyPreservation": {
+      "onlyOneExactPathAddedToExistingModelPinTable": true,
+      "exactLineRegexAndLiteralUnchanged": true,
+      "allOtherConfigSemanticsUnchanged": true,
+      "historyScriptUnchanged": true,
+      "ignoreFileUnchanged": true,
+      "defaultRulesPreserved": true
+    },
+    "receipts": {
+      "policy-and-scanner-proof.json": {
+        "file": "policy-and-scanner-proof.json",
+        "sha256": "25cfdad43b3c6f0ce722117fada885405ed98a214eccd7a6934d2ebd4271083d"
+      },
+      "baseline-controls-30.json": {
+        "file": "baseline-controls-30.json",
+        "sha256": "c84cb11e7a6106bf48847199f794904613c50f3f29ea8f0d786cdaa670a31e98"
+      },
+      "candidate-controls-30.json": {
+        "file": "candidate-controls-30.json",
+        "sha256": "f3ea409fa53bf87f647792cbaa70954b6bfb4cbbcfefcf9bc8bcf4c0e728d4b6"
+      },
+      "old1-new0-exact-a38-diff.json": {
+        "file": "old1-new0-exact-a38-diff.json",
+        "sha256": "9bb30ecde035ed5b4c312d54289b87ad2430afb45727098b261d6db0f40506d2"
+      },
+      "baseline-a38-diff.safe-summary.json": {
+        "file": "baseline-a38-diff.safe-summary.json",
+        "sha256": "0f16775f0cdc48dbc881551fa289323bc9baaaf9f120a5ef724fb2cec61b3983"
+      },
+      "candidate-a38-diff.safe-summary.json": {
+        "file": "candidate-a38-diff.safe-summary.json",
+        "sha256": "701d91f7e62d54d3cd759a93d94afeeb260b90387a3272985f70a1f45d7466e4"
+      }
+    },
+    "syntaxAndWhitespace": "PASSED: Python AST parse, TOML semantic comparison, task JSON parse, git diff --check",
+    "canonicalValidation": "Required on the frozen combined source; the integrating owner retains the source-hash manifest and canonical receipt separately.",
+    "finalHostedFullHistory": "REQUIRED_ON_INTEGRATED_PUBLIC_SOURCE; this single-commit result does not qualify complete reachable history",
+    "independentSourceReview": {
+      "file": "scanner-3219-review.json",
+      "sha256": "ffb25ae1f01d22ee9af6b6fb438d53446574fe180abd298cb48a5d18130a42e3",
+      "scope": "INDEPENDENT_SOURCE_REVIEW; hosted project execution remains required"
+    }
+  },
+  "completedUtc": "2026-11-24T01:59:28.802436+00:00",
+  "integrationPublicParent": "55b8490ffdb7a11d78f9721d422c78b2ea467948"
+}

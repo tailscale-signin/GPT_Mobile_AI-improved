@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Retry dependency throttling without retrying compilation or test failures."""
+"""Retry qualified dependency and SDK provisioning failures within the build deadline."""
 import os
 import re
 import signal
@@ -58,19 +58,71 @@ KNOWN_PUBLISHED_PLUGINS = (
 )
 NON_TRANSIENT_HTTP = re.compile(r'(?:HTTP|status(?: code)?|response code:)\D{0,12}(?:401|403|404)\b', re.I)
 DETERMINISTIC = re.compile(r'There were failing tests|\btests completed, [1-9]\d* failed|Compilation error|^e: .*\.(?:kt|java):|Lint found .* errors', re.I)
+FAILED_TASK = re.compile(r"Execution failed for task '([^']+)'")
+CMAKE_TASK = re.compile(r':configureCMake\w+\[[^\]]+\]$')
+CMAKE_PACKAGE_WARNING = 'An error occurred while preparing SDK package CMake 3.22.1: Error reading Zip content from a SeekableByteChannel'
+CMAKE_PACKAGE_ERRORS = (
+    CMAKE_PACKAGE_WARNING,
+    'java.util.zip.ZipException: Archive is not a ZIP archive',
+    '"Install CMake 3.22.1 v.3.22.1" failed.',
+    'com.android.builder.sdk.InstallFailedException: Failed to install the following SDK components:',
+    'cmake;3.22.1 CMake 3.22.1',
+)
+SDK_BLOCKER = re.compile(
+    r'dependency verification failed|(?:checksum|sha-?256) (?:verification failed|mismatch|does not match)|'
+    r'licen[cs]es? (?:not accepted|ha(?:s|ve) not been accepted)|CMake Error(?: at| in|:)|ninja: build stopped|'
+    r'(?:HTTP|status(?: code)?|response code:)\D{0,12}4\d\d\b',
+    re.I,
+)
+
+
+class BuildFailure:
+    def __init__(self):
+        self.dependency = self.transient = self.central_unavailable = self.blocked = False
+        self.published = set()
+        self.artifacts = set()
+        self.cmake_errors = set()
+        self.cmake_task = self.other_task = self.sdk_blocked = False
+
+    def observe(self, line):
+        self.dependency |= bool(DEPENDENCY.search(line))
+        self.transient |= bool(TRANSIENT.search(line))
+        self.central_unavailable |= 'repo.maven.apache.org/maven2/' in line
+        self.blocked |= bool(DETERMINISTIC.search(line) or NON_TRANSIENT_HTTP.search(line))
+        for index, (plugin, artifact) in enumerate(KNOWN_PUBLISHED_PLUGINS):
+            if plugin.search(line):
+                self.published.add(index)
+            if artifact.search(line):
+                self.artifacts.add(index)
+        self.cmake_errors.update(error for error in CMAKE_PACKAGE_ERRORS if error in line)
+        task = FAILED_TASK.search(line)
+        if task:
+            if CMAKE_TASK.search(task[1]):
+                self.cmake_task = True
+            else:
+                self.other_task = True
+        self.sdk_blocked |= bool(SDK_BLOCKER.search(line))
+
+    def recovery(self):
+        if self.blocked:
+            return None
+        if CMAKE_PACKAGE_WARNING in self.cmake_errors:
+            if (len(self.cmake_errors) == len(CMAKE_PACKAGE_ERRORS) and self.cmake_task
+                    and not self.other_task and not self.sdk_blocked):
+                return 'android-cmake'
+            return None
+        if self.published & self.artifacts or self.dependency and self.transient and self.central_unavailable:
+            return 'maven-mirror'
+        if self.dependency and self.transient:
+            return 'dependency'
+        return None
 
 
 def retryable(lines):
-    lines = list(lines)
-    throttled = any(DEPENDENCY.search(line) for line in lines) and any(TRANSIENT.search(line) for line in lines)
-    known_plugin = any(
-        any(plugin.search(line) for line in lines) and
-        any(artifact.search(line) for line in lines)
-        for plugin, artifact in KNOWN_PUBLISHED_PLUGINS
-    )
-    return (throttled or known_plugin) and not any(
-        DETERMINISTIC.search(line) or NON_TRANSIENT_HTTP.search(line) for line in lines
-    )
+    failure = BuildFailure()
+    for line in lines:
+        failure.observe(line)
+    return failure.recovery() is not None
 
 
 def stop_process_group(process, force=False):
@@ -92,12 +144,11 @@ def run(arguments, attempts=4, delay_seconds=10, executable='./gradlew', timeout
     environment.setdefault('OBX_DISABLE_ANALYTICS', 'true')
     deadline = time.monotonic() + timeout_seconds if timeout_seconds is not None else None
     command_args = list(arguments)
+    retried_cmake = False
     for attempt in range(attempts):
         if deadline is not None and time.monotonic() >= deadline:
             return 124
-        dependency = transient = central_unavailable = deterministic = denied = False
-        published = [False] * len(KNOWN_PUBLISHED_PLUGINS)
-        artifact = [False] * len(KNOWN_PUBLISHED_PLUGINS)
+        failure = BuildFailure()
         with subprocess.Popen([executable, *command_args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', env=environment, start_new_session=os.name == 'posix') as process:
             finished, timed_out = threading.Event(), threading.Event()
 
@@ -117,14 +168,7 @@ def run(arguments, attempts=4, delay_seconds=10, executable='./gradlew', timeout
             try:
                 for line in process.stdout:
                     print(line, end='', flush=True)
-                    dependency |= bool(DEPENDENCY.search(line))
-                    transient |= bool(TRANSIENT.search(line))
-                    central_unavailable |= "repo.maven.apache.org/maven2/" in line
-                    for index, (plugin_pattern, artifact_pattern) in enumerate(KNOWN_PUBLISHED_PLUGINS):
-                        published[index] |= bool(plugin_pattern.search(line))
-                        artifact[index] |= bool(artifact_pattern.search(line))
-                    denied |= bool(NON_TRANSIENT_HTTP.search(line))
-                    deterministic |= bool(DETERMINISTIC.search(line))
+                    failure.observe(line)
                 code = process.wait()
             except BaseException:
                 stop_process_group(process)
@@ -143,17 +187,22 @@ def run(arguments, attempts=4, delay_seconds=10, executable='./gradlew', timeout
                 # Kill surviving descendants even if the parent exited on SIGTERM.
                 stop_process_group(process, force=True)
                 return 124
-        published_plugin_missing = any(p and a for p, a in zip(published, artifact))
-        if code == 0 or attempt + 1 == attempts or '--offline' in arguments or not ((dependency and transient) or published_plugin_missing) or deterministic or denied:
+        recovery = failure.recovery()
+        if code == 0 or attempt + 1 == attempts or '--offline' in arguments or recovery is None:
             return code
-        if (published_plugin_missing or (dependency and transient and central_unavailable)) and environment.get('GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY') != '1':
+        if recovery == 'android-cmake':
+            if retried_cmake:
+                return code
+            retried_cmake = True
+            print('Android SDK CMake 3.22.1 installation received a non-ZIP archive. Retrying the original build once.', flush=True)
+        if recovery == 'maven-mirror' and environment.get('GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY') != '1':
             environment['GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY'] = '1'
             command_args.extend(flag for flag in ('--refresh-dependencies', '--info') if flag not in command_args)
             print('Rechecking dependency metadata with the Maven Central mirror. Dependency verification remains enabled.', flush=True)
         pause = delay_seconds * (attempt + 1)
         if deadline is not None:
             pause = min(pause, max(0, deadline - time.monotonic()))
-        print(f'Qualified dependency resolution failure; retry {attempt + 2}/{attempts} after {pause}s. Gradle cache is retained.', flush=True)
+        print(f'Retry {attempt + 2}/{attempts} after {pause}s. Gradle cache is retained.', flush=True)
         time.sleep(pause)
     raise AssertionError('Unreachable retry state')
 

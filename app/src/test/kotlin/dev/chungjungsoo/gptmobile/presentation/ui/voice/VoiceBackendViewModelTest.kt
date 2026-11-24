@@ -7,7 +7,12 @@ import androidx.test.core.app.ApplicationProvider
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeVoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceBackendCapabilityStore
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import io.mockk.coEvery
@@ -42,6 +47,65 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VoiceBackendViewModelTest {
+    @Test fun streamingSelectionKeepsItsModelAndRateIdentityWithoutNativeKokoroAssets() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val applicationScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val owners = ViewModelStore()
+        try {
+            val saved = context().getSharedPreferences(UUID.randomUUID().toString(), Context.MODE_PRIVATE)
+            val preferences = VoiceBackendPreferenceStore({ saved }, applicationScope)
+            val settings = mockk<SettingRepository>()
+            every { settings.observeProviderConnections() } returns MutableStateFlow(emptyList())
+            val model = VoiceBackendViewModel(context(), settings, preferences, dispatcher)
+            owners.put("voice", model)
+            runCurrent()
+            model.selectBackend(VoiceSpeechBackend.LITERT_KOKORO_GPU)
+            runCurrent()
+            val original = model.state.value.factory
+            assertTrue(model.state.value.loaded)
+            assertFalse(original.requiresKokoroAssets)
+            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, original.selectedBackend)
+            assertTrue(original.identity.contains(MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.KOKORO).sha256))
+            assertTrue(model.state.value.status.contains("does not report"))
+            model.configureSpeech(KokoroVoice.EMMA, 1.25f)
+            runCurrent()
+            assertNotEquals(original.identity, model.state.value.factory.identity)
+            assertEquals("bf_emma", KokoroVoice.EMMA.streamingVoiceId())
+            val emma = model.state.value.factory
+            model.configureSpeech(KokoroVoice.HEART, 1.25f)
+            runCurrent()
+            assertEquals(emma.residentIdentity, model.state.value.factory.residentIdentity)
+            assertNotEquals(emma.identity, model.state.value.factory.identity)
+            model.configureSpeech(KokoroVoice.HEART, 1.25f, MediaPipeKokoroBucket.TOKENS_64, false)
+            runCurrent()
+            val experiment = model.state.value.factory as MediaPipeVoicePhraseEngineFactory
+            assertEquals(64, experiment.effectiveTargetBucket)
+            assertFalse(experiment.incrementalInput)
+            assertEquals(VoiceSpeechBackend.LITERT_KOKORO_GPU, preferences.state.value?.value?.backend)
+            model.selectBackend(VoiceSpeechBackend.PHONON_CPU)
+            runCurrent()
+            assertTrue(model.state.value.factory.identity.contains(MediaPipeSpeechCatalog.model(MediaPipeSpeechEngine.PHONON).sha256))
+            assertFalse(model.state.value.factory.requiresKokoroAssets)
+            assertFalse(model.state.value.backend.supportsCpuThreadCalibration)
+        } finally {
+            owners.clear()
+            applicationScope.cancel()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun streamingEnginesHaveExplicitBackendAndVoiceMappings() {
+        assertEquals(MediaPipeSpeechEngine.KOKORO, VoiceSpeechBackend.LITERT_KOKORO_CPU.streamingEngine())
+        assertEquals(MediaPipeSpeechEngine.KOKORO, VoiceSpeechBackend.LITERT_KOKORO_GPU.streamingEngine())
+        assertEquals(MediaPipeSpeechEngine.PHONON, VoiceSpeechBackend.PHONON_CPU.streamingEngine())
+        assertEquals(MediaPipeSpeechEngine.POCKET, VoiceSpeechBackend.POCKET_CPU.streamingEngine())
+        assertEquals(null, VoiceSpeechBackend.CPU.streamingEngine())
+        assertEquals(null, VoiceSpeechBackend.GATEWAY_CUDA.streamingEngine())
+        assertEquals("af_heart", KokoroVoice.HEART.streamingVoiceId())
+        assertEquals("am_adam", KokoroVoice.ADAM.streamingVoiceId())
+    }
+
     @Test fun voiceAndRateChangesReplaceOnlyTheMatchingQualificationIdentity() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)
@@ -67,6 +131,11 @@ class VoiceBackendViewModelTest {
             runCurrent()
             assertNotEquals(rate.identity, model.state.value.factory.identity)
             assertTrue(model.state.value.loaded)
+            val compact = model.state.value.factory
+            model.configureSpeech(KokoroVoice.EMMA, 1.25f, modelVariant = KokoroModelVariant.ORIGINAL_FP32)
+            runCurrent()
+            assertNotEquals(compact.identity, model.state.value.factory.identity)
+            assertTrue(model.state.value.factory.identity.contains(KokoroModelVariant.ORIGINAL_FP32.modelSha256))
         } finally {
             owners.clear()
             applicationScope.cancel()

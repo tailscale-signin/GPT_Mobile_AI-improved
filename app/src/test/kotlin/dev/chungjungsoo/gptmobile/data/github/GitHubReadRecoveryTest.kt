@@ -25,9 +25,9 @@ class GitHubReadRecoveryTest {
 
     private class Fixture(val session: GitHubRepositorySession, val blobs: AtomicInteger)
 
-    private fun fixture(available: List<String> = paths, truncated: Boolean = false, source: String = "fun needle() = 1\nfun another() = 2", directories: Set<String> = emptySet(), symlinks: Set<String> = emptySet()): Fixture {
+    private fun fixture(available: List<String> = paths, truncated: Boolean = false, source: String = "fun needle() = 1\nfun another() = 2", directories: Set<String> = emptySet(), symlinks: Set<String> = emptySet(), store: GitHubRepositoryStateStore = GitHubRepositoryStateStore()): Fixture {
         val blobs = AtomicInteger()
-        val session = GitHubRepositorySession("account", "connection", "chat", "task", GitHubRepositoryStateStore(), { path ->
+        val session = GitHubRepositorySession("account", "connection", "chat", "task", store, { path ->
             when {
                 "/commits/" in path -> buildJsonObject {
                     put("sha", path.substringAfterLast('/'))
@@ -210,6 +210,52 @@ class GitHubReadRecoveryTest {
         assertEquals(JsonPrimitive("src/moved/Config.kt"), moved.getValue("items").jsonArray.single().jsonObject["path"])
         val reopened = fixture.session.execute("read_ranges", "owner", "repo", buildJsonObject { put("evidence_id", original.getValue("evidence_id")) }).jsonObject
         assertEquals(original["items"], reopened["items"])
+        assertEquals(2, fixture.blobs.get())
+    }
+
+    @Test fun retainedRevisionMismatchDoesNotReadOrMoveTheSelectedBranch() = runBlocking {
+        val fixture = fixture()
+        val original = fixture.session.execute("read_ranges", "owner", "repo", read("README.md")).jsonObject
+        val selected = fixture.session.snapshot()
+        val request = buildJsonObject {
+            put("evidence_id", original.getValue("evidence_id"))
+            put("commit_sha", "c".repeat(40))
+            put("ranges", JsonArray(listOf(buildJsonObject { put("path", "README.md") })))
+        }
+        val failure = runCatching { fixture.session.execute("read_ranges", "owner", "repo", request) }.exceptionOrNull() as GitHubReadValidation
+        assertEquals("EVIDENCE_REVISION_MISMATCH", failure.code)
+        assertEquals(1, fixture.blobs.get())
+        assertEquals(selected, fixture.session.snapshot())
+        val historical = failure.details.getValue("corrective_actions").jsonArray.first().jsonObject.getValue("arguments").jsonObject
+        val reopened = fixture.session.execute("read_ranges", "owner", "repo", historical).jsonObject
+        assertEquals(original["items"], reopened["items"])
+        assertEquals(selected, fixture.session.snapshot())
+        assertEquals(1, fixture.blobs.get())
+    }
+
+    @Test fun reopeningExistingEvidenceKeepsItsSnapshotTimestampAndNewEvidenceAdvancesIt() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val fixture = fixture(store = store)
+        val first = fixture.session.execute("read_ranges", "owner", "repo", read("README.md")).jsonObject
+        val firstId = first.getValue("evidence_id").jsonPrimitive.content
+        store.update("account:connection:chat:task", "snapshot") { current ->
+            JsonObject(requireNotNull(current) + ("updatedAt" to JsonPrimitive(1L)))
+        }
+        val before = requireNotNull(fixture.session.snapshot())
+        assertEquals(1L, before.updatedAt)
+        assertEquals(listOf(firstId), before.evidenceHandles)
+
+        val reopen = buildJsonObject { put("evidence_id", firstId) }
+        val replay = fixture.session.execute("read_ranges", "owner", "repo", reopen).jsonObject
+        assertEquals(first.getValue("items"), replay.getValue("items"))
+        assertEquals(before, fixture.session.snapshot())
+        assertEquals(1, fixture.blobs.get())
+
+        val next = fixture.session.execute("read_ranges", "owner", "repo", read("docs/Guide.md")).jsonObject
+        val after = requireNotNull(fixture.session.snapshot())
+        val handles = listOf(firstId, next.getValue("evidence_id").jsonPrimitive.content)
+        assertTrue(after.updatedAt > before.updatedAt)
+        assertEquals(before.copy(evidenceHandles = handles, updatedAt = after.updatedAt), after)
         assertEquals(2, fixture.blobs.get())
     }
 

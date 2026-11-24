@@ -1,0 +1,224 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-final-request-refusal-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "c76bcaad4e720fdee86887174d8a267f281d6100",
+  "startingTree": "ae46b1065b2a3e4887633bcbfba789869c572e0d",
+  "workingBranch": "task/privacy-final-refusal-c76",
+  "pullRequest": 2367,
+  "recordedBeforeSourceEditsAt": "2026-11-23T23:56:17.607819+00:00",
+  "status": "SOURCE_REVIEW_CLEAR_HOSTED_RUNTIME_PENDING",
+  "intent": "Preserve typed final-wire local privacy refusal through actual provider adapters and masked sessions, then project only closed content-free local-block evidence through diagnostics and receiver capability negotiation.",
+  "finding": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2367#issuecomment-7117117588",
+  "sourceObservations": [
+    "ModelRequestPreparation.validatePrivateWire executes before PhysicalAttemptBoundary.dispatch, serialized and armHttp.",
+    "PrivateDispatchRejected currently passes through a generic adapter stream catch and masked fallback lacks typed mapping; strict inference has a local-only typed mapping.",
+    "Reports2411/2412 show no inference dispatch or remote acceptance, but the omitted original private receipt outcome remains unknown."
+  ],
+  "plannedOwnedAreas": [
+    "ProviderAdapters.kt typed propagation only; preserve unrelated concurrent adapter refactoring on integration.",
+    "MaskedProviderSession.kt and PrivateInferenceSession.kt typed terminal mapping with unchanged receiver authorization.",
+    "Ordinary real composed preparation/adapter/session regressions plus cancellation/generic controls.",
+    "Closed diagnostic evidence, receipt/classification/projection, approval/submission capability, receiver schema/catalog and ordinary regression wiring.",
+    "Generated references, task ledger and exact release scope after combined review."
+  ],
+  "constraints": [
+    "No raw private receipt, original sensitive text, keyed fingerprint, private request identifier or replacement map in public report projection.",
+    "Preserve all privacy validation, receiver revalidation, cancellation propagation, one terminal failure, zero pre-validation physical/HTTP dispatch and no replay.",
+    "Do not infer original omitted receipt reason or classify a local block as provider outage, billing or rate limit.",
+    "Preserve every prior test body and independent source owner; use non-forced expected-head append only after exact combined canonical validation.",
+    "No local Kotlin/privacy/application harness or Gradle runtime. Ordinary final committed hosted CI must execute composed regressions.",
+    "Private-session diagnostic capture stays subject to existing capture/approval policy. A new closed code/field needs explicit receiver capability gating."
+  ],
+  "implementation": {
+    "closedCode": "PRIVACY_FINAL_REQUEST_REJECTED",
+    "closedField": "privacy_dispatch_outcome",
+    "capability": "PRIVACY_FINAL_REQUEST_EVIDENCE_V1",
+    "outcomes": [
+      "POLICY_REVISION_MISMATCH",
+      "KNOWN_VALUE_REINTRODUCED",
+      "NO_SUPPORTED_TEXT_SURFACES",
+      "WIRE_VALIDATION_UNAVAILABLE"
+    ],
+    "productionBoundary": "Eleven additive rethrow guards across six adapters and five lower network stream catches preserve the actual pre-dispatch PrivateDispatchRejected. The masked upstream mapping reaches the unchanged receiving guard; strict private inference shares the content-free terminal mapping.",
+    "dispatchEvidence": "Proven wholly unsent invocation is BLOCKED/false/NO; prior actual or unproven physical work stays PARTIAL with uncertainty. Never synthesize generation or transport completion, replay or continuation. Preserve retained UNKNOWN/YES against a later owning429; actual200 can strengthen acceptance.",
+    "publicReporting": "Closed stage/code/domain/outcome projection only, with existing capture permission and approved submission. No private receipt, request identity, original value or HMAC is exported. Unknown evidence remains unknown. Missing original report2411/2412 outcome is not inferred.",
+    "ordinaryComposedMethods": [
+      "realProviderSerializersPropagateFinalWireRefusalThroughAdaptersAndMaskedReceiver",
+      "realOpenAiRefusalWithoutAccountingContextStillProvesFreshRequestUnsent",
+      "genericRealOpenAiTransportFailureKeepsItsExistingClassification",
+      "earlierPhysicalAttemptIsNotErasedByALaterFinalWireRefusal",
+      "inheritedPhysicalObserverRetainsEarlierWorkWithoutAccountingContext",
+      "cancellingRealPreparationPreservesOriginalCancellationAndClosesProducer",
+      "cancellingTypedRefusalPublicationDoesNotInventPolicyFailureOrCompletion",
+      "typedRefusalStillRevalidatesReceivingAuthorityAndPrivacyRevision",
+      "sanitizedWireStillCompletesThroughTheRealOpenAiClientAndMaskedReceiver"
+    ],
+    "ordinaryDiagnosticMethods": [
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFinalRequestFailureClassificationTest.kt",
+        "method": "finalRequestRefusalDoesNotInferProviderOutageDispatchOrCooldownFromProse"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFinalRequestFailureClassificationTest.kt",
+        "method": "actualFinalValidationFactsKeepTheLocalRefusalTerminal"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFinalRequestFailureClassificationTest.kt",
+        "method": "priorUnknownOperationsStillOutrankALaterFinalValidationRefusal"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFinalRequestFailureClassificationTest.kt",
+        "method": "structuredEarlierEvidenceDominatesConflictingLocalNegativeFields"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFinalRequestFailureClassificationTest.kt",
+        "method": "stringTypedPositiveOrNegativeBooleansAreNotDispatchEvidence"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt",
+        "method": "allActualClosedRefusalsReachTheReceiptAndApprovedReportWithoutPrivateReceiptData"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt",
+        "method": "absentMalformedSuccessOrMismatchedEvidenceNeverCreatesALocalBlockProof"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt",
+        "method": "restoredReceiptAndDiagnosticCannotMoveTheOutcomeToAnotherCodeOrDomain"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt",
+        "method": "unsentFinalRefusalDoesNotBorrowAnUnboundEarlierUsageFrame"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt",
+        "method": "receiptWrapperCannotMergeLaterFalseAndNoBackOverPriorUnknownWork"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt",
+        "method": "receiptWrapperRetainsActualEarlierOwningStreamHeadersAndUsage"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt",
+        "method": "receiptWrapperOmitsAClosedOutcomeWithTheWrongValidationStage"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestSubmissionTest.kt",
+        "method": "everySupportedNewCodeOrOutcomeSurfaceRequiresItsOwnCapabilityBeforePostingApprovedBytes"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestSubmissionTest.kt",
+        "method": "existingPrivacyEligibilityReportsStillPostWithoutTheNewFinalRequestCapability"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestIncidentTest.kt",
+        "method": "finalRequestEvidenceStillRequiresTheExistingCapturePermission"
+      },
+      {
+        "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestIncidentTest.kt",
+        "method": "incidentProjectionDoesNotPromoteAMismatchedStageOrStringBoolean"
+      }
+    ],
+    "ordinaryMethodCount": 25,
+    "sourceSha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt": "b19b058774ddc119c4e333fc4be8967af1795b9704fb48f51e9d01e542a4fc37",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt": "7d4a23e64567065265eb0176937dd7aaf2281f20aaa0b107383c78fd8a0a6c7b",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt": "710d6e956a4d5b0c8880a76964cc6a5089fee23eb4f35c8a27d05dc3cb90eebd",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt": "fe82d3fb494d3e1d15eae0e149aa554261bd91cd7c65b66c9957fc362f1de9cf",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt": "af56676f097051f99b23502ab89a2b866ad11422849da8210bb4a8604d2a0509",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": "b3b0812246996d17e5f66432e6f985455bcad3880a1ff84d7aed94ccc87181af",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt": "b16808ae567e7f776ff5c22b199d61a11a11b000c2be86f5091e472e54947874",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt": "595b528eae07a2b4c21f52fb9c6752332fd96ad91d61f73195a83391ebe5eae8",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt": "ec368428029a9ad01af2126ba8aa44b75c023c69d452a871a7faf266e3bba103",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/AnthropicAPIImpl.kt": "ba37d0be329b223ceaf3935f997d8a2ab570b4d5aa1abfeaabf09febe7849ab2",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GoogleAPIImpl.kt": "acb51f7196949f633b41ffecdab120b4b107596d091a65776984dfa9b375b7f6",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GroqAPIImpl.kt": "36dc2b71b785f0042c04c58cfda49306f5cce2b67cb0f0dd8fabb7acedeac8f8",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt": "1563897f18263239e3623cd5e868ef445ddc94a34977a2216854cb703aea04d8",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/MaskedProviderSession.kt": "8b968d21d0de1814f6ebdf1500b68e87e7f4b7cd0d9e23e3f1dc9283662714d9",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateFinalRequestFailure.kt": "d1e29f2c20b5e9ac8955b940f1af12e8144422bef6b9eafc3b9ce4aaa4e05e4f",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt": "dbade7c7b4d0c94126fd103c78e8a0f5a7c59370783b1eca0b49214186bbdf85",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFinalRequestFailureClassificationTest.kt": "a6879788a964d237d7c4db60bd9eab8875696033cc7eb14c2bb9f435ff9ef621",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt": "94a913c5a8605bace4a971daf155acae53faba5b553813ec04ea40a557cdeec9",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestIncidentTest.kt": "09312ebbf577e259395a0c2192bbbfa562be7dd7b637dd5d214c76f8dee1e0b9",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestSubmissionTest.kt": "f940932960b9da5014805e68809b71801e21e2578c125a06ce19528ef4006399",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateFinalRequestRefusalTest.kt": "3e4c380aff51fbff0a0b42d1cd3bc45369c515f93c46e7886ced82cdaa98d0d9",
+      "authentication/issue_report_app.py": "4c947ae57f720e566dba6daabd7e253935c19b41bacba303d033a6a23bc52604",
+      "authentication/issue_report_diagnostics.py": "3a39d2b69189ab400e1a6404dda0f65d238d48ec4d8d6cca9e711ea4d7d18a98",
+      "authentication/issue_reports.py": "bd3f6c8d18f0c7075ee6999444999f5f6a7fa15fbcc85e136a52005c4f201ce3",
+      "authentication/test_app.py": "67ccdb9df7a49051e039f69c6cdb13622fe37befa56c5d032fd8a5a97c745c06",
+      "authentication/test_privacy_final_request_evidence.py": "378e7fa6a41a056e37fa8a6cb802c669093db796a01c24c03dd64a5567a0d1c6",
+      "scripts/check_issue_reporting_configuration.py": "a77475920890858d1a85eae27739563acdbd86bac26cf9cff2ddcfd018addbca",
+      "scripts/tests/test_issue_reporting_configuration.py": "620535b8d81cdc0a1dbf515e5c8270a498a76c1dd6241995442b1d748f79624e"
+    },
+    "sourceReview": {
+      "core": "Independent TLS source review clear across all9 paths/all9 new ordinary methods; root formatting wraps only new Route enum entries; all other8 hashes unchanged.",
+      "diagnostics": "Independent Saved source review clear across all18 final-v2 paths/all16 new ordinary methods, including the five owning-header acceptance combinations.",
+      "diagnosticManifestSha256": "d582d11f4877337fc63d94eaae2a49bfeb1b17f36107cea695a567b476beceb8",
+      "diagnosticPatchSha256": "1df31f37ff3b7949df176987015cb3931d1c3a4863766f3270e12796453bb513",
+      "corePatchBeforeFormattingSha256": "5fb50989e907a2249adc96f9c69b3631fe079dc557ac1e3438abc3412ebe5d01",
+      "combinedTypedLane": {
+        "publicParent": "d48509ecc158182f339d36b68fc3016821f0c669",
+        "status": "SOURCE_CLEAR",
+        "receiptSha256": "095c4d78df2ea00a4508bc8d1058f59379c0a8252e4c7ac6a5ed9bc0cad14b9f",
+        "proof": "All eleven typed network/adapter rethrows reverse to exact public whole files; all25 new Kotlin methods and receiver test remain byte-identical to the reviewed freeze. Preserve current OpenAI coroutine extraction, billing-delay/no-wait projection and allfour deployed capability requirements. Extend only the existing probe test with the fourth missing/restore case."
+      }
+    },
+    "preservation": "All prior Kotlin test bodies unchanged in this lane; existing receiver readiness test adds only the new feature fixture. The new9method composed class uses actual serializers, preparation, network implementations, adapters and masked session with MockEngine; fictional post-mask value reintroduction is an explicit test seam."
+  },
+  "qualification": {
+    "ordinaryProjectRuntime": "NOT_RUN_LOCALLY; all25 new methods require final normal committed hosted CI. No Kotlin/privacy/application/Gradle/custom harness execution.",
+    "receiverHost": {
+      "tests": 8,
+      "passed": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "scope": "Seven new Python closed-contract/receiver controls plus unchanged legacy-vs-extended readiness test; isolated in-process service only.",
+      "qualificationSha256": "64d025bc3c7dff14cd3e6ea6d3fcace7afcae5810473e0f1391003e41849e998"
+    },
+    "sourceReview": "Owned typed lane SOURCE_CLEAR; complete public candidate held for separately owned HTTP rejection/readiness/compiler fixes and final hosted qualification.",
+    "canonicalHost": "Required on combined current public-parent tree before append; separate immutable receipt binds exact source.",
+    "combinedReceiverHost": {
+      "tests": 26,
+      "passed": 26,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "trackedInputsUnchanged": 7100,
+      "receiptSha256": "ee101599b75266674ec37e6348e713f18e7c9d9c52dc54f00c02bdf7a8cf6a27",
+      "scope": "Seven typed receiver controls, unchanged legacy/extended readiness control and18 deployment probe controls; fourth new feature tested absent/restored inside the existing case; native-only and4096byte bound retained."
+    }
+  },
+  "necessaryScopeExpansion": {
+    "reason": "Source tracing found lower actual network stream catches consume PrivateDispatchRejected before provider adapters can observe it. Root authorized minimal typed rethrows before agent edits; no additional user confirmation is required for this necessary existing-task work.",
+    "paths": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/AnthropicAPIImpl.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GoogleAPIImpl.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GroqAPIImpl.kt"
+    ],
+    "scope": "Five lower stream catch sites only; keep cancellation and tool-definition rejection behavior, metadata/upload catches and retry policy unchanged.",
+    "regressionBoundary": "Use actual serializers, preparation, network implementations and provider adapters with MockEngine and fictional controlled post-mask reintroduction. No custom Kotlin runtime execution."
+  },
+  "sourceFrozenAt": "2026-11-24T01:04:48.531764+00:00",
+  "integration": {
+    "publicParent": "822d2ef347f47ba5e1844146b23c9643ee2461a7",
+    "publicParentTree": "3f00f278ca97d171113bd5e4065034212ce2230f",
+    "privateSourceFreeze": "ba89fdaa69aa4d3ea663a2e952c316523fdf2a45",
+    "preservedConcurrentCommits": [
+      "029b7e5a1b268b9a1ef611a60e04396ab604044f",
+      "d74dcb445b3381920f373b3f09a7cb9e1c5877d8",
+      "7b7e15f1d2628a747b5d901c8a9f9325bd40f014",
+      "9f475b1d8f94ee31b8b8857a064c0517511cb310",
+      "d48509ecc158182f339d36b68fc3016821f0c669",
+      "822d2ef347f47ba5e1844146b23c9643ee2461a7"
+    ],
+    "sourceOnlyPatchSha256": "de3e600a05c55395a07deabfe2fb244af24434e7e77d8aacae83848b8d8804db",
+    "remainingExternalOwners": "Foreign privacy-default-detail-repair owns HTTP429/402 structured body evidence and manual-delay ceiling. Foreign privacy-ci-regression-repairs owns five extended-readiness selectors and actual route coverage. Public822 contains the separately reviewed single-expression headersOf fixture correction; actual hosted compilation/runtime remain pending.",
+    "concurrentReconciliation": "Two fresh-head guards stopped before creating a public commit or moving a ref. Preserve9f unknown display and d485 diagnostic/provider/export/GitHub/speech changes. Reapply only two typed rethrows to the extracted public OpenAI run catches; retain root uncertainty plus public billing/no-wait fields and additive generated metadata. A third public-head advance was observed before any blob transfer/commit/ref write. Preserve822 single-expression fixture correction and its task/source metadata; all28 reviewed typed source hashes remain unchanged.",
+    "finalQualification": "Final ordinary source union must include all25 typed methods and the incoming6heap assumptions; dedicated heap gate6reports/12methods, bothAPI34/36, all model/JNI/DEX and required actual-main checks remain mandatory before coordinated publication."
+  }
+}

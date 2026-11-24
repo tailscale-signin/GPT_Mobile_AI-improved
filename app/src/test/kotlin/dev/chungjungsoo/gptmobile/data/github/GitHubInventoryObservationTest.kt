@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -13,6 +14,115 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubInventoryObservationTest {
+    @Test fun projectedSearchRetainsItsValidatedPathsAndRevisionForAllDependentReads() {
+        val commit = "a".repeat(40)
+        val blob = "b".repeat(40)
+        val original = Json.parseToJsonElement("""{"commit_sha":"$commit","items":[{"path":"docs/README.md","sha":"$blob","text":"${"private source ".repeat(200)}"}],"has_more":true,"complete":false}""").jsonObject
+        val retained = requireNotNull(GitHubInventoryObservation.capture(original, buildJsonObject { put("items", JsonArray(emptyList())) }))
+        val row = (retained["planning_records"] as JsonArray).single().jsonObject
+        assertEquals(
+            buildJsonObject {
+                put("path", "docs/README.md")
+                put("sha", blob)
+            },
+            row
+        )
+        assertEquals(JsonPrimitive(1), retained["fetched"])
+        assertEquals(JsonPrimitive(0), retained["displayed"])
+        assertEquals(JsonNull, retained["consumed"])
+        assertEquals(JsonPrimitive(false), retained["complete"])
+        val persisted = buildJsonObject {
+            put("binding", "task")
+            put("repository", "owner/repo")
+            put("trusted", true)
+            put("success", true)
+            put("tool", "github_search")
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "search")
+                    put("commit_sha", commit)
+                }
+            )
+            put(
+                "result",
+                buildJsonObject {
+                    put("observationTruncated", true)
+                    put("excerpt", JsonObject(emptyMap()))
+                }
+            )
+            put("inventory_observation", retained)
+        }
+        val restored = Json.parseToJsonElement(persisted.toString()).jsonObject
+        assertEquals(JsonPrimitive(commit), GitHubInventoryObservation.planningRoot(restored)?.get("commit_sha"))
+        val status = Json.parseToJsonElement("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$commit"}}""").jsonObject
+        val tools = listOf("github_read", "github_search").map { GitHubOperationTool.definition(it) }
+        val reads = GitHubSelfTestReads.available(tools, listOf(status, restored)).filter { it.arguments["action"] in setOf(JsonPrimitive("ranges"), JsonPrimitive("search_repository"), JsonPrimitive("search_code")) }
+        assertEquals(3, reads.size)
+        reads.forEach { call ->
+            assertEquals(JsonPrimitive(commit), call.arguments["commit_sha"])
+            val path = call.arguments["path_suffix"] ?: (call.arguments["ranges"] as JsonArray).single().jsonObject["path"]
+            assertEquals(JsonPrimitive("docs/README.md"), path)
+            assertTrue(GitHubSelfTestReads.valid(tools.single { it.name == call.name }, call.arguments))
+        }
+        for (changed in listOf(
+            JsonObject(restored + ("repository" to JsonPrimitive("other/repo"))),
+            JsonObject(restored + ("binding" to JsonPrimitive("other-task"))),
+            JsonObject(restored + ("repository_role" to JsonPrimitive("READ_SOURCE"))),
+            JsonObject(restored + ("inventory_observation" to JsonObject(retained + ("commit_sha" to JsonPrimitive("c".repeat(40))))))
+        )) {
+            assertEquals(null, GitHubInventoryObservation.searchPath(listOf(status, changed)))
+        }
+    }
+
+    @Test fun searchPlanningRejectsInvalidPathBlobAndConflictingRevisionWithoutChangingFetchedCounts() {
+        val commit = "a".repeat(40)
+        val invalidRows = listOf(
+            buildJsonObject {
+                put("path", "../private")
+                put("sha", "b".repeat(40))
+            },
+            buildJsonObject {
+                put("path", "/absolute")
+                put("sha", "b".repeat(40))
+            },
+            buildJsonObject {
+                put("path", "docs\\file")
+                put("sha", "b".repeat(40))
+            },
+            buildJsonObject {
+                put("path", "a".repeat(4097))
+                put("sha", "b".repeat(40))
+            },
+            buildJsonObject {
+                put("path", true)
+                put("sha", "b".repeat(40))
+            },
+            buildJsonObject {
+                put("path", "README.md")
+                put("sha", "moving-ref")
+            }
+        )
+        val original = buildJsonObject {
+            put("commit_sha", commit)
+            put("items", JsonArray(invalidRows))
+        }
+        val retained = requireNotNull(GitHubInventoryObservation.capture(original))
+        assertEquals(JsonPrimitive(invalidRows.size), retained["fetched"])
+        assertTrue((retained["planning_records"] as JsonArray).all { "path" !in it.jsonObject && "sha" !in it.jsonObject })
+        val conflicting = buildJsonObject {
+            put(
+                "result",
+                buildJsonObject {
+                    put("commit_sha", "c".repeat(40))
+                    put("items", JsonArray(emptyList()))
+                }
+            )
+            put("inventory_observation", retained)
+        }
+        assertEquals(null, GitHubInventoryObservation.planningRoot(conflicting))
+    }
+
     private fun source(field: String = "workflow_runs") = buildJsonObject {
         put("page", 1)
         put("total_count", 18)

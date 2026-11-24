@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2367,
+  "base_sha": "8e21987a7489ad8b62188a1fee4f70a602b4adde",
+  "base_tree": "4302da4e7a9f82acba3df366b8e67210172426b6",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "target_branch": "main",
+  "working_branch": "work/windows-sqlite-fixture-8e21987a",
+  "intent": "Close the paired-score test's SQLite fixture connections deterministically while preserving transaction behavior, every permission assertion and cleanup failure visibility.",
+  "status": "FROZEN_LOCAL_COMPONENT_PENDING_ROOT_INTEGRATION",
+  "owned_source_paths": [
+    "gateway/tests/test_gateway_benchmark_api_v2.py"
+  ],
+  "metadata_paths": [
+    "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json"
+  ],
+  "baseline_evidence": {
+    "source": "650525037819965bfe2704912e2594649eb489d2",
+    "run_id": 45332913392,
+    "windows_python312_job": 138238164891,
+    "windows_python313_job": 138238164728,
+    "failing_method": "QualificationAdmissionTests.test_paired_score_readback_rechecks_granted_repository_and_role",
+    "observed_failure": "TemporaryDirectory cleanup raises PermissionError WinError32 for jobs.sqlite3 after the test's assertions, on both hosted Windows runtimes.",
+    "source_cause": "The fixture's setup connection and three update connections use the sqlite3 transaction context without explicit closure. Production BenchmarkStore.db and retained_device_grant close their own connections in finally.",
+    "qualification": "The logs do not identify which open OS handle caused the cleanup lock. This is a concrete fixture-resource defect, not evidence of a production database leak or a failed permission assertion.",
+    "windows312_qualification_sha256": "dccc3b64f67fccead730b00090760e231421d33aa476f9016c3281d228353bbf",
+    "windows313_addendum_sha256": "1ff6f23a5e2f1f252e02a19e0f0295e05444a39a5fde80a683f0f27728c77b1a",
+    "sqlite_connection_context_reference": "https://docs.python.org/3.12/library/sqlite3.html#how-to-use-the-connection-context-manager"
+  },
+  "preservation_requirements": [
+    "Change only one contextlib.closing import and the two fixture with-statements; retain the connection context for commit/rollback before closure.",
+    "Preserve all 15 methods, all assertions, SQL, owner/profile/repository/role/revocation checks and the existing TemporaryDirectory cleanup.",
+    "Do not ignore cleanup errors, add retries or sleeps, raise timeouts, skip tests, force garbage collection or alter production code.",
+    "Do not execute providers, network, models, Android, Kotlin or a replacement application harness."
+  ],
+  "validation": {
+    "baseline": "The existing test file ran15 methods with14 passes and one cleanup error on each hosted Windows3.12 and3.13 job at650. All15 fairness methods passed separately in both jobs.",
+    "whole_file_inverse": "PASS: remove the sole closing import and reverse exactly two with-statements to reconstruct every byte of the8e parent test file.",
+    "method_preservation": "All15 existing method identities and all105 assertion source segments are preserved. Fourteen method ASTs are identical; only two with-statements in the paired-score method change. No new tests or assertions are added.",
+    "syntax": "Both complete parent and candidate files parse with the standard Python AST parser. This is a static check, not test execution.",
+    "whitespace": "git diff --check passed.",
+    "local_ordinary_tests": "NOT_RUN_PINNED_PROJECT_DEPENDENCIES_UNAVAILABLE",
+    "local_dependency_preflight": {
+      "python": "3.12.14",
+      "missing": [
+        "requests"
+      ],
+      "installed_not_project_pins": {
+        "fastapi": "0.141.1",
+        "starlette": "1.6.0",
+        "pydantic": "2.13.4",
+        "cryptography": "50.0.0",
+        "uvicorn": "0.52.1"
+      },
+      "policy": "No packages installed, no substitute harness, no unqualified ordinary test run."
+    },
+    "windows_requirement": "The normal corrected-source Windows3.12 and3.13 Gateway jobs must execute this exact existing file successfully. A Linux pass would not establish Windows behavior."
+  },
+  "integration_requirements": [
+    "Root owns independent review and latest-source composition without dropping concurrent commits.",
+    "Refresh exact release scope and generated references after composition; the changed packaged test requires a Gateway manifest bound to an actual reachable source anchor.",
+    "Retain current fairness, native, pronunciation, privacy and recovery controls and all final-head/main/publication requirements.",
+    "Canonical and immutable commit/tree receipts remain separate from this ledger; no standalone component publication is claimed."
+  ],
+  "source_sha256": {
+    "gateway/tests/test_gateway_benchmark_api_v2.py": "e797f59f5f67e9e9c4ce333928b0dd8e228269e70da63089c86cb6e85297c459"
+  },
+  "implementation": [
+    "Import contextlib.closing once and wrap both direct fixture connections with closing(...), retaining each db transaction context.",
+    "Context exit commits or rolls back first, then closes the same connection, including exceptional exits.",
+    "All production files, existing SQL operations, owner/profile/repository/role/revocation assertions and cleanup behavior remain unchanged."
+  ]
+}

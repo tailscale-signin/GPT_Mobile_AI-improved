@@ -1,0 +1,65 @@
+name: QNN runtime candidate
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/qnn-runtime-candidate.yml'
+      - 'scripts/build_qualcomm_dispatch_candidate.py'
+      - 'scripts/build_qnn_gpu_precision_probe.py'
+      - 'scripts/native/qnn_gpu_precision_probe.cpp'
+      - 'scripts/rebuild_qualcomm_dispatch.py'
+      - 'docs/audits/qnn-runtime-candidate.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Build matching QAIRT 2.52 dispatch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Validate immutable candidate inputs
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          python3 scripts/build_qualcomm_dispatch_candidate.py --check-inputs-only | tee artifacts/candidate-inputs.log
+      - name: Install the pinned Android target compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;29.0.14206865' 2>&1 | tee artifacts/ndk-install.log
+      - name: Build and structurally verify the isolated candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          mkdir -p artifacts
+          python3 scripts/build_qualcomm_dispatch_candidate.py \
+            --work-dir "$RUNNER_TEMP/qnn-runtime-candidate" \
+            --output-dir artifacts/qnn-runtime-candidate \
+            --ndk "$ANDROID_HOME/ndk/29.0.14206865" \
+            --jobs 2 2>&1 | tee artifacts/qnn-runtime-candidate-build.log
+      - name: Compile the native GPU precision configuration diagnostic
+        run: |
+          python3 scripts/build_qnn_gpu_precision_probe.py \
+            --qairt-sdk "$RUNNER_TEMP/qnn-runtime-candidate/qairt/2.52.0.261104" \
+            --ndk "$ANDROID_HOME/ndk/29.0.14206865" \
+            --output-dir artifacts/qnn-gpu-precision-probe
+      - name: Retain candidate and exact build receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qnn-runtime-candidate-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14

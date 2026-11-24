@@ -14,7 +14,7 @@ internal object GitHubFailurePolicy {
         "GITHUB_BRANCH_RULES_BLOCKED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN",
         "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_CONFLICT", "GITHUB_VALIDATION_FAILED", "GITHUB_TRANSIENT_SERVER", "GITHUB_HTTP_ERROR",
         "PERMISSION_DENIED", "PERMISSION_REVOKED", "GRAPH_CONFIGURATION_REQUIRED", "INVALID_ARGUMENTS", "FIXTURE_RECONCILE_REQUIRED", "APPROVAL_PUBLICATION_UNCONFIRMED",
-        "REPOSITORY_TARGET_REQUIRED", "REPOSITORY_TARGET_UNVERIFIED", "GITHUB_REPOSITORY_UNAVAILABLE", "GITHUB_PAGINATION_STALLED", "GITHUB_PAGINATION_INCOMPLETE"
+        "EVIDENCE_REVISION_MISMATCH", "REPOSITORY_TARGET_REQUIRED", "REPOSITORY_TARGET_UNVERIFIED", "GITHUB_REPOSITORY_UNAVAILABLE", "GITHUB_PAGINATION_STALLED", "GITHUB_PAGINATION_INCOMPLETE"
     )
     private val typedCode = Regex("\\b(?:" + codes.joinToString("|") + ")\\b", RegexOption.IGNORE_CASE)
 
@@ -89,6 +89,7 @@ internal object GitHubFailurePolicy {
         "PERMISSION_DENIED" -> "Review the selected profile's GitHub tool and conversation grants. The request was blocked by local permissions; changing models or repeatedly reconnecting GitHub does not grant access."
         "PERMISSION_REVOKED" -> "The selected GitHub connection or grant was removed. Restore that connection or explicitly select an authorized one before resuming saved work."
         "GRAPH_CONFIGURATION_REQUIRED" -> "Configure repository graph support and persistent engineering memory for the selected private gateway profile. Keep the selected AI profile; native reads do not establish graph coverage."
+        "EVIDENCE_REVISION_MISMATCH" -> "Choose the retained source revision or make a new pinned read of the requested paths at the requested commit. Keep both identities; do not repeat the mismatched handle or relabel its contents."
         "INVALID_ARGUMENTS" -> "Use the current tool schema and observed resource identifiers to correct this request. Repeating identical invalid arguments will not help."
         "GITHUB_NOT_FOUND_OR_INACCESSIBLE" -> "GitHub 404 can mean absent or inaccessible. Verify the actual requested owner/repository, ref/resource ID and account access; do not treat it as proven deletion or retry unchanged. X-OAuth-Scopes describes reported token scopes; X-Accepted-OAuth-Scopes describes endpoint requirements, not missing grants. Neither header proves a permission deficit."
         "GITHUB_VALIDATION_FAILED" -> "Inspect the reported resource/field/code, discover current branches or IDs, and correct this action's required fields. A deterministic validation failure is not retried unchanged."

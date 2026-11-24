@@ -126,6 +126,12 @@ class GPTMobileApp :
             }
             StartupRecoveryGate.step("legacy-restore") { SanitizedChatBackup.restoreIfPresent(this@GPTMobileApp) }
             StartupRecoveryGate.step("backup-recovery") { completeBackup.get().recoverAtStartup() }
+            StartupRecoveryGate.step("conversation-database") {
+                dev.chungjungsoo.gptmobile.data.security.prepareStartupConversationDatabase {
+                    conversationDatabase.get().openHelper.writableDatabase
+                    Unit
+                }
+            }
             StartupRecoveryGate.step("research-observer") {
                 withContext(Dispatchers.Main) {
                     androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
@@ -257,7 +263,7 @@ class GPTMobileApp :
             val memoryPressure = dev.chungjungsoo.gptmobile.data.memory.MemoryTrimPolicy.releaseImmediately(level)
             semanticMemory.get().releaseWhenIdle(if (memoryPressure) 0L else 180_000L, memoryPressure = memoryPressure, trimSignal = level)
         }
-        applicationScope.launch { readiness.get().trim() }
+        applicationScope.launch { readiness.get().trim(trimSignal = level) }
         dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.clear()
         dev.chungjungsoo.gptmobile.presentation.ui.chat.clearChatRenderingCaches()
         val hasActiveRuns = runCatching {

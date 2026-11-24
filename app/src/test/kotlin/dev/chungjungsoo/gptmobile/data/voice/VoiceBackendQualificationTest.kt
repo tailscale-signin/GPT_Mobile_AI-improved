@@ -12,14 +12,14 @@ class VoiceBackendQualificationTest {
         backend, VoiceSpeechBenchmarkBackendResult.provider(backend), "model", "runtime", "device", VoiceSpeechStage.READY,
         acceleratorKernels = if (backend == VoiceSpeechBackend.CPU) 0 else 39,
         verifiedAudio = true, observedAtMillis = 1,
-        profileAvailable = backend != VoiceSpeechBackend.CPU, nonSilentSamples = 100
+        profileAvailable = backend != VoiceSpeechBackend.CPU, nonSilentSamples = 100, tokenCount = 43
     )
 
     @Test fun completeProductionWorkloadUsesActiveVoiceRateAndEveryPreparationCost() {
         val groups = VoiceSpeechWorkload.calibrationFixtures
         val phrases = mutableListOf<String>()
         var clock = 500_000_000L
-        val measured = measureVoiceQualification(groups, VoiceSpeechBackend.QNN_HTP, 21, 1.25f, 0, { clock }, {}, 0, { 0 }) { phrase, speaker, rate ->
+        val measured = measureVoiceQualification(groups, VoiceSpeechBackend.QNN_HTP, 21, 1.25f, 0, { clock }, {}, 0, { 0 }, ::speechReferenceFixture) { phrase, speaker, rate ->
             assertEquals(21, speaker)
             assertEquals(1.25f, rate)
             phrases += phrase
@@ -118,7 +118,7 @@ class VoiceBackendQualificationTest {
             var clock = 0L
             val measured = measureVoiceQualification(
                 VoiceSpeechWorkload.calibrationFixtures, VoiceSpeechBackend.QNN_HTP, 3, 1f,
-                0, { clock }, {}, 0, { if (++reads == 4) bad else 0 }
+                0, { clock }, {}, 0, { if (++reads == 4) bad else 0 }, ::speechReferenceFixture
             ) { _, _, _ ->
                 calls++
                 clock += 1_000_000L
@@ -128,6 +128,7 @@ class VoiceBackendQualificationTest {
             assertEquals(VoiceMeasuredBackendPolicy.FIXTURE_COUNT, measured.sampleMs.size)
             assertTrue(measured.thermalStatuses.contains(bad))
             org.junit.Assert.assertFalse(measured.rankingEligible)
+            assertTrue(measured.copy(thermalStatuses = measured.thermalStatuses.map { 0 }).rankingEligible)
         }
     }
 }

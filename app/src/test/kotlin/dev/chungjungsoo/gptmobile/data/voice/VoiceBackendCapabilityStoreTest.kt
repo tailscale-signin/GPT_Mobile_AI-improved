@@ -35,7 +35,9 @@ class VoiceBackendCapabilityStoreTest {
     ) = VoiceBackendCapability(
         key, backend, at, samples, verified, failure, failureStage, nativeCode, tokenCount,
         comparisonScope = "a".repeat(64), speakerId = 3, speechRate = 1f,
-        thermalStatuses = List(VoiceMeasuredBackendPolicy.thermalSampleCount) { 0 }
+        thermalStatuses = List(VoiceMeasuredBackendPolicy.thermalSampleCount) { 0 },
+        comparisonId = "c".repeat(32),
+        audioObservations = VoiceSpeechWorkload.calibrationPhrases.map(::speechReferenceFixture)
     )
 
     @Before fun clear() {
@@ -53,6 +55,29 @@ class VoiceBackendCapabilityStoreTest {
         assertNotEquals(store.key(VoiceSpeechBackend.QNN_GPU, "us", 2), store.key(VoiceSpeechBackend.QNN_HTP, "us", 2))
         assertNotEquals(store.key(VoiceSpeechBackend.QNN_GPU, "us", 2), store.key(VoiceSpeechBackend.QNN_GPU, "gb", 2))
         assertNotEquals(store.key(VoiceSpeechBackend.QNN_GPU, "us", 2), store.key(VoiceSpeechBackend.QNN_GPU, "us", 3))
+    }
+
+    @Test fun completedComparisonPersistsItsPairedMismatchAndRejectsMixedRunPublication() {
+        val store = VoiceBackendCapabilityStore(context)
+        val cpu = record(store.key(VoiceSpeechBackend.CPU, "us", 2), VoiceSpeechBackend.CPU, now, List(6) { 100L })
+        val gpu = record(store.key(VoiceSpeechBackend.QNN_GPU, "us", 2), VoiceSpeechBackend.QNN_GPU, now, List(6) { 40L }, true)
+            .copy(audioObservations = VoiceSpeechWorkload.calibrationPhrases.map { speechReferenceFixture(it, 43) })
+        store.saveComparison(VoiceBackendAudioAdmission.finalized(listOf(gpu, cpu), now))
+        val recovered = listOfNotNull(store.read(cpu.key, now), store.read(gpu.key, now))
+        assertEquals(2, recovered.size)
+        assertEquals(VoiceSpeechFailureCode.OUTPUT_INVALID, recovered.single { it.backend == VoiceSpeechBackend.QNN_GPU }.failure)
+        assertEquals(VoiceSpeechBackend.CPU, VoiceBackendAudioAdmission.select(VoiceSpeechBackend.QNN_GPU, recovered, now).selected)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            store.saveComparison(listOf(cpu, gpu.copy(comparisonId = "d".repeat(32))))
+        }
+        assertEquals(recovered, listOfNotNull(store.read(cpu.key, now), store.read(gpu.key, now)))
+    }
+
+    @Test fun explicitManualAndAutoRecheckHaveBoundedPreparationWhileOrdinaryOpenStaysShort() {
+        for (backend in listOf(VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP, VoiceSpeechBackend.AUTO)) {
+            assertEquals(360_000L, QualcommVoicePhraseEngineFactory(context, backend, {}, calibrateAll = true).preparationTimeoutMs)
+            assertEquals(30_000L, QualcommVoicePhraseEngineFactory(context, backend, {}).preparationTimeoutMs)
+        }
     }
 
     @Test fun recheckInvalidatesOnlyTheSelectedBackendAndPreservesFailureProvenance() {
@@ -155,6 +180,38 @@ class VoiceBackendCapabilityStoreTest {
         assertNotEquals(factory.identity, QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.AUTO, {}, voice = KokoroVoice.HEART, speechRate = 1.25f).identity)
     }
 
+    @Test fun htpExperimentsCannotReuseBalancedAdmissionOrPairDifferentPerformanceModes() {
+        val balanced = VoiceBackendCapabilityStore(context)
+        val burst = VoiceBackendCapabilityStore(context, "htp=burst;context=1")
+        val cpu = record(balanced.key(VoiceSpeechBackend.CPU, "us", 2), VoiceSpeechBackend.CPU, now, List(6) { 100L })
+            .copy(comparisonScope = balanced.comparisonScope("us", 2))
+        val accelerator = record(burst.key(VoiceSpeechBackend.QNN_HTP, "us", 2), VoiceSpeechBackend.QNN_HTP, now, List(6) { 50L }, true)
+            .copy(comparisonScope = burst.comparisonScope("us", 2))
+        burst.save(accelerator)
+        assertNotEquals(balanced.comparisonScope("us", 2), burst.comparisonScope("us", 2))
+        assertNull(balanced.read(balanced.key(VoiceSpeechBackend.QNN_HTP, "us", 2), now))
+        assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu, accelerator), now))
+        val ordinary = QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.AUTO, {})
+        val experiment = QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.AUTO, {}, htpPerformanceMode = "burst")
+        assertNotEquals(ordinary.identity, experiment.identity)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.QNN_HTP, {}, htpPerformanceMode = "unverified-mode")
+        }
+    }
+
+    @Test fun modelVariantsCannotShareAdmissionAndResidentFactoryIdentity() {
+        val compact = VoiceBackendCapabilityStore(context)
+        val original = VoiceBackendCapabilityStore(context, modelSha256 = KokoroModelVariant.ORIGINAL_FP32.modelSha256)
+        assertNotEquals(compact.comparisonScope("us", 2), original.comparisonScope("us", 2))
+        val compactFactory = QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.CPU, {})
+        val originalFactory = QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.CPU, {}, modelVariant = KokoroModelVariant.ORIGINAL_FP32)
+        assertNotEquals(compactFactory.identity, originalFactory.identity)
+        assertTrue(originalFactory.identity.contains(KokoroModelVariant.ORIGINAL_FP32.modelSha256))
+        assertEquals(TimedKokoroPhraseEngineFactory.forVariant(KokoroModelVariant.ORIGINAL_FP32), originalFactory.cpuCalibrationFactory)
+        assertNotEquals(compactFactory.cpuCalibrationFactory.identity, originalFactory.cpuCalibrationFactory.identity)
+        assertEquals(originalFactory.cpuCalibrationFactory, originalFactory.cpuCalibrationFactory.cpuCalibrationFactory)
+    }
+
     @Test fun invalidProbeCannotEraseWorkingHardwareReceiptAndSupportCannotRefreshRanking() {
         val store = VoiceBackendCapabilityStore(context)
         val key = store.key(VoiceSpeechBackend.QNN_HTP, "us", 2)
@@ -205,5 +262,20 @@ class VoiceBackendCapabilityStoreTest {
             preferences.edit().putString("receipts", raw.toString()).commit()
             assertNull(store.read(key, now))
         }
+    }
+
+    @Test fun measuredAudioRetentionEvictsWholeOlderReceiptsWithinTheByteBound() {
+        val store = VoiceBackendCapabilityStore(context)
+        val observations = VoiceSpeechWorkload.calibrationPhrases.map {
+            speechReferenceFixture(it).copy(sampleCount = 511 * 600, tokenDurations = List(511) { 1L }, nonSilentSamples = 511 * 600L)
+        }
+        val keys = (0 until 24).map { store.key(VoiceSpeechBackend.QNN_GPU, "bounded-$it", 2) }
+        keys.forEachIndexed { index, key ->
+            store.save(record(key, VoiceSpeechBackend.QNN_GPU, now + index, List(6) { 50L }, true).copy(audioObservations = observations))
+        }
+        val encoded = context.getSharedPreferences("voice_backend_capabilities_v1", Context.MODE_PRIVATE).getString("receipts", null)!!
+        assertTrue(encoded.length <= 262_144)
+        assertEquals(observations, store.read(keys.last(), now + 24)?.audioObservations)
+        assertTrue(keys.count { store.read(it, now + 24) != null } in 1..23)
     }
 }

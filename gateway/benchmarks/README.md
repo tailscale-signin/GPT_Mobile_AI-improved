@@ -126,6 +126,41 @@ unconfirmed execution, unavailable provider observations, or changed frozen
 identities remain incomplete evidence. Summary `outcomeComplete` and attempt
 rates are separate from complete secondary `score` qualification.
 
+### Grade a separately obtained ChatGPT or Codex answer
+
+The desktop CLI exports the public prompt and output schema for one fixture. Give
+the same prompt, schema, starting files and generation budget to each assistant.
+Save each complete answer as UTF-8, preserving whitespace and any malformed
+output. The grader applies the same independent hidden checks to each candidate.
+
+Run from the repository root using the Gateway Python environment. Replace
+`ROOT` with the installed Gateway desktop configuration directory. The commands
+use its existing owner and permissions.
+
+```sh
+python gateway/grade_external_reference.py task --root ROOT --id pagination-1 --seed 17 --pack python --output task.json
+python gateway/grade_external_reference.py prepare --task task.json --source ChatGPT --candidate answer.json --trial chatgpt.sqlite
+python gateway/grade_external_reference.py submit --root ROOT --trial chatgpt.sqlite --candidate answer.json
+python gateway/grade_external_reference.py status --root ROOT --trial chatgpt.sqlite
+```
+
+For Codex, use the same `task.json`, `--source Codex`, its answer file and a new
+trial file. Compare completed outcomes with matching task, grader and environment
+digests, pack and seed. The source label is operator-supplied. The CLI reports
+provider identity as unverified and leaves generation settings, token usage and
+cost unknown. The result measures one executable fixture. The separate
+ten-job GitHub Intelligence Score requires production execution receipts.
+
+Keep the trial file. It holds the frozen answer digest and original request ID.
+The CLI records the attempted submission durably before contacting the grader.
+Subsequent `submit` and `status` calls on that trial perform readback. An attempted
+trial with `NOT_OBSERVED` still has an uncertain admission. Keep checking using
+`status`; the existing cancellation-by-request procedure below can retire the
+original identity if the operator decides to stop. A reported `REMOVED` is final
+for that identity. If retirement explicitly reports `NOT_DISPATCHED`, a new trial
+can be prepared for a new submission. Preserve any observed original run in the
+comparison history.
+
 ### Cancellation before an admission reply
 
 `POST /gateway/benchmarks/cancel-request` with `{"request_id":"<original-id>"}`
@@ -231,3 +266,37 @@ Unavailable or mismatched evidence stays unverified.
 The external-model API still uses the Gateway evaluator. The separately
 provisioned phone-to-GitHub route uses the immutable fixture bundle and typed
 Actions artifact described in [PHONE_ACTIONS.md](PHONE_ACTIONS.md).
+
+### GitHub Intelligence Score
+
+Create a ten-scenario production manifest with
+`python gateway/qualify_engineering.py --intelligence-template OWNER/REPO --output manifest.json`.
+Supply your disposable fixture cohort, exact profile route, pinned base SHA and fixed
+scenario requests. Give each scenario its named acceptance criterion, paths and trusted
+checks. Run each profile on a fresh set of fixture branches with identical starting
+contents. Use **History → Live GitHub qualification → Execute frozen manifest** to
+admit the work and **Check saved submission** to refresh the evidence.
+
+| Dimension | Points | Observation |
+| --- | ---: | --- |
+| Completion | 25 | Verified task outcome across eight implementation scenarios |
+| Code correctness | 20 | Independent exact-head behavioral tests on the bug and CI repairs |
+| Repository understanding | 15 | Fraction of required paths acquired in the initial verified batch or subsequent range reads at the pinned source |
+| Error recovery | 15 | Verified lost-write, restart and CI repair outcomes |
+| Context retention | 10 | Named acceptance behavior after observed compaction |
+| Tool efficiency | 5 | Distinct full-file acquisitions and explicit source ranges per read across the two retrieval tasks |
+| Evidence accuracy | 5 | Final reports agree with observed CI and post-merge failure state |
+| Response quality | 5 | Accurate blocker report contains a summary, concrete failure and next action |
+
+The last two dimensions assess factual, actionable reporting. Source acquisition measures
+path coverage, and repeated identical source ranges measure retrieval efficiency. Neither
+measurement assesses every tool call or general prose quality. An incomplete history,
+absent required test observation or unverified profile leaves the overall score unavailable.
+
+Run `python gateway/qualify_engineering.py --root ROOT --manifest manifest.json --output run.json`
+to export existing job evidence (supply the existing job IDs). Compare two trusted
+exports using `--compare-intelligence runA.json runB.json --output comparison.json`.
+The comparison checks all ten task contracts, initial commit of each merge target across the independent fixture branches, source revisions, policy and environment,
+settings, budgets, GitHub actor and repository permissions, binding privacy and tool policy, model bindings and separate job IDs. Its difference describes the
+observed runs. ChatGPT and Codex need equivalent capabilities and independently
+attributable run evidence before a comparison can be reported.

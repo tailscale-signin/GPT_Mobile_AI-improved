@@ -39,6 +39,7 @@ interface VoiceAudio {
     fun listen(listener: Listener)
     fun finishListening() = Unit
     fun configureInterruption(enabled: Boolean, interrupted: (() -> Unit)?) = Unit
+    fun configurePronunciation(overrides: Map<String, String>) = Unit
     fun speak(text: String, complete: () -> Unit, error: (String) -> Unit)
 
     /** Older backends keep their message-only contract; typed producers retain their actual cause. */
@@ -146,7 +147,7 @@ class VoiceSession(
     private var lastReply: String? = null
     private var streamId: String? = null
     private var streamDiagnosticId: String? = null
-    private var speechBuffer = VoiceSpeechBuffer(now)
+    private var speechBuffer = VoiceSpeechBuffer(now, preserveLiteralTerms = true)
     private val queuedSpeech = ArrayDeque<String>()
     private var chunkPlaying = false
     private var streamComplete = false
@@ -160,7 +161,7 @@ class VoiceSession(
     private fun resetStream() {
         streamId = null
         streamDiagnosticId = null
-        speechBuffer = VoiceSpeechBuffer(now)
+        speechBuffer = VoiceSpeechBuffer(now, preserveLiteralTerms = true)
         includeSpeechDetails = false
         queuedSpeech.clear()
         chunkPlaying = false
@@ -331,7 +332,7 @@ class VoiceSession(
         resetStream()
         manualPlayback = manual
         includeSpeechDetails = manual && includeDetails
-        speechBuffer = VoiceSpeechBuffer(now, includeDetails = includeSpeechDetails)
+        speechBuffer = VoiceSpeechBuffer(now, includeDetails = includeSpeechDetails, preserveLiteralTerms = true)
         waiting = true
         lastReply = null
         engaged = true
@@ -688,7 +689,7 @@ class VoiceSession(
                 if (index < activeUtterance || index == activeUtterance && range.first < lastRangeStart) return
                 // Require an exact visible-text match. Pronunciation and Markdown transforms can change the source.
                 if (index != activeUtterance) {
-                    val projected = VoiceSpeechText.project(state.reply, final = streamComplete || !waiting, includeDetails = includeSpeechDetails)
+                    val projected = VoiceSpeechText.forPlayback(state.reply, final = streamComplete || !waiting, includeDetails = includeSpeechDetails)
                     playbackCaption = projected.takeIf { it != state.reply }
                     utteranceStart = projected.indexOf(utterance, startIndex = captionSearchFrom).takeIf {
                         it >= captionSearchFrom && projected.substring(captionSearchFrom, it).all(Char::isWhitespace)
@@ -832,7 +833,7 @@ class VoiceSession(
             continueTurn()
             return
         }
-        val spoken = VoiceSpeechBuffer(includeDetails = includeSpeechDetails).append(text, final = true).orEmpty().joinToString(" ").trim()
+        val spoken = VoiceSpeechBuffer(includeDetails = includeSpeechDetails, preserveLiteralTerms = true).append(text, final = true).orEmpty().joinToString(" ").trim()
         if (spoken.isEmpty()) {
             continueTurn()
             return

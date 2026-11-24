@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "task": "github-audit-clause-scope-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "4f1ee3aafb1e1106535a019b5a5c309decb945c3",
+  "workingBranch": "work/audit-clause-scope-followup-7f",
+  "pullRequest": 2367,
+  "intent": "Keep a detached component or sampling restriction bound to its standalone broad audit clause without suppressing independent audits, unrelated named samples, or publication conditions.",
+  "acceptance": [
+    "The original broad audit request continues its exact issued derived-query frontier.",
+    "A following component restriction or unqualified sampling instruction prevents automatic paging of an unrelated derived query for that audit.",
+    "A separate authorized broad audit, an unrelated explicitly named sample, and publish-only conditions retain their own scope.",
+    "Preserve existing instruction, narrow-query, repository/revision/cursor binding, duplicate-prevention and 32-attempt controls.",
+    "Add direct nextRemoteRead behavioral regressions; report source review, formatting, host checks and hosted Android execution separately."
+  ],
+  "qualification": {
+    "status": "INDEPENDENT_SOURCE_REVIEW_CLEAR_ON_RECONCILED_HEAD",
+    "localFormatting": {
+      "version": "ktlint1.3.1",
+      "verifiedToolSha256": "a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1",
+      "format": "PASS",
+      "check": "PASS"
+    },
+    "localDiffCheck": "PASS",
+    "kotlinExecution": "Two direct continuation behavior methods added; not run locally. Final-head hosted unit execution remains required.",
+    "generatedReferences": "The integrating coordinator refreshes generated references and release scope before canonical host validation.",
+    "reconciliation": "Removing only the reviewed grouping patch reproduces the exact 7f policy; removing only the two added methods reproduces the exact 7f test file. All 17 incoming methods, including the two negation controls, are unchanged."
+  },
+  "reconciledHead": "7f9d7f4eb51f80060435c39d4b958f36ae08f1c8",
+  "integrationBranch": "fix/diagnostic-execution-completion-2026-11-22"
+}

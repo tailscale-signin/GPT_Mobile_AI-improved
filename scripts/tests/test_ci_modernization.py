@@ -109,7 +109,7 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertEqual(sorted(set(positions)), positions)
         package = next(index for index, step in enumerate(steps) if ':app:assembleDebugAndroidTest' in step)
         artifact_check = next(index for index, step in enumerate(steps) if 'select_android_test_apk.py' in step)
-        emulator = next(index for index, step in enumerate(steps) if 'ReactiveCircus/android-emulator-runner@' in step)
+        emulator = next(index for index, step in enumerate(steps) if 'uses: ./build/emulator-action-upstream' in step)
         self.assertLess(positions[-1], package)
         self.assertLess(package, artifact_check)
         self.assertLess(artifact_check, emulator)
@@ -128,6 +128,19 @@ class WorkflowPolicyTest(unittest.TestCase):
         policy = module('check_ci_policy')
         self.assertTrue(policy.check_text('uses: example/action@v4', '.github/actions/example/action.yml'))
         self.assertFalse(policy.check_text('uses: example/action@' + 'a' * 40, '.github/actions/example/action.yml'))
+
+    def test_runner_context_requires_step_scope_for_environment_values(self):
+        policy = module('check_ci_policy')
+        prefix = 'permissions:\n  contents: read\nconcurrency:\n  group: test\njobs:\n  smoke:\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n'
+        step = '    steps:\n      - run: echo ready\n'
+        for environment in (
+            '    env:\n      MODEL_DIR: ${{ runner.temp }}/models\n',
+            "    env: {MODEL_DIR: '${{runner.temp}}/models'}\n",
+        ):
+            with self.subTest(environment=environment):
+                self.assertTrue(policy.check_text(prefix + environment + step, '.github/workflows/speech.yml'))
+        allowed = prefix + '    env:\n      ENGINE: ${{ matrix.engine }}\n' + step + '        env:\n          MODEL_DIR: ${{ runner.temp }}/models\n'
+        self.assertEqual([], policy.check_text(allowed, '.github/workflows/speech.yml'))
 
     def test_candidate_ruleset_keeps_review_and_security_gates(self):
         policy = module('check_ci_policy')

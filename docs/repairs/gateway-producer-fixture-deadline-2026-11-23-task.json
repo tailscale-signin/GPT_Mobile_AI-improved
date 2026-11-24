@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "task": "gateway-producer-fixture-deadline-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "35b1556e07c83ed219dc741a070d4a14f8f73e8f",
+  "baseTree": "f0e908cfa8d1031c2b394b88bc33e43aed507ab9",
+  "parentPullRequest": 2367,
+  "workingBranch": "detached",
+  "owner": "root/native_speech_review",
+  "integrationOwner": "root",
+  "status": "PORTABLE_VALIDATION_PASSED_REAL_PRODUCER_REQUIRES_HOSTED_GATE",
+  "intent": "Give the direct PowerShell semantic fixture a finite 30-second process watchdog while retaining the production 12-second observation deadline and explicit TIMEOUT result.",
+  "failureEvidence": {
+    "workflowRun": 45173554368,
+    "job": 137688902851,
+    "checkoutCommit": "6159cd48f0081bda08dfb1e6a0c11d1a243ad9e9",
+    "checkoutTree": "f0e908cfa8d1031c2b394b88bc33e43aed507ab9",
+    "runner": "ubuntu-latest/Python 3.12",
+    "logSha256": "fee75785fd15d34b946c8c3a71184b87a6da4554d870adfc23a9a9215d789335",
+    "test": "HostConnectionDiagnosticsTest.test_powershell_producer_reads_mocked_host_observations_and_contains_cmdlet_failure",
+    "subcase": {
+      "fail_reads": false,
+      "profile": "Private",
+      "position": 1
+    },
+    "observation": "The first producer process exceeded the fixture's 15-second watchdog. The other eight producer subcases reported no failure; the ten-method suite finished in 27.015 seconds with one error. The actual capability suite passed all four methods.",
+    "qualification": "The log does not distinguish process startup, script execution or runner scheduling as the delay source. This semantic fixture has no performance assertion. Its source, production probe, collector, dependency lock and workflow are unchanged from main 8abda66c."
+  },
+  "ownedPaths": [
+    "gateway/tests/test_gateway_connection_diagnostics.py",
+    "gateway/manifest-v14.json",
+    "release-scope.json",
+    "docs/repairs/gateway-producer-fixture-deadline-2026-11-23-task.json"
+  ],
+  "constraints": [
+    "Change only the fixture subprocess timeout from 15 to 30 seconds plus an explanatory comment.",
+    "Preserve all nine producer subcases, assertions, command arguments, stdin, environment and temporary-directory cleanup.",
+    "Keep production PROBE_TIMEOUT=12, TIMEOUT classification, the 120-second suite deadline and workflow limits unchanged.",
+    "No workflow retry, cancellation, dispatch, push, merge or publication."
+  ],
+  "validation": {
+    "portableCollectorCases": {
+      "command": "python3 -m unittest discover -s gateway/tests -p test_gateway_connection_diagnostics.py -v",
+      "discovered": 10,
+      "passed": 9,
+      "skipped": 1,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 0.011,
+      "logSha256": "a0b445bb7a585bf59f47659dbea7ebdf1180e17d84bc9cf63cea6834b3be4027",
+      "skippedMethod": "HostConnectionDiagnosticsTest.test_powershell_producer_reads_mocked_host_observations_and_contains_cmdlet_failure",
+      "skipReason": "Neither pwsh nor powershell is installed on this host. The existing availability decorator skipped the real producer method."
+    },
+    "dependencyQualification": {
+      "initialAttempt": "Collection failed before any actual test method because requests was absent.",
+      "resolution": "Installed only the existing hash-pinned Requests dependency subset into a separate target directory; the shared runtime was not modified.",
+      "requirementsSubsetSha256": "3bb9c2bb76e2ac2654029ba1502ba48454e8387550acd642150690877ce0a73f",
+      "packages": [
+        "certifi==2026.10.18",
+        "charset-normalizer==3.5.2",
+        "idna==3.20",
+        "requests==2.34.2",
+        "urllib3==2.8.0"
+      ],
+      "scope": "This qualifies the portable collector tests with those isolated dependencies, not the complete pinned Gateway environment."
+    },
+    "behaviorPreservation": "AST comparison against public35 differs only in one subprocess timeout keyword (15 to 30). All ten test methods, nine producer subcases, command/environment/cleanup and assertions are otherwise unchanged.",
+    "productionAndBounds": "Production collector and PowerShell producer, requirements, check_gateway.py and gateway-stability.yml remain byte-identical to the public base. The existing production timeout/privacy regression passed.",
+    "manifest": "Regenerated with the official --manifest-only command and validated all513included files; only the changed fixture hash and generator source anchor differ.",
+    "generatedChecks": "Repository references, agent metadata, architecture index, app audit inventory (3006 files/26 areas) and diagnostic schema all passed. No additional generated changes required.",
+    "whitespace": "PASSED",
+    "realPowerShellProducer": "NOT_RUN_LOCALLY; all nine actual producer cases require the current hosted Gateway gate. No claim that30seconds has completed the previously timed-out case.",
+    "canonicalFast": "PENDING_ROOT_INTEGRATION"
+  }
+}

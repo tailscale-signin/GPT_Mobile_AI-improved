@@ -9,7 +9,7 @@
   "working_branch": "work/github-coding-benchmark-2026-11-22",
   "intent": "Implement the complete GitHub and coding model benchmark audit design, preserve concurrent changes, qualify the current PR and main commits, and publish the signed application and scoped Gateway release.",
   "authorization": "User explicitly requested every feature, a draft PR, merge after green checks, and publication after green main checks.",
-  "status": "IMPLEMENTED_COMPONENT_VERIFIED_PENDING_FINAL_HOSTED_QUALIFICATION",
+  "status": "IMPLEMENTED_RELEASE_LINT_CORRECTION_LOCAL_VALIDATION_PENDING",
   "requirements": [
     {
       "id": "B01",
@@ -290,10 +290,11 @@
     }
   ],
   "publication": {
-    "android": "0.9.66.13",
-    "version_code": 147,
+    "android": "0.9.66.14",
+    "version_code": 148,
     "gateway": "18.1.1",
-    "status": "PENDING_EXACT_HEAD_AND_MAIN_GATES"
+    "status": "UNPUBLISHED_CANDIDATE_REQUIRES_NEW_HEAD_AND_MAIN_GATES",
+    "superseded_unpublished_android": "0.9.66.13"
   },
   "last_reconciled_remote_head": "1e624737fb9ebd30e4a2b9b20a8ea94d9f37dff1",
   "qualification_limits": [
@@ -697,5 +698,86 @@
   "remaining_integration_gates": [
     "Preserve every concurrent public commit and verify all applicable latest final-head checks plus active main rules.",
     "Expected-head merge, all applicable exact-main checks and signed Android/Gateway publication with exact tag/source, downloaded assets and attestation readback."
-  ]
+  ],
+  "release_lint_publication_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+    "base_tree": "ac439b8dd836adfbb115401e941ea046902e6686",
+    "parent_pr": 2254,
+    "working_branch": "work/release-lint-publication-2026-11-23",
+    "shared_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "shared_head_observed_before_edit": "b4600f798bf37ed9a570ee7ac8a0988518539cfc",
+    "intent": "Correct the observed release-lint resource boundary, preserve all benchmark and concurrent changes, qualify a new draft PR and main commit, and publish Android and Gateway only after successful verification.",
+    "authorization": "The existing user instruction authorizes implementation, a draft PR, merge after green checks, and publication after green main checks; continue until fully published.",
+    "observed_failure": {
+      "run_id": 45143746072,
+      "attempt": 1,
+      "job_id": 137587934781,
+      "step": "Verify release compatibility and lint",
+      "started_at": "2026-11-23T10:35:05Z",
+      "timed_out_at": "2026-11-23T11:20:18Z",
+      "heap_pressure_warning_at": "2026-11-23T10:54:38Z",
+      "configured_heap_mib": 3072,
+      "configured_metaspace_mib": 1024,
+      "outer_step_minutes": 45,
+      "release_lint_verdict": "NOT_PRODUCED",
+      "android_published": false,
+      "gateway_published": false
+    },
+    "comparison": {
+      "successful_pr_run_id": 45131865479,
+      "successful_pr_job_id": 137549071133,
+      "tested_merge": "18b53c98ea2018fcd23cac933a0cbf10069cd2ae",
+      "same_tree": true,
+      "same_final_lint_command": true,
+      "same_3gib_pressure_warning_observed": true,
+      "qualification": "Recurring heap pressure and an actual timeout are observed. The warning is not a demonstrated thrown OOM or a deterministic cause; main stages were slower, and CI must qualify the bounded candidate."
+    },
+    "candidate": {
+      "heap_mib": 4096,
+      "metaspace_mib": 1024,
+      "native_reserve_mib": 2048,
+      "outer_step_minutes": 45,
+      "process_timeout_seconds": 2640,
+      "checks_preserved": [
+        ":app:checkReleaseAarMetadata",
+        ":app:lintRelease"
+      ],
+      "observed_memory_admission_required": true,
+      "lint_specific_text_and_gc_logs_required": true,
+      "validation": {
+        "focused_tests": 33,
+        "failures": 0,
+        "errors": 0,
+        "new_tests": 11,
+        "unchanged_workflow_negative_control": "Two expected refused-admission subtest failures",
+        "candidate_admission_control": "Both refused-admission subcases pass",
+        "independent_review_receipt_sha256": "de24e512fa3b8c3a194c1ffc33814f34b34b2198fb1d8218267d25633b08b1fb",
+        "canonical_fast": "PENDING",
+        "hosted_release_lint": "PENDING"
+      }
+    },
+    "publication_request": {
+      "android": "0.9.66.14",
+      "versionCode": 148,
+      "gateway": "18.1.1"
+    },
+    "publication_policy": "Use the normal newly reviewed version-pair push path. Keep required workflows, exact-source checks, signing, tags, asset checksums and published readback mandatory. Do not rewrite the failed source or bypass gates.",
+    "status": "INTEGRATED_PENDING_CANONICAL_AND_HOSTED_VALIDATION",
+    "local_component_commit": "20272c0acdcc9f3993608a108ed19fd4b89c7ea1",
+    "local_component_tree": "b813d71465fe53fc40a9f1601f960d4ea38e6db1",
+    "publication_trigger_local_check": {
+      "publish": true,
+      "publish_gateway": true,
+      "before_sha": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+      "scope": "Local evaluation of prepared14/code148 +Gateway18.1.1 source; actual hosted publication remains required."
+    },
+    "trigger_review": {
+      "pull_request_workflow_identities": 11,
+      "main_independent_workflows": 8,
+      "main_publisher_additional": true,
+      "scope": "Existing push filters for Gateway stability, Windows installer, offline environments, Android acceptance and other required workflows match the version/scope delta. No trigger rules were changed."
+    }
+  }
 }

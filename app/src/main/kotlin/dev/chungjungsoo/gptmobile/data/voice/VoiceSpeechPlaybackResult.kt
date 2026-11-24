@@ -13,7 +13,8 @@ internal data class VoiceSpeechPlaybackChunk(
     val verifiedAudio: Boolean,
     val acceleratorKernels: Int?,
     val cpuKernels: Int?,
-    val observation: VoiceSpeechBenchmarkFailureObservation?
+    val observation: VoiceSpeechBenchmarkFailureObservation?,
+    val audioObservation: VoiceSpeechAudioObservation? = null
 )
 
 internal data class VoiceSpeechReserveObservation(val phase: String, val elapsedMs: Long, val targetMs: Long, val acceptedMs: Long, val exitReason: String, val startMs: Long? = null, val endMs: Long? = null)
@@ -92,7 +93,19 @@ internal data class VoiceSpeechPlaybackResult(
     val preparationPhases: Map<String, Long> = emptyMap(),
     val timeoutLimitMs: Long? = null,
     val timeoutElapsedMs: Long? = null,
-    val timeoutScope: String? = null
+    val timeoutScope: String? = null,
+    val streamedAudioValidated: Boolean? = null,
+    val requestedDelegate: String? = null,
+    val observedProviderStatus: String? = null,
+    val engineStreamCalls: Int? = null,
+    val engineStreamWallMs: Long? = null,
+    val omittedPcmRecords: Int = 0,
+    val sustainedTargetAudioMs: Long? = null,
+    val sustainedObservedAudioMs: Long? = null,
+    val sustainedWallElapsedMs: Long? = null,
+    val sustainedWallDeadlineMs: Long? = null,
+    val sustainedCompletedRepeats: Int? = null,
+    val sustainedQualification: String? = null
 ) {
     val captionManifestValid: Boolean
         get() = protocolVersion == VoiceSpeechPlaybackProtocol.VERSION &&
@@ -108,6 +121,14 @@ internal data class VoiceSpeechPlaybackResult(
 
     val synthesisRealTimeFactor: Double? get() = (totalSynthesisMs.toDouble() / totalAudioMs).takeIf { totalAudioMs > 0 && chunks > 0 && it.isFinite() }
 
+    val streamingStructureVerified: Boolean get() = requestedBackend.isStreamingLocal &&
+        requestedDelegate == requestedSpeechDelegate(requestedBackend) &&
+        observedProviderStatus == "NOT_EXPOSED_BY_SDK" &&
+        streamedAudioValidated == true &&
+        (engineStreamCalls ?: 0) > 0 &&
+        chunks > 0 &&
+        totalAudioMs > 0
+
     /** Completion and interactive suitability are independent verdicts. Targets are product budgets, not acoustic claims. */
     val quality: VoiceSpeechPlaybackQuality
         get() = when {
@@ -116,12 +137,14 @@ internal data class VoiceSpeechPlaybackResult(
             cancellationTarget != null && cleanupState != "RETIRED" -> VoiceSpeechPlaybackQuality.INCOMPLETE
             cancellationTarget != null && state == VoiceSpeechPlaybackState.CANCELLED && failure == null && cancellationMs?.let { it <= VoiceSpeechPlaybackProtocol.CANCELLATION_TARGET_MS } == true -> VoiceSpeechPlaybackQuality.CANCELLATION_VALIDATED
             state == VoiceSpeechPlaybackState.FAILED || state == VoiceSpeechPlaybackState.UNSUPPORTED -> VoiceSpeechPlaybackQuality.FAILED
-            state != VoiceSpeechPlaybackState.COMPLETE || !executionVerified || !captionManifestValid || firstPresentedAudioMs == null || cleanupState != "RETIRED" -> VoiceSpeechPlaybackQuality.INCOMPLETE
+            state != VoiceSpeechPlaybackState.COMPLETE || !(executionVerified || streamingStructureVerified) || !captionManifestValid || firstPresentedAudioMs == null || cleanupState != "RETIRED" -> VoiceSpeechPlaybackQuality.INCOMPLETE
+            scenario == VoiceSpeechPlaybackScenario.SUSTAINED && sustainedQualification !in setOf("IN_PROGRESS", "TARGET_REACHED") -> VoiceSpeechPlaybackQuality.INCOMPLETE
             thermalBefore !in 0..1 || thermalAfter !in 0..1 -> VoiceSpeechPlaybackQuality.THERMAL_LIMITED
             bufferRestarts > 0 || (activePlaybackUnderruns ?: 0) > 0 -> VoiceSpeechPlaybackQuality.COMPLETE_WITH_STALLS
             firstPresentedAudioMs > VoiceSpeechPlaybackProtocol.FIRST_AUDIO_TARGET_MS -> VoiceSpeechPlaybackQuality.SLOW_START
             expectedResident && engineReused != true -> VoiceSpeechPlaybackQuality.INCOMPLETE
             activePlaybackUnderruns == null -> VoiceSpeechPlaybackQuality.INCOMPLETE
+            streamingStructureVerified -> VoiceSpeechPlaybackQuality.STREAMING_PLAYBACK_OBSERVED
             else -> VoiceSpeechPlaybackQuality.PLAYBACK_VALIDATED
         }
 }
@@ -173,6 +196,8 @@ internal class VoiceSpeechPlaybackMeasurement(
     private var reused: Boolean? = null
     private var synthesis = 0L
     private var audioMs = 0L
+    private var streamingFrames = 0L
+    private var omittedPcmRecords = 0
     private var chunks = 0
     private var validatedChunks = 0
     private var underruns: Int? = null
@@ -198,6 +223,7 @@ internal class VoiceSpeechPlaybackMeasurement(
     private var attemptStarted: Long? = null
     private var attemptBytes: Int? = null
     private var attemptHash: String? = null
+    private var attemptAudio: VoiceSpeechAudioObservation? = null
     private val expectedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
     private val observedWords = mutableSetOf<VoiceSpeechCaptionSpan>()
     private val chunkRecords = mutableListOf<VoiceSpeechPlaybackChunk>()
@@ -223,13 +249,32 @@ internal class VoiceSpeechPlaybackMeasurement(
         attemptStarted = elapsed()
         attemptBytes = text.toByteArray(Charsets.UTF_8).size
         attemptHash = VoiceSpeechWorkload.digest(text)
+        attemptAudio = null
     }
 
-    @Synchronized fun nativeFailure(error: Throwable, deviceKey: String) {
+    /** The complete input is not yet known; do not label the first delta as the whole attempt. */
+    @Synchronized fun incrementalAttemptStarted() {
+        if (stoppedAt != null) return
+        modelPreparationActive = false
+        currentStage = VoiceSpeechStage.FRONTEND
+        attemptStarted = elapsed()
+        attemptBytes = null
+        attemptHash = null
+        attemptAudio = null
+    }
+
+    /** Called only by the fixed-fixture benchmark engine, before optional playback trimming. */
+    @Synchronized fun audioGenerated(observation: VoiceSpeechAudioObservation) {
+        if (stoppedAt != null) return
+        require(observation.valid && observation.inputSha256 == attemptHash && observation.inputBytes == attemptBytes)
+        attemptAudio = observation
+    }
+
+    @Synchronized fun nativeFailure(error: Throwable, deviceKey: String, modelSha256: String = KokoroModelPack.MODEL_SHA256) {
         if (stoppedAt != null) return
         modelPreparationActive = false
         if (generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(12).any { it is java.util.concurrent.CancellationException }) return
-        if (capturedFailure == null) capturedFailure = speechPlaybackFailureEvidence(error, backend, deviceKey)
+        if (capturedFailure == null) capturedFailure = speechPlaybackFailureEvidence(error, backend, deviceKey, modelSha256)
     }
 
     @Synchronized fun reached(target: VoiceSpeechCancellationTarget): Boolean = when (target) {
@@ -253,7 +298,13 @@ internal class VoiceSpeechPlaybackMeasurement(
     @Synchronized override fun pcmReady(synthesisMs: Long, audioFrames: Int, sampleRate: Int, evidence: VoiceSpeechExecutionEvidence?) {
         if (stoppedAt != null) return
         if (firstPcm == null) firstPcm = elapsed()
-        val duration = audioFrames.coerceAtLeast(0).toLong() * 1000 / sampleRate.coerceAtLeast(1)
+        val duration = if (backend.isStreamingLocal && sampleRate == VOICE_PCM_SAMPLE_RATE) {
+            val before = streamingFrames * 1_000 / sampleRate
+            streamingFrames += audioFrames.coerceAtLeast(0)
+            streamingFrames * 1_000 / sampleRate - before
+        } else {
+            audioFrames.coerceAtLeast(0).toLong() * 1000 / sampleRate.coerceAtLeast(1)
+        }
         synthesis += synthesisMs.coerceAtLeast(0)
         audioMs += duration
         chunks++
@@ -268,8 +319,11 @@ internal class VoiceSpeechPlaybackMeasurement(
         if (chunkRecords.size < VoiceSpeechPlaybackProtocol.MAX_CHUNKS_PER_SAMPLE) {
             chunkRecords += VoiceSpeechPlaybackChunk(
                 chunks - 1, elapsed(), synthesisMs.coerceAtLeast(0), duration, attemptBytes, attemptHash, evidence?.effectiveProvider?.takeIf { it in PROVIDERS }, valid,
-                evidence?.acceleratorKernels?.takeIf { evidence.profileAvailable == true }, evidence?.cpuKernels?.takeIf { evidence.profileAvailable == true }, evidence?.let(VoiceSpeechBenchmarkFailureObservation::from)
+                evidence?.acceleratorKernels?.takeIf { evidence.profileAvailable == true }, evidence?.cpuKernels?.takeIf { evidence.profileAvailable == true }, evidence?.let(VoiceSpeechBenchmarkFailureObservation::from),
+                attemptAudio
             )
+        } else if (backend.isStreamingLocal) {
+            omittedPcmRecords++
         } else {
             violations++
         }
@@ -409,7 +463,8 @@ internal class VoiceSpeechPlaybackMeasurement(
             failedAttemptMs = (attemptStarted ?: preparationAttemptStarted.takeIf { native != null && chunks == 0 })?.let { (ended - it).coerceAtLeast(0) }.takeIf { failure != null || native != null }, failureObservation = native?.observation,
             cancellationTarget = plan?.cancellationTarget, cancellationTargetReached = cancellationTargetReached, arrivalIntervalMs = plan?.arrivalIntervalMs ?: 0,
             underrunsByPhase = phaseUnderruns.toMap(), preparationPhases = preparationPhases.toMap(),
-            timeoutLimitMs = native?.timeoutLimitMs, timeoutElapsedMs = native?.timeoutElapsedMs, timeoutScope = native?.timeoutScope
+            timeoutLimitMs = native?.timeoutLimitMs, timeoutElapsedMs = native?.timeoutElapsedMs, timeoutScope = native?.timeoutScope,
+            omittedPcmRecords = omittedPcmRecords
         )
     }
 
@@ -441,14 +496,14 @@ internal data class VoiceSpeechPlaybackFailureEvidence(
     val timeoutScope: String? = null
 )
 
-internal fun speechPlaybackFailureEvidence(error: Throwable?, requested: VoiceSpeechBackend, deviceKey: String): VoiceSpeechPlaybackFailureEvidence? {
+internal fun speechPlaybackFailureEvidence(error: Throwable?, requested: VoiceSpeechBackend, deviceKey: String, modelSha256: String = KokoroModelPack.MODEL_SHA256): VoiceSpeechPlaybackFailureEvidence? {
     if (error == null) return null
     val causes = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(12).toList()
     val native = causes.filterIsInstance<dev.melo.kokoro.TimedKokoro.Failure>().firstOrNull()
     val timeout = causes.filterIsInstance<VoicePlaybackTimeout>().firstOrNull()
     val typed = causes.filterIsInstance<VoiceSpeechPreparationFailure>().firstOrNull()?.executionEvidence
     val classified = speechBenchmarkFailure((native ?: error) as? Exception ?: IllegalStateException("EXECUTION_FAILED"))
-    val observed = native?.let { speechFailureExecutionEvidence(it, requested, deviceKey) } ?: typed
+    val observed = native?.let { speechFailureExecutionEvidence(it, requested, deviceKey, modelSha256) } ?: typed
     return VoiceSpeechPlaybackFailureEvidence(
         if (typed?.failure != null) {
             VoiceSpeechBenchmarkFailure(typed.failure, classified.state, typed.failureStage ?: typed.stage, typed.nativeCode)

@@ -1,0 +1,41 @@
+JUnit version 4.13.2
+.E.E.E.E.E.E
+Time: 0.119
+There were 6 failures:
+1) nativeAndSdkConsumeTheSameBufferLiteralsAndKeepOriginalRanges(dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest)
+org.junit.ComparisonFailure: expected:<read [custom and releas]e.> but was:<read [snake case and rnumber on]e.>
+	at org.junit.Assert.assertEquals(Assert.java:117)
+	at org.junit.Assert.assertEquals(Assert.java:146)
+	at dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.nativeAndSdkConsumeTheSameBufferLiteralsAndKeepOriginalRanges(VoiceLiteralPronunciationPipelineTest.kt:27)
+2) canonicalUnicodeCorrectionsMapTheWholeOriginalLiteralIdentifier(dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest)
+org.junit.ComparisonFailure: expected:<São[_case and R#]1> but was:<São[ case and Rnumber ]1>
+	at org.junit.Assert.assertEquals(Assert.java:117)
+	at org.junit.Assert.assertEquals(Assert.java:146)
+	at dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.canonicalUnicodeCorrectionsMapTheWholeOriginalLiteralIdentifier(VoiceLiteralPronunciationPipelineTest.kt:97)
+3) everyCharacterLiveBufferAndFinalReplayRetainTheSameLiteralTerms(dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest)
+java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:87)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertTrue(Assert.java:53)
+	at dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.everyCharacterLiveBufferAndFinalReplayRetainTheSameLiteralTerms(VoiceLiteralPronunciationPipelineTest.kt:49)
+4) actualBufferPreservesAcceptedLiteralKeysUntilCorrectionsAreApplied(dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest)
+org.junit.ComparisonFailure: expected:<Read snake[_case and R#]1.> but was:<Read snake[ case and Rnumber ]1.>
+	at org.junit.Assert.assertEquals(Assert.java:117)
+	at org.junit.Assert.assertEquals(Assert.java:146)
+	at dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.actualBufferPreservesAcceptedLiteralKeysUntilCorrectionsAreApplied(VoiceLiteralPronunciationPipelineTest.kt:14)
+5) literalCorrectionsCannotRevealReasoningCodeOrRawAndEncodedUrls(dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest)
+java.lang.AssertionError: expected:<1> but was:<0>
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:120)
+	at org.junit.Assert.assertEquals(Assert.java:146)
+	at dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.literalCorrectionsCannotRevealReasoningCodeOrRawAndEncodedUrls(VoiceLiteralPronunciationPipelineTest.kt:75)
+6) unmatchedIdentifiersKeepTheirDefaultRenderingWithoutCreatingNewMatches(dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest)
+java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:87)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertTrue(Assert.java:53)
+	at dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.unmatchedIdentifiersKeepTheirDefaultRenderingWithoutCreatingNewMatches(VoiceLiteralPronunciationPipelineTest.kt:91)
+
+FAILURES!!!
+Tests run: 6,  Failures: 6

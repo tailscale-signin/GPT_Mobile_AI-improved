@@ -725,6 +725,11 @@ if [ "$EMULATOR_TEST_FAILURE" = agent-persistence ]; then
     *AgentPersistenceDaoInstrumentedTest*) exit 60 ;;
   esac
 fi
+if [ "$EMULATOR_TEST_FAILURE" = voice-entry ]; then
+  case "$*" in
+    *VoiceEntryInstrumentedTest*) exit 61 ;;
+  esac
+fi
 ''')
         python = binaries / 'python3'
         python.write_text('''#!/bin/sh
@@ -787,6 +792,16 @@ esac
             invocations = [command for command in commands if 'am instrument' in command and 'VoiceConversationInstrumentedTest' in command]
             self.assertEqual(1, len(invocations))
             for name in ('voice-conversation-instrumentation.txt', 'logcat.txt', 'exit-logcat.txt', 'window-state.txt', 'process-state.txt', 'last-anr.txt'):
+                self.assertIn('retained emulator evidence', (artifacts / name).read_text())
+
+    def test_voice_entry_class_executes_and_failure_remains_fatal_with_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, commands, artifacts = self.run_fixture(directory, 'voice-entry')
+            self.assertEqual(61, result.returncode, result.stderr)
+            invocations = [command for command in commands if 'am instrument' in command and 'VoiceEntryInstrumentedTest' in command]
+            self.assertEqual(1, len(invocations))
+            self.assertNotIn('#', invocations[0], 'Every entry regression must execute')
+            for name in ('voice-entry-instrumentation.txt', 'logcat.txt', 'exit-logcat.txt', 'window-state.txt', 'process-state.txt', 'last-anr.txt'):
                 self.assertIn('retained emulator evidence', (artifacts / name).read_text())
 
     def test_voice_message_controls_failure_remains_fatal_and_retains_evidence(self):

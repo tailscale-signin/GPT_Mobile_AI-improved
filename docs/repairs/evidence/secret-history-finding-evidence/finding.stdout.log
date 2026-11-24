@@ -1,0 +1,2 @@
+SECRET_HISTORY_FINDING {"commit": "6ef181f0c2cedb64a6a0b959862dab84efbded1c", "line": 1, "path": "history-report-fixture.txt", "ruleId": "generic-api-key"}
+SECRET_HISTORY_REPORT {"findingCount": 1, "identityReportComplete": true, "retainedFields": ["ruleId", "commit", "path", "line"], "scannerExitCode": 1, "schemaVersion": 1}

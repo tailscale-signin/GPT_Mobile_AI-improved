@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.providerInvocation
 import kotlinx.serialization.json.JsonArray
@@ -150,5 +151,46 @@ class GitHubSearchSourceReadTest {
         assertEquals(JsonPrimitive(200), range["max_lines"])
         assertFalse("evidence_id" in arguments)
         assertFalse("content" in source.getValue("items").jsonArray.single().jsonObject)
+    }
+
+    @Test fun expiredSearchWithoutLiveSelectorDiscoversThenReadsOnlyTheIssuedPinnedRange() {
+        val reader = AgentToolDefinition("github_read__selected", "read", JsonObject(emptyMap()))
+        val discovery = AgentToolDefinition(GitHubAuthorizedCatalog.TOOL, "discover", JsonObject(emptyMap()))
+        val recipe = requireNotNull(GitHubSearchSourceRead.recipe(reader.name, sourceArguments, source))
+        val stored = receipt(JsonObject(source + ("source_read_call" to recipe)))
+        fun next(tools: List<AgentToolDefinition>, row: JsonObject = stored, prior: List<JsonObject> = emptyList()) =
+            GitHubSearchSourceRead.next(id, row, "task", tools, listOf(reader), prior)
+        val loadReader = requireNotNull(next(listOf(discovery)))
+        assertEquals(discovery.name, loadReader.name)
+        assertEquals(buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(reader.name)))) }, loadReader.arguments)
+        val attempted = listOf(buildJsonObject { put("call_id", loadReader.callId) })
+        assertNull(next(listOf(discovery), prior = attempted))
+        val read = requireNotNull(next(listOf(reader), prior = attempted))
+        assertEquals(recipe["arguments"], read.arguments)
+        assertFalse("verify_live" in read.arguments)
+        assertNull(
+            next(
+                listOf(reader),
+                prior = listOf(
+                    buildJsonObject {
+                        put("tool", read.name)
+                        put("arguments", read.arguments)
+                    }
+                )
+            )
+        )
+        for (change in listOf(
+            "binding" to JsonPrimitive("other"),
+            "repository" to JsonPrimitive("other/repo"),
+            "source_head_sha" to JsonPrimitive(blob),
+            "source_result_sha256" to JsonPrimitive("0".repeat(64)),
+            "verification_eligible" to JsonPrimitive(false),
+            "trusted" to JsonPrimitive(false)
+        )) {
+            assertNull(change.first, next(listOf(reader), JsonObject(stored + change)))
+        }
+        val foreign = JsonObject(recipe + ("tool" to JsonPrimitive("github_read__other")))
+        assertNull(next(listOf(reader), receipt(JsonObject(source + ("source_read_call" to foreign)))))
+        assertNull(next(listOf(reader.copy(name = "github_read__other"))))
     }
 }

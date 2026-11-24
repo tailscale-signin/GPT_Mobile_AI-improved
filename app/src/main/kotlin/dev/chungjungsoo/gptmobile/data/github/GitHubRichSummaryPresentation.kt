@@ -14,15 +14,21 @@ internal object GitHubRichSummaryPresentation {
     private data class CheckEvidence(val counts: List<CheckCount>, val scope: String?, val complete: Boolean)
 
     private val countEvidence = Regex(
-        """(?i)recorded checks(?: for ([^:\n]{1,96}))?:\s*(\d+) successful,\s*(\d+) skipped,\s*(\d+) in progress,\s*(\d+) failed(?:,\s*(\d+) other completed)?\s*\((complete|incomplete) captured list\)"""
+        """(?i)^recorded checks(?: for ([^:\n]{1,96}))?:\s*(\d+) successful,\s*(\d+) skipped,\s*(\d+) in progress,\s*(\d+) failed(?:,\s*(\d+) other completed)?\s*\((complete|incomplete) captured list\)"""
     )
     private val chartRow = Regex("""^\| (Successful|Skipped|In progress|Failed|Other completed) \| (\d{1,9}) \|$""")
     private val failure = Regex("""(?i)\b(?:failed|failure|blocked|needs attention)\b|policy.*unavailable""")
     private val checkWords = Regex("""(?i)\b(?:check|workflow|test|CI|build)\b""")
     private val zeroFailure = Regex("""(?i)\b0\s+(?:failed|blocked)\b""")
     private val sourceRead = Regex("""(?i)^The source read for (.+?) returned a result(?: for inspection)?$""")
+    private val resourceObservation = Regex("""(?i)^(?:From saved results: )?(?:Issue|PR) #\d+(?: reports | is (?:open|closed|merged)\b|: “)""")
+    private val sourceRange = Regex("""(?i)^I have (?:lines? \d+(?:–\d+)? of |part of the requested range in )""")
 
-    fun isRich(text: String): Boolean = text.startsWith("### ") && text.contains("\n- ")
+    private val markdownBlock = Regex("""(?m)^[ \t]{0,3}(?:#{1,6}\s+\S|[-+*]\s+\S|\d+[.)]\s+\S|>\s+\S|`{3}|~{3})""")
+    private val markdownInline = Regex("""\*\*[^*\n]+\*\*|(?<![\w/])__[^_\n]+__(?![\w/.])|(?<!\*)\*[^*\n]+\*(?!\*)|`[^`\n]+`|\[[^\]\n]+\]\([^\n)]+\)""")
+    private val markdownTable = Regex("""(?m)^\s*\|?[ \t]*:?-{3,}:?[ \t]*\|[ \t]*:?-{3,}:?""")
+
+    fun isRich(text: String): Boolean = markdownBlock.containsMatchIn(text) || markdownInline.containsMatchIn(text) || markdownTable.containsMatchIn(text)
 
     /**
      * Stable across a timer tick or changed "next step". New observed facts
@@ -62,11 +68,11 @@ internal object GitHubRichSummaryPresentation {
         if (unseen.isEmpty()) return ""
         // Keep an unresolved failure visible when new independent evidence arrives,
         // without repeating all the already-reported routine reads.
-        val lastProblem = all.lastOrNull { failure.containsMatchIn(it.replace(zeroFailure, "")) }
+        val lastProblem = all.lastOrNull(::isProblem)
         val seen = if (lastProblem != null && lastProblem !in unseen) listOf(lastProblem) + unseen else unseen
         val counts = seen.asReversed().firstNotNullOfOrNull(::parseChecks)
         val specific = seen.filterNot { counts != null && parseChecks(it) != null }
-        val problem = specific.lastOrNull { failure.containsMatchIn(it.replace(zeroFailure, "")) }
+        val problem = specific.lastOrNull(::isProblem)
         if (problem == null && counts == null) {
             val latest = specific.takeLast(2)
             val files = latest.mapNotNull { sourceRead.matchEntire(it)?.groupValues?.get(1) }
@@ -121,14 +127,22 @@ internal object GitHubRichSummaryPresentation {
         }.trim().take(1600)
     }
 
+    private fun isProblem(step: String): Boolean {
+        // Issue/PR titles describe a reported subject, not the state of this
+        // operation. A closed issue titled "Build failure" is not a new blocker.
+        val observation = withoutSavedWrapper(step)
+        if (resourceObservation.containsMatchIn(step) || sourceRead.matches(observation) || sourceRange.containsMatchIn(observation)) return false
+        return failure.containsMatchIn(step.replace(zeroFailure, ""))
+    }
+
     /** Shorten receipt boilerplate without upgrading a source read to a verified repair. */
     private fun describe(step: String, currentHeadlineFocus: String? = null): String {
         val read = sourceRead.matchEntire(step)
         if (read != null) {
             return if (observationFocus(step) == currentHeadlineFocus) {
-                "The source read is available for inspection; no repair has been verified."
+                "The source read is available for inspection."
             } else {
-                "Source read for ${escape(read.groupValues[1])} is available to inspect; no repair has been verified."
+                "Source read for ${escape(read.groupValues[1])} is available to inspect."
             }
         }
         val failedRead = Regex("""(?i)^The source read for (.+?) failed$""").matchEntire(step)
@@ -138,7 +152,7 @@ internal object GitHubRichSummaryPresentation {
 
     /** Extract identifiers from bounded approved progress, never from raw result bodies. */
     private fun observationFocus(step: String): String? {
-        val forTarget = Regex("""(?i)\bfor (.{1,100}?)(?: returned| failed| started| was skipped| is blocked|;|$)""")
+        val forTarget = Regex("""(?i)\bfor (.{1,100}?)(?: returned| failed| started| was skipped| is blocked| is unavailable|;|$)""")
             .find(step)?.groupValues?.get(1)
         val identifier = forTarget ?: Regex("""(?i)\b(?:PR #\d+|Issue #\d+|Job \d+|Run \d+)\b""").find(step)?.value
         return identifier?.let(GitHubProgressPresentation::taskLabel)
@@ -147,7 +161,7 @@ internal object GitHubRichSummaryPresentation {
 
     /** Only source-owned, complete five-field check observations can create rows. */
     private fun parseChecks(text: String): CheckEvidence? {
-        val match = countEvidence.find(text) ?: return null
+        val match = countEvidence.find(withoutSavedWrapper(text)) ?: return null
         val values = (2..6).map { index ->
             match.groupValues[index].ifBlank { "0" }.toIntOrNull()?.takeIf { it in 0..100_000 } ?: return null
         }
@@ -159,6 +173,11 @@ internal object GitHubRichSummaryPresentation {
         ) + if (values[4] > 0) listOf(CheckCount("Other completed", values[4])) else emptyList()
         return CheckEvidence(checkCounts, match.groupValues[1].takeIf(String::isNotBlank), match.groupValues[7].equals("complete", ignoreCase = true))
     }
+
+    private fun withoutSavedWrapper(text: String): String = text
+        .removePrefix("From saved results: ")
+        .removeSuffix(" Current state still needs verification")
+        .trimEnd('.')
 
     /** Chart rows must match the deterministic table, not arbitrary model text. */
     fun chartData(markdown: String): List<CheckCount> {

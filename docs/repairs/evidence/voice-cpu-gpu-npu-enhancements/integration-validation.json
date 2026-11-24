@@ -1,0 +1,332 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-24T01:44:10.995357+00:00",
+  "scope": "Integrated working tree on the preserved shared PR parent. Repository host checks and focused checks are separate from whole Android/JNI/device qualification. Final documentation/metadata refresh is checked after recording this receipt.",
+  "sourceBaseRevision": "dcaa851dce7fb7f602ed6d230f24bdf69838c06a",
+  "canonicalFast": {
+    "command": [
+      "bash",
+      "scripts/validate-local.sh",
+      "fast"
+    ],
+    "exitCode": 0,
+    "elapsedSeconds": 45.228,
+    "hostTestCount": 711,
+    "logSha256": "3944189faaa58df384fbaffe6071fa8b5fd3dd153e1ca169745cce4542cb53c2",
+    "sourceBaseRevision": "dcaa851dce7fb7f602ed6d230f24bdf69838c06a"
+  },
+  "formatting": {
+    "commandTemplate": "java -Xmx512m -jar <pinned ktlint 1.3.1> <all changed Kotlin files>",
+    "exitCode": 0,
+    "elapsedSeconds": 3.132,
+    "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sourceSnapshots": [
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt",
+        "sha256": "1de7598c37c76a4bbb27fe751cfdd4e74f82b392dd1cd2749d31bc048d90895d"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "sha256": "03b429f1edbad74cdbebcf44caa9d045f8cb4b44cc085151cc3371809d5df20e"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",
+        "sha256": "21d1bd611e5dd505a7559b7603e2342903a74708365ae5161661c58273a31ee0"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailoverPhraseEngine.kt",
+        "sha256": "25e1a738a89adbf6b2968dab621f694da51c6bdcf80fce684a2806a029ecddb8"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
+        "sha256": "7833ef3920da93d808aeabf5ca30f76f508baa1c5c384bc0039a2da2ea66d434"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmup.kt",
+        "sha256": "0653d3b4633dd1208aafce109d096537bda4aec8954a58977d974820038c5279"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReference.kt",
+        "sha256": "b63b1afc749cf3d0ca1adc203510112102289de98227cce930cca7d07f159dbe"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt",
+        "sha256": "a6a971240552df15c5ae025828bd3db63bafcdf13d5a426c5fac93e46d563344"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt",
+        "sha256": "f0eeda4a4730c987bbc0f31601b861829b75b824ea7087db0381a6f3cc7ef81b"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkBatterySource.kt",
+        "sha256": "e104f68e00dfff8596c5ce5968f1ea925e1ccea1805f4c7fb11bc2b0daf2dc8c"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergy.kt",
+        "sha256": "82c58c3cafaa7c9552a54d6bc76f3e340a1b9581efa282cc071cbcf016e631e4"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyExport.kt",
+        "sha256": "372a2aa6ccb2057f095c0076fd3ad959ada594f31fc44082810d7b89add3cc8a"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTracker.kt",
+        "sha256": "e11d5c5c2bfd7fbd01a54e894a166aa9fa9bb6ad63e1a1631eca912e3ea1bd30"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt",
+        "sha256": "d8d172a98e478d349bb3cc5a2026851e62161148b572365fc72bc4bb5f627c76"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStore.kt",
+        "sha256": "d5e9d20b62520fef402b53fd8d47c594fdeaa5b4b85bf858eedb82672d162634"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt",
+        "sha256": "3e20af94d29b57c800e96b635eca370fbf15eaaa8cc44321c019f06d8621d48b"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBackendSettings.kt",
+        "sha256": "f25fae9850392c01db0fe8c874866c13f3a34a5646ef99102018d1ab3922f0fa"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt",
+        "sha256": "771be4a4438e3e73737335f5a3f7672bd5708b5b5f097f803a474573b990b497"
+      },
+      {
+        "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkViewModel.kt",
+        "sha256": "92211ed3c92c4327bf2124b5eb474f5ddf964f066b4b5da5e6c1d6f266e1e591"
+      },
+      {
+        "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSilentWarmupTest.kt",
+        "sha256": "c6d350e820a28b915e1b798d5ef96b5d513d7809f22ca3aa4372b6a00690ff7c"
+      },
+      {
+        "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmupTest.kt",
+        "sha256": "8de60576a351604df22f34fec56c2ea11d53144c3bfd1d55c120b4a5c06094da"
+      },
+      {
+        "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+        "sha256": "0272eed519670bededa7dd961d5f6ec7e8a935d7a87956e0015505cd6bd1b3f3"
+      },
+      {
+        "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkBatterySourceTest.kt",
+        "sha256": "5b7a9f7a43c66fb2787b3d7b7142c2ff7923adbb287cea14cf5a3e7a63cee63b"
+      },
+      {
+        "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTest.kt",
+        "sha256": "33f1f98fc7b6062a8fdf643aa11ee5a0569f1875ba5e0a68294f26228d67c81d"
+      },
+      {
+        "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTrackerTest.kt",
+        "sha256": "519cadabcc263594a94c5f507fe18ce4ba39796506abe3d4bd1c3291498b506e"
+      },
+      {
+        "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+        "sha256": "97294ea8a990a39df08d9f0f68761d3347e0cd8d18034c6070608ba12aafaa53"
+      },
+      {
+        "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStoreTest.kt",
+        "sha256": "6860ccb0b809b3bbe73bc815062d8e98773cad339fdfeb6229ba34f2f03c2240"
+      },
+      {
+        "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+        "sha256": "82cf458e4fb939681e6d46b047b743b521e1551f1d2d463650909e768f1b597f"
+      },
+      {
+        "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt",
+        "sha256": "b762590b0c22c7e4f07d52b462da36eb04c3912b28f1a24a5fa3bbfccf25c5be"
+      }
+    ]
+  },
+  "focusedReceiptSourceBindings": {
+    "distinctPathAndDigestBindingsChecked": 79,
+    "mismatches": 0,
+    "scope": "Native, benchmark, warmup, experiment source snapshots and ordinary-method inventory recorded before this integration receipt."
+  },
+  "sourceSnapshots": [
+    {
+      "path": "app/src/main/assets/diagnostics/app-code-inventory.json",
+      "sha256": "5a497bf601adc214767a3db0af94a3aace1d516840376155cb9662a8587eb8c7"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt",
+      "sha256": "1de7598c37c76a4bbb27fe751cfdd4e74f82b392dd1cd2749d31bc048d90895d"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+      "sha256": "03b429f1edbad74cdbebcf44caa9d045f8cb4b44cc085151cc3371809d5df20e"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",
+      "sha256": "21d1bd611e5dd505a7559b7603e2342903a74708365ae5161661c58273a31ee0"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailoverPhraseEngine.kt",
+      "sha256": "25e1a738a89adbf6b2968dab621f694da51c6bdcf80fce684a2806a029ecddb8"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
+      "sha256": "7833ef3920da93d808aeabf5ca30f76f508baa1c5c384bc0039a2da2ea66d434"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmup.kt",
+      "sha256": "0653d3b4633dd1208aafce109d096537bda4aec8954a58977d974820038c5279"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReference.kt",
+      "sha256": "b63b1afc749cf3d0ca1adc203510112102289de98227cce930cca7d07f159dbe"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt",
+      "sha256": "a6a971240552df15c5ae025828bd3db63bafcdf13d5a426c5fac93e46d563344"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt",
+      "sha256": "f0eeda4a4730c987bbc0f31601b861829b75b824ea7087db0381a6f3cc7ef81b"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkBatterySource.kt",
+      "sha256": "e104f68e00dfff8596c5ce5968f1ea925e1ccea1805f4c7fb11bc2b0daf2dc8c"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergy.kt",
+      "sha256": "82c58c3cafaa7c9552a54d6bc76f3e340a1b9581efa282cc071cbcf016e631e4"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyExport.kt",
+      "sha256": "372a2aa6ccb2057f095c0076fd3ad959ada594f31fc44082810d7b89add3cc8a"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTracker.kt",
+      "sha256": "e11d5c5c2bfd7fbd01a54e894a166aa9fa9bb6ad63e1a1631eca912e3ea1bd30"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt",
+      "sha256": "d8d172a98e478d349bb3cc5a2026851e62161148b572365fc72bc4bb5f627c76"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStore.kt",
+      "sha256": "d5e9d20b62520fef402b53fd8d47c594fdeaa5b4b85bf858eedb82672d162634"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt",
+      "sha256": "3e20af94d29b57c800e96b635eca370fbf15eaaa8cc44321c019f06d8621d48b"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBackendSettings.kt",
+      "sha256": "f25fae9850392c01db0fe8c874866c13f3a34a5646ef99102018d1ab3922f0fa"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt",
+      "sha256": "771be4a4438e3e73737335f5a3f7672bd5708b5b5f097f803a474573b990b497"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkViewModel.kt",
+      "sha256": "92211ed3c92c4327bf2124b5eb474f5ddf964f066b4b5da5e6c1d6f266e1e591"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSilentWarmupTest.kt",
+      "sha256": "c6d350e820a28b915e1b798d5ef96b5d513d7809f22ca3aa4372b6a00690ff7c"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmupTest.kt",
+      "sha256": "8de60576a351604df22f34fec56c2ea11d53144c3bfd1d55c120b4a5c06094da"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+      "sha256": "0272eed519670bededa7dd961d5f6ec7e8a935d7a87956e0015505cd6bd1b3f3"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkBatterySourceTest.kt",
+      "sha256": "5b7a9f7a43c66fb2787b3d7b7142c2ff7923adbb287cea14cf5a3e7a63cee63b"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTest.kt",
+      "sha256": "33f1f98fc7b6062a8fdf643aa11ee5a0569f1875ba5e0a68294f26228d67c81d"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTrackerTest.kt",
+      "sha256": "519cadabcc263594a94c5f507fe18ce4ba39796506abe3d4bd1c3291498b506e"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "sha256": "97294ea8a990a39df08d9f0f68761d3347e0cd8d18034c6070608ba12aafaa53"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStoreTest.kt",
+      "sha256": "6860ccb0b809b3bbe73bc815062d8e98773cad339fdfeb6229ba34f2f03c2240"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "sha256": "82cf458e4fb939681e6d46b047b743b521e1551f1d2d463650909e768f1b597f"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt",
+      "sha256": "b762590b0c22c7e4f07d52b462da36eb04c3912b28f1a24a5fa3bbfccf25c5be"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp",
+      "sha256": "8ef2f475f679560844c33269c4081a45d927b7309aef9d9c016d922da0f83208"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/kokoro_output_validation.h",
+      "sha256": "6e58b9ff05fd93b4dc459f6737872092ab959212a3104452320328cea32abeeb"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/kokoro_profile.h",
+      "sha256": "2a5d66bdfd496af79f389d8de611683681be48181bb3312fc912764e1820823f"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/kokoro_provider_profile_test.cpp",
+      "sha256": "208950c6e1b6a0aa90676ea3d30ef7fc9b64dbae412e1b71574e141bddc6cf58"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+      "sha256": "7005af57c297420cd9f77506690dafaf288e3b4a53007461529970b980a4a955"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
+      "sha256": "e82e3d197109f80ce5ef603f51935449b7d5a44ae24f4a8014e3fce5b70b9ea6"
+    },
+    {
+      "path": "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java",
+      "sha256": "b7fc2c8e501eb3e3ef438f86ecfef585f184dfda2944b280caf3ed5ffdde8e04"
+    },
+    {
+      "path": "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeIntegration.java",
+      "sha256": "47ce75d1cf6f911e4888273a1ee0d77eb2e48192b3b1be765ad16707d27edd28"
+    },
+    {
+      "path": "local-kokoro-runtime/src/testHost/kokoro_qnn_model_qualification.py",
+      "sha256": "c9c759719603e0b8ac4b957b42b4198964ba5f60af9f95dce76fe82c002545cf"
+    },
+    {
+      "path": "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py",
+      "sha256": "c91a1628bcef996063d3ec876febcc01022aa90c4f2940daf3e503ad4d3736de"
+    },
+    {
+      "path": "scripts/check_speech_native_contracts.sh",
+      "sha256": "02e15f8b22cf836b1833ba9dfb25397dce225c3df8293e7ae23acbf48eb22fcd"
+    }
+  ],
+  "androidCompilationAdmission": {
+    "command": "python3 scripts/check_android_compile_memory.py",
+    "exitCode": 1,
+    "status": "UNKNOWN",
+    "requiredBytes": 9395240960,
+    "requiredMiB": 8960,
+    "availableBytes": null,
+    "cgroups": null,
+    "observedRamMemAvailableBytes": 1986506752,
+    "productionCompileStarted": false,
+    "gateBypassed": false
+  },
+  "remainingGates": [
+    "Full Android/Compose app and JNI compilation on an admitted runner.",
+    "Complete ordinary hosted JUnit XML with all named methods and all other shared workstream methods preserved.",
+    "Linked native model qualification and API34/API36 device-emulator paths required by the existing shared workflow.",
+    "Physical Snapdragon audio correctness, uninterrupted playback, latency, thermal and battery measurements before claiming the requested targets.",
+    "All existing shared source-owner, exact-PR-head, actual-main and coordinated publication gates."
+  ]
+}

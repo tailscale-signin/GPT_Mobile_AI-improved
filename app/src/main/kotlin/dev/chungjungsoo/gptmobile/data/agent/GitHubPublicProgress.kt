@@ -14,17 +14,25 @@ internal class GitHubPublicProgress(private val publish: suspend (String, Output
         if (!parser.hasPendingText && !parser.insideProgress && progress.isEmpty()) lineage.reset()
         lineage.append(event.lineage)
         val answer = StringBuilder()
-        parser.accept(event.text).forEach { (isProgress, text) ->
-            if (isProgress) {
-                if (progress.length < MAX_PROGRESS_CHARACTERS) progress.append(text.take(MAX_PROGRESS_CHARACTERS - progress.length))
+        parser.acceptSegments(event.text).forEach { segment ->
+            if (segment.progress) {
+                if (progress.length < MAX_PROGRESS_CHARACTERS) progress.append(segment.text.take(MAX_PROGRESS_CHARACTERS - progress.length))
             } else {
-                answer.append(text)
+                answer.append(segment.text)
+                // Any opening marker after ordinary text starts in this event;
+                // an earlier pending marker that became answer text cannot own it.
+                lineage.reset()
+                lineage.append(event.lineage)
             }
-        }
-        if (!parser.insideProgress && progress.isNotEmpty()) {
-            val text = progress.toString().trim()
-            if (text.isNotEmpty() && lineage.lineage.origin == OutputOrigin.MODEL_TEXT) publish(text, lineage.lineage)
-            progress.clear()
+            if (segment.closesProgress) {
+                val text = progress.toString().trim()
+                if (text.isNotEmpty() && lineage.lineage.origin == OutputOrigin.MODEL_TEXT) publish(text, lineage.lineage)
+                progress.clear()
+                // A later block or partial opening marker in this same event
+                // belongs to this event, not the block that just ended.
+                lineage.reset()
+                lineage.append(event.lineage)
+            }
         }
         return answer.toString()
     }

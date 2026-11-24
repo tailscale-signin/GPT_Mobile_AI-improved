@@ -28,7 +28,9 @@ class VoiceSpeechFailureEvidenceTest {
         assertEquals(0, receipt.acceleratorKernels)
         assertEquals(9L, receipt.profileId)
         assertEquals(87, receipt.failedInputBytes)
-        assertEquals(0.02, checkNotNull(receipt.audioRms), 0.0)
+        assertNull(receipt.audioRms)
+        assertNull(receipt.audioMeasurementAvailable)
+        assertFalse(receipt.diagnostics().containsKey("speech_audio_rms"))
         assertFalse(receipt.verifiedAudio)
         assertTrue(receipt.diagnostics().containsKey("speech_cpu_kernels"))
         assertNull(receipt.frontendMs)
@@ -57,11 +59,143 @@ class VoiceSpeechFailureEvidenceTest {
         assertFalse(receipt.verifiedAudio)
     }
 
+    @Test fun oversizedOutputKeepsDurationEvidenceWithoutInventingSilentPcm() {
+        val snapshot = profile().copyOf(48).also {
+            it[0] = 5
+            it[7] = 93
+            it[17] = 3
+            it[29] = 1280L * 1024 * 1024
+            it[30] = 1024
+            it[31] = 2L * 1024 * 1024 * 1024
+            it[32] = 4
+            it[33] = 4 // AUDIO_TOO_LONG
+            it[34] = 0 // Shape validation happened before the PCM scan.
+            it[35] = 2
+            it[36] = 93L * 45 * 600
+            it[37] = 1
+            it[38] = 1
+            it[39] = 93
+            it[40] = 7
+            it[41] = 1
+            it[42] = 1
+            it[43] = 93L * 45
+            it[44] = 45
+            it[45] = 45
+        }
+        val receipt = checkNotNull(speechFailureExecutionEvidence(failure("validating", "OUTPUT_INVALID", snapshot), VoiceSpeechBackend.QNN_GPU, "device"))
+        assertEquals(false, receipt.audioMeasurementAvailable)
+        assertNull(receipt.audioRms)
+        assertNull(receipt.audioPeak)
+        assertNull(receipt.clippedSamples)
+        assertNull(receipt.nonSilentSamples)
+        assertNull(receipt.audioFinite)
+        assertEquals("AUDIO_TOO_LONG", receipt.validationReason)
+        assertEquals(2_511_000L, receipt.outputFrames)
+        assertEquals(4185L, receipt.durationSum)
+        assertEquals(45L, receipt.durationMin)
+        assertEquals(45L, receipt.durationMax)
+        assertEquals("BOUNDED_THREE_SHAPES", receipt.cacheAdmission)
+        assertEquals(false, receipt.diagnostics()["speech_audio_measurement_available"])
+        assertFalse(receipt.diagnostics().containsKey("speech_audio_rms"))
+    }
+
+    @Test fun aMeasuredSilentFailureIsDistinctFromUnmeasuredAndLegacyFailures() {
+        val snapshot = profile().copyOf(48).also {
+            it[0] = 5
+            it[19] = 0.0.toRawBits()
+            it[20] = 0.0.toRawBits()
+            it[22] = 0
+            it[33] = 10 // SILENT_PCM
+            it[34] = 1
+            it[35] = 2
+            it[36] = 21 * 600L
+            it[37] = 1
+            it[38] = 1
+            it[39] = 21
+            it[40] = 7
+            it[41] = 1
+            it[42] = 1
+            it[43] = 21
+            it[44] = 1
+            it[45] = 1
+            it[47] = 1
+        }
+        val receipt = checkNotNull(speechFailureExecutionEvidence(failure("validating", "OUTPUT_INVALID", snapshot), VoiceSpeechBackend.QNN_HTP, "device"))
+        assertEquals(true, receipt.audioMeasurementAvailable)
+        assertEquals(true, receipt.audioFinite)
+        assertEquals(0.0, checkNotNull(receipt.audioRms), 0.0)
+        assertEquals(0L, receipt.nonSilentSamples)
+        assertEquals("SILENT_PCM", receipt.validationReason)
+        assertFalse(receipt.verifiedAudio)
+        val historical = checkNotNull(speechFailureExecutionEvidence(failure("validating", "CPU_ONLY", profile().also { it[11] = 1 }), VoiceSpeechBackend.QNN_HTP, "device"))
+        assertEquals(true, historical.audioMeasurementAvailable)
+        assertEquals(.02, checkNotNull(historical.audioRms), 0.0)
+        assertFalse(historical.verifiedAudio)
+    }
+
+    @Test fun clippedPcmFailureKeepsMeasuredSignalAndAppendOnlyNativeReasonWithoutQualifying() {
+        val snapshot = profile().copyOf(48).also {
+            it[0] = 5
+            it[20] = 1.02.toRawBits()
+            it[21] = 8
+            it[33] = 12 // CLIPPED_PCM, appended without changing the v5 payload layout.
+            it[34] = 1
+            it[35] = 2
+            it[36] = 21 * 600L
+            it[37] = 1
+            it[38] = 1
+            it[39] = 21
+            it[40] = 7
+            it[41] = 1
+            it[42] = 1
+            it[43] = 21
+            it[44] = 1
+            it[45] = 1
+            it[47] = 1
+        }
+        val receipt = checkNotNull(speechFailureExecutionEvidence(failure("validating", "OUTPUT_INVALID", snapshot), VoiceSpeechBackend.QNN_HTP, "device"))
+        assertEquals("CLIPPED_PCM", receipt.validationReason)
+        assertEquals(8L, receipt.clippedSamples)
+        assertEquals(1.02, checkNotNull(receipt.audioPeak), 0.0)
+        assertEquals(true, receipt.audioMeasurementAvailable)
+        assertFalse(receipt.verifiedAudio)
+        assertEquals("CLIPPED_PCM", receipt.diagnostics()["speech_validation_reason"])
+    }
+
     @Test fun frontendPreparationAndGenericFailuresCannotBorrowPreviousEvidence() {
         assertNull(speechFailureExecutionEvidence(failure("frontend", "FRONTEND_INPUT_TOO_LONG", null), VoiceSpeechBackend.QNN_HTP, "device"))
         assertNull(speechFailureExecutionEvidence(failure("preparing", "GRAPH_PREPARATION", null), VoiceSpeechBackend.QNN_HTP, "device"))
         assertNull(speechFailureExecutionEvidence(failure("frontend", "FRONTEND_INPUT_INVALID", profile()), VoiceSpeechBackend.QNN_HTP, "device"))
+        assertNull(speechFailureExecutionEvidence(failure("preparing", "GRAPH_PREPARATION", profile()), VoiceSpeechBackend.QNN_HTP, "device"))
         assertNull(speechFailureExecutionEvidence(IllegalStateException("CPU_ONLY"), VoiceSpeechBackend.QNN_HTP, "device"))
+    }
+
+    @Test fun currentPreparationFailureRetainsElapsedCompilationWithoutInventingExecutionOrActiveResidency() {
+        val current = LongArray(33).also {
+            it[0] = 4
+            it[7] = 21
+            it[15] = 7632
+            it[16] = 1
+            it[17] = 2
+            it[18] = 323715810
+            it[29] = 1280L * 1024 * 1024
+            it[30] = -1
+            it[31] = 0
+            it[32] = 1
+        }
+        val receipt = checkNotNull(speechFailureExecutionEvidence(failure("preparing", "GRAPH_PREPARATION", current), VoiceSpeechBackend.QNN_HTP, "device"))
+        assertEquals(VoiceSpeechStage.PREPARING, receipt.stage)
+        assertEquals("unverified", receipt.effectiveProvider)
+        assertEquals(7632L, receipt.currentPrepareMs)
+        assertEquals(1280L * 1024 * 1024, receipt.cacheBudgetBytes)
+        assertEquals("MEMORY_UNKNOWN", receipt.cacheAdmission)
+        assertNull(receipt.activeShapeEstimatedBytes)
+        assertNull(receipt.availableMemoryBytes)
+        assertFalse(receipt.verifiedAudio)
+        assertFalse(receipt.diagnostics().containsKey("speech_cpu_kernels"))
+        assertEquals("MEMORY_UNKNOWN", receipt.diagnostics()["speech_cache_admission"])
+        current[12] = 1
+        assertNull(speechFailureExecutionEvidence(failure("preparing", "GRAPH_PREPARATION", current), VoiceSpeechBackend.QNN_HTP, "device"))
     }
 
     @Test fun typedOpenFailuresDoNotMislabelTheBenchmarkWorkloadOrDisableHardware() {

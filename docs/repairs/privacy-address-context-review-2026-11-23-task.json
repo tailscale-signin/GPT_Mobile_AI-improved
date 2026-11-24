@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-address-context-review-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "observedMain": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "3a98cf1ae64847e2640d3c70d3605c7a1f5a2c71",
+  "parentPullRequest": 2367,
+  "state": "SOURCE_IMPLEMENTED_PENDING_INTEGRATED_AND_HOSTED_VALIDATION",
+  "intent": "Preserve ordinary address verbs/identifiers and context-bound surname uses while protecting complete explicit addresses and actual person spans; compose reviewed diagnostic detail without overwriting concurrent source.",
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextDetection.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMaskCorpusTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateIdentityDetector.kt"
+  ],
+  "change": [
+    "Require horizontal whitespace around word separators is/at; preserve colon-form semantics and the captured address value.",
+    "Keep task language including address issues, address attachments and address at-risk students, plus glued identifiers addressIs/addressAt, unchanged.",
+    "Collect surname captures only in their original person contexts instead of promoting them to global aliases; retain explicit full/given names, original category gates and source-ordered nonredundant ranges."
+  ],
+  "verification": {
+    "baseline": "Exact 31df production with candidate tests: ordinary-address method fails; all explicit address forms pass. These input files are byte-identical in ee21853. All edited source inputs also remain unchanged in05c4.",
+    "candidate": "Two named real Kotlin corpus methods pass, covering five ordinary-language/identifier negatives and three positive explicit fields through actual masking, typed receipts and restoration.",
+    "javaRegexControl": "All five negatives and three positives pass; original source incorrectly captures each negative.",
+    "preservation": "All 27 original corpus methods and original bytes preserved by one insertion.",
+    "ktlint": "Pinned 1.3.1 passed both changed files.",
+    "rootReview": "Root independently reviewed the patch, harness and actual logs; verified 42 referenced files, all 12 compiled inputs/extracts and 11 runtime hashes (10 have matching repository metadata; kotlin-reflect is hash-bound only).",
+    "scope": "Existing Kotlin 2.4.20 / JUnit 4.13.2 / Java 21 with complete detector/mask/corpus source and verbatim pure category/receipt extracts; not full Android qualification.",
+    "remaining": [
+      "Regenerate source references and inventory; canonical integrated validation and final source review.",
+      "Guarded non-forced append and immutable public readback.",
+      "Compose all independent corrections and actual main with later unused version pair; require latest final-head/main gates and both signed/public-asset readbacks."
+    ],
+    "surname": {
+      "baseline": "Exact ee218 detector + new method: one new failure, ten unchanged identity/category controls pass.",
+      "candidate": "All11 controls pass, zero skips; exact two protected name ranges and ordinary modal phrase preservation through actual mask/receipt/AES restoration.",
+      "rootReview": "Verified 64 references and all26 compiled input bindings/extracts; original27 corpus methods preserved by insertion.",
+      "sourceSha256": "7e7795d5bea5d98cac7e092c2af3930e36411d6ec1d67f06df5be6643d4686ea",
+      "separateBlocker": "Final-wire known-value validation rejects the intentionally public modal May/may. This smaller detector correction does not establish dispatch success; provenance-bound final-wire correction remains mandatory before readiness."
+    },
+    "incomingIntegration": "Actual bd503 includes both05c4 and main8095; exact address/identity/corpus inputs preserved. Diagnostic detail correction composes with the new retained-task/citation redactor; that complete class requires fresh focused execution.",
+    "incomingIntegrationControl": {
+      "sourceHead": "bd503c2de077900150daea8ee63270eb2a472879",
+      "selectedDiagnosticMethods": 14,
+      "baselineNewDetailFailures": 3,
+      "baselinePriorControlsPassed": 11,
+      "composedSelectedMethodsPassed": 14,
+      "fullCurrentDiagnosticMethodCount": 17,
+      "newIndependentProducerMethodsNotExecutedHere": 3,
+      "allCurrentDiagnosticTestsPreserved": true,
+      "completeProductionRedactorCompiled": true,
+      "sourceSelection": "All14 selected test methods/source lines are byte-preserved in the current17-method class; the new independent GitHub producer fixtures/imports are omitted from this bounded local closure and require final hosted execution.",
+      "combinedDetectorProofReusedByExactInputBinding": {
+        "sourceCommit": "d358ebdeed51910dabdcb0f36c5eddef4a90dcbc",
+        "executedControls": 13,
+        "everyCompiledInputOrVerbatimExtractSourceIdentical": true,
+        "inputCount": 8,
+        "noUnnecessaryRerun": true
+      }
+    },
+    "laterHealthAndLifecycleAppend": "Preserve actual3a98 HEALTH and local-session callback isolation; diagnostic composition inputs remain byte-identical to ce8. The changed health detector composition receives fresh full corpus/identity/category controls before publication."
+  }
+}

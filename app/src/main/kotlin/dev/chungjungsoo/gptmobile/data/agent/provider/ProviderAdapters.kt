@@ -194,10 +194,8 @@ class OpenAIResponsesAdapter @Inject constructor(
                         ReasoningConfig(
                             effort = if (mechanicalReasoning) {
                                 "low"
-                            } else if (constraints.maximizeReasoning) {
-                                GitHubReasoningPolicy.openAiEffort(platform.model) ?: "high"
                             } else {
-                                "medium"
+                                GitHubReasoningPolicy.requestedOpenAiEffort(platform.model, constraints)
                             },
                             summary = "auto"
                         )
@@ -263,7 +261,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                             event !is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent || !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(event.message, event.code)
                         }
                         .catch { error ->
-                            if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                            if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                             roundFailed = true
                             terminalReceived = false
                             failedTransportComplete = false
@@ -300,7 +298,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                                             failureDetails = mapped.failureDetails
                                             providerLimit = mapped.providerLimit
                                         }
-                                        canRotate = providerLimit == null && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
+                                        canRotate = providerLimit == null && mapped.failureDetails?.get("retryable") != JsonPrimitive(false) && mapped.failureDetails?.get("request_replay_allowed") != JsonPrimitive(false) && !responseObserved && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
                                     }
 
                                     is ProviderEvent.ToolCall -> {
@@ -581,6 +579,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                     OpenRouterReasoning(
                         effort = when {
                             lowExtractionReasoning || mechanicalReasoning -> "low"
+                            constraints.gitHubEffort != null &&
+                                isOpenRouter &&
+                                dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true -> constraints.gitHubEffort.wire
                             constraints.maximizeReasoning -> "high"
                             else -> "medium"
                         }
@@ -665,7 +666,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     withTimeoutOrNull(remainingAttemptMs) {
                         openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig)
                             .catch { error ->
-                                if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                                if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                                 caughtThrowable = error
                                 if (chunkFailure == null) caughtEvidence = providerAdapterExceptionEvidence(error)
                             }
@@ -1017,7 +1018,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 chunk.error?.let { dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(it.message, it.code) } != true
                             }
                             .catch { error ->
-                                if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                                if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                                 // A disconnect after a typed provider error cannot replace its original
                                 // stage, retryability or saved cause with a generic connection failure.
                                 if (roundFailed && failureDetails != null && lastFailedMessage != null) return@catch
@@ -1242,26 +1243,29 @@ class OpenAICompatibleAdapter @Inject constructor(
         var caughtEvidence: kotlinx.serialization.json.JsonObject? = null
         var limit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         val effectiveOutputTokens = ProviderRouteCapacity.output(platform, constraints.outputLimit(platform.maxTokens))
+        val reasoningEnabled = (platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning
+        val baseRequest = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = reasoningEnabled))
+        val effort = when {
+            !reasoningEnabled || baseRequest.reasoningEffort == null -> baseRequest.reasoningEffort
+            constraints.gitHubEffort != null -> constraints.gitHubEffort.wire
+            constraints.maximizeReasoning -> "high"
+            else -> baseRequest.reasoningEffort
+        }
+        val request = baseRequest.copy(
+            tools = requestTools,
+            parallelToolCalls = false.takeIf { !requestTools.isNullOrEmpty() },
+            maxCompletionTokens = effectiveOutputTokens,
+            reasoningEffort = effort
+        )
         if (constraints.maxOutputTokens != null) {
             emit(
                 ProviderEvent.RequestConfigured(
                     configuredProfileOutputTokens = platform.maxTokens,
                     requestedOutputTokens = constraints.maxOutputTokens,
                     effectiveOutputTokens = effectiveOutputTokens,
-                    reasoningEffort = if (platform.model.contains("gpt-oss", true)) {
-                        if (constraints.allowReasoning && (platform.reasoning || constraints.maximizeReasoning)) {
-                            if (constraints.maximizeReasoning) "high" else "medium"
-                        } else {
-                            "low"
-                        }
-                    } else {
-                        null
-                    }
+                    reasoningEffort = request.reasoningEffort
                 )
             )
-        }
-        val request = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = (platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning)).let { request ->
-            request.copy(tools = requestTools, parallelToolCalls = false.takeIf { !requestTools.isNullOrEmpty() }, maxCompletionTokens = effectiveOutputTokens, reasoningEffort = if (constraints.maximizeReasoning && constraints.allowReasoning && platform.model.contains("gpt-oss", true)) "high" else request.reasoningEffort)
         }
         val assembler = ChatCompletionsEventAssembler()
         val reasoningParser = GroqReasoningParser()
@@ -1288,7 +1292,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 !chunk.streamFinished && chunk.error == null
             }
             .catch { error ->
-                if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                 roundFailed = true
                 streamInterrupted = true
                 limit = (error as? Exception)?.let { dev.chungjungsoo.gptmobile.data.network.providerLimitDecision(config, platform.model, deliveredPayload, it) }
@@ -1584,7 +1588,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                             chunk != dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
                         }
                         .catch { error ->
-                            if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                            if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                             roundFailed = true
                             terminalReceived = false
                             val localCircuitRejection = providerRateLimitRejection(error, config, platform.model, deliveredPayload)
@@ -1875,7 +1879,7 @@ class GeminiAdapter @Inject constructor(
                             response.candidates.orEmpty().none { it.finishReason != null }
                         }
                         .catch { error ->
-                            if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                            if (error is CancellationException || error is ToolDefinitionsRejectedException || error is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw error
                             roundFailed = true
                             terminalReceived = false
                             localCircuitRejection = providerRateLimitRejection(error, config, platform.model, deliveredPayload)

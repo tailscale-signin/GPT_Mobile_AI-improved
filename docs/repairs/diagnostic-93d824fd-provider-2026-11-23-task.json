@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "task": "diagnostic-93d824fd-provider-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "59e61ba6fa277b8cab839ad219b7189895a10deb",
+  "workingBranch": "work/93d824fd-provider",
+  "intent": "Preserve safe durable 429 wait handoff and bounded refusal reasons, retain typed OpenRouter 402 budget subtypes, and split oversized OpenAI transport suspend methods with packaged DEX size coverage.",
+  "status": "IMPLEMENTED_AWAITING_PROJECT_VALIDATION",
+  "scope": [
+    "F5 provider rate-limit decisions and durable wait handoff",
+    "F6 provider billing classification and recovery evidence",
+    "F10 OpenAI transport method size and packaged regression guard"
+  ],
+  "ownership": "Local provider work only. Privacy exception mapping F4 remains reserved by its existing owner. No generated references, release scope, remote writes or publication.",
+  "preserve": [
+    "Captured route, credential and dispatch authority",
+    "No automatic retry after accepted output or uncertain remote outcomes",
+    "Durable checkpoint identity and continuation ownership",
+    "Cancellation and existing provider behavior",
+    "All pre-existing tests and assertions"
+  ],
+  "validation": {
+    "status": "HOST_CHECKS_PASSED_ANDROID_ENVIRONMENT_BLOCKED",
+    "requirement": "Focused actual project behavior regressions and canonical validation; no substitute harness claims. APK DEX measurement is static size evidence, not physical device latency."
+  },
+  "progress": [
+    {
+      "finding": "F5 explicit wait-refusal follow-up",
+      "change": "Close retry, request replay and logical continuation when an explicit bounded wait refusal exists. Include already-retained structured remote job and reconciliation evidence in streamed429 admission, preserving ordinary safe rejected429 scheduling.",
+      "validation": [
+        "Pinned ktlint 1.3.1 and git diff --check passed",
+        "Existing both-API command/header-job negative transport fixture expanded to HTTP and SSE while preserving its assertions; new actual-adapter two-key cases cover structured job and derived reconciliation evidence in Chat, Responses error and response.failed events",
+        "Parent independently reviewed the final source delta with no blocker",
+        "JVM execution remains Android SDK-blocked and is not claimed"
+      ]
+    },
+    {
+      "finding": "F5",
+      "rootCause": "Persisted direct chats carry an unused local gatewayConversationKey. OpenAI treated that key as dispatched remote work even though gatewayConversationSync was false and no gateway command was serialized.",
+      "change": "Rate-limit replay gates use dispatched command identity and observed remote job/tool/output evidence; bounded refusal reasons survive transport, profile, report and coordinator.",
+      "validation": [
+        "Pinned ktlint 1.3.1 passed changed Kotlin files",
+        "Service composed report refusal test passed (1 test)",
+        "Kotlin transport/adapter/coordinator regression tests added; execution blocked by shared Gradle/SDK environment per root; not claimed passed"
+      ]
+    },
+    {
+      "finding": "F6",
+      "change": "Closed OpenRouter budget metadata distinguishes account credits, API key limits, request affordability, temporary in-flight commitments and unknown restrictions. A known-unaccepted HTTP402 with valid provider delay retains explicit manual retry timing; no automatic spend, credential rotation, parameter reduction or durable429 category expansion.",
+      "primarySources": [
+        "https://openrouter.ai/docs/api_reference/limits",
+        "https://openrouter.ai/docs/api_reference/errors-and-debugging"
+      ],
+      "capability": "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1; service advertised feature list owned by parallel replay worker",
+      "validation": [
+        "authentication.test_incident_report_contract passed (113 tests)",
+        "Pinned ktlint 1.3.1 passed changed Kotlin files",
+        "Composed transport, stored-profile/public-report and negative replay tests added; Android execution remains environment-blocked and unclaimed"
+      ]
+    },
+    {
+      "finding": "F10",
+      "change": "OpenAI Chat Completions and Responses now use per-collection state owners and separate non-inline request, rejection, JSON/SSE methods. Cancellation catch conditions, accounting finally blocks, route bindings and payload handling are preserved. Packaged DEX audit covers OpenAI API, all extracted helper classes and generated continuations; PR and UI APK jobs require actual chat and Responses entry points.",
+      "validation": [
+        "Pinned ktlint 1.3.1 passed OpenAI source and transport tests",
+        "Packaged DEX guard unit suite passed (17 tests), including exact ART boundary, generated/extracted provider methods and missing real entry points",
+        "CI policy passed",
+        "Cold-flow repeated collection behavior regression added; Kotlin execution and actual APK size measurement remain blocked by project SDK environment and are not claimed"
+      ],
+      "limitation": "No post-change packaged DEX measurement or physical-device ART/frame timing observed. The guard must run on built APKs."
+    },
+    {
+      "finding": "F5/F6 independent review follow-up",
+      "change": "Process a complete failed SSE frame before durable wait decisions: retain same-frame output, provider usage and response identity, require checkpoint continuation for accepted data, and refuse waits for current-frame gateway activity/jobs. Native Responses adapter honors typed retry/replay refusals instead of rotating credentials on budget-message keywords. Non-string budget reasons remain UNKNOWN and accepted/reconciled evidence outranks manual retry timing.",
+      "review": "Independent read-only provider audit by replay_audit identified the same-frame and Responses rotation boundaries.",
+      "validation": [
+        "Pinned ktlint 1.3.1 passed changed Kotlin files",
+        "git diff --check passed",
+        "Actual MockEngine-to-adapter regressions added for same-frame output/tools/usage, gateway activity, response.failed usage/identity, and two-key402 denials for both adapters; Kotlin execution remains SDK-blocked and unclaimed"
+      ]
+    },
+    {
+      "finding": "F5 terminal stream review follow-up",
+      "change": "Responses stops reading immediately after a normalized terminal error. A peer holding SSE open or failing after the rejected frame cannot delay handoff, overwrite the typed429, or replace retained usage/response identity. Chat already stops after an error.",
+      "review": "Independent source_recovery_audit identified the held-open-channel regression in the deferred event path.",
+      "validation": [
+        "Pinned ktlint 1.3.1 and git diff --check passed",
+        "Real MockEngine ByteChannel fixture added for both adapters, with held-open and throwing-tail modes; assertions preserve original429, usage/id, checkpoint-only limit and zero post-failure awaitContent calls under a bounded real-time collection",
+        "JVM regression execution remains Android SDK-blocked and is not claimed"
+      ]
+    }
+  ]
+}

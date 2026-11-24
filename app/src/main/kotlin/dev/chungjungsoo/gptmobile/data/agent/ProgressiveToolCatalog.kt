@@ -320,7 +320,14 @@ class ProgressiveToolCatalog(
         }
         val explicit = (explicitlyRequiredToolNames(taskText, candidates.keys) + explicitSelections).mapNotNull { candidates[resolveName(it)] }
         val recovery = taskRequired.filter { it.name == "read_recovery_context" || AgentToolCapability.USER_DECISION in it.capabilities }
-        val ordered = explicit + recovery + focused + ranked(focus.query) + taskRequired + active.mapNotNull(candidates::get)
+        // The focused action's declared evidence sources can fit in the same schema window.
+        // Resolve exact, already-authorized aliases; prefetch never calls or acquires a tool.
+        val sources = focused.flatMap { tool ->
+            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
+            val action = focus.actions[operation] ?: return@flatMap emptyList()
+            tool.workflowLinks.filter { it.action == action && it.sourceTool != tool.name }.mapNotNull { candidates[it.sourceTool] }
+        }
+        val ordered = explicit + recovery + focused + sources + ranked(focus.query) + taskRequired + active.mapNotNull(candidates::get)
         val expanded = mutableListOf<AgentToolDefinition>()
         val included = mutableSetOf<String>()
         fun include(tool: AgentToolDefinition) {
@@ -424,11 +431,38 @@ class ProgressiveToolCatalog(
         ToolCatalogDiagnostics.recordOmissions("catalog", omitted, schemaAllowance.toLong(), inventoryNames = (candidates.keys + allowed.map { it.name }).toSet())
     }
 
-    /** Normalize only unused null selectors and exact names from the current advertised contract. */
+    /** Normalize bounded local discovery aliases, unused nulls and exact currently advertised names. */
     @Synchronized
     internal fun canonicalArguments(arguments: JsonObject): JsonObject {
         if (arguments.keys.any { it !in setOf("query", "names", "action", "repository_hint", "catalog_only") }) return arguments
         val normalized = arguments.filterNot { (key, value) -> key in setOf("query", "names") && value == JsonNull }.toMutableMap()
+        // A query-only search describes local discovery, not a named tool action.
+        // Keep the query unchanged and never turn an explicit acquisition choice into a local one.
+        val discoveryQuery = (normalized["query"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
+        if (normalized["action"] == JsonPrimitive("search") &&
+            "names" !in normalized &&
+            arguments.keys.all { it in setOf("query", "names", "action", "catalog_only") } &&
+            discoveryQuery != null &&
+            normalized["catalog_only"] in setOf(null, JsonPrimitive(true))
+        ) {
+            normalized.remove("action")
+            normalized["catalog_only"] = JsonPrimitive(true)
+        }
+        // Providers sometimes put an inventory selector in the action slot.
+        // A catalog action with one tool can be a real backend action; preserve it.
+        // Multi-name catalog discovery stays local and keeps every requested name.
+        val names = normalized["names"] as? JsonArray
+        val inventoryAction = normalized["action"] == JsonPrimitive("catalog_only") ||
+            normalized["action"] == JsonPrimitive("catalog") &&
+            names != null &&
+            names.size > 1
+        if (inventoryAction &&
+            names != null &&
+            normalized["catalog_only"] in setOf(null, JsonPrimitive(true))
+        ) {
+            normalized.remove("action")
+            normalized["catalog_only"] = JsonPrimitive(true)
+        }
         val name = (normalized["names"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         if (name != null) {
             val candidate = candidates[name]?.takeIf { it.modelVisible && name.length in 1..160 } ?: return arguments

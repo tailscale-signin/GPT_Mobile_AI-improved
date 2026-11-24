@@ -19,7 +19,7 @@ READ_EXACT = {'/gateway/identity', '/gateway/job-catalog', '/gateway/dashboard',
               '/gateway/ready', '/models', '/gateway/conversations', '/gateway/saved-messages',
               '/gateway/engineering/capabilities', '/gateway/engineering/admission-settings',
               '/gateway/engineering/copilot/capabilities', '/gateway/engineering/copilot/tasks',
-              '/gateway/engineering/jobs'}
+              '/gateway/engineering/jobs', '/gateway/benchmarks/intelligence-score'}
 READ_PATTERNS = [r'/gateway/conversations/' + SAFE_ID + r'(?:/messages)?', r'/gateway/commands/' + SAFE_ID,
                  r'/gateway/engineering/copilot/tasks/' + SAFE_ID,
                  r'/gateway/engineering/repository-operations/' + SAFE_ID,

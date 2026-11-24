@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "task": "diagnostic-deployment-probe-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "b880265b27991691b262bd1347032cdb56bbfabd",
+  "workingBranch": "work/93d824fd-diagnostic-probe",
+  "intent": "Require saved-page replay, local graph context failure and provider-limit cause capabilities in the hosted reporter deployment probe while preserving native-only routing and the 4096-byte readiness bound.",
+  "status": "IMPLEMENTED_TARGETED_VALIDATION_PASSED",
+  "scope": [
+    "scripts/check_issue_reporting_configuration.py",
+    "scripts/tests/test_issue_reporting_configuration.py"
+  ],
+  "ownership": "Narrow deployment-probe follow-up. No privacy mapping, generated metadata, service behavior, release scope or remote writes. Root owns final combined metadata and validation.",
+  "validation": {
+    "status": "PASSED",
+    "requirement": "Ordinary Python controls must reject each individually missing required feature, accept complete readiness, keep the native-only CLI path probe-free, and retain the exact 4096-byte response boundary.",
+    "command": "python3 -m unittest scripts.tests.test_issue_reporting_configuration",
+    "testCount": 18,
+    "result": "All 18 tests passed, including explicit missing/restore controls for each new capability, the preserved native-only CLI no-probe case and exact 4096/4097-byte readiness controls.",
+    "checks": ["git diff --check", "Task ledger JSON validation"],
+    "limitation": "No live deployed-service probe performed. Root owns final combined canonical validation and regenerated references."
+  },
+  "requiredFeaturesAdded": [
+    "SAVED_PAGE_REPLAY_EVIDENCE_V1",
+    "GRAPH_LOCAL_CONTEXT_FAILURE_V1",
+    "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"
+  ]
+}

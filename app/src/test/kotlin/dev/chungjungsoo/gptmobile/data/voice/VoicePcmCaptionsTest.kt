@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class VoicePcmCaptionsTest {
@@ -62,5 +63,139 @@ class VoicePcmCaptionsTest {
     @Test(expected = IllegalArgumentException::class)
     fun malformedTimingCannotReleaseMisalignedAudio() {
         kokoroWordFrames(longArrayOf(1, 2, 1), intArrayOf(1, 2), 1, 2401)
+    }
+
+    @Test fun observedPrefixesReplaceQueuedAndActiveWordEndsWithoutMovingTheStart() {
+        val captions = VoicePcmCaptions()
+        val prefix = VoiceStreamCue(0..2, 0, 10, VoiceWordCueProvenance.ESTIMATED, finalEnd = false)
+        captions.appendStream(1, "one two", 0, listOf(prefix), 10)
+        for (end in 11L..100L) {
+            captions.appendStream(1, "one two", 0, listOf(prefix.copy(endFrame = end)), 1)
+        }
+        val first = requireNotNull(captions.consumed(1))
+        assertEquals(0L, first.frame)
+        assertEquals(100L, first.endFrame)
+        assertEquals(0..2, first.range)
+        assertNull(captions.consumed(1))
+        for (end in 101L..200L) {
+            captions.appendStream(1, "one two", 0, listOf(prefix.copy(endFrame = end)), 1)
+        }
+        assertNull(captions.consumed(1, advancing = false))
+        val extended = requireNotNull(captions.consumed(1))
+        assertEquals(first.frame, extended.frame)
+        assertEquals(first.range, extended.range)
+        assertEquals(first.provenance, extended.provenance)
+        assertEquals(200L, extended.endFrame)
+        assertNull(captions.consumed(1))
+        // No end marker exists until finalization, so an empty refill keeps the word.
+        assertNull(captions.consumed(200))
+        assertEquals(0..2, captions.active()?.range)
+        captions.appendStream(1, "one two", 0, listOf(prefix.copy(endFrame = 200, finalEnd = true)), 0)
+        assertEquals(IntRange.EMPTY, captions.consumed(200)?.range)
+        assertNull(captions.consumed(200))
+        assertEquals(200L, captions.streamStart())
+    }
+
+    @Test fun unchangedEndCanFinalizeAndStartTheNextPrefixInTheSameCallback() {
+        val captions = VoicePcmCaptions()
+        val first = VoiceStreamCue(0..2, 0, 10, VoiceWordCueProvenance.NATIVE_DURATION, finalEnd = false)
+        captions.appendStream(1, "one two", 0, listOf(first), 10)
+        assertEquals(0..2, captions.consumed(5)?.range)
+        val second = VoiceStreamCue(4..6, 10, 15, VoiceWordCueProvenance.NATIVE_DURATION, finalEnd = false)
+        captions.appendStream(1, "one two", 0, listOf(first.copy(finalEnd = true), second), 5)
+        assertEquals(4..6, captions.consumed(10)?.range)
+        assertEquals(15L, captions.active()?.endFrame)
+        captions.appendStream(1, "one two", 0, listOf(second.copy(finalEnd = true)), 0)
+        assertEquals(IntRange.EMPTY, captions.consumed(15)?.range)
+    }
+
+    @Test fun revisionsCannotChangeWordIdentityMoveBackwardsOrExceedObservedAudio() {
+        val original = VoiceStreamCue(0..2, 0, 10, VoiceWordCueProvenance.ESTIMATED, finalEnd = false)
+        val invalid = listOf(
+            original.copy(startFrame = 1),
+            original.copy(range = 4..6),
+            original.copy(provenance = VoiceWordCueProvenance.NATIVE_DURATION),
+            original.copy(endFrame = 9),
+            original.copy(endFrame = 11)
+        )
+        for (revision in invalid) {
+            val captions = VoicePcmCaptions()
+            captions.appendStream(1, "one two", 0, listOf(original), 10)
+            assertThrows(IllegalArgumentException::class.java) { captions.appendStream(1, "one two", 0, listOf(revision), 0) }
+        }
+        for ((segment, text, start) in listOf(Triple(2, "one two", 0L), Triple(1, "one ten", 0L), Triple(1, "one two", 1L))) {
+            val captions = VoicePcmCaptions()
+            captions.appendStream(1, "one two", 0, listOf(original), 10)
+            assertThrows(IllegalArgumentException::class.java) { captions.appendStream(segment, text, start, listOf(original), 1) }
+        }
+    }
+
+    @Test fun anOpenWordMustFinishBeforeAnotherWordAndCannotReopenAfterFinalization() {
+        val original = VoiceStreamCue(0..2, 0, 10, VoiceWordCueProvenance.ESTIMATED, finalEnd = false)
+        val next = VoiceStreamCue(4..6, 10, 15, VoiceWordCueProvenance.ESTIMATED, finalEnd = false)
+        val captions = VoicePcmCaptions()
+        captions.appendStream(1, "one two", 0, listOf(original), 10)
+        assertThrows(IllegalArgumentException::class.java) { captions.appendStream(1, "one two", 0, listOf(next), 5) }
+        captions.appendStream(1, "one two", 0, listOf(original.copy(finalEnd = true)), 0)
+        assertThrows(IllegalArgumentException::class.java) { captions.appendStream(1, "one two", 0, listOf(original), 0) }
+        assertThrows(IllegalArgumentException::class.java) { captions.appendStream(1, "one two", 0, listOf(original.copy(finalEnd = true)), 0) }
+        assertThrows(IllegalArgumentException::class.java) { captions.appendStream(1, "one two", 0, listOf(next.copy(startFrame = 9)), 5) }
+        captions.appendStream(1, "one two", 0, listOf(next), 5)
+        assertEquals(4..6, captions.consumed(10)?.range)
+    }
+
+    @Test fun emptySourceRangesDoNotOwnAnOpenCaption() {
+        val captions = VoicePcmCaptions()
+        captions.appendStream(1, "one", 0, listOf(VoiceStreamCue(IntRange.EMPTY, 0, 5, VoiceWordCueProvenance.ESTIMATED, finalEnd = false)), 5)
+        captions.appendStream(1, "one", 0, listOf(VoiceStreamCue(0..2, 5, 10, VoiceWordCueProvenance.ESTIMATED)), 5)
+        assertEquals(0..2, captions.consumed(5)?.range)
+        assertEquals(IntRange.EMPTY, captions.consumed(10)?.range)
+    }
+
+    @Test fun refillClearsOnlyTheCompletedCurrentWordWithoutStartingTheNextWord() {
+        val captions = VoicePcmCaptions()
+        val first = VoiceStreamCue(0..2, 0, 10, VoiceWordCueProvenance.ESTIMATED, finalEnd = false)
+        val next = VoiceStreamCue(4..6, 10, 20, VoiceWordCueProvenance.ESTIMATED, finalEnd = false)
+        captions.appendStream(1, "one two", 0, listOf(first), 10)
+        assertEquals(0..2, captions.consumed(10)?.range)
+        captions.appendStream(1, "one two", 0, listOf(first.copy(finalEnd = true), next), 10)
+        // An explicit pause still retains its word, even after its final metadata arrives.
+        assertNull(captions.consumed(10, advancing = false))
+        assertEquals(0..2, captions.active()?.range)
+        assertEquals(IntRange.EMPTY, captions.consumed(10, advancing = false, completedThrough = 10)?.range)
+        assertNull(captions.consumed(20, advancing = false, completedThrough = 20))
+        assertEquals(IntRange.EMPTY, captions.active()?.range)
+        assertEquals(4..6, captions.consumed(11)?.range)
+        captions.appendStream(1, "one two", 0, listOf(next.copy(finalEnd = true)), 0)
+        // Refill cannot move lastConsumed beyond the last advancing observation.
+        assertNull(captions.consumed(20, advancing = false, completedThrough = 20))
+        assertEquals(IntRange.EMPTY, captions.consumed(20)?.range)
+        assertNull(captions.consumed(20))
+    }
+
+    @Test fun refillCompletionCannotClearAheadOfMeasuredPresentation() {
+        val captions = VoicePcmCaptions()
+        val prefix = VoiceStreamCue(0..2, 0, 20, VoiceWordCueProvenance.NATIVE_DURATION, finalEnd = false)
+        captions.appendStream(1, "one", 0, listOf(prefix), 20)
+        // A calibrated caption clock may be ahead of the actual presentation clock.
+        assertEquals(0..2, captions.consumed(20)?.range)
+        captions.appendStream(1, "one", 0, listOf(prefix.copy(finalEnd = true)), 0)
+        assertNull(captions.consumed(20, advancing = false, completedThrough = 10))
+        assertNull(captions.consumed(20, advancing = false, completedThrough = 19))
+        assertEquals(0..2, captions.active()?.range)
+        val cleared = requireNotNull(captions.consumed(20, advancing = false, completedThrough = 20))
+        assertEquals(IntRange.EMPTY, cleared.range)
+        assertEquals(20L, cleared.frame)
+        assertNull(captions.consumed(20, advancing = false, completedThrough = 20))
+        assertNull(captions.consumed(20))
+    }
+
+    @Test fun refillNeverPublishesAnUnpresentedFirstCue() {
+        val captions = VoicePcmCaptions()
+        captions.appendStream(1, "one", 0, listOf(VoiceStreamCue(0..2, 0, 10, VoiceWordCueProvenance.ESTIMATED)), 10)
+        assertNull(captions.consumed(10, advancing = false, completedThrough = 10))
+        assertNull(captions.active())
+        assertEquals(0..2, captions.consumed(1)?.range)
+        assertEquals(IntRange.EMPTY, captions.consumed(10)?.range)
     }
 }

@@ -13,14 +13,14 @@ import kotlinx.serialization.json.put
 /** A bounded task ledger replaces accumulated plans in resumed and corrective execution requests. */
 internal object GitHubExecutionContinuation {
     fun prompt(task: String, current: String, receipts: Map<String, JsonObject>, verdict: JsonObject?, corrective: Boolean = true, readOnlyRefresh: Boolean = false): String {
-        val acceptance = verdict?.get("acceptance_ledger") as? JsonObject
-        val remaining = ((acceptance?.get("requirements") ?: verdict?.get("remaining_requirements")) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-            .filter { it["required"] != JsonPrimitive(false) && it["state"] != JsonPrimitive("PASS") && it["acceptance_state"] != JsonPrimitive("PASS") && it["status"] != JsonPrimitive("PASSED") }
+        val remaining = GitHubAcceptanceWork.outstanding(verdict)
         val ledger = buildJsonObject {
             put("retained_receipt_count", receipts.size)
             put("included_receipt_count", minOf(receipts.size, 64))
             put("implementation_progress", implementationProgress(receipts))
+            verdict?.get("execution_resources")?.let { put("execution_resources", it) }
             put("search_frontiers", searchFrontiers(receipts))
+            put("source_hydration_candidates", sourceHydrationCandidates(receipts))
             put(
                 "receipts",
                 JsonArray(
@@ -55,6 +55,7 @@ internal object GitHubExecutionContinuation {
                 }
             )
             put("remaining_requirement_count", remaining.size)
+            if (!readOnlyRefresh) put("acceptance_work", GitHubAcceptanceWork.projection(remaining, task))
             val resumeLedger = buildJsonObject {
                 put(
                     "requirements",
@@ -89,7 +90,7 @@ internal object GitHubExecutionContinuation {
             put("task_completion_verified", verdict?.get("completion_verified") ?: JsonPrimitive(false))
             val stale = staleReceiptIds(verdict)
             put("stale_observation_receipt_ids", JsonArray(stale.map(::JsonPrimitive)))
-            put("targeted_refresh_only", stale.isNotEmpty())
+            put("targeted_refresh_only", readOnlyRefresh && stale.isNotEmpty())
         }
         return "Accepted task and constraints:\n$task\n\n" +
             "Newest user instruction:\n$current\n\n" +
@@ -99,19 +100,89 @@ internal object GitHubExecutionContinuation {
             (if (readOnlyRefresh) "Perform only the minimal authorized read needed to refresh a listed stale PR/CI observation. " else "Perform the next unfinished authorized operation using the available tools. ") +
             "Use exact returned cursors and identifiers. Reconcile uncertain outcomes before any write; do not repeat completed actions. " +
             (if (readOnlyRefresh || !implementationRequested(continuationRequest(task, current))) "" else "For this requested implementation, retained target source should lead to the next authorized branch or patch operation once its prerequisites are met. Name a specific missing prerequisite before restarting discovery. Source capture, staged patches, committed mutations and verified acceptance are separate milestones. ") +
-            "When stale_observation_receipt_ids are present, refresh only those observations at their bound repository and head; preserve every verified claim and completed read. " +
+            "Keep stale observations unverified. Refresh them only at their bound repository and head. An unavailable refresh does not block independent authorized work on another requirement. Preserve every verified claim and completed read. " +
             "Resume only unverified criteria; a passed criterion keeps its existing proof. Fixture teardown is an exact owned-resource absence check, never a request to recreate or delete it again. " +
             "This bounded ledger is a projection, not the full receipt store. Read retained evidence when a required selector or older result is absent; never invent it. " +
-            "Do not ask again for already accepted work or claim unobserved success. If execution cannot advance, identify the concrete blocker and remaining requirements. " +
+            "Use the measured remaining calls and catalog in execution_resources. A tool missing from this round may be discoverable. Do not ask again for already accepted work or claim unobserved success. If execution cannot advance, identify the concrete blocker and remaining requirements. " +
             if (corrective) "This is one bounded corrective attempt for the current progress checkpoint; do not produce another proposed sequence of calls." else "The newest instruction governs the remaining work within the accepted scope and budget."
     }
 
-    fun requiresExhaustiveSearch(task: String): Boolean {
-        val request = GitHubTaskContinuity.request(task)
-        if (Regex("(?i)\\b(?:sample|spot.check|not exhaustive|non.exhaustive|quick look)\\b").containsMatchIn(request)) return false
-        return Regex("(?i)\\b(?:all|every|entire|whole|complete|exhaustive|comprehensive)\\b").containsMatchIn(request) &&
-            Regex("(?i)\\b(?:search|find|review|examine|audit|check|issues|bugs|files|repository|codebase)\\b").containsMatchIn(request)
+    private val coverageQualifier = Regex("""(?i)\b(?:all|every|entire|whole|exhaustive(?:ly)?|comprehensive(?:ly)?|complete)\b""")
+    private val coverageSubject = Regex("""(?i)\b(?:search|scan|find|review|examine|audit|check|issues?|bugs?|occurrences?|matches|paths?|files?|instructions?|repository|codebase)\b""")
+    private val sampleScope = Regex("""(?i)\b(?:sample|spot.check|not exhaustive|non.exhaustive|quick look)\b""")
+    private val instructionName = Regex("""(?i)(?:^|/)(?:agents|contributing|readme|copilot-instructions|claude|gemini)(?:\.md)?$""")
+    private val instructionScope = Regex("""(?i)\b(?:instructions?|guidelines?|contributing|agents\.md)\b""")
+    private val repositoryAudit = Regex(
+        """(?i)\b(?:all|every)\s+(?:(?:known|current|remaining)\s+)*(?:issues?|bugs?)(?:\s+and\s+(?:issues?|bugs?))?\s+(?:in|across|throughout)\s+(?:(?:the|this|our|selected|entire|whole)\s+)*(?:repo(?:sitory)?|codebase)\b|\b(?:review|audit|examine|inspect|check|scan)\s+(?:(?:the|this|our|selected)\s+)*(?:whole|entire)\s+(?:repo(?:sitory)?|codebase)\b|\b(?:exhaustive|comprehensive|complete)\s+(?:repository|codebase)\s+(?:audit|review|check|scan)\b"""
+    )
+    private val standaloneIssueAudit = Regex(
+        """(?i)^(?:please\s+)?(?:review|audit|examine|inspect|check|scan|find)\s+(?:all|every)\s+(?:(?:known|current|remaining)\s+)*(?:issues?|bugs?)(?:\s+and\s+(?:issues?|bugs?))?$"""
+    )
+    private val detachedAuditComponent = Regex(
+        """(?i)^(?:(?:but|and|however)\s+)?(?:(?:only|just)\s+(?:in|within|for|on)\b|affecting\b|(?:limited|restricted)\s+to\b|focus\s+(?:only|just)\s+on\b|(?:do not|don't)\s+(?:search|scan|read|review|inspect|examine|check)\s+(?:outside|beyond)\b)"""
+    )
+    private val detachedAuditSample = Regex(
+        """(?i)^(?:(?:but|and|however)\s+)?(?:(?:take|use|review|inspect|examine|check|consider)\s+)?(?:(?:only|just)\s+)?(?:a\s+)?(?:sample|spot.check|quick look)(?:\s+of\s+(?:(?:the|these|those|all)\s+)?(?:issues?|bugs?|results?|matches?|files?))?$"""
+    )
+    private val negatedRepositoryAudit = Regex("""(?i)\b(?:do\s+not|don't)\s+(?:review|audit|examine|inspect|check|scan)\b""")
+
+    fun instructionLookup(arguments: JsonObject): Boolean =
+        arguments["mode"] == JsonPrimitive("paths") &&
+            instructionName.containsMatchIn((arguments["query"] as? JsonPrimitive)?.content.orEmpty().trim('*', '/'))
+
+    fun requiresExhaustiveSearch(task: String, arguments: JsonObject? = null): Boolean {
+        val query = (arguments?.get("query") as? JsonPrimitive)?.content.orEmpty().trim('*', '/')
+        val clauses = mutableListOf<String>()
+        val restrictedAuditClauses = mutableSetOf<Int>()
+        for (clause in GitHubTaskContinuity.request(task).split(Regex("""[\n;!?]|\.(?:\s|$)|,\s*(?:and\s+)?(?:then\s+)?(?=[a-z])"""))) {
+            if (clause.isBlank()) continue
+            // Punctuation does not separate an audit from its attached scope restriction.
+            // Named samples and independent operations keep their own clauses.
+            if (clauses.isNotEmpty() &&
+                (
+                    clauses.lastIndex in restrictedAuditClauses ||
+                        standaloneIssueAudit.matches(clauses.last().trim()) ||
+                        repositoryAudit.containsMatchIn(clauses.last())
+                    ) &&
+                (detachedAuditComponent.containsMatchIn(clause.trim()) || detachedAuditSample.matches(clause.trim()))
+            ) {
+                clauses[clauses.lastIndex] = "${clauses.last()}; $clause"
+                restrictedAuditClauses += clauses.lastIndex
+            } else {
+                clauses += clause
+            }
+        }
+        // An explicit sample of this query stays bounded even alongside a broad audit.
+        if (query.isNotBlank() && clauses.any { sampleScope.containsMatchIn(it) && it.contains(query, ignoreCase = true) }) return false
+        return clauses.withIndex().any { (index, clause) ->
+            // A broad matcher can still find the audit prefix after its restriction is attached.
+            if (index in restrictedAuditClauses) return@any false
+            if (sampleScope.containsMatchIn(clause) || !coverageQualifier.containsMatchIn(clause) || !coverageSubject.containsMatchIn(clause)) return@any false
+            val broadAudit = repositoryAudit.containsMatchIn(clause)
+            // A denied audit supplies no coverage authority; another explicit clause may still do so.
+            if (broadAudit && negatedRepositoryAudit.containsMatchIn(clause)) return@any false
+            if (arguments == null) return@any true
+            // A request to fix all issues does not ask for every path matching
+            // an incidental instruction lookup. Bind automatic paging to its query.
+            val namedQuery = query.isNotBlank() && clause.contains(query, ignoreCase = true)
+            if (instructionLookup(arguments)) {
+                val target = "(?:instruction(?:s| files)?|guidelines?|(?:repository |project )?guides?|" + Regex.escape(query) + ")"
+                return@any Regex("""(?i)\b(?:all|every|each)\s+(?:(?:matching|nested|repository|project|applicable)\s+)*$target\b""").containsMatchIn(clause) ||
+                    Regex("""(?i)\b(?:exhaustive(?:ly)?|comprehensive(?:ly)?|complete)\s+(?:search|scan|review|audit|check|read)(?:\s+(?:for|of))?\s+(?:(?:the|all|every|matching|nested|repository|project|applicable)\s+)*$target\b""").containsMatchIn(clause) ||
+                    namedQuery &&
+                    Regex("""(?i)\b(?:whole|entire)\s+(?:repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)
+            }
+            // An unqualified issue audit covers the selected repository; a component qualifier
+            // must not grant exhaustive coverage to an unrelated derived query.
+            namedQuery ||
+                broadAudit ||
+                standaloneIssueAudit.matches(clause.trim()) ||
+                query.isBlank() &&
+                Regex("""(?i)\b(?:files?|paths?|tree|repo(?:sitory)?|codebase)\b""").containsMatchIn(clause)
+        }
     }
+
+    fun requestsInstructionRead(task: String): Boolean = instructionScope.containsMatchIn(GitHubTaskContinuity.request(task))
 
     fun replanInstruction(task: String, current: String): String {
         val request = continuationRequest(task, current)
@@ -120,7 +191,7 @@ internal object GitHubExecutionContinuation {
             Regex("(?i)\\b(?:review|audit|examine|issues|bugs|solutions)\\b").containsMatchIn(request) -> "Use the retained source to report supported findings, their impact, and specific proposed solutions."
             else -> "Use the retained source to answer the requested explanation and identify the specific evidence still missing."
         }
-        return "Recent source reads and searches have stopped adding actionable evidence. $next Preserve established findings and distinguish searched coverage from the unsearched remainder. Resume an incomplete search only through its exact issued continuation when the accepted scope requires more coverage and the remaining budget allows it."
+        return "Recent source reads and searches have stopped adding actionable evidence. $next If a prepared task context has no source windows, read its pinned source/test candidates before another broad search. Prefer task-relevant authored source and tests over generated/vendor assets unless those assets are the requested target. Preserve established findings and distinguish searched coverage from the unsearched remainder. Resume an incomplete search only through its exact issued continuation when the accepted scope requires more coverage and the remaining budget allows it."
     }
 
     private fun continuationRequest(task: String, current: String) = GitHubTaskContinuity.request(if (GitHubTaskContinuity.control(current)) task else current)
@@ -167,6 +238,53 @@ internal object GitHubExecutionContinuation {
             put("omitted_search_count", frontiers.size - included.size)
             put("searches", JsonArray(included))
         }
+    }
+
+    /** Paths originate from a successful pinned context result, never inferred tool arguments. */
+    internal fun sourceHydrationCandidates(receipts: Map<String, JsonObject>): JsonArray {
+        fun eligible(receipt: JsonObject) = receipt["trusted"] == JsonPrimitive(true) && receipt["success"] == JsonPrimitive(true) && receipt["verification_eligible"] != JsonPrimitive(false)
+        fun identity(receipt: JsonObject, revision: String, path: String, blob: String) = "${receipt["binding"]}|${receipt["repository"]}|$revision|$path|$blob"
+        val captured = receipts.values.filter { eligible(it) && (it["tool"] as? JsonPrimitive)?.content.orEmpty().githubOperationFamily() == "github_read" }.flatMap { receipt ->
+            val data = GitHubSemanticSummary.data(receipt["result"] as? JsonObject ?: return@flatMap emptyList())
+            val revision = (data["commit_sha"] as? JsonPrimitive)?.content ?: return@flatMap emptyList()
+            (data["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["range_complete"] == JsonPrimitive(true) }.mapNotNull { row ->
+                val path = (row["path"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+                val blob = (row["sha"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+                identity(receipt, revision, path, blob)
+            }
+        }.toSet()
+        val candidates = linkedMapOf<String, JsonObject>()
+        for ((id, receipt) in receipts.entries.toList().asReversed()) {
+            if (!eligible(receipt)) continue
+            if ((receipt["tool"] as? JsonPrimitive)?.content.orEmpty().githubOperationFamily() != "repository_graph") continue
+            val data = GitHubSemanticSummary.data(receipt["result"] as? JsonObject ?: continue)
+            if (data["schema"] != JsonPrimitive(GitHubTaskContextBundle.SCHEMA) || data["source_identity_kind"] != JsonPrimitive("GIT_COMMIT")) continue
+            val revision = (data["source_sha"] as? JsonPrimitive)?.content?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: continue
+            val repository = data["repository"] as? JsonPrimitive ?: continue
+            if (receipt["repository"] != repository) continue
+            for (row in (data["source_read_candidates"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()) {
+                if (row["source_loaded"] != JsonPrimitive(false)) continue
+                val path = (row["path"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() && it.length <= 1024 && !it.startsWith('/') && it.split('/').none { part -> part in setOf(".", "..") } && it.none(Char::isISOControl) } ?: continue
+                val blob = (row["blob_sha"] as? JsonPrimitive)?.content?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: continue
+                val key = identity(receipt, revision, path, blob)
+                if (key in captured) continue
+                candidates.putIfAbsent(
+                    key,
+                    buildJsonObject {
+                        put("receipt_id", id)
+                        put("repository", repository)
+                        receipt["binding"]?.let { put("binding", it) }
+                        put("commit_sha", revision)
+                        put("path", path)
+                        put("blob_sha", blob)
+                        put("source_loaded", false)
+                        put("scope", "CANDIDATE_ONLY_REVALIDATE_CURRENT_READ_AUTHORITY")
+                    }
+                )
+                if (candidates.size >= 8) return JsonArray(candidates.values.toList())
+            }
+        }
+        return JsonArray(candidates.values.toList())
     }
 
     /** These are observed operations, never a substitute for authorization or feature acceptance. */
@@ -276,9 +394,15 @@ internal object GitHubExecutionContinuation {
         if (!resumable || ledger["user_input_required"] == JsonPrimitive(true)) return false
         if (report["task_outcome"] in setOf(JsonPrimitive("BLOCKED"), JsonPrimitive("CONFIGURATION_INVALIDATED"))) return false
         val failureCode = (report["failure_code"] as? JsonPrimitive)?.content.orEmpty()
-        val retryableVerificationCodes = setOf("", "GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_MISSING", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION")
+        val retryableVerificationCodes = setOf("", "GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_MISSING", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION")
         if (failureCode !in retryableVerificationCodes) return false
-        if (receipts.values.lastOrNull()?.let { GitHubExecutionLedger.receiptState(it) != GitHubExecutionLedger.ReceiptState.COMPLETED } != false) return false
+        val latest = receipts.values.lastOrNull() ?: return false
+        val lastState = GitHubExecutionLedger.receiptState(latest)
+        val rejectedDiscovery = lastState == GitHubExecutionLedger.ReceiptState.PRECHECK_REJECTED &&
+            latest["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL) &&
+            latest["dispatched"] == JsonPrimitive(false) &&
+            latest["error_code"] == JsonPrimitive("INVALID_ARGUMENTS")
+        if (lastState != GitHubExecutionLedger.ReceiptState.COMPLETED && !rejectedDiscovery) return false
         return (ledger["remaining_criteria"] as? JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
     }
 
@@ -343,7 +467,13 @@ internal class GitHubReadRoundProgress {
                 continue
             }
             val revision = data["commit_sha"] ?: continue
-            if (issuer.name.githubOperationFamily() == "github_context" && sources.add("${issuer.name}|${issuer.arguments}|$revision")) advanced = true
+            if (issuer.name.githubOperationFamily() == "github_context") {
+                val resource = result.executionReceipt?.get("resource_context") as? JsonObject
+                val owner = data["owner"] ?: resource?.get("owner") ?: issuer.arguments["owner"]
+                val repository = data["repo"] ?: resource?.get("repo") ?: issuer.arguments["repo"]
+                val ref = data["ref"] ?: data["branch"] ?: resource?.get("selected_ref")
+                if (sources.add("context|${issuer.name.substringAfter("__", "")}|$owner|$repository|$ref|$revision|${data["tree_sha"]}")) advanced = true
+            }
             // Cursor movement certifies traversal, not useful source acquisition. The
             // continuation prompt retains the exact search frontier separately, so a
             // replan can continue required pagination without restarting the scan.

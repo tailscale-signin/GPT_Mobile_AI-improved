@@ -81,6 +81,8 @@ internal fun structuredProviderFailure(body: String, httpStatus: Int? = null): J
             value.content.length <= 256
     }.toMutableMap()
     fields.putAll(providerConflictEvidence(error))
+    // A typed refusal can narrow replay authority; other raw values cannot grant it.
+    if (error?.get("request_replay_allowed") == JsonPrimitive(false)) fields["request_replay_allowed"] = JsonPrimitive(false)
     val pending = error?.get("pending_client_tool_call_ids") as? kotlinx.serialization.json.JsonArray
     if (pending != null && pending.size <= 128 && pending.all { it is JsonPrimitive && it.isString && it.content.isNotBlank() && it.content.length <= 256 && it.content.none(Char::isISOControl) }) {
         fields["pending_client_tool_call_ids"] = pending

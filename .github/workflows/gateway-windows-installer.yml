@@ -98,10 +98,18 @@ jobs:
         run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name Gateway-Windows-x64 --dir dist/windows
       - name: Sign provenance for Windows installers and portable archives
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        id: windows_attestation
         with:
           subject-path: |
             dist/windows/**/Gateway-*-windows-x64-setup.exe
             dist/windows/**/Gateway-*-windows-x64.zip
+      - name: Retain the Windows package attestation bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-attestation-bundle-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.windows_attestation.outputs.bundle-path }}
+          retention-days: 14
+          if-no-files-found: error
 
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'

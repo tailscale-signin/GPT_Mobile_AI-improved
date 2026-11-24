@@ -42,12 +42,12 @@ index 507d128..660936b 100644
  class OfflineTtsKokoroModel::Impl {
   public:
 -  explicit Impl(const OfflineTtsModelConfig &config)
-+  explicit Impl(const OfflineTtsModelConfig &config, const std::string &library_dir, const std::string &profile_prefix, int64_t token_count)
++  explicit Impl(const OfflineTtsModelConfig &config, const std::string &library_dir, const std::string &profile_prefix, int64_t token_count, const std::string &context_path, const std::string &htp_performance_mode)
        : config_(config),
 -        env_(ORT_LOGGING_LEVEL_ERROR),
 -        sess_opts_(GetSessionOptions(config)),
 +        env_(kokoro_runtime::Environment()),
-+        sess_opts_(kokoro_runtime::Options(*env_, config.num_threads, config.provider, library_dir, profile_prefix, token_count)),
++        sess_opts_(kokoro_runtime::Options(*env_, config.num_threads, config.provider, library_dir, profile_prefix, token_count, context_path, htp_performance_mode)),
          allocator_{} {
      sess_ = std::make_unique<Ort::Session>(
 -        env_, SHERPA_ONNX_TO_ORT_PATH(config.kokoro.model), sess_opts_);
@@ -130,8 +130,8 @@ index 507d128..660936b 100644
  OfflineTtsKokoroModel::OfflineTtsKokoroModel(
 -    const OfflineTtsModelConfig &config)
 -    : impl_(std::make_unique<Impl>(config)) {}
-+    const OfflineTtsModelConfig &config, const std::string &library_dir, const std::string &profile_prefix, int64_t token_count)
-+    : impl_(std::make_unique<Impl>(config, library_dir, profile_prefix, token_count)) {}
++    const OfflineTtsModelConfig &config, const std::string &library_dir, const std::string &profile_prefix, int64_t token_count, const std::string &context_path, const std::string &htp_performance_mode)
++    : impl_(std::make_unique<Impl>(config, library_dir, profile_prefix, token_count, context_path, htp_performance_mode)) {}
 
  template <typename Manager>
  OfflineTtsKokoroModel::OfflineTtsKokoroModel(
@@ -175,7 +175,7 @@ index cb321ad..72a0a6c 100644
 
 -  explicit OfflineTtsKokoroModel(const OfflineTtsModelConfig &config);
 +  explicit OfflineTtsKokoroModel(const OfflineTtsModelConfig &config,
-+      const std::string &library_dir = "", const std::string &profile_prefix = "", int64_t token_count = 0);
++      const std::string &library_dir = "", const std::string &profile_prefix = "", int64_t token_count = 0, const std::string &context_path = "", const std::string &htp_performance_mode = "balanced");
 
    template <typename Manager>
    OfflineTtsKokoroModel(Manager *mgr, const OfflineTtsModelConfig &config);

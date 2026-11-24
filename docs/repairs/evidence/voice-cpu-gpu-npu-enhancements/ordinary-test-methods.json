@@ -1,0 +1,219 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Named ordinary Gradle/JUnit methods required for final PR-head qualification. This is a source inventory, not hosted execution evidence. Parameterized SDK suffixes may add cases; require every named method and inspect all failures/skips in complete worker XML.",
+  "sourceBaseRevision": "1cc96b1936c1b3f6442cc89441cce3c6ee77daaa",
+  "methodCount": 96,
+  "classes": [
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmupTest.kt",
+      "sha256": "8de60576a351604df22f34fec56c2ea11d53144c3bfd1d55c120b4a5c06094da",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSilentWarmupTest",
+      "methods": [
+        "successfulWarmupReusesOnlyTheExactModelVoiceAndRate",
+        "staleDeadlineCannotCancelTheNextWarmupOrLiveEngine",
+        "queuedPreparationRevokedBeforePublicationNeverResetsTheEngine",
+        "liveCancellationCannotBeLostDuringTheNativeReset",
+        "cancelledInferenceMustRetireBeforeAnotherOwnerCanResetIt",
+        "staleCompletionCannotReleaseAReplacementOwner",
+        "revokedOrFailedInferenceDoesNotRecordAReadyConfiguration"
+      ],
+      "methodCount": 7,
+      "previousMethodCount": 0,
+      "previousMethodsPreserved": true
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSilentWarmupTest.kt",
+      "sha256": "c6d350e820a28b915e1b798d5ef96b5d513d7809f22ca3aa4372b6a00690ff7c",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.KokoroSilentWarmupTest",
+      "methods": [
+        "cpuWarmupIsSilentAndReusesOnlyTheExactVoiceAndRate",
+        "actualReplyCancelsAnActiveWarmupAndWaitsForItsNativeReturn",
+        "liveReplySkipsAQueuedWarmupBeforeNativeGateAdmission",
+        "completedWarmupDeadlineCannotCancelTheSubsequentLiveReply",
+        "optionalWarmupFailureLeavesRealSpeechToItsNormalValidatedPath",
+        "nonCpuSelectionsNeverReceiveASilentInference"
+      ],
+      "methodCount": 6,
+      "previousMethodCount": 0,
+      "previousMethodsPreserved": true
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTest.kt",
+      "sha256": "33f1f98fc7b6062a8fdf643aa11ee5a0569f1875ba5e0a68294f26228d67c81d",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEnergyTest",
+      "methods": [
+        "monitoredDischargeRetainsRawNanowattHourEndpointsAndOnlyTheObservedDecrease",
+        "endpointOnlyEvidenceCannotEstablishNoInterveningPowerConnection",
+        "chargingAtEitherEndpointOrBetweenEndpointsPreventsAnEnergyComparison",
+        "missingCountersAndPowerStatesStayDistinctAndNeverBecomeZeroConsumption",
+        "counterQuantizationIncreaseOrZeroCannotBeReportedAsEnergySavings",
+        "noElapsedWindowMeansEndpointsOnlyAndInProgressCannotClaimMonitorCompletion",
+        "impossibleRangesAndInventedDerivedClaimsAreRejectedWhenHistoryIsRead",
+        "maximumLongCountersCannotOverflowSubtraction"
+      ],
+      "methodCount": 8,
+      "previousMethodCount": 0,
+      "previousMethodsPreserved": true
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkBatterySourceTest.kt",
+      "sha256": "5b7a9f7a43c66fb2787b3d7b7142c2ff7923adbb287cea14cf5a3e7a63cee63b",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBatterySourceTest",
+      "methods": [
+        "unsupportedAndroidSentinelRemainsUnknownAndObserverRetires",
+        "optionalBatteryServiceFailureDoesNotPreventBenchmarkObservationOrCleanup",
+        "supportedCounterReportsWholeDeviceDifferenceOnlyDuringObservedUnpluggedDischarge",
+        "mainThreadFinalizationCannotDiscardQueuedPowerChangesAndClaimConfirmedMonitoring",
+        "interveningConnectionIsRetainedEvenWhenBothCounterEndpointsAreUnplugged",
+        "delayedReceiverQueueCannotLaterUpgradeAnUnconfirmedCounterWindow"
+      ],
+      "methodCount": 6,
+      "previousMethodCount": 0,
+      "previousMethodsPreserved": true
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTrackerTest.kt",
+      "sha256": "519cadabcc263594a94c5f507fe18ce4ba39796506abe3d4bd1c3291498b506e",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEnergyTrackerTest",
+      "methods": [
+        "nativePublicationWindowsSurroundEachAttemptExactlyOnceAndSurviveRunnerCopies",
+        "unavailableBatteryServiceCannotAbortSpeechAndPendingBackendsStayUnobserved",
+        "failedMonitorFinalizationRetainsUnknownEvidenceAndCloseDoesNotDoubleFinish",
+        "sdkBenchmarksUseTheirOwnBackendStateAndProcessCleanupClosesActiveObserver"
+      ],
+      "methodCount": 4,
+      "previousMethodCount": 0,
+      "previousMethodsPreserved": true
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+      "sha256": "0272eed519670bededa7dd961d5f6ec7e8a935d7a87956e0015505cd6bd1b3f3",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+      "methods": [
+        "observedShortGpuOutputCannotWinDespiteGenuineExecutionAndLowerTime",
+        "nearReferenceDurationCanQualifyAcrossAllBackendOrders",
+        "equalFixtureTotalsCannotHideOppositeChunkDurationErrors",
+        "numericalSignalAndTokenTimingCorruptionHaveDistinctReasons",
+        "evenOneClippedSampleDisqualifiesCandidateAndCpuBaselineIncludingRetainedRuns",
+        "missingBaselineOrLegacyMeasurementsNeverQualifyAndExportsExcludeWaveforms",
+        "cancelledOrFailedSuiteRetainsComparisonsButCannotRank"
+      ],
+      "methodCount": 7,
+      "previousMethodCount": 6,
+      "previousMethodsPreserved": true
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "sha256": "97294ea8a990a39df08d9f0f68761d3347e0cd8d18034c6070608ba12aafaa53",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+      "methods": [
+        "failureAvailabilityAndValidationScalarsSurviveCurrentRoundTripAndLegacyZeroesRemainUnknown",
+        "deadlineRequestAndNativeRetirementStaySeparateInPersistedRunningAndFinishedReports",
+        "signedInvalidDurationsAndOverflowRemainDistinctThroughHistory",
+        "clippedFailureAndAdvisoryTargetsRoundTripWithoutCreatingSuccessfulPerformanceEvidence",
+        "boundedBatteryCounterHistoryPreservesUnknownAndRejectsDuplicateOrUnselectedBackends",
+        "playbackGenerationWallCostDoesNotMasqueradeAsInferenceWithoutGraphPreparation",
+        "verifiedPlaybackDoesNotPromoteAnExplicitUnknownPcmMeasurementWhenRestored",
+        "sdkStabilityRetainsAllSamplesAndBoundedCallbackReceiptsWithoutClaimingProviderOrQuality",
+        "impossibleSdkPlacementAndCallbackCountsCannotBeRestoredAsEvidence",
+        "boundedSdkPlaybackTracesKeepCompleteTotalsAndCannotInventNativeExecution"
+      ],
+      "methodCount": 10,
+      "previousMethodCount": 7,
+      "previousMethodsPreserved": true
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "sha256": "82cf458e4fb939681e6d46b047b743b521e1551f1d2d463650909e768f1b597f",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+      "methods": [
+        "cpuOnlyRetainsTheFailedCallProfileWithoutQualifyingAudio",
+        "newNativeFailureRetainsCurrentPhaseAndCacheCostsWithoutQualifyingAudio",
+        "oversizedOutputKeepsDurationEvidenceWithoutInventingSilentPcm",
+        "aMeasuredSilentFailureIsDistinctFromUnmeasuredAndLegacyFailures",
+        "clippedPcmFailureKeepsMeasuredSignalAndAppendOnlyNativeReasonWithoutQualifying",
+        "frontendPreparationAndGenericFailuresCannotBorrowPreviousEvidence",
+        "currentPreparationFailureRetainsElapsedCompilationWithoutInventingExecutionOrActiveResidency",
+        "typedOpenFailuresDoNotMislabelTheBenchmarkWorkloadOrDisableHardware",
+        "unavailableFailedProfileDoesNotClaimAnExecutedProcessor"
+      ],
+      "methodCount": 9,
+      "previousMethodCount": 8,
+      "previousMethodsPreserved": true
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt",
+      "sha256": "b762590b0c22c7e4f07d52b462da36eb04c3912b28f1a24a5fa3bbfccf25c5be",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackProtocolTest",
+      "methods": [
+        "independentManifestCatchesTheSameWordOmittedByBothProducerAndCaptionObserver",
+        "stageBoundariesAndRealChunkEvidenceRemainDistinct",
+        "completionDoesNotHideStallsSlowStartupOrUnmeasuredCounters",
+        "fullSuiteContainsBoundedActualWarmStreamingChangingSustainedAndCancelPlans",
+        "independentManifestMatchesProductionPlannerForEverySelectedSegmentAndFixture",
+        "aReplyPinsItsReceiptBeforeAnyLaterWarmReplyStarts",
+        "qualificationRequiresTheExactDeclaredSuiteAndActualResidentReuse",
+        "playbackRankingRejectsFastShortenedNativeAudioAndUnobservedLegacySignals",
+        "runtimeSetupFailureCannotBeMisclassifiedAsAnInvalidFixedFixture",
+        "wrappedNativeFailureRetainsExactStageCodeLimitsAndDiscovery",
+        "phaseTimeoutHasAnExplicitStageAndBudgetWithoutInventingNativeExecution",
+        "playbackOnlyExportDoesNotPublishZeroCostSynthesisRowsAndRoundTripsActualReceipts",
+        "storedTotalsCannotBeChangedWithoutInvalidatingThePlaybackReceipt",
+        "oldPlaybackCanBeReadButCannotRegainQualificationAfterResaving",
+        "wrapperEntryCannotBeMistakenForAnObservedNativeInferenceStage",
+        "unavailableFreshProgressCannotQualifyAnEarlierNativeStageObservation",
+        "modelOpenAndPresentedPlaybackCancellationDoNotRequireNativeSnapshots",
+        "cancellationNeedsAReachedTargetMeasuredStopAndCompletedRetirement"
+      ],
+      "methodCount": 18,
+      "previousMethodCount": 18,
+      "previousMethodsPreserved": true
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt",
+      "sha256": "d81cbd2304cae4e86dbe89e3d73747308cfbb86f800a63790b912076673b10d2",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkTest",
+      "methods": [
+        "allRequestedBackendsRunIdenticalWarmAndColdFixturesAndKeepActualTimings",
+        "cpuFallbackIsNotAcceptedAsGpuPerformanceAndOtherBackendsStillRun",
+        "missingNativeBackendIsExplicitAndDoesNotFabricateSamples",
+        "invalidPcmDurationsDoNotQualifyEvenWhenProviderSaysValidated",
+        "failedLaterPhraseCannotBorrowThePreviousPhraseKernelEvidence",
+        "cancellationRetainsCompletedSampleClosesEngineAndSkipsRemainingBackends",
+        "thermalLimitStopsFurtherWorkAndDoesNotRecommendAnEngine",
+        "unknownPreparationThermalRetainsExecutionButCannotQualifyAComparison",
+        "hotPreparationIsRetainedWithoutOpeningAnEngine",
+        "historyWithoutPreparationThermalRecomputesStaleQualificationAndRetainsSamples",
+        "historyRejectsInvalidPreparationThermalObservations",
+        "nativeCancellationRetainsCompletedBackendWithoutRecommendingAnUnfinishedComparison",
+        "interruptedWorkerCannotPublishTheInterruptedSampleOrQualifyACompleteRun",
+        "comparisonIncludesPreparationAndRequiresCompletePairedCoverage",
+        "exportIsNumericSafeAndLocalHistoryRoundTripsWithoutLeakingDeviceBinding"
+      ],
+      "methodCount": 15,
+      "previousMethodCount": 15,
+      "previousMethodsPreserved": true
+    },
+    {
+      "source": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStoreTest.kt",
+      "sha256": "6860ccb0b809b3bbe73bc815062d8e98773cad339fdfeb6229ba34f2f03c2240",
+      "className": "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStoreTest",
+      "methods": [
+        "savesReplaceTheCurrentRunAndRetainOnlyFiveIndependentRuns",
+        "processInterruptionRestoresPartialResultsWithoutClaimingCompletion",
+        "corruptAndOversizedHistoryCannotProduceBenchmarksAndDoesNotBlockANewRun",
+        "fullCurrentProtocolEvidenceAboveTwoMiBSurvivesWhileOlderRunsAreEvicted",
+        "interruptedUtteranceKeepsItsCompletedChunksAndOriginalOrderPlan",
+        "legacyHistoryRemainsHistoricalAfterANewRunIsSaved"
+      ],
+      "methodCount": 6,
+      "previousMethodCount": 6,
+      "previousMethodsPreserved": true
+    }
+  ],
+  "additionalRequiredGates": [
+    "The complete existing ordinary unit-test suite and all other owners named-method inventories remain required.",
+    "Native decoder/C++/linked model and device checks are recorded separately; they are not represented as ordinary Kotlin JUnit methods here.",
+    "The local focused harness results do not replace full application compilation, complete hosted JUnit XML or real-device measurement."
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-comparison-authority-cancellation-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "59e61ba6fa277b8cab839ad219b7189895a10deb",
+  "workingBranch": "task/privacy-authority-cancellation-59e",
+  "pullRequest": 2367,
+  "recordedBeforeSourceEdits": true,
+  "status": "SOURCE_FROZEN_INDEPENDENTLY_REVIEWED_PENDING_FINAL_NORMAL_CI",
+  "scope": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyComparisonProviderBindingTest.kt",
+    "docs/repairs/privacy-comparison-authority-cancellation-2026-11-23-task.json"
+  ],
+  "preEditCheckpoint": {
+    "testSha256": "a168f27dd8584c9f0e6adf4cbb44a1dad2de4e4758c932685704fff99ca2da7b",
+    "existingOrdinaryMethods": 18,
+    "plannedMethods": 2,
+    "plannedMatrix": "Opening and pre-dispatch collection, each with protection disabled and enabled; actual binding and existing Fixture, a non-null suspended validator, original cancellation identity, joined validator/producer and caller cleanup, zero provider opens or later-leg continuation, empty events and restored caller context.",
+    "preservation": "Retain every existing method, helper and assertion byte-for-byte; add only imports, two ordinary methods and their private test support."
+  },
+  "intent": "Close the concrete ordinary regression gap for cancellation while a non-null comparison provider authority validator is suspended, preserving the existing correct cancellation propagation.",
+  "acceptance": [
+    "Exercise the actual PrivacyComparisonProviderBinding with a non-null suspended providerAuthority validator, at opening and pre-dispatch collection entry points for both protection settings.",
+    "Cancel owning work with an identifiable original cancellation, await validator and producer cleanup, and prove zero provider opens or later dispatch.",
+    "Prove no synthesized policy-failure/completion event and preserve caller context, existing privacy authority and all prior method bodies.",
+    "Do not change production code, run providers, or use a local Kotlin/privacy harness or Gradle. Final committed normal CI must execute these regressions.",
+    "Reconcile every concurrent public append; adopt an equivalent existing-owner correction instead of duplicating it."
+  ],
+  "sourceBasis": {
+    "reviewComment": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2367#issuecomment-7116588111",
+    "bindingSha256": "414d546c94931cbc9ffa2fb633301c391a3cb1056bd661e6a634ee980598a74c",
+    "testSha256": "a168f27dd8584c9f0e6adf4cbb44a1dad2de4e4758c932685704fff99ca2da7b",
+    "finding": "Production explicitly rethrows CancellationException. Existing non-null authority cases cover rejection/revocation; existing cancellation uses null providerAuthority."
+  },
+  "implementation": {
+    "testSha256": "8c203f7622c7babb5b88e0068252872793991611ccc37ba411fd3b2df8116ee6",
+    "newOrdinaryMethods": [
+      "PrivacyComparisonProviderBindingTest.cancellingSuspendedConfiguredAuthorityDuringOpeningPreservesCancellationWithoutDispatch",
+      "PrivacyComparisonProviderBindingTest.cancellingSuspendedConfiguredAuthorityDuringCollectionPreservesCancellationWithoutDispatch"
+    ],
+    "cases": "Two entry points, each with protection disabled and enabled: four controlled cancellation cases in two ordinary methods.",
+    "suspension": "The real non-null provider authority validator records its coroutine Job and awaits cancellation. Collection cases first pass real open() validation before arming that suspension.",
+    "cancellation": "Cancel the owning child with one identifiable CancellationException instance; assert the same original instance at validator and caller, join the caller and recorded validation/producer Job, and await both finally signals.",
+    "observations": "Zero provider opens, no next-leg attempt, empty events, no sent profile/turns/constraints, and preserved conversation plus inherited authority context inside and after the caller scope.",
+    "productionSha256": "414d546c94931cbc9ffa2fb633301c391a3cb1056bd661e6a634ee980598a74c"
+  },
+  "preservation": {
+    "existingOrdinaryMethods": 18,
+    "resultingOrdinaryMethods": 20,
+    "entirePriorFileByteIdenticalAfterRemovingOnlyAddedImportsAndBlock": true,
+    "reconstructedPriorSha256": "a168f27dd8584c9f0e6adf4cbb44a1dad2de4e4758c932685704fff99ca2da7b",
+    "sourceDiff": "Only two imports and the new two-method cancellation support block; pinned formatting changes only added lines. Reversing these additions reproduces the entire original file.",
+    "productionUnchanged": true
+  },
+  "qualification": {
+    "source": "CLEAR: independent source review by /root/tls_review at test SHA 17b6fce9686b35544a605a48c0805b69598a1653cd372482fe493ef6f58b969b. Both entry points and protection settings, original cancellation identity, joined cleanup, zero dispatch/events and caller-context restoration reviewed; full original file preservation independently reproduced. Pinned formatter-only changes to added lines are tracked separately; no runtime/assertion/control-flow change.",
+    "sourceWhitespace": "PASS: git diff --check; no Kotlin execution.",
+    "oldSourcePreservation": "PASS: data-only byte reconstruction exactly recovers the full original test file, including every existing method/helper/assertion.",
+    "canonicalHost": "Required on the frozen integration before guarded append.",
+    "ordinaryProjectRuntime": "NOT_RUN_LOCALLY; required on final normal hosted source.",
+    "providerRuntime": "NOT_RUN",
+    "localKotlinOrGradleHarness": "NOT_RUN",
+    "formatting": "Initial canonical formatting identified three layout issues in added lines only. Applied pinned ktlint 1.3.1 formatting; original entire-file reconstruction still exact. Final canonical rerun is required.",
+    "initialCanonicalReceiptSha256": "58ac930d7cb11d1f9ff1715fdf78350534825467bc1bd62c32e69a9148f556ef"
+  },
+  "integration": {
+    "parentCommit": "c76bcaad4e720fdee86887174d8a267f281d6100",
+    "parentTree": "ae46b1065b2a3e4887633bcbfba789869c572e0d",
+    "concurrentPreservation": "Fast-forwarded the isolated worktree over the external diagnostic-retention append; the frozen cancellation test bytes and unchanged production binding remain exact."
+  }
+}

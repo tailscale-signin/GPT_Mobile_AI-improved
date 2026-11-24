@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "task": "heap-worker-observability",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parentPr": 2367,
+  "baseBranch": "main",
+  "baseSha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "task/heap-worker-evidence-composed-20261124",
+  "publicParent": "1a5407eebe65931068c22cc80b169a851ee90c17",
+  "createdAt": "2026-11-24T03:54:29.411624+00:00",
+  "intent": "Retain complete Gradle test worker starts/finishes and actual heap command lines for both existing constrained-heap invocations.",
+  "reservation": "Root speech-live-publication-coordination; only add --info to the two existing heap commands.",
+  "observedFailure": {
+    "run": 45314223602,
+    "job": 138177752060,
+    "completedLogSha256": "59078db35a84c6e73d7538792bbf71237a8589691c3a34342d80d0d527c8a3d9",
+    "actualHeapStep": "SUCCESS",
+    "workerLifecycleEvidence": "ABSENT_NOT_INFERRED",
+    "apkDexGate": "FAILED_SEPARATELY"
+  },
+  "unchanged": [
+    "Six heap suite selectors and all twelve method obligations",
+    "Heap init script and diagnosticHeapStress property",
+    "256 MiB and 64 MiB limits, timeout, retry behavior and artifact paths",
+    "Ordinary test command and all other workflow steps"
+  ],
+  "workflowBeforeSha256": "65cb38c06ce0da976030445eac84b4a74ff092d2097346af7092bdc947150d8e",
+  "qualification": {
+    "localApplicationKotlinGradleNativeCustomHarness": "NOT_RUN",
+    "sourceReview": "SCOPED_SOURCE_CLEAR_c76b3cf0; final transfer checks required",
+    "canonicalHost": "REQUIRED",
+    "finalHostedWorkers": "REQUIRED_ON_FINAL_PR_AND_MAIN",
+    "published": false
+  },
+  "originalPublicParent": "38c52eea9eb9703147025c0e6cab6b663d79ef78",
+  "workflowAfterSha256": "029f20f0e5231ef93f26a59cce1aef2ef0c833848591b6e15d011c6b889a2d04",
+  "status": "IMPLEMENTED_TWO_INFO_FLAGS; INDEPENDENT_SOURCE_AND_CANONICAL_REQUIRED",
+  "sourceBoundMetadataCorrection": {
+    "path": "docs/architecture/feature-map.source.json",
+    "feature": "speech-benchmark-evidence",
+    "before": "4MiB history bound",
+    "after": "8MiB history bound",
+    "actualPublicSource": "1e9ece5656172bf1e0678097d9f9784114856b9e:app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStore.kt",
+    "sourceSha256": "257fd9d12d57c121be8e82ea62277c1f3dea65ab30f88d6ae2a79dcde2f773ad",
+    "scope": "Metadata only; native integration already changed MAX_BYTES to8MiB and its existing stronger store test verifies a valid payload above4MiB and below8MiB."
+  },
+  "previousQualifiedParent": "1e9ece5656172bf1e0678097d9f9784114856b9e",
+  "priorLocalQualification": {
+    "head": "82108095a8b15725bdf5aedf97b10dba3886d98d",
+    "tree": "c575fd4a06055ed43438282708603d4b72f9c607",
+    "canonicalReceiptSha256": "c48725912c9fbe40bc5c011d8cce80e07edb9ca0b5d21786236f8b23cd1fa1d2",
+    "sourceReviewSha256": "c76b3cf0f0165b246c286e254bd41bcfd7223405049c31c6e19c7cf47bbd636f",
+    "scope": "Same exact two workflow flags before incoming checksum append; final recomposition requires fresh canonical validation."
+  }
+}

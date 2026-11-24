@@ -171,7 +171,7 @@ class PipelineTest(unittest.TestCase):
         )
         self.assertIn('timeout-minutes: 25', steps[package_index])
         verification = next(i for i, step in enumerate(steps) if 'scripts/select_android_test_apk.py' in step)
-        emulator = next(i for i, step in enumerate(steps) if 'ReactiveCircus/android-emulator-runner@' in step)
+        emulator = next(i for i, step in enumerate(steps) if 'uses: ./build/emulator-action-upstream' in step)
         self.assertLess(package_index, verification)
         self.assertLess(verification, emulator)
         self.assertIn('api: 34', workflow)
@@ -299,6 +299,60 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('-PgeniexSeparateSigning=true', package)
         self.assertIn('scripts/sign_preview_apks.py', package)
         self.assertLess(package.index('-PgeniexSeparateSigning=true'), package.index('scripts/sign_preview_apks.py'))
+
+    def test_geniex_minified_stages_reuse_unsigned_r8_and_finish_lint_before_packaging(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / '.github/workflows/geniex-preview.yml').read_text()
+        steps = re.split(r'(?m)^      - ', workflow.split('    steps:\n', 1)[1])[1:]
+        stages = [
+            ('Validate release shrinker for the GenieX runtime', ':app:minifyNativeSmokeWithR8', 4096),
+            ('Run GenieX release lint before packaging', ':app:lintVitalNativeSmoke', 4096),
+            ('Package the minified GenieX APK in a fresh process', ':app:assembleNativeSmoke', 6144),
+        ]
+        positions = []
+        for name, task, heap in stages:
+            matches = [(i, step) for i, step in enumerate(steps) if step.startswith('name: ' + name + '\n')]
+            self.assertEqual(1, len(matches))
+            index, step = matches[0]
+            positions.append(index)
+            commands = [line for line in step.splitlines() if 'python3 scripts/build_metrics.py ' in line and 'scripts/gradle_retry.py ' in line]
+            self.assertEqual(1, len(commands))
+            command = commands[0]
+            self.assertEqual([task], re.findall(r':app:[A-Za-z0-9]+', command))
+            for flag in ('-PgeniexRuntime=true', '-PnativeMemorySmoke=true', '-PgeniexSeparateSigning=true', '--no-daemon', '--max-workers=1'):
+                self.assertEqual(1, command.count(flag))
+            self.assertEqual([str(heap)], re.findall(r'-Xmx(\d+)m', command))
+            self.assertEqual(['768'], re.findall(r'-XX:MaxMetaspaceSize=(\d+)m', command))
+            self.assertIn('set -o pipefail', step)
+            self.assertNotIn('continue-on-error:', step)
+            for bypass in (' -x ', '--continue', '|| true'):
+                self.assertNotIn(bypass, command)
+        self.assertEqual(sorted(positions), positions)
+        lint = steps[positions[1]]
+        self.assertIn('timeout-minutes: 25', lint)
+        self.assertIn('--timeout-seconds 1380', lint)
+        self.assertIn('--output build/geniex-validation/native-lint-metrics.json', lint)
+        self.assertIn('tee build/geniex-validation/native-lint.log', lint)
+        package = steps[positions[2]]
+        self.assertIn('timeout-minutes: 90', package)
+        self.assertIn('--timeout-seconds 5160', package)
+        self.assertIn('ForkJoinPool.common.parallelism=2', package)
+        self.assertIn('    timeout-minutes: 210', workflow)
+        compile_index = next(i for i, step in enumerate(steps) if step.startswith('name: Compile minified GenieX production sources\n'))
+        self.assertLess(compile_index, positions[0])
+        self.assertIn('--runtime geniex --variant nativeSmoke --phase compile', steps[compile_index])
+        for phase in ('ksp', 'kapt', 'compile'):
+            command = pipeline.command_for('geniex', 'nativeSmoke', phase)
+            self.assertIn('-PgeniexRuntime=true', command)
+            self.assertIn('-PnativeMemorySmoke=true', command)
+            self.assertNotIn(':app:assembleNativeSmoke', command)
+        sign_index = next(i for i, step in enumerate(steps) if step.startswith('name: Sign and verify minified GenieX preview APKs\n'))
+        audit_index = next(i for i, step in enumerate(steps) if step.startswith('name: Audit minified GenieX native stack\n'))
+        self.assertLess(positions[2], sign_index)
+        self.assertLess(sign_index, audit_index)
+        diagnostics = next(step for step in steps if step.startswith('name: Save GenieX validation diagnostics\n'))
+        self.assertIn('if: always()', diagnostics)
+        self.assertIn('build/geniex-validation/', diagnostics)
 
     def test_incomplete_build_artifacts_do_not_mask_the_original_command_failure(self):
         with tempfile.TemporaryDirectory() as directory:

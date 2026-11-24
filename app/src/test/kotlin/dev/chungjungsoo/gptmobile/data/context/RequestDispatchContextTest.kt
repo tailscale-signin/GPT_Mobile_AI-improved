@@ -5,12 +5,46 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RequestDispatchContextTest {
     private val runtime = RuntimeFingerprint("connection", "route", "credential", "model", "model", "epoch", "template", "allocation")
     private val receipt = RequestAdmission.prepare("payload", "primary", CapacitySnapshot(runtime, 10000), RequestMeasurement(1, 1, TokenMeasurementKind.UTF8_ESTIMATE), 1, "permissions").receipt
+
+    @Test fun queuePollOwnsItsTransportEvidenceWithoutChangingSubmittedInferenceReceipts() {
+        val research = dev.chungjungsoo.gptmobile.data.research.ResearchStageTrace("root", "stage", "attempt")
+        for (observer in listOf(null, research)) {
+            val context = RequestDispatchContext(emptySet(), researchTrace = observer)
+            context.receipts += receipt.copy(physicalAttemptId = "generation-post")
+            context.armHttp()
+            val post = requireNotNull(context.takeHttpTrace())
+            post.mark(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.HTTP_CALL_START)
+            post.mark(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_BODY_END)
+            assertTrue(requireNotNull(context.latestHttpAttemptEvidence()).requestBodyCompleted)
+            context.armQueuePoll("private-job")
+            val poll = requireNotNull(context.takeHttpTrace())
+            assertTrue(poll !== post)
+            poll.mark(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.HTTP_CALL_START)
+            poll.phase(dev.chungjungsoo.gptmobile.data.network.HttpAttemptPhase.CONNECTING)
+            poll.phase(dev.chungjungsoo.gptmobile.data.network.HttpAttemptPhase.TLS_HANDSHAKE)
+            poll.failed(javax.net.ssl.SSLProtocolException("private endpoint"))
+            val current = requireNotNull(context.latestHttpAttemptEvidence())
+            assertEquals(dev.chungjungsoo.gptmobile.data.network.HttpAttemptPhase.TLS_HANDSHAKE, current.phase)
+            assertFalse(current.requestBodyCompleted)
+            assertTrue(post.evidence().requestBodyCompleted)
+            assertFalse(context.provenEntirelyUnsent())
+            assertTrue(context.provenUnsentAttemptIds().isEmpty())
+            assertEquals(listOf("generation-post"), context.receipts.map { it.physicalAttemptId })
+            // A consumed ticket does not erase the active physical observation.
+            assertEquals(null, context.takeHttpTrace())
+            assertEquals(current, context.latestHttpAttemptEvidence())
+            context.receipts += receipt.copy(physicalAttemptId = null)
+            context.armHttp()
+            assertEquals(null, context.latestHttpAttemptEvidence())
+        }
+    }
 
     @Test fun physicalAttemptsKeepTheirOwnAdmittedProfileSnapshotsWithoutRetainingSecretsOrPromptBytes() {
         val context = RequestDispatchContext(emptySet())
@@ -50,6 +84,47 @@ class RequestDispatchContextTest {
         assertEquals(JsonPrimitive("attempt-0"), context.serializedRequestSettings.first()["physical_attempt_id"])
         assertEquals(3L, context.omittedSerializedRequestSettings)
         assertEquals(JsonPrimitive("attempt-${RequestDispatchContext.MAX_RETAINED_REQUEST_SETTINGS + 2}"), context.latestSerializedRequestSettings?.get("physical_attempt_id"))
+    }
+
+    @Test fun privateFinalWireRejectionProvesOnlyUnsentRequestsAndPreservesEarlierAttempts() {
+        val proof = dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext.Builder(7, emptySet()).seal()
+        val rejected = try {
+            proof.validate("""{"messages":[{"content":"Public task"}]}""", ":privacy-8")
+            error("Expected changed privacy authority to reject")
+        } catch (rejected: dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) {
+            rejected.receipt
+        }
+        val unsent = RequestDispatchContext(emptySet())
+        unsent.privacyValidated(rejected, proof)
+        assertTrue(unsent.provenEntirelyUnsent())
+        assertTrue(unsent.receipts.isEmpty())
+        val uncertainEarlierAttempt = RequestDispatchContext(emptySet())
+        uncertainEarlierAttempt.receipts += receipt.copy(physicalAttemptId = "earlier-physical-attempt")
+        uncertainEarlierAttempt.privacyValidated(rejected, proof)
+        assertFalse(uncertainEarlierAttempt.provenEntirelyUnsent())
+        assertEquals("earlier-physical-attempt", uncertainEarlierAttempt.receipts.single().physicalAttemptId)
+    }
+
+    @Test fun privateEvidenceKeepsEachPhysicalAttemptBoundedAndStreamsJoinItsRequest() {
+        val context = RequestDispatchContext(emptySet())
+        val proof = dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext.Builder(1, emptySet()).seal()
+        val validation = proof.validate("""{"messages":[{"content":"Public task"}]}""", ":privacy-1")
+        repeat(RequestDispatchContext.MAX_RETAINED_REQUEST_SETTINGS + 2) { index ->
+            context.privacyValidated(kotlinx.serialization.json.JsonObject(validation + ("physical_attempt_id" to JsonPrimitive("attempt-$index"))), proof)
+        }
+        assertEquals(RequestDispatchContext.MAX_RETAINED_REQUEST_SETTINGS, context.privacyDispatchReceipts.size)
+        assertEquals(2L, context.omittedPrivacyDispatchReceipts)
+        assertEquals(JsonPrimitive("attempt-0"), context.privacyDispatchReceipts.first()["physical_attempt_id"])
+        proof.stream(
+            dev.chungjungsoo.gptmobile.data.privacy.PrivateStreamObservation(
+                null, 10, 11, 500, 1, 0, 0, 0,
+                dev.chungjungsoo.gptmobile.data.privacy.PrivateMarkerProtocolStatus.NO_ISSUED_MARKERS,
+                emptySet(), true
+            )
+        )
+        assertEquals(validation["private_request_id"], context.privacyStreams.single()["private_request_id"])
+        assertEquals(JsonPrimitive(11), context.privacyStreams.single()["first_restored_answer_ms"])
+        assertFalse(context.privacyDispatchReceipts.toString().contains("Public task"))
     }
 
     @Test

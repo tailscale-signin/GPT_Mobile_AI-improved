@@ -19,6 +19,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExecutionCompletionDiagnosticsTest {
+    @Test fun typedBudgetEvidenceSurvivesStoredFailureAndRequiresItsServiceCapability() {
+        val metadata = buildJsonObject {
+            put("limit_source", "openrouter_in_flight_budget")
+            put("reason", "in_flight_budget_exhausted")
+            put("remedy_hint", "private provider canary")
+        }
+        val event = ProviderStreamFailure.event("402", "private prompt", httpStatus = 402, metadata = metadata, knownNotAccepted = true, retryAfterMillis = 12_000)
+        val record = ProfileFailureRecord.fromProvider(event.message, event.code, event.failureDetails)
+        val restored = messageSummary(record)
+        assertEquals(JsonPrimitive("IN_FLIGHT_BUDGET"), restored["provider_budget_kind"])
+        assertEquals(JsonPrimitive("MANUAL_AFTER_PROVIDER_DELAY"), restored["provider_budget_retry"])
+        val diagnostics = requireNotNull(capture("BILLING_UNAVAILABLE", restored).diagnostics)
+        assertNotNull(diagnostics.validated())
+        assertTrue(ExecutionCompletionDiagnostics.PROVIDER_LIMIT_CAUSE_FEATURE in diagnostics.requiredServiceFeatures())
+        assertEquals(JsonPrimitive("openrouter_in_flight_budget"), diagnostics.values["provider_budget_limit_source"])
+        assertFalse(diagnostics.toString().contains("private"))
+        assertNull(ExecutionCompletionDiagnostics.validValue("provider_budget_reason", JsonPrimitive("private reason")))
+        for (reason in ExecutionCompletionDiagnostics.providerLimitRefusals) {
+            val refusal = ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.valueOf(reason)).fields()
+            assertTrue(ExecutionCompletionDiagnostics.PROVIDER_LIMIT_CAUSE_FEATURE in requireNotNull(capture("PROVIDER_RATE_LIMITED", refusal).diagnostics).requiredServiceFeatures())
+        }
+    }
+
     @Test fun visibleOutputRecoverySurvivesStoredMessageExportAndApprovedPublicContext() {
         for (claimed in listOf(false, true)) {
             val progress = dev.chungjungsoo.gptmobile.data.agent.GitHubNoOutputProgress(null, false, 1)

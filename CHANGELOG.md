@@ -1,4 +1,42 @@
-# 0.9.66.13 — 2026-11-22
+# 0.9.66.15 — 2026-11-23 (integration candidate)
+
+- Learn streaming speech refill reserves from audio delivery while a phrase is still being generated, retaining slow delivery history and excluding time blocked by the existing bounded queue; preserve captions, pause settings and prompt cancellation.
+- Avoid the pinned emulator action's premature MENU unlock before acceptance readiness, using verified upstream source/runtime bytes while retaining the API34/API36 matrix, resource/time limits and all launcher/ANR health checks.
+- Add verified LiteRT Kokoro, Phonon and Pocket voice packs with real incremental PCM playback, explicit native cancellation, bounded text/cache planning and estimated caption provenance.
+- Apply Natural, Short and Minimal pause settings consistently to streaming speech across callback and phrase boundaries; keep captions aligned to retained audio and clear a completed word during a refill pause without starting an unplayed word or advancing through lost audio focus.
+- Prepare local speech earlier, calibrate the selected native voice/rate across one through four threads, adapt pending phrase size to available audio, and prevent stale voice/rate previews and warmup generations.
+- Add compatible binary Gateway speech transport and bounded native profile parsing; enforce TTS JNI retention and keep unverified processor requests separate from observed execution.
+- Bind each Gateway PCM response to its exact admitted request, preserve replacement streams during stale cleanup, and retire cancelled or stalled sends within one fixed timeout-plus-audio-duration budget while preserving synthesis limits and exact binary framing.
+
+- Combine the retained continuation, source-evidence and runtime-reporting repairs with the repository-recovery and speech-playback work from the preceding candidate.
+- Preserve completed baseline decisions and required review questions while filtering unsupported answer-derived runtime claims; retain source-review, authorization and finite-budget controls.
+- Run release compatibility and lint with a fixed 4 GiB heap/1 GiB metaspace, observed 7,168 MiB admission, dedicated diagnostics and the combined 65-minute/3,840-second limits.
+- Recover once from the exact pinned CMake SDK non-ZIP preparation failure within the original build deadline, preserving verification and deterministic failures.
+- Plan coordinated Android 0.9.66.15/code 149 and Gateway 18.1.3 publication after actual-main/privacy integration, final-source qualification and published-asset verification.
+
+- Repair multi-name catalog lookup aliases without acquiring extra tools; retain precise verification-reserve stop reasons and the observed remaining allowance in approved reports.
+- Preserve bounded catalog search queries and offer explicit scalar-name discovery corrections while keeping exact advertised-tool checks and caller choices intact.
+- Improve contextual privacy masking and streamed local restoration; add content-free final-request evidence, redacted diagnostic exports with a separate forensic choice, accurate private-memory readiness and an offline fictional privacy/intent/timing check.
+- Add an explicit paired provider comparison using four fixed fictional tasks, separate unscored warmups, counterbalanced privacy-off/on requests and the real private dispatch/restoration path. Keep detector misses, public-phrase preservation, exact task criteria, observed usage and grouped p50/p95 timings separate; retain incomplete evidence and exclude unverified or mismatched configurations from timing summaries.
+- Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming.
+- Redact retained request and cited-source text in default exports, and recheck inherited authority before each restored fallback stream event.
+- Close source-filename, terminal-detail and continuation-line privacy gaps in default exports, and preserve explicit colon forms for complete address separators.
+- Recheck privacy and inherited request authority at the receiving side of the private stream handoff, stopping revoked pending events without changing producer completion evidence or replaying output.
+- Retain the observed provider-completion fact in final accounting when receiving authority suppresses a private completion event, while keeping delivery partial, transport incomplete and replay disabled.
+
+- Add explicit revision recovery and truthful normalization receipts, prioritize pinned source/test context, continue bounded review waves, and deliver admitted saved pages before further automatic reads.
+- Preserve complete native saved pages requested by ordinary provider calls, account for app-added instructions within the unchanged replay ceiling and reserve, and retain exact delivery proof and matching-context admission.
+- Clarify fixture-specific approval with an existing-repository read-only mode. Retain precise TLS phase/cause, memory-trim and startup evidence and bounded capture-local redaction reuse.
+- Require CPU-reference audio consistency for speech ranking, fix exact-shape cache accounting and memory admission, and expose retained sample coverage and unmeasured voice evidence.
+
+# 0.9.66.14 — 2026-11-23 (earlier branch candidate)
+
+- Retain all benchmark, GitHub integration, context, speech, privacy and recovery changes from the prior 0.9.66.13 candidate.
+- GitHub chat now follows a matching instruction file to its pinned source, continues independent work when a cached search cannot be refreshed, and reports the recorded tool allowance and available tools. Acceptance headings no longer count as tasks.
+- Give release lint the fixed 4 GiB heap/1 GiB metaspace profile already used by debug lint, require current-memory admission including a 2 GiB native reserve, and retain dedicated process/GC diagnostics. Preserve every release check and the 45-minute outer gate.
+- Request coordinated publication of Android 0.9.66.14 (version code 148) and Gateway 18.1.2 after current-head and main qualification.
+
+# 0.9.66.13 — 2026-11-22 (prior candidate)
 
 - Requalify speech acceleration after the native profile-lifecycle update; older capability results stay in history and cannot rank or disable the updated runtime.
 - Preserve completed speech playback measurements when a cancellation request arrives after audio has already stopped.

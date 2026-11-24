@@ -583,8 +583,12 @@ class IssueReportHttpTest(unittest.TestCase):
                      "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "GITHUB_SEARCH_ARGUMENT_EVIDENCE_V1", "REPORT_TEXT_ATTACHMENT_V1", "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1", "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1", "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1", "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1", "PRIVACY_ELIGIBILITY_EVIDENCE_V1", "GATEWAY_CAPABILITY_EVIDENCE_V1", "STATUS_COVERAGE_EVIDENCE_V1", "AUDIO_FOCUS_MODE_V1", "GITHUB_VALIDATION_CONTEXT_V1", "RUNTIME_INCIDENT_DETAILS_V1", "SELECTED_MODEL_ADMISSION_V1", "REVIEW_CATALOG_OBSERVATION_V1", "ACTION_ONLY_TOOL_PRECHECK_V1", "TOOL_REPEAT_PRIOR_CAUSE_V1", "PROFILE_BEHAVIOR_CHANGE_V1", "APP_SEARCH_READINESS_V1", "VOICE_SILENCED_INPUT_V1", "TASK_AND_TOOL_FAILURE_DETAILS_V1", "READER_AND_RUN_FAILURE_DETAILS_V1", "REPLAY_BUDGET_EVIDENCE_V1", "GRAPH_TRANSPORT_EVIDENCE_V1", "EXECUTION_COMPLETION_EVIDENCE_V1"]
         additions.insert(additions.index("ACCEPTANCE_OBSERVATION_CAUSES_V1") + 1, "ACCEPTANCE_EMPTY_EXPLANATION_V1")
         additions.insert(1, "VOICE_EXECUTION_EVIDENCE_V1")
+        additions.insert(2, "VOICE_STREAMING_BACKEND_EVIDENCE_V1")
+        additions[additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1:additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1] = ["TLS_TRANSPORT_PHASE_EVIDENCE_V1", "GITHUB_READ_REVISION_EVIDENCE_V1"]
         additions.extend(["VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1", "REPOSITORY_READ_PROGRESS_V1"])
+        additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
+        additions.insert(additions.index("PRIVACY_ELIGIBILITY_EVIDENCE_V1") + 1, "PRIVACY_FINAL_REQUEST_EVIDENCE_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
                          extended.json()["reportDiagnosticFeatures"])
         for key in ("service", "version", "reportContextVersions"):
@@ -603,6 +607,31 @@ class IssueReportHttpTest(unittest.TestCase):
         check_readiness(self.origin, fetch)
         self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
         self.assertFalse(self.issued)
+
+    def test_streaming_voice_report_values_are_advertised_then_preserved_by_the_http_receiver(self):
+        from authentication import incident_report_contract as capsule
+        feature = "VOICE_STREAMING_BACKEND_EVIDENCE_V1"
+        self.assertNotIn(feature, self.client.get("/health/ready").json()["reportDiagnosticFeatures"])
+        self.assertIn(feature, self.client.get("/health/ready?capabilities=extended").json()["reportDiagnosticFeatures"])
+        additions = {
+            "voice_engine": ("MEDIAPIPE",),
+            "voice_selected_backend": ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"),
+            "voice_fallback_source": ("LITERT_KOKORO", "PHONON", "POCKET"),
+        }
+        for field, choices in additions.items():
+            for value in choices:
+                with self.subTest(field=field, value=value):
+                    self.now += 601
+                    capture = self.diagnostics("VOICE", {field: value})
+                    capture["schemaVersion"] = 3
+                    capture["unavailableFields"] = sorted((CORE_FIELDS["VOICE"] | capsule.CORE) - capture["values"].keys())
+                    report = {**self.manual(), "context": self.context(schemaVersion=7, source="VOICE_STATE", diagnostics=capture)}
+                    approved = json.dumps(report, separators=(",", ":"))
+                    response = self.submit(report)
+                    self.assertEqual(200, response.status_code, response.text)
+                    self.assertIn(f"| {field} | `{value}` |", self.issued[-1]["body"])
+                    self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        self.assertEqual(8, len(self.issued))
 
     def test_advertised_visible_output_recovery_contract_accepts_exact_approved_http_reports(self):
         from authentication.test_incident_report_contract import IncidentReportContractTest
@@ -1055,6 +1084,42 @@ class IssueReportHttpTest(unittest.TestCase):
                        {"verifiedCriteria": 1}, {"remainingCriteria": 100_000}):
             with self.subTest(counts=counts):
                 issue_from_report({**self.manual(), "context": self.context(schemaVersion=2, **counts)})
+
+    def test_verification_reserve_reports_keep_existing_contract_and_remaining_allowance(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        fixtures = IncidentReportContractTest()
+        cases = (
+            ("chat", "CHAT_FAILURE", "acceptance_verification", "ACCEPTANCE",
+             {"effective_call_limit": 64, "used_calls": 62, "remaining_calls": 2, "verification_reserve": 2},
+             {"requiredCriteria": 4, "verifiedCriteria": 0, "remainingCriteria": 4, "resumeAllowed": False}),
+            ("tools", "TOOL_RESULT", "tool_precheck", "TOOL",
+             {"tool_budget_calls_used": 62, "tool_budget_calls_limit": 64, "tool_budget_phase": "BEFORE_DISPATCH"},
+             {"dispatched": False, "requiresReconciliation": False}),
+        )
+        for feature, source, stage, area, values, observed in cases:
+            with self.subTest(source=source):
+                report = {**self.metadata(), "source": "debug", "feature": feature,
+                          "errorCode": "GITHUB_TASK_INCOMPLETE",
+                          "context": self.context(schemaVersion=7, source=source, stage=stage,
+                                                  reasonCode="VERIFICATION_RESERVE_REACHED",
+                                                  diagnostics=fixtures.capture(area, values), **observed)}
+                approved = json.dumps(report, separators=(",", ":")).encode()
+                response = self.client.post("/v1/issue-reports", content=approved, headers={"content-type": "application/json"})
+                self.assertEqual(200, response.status_code, response.text)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")).encode())
+                body = self.issued[-1]["body"]
+                self.assertIn("| Reason code | `VERIFICATION_RESERVE_REACHED` |", body)
+                for name, value in values.items():
+                    self.assertIn(f"| {name} | `{value}` |", body)
+                self.assertNotIn("BUDGET_EXHAUSTED", body)
+                self.assertNotIn("| tool_budget_kind |", body)
+                if source == "CHAT_FAILURE":
+                    self.assertIn("| Verified acceptance criteria | `0` |", body)
+                    self.assertIn("| Remaining acceptance criteria | `4` |", body)
+                report["reportId"] = str(uuid4())
+                report["context"]["reasonCode"] = "private unknown reserve reason"
+                self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual(len(cases), len(self.issued))
 
     def test_original_context_v1_digest_still_reconciles_a_pending_report_without_reposting(self):
         report = {**self.metadata(), "reportId": "00000000-0000-4000-8000-000000000001", "source": "debug",

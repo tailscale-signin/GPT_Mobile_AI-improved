@@ -23,6 +23,14 @@ class GitHubAnswerPresentationTest {
         assertFalse(text, text.contains("## Latest workflow"))
     }
 
+    @Test fun recommendationsKeepTheirInferenceLabelAndStayOutsideUnresolvedEvidence() {
+        val recommendation = "- **Recommendation (inference):** Inspect the source at the failed revision."
+        val output = GitHubAnswerPresentation.render("Investigate this issue", emptyList(), listOf(recommendation, recommendation), emptyList(), emptyList())
+        assertTrue(output.contains("## Recommendations\n\n$recommendation"))
+        assertFalse(output.contains("Open items"))
+        assertEquals(output.indexOf(recommendation), output.lastIndexOf(recommendation))
+    }
+
     private val revision = "a".repeat(40)
     private fun receipt(text: String = "val answer = 42\nreturn answer"): JsonObject = buildJsonObject {
         put("trusted", true)

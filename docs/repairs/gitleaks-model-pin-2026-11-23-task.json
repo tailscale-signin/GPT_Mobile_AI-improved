@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "task": "gitleaks-model-pin-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "d1b2492f5cc17ef9cf093a2f82292150cc3b0f07",
+  "baseTree": "e48bd23f4a69987e4e3176f5f439584ae2c6a895",
+  "parentPullRequest": 2367,
+  "workingBranch": "detached",
+  "owner": "root/native_speech_review",
+  "integrationOwner": "root",
+  "status": "COMPONENT_VALIDATED_PENDING_INTEGRATION",
+  "intent": "Recognize the existing exact public model-file checksum in one native qualification evidence path while retaining complete reachable-history credential scanning.",
+  "failureEvidence": {
+    "workflowRun": 45167812389,
+    "job": 137669230860,
+    "checkoutCommit": "c3f6de76f328fba762437802e4e6038cf10aa173",
+    "scannerVersion": "8.30.1",
+    "scannedCommits": 8857,
+    "findings": 1,
+    "rule": "generic-api-key",
+    "path": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-qnn.json",
+    "line": 8,
+    "commit": "8fd1454d3065ce27049c2a57056633ea921677fd",
+    "fieldPath": [
+      "model_sha256",
+      "tokens.txt"
+    ],
+    "classification": "DOCUMENTED_MODEL_CHECKSUM_FALSE_POSITIVE",
+    "qualification": "The value equals the existing model-file pin. The native harness computes SHA-256 over the file, checks every model input against those pins and exports them as model_sha256. The finding commit is outside main and this candidate ancestry, but remains reachable through another fetched branch. No matched value is included in this ledger."
+  },
+  "ownedPaths": [
+    ".gitleaks.toml",
+    "scripts/scan_secret_history.sh",
+    "scripts/test_gitleaks_model_pin.py",
+    "docs/repairs/gitleaks-model-pin-2026-11-23-task.json",
+    "release-scope.json"
+  ],
+  "constraints": [
+    "Add only the exact evidence-file path to the existing exact-known-model-checksum line exception.",
+    "Preserve every other path, field, checksum and trailing-content check; retain the default generic rule and all-ref full-history scan.",
+    "Use only pinned Gitleaks 8.30.1 with full redaction; report classifications and counts without matched values.",
+    "No history rewrite, remote branch mutation, push, merge, workflow retry or publication."
+  ],
+  "plannedValidation": [
+    "Reproduce the baseline and corrected configuration against one frozen complete all-ref history set.",
+    "Run the actual pinned scanner against bounded synthetic controls for the allowed exact line and changed checksum, path, field and trailing content; run these controls in CI after scanner selection and before the unchanged full-history invocation.",
+    "Check exact-commit release scope, generated references and whitespace; root owns aggregate validation after integration."
+  ],
+  "validation": {
+    "scanner": {
+      "version": "8.30.1",
+      "archiveSha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "redactionPercent": 100
+    },
+    "frozenHistory": {
+      "scannedCommits": 8857,
+      "baselineFindings": 1,
+      "candidateFindings": 0,
+      "baselineConfigSha256": "2d370b508466e9e0416f65919ed00efae271ccc13bbb34617da0c68145773f82",
+      "candidateConfigSha256": "f25120f48e6f66ef872ef36f09a1444b9d9f2321833ea7646fd9f88b7a3c083e",
+      "baselineReportSha256": "f6628a3bb68cf462eddc5d78df5f62c62a6cfddcbedbb21aaea8a2d05c9f532d",
+      "candidateReportSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "refsSha256": "7db034a44d689f1d99d94819a8eca4fc626f19fc93f18e2163b23fba114063cc",
+      "scope": "Both configurations used the same frozen all-ref history and exact CI checkout tree. No history or rule was removed."
+    },
+    "actualScannerControls": {
+      "cases": 6,
+      "candidatePassed": 6,
+      "baselineIntendedFailures": [
+        "exact_evidence"
+      ],
+      "baselineOtherCasesPassed": 5,
+      "candidateReceiptSha256": "be381b8ba3a15b188e9ee471f5f865b958f3fd51b8f2a4a157e60d5faae95d3e",
+      "baselineReceiptSha256": "31f8c2cb4c68de8aedd3be8722ec89e3ae00bf65f79bb9d2522cfacb731ee058",
+      "preservedDetections": [
+        "different_checksum",
+        "different_path",
+        "different_field",
+        "trailing_content"
+      ],
+      "preservedExistingAllowance": "existing_native_harness"
+    },
+    "ciWiring": "The actual pinned-scanner controls run after selection/checksum verification and before the unchanged all-ref history invocation under set -euo pipefail.",
+    "generatedReferences": "PASSED: repository references, agent metadata, architecture index, app audit inventory (3006 files/26 areas) and diagnostic schema; no generated delta required.",
+    "syntaxAndWhitespace": "PASSED: Python compilation, bash -n and git diff --check.",
+    "finalCandidateHistory": "The final immutable commit/tree and complete reachable-history scan, including this regression and ledger, are bound in the private qualification receipt after commit.",
+    "canonicalFast": "PENDING_ROOT_INTEGRATION",
+    "hostedChecks": "REQUIRED_ON_INTEGRATED_PUBLIC_SOURCE"
+  }
+}

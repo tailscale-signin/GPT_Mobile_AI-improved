@@ -2,7 +2,7 @@ name: v0.9.50 Android acceptance
 on:
   pull_request:
     branches: [main, feat/unified-reliability-v2-2026-10-13]
-    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', 'scripts/prepare_emulator_ui.py', 'scripts/tests/test_prepare_emulator_ui.py', 'scripts/select_android_test_apk.py', 'scripts/tests/test_select_android_test_apk.py', '.github/workflows/release-0950-acceptance.yml']
+    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', 'scripts/prepare_emulator_ui.py', 'scripts/tests/test_prepare_emulator_ui.py', 'scripts/prepare_emulator_action.py', 'scripts/tests/test_prepare_emulator_action.py', 'scripts/tests/fixtures/android-emulator-runner-a421/**', 'scripts/select_android_test_apk.py', 'scripts/tests/test_select_android_test_apk.py', '.github/workflows/release-0950-acceptance.yml']
   push:
     branches: [main]
     paths:
@@ -11,6 +11,9 @@ on:
       - 'scripts/run_release0950_acceptance.sh'
       - 'scripts/prepare_emulator_ui.py'
       - 'scripts/tests/test_prepare_emulator_ui.py'
+      - 'scripts/prepare_emulator_action.py'
+      - 'scripts/tests/test_prepare_emulator_action.py'
+      - 'scripts/tests/fixtures/android-emulator-runner-a421/**'
       - 'scripts/select_android_test_apk.py'
       - 'scripts/tests/test_select_android_test_apk.py'
       - '.github/workflows/release-0950-acceptance.yml'
@@ -140,12 +143,24 @@ jobs:
         run: |
           python3 scripts/select_android_test_apk.py app/build/intermediates/apk/debug --application-id dev.melo.gptmobile.improved --abi x86_64
           python3 scripts/select_android_test_apk.py app/build/intermediates/apk/androidTest/debug --application-id dev.melo.gptmobile.improved.test
+      # Keep the reviewed upstream action and its SDK/AVD/cleanup implementation.
+      # Its early MENU key caused cold Pixel Launcher ANRs before our readiness
+      # checks could run. Verify and remove only that call before loading it.
+      - name: Check out the pinned emulator action outside application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ReactiveCircus/android-emulator-runner
+          ref: a421e43855164a8197daf9d8d40fe71c6996bb0d
+          path: build/emulator-action-upstream
+          persist-credentials: false
+      - name: Verify the emulator action and remove premature boot input
+        run: python3 scripts/prepare_emulator_action.py build/emulator-action-upstream --output app/build/acceptance-0950/emulator-action-patch.json
       - name: Run editor and Combined finalization regressions and measure database/catalog operations
-        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        uses: ./build/emulator-action-upstream
         with:
           api-level: ${{ matrix.api }}
           profile: ${{ matrix.profile }}
-          # Both cold boots need CPU and memory headroom before the action unlocks HOME.
+          # Keep both cold boots' existing CPU and memory headroom.
           # API 34's two-core/2560MB guest hit a launcher ANR with heavy CPU/paging load.
           cores: 4
           ram-size: 4096M

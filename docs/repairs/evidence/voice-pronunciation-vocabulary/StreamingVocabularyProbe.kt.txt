@@ -1,0 +1,49 @@
+package dev.chungjungsoo.gptmobile.data.voice
+import java.io.File
+fun main() {
+    val inputs = listOf(
+        "Dr. Søren uses github and G.P.U. today.",
+        "Here is the measured preparation after 1.5e-3 ms and 2e1 m.",
+        "Read C++ and .NET on the 21st build with 3/4 complete.",
+        "Use 1 m² and 2 cm³ with H₂O.",
+        "The test setup supports GPT-4, Qwen3 and UTF-8 with SHA-256.",
+        "The calculation is 1/2.5 and 1/2e3 with 1/2x.",
+        "The model configuration uses 1e3ms and 1e-3m/s² today.",
+        "Here are the notes Note¹ and Title² beside x² and m².",
+        "We use Ægir and Œuvre as example names.",
+        "Here is the correct new term C++ and the name Jose\u0301.",
+        "This sentence contains e.g. useful examples, i.e. readable terms.",
+        "Use one hundredth as 100th and one thousandth as 1000th."
+    )
+    for (dialect in listOf("us", "gb")) {
+        val words = File("/workspace/scratch/02b2dec72938/kokoro-lab/kokoro-int8-multi-lang-v1_0/lexicon-$dialect-en.txt").useLines(block = KokoroLexicon::words)
+        for (input in inputs) {
+            for (custom in listOf(false,true)) {
+                val corrections = if (custom) mapOf("C++" to "see plus plus", "José" to "ho say", "Ægir" to "ay gir") else emptyMap()
+                val whole = KokoroSpeechText.withPolicy(VoiceSpeechText.project(input),words::contains,corrections,16,true).parts!!.joinToString(" ")
+                val buffer = VoiceSpeechBuffer()
+                val chunks = mutableListOf<String>()
+                var stable = true
+                for (end in 1..input.length) {
+                    val next = buffer.append(input.take(end), false, earlyStart = true)
+                    if (next == null) { stable = false; break }
+                    chunks += next
+                }
+                if (stable) {
+                    val final = buffer.append(input,true,earlyStart=true)
+                    if (final == null) stable = false else chunks += final
+                }
+                val context = KokoroSpeechContext()
+                var valid = true
+                val parts=chunks.flatMap { segment ->
+                    val result=context.project(segment,words::contains,corrections,16,true)
+                    if (result.observation.failure != null || result.phrases!!.flatMap { it.wordRanges }.any { it.first < 0 || it.last >= segment.length }) valid=false
+                    result.parts.orEmpty()
+                }
+                val streamed=parts.joinToString(" ")
+                val ok=stable && valid && whole==streamed
+                println(listOf(ok,dialect,"custom=$custom",input,"whole=$whole","stream=$streamed","chunks="+chunks.joinToString(" | ")).joinToString("\t"))
+            }
+        }
+    }
+}

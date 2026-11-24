@@ -46,6 +46,10 @@ data class GitHubProgrammerState(
     val selectedProfileUid: String? = null,
     val profileOverrideUid: String? = null,
     val profileSettings: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(),
+    val engineeringTeamKey: String? = null,
+    val engineeringTeamDescription: String? = null,
+    val recoveryAdvisors: Map<String, PlatformV2> = emptyMap(),
+    val recoveryExecutionProfiles: Map<String, PlatformV2> = emptyMap(),
     val canLoadEarlier: Boolean = false,
     val context: GitHubConversationContext? = null,
     val chatId: Int? = null,
@@ -248,7 +252,28 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val previousKey = mutable.value.context?.let(::key)
                 val nextKey = context?.let(::key)
                 if (previousKey != nextKey) observeConversation(null)
-                mutable.update { it.copy(profiles = enabled, profileUid = uid, selectedProfileUid = requestedUid, profileOverrideUid = session.profileUid ?: storedUid, profileSettings = features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(), context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
+                val primary = enabled.singleOrNull { it.uid == uid }
+                fun recoveryProfiles(execution: Boolean): Map<String, PlatformV2> = if (context != null &&
+                    primary != null &&
+                    !session.privacyModeLocked &&
+                    features.conversationGitHub[session.chatId]?.sameWorkspace(context) == true &&
+                    features.isToolPluginEnabledForProfile(primary.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.MODEL_DELEGATION)
+                ) {
+                    val policy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.resolve(features, primary.uid, features.conversationDelegation[session.chatId])
+                    dev.chungjungsoo.gptmobile.data.github.GitHubRecoveryConsult.candidates(features.githubProfileOverrides[primary.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(), context, primary, enabled, policy, execution)
+                } else {
+                    emptyMap()
+                }
+                val team = context?.takeIf { !session.privacyModeLocked }?.let {
+                    val policy = dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringTeam.policy(features, it, session.chatId ?: mutable.value.chatId)
+                    dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringTeam.configured(it, enabled, features, policy)
+                }
+                val teamDescription = team?.let {
+                    val helper = "Helper: ${it.worker.name} (${it.worker.model})."
+                    val review = it.reviewer?.let { reviewer -> " Reviewer: ${reviewer.name} (${reviewer.model})." }.orEmpty()
+                    "$helper$review"
+                }
+                mutable.update { it.copy(recoveryAdvisors = recoveryProfiles(false), recoveryExecutionProfiles = recoveryProfiles(true), engineeringTeamKey = team?.consent, engineeringTeamDescription = teamDescription, profiles = enabled, profileUid = uid, selectedProfileUid = requestedUid, profileOverrideUid = session.profileUid ?: storedUid, profileSettings = features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(), context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
                 if (previousKey != nextKey || !mutable.value.draftLoaded) {
                     try {
                         val restored = nextKey?.let { latestDrafts[it]?.text ?: drafts.read(it) }.orEmpty()

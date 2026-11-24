@@ -80,7 +80,7 @@ class GitHubBoundRepositoryToolTest {
             assertEquals(arguments["ref"], executed["ref"])
             assertEquals(arguments["path"], executed["path"])
             assertEquals(arguments["action"], executed["action"])
-            assertEquals(executed, result.executionReceipt?.get("corrected_arguments"))
+            assertEquals(executed, result.executionReceipt?.get("canonical_arguments"))
         }
     }
 
@@ -124,7 +124,7 @@ class GitHubBoundRepositoryToolTest {
         assertEquals(JsonPrimitive("project"), delegate.executed.single()["repo"])
         assertEquals(arguments["ref"], delegate.executed.single()["ref"])
         assertEquals(arguments["path"], delegate.executed.single()["path"])
-        assertEquals(delegate.executed.single(), read.executionReceipt?.get("corrected_arguments"))
+        assertEquals(delegate.executed.single(), read.executionReceipt?.get("canonical_arguments"))
         for (action in listOf("update_file", "commit_files", "create_branch")) {
             val denied = bound.execute("upstream-write", JsonObject(arguments + ("action" to JsonPrimitive(action))))
             assertEquals("GITHUB_REPOSITORY_TARGET_MISMATCH", denied.errorCode)
@@ -216,7 +216,7 @@ class GitHubBoundRepositoryToolTest {
         val prepared = rebound.prepareExecution("allowed", buildJsonObject { put("action", "repo_status") }).invoke()
         assertEquals(1, delegate.prepared)
         assertEquals(JsonPrimitive("selected"), delegate.executed.single()["owner"])
-        assertEquals(delegate.executed.single(), prepared.executionReceipt?.get("corrected_arguments"))
+        assertEquals(delegate.executed.single(), prepared.executionReceipt?.get("canonical_arguments"))
         val child = RecordingTool("github_write__account")
         val coordinator = object : AgentTool {
             override val definition = delegate.definition

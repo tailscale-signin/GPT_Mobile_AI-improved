@@ -9,6 +9,47 @@ import org.junit.Test
 
 class PrivateProtectionContextTest {
     @Test
+    fun coalescedDisplayChunksRetainReceiptsAcrossIncrementalRestorationBoundaries() {
+        val context = context()
+        val response = context.beginResponse()
+        context.restored(response, protected("Hello Al", 6, 8))
+        context.restored(response, protected("ice!", 0, 3))
+        context.finishResponse(response)
+
+        val receipt = context.displayReceipt("Hello Alice!")
+        assertEquals(listOf(PrivacyProtectedRange(6, 11)), receipt.ranges)
+        assertTrue(receipt.validFor("Hello Alice!"))
+    }
+
+    @Test
+    fun overlappingResponsesCannotBorrowEachOthersHighlightAuthority() {
+        val context = context()
+        val first = context.beginResponse()
+        val second = context.beginResponse()
+        context.restored(first, protected("Alice", 0, 5))
+        context.restored(second, protected("Bob", 0, 3))
+        context.finishResponse(first)
+        context.finishResponse(second)
+
+        assertTrue(context.displayReceipt("Alice").ranges.isEmpty())
+        assertTrue(context.displayReceipt("Bob").ranges.isEmpty())
+    }
+
+    @Test
+    fun staleResponseAfterClearCannotAppendEvidenceToANewResponse() {
+        val context = context()
+        val stale = context.beginResponse()
+        context.clear()
+        val current = context.beginResponse()
+        context.restored(stale, protected("Alice", 0, 5))
+        context.restored(current, protected("Bob", 0, 3))
+        context.finishResponse(current)
+
+        assertEquals(listOf("Bob"), context.displayReceipt("Bob").protectedValues("Bob"))
+        assertTrue(context.displayReceipt("Alice").ranges.isEmpty())
+    }
+
+    @Test
     fun answerCannotBorrowAProtectedRepeatedValueFromDiscardedProgress() {
         val text = "<progress_update>Alice</progress_update>Alice"
         val context = context()

@@ -13,6 +13,59 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubAcceptanceContractTest {
+    @Test fun headingsWithOrWithoutMarkdownNeverBecomeObligationsIncludingAfterRestore() {
+        for (heading in listOf("Acceptance criteria", "Acceptance criteria:", "## Acceptance Criteria", "**Acceptance criteria:**")) {
+            val prompt = "Inspect the repository instructions\n$heading\n- Fix all issues"
+            val expected = listOf("Inspect the repository instructions", "Fix all issues")
+            assertEquals(expected, GitHubRequestCompletion.requirements(prompt))
+            val old = listOf(expected.first(), heading, expected.last())
+            val contract = buildJsonObject {
+                put("requested_actions", prompt)
+                put("request_digest", GitHubEvidenceBook.digest(prompt))
+                put("acceptance_criteria", JsonArray(old.map(::JsonPrimitive)))
+                put("acceptance_contract", GitHubAcceptanceContract.json(prompt, old))
+                put("deadline_at_ms", 12345)
+            }
+            val restored = GitHubAcceptanceContract.refineRetained(contract)
+            assertEquals(JsonArray(expected.map(::JsonPrimitive)), restored["acceptance_criteria"])
+            assertEquals(contract["deadline_at_ms"], restored["deadline_at_ms"])
+            assertEquals(GitHubAcceptanceContract.json(prompt, expected), restored["acceptance_contract"])
+            assertEquals(restored, GitHubAcceptanceContract.refineRetained(restored))
+        }
+        assertEquals(listOf("Document the acceptance criteria"), GitHubRequestCompletion.requirements("Document the acceptance criteria"))
+    }
+
+    @Test fun restoringContractsPreservesBulletDeliverablesEvenWhenTheirNamesAlsoAppearAsHeadings() {
+        val requests = listOf(
+            "Prepare these deliverables:\n- Acceptance criteria\n- Request details\n- Test plan",
+            "Acceptance criteria\n- Acceptance criteria\n- Request details\n- Implement the repository fix",
+            "# Request details\n- Request details\n- Acceptance criteria\n- Review the repository diff"
+        )
+        for (prompt in requests) {
+            val requirements = GitHubRequestCompletion.requirements(prompt)
+            assertTrue(requirements.containsAll(listOf("Acceptance criteria", "Request details")))
+            val compiled = GitHubAcceptanceContract.json(prompt, requirements)
+            for (hasCompiledContract in listOf(false, true)) {
+                val contract = buildJsonObject {
+                    put("requested_actions", prompt)
+                    put("request_digest", GitHubEvidenceBook.digest(prompt))
+                    put("acceptance_criteria", JsonArray(requirements.map(::JsonPrimitive)))
+                    if (hasCompiledContract) put("acceptance_contract", compiled)
+                    put("binding", "accepted-task")
+                    put("source_message_id", 19)
+                    put("tool_call_limit", 512)
+                    put("effective_tool_call_limit", 48)
+                    put("accepted_at_ms", 1000)
+                    put("deadline_at_ms", 61000)
+                }
+                val restored = GitHubAcceptanceContract.refineRetained(contract)
+                assertEquals(JsonObject(contract - "acceptance_contract"), JsonObject(restored - "acceptance_contract"))
+                assertEquals(compiled, restored["acceptance_contract"])
+                assertEquals(restored, GitHubAcceptanceContract.refineRetained(restored))
+            }
+        }
+    }
+
     private val request = "Inspect the repository instructions and relevant tests, identify the highest-confidence actionable correctness issue, and implement its complete fix on a new feature branch. Add a behavior regression, run relevant validation, review the diff and prepare a draft pull request. Report the exact changes and any validation that could not run."
 
     @Test fun capturedCompoundRequestHasStableAtomicCriteriaAndExactSourceSpans() {

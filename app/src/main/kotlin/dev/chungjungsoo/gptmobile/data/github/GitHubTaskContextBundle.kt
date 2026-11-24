@@ -24,10 +24,12 @@ data class GitHubContextSource(val path: String, val blobSha: String, val text: 
 /** Bounded, source-pinned retrieval. Documents and commands are data; this class never executes them. */
 object GitHubTaskContextBundle {
     const val SCHEMA = "repository.task_context.v1"
-    const val VERSION = 2
+    const val VERSION = 5
     const val FEATURE_MAP = "docs/architecture/feature-map.json"
     private const val MAX_FILE_BYTES = 2 * 1024 * 1024
     private val sha = Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")
+    private val word = Regex("[\\p{L}\\p{N}]+")
+    private val camelBoundary = Regex("([a-z0-9])([A-Z])")
     private val ignoredTerms = setOf("the", "this", "that", "with", "from", "and", "for", "please", "fix", "improve", "implement", "feature", "code", "file", "files", "github", "repo", "repository", "all", "can", "how", "what", "does", "should", "would")
 
     suspend fun build(
@@ -43,7 +45,8 @@ object GitHubTaskContextBundle {
         localRanker: (suspend (String, Map<String, String>) -> Map<String, Double>?)? = null,
         sourceIdentityKind: String = "GIT_COMMIT",
         indexedFiles: Int? = null,
-        localRankingFallback: String? = null
+        localRankingFallback: String? = null,
+        readState: ((String) -> GitHubContextReadState?)? = null
     ): JsonObject {
         require(repository.length <= 201 && repository.split('/').let { it.size == 2 && it.all(String::isNotBlank) }) { "Repository context requires owner/name." }
         require(sourceIdentityKind in setOf("GIT_COMMIT", "FROZEN_FIXTURE_MANIFEST"))
@@ -53,22 +56,27 @@ object GitHubTaskContextBundle {
         val budget = budgetBytes.coerceIn(4096, 64_000)
         val accepted = files.take(20_000).filter { validPath(it.path) && it.blobSha.matches(sha) && it.size in 0..MAX_FILE_BYTES.toLong() }
             .distinctBy { it.path }.associateBy { it.path }
-        val queryTerms = terms(query.take(6000))
+        val boundedQuery = query.take(6000)
+        val queryTerms = terms(boundedQuery)
         val loaded = linkedMapOf<String, GitHubContextSource>()
         val missing = linkedSetOf<String>()
+        val readStates = linkedMapOf<String, GitHubContextReadState>()
         var attempted = 0
         var unavailableCount = 0
         suspend fun source(path: String): GitHubContextSource? {
             loaded[path]?.let { return it }
+            if (path in missing) return null
             val entry = accepted[path] ?: return null
             if (attempted >= 20) {
+                missing += path
+                readStates[path] = GitHubContextReadState.SOURCE_READ_LIMIT
                 unavailableCount++
                 return null
             }
             currentCoroutineContext().ensureActive()
             attempted++
             val value = try {
-                load(path)
+                taskContextPhase(PhoneTaskContextPhase.SOURCE_LOAD) { load(path) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -78,12 +86,16 @@ object GitHubTaskContextBundle {
             }
             if (value == null) {
                 missing += path
+                readStates[path] = readState?.invoke(path) ?: GitHubContextReadState.SOURCE_UNAVAILABLE
                 unavailableCount++
                 return null
             }
-            require(value.path == path && value.blobSha.equals(entry.blobSha, true)) { "Repository context source identity changed." }
-            require(value.text.toByteArray(Charsets.UTF_8).size <= MAX_FILE_BYTES) { "Repository context source exceeds the read bound." }
+            if (value.path != path || !value.blobSha.equals(entry.blobSha, true)) {
+                throw GitHubReadValidation("EVIDENCE_REVISION_MISMATCH", buildJsonObject { put("message", "Repository context source identity changed.") })
+            }
+            GitHubBlobContent.checkSize(value.text.toByteArray(Charsets.UTF_8).size.toLong())
             loaded[path] = value
+            readStates[path] = if (value.cacheHit) GitHubContextReadState.SOURCE_REUSED else GitHubContextReadState.SOURCE_FETCHED
             return value
         }
         var manifest: JsonObject? = null
@@ -95,62 +107,55 @@ object GitHubTaskContextBundle {
         val staleManifestPaths = linkedSetOf<String>()
         if (variant != GitHubContextVariant.CURRENT && accepted[FEATURE_MAP]?.size?.let { it <= 256 * 1024 } == true) {
             val raw = source(FEATURE_MAP)
-            manifest = raw?.text?.takeIf { it.toByteArray(Charsets.UTF_8).size <= 256 * 1024 }?.let { text ->
-                runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
-            }?.takeIf { it.number("schema_version") == 1 }
-            manifestStatus = if (manifest == null) "INVALID_OR_UNAVAILABLE" else "VALID"
-            val fileBlobs = manifest?.get("file_blobs") as? JsonObject
-            fun verifiedPath(path: String): Boolean {
-                val actual = accepted[path]
-                if (actual == null) {
-                    staleManifestPaths += path
-                    return false
+            taskContextPhase(PhoneTaskContextPhase.MANIFEST_RANKING) {
+                manifest = raw?.text?.takeIf { it.toByteArray(Charsets.UTF_8).size <= 256 * 1024 }?.let { text ->
+                    runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+                }?.takeIf { it.number("schema_version") == 1 }
+                manifestStatus = if (manifest == null) "INVALID_OR_UNAVAILABLE" else "VALID"
+                val fileBlobs = manifest?.get("file_blobs") as? JsonObject
+                fun verifiedPath(path: String): Boolean {
+                    val actual = accepted[path]
+                    if (actual == null) {
+                        staleManifestPaths += path
+                        return false
+                    }
+                    val declared = (fileBlobs?.get(path) as? JsonPrimitive)?.contentOrNull
+                        ?: (fileBlobs?.get(path) as? JsonObject)?.text("blob_sha")?.takeIf(String::isNotBlank)
+                    if ((fileBlobs?.containsKey(path) == true && declared == null) || (declared != null && !declared.equals(actual.blobSha, true))) {
+                        staleManifestPaths += path
+                        return false
+                    }
+                    return true
                 }
-                val declared = (fileBlobs?.get(path) as? JsonPrimitive)?.contentOrNull
-                    ?: (fileBlobs?.get(path) as? JsonObject)?.text("blob_sha")?.takeIf(String::isNotBlank)
-                if ((fileBlobs?.containsKey(path) == true && declared == null) || (declared != null && !declared.equals(actual.blobSha, true))) {
-                    staleManifestPaths += path
-                    return false
-                }
-                return true
-            }
-            val rankedFeatures = manifest?.objects("features").orEmpty().take(128).map { feature ->
-                val names = (listOf(feature.text("id"), feature.text("title")) + feature.strings("terms").take(40)).joinToString(" ")
-                val score = terms(names).intersect(queryTerms).size * 10 + feature.strings("paths").count { query.contains(it, true) } * 100
-                feature to score
-            }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<JsonObject, Int>> { it.second }.thenBy { it.first.text("id") }).take(4)
-            for ((feature, _) in rankedFeatures) {
-                val references = (feature.strings("paths") + feature.strings("tests") + feature.strings("documents")).distinct()
-                val verified = references.take(256).associateWith(::verifiedPath)
-                val freshness = when {
-                    references.size > 256 -> "REFERENCE_LIMIT_REACHED"
-                    verified.values.any { !it } -> "STALE_OR_MISSING_REFERENCES"
-                    references.isEmpty() || references.any { fileBlobs?.containsKey(it) != true } -> "BLOB_BINDING_UNAVAILABLE"
-                    else -> "REFERENCED_BLOBS_VERIFIED"
-                }
-                featurePaths += feature.strings("paths").take(32).filter { verified[it] == true }
-                featureTests += feature.strings("tests").take(24).filter { verified[it] == true }
-                featureDocuments += feature.strings("documents").take(8).filter { it.endsWith(".md", true) && verified[it] == true }
-                selectedFeatures += buildJsonObject {
-                    put("id", feature.text("id").take(120))
-                    put("title", feature.text("title").take(200))
-                    put("freshness", freshness)
-                    put("invariants", json(if (freshness == "REFERENCED_BLOBS_VERIFIED") feature.strings("invariants").take(6).map { it.take(300) } else emptyList()))
-                    put("commands", json(if (freshness == "REFERENCED_BLOBS_VERIFIED") feature.strings("commands").take(6).map { it.take(300) } else emptyList()))
-                    put("commands_executed", false)
+                val rankedFeatures = manifest?.objects("features").orEmpty().take(128).map { feature ->
+                    val names = (listOf(feature.text("id"), feature.text("title")) + feature.strings("terms").take(40)).joinToString(" ")
+                    val score = terms(names).intersect(queryTerms).size * 10 + feature.strings("paths").count { query.contains(it, true) } * 100
+                    feature to score
+                }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<JsonObject, Int>> { it.second }.thenBy { it.first.text("id") }).take(4)
+                for ((feature, _) in rankedFeatures) {
+                    val references = (feature.strings("paths") + feature.strings("tests") + feature.strings("documents")).distinct()
+                    val verified = references.take(256).associateWith(::verifiedPath)
+                    val freshness = when {
+                        references.size > 256 -> "REFERENCE_LIMIT_REACHED"
+                        verified.values.any { !it } -> "STALE_OR_MISSING_REFERENCES"
+                        references.isEmpty() || references.any { fileBlobs?.containsKey(it) != true } -> "BLOB_BINDING_UNAVAILABLE"
+                        else -> "REFERENCED_BLOBS_VERIFIED"
+                    }
+                    featurePaths += feature.strings("paths").take(32).filter { verified[it] == true }
+                    featureTests += feature.strings("tests").take(24).filter { verified[it] == true }
+                    featureDocuments += feature.strings("documents").take(8).filter { it.endsWith(".md", true) && verified[it] == true }
+                    selectedFeatures += buildJsonObject {
+                        put("id", feature.text("id").take(120))
+                        put("title", feature.text("title").take(200))
+                        put("freshness", freshness)
+                        put("invariants", json(if (freshness == "REFERENCED_BLOBS_VERIFIED") feature.strings("invariants").take(6).map { it.take(300) } else emptyList()))
+                        put("commands", json(if (freshness == "REFERENCED_BLOBS_VERIFIED") feature.strings("commands").take(6).map { it.take(300) } else emptyList()))
+                        put("commands_executed", false)
+                    }
                 }
             }
         }
         val documents = mutableListOf<JsonObject>()
-        if (variant != GitHubContextVariant.CURRENT) {
-            val defaults = listOf("docs/architecture/repository-guide.md", "AGENTS.md", "README.md")
-            val docPaths = (featureDocuments + defaults.filter { it in accepted }).take(4)
-            for (path in docPaths) {
-                val value = source(path) ?: continue
-                if (value.text.isBlank()) continue
-                documents += documentSections(value, queryTerms).take(2)
-            }
-        }
         val selectedRanges = mutableListOf<JsonObject>()
         val wiring = mutableListOf<JsonObject>()
         var semanticApplied = false
@@ -166,10 +171,13 @@ object GitHubTaskContextBundle {
                     entry.path to score
                 }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first }).take(12).toList()
             // Reserve related test slots even when implementation files dominate path ranking.
-            val primary = (rankedPaths.take(6).map { it.first } + featureTests.take(2)).distinct().take(8)
+            // The loader shares one deadline. Hydrate an implementation and its test
+            // before optional references or more implementation candidates consume it.
+            val implementation = rankedPaths.firstOrNull { it.first !in featureTests }?.first ?: rankedPaths.firstOrNull()?.first
+            val primary = (listOfNotNull(implementation) + featureTests.take(1) + rankedPaths.take(6).map { it.first } + featureTests.take(2)).distinct().take(8)
             for (path in primary) source(path)
             val sources = loaded.filterKeys { it in primary }.mapValues { it.value.text }
-            val graph = GitHubCodeContext.build(sources, accepted.keys.toList(), sourceSha)
+            val graph = taskContextPhase(PhoneTaskContextPhase.SOURCE_GRAPH) { GitHubCodeContext.build(sources, accepted.keys.toList(), sourceSha) }
             graphCandidates += graph.objects("suggested_ranges").map { it.text("path") }
             val relatedTests = primary.flatMap { GitHubSearchContext.related(it, accepted.keys.toList()).mapNotNull { value -> (value as? JsonPrimitive)?.contentOrNull } }
             featureTests += relatedTests
@@ -182,16 +190,18 @@ object GitHubTaskContextBundle {
                     in graphCandidates -> "LEXICAL_DEPENDENCY"
                     else -> "TASK_PATH_MATCH"
                 }
-                sourceRange(source, queryTerms, query.take(6000), reason)
+                taskContextPhase(PhoneTaskContextPhase.SOURCE_RANGES) { sourceRange(source, queryTerms, query.take(6000), reason) }
             }
             val semanticScores = (
                 if (variant == GitHubContextVariant.SEMANTIC && localRanker != null && candidateSources.isNotEmpty()) {
-                    localRanker(
-                        query.take(6000),
-                        candidateRanges.mapValues { (path, range) ->
-                            "$path\nblob_sha=${range.text("blob_sha")} lines=${range.number("start_line")}-${range.number("end_line")}\n${range.text("excerpt") }"
-                        }
-                    )
+                    taskContextPhase(PhoneTaskContextPhase.SEMANTIC_RANKING) {
+                        localRanker(
+                            query.take(6000),
+                            candidateRanges.mapValues { (path, range) ->
+                                "$path\nblob_sha=${range.text("blob_sha")} lines=${range.number("start_line")}-${range.number("end_line")}\n${range.text("excerpt") }"
+                            }
+                        )
+                    }
                 } else {
                     null
                 }
@@ -206,6 +216,41 @@ object GitHubTaskContextBundle {
                 wiring += wiringCandidates(value, queryTerms)
             }
         }
+        // Source windows take precedence for TASK/SEMANTIC; REFERENCE retains its
+        // document-only behavior. No additional calls or deadline are granted.
+        if (variant != GitHubContextVariant.CURRENT) {
+            val defaults = listOf("docs/architecture/repository-guide.md", "AGENTS.md", "README.md")
+            val documentTerms = queryTerms - setOf("docs", "documentation", "document", "documents", "markdown")
+            val matchingDocuments = accepted.keys.asSequence().filter {
+                it.endsWith(".md", true) && (it.startsWith("docs/") || '/' !in it && !it.startsWith('.')) && it !in staleManifestPaths
+            }.map { path ->
+                val score = if (boundedQuery.contains(path, true)) 1000 else terms(path.substringBeforeLast('.')).intersect(documentTerms).size
+                path to score
+            }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+                .take(2).map { it.first }.toList()
+            val docPaths = (matchingDocuments + featureDocuments + defaults.filter { it in accepted }).distinct().take(4)
+            for (path in docPaths) {
+                val value = source(path) ?: continue
+                if (value.text.isBlank()) continue
+                documents += taskContextPhase(PhoneTaskContextPhase.SOURCE_RANGES) { documentSections(value, queryTerms).take(2) }
+            }
+        }
+        val sourceCandidates = missing.filter { it != FEATURE_MAP && !it.endsWith(".md", true) }.take(8).map { path ->
+            buildJsonObject {
+                put("path", path)
+                put("blob_sha", accepted.getValue(path).blobSha)
+                put("source_loaded", false)
+                put("deferred_reason", (readStates[path] ?: GitHubContextReadState.SOURCE_UNAVAILABLE).name)
+            }
+        }.toMutableList()
+        val progress = readStates.entries.take(20).map { (path, state) ->
+            buildJsonObject {
+                put("path", path)
+                put("blob_sha", accepted.getValue(path).blobSha)
+                put("state", state.name)
+            }
+        }.toMutableList()
+        val deferred = readStates.values.filter { it !in setOf(GitHubContextReadState.SOURCE_FETCHED, GitHubContextReadState.SOURCE_REUSED) }.groupingBy { it }.eachCount()
         val knownTests = featureTests.filter { it in accepted }.take(16).toMutableList()
         val referenceDigest = digest(loaded.filterKeys { it == FEATURE_MAP || it.endsWith(".md", true) }.values.joinToString("\n") { "${it.path}:${it.blobSha}" })
         val indexDigest = digest("$VERSION|${PhoneRepositoryGraph.PARSER_VERSION}|$sourceSha|" + accepted.values.joinToString("\n") { "${it.path}:${it.blobSha}" })
@@ -221,6 +266,22 @@ object GitHubTaskContextBundle {
             put("enabled", variant != GitHubContextVariant.CURRENT)
             put("freshness", if (sourceIdentityKind == "FROZEN_FIXTURE_MANIFEST") "FROZEN_FIXTURE" else "PINNED_SOURCE")
             put("delivery_status", "PREPARED")
+            put(
+                "source_readiness",
+                when {
+                    variant == GitHubContextVariant.CURRENT -> "DISABLED"
+                    selectedRanges.isNotEmpty() -> "SOURCE_WINDOWS_PREPARED"
+                    documents.isNotEmpty() -> "REFERENCES_ONLY"
+                    else -> "SOURCE_UNAVAILABLE"
+                }
+            )
+            put("source_read_candidates", JsonArray(sourceCandidates))
+            put("source_read_progress", JsonArray(progress))
+            put("source_read_progress_total", readStates.size)
+            put("source_read_progress_omitted", readStates.size - progress.size)
+            put("deferred_reason_counts", buildJsonObject { deferred.forEach { (reason, count) -> put(reason.name, count) } })
+            put("automatic_retry", false)
+            if (readState != null) put("no_progress_attempt_limit", GitHubTaskContextReadProgress.MAX_NO_PROGRESS_ATTEMPTS)
             put("reference_digest", referenceDigest)
             put("index_digest", indexDigest)
             put("parser_version", PhoneRepositoryGraph.PARSER_VERSION)
@@ -271,9 +332,10 @@ object GitHubTaskContextBundle {
         }
         var result = packet()
         var truncated = false
-        while (result.toString().toByteArray(Charsets.UTF_8).size + 256 > budget && (selectedRanges.isNotEmpty() || documents.isNotEmpty() || selectedFeatures.isNotEmpty() || wiring.isNotEmpty() || knownTests.isNotEmpty() || missing.isNotEmpty() || staleManifestPaths.isNotEmpty())) {
+        while (result.toString().toByteArray(Charsets.UTF_8).size + 256 > budget && (selectedRanges.isNotEmpty() || documents.isNotEmpty() || selectedFeatures.isNotEmpty() || wiring.isNotEmpty() || knownTests.isNotEmpty() || missing.isNotEmpty() || staleManifestPaths.isNotEmpty() || sourceCandidates.isNotEmpty() || progress.isNotEmpty())) {
             truncated = true
             when {
+                progress.size > 2 -> progress.removeAt(progress.lastIndex)
                 selectedRanges.size > 2 -> selectedRanges.removeAt(selectedRanges.lastIndex)
                 documents.size > 1 -> documents.removeAt(documents.lastIndex)
                 wiring.isNotEmpty() -> wiring.clear()
@@ -281,6 +343,8 @@ object GitHubTaskContextBundle {
                 selectedRanges.isNotEmpty() -> selectedRanges.removeAt(selectedRanges.lastIndex)
                 documents.isNotEmpty() -> documents.clear()
                 knownTests.isNotEmpty() -> knownTests.removeAt(knownTests.lastIndex)
+                sourceCandidates.isNotEmpty() -> sourceCandidates.removeAt(sourceCandidates.lastIndex)
+                progress.isNotEmpty() -> progress.removeAt(progress.lastIndex)
                 missing.isNotEmpty() -> missing.remove(missing.last())
                 else -> staleManifestPaths.remove(staleManifestPaths.last())
             }
@@ -388,7 +452,7 @@ object GitHubTaskContextBundle {
         }
     }.take(4).toList()
 
-    internal fun terms(text: String, limit: Int = 256): Set<String> = Regex("[\\p{L}\\p{N}]+").findAll(text.replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").lowercase(Locale.ROOT))
+    internal fun terms(text: String, limit: Int = 256): Set<String> = word.findAll(text.replace(camelBoundary, "$1 $2").lowercase(Locale.ROOT))
         .map { it.value }.filter { it.length > 2 && it !in ignoredTerms }.distinct().take(limit).toSet()
 
     private fun validPath(path: String): Boolean = path.isNotBlank() && path.length <= 2048 && !path.startsWith('/') && '\\' !in path && path.none(Char::isISOControl) && path.split('/').none { it.isBlank() || it == "." || it == ".." }

@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSHA": "ce0689733e9e46d4600aa58d1b199cb50d4b9277",
+  "baseTree": "88399eb76e19a89594bb9a9fa26e8433059ea0cd",
+  "workingBranch": "audit/voice-stream-cadence-ce",
+  "parentPR": 2367,
+  "recordedBeforeSourceEditAt": "2026-11-23T22:51:42.009456+00:00",
+  "intent": "Learn reserve/refill cadence during the current unfinished speech stream, without treating callback backpressure as producer cost or changing complete-phrase adaptation and timing. Preserve bounded memory, cancellation, deadlines, quiet limiting and captions.",
+  "observation": "The streaming producer currently updates VoiceAdaptivePlayback only after EOS, so bufferMs ignores repeated refillPenalty while observations remains zero. Per-callback producer timing exists but is only sent to telemetry.",
+  "ownership": "Transport/performance worker owns VoiceSynthesisFeedback, producer streamPhrase only in KokoroVoiceOutput, ordinary adaptive-policy and streaming-output tests. Root owns phrase-planning/fragmentation and consumer work; other source owners are preserved.",
+  "ownedPathsBeforeSourceEdit": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt",
+    "docs/repairs/voice-stream-cadence-2026-11-23-task.json"
+  ],
+  "constraints": [
+    "Only producer streamPhrase is owned in shared KokoroVoiceOutput.",
+    "Keep whole-phrase word cost, ratio and aggregate observations separate from live delivery timing.",
+    "Exclude callback/queue backpressure; accumulate producer time across callbacks retaining no audio.",
+    "Instantaneous slices of one SDK result must not displace recent slow delivery evidence.",
+    "Keep existing queue/reserve/deadline bounds and pause/caption/cancellation behavior.",
+    "No local Gradle or private composed harness; ordinary project CI remains required for actual output workers.",
+    "No remote mutation or publication."
+  ],
+  "validation": {
+    "recordedAt": "2026-11-23T23:03:52.121820+00:00",
+    "baseCommit": "ce0689733e9e46d4600aa58d1b199cb50d4b9277",
+    "ordinaryHelperJUnit": {
+      "status": "PASS",
+      "tests": 8,
+      "failures": 0,
+      "seconds": 0.028,
+      "manifest": "/workspace/scratch/ab9977df117e/audit/voice-stream-cadence-validation/manifest.json",
+      "manifestSha256": "883a557e2cd96e29aa8d96d4fc64eecf925f63b278f546dddeba8d8c98c27198",
+      "scope": "Complete actual VoiceStreamDeliveryCadence.kt and complete ordinary repository VoiceStreamDeliveryCadenceTest.kt only. No extracted declarations, replacement ports, Android/Gradle/privacy runtime, model execution or network. Does not execute integrated policy or actual AudioTrack worker tests."
+    },
+    "ordinaryPolicyAndWorkerMethods": {
+      "newMethods": 9,
+      "status": "NOT_RUN_LOCALLY_REQUIRED_NORMAL_PROJECT_CI"
+    },
+    "style": {
+      "status": "PASS",
+      "version": "ktlint1.3.1",
+      "artifactSha256": "b67459984862fca9440754c5888ff311023d45b18bb1f5bf036462a6899cead1",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt"
+      ],
+      "exitCode": 0
+    },
+    "diffCheck": "PASS",
+    "localGradle": "NOT_RUN",
+    "privateOrComposedHarness": "NOT_RUN",
+    "deviceOrAcousticPerformance": "NOT_RUN",
+    "canonicalComposed": "ROOT_REQUIRED_AFTER_INTEGRATION",
+    "qualificationReceipt": "/workspace/scratch/ab9977df117e/audit/voice-stream-cadence-validation/qualification.json",
+    "qualificationReceiptSha256": "f3c03558a458022403686bd4d18fbac67b0e2f4a5a5a438de58c07b4f285aa8f"
+  },
+  "status": "SOURCE_FROZEN_REVIEWED_READY_FOR_ROOT_REQUIRED_PROJECT_CI",
+  "design": [
+    "Active stream delivery maximum plus the last eight audio-producing completed stream maxima; instantaneous subdivisions cannot evict the slow active delivery.",
+    "Whole-phrase observation, production ratio and spoken-word cost remain separate and unchanged. Streaming reserves and waits use only delivery gaps.",
+    "Producer time accumulates across fully trimmed callbacks and stream retirement until the next retained PCM; callback and queue wait time is excluded.",
+    "Streaming refill penalties affect reserve/wait even before a timing observation; nonstreaming policy and all existing5900ms limits are preserved."
+  ],
+  "newOrdinaryMethods": {
+    "VoiceSynthesisPerformanceTest": [
+      "unfinishedStreamReservesItsSlowDeliveryDespiteImmediateSubdivisions",
+      "completeStreamCostDoesNotReplaceItsLiveDeliveryReserve",
+      "trimmedCallbacksAndRetirementAccumulateUntilTheNextRetainedPcm",
+      "deliveryHistoryAgesOnlyWhenActualStreamsComplete",
+      "streamingRefillsLearnBeforeTimingAndStayWithinExistingBounds"
+    ],
+    "KokoroStreamingOutputTest": [
+      "gatewayRefillsLearnDeliveryCadenceBeforeTheFirstStreamCompletes",
+      "mediaPipeRefillsLearnDeliveryCadenceBeforeTheFirstStreamCompletes",
+      "fullPlaybackQueueWaitDoesNotBecomeProducerDeliveryCost",
+      "cancellationRetiresAStreamBlockedByTheFullPlaybackQueue"
+    ],
+    "VoiceStreamDeliveryCadenceTest": [
+      "aDeliveryIsVisibleWhileItsFirstStreamRemainsOpen",
+      "instantaneousSubdivisionsDoNotEvictTheActiveSlowDelivery",
+      "fullyTrimmedCallbacksAccumulateUntilRetainedPcmArrives",
+      "trimmedTailAndRetirementCarryAcrossTheNextStreamBoundary",
+      "eightActualAudioProducingStreamsAgeTheCompletedSlowTail",
+      "fullyTrimmedStreamsCannotManufactureFastAudioDelivery",
+      "producerTimeSaturatesWithoutWrappingOrLosingTheGap",
+      "invalidLifecycleAndSamplesCannotMutateValidTiming"
+    ]
+  },
+  "additionalOwnedPathsBeforeSourceEdit": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt"
+  ],
+  "additionalPathsReservedAt": "2026-11-23T23:01:19.390539+00:00",
+  "focusedValidationIntent": "Compile the complete actual delivery-only helper and complete ordinary test class with cached repository-verified Kotlin/JUnit artifacts, without extracted declarations, replacement ports, Android/Gradle, or private/composed harnesses. This proves only bounded state behavior; integrated policy/output worker tests remain required ordinary project CI.",
+  "sourceFreezeSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadence.kt": "924f758c222df8ffc5a8da1fbd0e1c1955f250115c04df66fd22a424d72f2eb0",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisFeedback.kt": "9013b754e197307e593735f05edbaa408791f84734238180c490694c850edf7c",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt": "6837c43d333671fe82979087eaf9bbf855ce60e092e1a8f26c0ef9617717910c",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamDeliveryCadenceTest.kt": "7cc498bb2b473b7c2d7083aef66dc226034a3fa5c94794f45641898c0b97d380",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt": "07185a45cd6d008fb9c4e4c430fd7a80365c2023cd86ee49d38a123aa5474204",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt": "aaa359cd50af846cc2a48068bbe30853070eb1e1453a3e61b1e74e86302fefd4"
+  },
+  "frozenAt": "2026-11-23T23:04:05.998054+00:00",
+  "independentReview": {
+    "reviewer": "/root/latest_branch_review",
+    "status": "SCOPED_CLEAR",
+    "scope": "All six final production/test files; eight whole-source helper tests and source/dependency/log hashes independently read and verified. No reviewer runtime execution.",
+    "receipt": "/workspace/scratch/ab9977df117e/audit/voice-cadence-extracted-source-review.json",
+    "receiptSha256": "d355e8a14aa8a2a5dbae06085bcdb408bedb4a4ec84ff884c807d292b6bf0f20"
+  },
+  "newOrdinaryMethodCounts": {
+    "total": 17,
+    "helperExecuted": 8,
+    "policyRequiredProjectCI": 5,
+    "actualWorkerRequiredProjectCI": 4
+  },
+  "originalTestBodies": "PRESERVED: both existing test file diffs contain additions only; no baseline test body was removed or changed.",
+  "integration": {
+    "publicParent": "1a74d7a4f0c2479c5bf88b807a1bde2e193174a5",
+    "publicParentTree": "8d75eed317669b73213b9a49bb7b1b064fba91dc",
+    "workingBranch": "audit/speech-flow-emulator-1a74",
+    "reviewedCadenceCommit": "e38e3c4e3d7744dc1d7ebb527ddede8aaa0c0052",
+    "reviewedEmulatorCommit": "bb393ec928c44ad8858ed817d3e56c3ff5d7a2e6",
+    "sourceReview": "Both source fixes independently reviewed and preserved byte-for-byte; P2 public source binding separately closed.",
+    "canonicalHost": "Final frozen composition receipt is required before guarded append.",
+    "ordinaryProjectRuntime": "All17 new speech methods and51 P2 methods require final-source ordinary project CI; helper8/8 local execution does not replace integration.",
+    "publication": "Preserve shared commits, finish draft metadata, mark ready and reconcile latest applicable runs; normal guarded merge only green, all10 exact-main gates, then verify Android0.9.66.15/code149 plus Gateway18.1.3 publication."
+  }
+}

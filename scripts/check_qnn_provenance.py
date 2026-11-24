@@ -34,6 +34,7 @@ def main() -> int:
     inputs = json.loads(INPUTS.read_text())
     app_litert = versions.get("litertlm")
     app_qairt = versions.get("qnn")
+    app_qnn_ep = versions.get("qnnSpeech")
     problems = []
     unqualified = []
 
@@ -41,6 +42,8 @@ def main() -> int:
         problems.append(f"LiteRT-LM mismatch: Gradle={app_litert!r}, manifest={manifest.get('litertlmVersion')!r}")
     if not app_qairt or manifest.get("qairtVersion") != app_qairt:
         problems.append(f"QAIRT mismatch: Gradle={app_qairt!r}, manifest={manifest.get('qairtVersion')!r}")
+    if not app_qnn_ep or manifest.get("qnnEpVersion") != app_qnn_ep:
+        problems.append(f"QNN EP mismatch: Gradle={app_qnn_ep!r}, manifest={manifest.get('qnnEpVersion')!r}")
     if inputs.get("litertlmVersion") != app_litert or inputs.get("qairtVersion") != app_qairt:
         problems.append("Dispatch build input versions differ from the Gradle runtime versions")
     if manifest.get("dispatchBuild") != inputs:
@@ -48,6 +51,9 @@ def main() -> int:
     for name, library in manifest.get("libraries", {}).items():
         if Path(name).name.startswith("libQnn") and library.get("source") != f"com.qualcomm.qti:qnn-runtime:{app_qairt}":
             problems.append(f"Mixed QAIRT distribution in native manifest: {name}")
+    plugin = manifest.get("libraries", {}).get("lib/arm64-v8a/libonnxruntime_providers_qnn.so", {})
+    if plugin.get("source") != f"com.qualcomm.qti:onnxruntime-android-qnn:{app_qnn_ep}":
+        problems.append("Packaged speech QNN EP differs from its pinned plugin version")
 
     provenance = PROVENANCE.read_text()
     if app_litert and f"litertlm-android:{app_litert}`" not in provenance:
@@ -93,7 +99,7 @@ def main() -> int:
             print(f"- {issue}", file=sys.stderr)
         print("Source checks passed; release provenance validation must use strict mode.")
     else:
-        print(f"QNN provenance matches LiteRT-LM {app_litert} / QAIRT {app_qairt}; device execution remains unverified.")
+        print(f"QNN provenance matches LiteRT-LM {app_litert} / QAIRT {app_qairt} / QNN EP {app_qnn_ep}; device execution remains unverified.")
     return 0
 
 

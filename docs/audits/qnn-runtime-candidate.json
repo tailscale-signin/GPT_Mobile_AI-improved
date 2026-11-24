@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "status": "CANDIDATE_NOT_PROMOTED",
+  "productionPinsChanged": false,
+  "physicalDeviceQualified": false,
+  "qnnEpVersion": "2.8.0",
+  "dispatchBuild": {
+    "litertlmVersion": "0.18.0",
+    "litertlmCommit": "b2f686e2ed4718fb84ec398a61dd59ca0f0aff27",
+    "litertRevision": "26895c9fbcc25c43faa8c1a98cd1fd28951602c3",
+    "litertArchiveSha256": "698811a8ec56f6a9bd7705ffaa75ff792cae03a67d3a759dbc84f2023493ee6f",
+    "qairtVersion": "2.52.0",
+    "qairtSdkVersion": "2.52.0.261104",
+    "ndkRevision": "29.0.14206865",
+    "bazelVersion": "7.6.1",
+    "target": "@litert//litert/vendors/qualcomm/dispatch:dispatch_api_so",
+    "qnnHeadersSha256": "ba0553991309e51262cc9398442ad406331ed7f2708dc78d11c55c1a843491c5"
+  },
+  "qairtSdk": {
+    "url": "https://softwarecenter.qualcomm.com/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.52.0.261104/v2.52.0.261104.zip",
+    "resolvedUrl": "https://apigwx-aws.qualcomm.com:443/qsc/public/v1/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.52.0.261104/v2.52.0.261104.zip",
+    "sha256": "e4c88416efa47eb8ed32fe2bd36fe63df58a3f4b48a347de5cf565a8c38e0961",
+    "bytes": 3036597557,
+    "etag": "\"7c8ef4412946544d53016cf51efda654\"",
+    "publisherChecksumSource": "onnxruntime/onnxruntime-qnn@6c9a5e22a795d1576e056a73751a0f2f39d06894:qcom/packages.yml",
+    "qnnHeadersSha256": "ba0553991309e51262cc9398442ad406331ed7f2708dc78d11c55c1a843491c5",
+    "extractedFiles": 421
+  },
+  "bazel": {
+    "url": "https://github.com/bazelbuild/bazel/releases/download/7.6.1/bazel-7.6.1-linux-x86_64",
+    "sha256": "ac6249d1192aea9feaf49dfee2ab50c38cee2454b00cf29bbec985a11795c025",
+    "publisherChecksumUrl": "https://github.com/bazelbuild/bazel/releases/download/7.6.1/bazel-7.6.1-linux-x86_64.sha256"
+  },
+  "maven": [
+    {
+      "url": "https://repo.maven.apache.org/maven2/com/qualcomm/qti/onnxruntime-android-qnn/2.8.0/onnxruntime-android-qnn-2.8.0.pom",
+      "publisherSha1": "f32e701ba57e257bf8bdea07b9b76518e91a7285",
+      "sha256": "569e96e589d60cbbb2690ee0485f6a66eba315079975b3569185597438b85fc0",
+      "bytes": 1376,
+      "file": "onnxruntime-android-qnn-2.8.0.pom"
+    },
+    {
+      "url": "https://repo.maven.apache.org/maven2/com/qualcomm/qti/onnxruntime-android-qnn/2.8.0/onnxruntime-android-qnn-2.8.0.aar",
+      "publisherSha1": "05f802d081229502e09f744181c0d9240b815ff6",
+      "sha256": "de3206faf3e64f72eab0282e3697ff975ef61d4144aa4d3681892ef21cd638a2",
+      "bytes": 1758985,
+      "file": "onnxruntime-android-qnn-2.8.0.aar"
+    },
+    {
+      "url": "https://repo.maven.apache.org/maven2/com/qualcomm/qti/qnn-runtime/2.52.0/qnn-runtime-2.52.0.pom",
+      "publisherSha1": "86e5a46293fdc6c8ebc06c5ec7576a1323af246b",
+      "sha256": "d8850c60fc051bc353755d59d8d034a914d9fee10a501f3f6fdcee42a1f3f85a",
+      "bytes": 1116,
+      "file": "qnn-runtime-2.52.0.pom"
+    },
+    {
+      "url": "https://repo.maven.apache.org/maven2/com/qualcomm/qti/qnn-runtime/2.52.0/qnn-runtime-2.52.0.aar",
+      "publisherSha1": "fb08db09c9adeca9a5ad6fdbaf18547928b9a942",
+      "sha256": "02fb79bc70368e86a27c4d26f54cb030f51575f18ee1cc9bd5f2fdf195b30f6c",
+      "bytes": 82248067,
+      "file": "qnn-runtime-2.52.0.aar"
+    }
+  ],
+  "localBuildObservation": {
+    "status": "BLOCKED_STORAGE",
+    "phase": "Bazel TensorFlow source extraction",
+    "detail": "No space left on device in the isolated candidate output root. Production runtime pins were preserved. Hosted build required."
+  }
+}

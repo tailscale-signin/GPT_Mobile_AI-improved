@@ -123,6 +123,11 @@ internal class InvocationRoundAccounting(
         gatewayProvenance?.let { put("gateway_provenance", it) }
         gatewayDelivery?.let { put("gateway_delivery", it) }
         responseParsing?.let { put("response_parsing", it) }
+        val privateRequests = dispatch.privacyDispatchReceipts
+        if (privateRequests.isNotEmpty()) put("privacy_dispatch_receipts", kotlinx.serialization.json.JsonArray(privateRequests))
+        val privateStreams = dispatch.privacyStreams
+        if (privateStreams.isNotEmpty()) put("privacy_streams", kotlinx.serialization.json.JsonArray(privateStreams))
+        if (dispatch.omittedPrivacyDispatchReceipts > 0) put("privacy_dispatch_receipts_omitted", kotlinx.serialization.json.JsonPrimitive(dispatch.omittedPrivacyDispatchReceipts))
         recoveryUsage()?.let { recovered ->
             put("gateway_recovery", recovered.evidence)
             recovered.inputTokens?.let { put("known_recovery_input_tokens", kotlinx.serialization.json.JsonPrimitive(it)) }

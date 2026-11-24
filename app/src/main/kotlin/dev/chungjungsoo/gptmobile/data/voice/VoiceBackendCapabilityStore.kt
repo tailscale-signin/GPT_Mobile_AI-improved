@@ -4,11 +4,20 @@ import android.content.Context
 import android.os.Build
 import dev.melo.kokoro.TimedKokoro
 import java.security.MessageDigest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.json.JSONArray
 import org.json.JSONObject
 
 /** Small, device/model/runtime-scoped receipts. Called only by the synthesis/I/O owner. */
-internal class VoiceBackendCapabilityStore(context: Context) {
+internal class VoiceBackendCapabilityStore(
+    context: Context,
+    private val runtimeConfiguration: String = "htp=balanced;context=1",
+    private val modelSha256: String = KokoroModelPack.MODEL_SHA256
+) {
+    init {
+        require(modelSha256.matches(Regex("[0-9a-f]{64}")))
+    }
     private val preferences = context.getSharedPreferences("voice_backend_capabilities_v1", Context.MODE_PRIVATE)
     private val fixtureHash = VoiceSpeechWorkload.fixtureHash(VoiceSpeechBenchmarkWorkload.UTTERANCE)
     val deviceKey = digest("${Build.FINGERPRINT}|${Build.SUPPORTED_ABIS.joinToString()}|${Build.VERSION.SDK_INT}")
@@ -17,7 +26,7 @@ internal class VoiceBackendCapabilityStore(context: Context) {
 
     fun comparisonScope(lexicon: String, threads: Int, voice: KokoroVoice = KokoroVoice.HEART, speechRate: Float = 1f): String {
         require(threads in 1..4 && speechRate.isFinite() && speechRate in .5f..2f)
-        return digest("${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}|$fixtureHash|${TimedKokoro.RUNTIME_ID}|${KokoroModelPack.MODEL_SHA256}|$deviceKey|$lexicon|$threads|${voice.name}|${voice.speakerId}|${speechRate.toBits()}")
+        return digest("${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}|$fixtureHash|${TimedKokoro.RUNTIME_ID}|$runtimeConfiguration|$modelSha256|$deviceKey|$lexicon|$threads|${voice.name}|${voice.speakerId}|${speechRate.toBits()}")
     }
 
     fun key(backend: VoiceSpeechBackend, lexicon: String, threads: Int, voice: KokoroVoice = KokoroVoice.HEART, speechRate: Float = 1f): String =
@@ -43,6 +52,22 @@ internal class VoiceBackendCapabilityStore(context: Context) {
         write(values)
     }
 
+    /** One completed Recheck publishes its paired cohort together, never half a comparison. */
+    fun saveComparison(comparison: List<VoiceBackendCapability>) = synchronized(lock) {
+        if (comparison.isEmpty()) return@synchronized
+        require(comparison.size <= 3 && comparison.map { it.key }.distinct().size == comparison.size)
+        require(comparison.map { it.backend }.distinct().size == comparison.size)
+        require(comparison.all { it.cacheable && it.protocol == VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL })
+        require(comparison.map { it.comparisonId }.distinct().singleOrNull()?.matches(Regex("[0-9a-f]{32}")) == true)
+        require(comparison.map { it.comparisonScope }.distinct().singleOrNull()?.matches(Regex("[0-9a-f]{64}")) == true)
+        require(comparison.map { it.speakerId }.distinct().size == 1 && comparison.map { it.speechRate }.distinct().size == 1)
+        val keys = comparison.mapTo(mutableSetOf()) { it.key }
+        val at = comparison.maxOf { it.observedAtMillis }
+        val values = records().filter { it.key !in keys && it.current(at) }
+            .plus(comparison).sortedByDescending { it.observedAtMillis }.take(24)
+        write(values)
+    }
+
     private fun write(values: List<VoiceBackendCapability>, revision: Long? = null) {
         val encoded = JSONArray()
         values.forEach {
@@ -56,12 +81,22 @@ internal class VoiceBackendCapabilityStore(context: Context) {
                     .put("inputBytes", it.inputBytes).put("inputByteLimit", it.inputByteLimit).put("tokenLimit", it.tokenLimit)
                     .put("discovery", safeSpeechDiscoverySummary(it.discoverySummary))
                     .put("thermals", JSONArray(it.thermalStatuses))
+                    .put("comparisonId", it.comparisonId)
+                    .put("audioObservations", JSONArray().also { rows -> it.audioObservations.forEach { observation -> rows.put(JSONObject(speechAudioObservationJson(observation).toString())) } })
             )
         }
+        var payload = encoded.toString()
+        // Keep whole measured receipts; never truncate an audio timing
+        // vector to make it look complete. Older receipts retire first.
+        while (payload.length > MAX_STORED_CHARACTERS && encoded.length() > 1) {
+            encoded.remove(encoded.length() - 1)
+            payload = encoded.toString()
+        }
+        if (payload.length > MAX_STORED_CHARACTERS) return
         // Cache persistence never interrupts valid speech. A failed write means
         // the next session measures again; it cannot manufacture qualification.
         runCatching {
-            val editor = preferences.edit().putString("receipts", encoded.toString())
+            val editor = preferences.edit().putString("receipts", payload)
             if (revision != null) editor.putLong("revision", revision)
             editor.commit()
         }
@@ -77,7 +112,7 @@ internal class VoiceBackendCapabilityStore(context: Context) {
 
     private fun records(): List<VoiceBackendCapability> = runCatching {
         val raw = preferences.getString("receipts", null) ?: return emptyList()
-        if (raw.length > 32_768) return emptyList()
+        if (raw.length > MAX_STORED_CHARACTERS) return emptyList()
         val entries = JSONArray(raw)
         if (entries.length() > 24) return emptyList()
         (0 until entries.length()).mapNotNull { index ->
@@ -120,13 +155,19 @@ internal class VoiceBackendCapabilityStore(context: Context) {
                     integer("inputByteLimit", 1..1_000_000),
                     integer("tokenLimit", 1..1_000_000),
                     safeSpeechDiscoverySummary(item.optString("discovery")),
-                    temperatures
+                    temperatures,
+                    item.optString("comparisonId").takeIf { it.matches(Regex("[0-9a-f]{32}")) },
+                    (item.optJSONArray("audioObservations") ?: JSONArray()).let { observations ->
+                        require(observations.length() <= VoiceSpeechWorkload.calibrationPhrases.size)
+                        (0 until observations.length()).map { observation -> readSpeechAudioObservation(Json.parseToJsonElement(observations.getJSONObject(observation).toString()).jsonObject) }
+                    }
                 )
             }.getOrNull()
         }
     }.getOrDefault(emptyList())
 
     companion object {
+        private const val MAX_STORED_CHARACTERS = 262_144
         private val lock = Any()
         private fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

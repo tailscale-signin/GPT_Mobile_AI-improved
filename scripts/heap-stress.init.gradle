@@ -3,7 +3,7 @@
 def diagnosticCaptureGate = gradle.startParameter.projectProperties['gptmobile.diagnosticHeapStress'] == 'true'
 def gateHeap = diagnosticCaptureGate ? '64m' : '256m'
 def gateReport = diagnosticCaptureGate ? 'diagnosticHeapRecovery' : 'heapRecovery'
-def gateIncludes = ['**/ResearchSessionStoreHeapTest.class', '**/StreamingDebugBundleTest.class', '**/BenchmarkStreamingExportHeapTest.class', '**/BenchmarkColdStreamingExportHeapTest.class']
+def gateIncludes = ['**/ResearchSessionStoreHeapTest.class', '**/StreamingDebugBundleTest.class', '**/BenchmarkStreamingExportHeapTest.class', '**/BenchmarkColdStreamingExportHeapTest.class', '**/WorkspaceDiagnosticCaptureHeapTest.class']
 if (diagnosticCaptureGate) {
     gateIncludes = ['**/StagedDiagnosticCaptureHeapTest.class']
 }

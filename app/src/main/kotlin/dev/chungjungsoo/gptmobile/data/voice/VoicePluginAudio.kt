@@ -36,12 +36,16 @@ internal interface KokoroOutput {
     fun configureEngine(factory: VoicePhraseEngineFactory) = Unit
     fun benchmark(voice: KokoroVoice, completed: (String) -> Unit) = completed("This speech engine does not support calibration.")
     fun prewarm(voice: KokoroVoice) = Unit
+    fun cancelPrewarm() = Unit
     fun releaseWarmModel() = Unit
     fun stop()
     fun stop(reason: String) = stop()
     fun bindReply(id: String) = Unit
     fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) = Unit
     fun close()
+
+    /** Call off main after close. A native retirement failure never authorizes replacement. */
+    fun awaitClosed(timeoutMs: Long): Boolean = true
 }
 
 /** Owns the microphone and playback backend for the visible voice session. */
@@ -125,6 +129,12 @@ internal class VoicePluginAudio(
     override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
         system.bindSpokenRange(spoken)
         kokoro?.bindSpokenRange(spoken)
+    }
+
+    override fun configurePronunciation(overrides: Map<String, String>) {
+        val cleaned = VoicePronunciationOverrides.clean(overrides)
+        system.configurePronunciation(cleaned)
+        kokoro?.configurePronunciation(cleaned)
     }
 
     override fun bindTimedSpokenRange(spoken: ((Int, String, IntRange, VoiceCaptionTiming) -> Unit)?) {

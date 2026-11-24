@@ -19,9 +19,15 @@ import dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext
 import java.util.UUID
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -54,7 +60,53 @@ internal class PrivateLocalToolSession(
         }
     }
 
-    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        val context = currentCoroutineContext()
+        val turn = context[PrivateTurn]
+        val inherited = context[RequestAuthorizationGuard]
+        var denied = false
+        var generationCompleted = false
+        streamPrivateRound(tools, exchanges).transformWhile { event ->
+            // Generation and authorized delivery are distinct observations. Keep
+            // the actual terminal fact even if its receiving permission expired;
+            // an upstream Failed payload cannot supply this local observation.
+            if (event == ProviderEvent.Completed) generationCompleted = true
+            val allowed = try {
+                // A producer check can precede a suspended channel send. Validate
+                // the received event under this session's captured conversation,
+                // then return to the caller's context before publishing it.
+                withContext(privacy) {
+                    currentCoroutineContext().ensureActive()
+                    turn?.validate()
+                    check(store.effectiveSnapshot(privacy.enabled) == policy)
+                    inherited?.validate?.invoke()
+                    // The inherited authority may itself suspend.
+                    turn?.validate()
+                    check(store.effectiveSnapshot(privacy.enabled) == policy)
+                    currentCoroutineContext().ensureActive()
+                }
+                true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            }
+            if (!allowed) {
+                denied = true
+                return@transformWhile false
+            }
+            currentCoroutineContext().ensureActive()
+            emit(event)
+            event != ProviderEvent.Completed && event !is ProviderEvent.Failed
+        }.collect { emit(it) }
+        // The terminating collector has unwound the producer before this local
+        // denial is published. An upstream error code never grants a bypass.
+        if (denied) emit(publicationDenied(generationCompleted))
+    }
+
+    // The rendezvous boundary keeps the captured thread context on the producer
+    // when a collector shares its dispatcher or cancels an incomplete response.
+    private fun streamPrivateRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         currentCoroutineContext()[PrivateTurn]?.validate()
         if (store.effectiveSnapshot(privacy.enabled) != policy) {
             emit(rejected("DISPATCH_POLICY_CHANGED", "Privacy settings changed. Resend with the current settings."))
@@ -110,8 +162,11 @@ internal class PrivateLocalToolSession(
         val roundProfile = profile.copy(systemPrompt = profile.systemPrompt.orEmpty() + instruction)
         var completed = false
         var failed = false
-        val reply = PrivateToolReplyMask(selected.mapTo(hashSetOf()) { it.name })
-        val privateContext = privateAuthority + reply
+        // A plain conversation grants no tool authority. It can stream restored
+        // prose without waiting for a full-response tool decision. Rounds with
+        // tools or retained receipts keep the existing bounded control parser.
+        val reply = if (selected.isEmpty() && exchanges.isEmpty()) null else PrivateToolReplyMask(selected.mapTo(hashSetOf()) { it.name })
+        val privateContext = privateAuthority + (reply ?: EmptyCoroutineContext)
         val session = withContext(privateContext) { open(roundTurns, roundProfile) }
         // Opening a transport may suspend. Recheck before even its first event.
         if (store.effectiveSnapshot(privacy.enabled) != policy) {
@@ -123,7 +178,7 @@ internal class PrivateLocalToolSession(
                 is ProviderEvent.TextDelta -> {
                     // Only the transport's typed verdict may authorize control. A
                     // restored private value that resembles JSON remains prose.
-                    if (reply.decision is PrivateToolReplyMask.Decision.Prose || reply.decision is PrivateToolReplyMask.Decision.Call) {
+                    if (reply == null || reply.decision is PrivateToolReplyMask.Decision.Prose || reply.decision is PrivateToolReplyMask.Decision.Call) {
                         if (event.text.isNotEmpty()) emit(event)
                     }
                 }
@@ -148,16 +203,32 @@ internal class PrivateLocalToolSession(
             emit(rejected("DISPATCH_POLICY_CHANGED", "Privacy settings changed. Resend with the current settings."))
             return@flow
         }
-        when (val decision = reply.decision) {
+        when (val decision = reply?.decision) {
             is PrivateToolReplyMask.Decision.Call -> emit(ProviderEvent.ToolCall("private-local-${UUID.randomUUID()}", decision.name, decision.arguments))
             PrivateToolReplyMask.Decision.Prose -> Unit
-            PrivateToolReplyMask.Decision.Rejected, null -> {
+            PrivateToolReplyMask.Decision.Rejected -> {
+                emit(rejected("OUTPUT_PROTOCOL_INVALID", "The private text transport did not return a valid authorized local tool decision."))
+                return@flow
+            }
+            null -> if (reply != null) {
                 emit(rejected("OUTPUT_PROTOCOL_INVALID", "The private text transport did not return a valid authorized local tool decision."))
                 return@flow
             }
         }
         emit(ProviderEvent.Completed)
-    }.flowOn(privacy)
+    }.flowOn(privacy).buffer(0)
+
+    private fun publicationDenied(generationCompleted: Boolean) = ProviderEvent.Failed(
+        "Privacy settings or request permissions changed. The response was stopped; resend with the current settings.",
+        errorCode = "DISPATCH_POLICY_CHANGED",
+        taskOutcome = "PARTIAL",
+        failureDetails = buildJsonObject {
+            put("failed_stage", "generation_permission")
+            put("generation_completed", generationCompleted)
+            put("request_replay_allowed", false)
+            put("logical_continuation_allowed", false)
+        }
+    )
 
     private fun evidence(exchanges: List<AgentToolExchange>): String? = try {
         val data = BoundedPrivateToolData()

@@ -27,6 +27,9 @@ internal data class ProviderWaitSchedulingResult private constructor(
         CHECKPOINT_UNAVAILABLE,
         CHECKPOINT_CHANGED,
         REMOTE_JOB_PRESENT,
+        GATEWAY_COMMAND_PRESENT,
+        REMOTE_OUTCOME_UNKNOWN,
+        RETRY_DEADLINE_UNAVAILABLE,
         INITIAL_OUTPUT_PRESENT,
         CONTINUATION_PREFIX_CHANGED,
         COMBINED_SNAPSHOT_INVALID,
@@ -85,6 +88,11 @@ internal data class ProviderWaitSchedulingResult private constructor(
         val decisionStates = setOf("ELIGIBLE", "INELIGIBLE", "ROUTE_MISMATCH", "DURABLE_WAIT", "NOT_SCHEDULED", "PERSISTENCE_UNCERTAIN")
         val schedulerStates = setOf("ENQUEUED", "PENDING_RECONCILIATION", "NOT_SCHEDULED")
         val noWaitReasons = NoWaitReason.entries.mapTo(linkedSetOf()) { it.name }
+
+        fun retainedNoWaitReason(details: JsonObject?): NoWaitReason? {
+            val value = details?.get("provider_wait_no_wait_reason") as? JsonPrimitive
+            return value?.takeIf { it.isString }?.content?.let { name -> NoWaitReason.entries.firstOrNull { it.name == name } }
+        }
 
         /** Only the owning verification stage can declare its separate resume checkpoint. */
         fun claimExtractionCheckpoint(details: JsonObject?): Boolean = details != null &&

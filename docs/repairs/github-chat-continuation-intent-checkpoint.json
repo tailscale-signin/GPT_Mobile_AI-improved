@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "source_tree": "c11078a29366551fb24fa550c67614ed67ef6f9f",
+  "owner": "github_chat_continuation_intent_recovery",
+  "intent": "Recognize explicit read-only questions about the selected repository and make one bounded evidence-acquisition retry when a GitHub task returns prose before any repository operation.",
+  "acceptance": [
+    "Selected repository context is included for explicit read-only project and codebase questions.",
+    "Unrelated conversational requests do not inherit the selected repository.",
+    "A prose-only GitHub round with available tools and no receipts gets one evidence-acquisition retry.",
+    "A second prose-only round terminates without looping, and final synthesis after a receipt is unchanged."
+  ],
+  "status": "local_contracts_passed_android_unit_deferred_to_exact_head_ci",
+  "local_evidence": {
+    "passed": [
+      "python3 scripts/generate_repository_reference.py --check",
+      "python3 scripts/check_release_scope.py",
+      "python3 -m unittest scripts.tests.test_repository_reference scripts.tests.test_release_scope -v",
+      "git diff --check"
+    ],
+    "environment_limit": "The isolated Android Gradle worker reached its local memory ceiling during kaptGenerateStubsDebugKotlin before test execution. This is not recorded as a test pass; exact-head CI remains required."
+  },
+  "publication": "The shared PR owner retains every exact-head CI, merge, publisher, package, checksum, and attestation gate."
+}

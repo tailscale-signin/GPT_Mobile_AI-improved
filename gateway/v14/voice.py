@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import struct
 import sys
 import tempfile
 import threading
@@ -35,6 +36,10 @@ MAX_TOKEN_IDS = 511
 MAX_WORDS = 64
 MAX_AUDIO_FRAMES = 30 * SAMPLE_RATE
 MAX_BODY_BYTES = 16384
+PCM_STREAM_PROTOCOL = 'kokoro-pcm-stream-v1'
+PCM_STREAM_TYPE = 'application/vnd.gptmobile.kokoro-pcm'
+PCM_STREAM_MAGIC = b'KPCM\x01\x00\x00\x00'
+PCM_CHUNK_FRAMES = 4096
 SHA256 = re.compile(r'[0-9a-f]{64}')
 REQUEST_FIELDS = {'protocol', 'frontend_id', 'request_id', 'token_ids', 'word_tokens',
                   'speaker', 'speed', 'model_sha256'}
@@ -44,6 +49,34 @@ class VoiceError(Exception):
     def __init__(self, code, status=503):
         self.code, self.status = code, status
         super().__init__(code)
+
+
+class BinarySpeech:
+    """One validated native phrase; transport chunks are not neural streaming."""
+    def __init__(self, metadata, pcm):
+        if not isinstance(pcm, bytes) or not 0 < len(pcm) <= MAX_AUDIO_FRAMES * 4 or len(pcm) % 4:
+            raise VoiceError('VOICE_TIMING_INVALID')
+        durations = metadata.get('durations')
+        if (not isinstance(durations, list) or not 3 <= len(durations) <= MAX_TOKEN_IDS
+                or any(type(value) is not int or not 1 <= value <= 1200 for value in durations)
+                or sum(durations) * FRAMES_PER_DURATION * 4 != len(pcm)):
+            raise VoiceError('VOICE_TIMING_INVALID')
+        self.metadata, self.pcm = dict(metadata), pcm
+
+    def header(self):
+        metadata = dict(self.metadata, stream_protocol=PCM_STREAM_PROTOCOL, pcm_encoding='f32le', channels=1,
+                        generation_mode='complete_phrase', audio_frames=len(self.pcm) // 4,
+                        max_chunk_frames=PCM_CHUNK_FRAMES)
+        encoded = json.dumps(metadata, separators=(',', ':'), allow_nan=False).encode('utf-8')
+        if not 0 < len(encoded) <= MAX_BODY_BYTES:
+            raise VoiceError('VOICE_TIMING_INVALID')
+        return PCM_STREAM_MAGIC + struct.pack('<I', len(encoded)) + encoded
+
+    def chunks(self):
+        for offset in range(0, len(self.pcm), PCM_CHUNK_FRAMES * 4):
+            chunk = self.pcm[offset:offset + PCM_CHUNK_FRAMES * 4]
+            yield struct.pack('<I', len(chunk) // 4) + chunk
+        yield struct.pack('<I', 0)
 
 
 def frontend_symbols(data):
@@ -174,8 +207,10 @@ def executed_cuda_nodes(events):
 
 class Work:
     """Cancellation can race queue admission, native Run, or transport teardown."""
-    def __init__(self, principal, payload, completion, deadline):
+    def __init__(self, principal, payload, completion, deadline, binary=False):
         self.principal, self.payload, self.completion, self.deadline = principal, payload, completion, deadline
+        self.key = principal, payload['request_id']
+        self.binary = binary
         self.cancelled = threading.Event()
         self._lock, self._options = threading.Lock(), None
 
@@ -276,16 +311,19 @@ class KokoroCudaBackend:
             raise VoiceError('VOICE_TIMING_INVALID')
         return samples.astype('<f4', copy=False).tobytes(), durations.tolist()
 
-    def synthesize(self, payload, work):
+    def synthesize_binary(self, payload, work):
         started = time.monotonic()
         pcm, durations = self._run(payload, work)
-        return dict(protocol=PROTOCOL, frontend_id=FRONTEND, request_id=payload['request_id'],
-                    frontend_symbols_sha256=FRONTEND_SYMBOLS_SHA256,
-                    sample_rate=SAMPLE_RATE, frames_per_duration=FRAMES_PER_DURATION,
-                    pcm_f32le=base64.b64encode(pcm).decode('ascii'), durations=durations,
-                    word_tokens=payload['word_tokens'], model_sha256=self.model_sha256,
-                    execution_provider=PROVIDER, executed_cuda_nodes=self.executed_cuda_nodes,
-                    evidence_scope='warmed_session', synthesis_ms=round((time.monotonic() - started) * 1000))
+        return BinarySpeech(dict(protocol=PROTOCOL, frontend_id=FRONTEND, request_id=payload['request_id'],
+                                 frontend_symbols_sha256=FRONTEND_SYMBOLS_SHA256,
+                                 sample_rate=SAMPLE_RATE, frames_per_duration=FRAMES_PER_DURATION, durations=durations,
+                                 word_tokens=payload['word_tokens'], model_sha256=self.model_sha256,
+                                 execution_provider=PROVIDER, executed_cuda_nodes=self.executed_cuda_nodes,
+                                 evidence_scope='warmed_session', synthesis_ms=round((time.monotonic() - started) * 1000)), pcm)
+
+    def synthesize(self, payload, work):
+        speech = self.synthesize_binary(payload, work)
+        return dict(speech.metadata, pcm_f32le=base64.b64encode(speech.pcm).decode('ascii'))
 
     def close(self):
         self.session = None
@@ -299,6 +337,9 @@ class VoiceService:
         self.backend, self.executor, self.worker = None, None, None
         self.queue = asyncio.Queue(max_pending)
         self.pending, self.cancelled = {}, OrderedDict()
+        # Binary responses retain admission until transport completion, so slow
+        # readers cannot accumulate unbounded completed PCM outside the queue.
+        self.streams = {}
         self.reason = 'VOICE_DISABLED' if not directory else 'VOICE_WARMING'
         self.closed = False
         self.stopping = threading.Event()
@@ -343,6 +384,8 @@ class VoiceService:
         if result['ready']:
             result.update(model_sha256=self.backend.model_sha256, executed_cuda_nodes=self.backend.executed_cuda_nodes,
                           speakers=self.backend.speakers, evidence_scope='warmed_session')
+            if callable(getattr(self.backend, 'synthesize_binary', None)):
+                result.update(stream_protocol=PCM_STREAM_PROTOCOL, generation_mode='complete_phrase')
         else:
             result.update(reason=self.reason or 'VOICE_WORKER_UNAVAILABLE', executed_cuda_nodes=0)
         return result
@@ -357,7 +400,7 @@ class VoiceService:
     def cancel(self, principal, identifier):
         key = principal, request_id(identifier)
         self._remember_cancel(key)
-        work = self.pending.get(key)
+        work = self.pending.get(key) or self.streams.get(key)
         if work:
             work.cancel()
             if not work.completion.done():
@@ -365,23 +408,36 @@ class VoiceService:
         # A different principal cannot infer whether an ID is in flight.
         return dict(protocol=PROTOCOL, frontend_id=FRONTEND, request_id=identifier, cancelled=True)
 
-    async def synthesize(self, principal, payload, disconnected=None):
+    def release_stream(self, work):
+        if self.streams.get(work.key) is work:
+            self.streams.pop(work.key)
+
+    def stream_cancelled(self, work):
+        return self.closed or self.streams.get(work.key) is not work or work.cancelled.is_set()
+
+    async def synthesize(self, principal, payload, disconnected=None, binary=False):
         if self.backend is None or self.closed or not getattr(self.backend, 'ready', True):
             raise VoiceError(self.reason or 'VOICE_WORKER_UNAVAILABLE')
+        if binary and not callable(getattr(self.backend, 'synthesize_binary', None)):
+            raise VoiceError('VOICE_STREAM_UNAVAILABLE')
         payload = token_request(payload, self.backend.model_sha256, self.backend.speakers)
         key = principal, payload['request_id']
         cancelled_at = self.cancelled.get(key)
         if cancelled_at is not None and time.monotonic() - cancelled_at <= 60:
             raise VoiceError('VOICE_CANCELLED', 409)
-        if key in self.pending:
+        admitted = self.pending.keys() | self.streams.keys()
+        if key in admitted:
             raise VoiceError('VOICE_DUPLICATE_REQUEST', 409)
-        if len(self.pending) >= self.max_pending or sum(owner == principal for owner, _ in self.pending) >= self.per_principal:
+        if len(admitted) >= self.max_pending or sum(owner == principal for owner, _ in admitted) >= self.per_principal:
             raise VoiceError('VOICE_QUEUE_FULL', 429)
         completion = asyncio.get_running_loop().create_future()
         deadline = time.monotonic() + self.timeout
-        work = Work(principal, payload, completion, deadline)
+        work = Work(principal, payload, completion, deadline, binary=binary)
         self.pending[key] = work
+        if binary:
+            self.streams[key] = work
         self.queue.put_nowait(work)
+        delivered = False
         try:
             while not completion.done():
                 remaining = deadline - time.monotonic()
@@ -389,14 +445,18 @@ class VoiceService:
                     raise VoiceError('VOICE_TIMEOUT', 504)
                 await asyncio.wait((completion,), timeout=min(.1, remaining))
                 if completion.done():
-                    return completion.result()
+                    break
                 if disconnected is not None and await disconnected():
                     raise VoiceError('VOICE_DISCONNECTED', 499)
-            return completion.result()
+            result = completion.result()
+            delivered = True
+            return result
         finally:
             if not completion.done():
                 work.cancel()
                 completion.cancel()
+            if binary and not delivered:
+                self.streams.pop(key, None)
 
     async def _worker(self):
         while True:
@@ -409,7 +469,10 @@ class VoiceService:
                     continue
                 if time.monotonic() >= work.deadline:
                     raise VoiceError('VOICE_TIMEOUT', 504)
-                result = await asyncio.get_running_loop().run_in_executor(self.executor, self.backend.synthesize, work.payload, work)
+                generate = self.backend.synthesize_binary if work.binary else self.backend.synthesize
+                result = await asyncio.get_running_loop().run_in_executor(self.executor, generate, work.payload, work)
+                if work.binary and not isinstance(result, BinarySpeech):
+                    raise VoiceError('VOICE_TIMING_INVALID')
                 if not work.completion.done():
                     if work.cancelled.is_set():
                         raise VoiceError('VOICE_CANCELLED', 409)
@@ -430,7 +493,7 @@ class VoiceService:
         if self.startup is not None and self.startup is not asyncio.current_task():
             await self.startup
             self.startup = None
-        for work in tuple(self.pending.values()):
+        for work in tuple(self.pending.values()) + tuple(self.streams.values()):
             work.cancel()
             if not work.completion.done():
                 work.completion.set_exception(VoiceError('VOICE_UNAVAILABLE'))
@@ -445,6 +508,7 @@ class VoiceService:
             self.executor.shutdown(wait=True, cancel_futures=True)
             self.executor = None
         self.pending.clear()
+        self.streams.clear()
         self.cancelled.clear()
 
     def lifecycle(self, inner):
@@ -462,8 +526,56 @@ class VoiceService:
 
 def install_voice_routes(app, service):
     # The private GPU worker imports this module without HTTP dependencies.
+    from anyio import CancelScope
     from fastapi import Request
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import JSONResponse, StreamingResponse
+    from starlette.background import BackgroundTask
+    from starlette.requests import ClientDisconnect
+
+    class VoiceStreamingResponse(StreamingResponse):
+        def __init__(self, packets, work, audio_frames):
+            self.work = work
+            # Synthesis keeps its original Work.deadline. Completed PCM gets one
+            # fixed transport window: its validated playback duration plus the
+            # existing timeout (at most 55 seconds by default), never renewed.
+            duration = min(audio_frames, MAX_AUDIO_FRAMES) / SAMPLE_RATE
+            self.deadline = time.monotonic() + service.timeout + duration
+            async def retire():
+                # Keep ownership mutations on the event loop, including the
+                # normal Starlette background callback and repeated cleanup.
+                service.release_stream(work)
+            super().__init__(packets, media_type=PCM_STREAM_TYPE,
+                             headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'},
+                             background=BackgroundTask(retire))
+
+        async def __call__(self, scope, receive, send):
+            response = asyncio.create_task(super().__call__(scope, receive, send))
+            failure = None
+            try:
+                while not response.done():
+                    remaining = self.deadline - time.monotonic()
+                    if service.stream_cancelled(self.work) or remaining <= 0:
+                        self.work.cancel()
+                        raise ClientDisconnect()
+                    await asyncio.wait((response,), timeout=min(.1, remaining))
+                await response
+            except BaseException as error:
+                failure = error
+            finally:
+                response.cancel()
+                try:
+                    # Starlette 1.7 skips background cleanup on send failures.
+                    # Retire its task before closing the possibly active iterator.
+                    with CancelScope(shield=True):
+                        await asyncio.gather(response, return_exceptions=True)
+                        await self.body_iterator.aclose()
+                except BaseException as error:
+                    if failure is None:
+                        failure = error
+                finally:
+                    service.release_stream(self.work)
+            if failure is not None:
+                raise failure
 
     def owner(request):
         principal = getattr(request.state, 'principal', None)
@@ -491,6 +603,33 @@ def install_voice_routes(app, service):
             result = await service.synthesize(principal, payload, request.is_disconnected)
             return JSONResponse(result, headers={'Cache-Control': 'no-store'})
         except VoiceError as error:
+            return failure(error)
+
+    @app.post(BASE + '/synthesize/stream')
+    async def synthesize_stream(request: Request):
+        work = None
+        try:
+            principal = owner(request)
+            payload = await bounded_json(request)
+            result = await service.synthesize(principal, payload, request.is_disconnected, binary=True)
+            identifier = result.metadata['request_id']
+            work = service.streams.get((principal, identifier))
+            if work is None:
+                raise VoiceError('VOICE_CANCELLED', 409)
+            header = result.header()
+
+            async def packets():
+                if not service.stream_cancelled(work):
+                    yield header
+                for chunk in result.chunks():
+                    if service.stream_cancelled(work):
+                        return  # Missing terminal frame is cancellation, never a complete utterance.
+                    yield chunk
+
+            return VoiceStreamingResponse(packets(), work, len(result.pcm) // 4)
+        except VoiceError as error:
+            if work is not None:
+                service.release_stream(work)
             return failure(error)
 
     @app.post(BASE + '/cancel')

@@ -304,6 +304,36 @@ class GitHubIntegrationAcceptanceTest {
         assertEquals(JsonPrimitive("NOT_TESTED"), row["acceptance_state"])
     }
 
+    @Test fun retainedPagesAndPreservedReserveCannotSubstituteForExactRevisionTestExecution() {
+        val request = "Retain exact-sha test receipts and pending remote continuations without spending the final verification reserve on discovery"
+        val discovery = JsonObject(catalog(0, 3) + ("tool_budget" to json("""{"used":1,"limit":256}""")))
+        val row = acceptance(mapOf("discovery" to discovery), request).single()
+        assertEquals(JsonPrimitive("NOT_TESTED"), row["status"])
+        assertEquals(JsonPrimitive("WORKFLOW_RUN_OR_JOB_REQUIRED"), row["blocker_code"])
+        val components = row.getValue("evidence_components").jsonObject
+        assertEquals(JsonPrimitive("NOT_OBSERVED"), components["exact_sha_test_receipts"])
+        assertEquals(JsonPrimitive(0), components["exact_sha_test_receipt_count"])
+        assertEquals(JsonPrimitive("NONE_PENDING"), components["pending_continuations"])
+        assertEquals(JsonPrimitive("PRESERVED"), components["verification_reserve"])
+        assertEquals(JsonPrimitive(false), components["saved_pages_are_test_execution"])
+
+        val available = listOf(tool("github_context", "status", "branches")) + tools.drop(1)
+        val pending = receipt(
+            "branches",
+            "github_context",
+            json("""{"action":"branches","page":1}"""),
+            json("""{"has_more":true,"continuation_call":{"tool":"github_context","arguments":{"action":"branches","page":2}}}""")
+        )
+        val records = mapOf("discovery" to discovery, "branches" to pending)
+        val withPages = GitHubIntegrationAcceptance.requirements(request, records, available, runtime).single().jsonObject
+        assertEquals(JsonPrimitive("NOT_TESTED"), withPages["status"])
+        assertEquals(JsonPrimitive("WORKFLOW_RUN_OR_JOB_REQUIRED"), withPages["blocker_code"])
+        assertEquals(JsonPrimitive("PRESERVED"), withPages.getValue("evidence_components").jsonObject["pending_continuations"])
+        assertEquals(JsonPrimitive(1), withPages.getValue("evidence_components").jsonObject["pending_continuation_count"])
+        val withheld = GitHubIntegrationAcceptance.requirements(request, records, tools, runtime).single().jsonObject
+        assertEquals(JsonPrimitive("INVALID_OR_UNAUTHORIZED"), withheld.getValue("evidence_components").jsonObject["pending_continuations"])
+    }
+
     @Test fun catalogPagesFromAnotherAccountOrRepositoryCannotFinalizeTheDenominator() {
         for (field in listOf("binding", "repository")) {
             val records = linkedMapOf("catalog-0" to catalog(0, 2), "catalog-2" to JsonObject(catalog(2, 1) + (field to JsonPrimitive("another-scope"))))

@@ -1,0 +1,88 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "catalog-query-issues2380-2381-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "parent_pr": 2367,
+  "parent_head": "05c4c2db6545ca9c70cbe027e3b0096efaba4827",
+  "working_branch": "detached/catalog-query-issues2380-2381",
+  "intent": "Repair bounded local catalog discovery shapes while preserving selectors, exact advertised-contract checks, caller intent and execution authority.",
+  "status": "IMPLEMENTED_FOCUSED_VALIDATION_PASSED_CANONICAL_INTEGRATION_PENDING",
+  "issues": [
+    2380,
+    2381
+  ],
+  "observed": {
+    "reported_commit": "c802853ee147940f3cd25331ece43f704dff2826",
+    "app_version": "0.9.66.14",
+    "build": 148,
+    "android": "16",
+    "sdk": 36,
+    "2380": "Undispatched ACTION_WITHOUT_NAMES with exact action search and string query; no unknown fields. The original query literal is unavailable.",
+    "2381": "Undispatched NAMES_NOT_ARRAY with scalar string names and string query. Original literals and current advertised-contract provenance are unavailable."
+  },
+  "changes": [
+    "Normalize only exact action=search plus a valid nonblank bounded query, absent/null names, absent/true catalog_only and no mixed selectors into existing local catalog discovery. Preserve query bytes.",
+    "Offer scalar names plus query as an explicit new local discovery correction_call preserving the one literal and query. Do not automatically resolve aliases, split names or bypass current advertised candidate/presented schema fingerprints.",
+    "Do not override explicit false or malformed catalog_only in action-without-names correction suggestions.",
+    "Add four behavior regressions covering actual repository budget wrappers, original call/observer receipts, boundaries, named actions and forbidden selector combinations."
+  ],
+  "constraints": [
+    "Keep all original names and query text; do not invent names or drop selectors.",
+    "Do not acquire cold tools, select hidden definitions, widen grants, change budgets or replay an invalid original call.",
+    "Preserve valid one-tool actions and existing exact-current-advertised scalar automatic repair.",
+    "Retain query/name length bounds and schema rejection of unknown, pagination and repository-selector mixtures."
+  ],
+  "validation": [
+    {
+      "check": "Immutable05c4 negative control",
+      "result": "EXPECTED_FAILURES",
+      "scope": "Eleven selected methods run against literal original production source with current regression fixtures.",
+      "tests": 11,
+      "passed": 8,
+      "failed": 3,
+      "failing_methods": [
+        "localDiscoverySuggestionsPreserveExplicitChoicesAndRejectMalformedOrMixedSelectors",
+        "scalarNameAndQueryOfferAnExplicitLocalProposalWithoutWeakeningAutomaticSelection",
+        "searchActionWithoutNamesPreservesQueryAndUsesOnlyLocalDiscovery"
+      ]
+    },
+    {
+      "check": "Current formatted production host probe",
+      "result": "PASS",
+      "scope": "Eleven selected repository methods exercise production catalog/validator through direct catalog.execute. Explicit ports replace unrelated platform/provider/classification services; status input ports preserve exact production semantics. Real budget/observer wrapper assertions are retained in repository tests but excluded from host extraction.",
+      "tests": 11,
+      "passed": 11,
+      "failed": 0
+    },
+    {
+      "check": "Canonical bash scripts/validate-local.sh fast",
+      "result": "BLOCKED_STALE_APP_AUDIT_INVENTORY",
+      "scope": "Earlier policy/reference checks pass. Generated inventory refresh and final canonical validation are owned by combined-tree integration."
+    },
+    {
+      "check": "Pinned ktlint1.3.1",
+      "result": "PASS",
+      "files": 3
+    },
+    {
+      "check": "git diff --check",
+      "result": "PASS"
+    }
+  ],
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": "ea683b9e7838efdeb3c108394a7cefb36548905544856d1396a8c5effc97d4cf",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt": "c53858769ccfacf6c098ef0b6edcfc36719003e3641e79e0379dd4bf25d3d51b",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogSelectorRecoveryTest.kt": "2d94c97085df7e4442464bc639729f7bacf0d48fff04d5f69948531e17f5a497"
+  },
+  "independent_review": {
+    "status": "CLEAR",
+    "scope": "Two production files and all four formatted regression methods bound to listed hashes; host evidence review and final combined execution remain separate."
+  },
+  "remaining": [
+    "Generate source inventory and run canonical validation on the combined integration tree.",
+    "Execute real repository budget/observer regressions and final integrated Android/hosted CI.",
+    "Root coordinates current-head integration, merge and any issue closure. No original device incident was reproduced because raw literals are absent."
+  ]
+}

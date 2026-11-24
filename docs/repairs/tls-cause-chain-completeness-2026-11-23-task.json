@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "task": "tls-cause-chain-completeness-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseSha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "parentPullRequest": 2367,
+  "startingHead": "8ba187495f467aa17d992fa6a6d753eb89e7db12",
+  "startingTree": "81cd935398c5b3c4ed533a3a00e8ed1b1e868b33",
+  "workingBranch": "work/tls-chain-completeness-2026-11-23",
+  "intent": "Preserve dispatch uncertainty when a bounded exception cause chain cannot be completely classified.",
+  "status": "IMPLEMENTED_AND_FOCUSED_VALIDATED_PENDING_INTEGRATION_AND_HOSTED_CHECKS",
+  "changes": [
+    "Retain a maximum of16 distinct identity cause nodes and report whether traversal reaches a null terminal.",
+    "Preserve observed cancellation before typed TLS; unresolved nonterminal chains are UNKNOWN, not transient wrapper evidence.",
+    "Reject incomplete classification in executeWithRetry before failure-specific/general callbacks and in static isRetryable admission.",
+    "Preserve original thrown objects, durable/worker/attempt fences, delay budgets and ordinary callback ordering.",
+    "Add five ordinary project methods; preserve all24 existing focused methods and every original assertion."
+  ],
+  "validation": {
+    "focusedQualificationSha256": "eede88e57edf85b3a4b93acb7ab9fd48d71e6c81407f7fccbab9f273af9e71a0",
+    "methods": {
+      "baseline": {
+        "run": 29,
+        "passed": 26,
+        "failed": 3,
+        "ignored": 0,
+        "expectedFailures": [
+          "dev.chungjungsoo.gptmobile.data.network.ResilientStreamingClientTest#cyclicCausesCannotRunCallbacksOrEraseDispatchUncertainty",
+          "dev.chungjungsoo.gptmobile.data.network.ResilientStreamingClientTest#seventeenthNodeTerminalFailuresCannotRunCallbacksOrEraseDispatchUncertainty",
+          "dev.chungjungsoo.gptmobile.data.network.NetworkFailureKindTest#unresolvedChainsCannotBorrowATransientWrapperClassification"
+        ]
+      },
+      "corrected": {
+        "run": 29,
+        "passed": 29,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    "formatter": "Pinned ktlint1.3.1; nonmutating4-file check passed before execution.",
+    "latestPublicInputBinding": "All12 complete harness inputs at ebd0cb541582abf69e46a2b95507dd33d8e950a6 are byte-identical to8ba before applying this correction.",
+    "canonical": "Root integration owner runs canonical validation and generated scope/reference checks on the final composed source.",
+    "hostedAndroid": "PENDING; no actual final-head Android/device/full-suite pass is claimed."
+  },
+  "boundaries": [
+    "Exactly one baseline and one corrected run of the complete two ordinary project test classes using pinned cached dependencies.",
+    "Whole actual client, classifier, retry guard and test source; only previously approved full-class extractions and unused dependency seams.",
+    "ProviderRequestConfig declaration-only prefix preserves actual apiUrl/token/anthropicBetaFeatures/extraHeaders fields/defaults; no full-config/provider/HTTP/Android qualification.",
+    "Unused WorkerRequestBudget preflight/acquireRequest and AppLogRecorder import omitted; worker admission is unexecuted.",
+    "No external HTTP, Android, device, UI, physical processor or composed private-stream execution.",
+    "Private preparation performed no commit, push, CI mutation or remote write; root coordinates guarded integration."
+  ]
+}

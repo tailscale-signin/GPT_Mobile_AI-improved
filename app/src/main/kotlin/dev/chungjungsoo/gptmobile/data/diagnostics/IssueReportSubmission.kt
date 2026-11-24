@@ -131,10 +131,20 @@ internal class IssueReportSubmission(
             RepositoryOperationReportContract.FEATURE,
             IssueReport.FRAMEWORK_EXCEPTION_FRAMES_FEATURE,
             ExecutionCompletionDiagnostics.FEATURE,
+            ExecutionCompletionDiagnostics.PROVIDER_LIMIT_CAUSE_FEATURE,
+            IssueReportDiagnostics.SAVED_PAGE_REPLAY_FEATURE,
+            "REPLAY_BUDGET_EVIDENCE_V1",
+            "GRAPH_TRANSPORT_EVIDENCE_V1",
+            "GRAPH_LOCAL_CONTEXT_FAILURE_V1",
+            "TASK_AND_TOOL_FAILURE_DETAILS_V1",
+            "READER_AND_RUN_FAILURE_DETAILS_V1",
             ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE,
             IssueReportDiagnostics.COMBINED_SINGLE_PASS_FEATURE,
             VoiceExecutionDiagnostics.FEATURE,
+            VoiceExecutionDiagnostics.STREAMING_BACKEND_FEATURE,
             IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE,
+            IssueReportIncidentCapsule.TLS_TRANSPORT_PHASE_FEATURE,
+            IssueReportDiagnostics.GITHUB_READ_REVISION_FEATURE,
             RequestByteBudget.FEATURE,
             IssueReportDiagnostics.SELECTED_MODEL_ADMISSION_FEATURE, IssueReportDiagnostics.REVIEW_CATALOG_FEATURE, IssueReportDiagnostics.ACTION_ONLY_FEATURE,
             IssueReportDiagnostics.REPEAT_PRIOR_CAUSE_FEATURE, IssueReportDiagnostics.PROFILE_BEHAVIOR_FEATURE,
@@ -161,6 +171,7 @@ internal class IssueReportSubmission(
             IssueReportIncidentCapsule.GITHUB_PR_CONTEXT_RACE_FEATURE,
             "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1",
             PrivacyFailureEvidence.FEATURE,
+            PrivacyFinalRequestFailureEvidence.FEATURE,
             dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence.FEATURE
         )
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
@@ -208,6 +219,7 @@ internal class IssueReportSubmission(
                     add(IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE)
                 }
                 if (PrivacyFailureEvidence.CODE in codes) add(PrivacyFailureEvidence.FEATURE)
+                if (PrivacyFinalRequestFailureEvidence.CODE in codes) add(PrivacyFinalRequestFailureEvidence.FEATURE)
                 if ("OUTPUT_CONTINUATION_NO_PROGRESS" in codes ||
                     "PROVIDER_INVOCATION_FAILED" in codes ||
                     code(diagnostics?.values?.get("provider_failure_code")) == "BUDGET_RESTRICTED"

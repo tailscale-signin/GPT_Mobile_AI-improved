@@ -1,0 +1,316 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-accelerator-rebuild-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "localWorkingBranch": "task/voice-published-integration",
+  "startingHead": "1cc96b1936c1b3f6442cc89441cce3c6ee77daaa",
+  "startingTree": "ba5935499911df8489afe09ccc97150f071b36db",
+  "localSnapshotCommit": "bbdcb670676e40049887dabb1903ee9502697497",
+  "pullRequest": 2367,
+  "status": "SOURCE_RECONCILED_NATIVE_CONTEXT_QUALIFIED_HOSTED_PENDING",
+  "intent": "Implement the approved GPU/NPU runtime, graph preparation, SDK streaming, memory reuse, thermal scheduling, diagnostic export and qualification improvements; preserve concurrent changes and all existing verification gates; finish with verified publication after current PR and actual-main checks pass.",
+  "authorization": "The user explicitly resumed implementation, draft push, green-gated merge and publication after the earlier Stop. This task is active and must be reconciled before publishing the shared release.",
+  "acceptance": [
+    "A compatible runtime upgrade includes actual published artifact verification and matching shared-QAIRT dispatch provenance; an older binary must never be relabelled as a new SDK build.",
+    "A reproducible source-build and model diagnostic path uses original floating weights, explicit backend variants and representative calibration; physical correctness and performance remain measured claims only.",
+    "Native compiled contexts have bounded atomic persistence, immutable model/runtime/device/shape/options identities, digest checks, conservative invalidation and safe source-model fallback.",
+    "Native evidence distinguishes engine load, graph compilation, saved-context loading, resident reuse and inference; old receipts remain readable without invented observations.",
+    "GPU divergence diagnostics retain CPU-reference comparisons and shape/precision safeguards; invalid audio never qualifies for production acceleration.",
+    "LiteRT Kokoro bucket settings are wired from settings and benchmarks through factory/cache identity to the real SDK without truncating text.",
+    "Incremental SDK reply streams retain stable text, bounded PCM/backpressure, caption offsets, interruption and actual native retirement; native and Gateway paths retain their contracts.",
+    "Supported per-utterance voice changes reuse model weights without silently changing the requested voice, language or quality preference.",
+    "Voice uses the existing thermal governor and supported performance hints without competing thermal polling or changing spoken content.",
+    "Speech/performance exports are staged to private files off the UI thread, recover after picker failures and process recreation using small identifiers, stream bounded records and preserve final content.",
+    "Benchmarks expose the new experiment identities and preparation sources, preserve cross-engine/processor evidence distinctions, and support defined sustained qualification.",
+    "Run meaningful regressions and unchanged canonical gates, reconcile each incoming branch advance, push a guarded append, merge normally only with current required checks, then verify actual-main and signed Android/Gateway publication."
+  ],
+  "workers": [
+    {
+      "owner": "native",
+      "branch": "task/voice-rebuild-native",
+      "scope": "Native C++/Java context cache, runtime evidence and Qualcomm factory"
+    },
+    {
+      "owner": "sdk",
+      "branch": "task/voice-rebuild-sdk",
+      "scope": "MediaPipe buckets, incremental input, resident voice reuse and playback ownership"
+    },
+    {
+      "owner": "runtime",
+      "branch": "task/voice-rebuild-runtime",
+      "scope": "Published dependency verification, native build provenance and model diagnostics"
+    },
+    {
+      "owner": "integration",
+      "branch": "task/voice-rebuild-integration",
+      "scope": "Export recovery, UI/settings/benchmarks, thermal policy, integration and release"
+    }
+  ],
+  "qualification": {
+    "local": "Scoped source and host controls passed, including the clean actual full-model/JNI context and lifecycle run; exact composed canonical and final hosted qualification remain separate requirements.",
+    "hosted": "PENDING_FINAL_COMBINED_HEAD",
+    "physicalDevice": "NOT_MEASURED; the supplied screenshot is prior-build baseline evidence",
+    "publication": "NOT_PUBLISHED"
+  },
+  "reconciledPublicHeads": [
+    "dcaa851dce7fb7f602ed6d230f24bdf69838c06a",
+    "a38d3fc593bb16aa898212c46824d8d3de27aea2",
+    "5575c6fac0ddd21b8d4772f051a5c87360f9d0ad",
+    "d50a778d7ed7b41390d031fad9831689537935f1",
+    "b50c29febaeb54808a4561955220f5b33bd09253",
+    "099603c699bba0b00a0a7380b5b45fc10229296f",
+    "0e350f23cf41b5b934effa1d8a44307ba8eebbf1",
+    "ed39449085e693fc36d0ed742c10b2cc56ad8643",
+    "e8552961c988df4ba5b89e04f3c3cdaa36cc5a3c",
+    "9473aea1958b4ea55c80e1e4fbae027c8bc95084",
+    "dcfe93976b56cb4f61e5c60a75cd9ada6b9224c0",
+    "e40659976e33b2e305169f66fbb5c017f6e93282",
+    "be94fb53e14e9fc0188a87b72f8b224b207fd2af",
+    "f9f6fae9b4f267b8c76d3cdf1c1924b11c1de040",
+    "0e05b1949d83a3cba3aea9ff823a1ef76cfbe009",
+    "1973d18aca6be64b326d6b8f90faddccc9c4580f",
+    "38c52eea9eb9703147025c0e6cab6b663d79ef78",
+    "1e9ece5656172bf1e0678097d9f9784114856b9e",
+    "1a5407eebe65931068c22cc80b169a851ee90c17",
+    "6623502134fda34a98ff3b9fc773ba7df51f2750",
+    "cffc64e0a99bc2ba6244f43ed76f014a6e53d5bf",
+    "5055dadedf1c1b318e66e7b78ccb0eeeed247c12",
+    "7e728578c2899d1ecafa284552466f075f46ecb4",
+    "57721cdd9085f0a6dcc06e33d30d8004a955b71d"
+  ],
+  "pendingPublicHead": null,
+  "publishedDraftPreparationCommits": [
+    "18f47a38d6b5c68f3f5922406bd098e023a0ef66",
+    "d50a778d7ed7b41390d031fad9831689537935f1",
+    "b50c29febaeb54808a4561955220f5b33bd09253"
+  ],
+  "validation": {
+    "initialExportSourceTests": {
+      "passed": 116,
+      "scope": "Selected source before latest cross-worker integration; not final-head proof"
+    },
+    "exportRecoveryViewModelAndStore": {
+      "passed": 13,
+      "scope": "Actual selected sources against Lifecycle2.11/SavedState1.5; no Compose rendering or Android document provider"
+    },
+    "sdkSourceTests": {
+      "passed": 88,
+      "scope": "Actual pinned tasks-audio1.2.3 APIs and recorded dependency closure; no full Android build or hardware claims"
+    },
+    "nativeContext": {
+      "historicalInitialControls": {
+        "scope": "Atomic cache/ABI/6 native control tests passed; minimal real HTP host-emulator embedded context roundtrip passed; full-model lifecycle processes SIGKILL, no full-model pass claimed"
+      },
+      "sourceCommit": "48287649351098398a47cfd12b73be4e1cbce0a1",
+      "evidence": "docs/repairs/evidence/voice-runtime-recovery/native-context-serialization.json",
+      "evidenceSha256": "917566e5545082df5d587f7331abba1b03fba271d43f83a4b8596a23550347f8",
+      "status": "PASSED_CLEAN_FULL_NATIVE_DRIVER",
+      "qualification": "Pinned full Kokoro model/frontend, production JNI source, ORT 1.28.2/QNN 2.8/QAIRT 2.52, explicit x86 host emulator and host-only fault ports.",
+      "nativeTestsPassed": 8,
+      "jniCasesPassed": [
+        "unqualified_cancel",
+        "unqualified_failure",
+        "qualified_cancel",
+        "context_roundtrip"
+      ],
+      "sourceBindingsUnchanged": 32,
+      "observations": "Initial compile/load/store, resident reuse, fresh disk hit, corruption repair and preparation cancellation pass; the source-preparation cancellation case starts zero compilations and zero fallbacks; no orphan profiles or source snapshots. All inference paths retain 39 QNN and 1477 CPU kernels. Original-model signal consistency passes with normalized RMS error 0.150871; bitwise or listening equivalence is not asserted.",
+      "receiptSha256": "dfa5363f66bb9e99f09848a0115f24cd7bbc891d22fd0061d2dd6094945ab08f",
+      "scope": "Host execution only. Android packaging, final-head hosted native/JNI execution and publication remain pending; physical-phone performance and listening quality remain unqualified and unclaimed."
+    },
+    "localAndroidCompile": {
+      "status": "DAEMON_DISAPPEARED_BEFORE_COMPILATION",
+      "log": "voice-rebuild-android-compile.log"
+    },
+    "hostedDispatchCandidate": {
+      "run": 45309295693,
+      "head": "b50c29febaeb54808a4561955220f5b33bd09253",
+      "status": "SUCCESS",
+      "artifact": 14882976564,
+      "artifactSha256": "2b7f3c08ae50ced2a39742a53208dfa21ce852fa83978fb0dfd5da1eb891fad7",
+      "librarySha256": "8a8b31aa09b5f0998955014ee4c8e2811f993461cfc797d95b30e3999b417e06",
+      "scope": "Pinned source/SDK build, ARM64, 16KiB ELF alignment, exports and dependency closure; verified binary promoted with paired QNN2.8/QAIRT2.52 metadata. Combined Android and physical execution remain separate."
+    },
+    "exportComposeControl": {
+      "status": "SCOPED_COMPILE_PASSED",
+      "scope": "Actual root Compose control with Kotlin2.4.20 Compose compiler, Android37 and pinned dependencies; no rendered UI or provider execution"
+    },
+    "combinedExportEvidence": {
+      "passed": 62,
+      "scope": "Actual integrated report/export/playback protocol/controller and Java evidence sources; includes context/model-variant and sustained/legacy roundtrips, thermal stop and streamed equality. Source snapshot unchanged.",
+      "sourceCommit": "f93066f18e5"
+    },
+    "canonicalFast": {
+      "status": "PASSED",
+      "scriptTests": 725,
+      "scope": "Historical pre-outage combined-source result at the original checkpoint; current restored-tree canonical validation is pending."
+    },
+    "historyStore": {
+      "passed": 6,
+      "scope": "Actual API34 Robolectric AtomicFile with117 protocol-v4 receipts above4MiB, bounded8MiB persistence, whole-run eviction and oversized valid-JSON rejection.",
+      "sourceCommit": "f93066f18e5"
+    },
+    "benchmarkMethodSize": {
+      "status": "PASSED_SCOPED_D8",
+      "priorHostedFailure": {
+        "run": 45304806684,
+        "job": 138148217124,
+        "observedCodeUnits": 17000,
+        "limit": 16383
+      },
+      "afterCodeUnits": {
+        "execute": 6552,
+        "measurePlayback": 1472,
+        "reportWriterPublish": 662
+      },
+      "scope": "Actual compiled current ViewModel sources using D8 37/minAPI31; all measured helpers below16383. Isolated PlaybackBenchmark API boundary remains declared; full packaged APK CI remains required."
+    },
+    "benchmarkViewModelCompile": {
+      "status": "PASSED_SCOPED_COMPILE",
+      "scope": "Actual current ViewModel, Qualcomm/model/history/energy/retirement sources with Android37/Lifecycle2.11/Hilt2.60.1; source-inspected PlaybackBenchmark API boundary isolated, so full Android behavior remains CI.",
+      "compilerHeapMiB": 144,
+      "metaspaceMiB": 96
+    },
+    "hostRuntimeIdentity": {
+      "status": "PASSED_FIVE_REGRESSIONS_AND_ACTUAL_INPUT_CHECKS",
+      "scope": "Current QNN2.8/QAIRT2.52 publisher bytes accepted against matching application identity; historical2.7 bytes rejected against current application identity and accepted only with matching historical identity. No model inference rerun."
+    },
+    "scannerChecksumControls": {
+      "status": "PASSED_38_CONTROLS",
+      "scope": "Exact public Compose artifact path/field/SHA256 exception after byte and approved dependency verification; changed path/field/digest and adjacent credential controls retained. Full historical traversal is a separate gate.",
+      "releaseRange": {
+        "base": "8095c1aee67b64584033289944eff1dfac7a7b48",
+        "head": "3f2023da9b9",
+        "commits": 109,
+        "findings": 0,
+        "exitCode": 0
+      }
+    },
+    "benchmarkSettingsCompose": {
+      "status": "PASSED_SCOPED_COMPILE_AND_D8",
+      "largestSettingsCodeUnits": 7480,
+      "largestResultCardLambdaCodeUnits": 5766,
+      "limit": 16383,
+      "scope": "Actual current benchmark Settings and SDK results-card against current VM/report APIs and pinned Compose/Hilt dependencies; popup rendering isolated. Full APK/rendered UI remains CI."
+    },
+    "candidatePublisherRetry": {
+      "observedRun": 45317430933,
+      "observedJob": 138187541845,
+      "observedHead": "be94fb53e14e9fc0188a87b72f8b224b207fd2af",
+      "observedFailure": "HTTP429 while downloading a pinned Maven artifact; no compiler or runtime verdict was reached",
+      "scopedTests": 8,
+      "scope": "Three original candidate controls retained and five behavioral methods added. Transient429/500/502/503/504 allow at most three attempts with bounded Retry-After; every attempt retains HTTPS, size, SHA256 and publisher SHA1 validation. Permanent rejection, overlong retry delay and mismatched bytes fail without replacing an artifact. Current hosted rebuild remains required.",
+      "disposition": "The private overlapping draft was removed. The exact coordinated external commit is integrated; its11 current controls and independent immutable source review preserve all publisher checks and native-build validation. Final hosted candidate remains required.",
+      "integratedExternalCommit": "dec118b78d5144d2b3f10616ac20e98501a4678d"
+    },
+    "wholeRepositoryHistory": {
+      "status": "NO_VERDICT_LOCAL_TIME_BOUND",
+      "scope": "The fresh local whole-history wrapper reached its180-second local guard before a scanner verdict. No actual-repository clean-history claim is made; the mandatory unchanged hosted history gate must complete. The separately recorded actual synthetic integrity cases passed."
+    },
+    "canonicalRestoredSource": {
+      "head": "204348c585507060cd382571d197b7c8992233b1",
+      "tree": "fdde108a9e7d8c8c3927155bef3d619beb797a7b",
+      "exitCode": 0,
+      "scriptTests": 781,
+      "trackedInputs": 7213,
+      "changedDuringRun": 0,
+      "scope": "Fresh canonical host checks on the complete restored voice source before the incoming Windows fixture merge; current final-tree and hosted gates remain required."
+    },
+    "scopedHistoryFindings": {
+      "referenceHead": "9669ea144efecba06d9d29414ed669d8f4b3719c",
+      "commits": 93,
+      "exitCode": 1,
+      "findings": 7,
+      "classification": "docs/repairs/evidence/voice-runtime-recovery/scoped-secret-classification.json",
+      "scope": "Five matches bind to actual historical public wrapper bytes; two bind to an independently downloaded687-byte public token file. These are known checksum findings, not a clean scan. The coordinated checksum owner retains exact exception/control changes and final whole-history execution."
+    },
+    "recoveredCanonicalCheckpoint": {
+      "head": "8583a25645dfac7778c1277b60bce22d36441973",
+      "tree": "6db6ac13ff01f0aa99d8ac1f426bbf7874fa391c",
+      "command": "bash scripts/validate-local.sh fast",
+      "exitCode": 0,
+      "tests": 781,
+      "unchangedTrackedInputs": 7215,
+      "logSha256": "871260a522a3decbbfb888f3c65809734a9684847f68f32ef7920f823a25ce89",
+      "scope": "Historical exact restored tree before subsequent reporter composition; final combined source and hosted checks remain required."
+    },
+    "incomingReporterComposition": {
+      "publicHead": "1973d18aca6be64b326d6b8f90faddccc9c4580f",
+      "review": "docs/repairs/evidence/voice-runtime-recovery/reporter-composition-review.json",
+      "result": "All38 original pin controls and Compose fixture inputs retained; actual pinned scanner intact/restored histories pass and missing ordinary object stops before scanner execution. Whole-repository result remains separate."
+    }
+  },
+  "remaining": [
+    "Freeze the final combined source and pass canonical, exact-head ordinary/heap, Android, native/JNI, model, packaging and all applicable hosted gates.",
+    "Preserve the coordinated pronunciation, scanner, privacy comparison and GitHub intelligence follow-ups and close their source reservations before readiness.",
+    "Merge normally only after current-head PR qualification, pass every actual-main gate and verify all14 Android/Gateway public asset bytes, signatures and trusted provenance."
+  ],
+  "recovery": {
+    "checkpointCommit": "30f4ea9858d772cee7c0eb1eb66c0dc0b57f2057",
+    "checkpointTree": "bd31a6cc450a69bf8d78f7e3c73d47bc82ef0c0a",
+    "branch": "recovery/voice-runtime-checkpoint-2026-11-24",
+    "restoredIntegrationCommit": "07dee675074a272b72c4abd7f41a4c61720639a6",
+    "mergedPublicHead": "be94fb53e14e9fc0188a87b72f8b224b207fd2af",
+    "scope": "The execution service returned a fresh filesystem. The initial checkpoint preserves the core implementation; later cancellation, private cache-directory, incremental-model-smoke, progress, chunk-spacing and workbench corrections have now been restored and independently checked at the exact recorded source identities. Historical and scoped results do not establish final hosted or physical qualification.",
+    "validatedRecoveryCommit": "39940dd0f18bb37e371977a9138eba52e4306f82",
+    "validatedRecoveryTree": "fdde108a9e7d8c8c3927155bef3d619beb797a7b"
+  },
+  "restoredFixes": {
+    "native": {
+      "sourceCommit": "8f1b44f0d5623492b36a2ba212476bb97a0b91c2",
+      "integrationCommit": "6dc0775f8",
+      "scope": "Cancellation finalization lock, deterministic actual-cache control, required full-model/JNI workflow and pinned preparer, signal consistency controls, original history test selector retained with stronger fixture",
+      "freshValidation": "Native cache/cancellation/evidence/PCM contracts and eight preparer controls pass; no full-model or physical execution claimed"
+    },
+    "sdkIncrementalSmoke": {
+      "sourceCommit": "2573538bc",
+      "integrationCommit": "2cf7923ef",
+      "freshValidation": "Eight protocol and thirteen Android receipt/runner controls pass; actual model execution and final current-source Android CI remain required"
+    },
+    "scannerHistoryFixture": {
+      "status": "PASSED_CURRENT_SCANNER_FIXTURE",
+      "scannerVersion": "8.30.1",
+      "scannerSha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+      "scope": "Actual intact and restored synthetic histories each complete all38 controls and scanning. Removing an ordinary historical blob exits128 before scanner execution. This is not the real whole-repository history result."
+    },
+    "progressPublication": {
+      "ownedCommit": "777d54b782bcaa7400b32dd34d289b4e5dc683e0",
+      "controllerCommit": "c4d1963101a3238cb411b7e8371e39e54649b2e1",
+      "integrationCommits": [
+        "df6a3ad6fa",
+        "682e0aa251"
+      ],
+      "freshSourceReview": "Exact external controller and owned DTO/collector/display composition reviewed; all107 original methods retained with12 additional methods across four relevant classes. Scoped verbatim collector methods fail6of8 controls before the correction and pass8of8 after it. Actual composed Flow/controller/Android runtime remains required in ordinary CI."
+    },
+    "cacheDirectory": {
+      "sourceCommit": "e487f2d4db9f4c3cc7fb202eed89b20909fe3fc7",
+      "freshValidation": "Actual Android37/SDK1.2.3 source compilation with declared isolated type boundaries;34 focused JVM methods and7 Robolectric API34 directory tests pass. Explicit BlockGuard close shadow models Linux descriptor retirement while retaining leak assertions. Full Android/production JNI remains required."
+    },
+    "sdkChunkSpacing": {
+      "sourceCommit": "9e0e7e96dc87a92dff3d715eda251a1d7a6c2296",
+      "capturedComponent": "af14995fd39e33110bfe80d9a6301c42398f5eac",
+      "freshValidation": "All18 focused planner/mapping methods pass: original8, incoming symbolic-term method and9 captured spacing regressions. The prior planner fails exactly7 of these cases. The complete captured3-file patch is reconciled with current pronunciation source; the old fourth ledger and full old commit were not recovered. Actual hosted SDK/native/Android execution remains required."
+    },
+    "modelWorkbench": {
+      "sourceCommit": "a7770834590bb365d6571986799375a90bb4810b",
+      "capturedComponent": "40c516200cccd595876552fc32efafa46310734e",
+      "recoveredProductionBlob": "19c64800b910dd67c33e2fc355c1ede41ac551d5",
+      "freshValidation": "24 pure controls and8 actual synthetic ONNX/NumPy tests pass under existing publisher-hashed dependencies. All4 original pure and5 original model methods remain. The decisive archive substitution control fails on the captured40c implementation and passes after explicit snapshot hash binding. Full prior commit/test/doc bytes were not recovered; these controls have fresh identities. Adjacent bounded JSON snapshot provenance is being finalized.",
+      "jsonSnapshotFollowup": {
+        "sourceCommit": "6fa8be33b67e689e2907a2dca13cb79f0b7ee998",
+        "freshValidation": "26 pure controls and11 synthetic ONNX/NumPy tests pass. Four controls fail against the previous source for unbounded JSON growth and comparison/quantization/stage provenance over replaced files. All32 preceding methods remain unchanged; five were added.",
+        "scope": "A single bounded JSON byte read supplies parsing and every reported manifest hash; no full-model copying or native behavior change."
+      },
+      "directoryPreflightFollowup": {
+        "sourceCommit": "36feec9ef050f423fd2d8a45a736d508d16c5f3a",
+        "receipt": "docs/repairs/evidence/voice-runtime-recovery/workbench-npz-directory-validation.json",
+        "freshValidation": "34 pure and12 actual tiny NumPy/ONNX methods pass; all37 preceding method ASTs are unchanged. Six selected methods fail against the baseline with35 assertion/subcase failures and no errors. The actual directory is bounded before ZipFile construction; real NumPy local ZIP64 round trips remain supported.",
+        "scope": "Encoded/directory admission and synthetic model behavior only; no measured peak-memory, full Kokoro, accelerator or physical performance claim."
+      }
+    }
+  },
+  "checkpointScope": "Source preparation and measured historical validation at the recorded revisions. Current PR workflow, main and release evidence determine later publication status."
+}

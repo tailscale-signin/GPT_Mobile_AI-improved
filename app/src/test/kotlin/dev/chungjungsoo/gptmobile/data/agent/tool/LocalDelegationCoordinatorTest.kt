@@ -1138,6 +1138,35 @@ class LocalDelegationCoordinatorTest {
         assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
     }
 
+    @Test fun `engineering helper and independent reviewer process the supplied diff without tool access`() = runTest {
+        val primary = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
+        val helper = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")
+        val reviewer = helper.copy(uid = "independent", model = "anthropic/claude-sonnet-4")
+        val calls = mutableListOf<String>()
+        val coordinator = LocalDelegationCoordinator(
+            primary,
+            { config.copy(allowRemoteWorkers = true, localPlatformsOnly = false, targetProfileUid = helper.uid, reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
+            { listOf(helper, reviewer) },
+            { _, _, _ -> error("Unexpected transport") },
+            generateWithProgress = { _, _, _, _, _ -> error("Tool-capable transport must remain closed") },
+            generateTextWithProgress = { profile, prompt, _, _, _ ->
+                calls += profile.uid
+                assertTrue(prompt.contains("widget.kt"))
+                "widget.kt line 7 introduces the requested bounds check."
+            },
+            generateReviewerWithProgress = { profile, prompt, _, _, _ ->
+                calls += profile.uid
+                assertTrue(prompt.contains("widget.kt line 7"))
+                assertTrue(prompt.contains("execution receipts"))
+                """{"review_score":92,"verdict":"PASS","issues":[],"corrections":null}"""
+            }
+        )
+        val result = coordinator.executeTask(helper, "GitHub diff on widget.kt line 7 adds a bounds check. Review the implementation.", 512, allowTools = false)
+        assertTrue(result.orEmpty().contains("widget.kt line 7"))
+        assertEquals(listOf(helper.uid, reviewer.uid), calls)
+        assertEquals(listOf(92), coordinator.reviewerScoresSnapshot())
+    }
+
     @Test fun `direct dispatch cannot bypass reviewer reservation`() = runTest {
         val source = source.copy(compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com", model = "gpt-4.1")
         val target = target.copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "qwen/qwen3-8b")

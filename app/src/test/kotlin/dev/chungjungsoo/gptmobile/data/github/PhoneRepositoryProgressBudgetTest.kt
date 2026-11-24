@@ -31,6 +31,8 @@ class PhoneRepositoryProgressBudgetTest {
     private val tree = "b".repeat(40)
     private val reads = ConcurrentHashMap<String, AtomicInteger>()
     private var slow = true
+    private var slowBlobIndex = 2
+    private var wrongBlobIdentity = false
     private var slowRevision = false
     private var latencyMs = 0L
     private var fileCount = 4
@@ -62,13 +64,13 @@ class PhoneRepositoryProgressBudgetTest {
         "/git/blobs/" in path -> {
             val sha = path.substringAfterLast('/')
             reads.getOrPut(sha) { AtomicInteger() }.incrementAndGet()
-            if (slow && sha == "%040x".format(2)) {
+            if (slow && sha == "%040x".format(slowBlobIndex)) {
                 slowEntered.complete(Unit)
                 awaitCancellation()
             }
             if (latencyMs > 0) delay(latencyMs)
             buildJsonObject {
-                put("sha", sha)
+                put("sha", if (wrongBlobIdentity && sha == "%040x".format(2)) "c".repeat(40) else sha)
                 put("encoding", "base64")
                 put("content", Base64.getEncoder().encodeToString("fun needle() = 1\n".toByteArray()))
             }
@@ -76,11 +78,11 @@ class PhoneRepositoryProgressBudgetTest {
         else -> error("Unexpected request $path")
     }
 
-    private fun session(store: GitHubRepositoryStateStore, operationMs: Long = 5000) = GitHubRepositorySession(
+    private fun session(store: GitHubRepositoryStateStore, operationMs: Long = 5000, blobTimeoutMs: Long = 500) = GitHubRepositorySession(
         "account", "connection", "chat", "task", store, ::request,
         { _, _ -> error("Read progress must never dispatch a mutation") },
         readOperationTimeoutMs = operationMs,
-        indexBlobTimeoutMs = 500
+        indexBlobTimeoutMs = blobTimeoutMs
     )
 
     private fun args(action: String) = buildJsonObject {
@@ -106,6 +108,9 @@ class PhoneRepositoryProgressBudgetTest {
             assertEquals(JsonPrimitive(1), first["prepared_through"])
             assertEquals(JsonPrimitive(true), first["has_more"])
             assertEquals(JsonPrimitive(true), first["read_deadline_reached"])
+            val initialDeferral = first.getValue("deferred_files").jsonArray.single().jsonObject
+            assertEquals(JsonPrimitive("BLOB_READ_DEADLINE"), initialDeferral["reason"])
+            assertEquals(JsonPrimitive(1), initialDeferral["attempts"])
             val second = session(GitHubRepositoryStateStore(directory)).repositoryMap("owner", "repo", args("index"))
             assertEquals(JsonPrimitive(2), second["prepared_through"])
             assertEquals(JsonPrimitive("src/File02.kt"), second.getValue("deferred_files").jsonArray.single().jsonObject["path"])
@@ -122,6 +127,59 @@ class PhoneRepositoryProgressBudgetTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    @Test fun repeatedOuterDeadlinesAtANonzeroCursorPersistTheActiveBlobAndEventuallyReachLaterFiles() = runBlocking {
+        val directory = Files.createTempDirectory("phone-index-outer-deadline").toFile()
+        try {
+            slow = false
+            fileCount = 26
+            val prepared = session(GitHubRepositoryStateStore(directory)).repositoryMap("owner", "repo", args("index"))
+            assertEquals(JsonPrimitive(24), prepared["prepared_through"])
+            var cursor = prepared.getValue("index_cursor").jsonPrimitive.content
+            slowBlobIndex = 25
+            slow = true
+            repeat(2) { attempt ->
+                val failure = runCatching {
+                    withTimeout(1000) {
+                        session(GitHubRepositoryStateStore(directory), blobTimeoutMs = 4000).repositoryMap("owner", "repo", JsonObject(args("index") + ("index_cursor" to JsonPrimitive(cursor))))
+                    }
+                }.exceptionOrNull()
+                assertTrue(failure is kotlinx.coroutines.TimeoutCancellationException)
+                val status = session(GitHubRepositoryStateStore(directory)).repositoryMap("owner", "repo", args("status"))
+                val deferral = status.getValue("deferred_files").jsonArray.single().jsonObject
+                assertEquals(JsonPrimitive("src/File25.kt"), deferral["path"])
+                assertEquals(JsonPrimitive(attempt + 1), deferral["attempts"])
+                assertEquals(JsonPrimitive("OPERATION"), deferral["deadline_scope"])
+                assertEquals(JsonPrimitive(if (attempt == 0) "OPERATION_READ_DEADLINE" else "REPEATED_READ_DEADLINE"), deferral["reason"])
+                assertEquals(JsonPrimitive(if (attempt == 0) 24 else 25), status["prepared_through"])
+                assertEquals(JsonPrimitive(false), status["coverage_complete"])
+                cursor = status.getValue("index_cursor").jsonPrimitive.content
+            }
+            val last = session(GitHubRepositoryStateStore(directory)).repositoryMap("owner", "repo", JsonObject(args("index") + ("index_cursor" to JsonPrimitive(cursor))))
+            assertEquals(JsonPrimitive(26), last["prepared_through"])
+            assertEquals(JsonPrimitive(false), last["coverage_complete"])
+            assertEquals(JsonPrimitive(1), last["phone_retryable_files"])
+            assertEquals(2, reads.getValue("%040x".format(25)).get())
+            assertEquals(1, reads.getValue("%040x".format(26)).get())
+            assertEquals(1, reads.getValue("%040x".format(1)).get())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun mismatchedBlobIdentityCannotBeCountedAsASkippedUnreadableFile() = runBlocking {
+        slow = false
+        wrongBlobIdentity = true
+        val store = GitHubRepositoryStateStore()
+        val reader = session(store)
+        val failure = runCatching { reader.repositoryMap("owner", "repo", args("index")) }.exceptionOrNull()
+        assertTrue(failure is GitHubReadValidation)
+        assertEquals("EVIDENCE_REVISION_MISMATCH", (failure as GitHubReadValidation).code)
+        val status = reader.repositoryMap("owner", "repo", args("status"))
+        assertEquals(JsonPrimitive(1), status["prepared_through"])
+        assertEquals(JsonPrimitive(false), status["coverage_complete"])
+        assertEquals(JsonArray(emptyList()), status["deferred_files"])
     }
 
     @Test fun cancellationKeepsOnlyTheCompletedFileFrontierDurable() = runBlocking {

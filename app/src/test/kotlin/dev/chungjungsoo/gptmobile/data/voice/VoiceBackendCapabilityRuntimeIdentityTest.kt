@@ -97,7 +97,9 @@ class VoiceBackendCapabilityRuntimeIdentityTest {
         digest("$scope|${backend.name}"), backend, now,
         List(VoiceMeasuredBackendPolicy.FIXTURE_COUNT) { milliseconds }, backend != cpu,
         comparisonScope = scope, speakerId = KokoroVoice.HEART.speakerId, speechRate = 1f,
-        thermalStatuses = List(VoiceMeasuredBackendPolicy.thermalSampleCount) { 0 }
+        thermalStatuses = List(VoiceMeasuredBackendPolicy.thermalSampleCount) { 0 },
+        comparisonId = "c".repeat(32),
+        audioObservations = VoiceSpeechWorkload.calibrationPhrases.map(::speechReferenceFixture)
     )
 
     private fun failed(scope: String) = VoiceBackendCapability(

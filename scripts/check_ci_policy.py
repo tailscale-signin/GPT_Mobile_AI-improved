@@ -40,6 +40,14 @@ def check_text(text, path):
         for job in re.split(r'^  [\w-]+:\s*$', text.split('\njobs:', 1)[-1], flags=re.M)[1:]:
             if re.search(r'^    runs-on:', job, re.M) and not re.search(r'^    timeout-minutes:', job, re.M):
                 errors.append(f'{path}: runner job requires timeout-minutes')
+            # GitHub evaluates job-level env before a runner context exists.
+            # Step env/run/with may use it; model paths can be set in GITHUB_ENV.
+            job_environment = False
+            for line in job.splitlines():
+                if line.strip() and not line.lstrip().startswith('#') and len(line) - len(line.lstrip()) <= 4:
+                    job_environment = re.match(r'^    env:', line) is not None
+                if job_environment and re.search(r'\$\{\{\s*runner(?:\.|\[)', line):
+                    errors.append(f'{path}: runner context is unavailable in job-level env; configure it in a step')
             manual_android = 'uses: android-actions/setup-android@' in job or 'android-device]' in job
             if manual_android:
                 provision = job.find('python3 scripts/provision_memory_model.py')

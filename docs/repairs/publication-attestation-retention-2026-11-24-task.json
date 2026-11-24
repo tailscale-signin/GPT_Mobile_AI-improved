@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_sha": "cffc64e0a99bc2ba6244f43ed76f014a6e53d5bf",
+  "base_tree": "3fa2e62bd8f31ae3c8b8d6b6872802c0377a9316",
+  "base_branch": "PR #2367 captured public source",
+  "target_branch": "main",
+  "parent_pr": 2367,
+  "working_branch": "work/privacy-attestation-retention-cffc-2026-11-24",
+  "recorded_at_utc": "2026-11-24T04:23:23.654841+00:00",
+  "intent": "Retain the generated bundle from each existing Android and Windows package attestation as a separate exact-source/run/attempt artifact using the documented bundle-path output. Preserve every existing signing input, subject, permission, package artifact, release asset, trigger, gate and publisher.",
+  "owned_source_paths": [
+    ".github/workflows/release-build.yml",
+    ".github/workflows/gateway-windows-installer.yml"
+  ],
+  "metadata_paths": [
+    "docs/repairs/publication-attestation-retention-2026-11-24-task.json",
+    "docs/architecture/feature-map.source.json",
+    "docs/architecture/feature-map.json",
+    "release-scope.json"
+  ],
+  "validation_authorized": "Static source/inverse/hash validation and canonical bash scripts/validate-local.sh fast only; no app/native/Gradle/model runtime or workflow dispatch.",
+  "publication": "Local immutable candidate only. No public branch, PR, release, package or publication-helper mutation.",
+  "status": "PREPARED_ISOLATED_SOURCE_NOT_PUBLISHED",
+  "invariants": [
+    "Existing actions/attest pins, subject globs, signing and permissions are unchanged.",
+    "Only each existing attestation step ID and one subsequent pinned artifact upload per producer job are added.",
+    "New artifacts use the exact bundle-path output, a source/run/attempt name, retention-days 14 and if-no-files-found error.",
+    "Signed Android archive and Gateway-Windows-x64 package artifacts, release assets and publisher jobs remain unchanged.",
+    "All 35 release limitations and 10 required workflow gates are preserved."
+  ],
+  "validation": {
+    "source_checks": {
+      "result": "PASS_FINAL_COMPOSITION_SOURCE_CHECKS",
+      "workflow_inverse": "Removing only each new ID and upload step reproduces each complete base workflow byte-for-byte and as parsed YAML.",
+      "preservation": "All 24 incoming feature rows and their generated file bindings, all 35 limitations and 10 required gates, and every non-owned source file remain unchanged.",
+      "initial_662_receipt_sha256": "06af6352b1568b803ea6715f3f2d1a98803f9fb63c449807c6d53484a8c19971",
+      "composition_receipt_sha256": "e99f3eff359823f0fb486ef5ece9ad2412d0e3a29f770011b94f212fe3babee5"
+    },
+    "canonical_fast": {
+      "command": "bash scripts/validate-local.sh fast",
+      "result_binding": "The handoff must include the actual exit status, log digest and exact final source/tree receipt; this task ledger does not claim a hosted producer or attestation verification result."
+    },
+    "hosted_producer_execution": "NOT_RUN",
+    "attestation_verification": "NOT_RUN",
+    "publication": "NOT_REQUESTED_FOR_THIS_ISOLATED_CANDIDATE"
+  },
+  "source_sha256": {
+    ".github/workflows/release-build.yml": "f4f32cd51c1dfdf824ac6f10109a0d9417f4b829c210e67cf3359f87b7bb58ad",
+    ".github/workflows/gateway-windows-installer.yml": "5a8a86bc922935a4f53b58345a783a8960b07ff44d179c0cecdb63f8996988ea"
+  },
+  "upstream_output_contract": {
+    "action": "actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26",
+    "output": "bundle-path",
+    "action_yml_sha256": "83b62b4e6b82709f3764532277e147282dc42ebe742c8f4e5ed88622a2938733",
+    "retained_readme_sha256": "acbc34108fa53e82cfffa5d055d340e56ad4185d3de953632c0fd54d5c9afe53",
+    "source_url": "https://github.com/actions/attest/tree/59d89421af93a897026c735860bf21b6eb4f7b26",
+    "upload_action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+  },
+  "composition": {
+    "initial_candidate": "bb53864c071aa0b65569da4d817a0865d80e1335",
+    "initial_tree": "31d93cf3d0be06d97743a590b6f18383606490f3",
+    "initial_candidate_receipt_sha256": "cae10d265df4652e12d136ed12560c14dd4744f6130051b9d26567bd29aa2984",
+    "incoming_base": "cffc64e0a99bc2ba6244f43ed76f014a6e53d5bf",
+    "incoming_workflows_byte_identical_to_initial_base": true,
+    "independent_workflow_review_sha256": "50ef175347c57fdbb479afe9130b6b011482ab50d0198f0ca7b87ca588bb945a",
+    "incoming_limitations_preserved": 35,
+    "incoming_required_workflows_preserved": 10,
+    "incoming_feature_rows_preserved": 24,
+    "public_integration": "NOT_PERFORMED"
+  }
+}

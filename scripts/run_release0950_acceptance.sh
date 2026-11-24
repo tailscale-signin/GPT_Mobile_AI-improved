@@ -138,6 +138,8 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.d
 secret_vault_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/local-voice-instrumentation.txt"
 local_voice_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceEntryInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-entry-instrumentation.txt"
+voice_entry_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-conversation-instrumentation.txt"
 voice_conversation_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMessageControlsInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-message-controls-instrumentation.txt"
@@ -172,6 +174,7 @@ if [ "$secret_vault_status" -ne 0 ]; then exit "$secret_vault_status"; fi
 if [ "$privacy_migration_status" -ne 0 ]; then exit "$privacy_migration_status"; fi
 if [ "$agent_persistence_status" -ne 0 ]; then exit "$agent_persistence_status"; fi
 if [ "$local_voice_status" -ne 0 ]; then exit "$local_voice_status"; fi
+if [ "$voice_entry_status" -ne 0 ]; then exit "$voice_entry_status"; fi
 if [ "$voice_conversation_status" -ne 0 ]; then exit "$voice_conversation_status"; fi
 if [ "$voice_message_controls_status" -ne 0 ]; then exit "$voice_message_controls_status"; fi
 if [ "$voice_transcript_status" -ne 0 ]; then exit "$voice_transcript_status"; fi
@@ -253,6 +256,12 @@ for test in (
     'builtInToolBinding_stagedRestorePreservesUnselectedTools',
 ):
     check_instrumentation(folder / 'agent-persistence-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.database.AgentPersistenceDaoInstrumentedTest', test)
+for test in (
+    'selectedStreamingPackCanStartVoiceChatWithoutTheNativeKokoroPack',
+    'voiceButtonIsLeftOfNewChatAndReportsItsRevealOrigin',
+    'disabledPluginWaitsForExplicitOptIn',
+):
+    check_instrumentation(folder / 'voice-entry-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceEntryInstrumentedTest', test)
 for test in (
     'longCaptionsAndLargeTextKeepTheMicrophoneVisibleAndFixed',
     'readablePreviewKeepsItsOpacityAndReaderWhenTimingArrivesAndSameTextReplayStartsFresh',

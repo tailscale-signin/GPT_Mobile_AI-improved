@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-independent-review-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+  "pullRequest": 2367,
+  "status": "INTEGRATED_PENDING_CANONICAL_AND_HOSTED_VALIDATION",
+  "intent": "Close actual retained-task diagnostic redaction gaps and preserve inherited authorization through masked fallback output. Reconcile the separately owned detail-redaction and issue follow-ups before a guarded append.",
+  "findings": [
+    {
+      "id": "P1_RETAINED_TASK_CONTENT",
+      "evidence": "Default DiagnosticContentRedactor leaves original_request, requested_actions, raw acceptance_criteria, task and completion requirement strings on the scrubText fallthrough. Actual retained GitHub workspace schemas can therefore put private request wording into default staged export bytes.",
+      "acceptance": "Redact actual retained producer schemas before serialization/chunking/hash/checkpoint, including staged archive and resume behavior, while preserving safe identifiers, counts, hashes, source spans and typed status codes. Explicit forensic content and unconditional credential redaction remain separate."
+    },
+    {
+      "id": "P1_FALLBACK_OUTPUT_AUTHORITY",
+      "evidence": "MaskedProviderSession checks cancellation and privacy state per frame but does not revalidate the inherited RequestAuthorizationGuard after dispatch, unlike the verified private route. Revoking provider or retained-source permission after a first frame can leave later restored output eligible for publication.",
+      "acceptance": "Revalidate the same captured composed authority before each fallback publication, preserve cancellation, stop with typed DISPATCH_POLICY_CHANGED without replay, and cover revocation after partial text and during suspended validation."
+    }
+  ],
+  "concurrency": {
+    "externalDetailRepair": "Preserve and reconcile the active privacy-default-detail-repair reservation; do not overwrite its free-form or JSON detail correction.",
+    "externalIssueFollowups": "Preserve every normal append for the reserved catalogue and verification-reserve diagnostic issues.",
+    "releaseSequence": "PR2363 has priority for14/148 and18.1.2. Complete both earlier publications before the eventual later15/149 and18.1.3 merge, subject to fresh actual main and tag ownership.",
+    "externalToolResultProjection": "Preserve and reconcile actual ToolResultCheckpoint content projection and repository-path reservation."
+  },
+  "qualification": {
+    "local": "NOT_RUN",
+    "hosted": "PENDING_FINAL_PUBLIC_SOURCE",
+    "publication": "NOT_PUBLISHED",
+    "directJvmRedactor": {
+      "status": "EXPECTED_BASELINE_FAILURE_AND_CORRECTED_PASS",
+      "baseline": "31df50206b4688061e1fd7bd1d73ad50f7276b27",
+      "correctedPatch": "9a7f5c258c19b95cc7ac4c7a9b01298e2447f38d",
+      "baselinePrivacyPassed": 0,
+      "correctedPrivacyPassed": 11,
+      "privacyCases": 11,
+      "metadataForensicIdempotence": "PASS_BOTH",
+      "compiler": "Kotlin1.9.24 K2 language2.0 JVM17; exact entries from pinned ktlint archive, no dependency substitution or metadata bypass",
+      "sourceUnchanged": true,
+      "receiptSha256": "eba106d3d27f59f05d3673ce10834a0d6b4c34c0091ffa9b680ec45d956bd2f2",
+      "boundary": "Actual production redactor with retained-schema probe; actual producers, committed JUnit, Android/Gradle/Robolectric and staged ZIP/resume NOT_RUN"
+    }
+  },
+  "integrationStartingHead": "05c4c2db6545ca9c70cbe027e3b0096efaba4827",
+  "independentReview": {
+    "retainedSchema": "CLEAR by native_speech_review",
+    "fallbackAuthority": "CLEAR by benchmark_code_review",
+    "05ProtocolComposition": "CLEAR by native_speech_review; preserve request-local binding and exact per-output authority count"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "task": "diagnostic-readiness-selection-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "d48509ecc158182f339d36b68fc3016821f0c669",
+  "workingBranch": "work/privacy-paired-comparison-2026-11-23",
+  "pullRequest": 2367,
+  "recordedBeforeSourceEdits": true,
+  "recordedAtUtc": "2026-11-24T00:55:13.152117+00:00",
+  "status": "SOURCE_FROZEN_INDEPENDENTLY_REVIEWED_PENDING_NORMAL_CI",
+  "intent": "Select extended readiness for saved-page replay, graph-local context, provider-limit cause, replay-budget, graph-transport, task/tool failure and reader/run failure capabilities, preserving approved payload bytes and all bounded protocol gates.",
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt"
+  ],
+  "preEditSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": "c53a68bc2a17d4ac93464ad93de37aa810049db5d90781bc562175a0230fa5cd",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt": "0fc8390368f062c456f8afa5380f09948199f7b95dd35f880ec6de95c0e8be60"
+  },
+  "sourceFinding": {
+    "commit": "d48509ecc158182f339d36b68fc3016821f0c669",
+    "receiptSha256": "15fed0ce2313bf44ed1181957266dcc923020691af54248180e211876b53e888",
+    "failure": "Actual saved-page and graph-local reports require features advertised only in extended readiness but select plain readiness, falsely rejecting a compatible updated receiver. The saved-page test interceptor ignores the requested URL.",
+    "evidenceScope": "Source-derived actual producer-to-approvedPayload path, not a local runtime reproduction.",
+    "providerLimitScope": "Provider-limit cause already selects extended through the execution feature; its explicit selector preserves independent contract parity, not an observed provider submission failure.",
+    "additionalSearchReaderReceiptSha256": "2e54ff76226122b52e89ec7cbe5f2ea62750e97dd8ca9ae2134c5b6a073762cd"
+  },
+  "acceptance": [
+    "Add only seven closed feature selectors; leave legacy1024/extended4096-byte readiness and1024-byte receipt caps, fixed origin, version checks and beforeDispatch/POST ordering unchanged.",
+    "Use ordinary submission regressions with URL-dependent legacy and extended catalogues, missing-feature denial with zero POST/dispatch and exact restored approved bytes after support returns.",
+    "Preserve all existing test methods and behavior assertions; current complete ordinary and dedicated heap requirements remain.",
+    "Regenerate mapped references and app source inventory, update exact release scope, run pinned formatting and canonical host checks on frozen combined source.",
+    "No local Kotlin/Android/Gradle/provider execution or standalone privacy harness; normal committed CI supplies runtime qualification.",
+    "Fresh public-head/ref guard before append; reconcile every concurrent commit and preserve the separate typed-refusal owner."
+  ],
+  "qualification": {
+    "sourceReview": "CLEAR: final seven-selector independent review36b8ac5a75038833b97d6196221a45b54e3671329eb21f04f079028d1e600290 binds exact production/test hashes. All64 prior methods remain,65 total; seven-line reversal reconstructs the whole6d parent production file, including the typed-refusal selector/code gate. Earlier five-selector reviews remain historical. Independent runtime-source reviewf31fd57cf932c87ff445ca9d1dee42057cd322031a6425c625392ee6c249a88a independently confirms the same frozen hashes and behavior boundaries; no runtime execution.",
+    "canonicalHost": "Required on frozen integration before guarded append; external input/log receipt records actual result without a circular ledger hash.",
+    "formatting": "Pinned ktlint1.3.1 passes the two modified files; all changed Kotlin inputs and canonical host checks are required on frozen integration, recorded in external exact-input receipts.",
+    "ordinaryProjectRuntime": "PENDING_NORMAL_HOSTED_CI",
+    "testScope": "Ordinary network-interceptor regression through actual submission and approval serialization, exact receiver30-feature legacy catalogue and URL-dependent extension. Seven new-method shapes include actual bound ToolEvent/AgentToolResult search and reader failures projected through ToolReportDiagnostics; private query/URL/body/identity canaries are excluded. Source review shows baseline failure; no local Kotlin or negative-control execution is claimed. Saved-page and provider-budget cases can co-require other extended capabilities; no isolated mutation score is claimed."
+  },
+  "implementation": {
+    "productionSelectorAdditions": 7,
+    "sourceSha256": "97ad48bee00b9c6d0d27dddd6203d1ae12ed1554f8f6c75379f2aa33cb2a67a3",
+    "testSha256": "14b172fb5a84dc433d3fe1d31c5c7f6ad5e7b9a687af18007c035e605dc940db",
+    "newOrdinaryMethod": "replayGraphAndProviderReportsNegotiateExtendedReadinessFromRestoredApprovedBytes",
+    "newMethodShapes": 7,
+    "strengthenedExistingMethod": "savedReplayPageEvidenceRequiresReceiverSupportBeforePostingApprovedBytes",
+    "allOtherSubmissionMethodsAndHelpersUnchanged": true,
+    "productionSevenLineReversalReconstructsParent": true
+  },
+  "integration": {
+    "parentCommit": "6ae1763b96c5d9998b31b4ff941a19ffdb24c49d",
+    "parentTree": "2c11f3114db982ddb38b3c9050541d8cc1e48c1e",
+    "preservation": "Rebased only the unpublished readiness correction onto all shared typed-refusal and HTTP remote-work/manual-delay source, including the Ktor header fixture fix. Both readiness source hashes are unchanged from independent seven-selector reviews. All incoming provider source/tests/ledgers remain intact; generated metadata starts from incoming parent and adds only this task."
+  },
+  "additionalIntent": {
+    "recordedBeforeAdditionalSourceEdits": true,
+    "recordedAtUtc": "2026-11-24T01:22:15.450194+00:00",
+    "parentCommit": "6d3b9e4500099e34998f8a95c25dd896381c8fd3",
+    "finding": "Actual call-bound web_search SEARCH_PROVIDERS_UNAVAILABLE and read_url REDIRECT_FAILED / LOCATION_MISSING reports map to SOURCE_UNAVAILABLE and require two more extended-only features without an existing selector co-feature.",
+    "ownerEvidenceSha256": "208a74abc3c477407f46122b7ee0c5624f63f8b7e27a8bb9636fdab975c66c99",
+    "independentlyConfirmedBy": "privacy_boundaries immutable 6d producer-to-report source review",
+    "preAdditionalEditSha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": "ad6bdda16a5d76db8dde4af37111673d5031c4d51bb8459cfb01d3833739c7f6",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt": "a5f319eb7fdf2c23d13aa620d040c8f9e74ae0a4cb7de7ddb96ec57115aed542"
+    },
+    "testIntent": "Extend the same new ordinary method with actual ToolEvent/AgentToolResult -> ToolReportDiagnostics -> context -> approved/restored submission routes. Check private query/URL/body canary absence, distinct readiness catalogues, missing capability refusal without POST/dispatch and exact payload after support returns."
+  }
+}

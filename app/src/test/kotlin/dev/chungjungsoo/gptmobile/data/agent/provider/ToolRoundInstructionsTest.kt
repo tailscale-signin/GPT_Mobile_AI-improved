@@ -6,6 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolRoundInstructionsTest {
+    @Test fun localGithubPreviewGuidanceSurvivesToolRoundsAndLeavesFinalization() {
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "feature", "a".repeat(40), "profile")
+        val prompt = dev.chungjungsoo.gptmobile.data.context.LocalRequestPrompt.build("Use clear language.", "Retain the tested revision.", true) +
+            dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.agent.toolProgressInstructions(githubMode = true)) +
+            dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(context.promptContext("Test all GitHub integration tools", contextTokens = 8192))
+        val active = requireNotNull(toolRoundSystemPrompt(prompt, true))
+        assertTrue(active.contains("<progress_update>...</progress_update>"))
+        assertTrue(active.contains("omit an update when nothing material changed"))
+        assertTrue(active.contains("Markdown headings, **emphasis**"))
+        assertTrue(active.contains("Reconcile unknown outcomes and respect budgets, approvals and cancellation"))
+        val final = requireNotNull(toolRoundSystemPrompt(prompt, false))
+        assertTrue(!final.contains("<progress_update>"))
+        assertTrue(final.contains("Use clear language."))
+        assertTrue(final.contains("Retain the tested revision."))
+        assertTrue(!final.contains("<app_tool_stage>"))
+    }
+
     @Test fun finalizationDropsOnlyGeneratedToolStageInstructions() {
         val userRules = "Return JSON. Preserve uncertainty."
         val prompt = userRules + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions("Call github_ci until every page is read.") + "\nProject rule: include the tested revision."

@@ -127,7 +127,7 @@ class GroqAPIImpl @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            if (e is CancellationException || e is ProviderHttpFailure || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+            if (e is CancellationException || e is ProviderHttpFailure || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException || e is dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchRejected) throw e
             if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e)) {
                 return@flow
             }

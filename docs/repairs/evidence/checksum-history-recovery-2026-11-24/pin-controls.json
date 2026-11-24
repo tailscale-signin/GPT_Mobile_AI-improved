@@ -1,0 +1,853 @@
+{
+  "scannerVersion": "8.30.1",
+  "cases": [
+    {
+      "case": "exact_evidence",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "existing_native_harness",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "different_checksum",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "calibration_exact_declaration",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "calibration_different_value",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "calibration_different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "calibration_different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "calibration_trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "calibration_prefix_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "calibration_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "calibration_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "mockk_exact_declaration",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "mockk_different_value",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "mockk_different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "mockk_different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "mockk_trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "mockk_prefix_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "mockk_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "mockk_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "waveform_exact_declaration",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "waveform_different_value",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "waveform_different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "waveform_different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "waveform_trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "waveform_prefix_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "waveform_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "waveform_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "compose_exact_declaration",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "compose_different_value",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "compose_different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "compose_different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "compose_trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "compose_prefix_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "compose_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "compose_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e855_exact",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e855_different_value",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e855_different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e855_different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e855_prefix_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e855_trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e855_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e855_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_before_exact",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_before_different_value",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_before_different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_before_different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_before_prefix_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_before_trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_before_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_before_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_after_exact",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_after_different_value",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_after_different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_after_different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_after_prefix_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_after_trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_after_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_e406_after_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_ledger_exact",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_ledger_different_value",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_ledger_different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_ledger_different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_ledger_prefix_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_ledger_trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_ledger_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_ledger_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_result_exact",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_result_different_value",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_result_different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_result_different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_result_prefix_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_result_trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_result_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "wrapper_report_result_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "pronunciation_tokens_exact",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "pronunciation_tokens_different_value",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "pronunciation_tokens_different_path",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "pronunciation_tokens_different_field",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "pronunciation_tokens_prefix_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "pronunciation_tokens_trailing_content",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "pronunciation_tokens_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "pronunciation_tokens_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "outer_exact",
+      "expectedFindings": 0,
+      "observedFindings": 0,
+      "exitCode": 0,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "outer_different_value",
+      "expectedFindings": 3,
+      "observedFindings": 3,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "outer_different_path",
+      "expectedFindings": 3,
+      "observedFindings": 3,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "outer_different_field",
+      "expectedFindings": 3,
+      "observedFindings": 3,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "outer_prefix_content",
+      "expectedFindings": 3,
+      "observedFindings": 3,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "outer_trailing_content",
+      "expectedFindings": 3,
+      "observedFindings": 3,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "outer_secret_before",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    },
+    {
+      "case": "outer_secret_after",
+      "expectedFindings": 1,
+      "observedFindings": 1,
+      "exitCode": 1,
+      "redacted": true,
+      "exactFindingIdentity": true,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "configSha256": "df2c3f2a917c2e9f9fded472fd23954de733392269a4b24874238d69ef0339c4"
+}

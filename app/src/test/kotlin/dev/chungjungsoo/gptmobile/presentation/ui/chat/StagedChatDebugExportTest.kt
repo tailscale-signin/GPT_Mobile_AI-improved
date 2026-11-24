@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.AndroidDiagnosticExportMemory
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureResult
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureStorage
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticContentMode
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportMemory
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticLogSnapshot
@@ -22,6 +23,8 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory
 import dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics
 import dev.chungjungsoo.gptmobile.data.diagnostics.RuntimeIncidentCapture
 import dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCapture
+import dev.chungjungsoo.gptmobile.data.diagnostics.retainedTaskDiagnosticRecord
+import dev.chungjungsoo.gptmobile.data.diagnostics.retainedTaskPrivateCanaries
 import dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -160,7 +163,7 @@ class StagedChatDebugExportTest {
         assertTrue(latest.contains("issue_report_correlation_metadata"))
         assertTrue(latest.contains("UNAVAILABLE"))
         assertTrue(latest.contains("retained_run_evidence"))
-        assertTrue(files.getValue("profiles.jsonl").contains("Profile"))
+        assertTrue(files.getValue("profiles.jsonl").contains("profile-test-id"))
         assertEquals(JsonPrimitive("PARTIAL"), stage(result, "latest_state")["status"])
         assertFalse(files.values.any { "private local path" in it })
     }
@@ -173,7 +176,8 @@ class StagedChatDebugExportTest {
                 consume(
                     buildJsonObject {
                         put("tool", "github_read")
-                        put("error", "GITHUB_TRANSIENT_NETWORK")
+                        put("errorCode", "GITHUB_TRANSIENT_NETWORK")
+                        put("error", "PRIVATE SYNTHETIC TOOL FAILURE")
                         put("payload", "private-secret")
                     }
                 )
@@ -183,11 +187,11 @@ class StagedChatDebugExportTest {
         val files = archive(result)
         assertTrue(files.getValue("critical-app-logs.jsonl").contains("tool-failure"))
         assertTrue(files.getValue("tool-receipts.jsonl").contains("GITHUB_TRANSIENT_NETWORK"))
-        assertTrue(files.getValue("profiles.jsonl").contains("Profile"))
+        assertTrue(files.getValue("profiles.jsonl").contains("profile-test-id"))
         assertEquals(JsonPrimitive("FAILED"), stage(result, "conversation")["status"])
         assertEquals(JsonPrimitive("PARTIAL"), stage(result, "tool_catalog")["status"])
         assertTrue(files.getValue("tool-catalog.jsonl").contains("NO_RETAINED_WORKSPACE_POLICY_REFERENCES"))
-        assertFalse(files.values.any { "private-secret" in it || "sensitive-error-message" in it })
+        assertFalse(files.values.any { "private-secret" in it || "sensitive-error-message" in it || "PRIVATE SYNTHETIC TOOL FAILURE" in it })
         assertTrue(result.retryRecommended)
     }
 
@@ -262,7 +266,7 @@ class StagedChatDebugExportTest {
             before()
             if (section == "conversation") consume(buildJsonObject { put("content", content) })
         }
-        val result = capture()
+        val result = capture(contentMode = DiagnosticContentMode.FULL_FORENSIC)
         val lines = archive(result).getValue("conversation.jsonl").lineSequence().filter { it.isNotBlank() }.toList()
         val chunks = lines.map { kotlinx.serialization.json.Json.parseToJsonElement(it) as JsonObject }
         assertTrue(chunks.size > 1)
@@ -311,11 +315,111 @@ class StagedChatDebugExportTest {
         assertEquals(JsonPrimitive("COMPLETED"), stage(result, "critical_logs")["status"])
     }
 
-    private suspend fun capture(temporary: Boolean = false, resume: Boolean = false): DiagnosticCaptureResult = writeStagedChatDiagnostics(
+    @Test fun defaultArchiveRedactsPrivateHistoryBeforeHashingButRetainsCorrelationAndProtectionRanges() = runBlocking {
+        readSection = { section, before, consume ->
+            before()
+            if (section == "conversation") {
+                consume(
+                    buildJsonObject {
+                        put("table", "messages_v2")
+                        put("rowId", 42)
+                        put(
+                            "fields",
+                            buildJsonObject {
+                                put("content", "PRIVATE SYNTHETIC MESSAGE")
+                                put("thoughts", "PRIVATE SYNTHETIC THOUGHTS")
+                                put("run_id", "synthetic-run")
+                                put(
+                                    "privacyProtection",
+                                    buildJsonObject {
+                                        put("confirmed", true)
+                                        put(
+                                            "ranges",
+                                            JsonArray(
+                                                listOf(
+                                                    buildJsonObject {
+                                                        put("start", 0)
+                                                        put("endExclusive", 7)
+                                                    }
+                                                )
+                                            )
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        }
+        val result = capture()
+        val files = archive(result)
+        val conversation = files.getValue("conversation.jsonl")
+        assertFalse(files.values.any { "PRIVATE SYNTHETIC" in it || "draft private-secret" in it })
+        assertTrue(conversation.contains("synthetic-run"))
+        assertTrue(conversation.contains("endExclusive"))
+        assertTrue(files.getValue("capture-context.jsonl").contains("\"diagnosticContentMode\":\"REDACTED\""))
+        assertEquals(result.manifest, StagedDiagnosticCapture.verify(result.file))
+    }
+
+    @Test fun defaultResumeCannotReuseAnExplicitForensicCapture() = runBlocking {
+        readSection = { section, before, _ ->
+            before()
+            if (section == "conversation") throw CancellationException("fixture interruption")
+        }
+        assertTrue(runCatching { capture(contentMode = DiagnosticContentMode.FULL_FORENSIC) }.exceptionOrNull() is CancellationException)
+        val directory = DiagnosticCaptureStorage.directory(context, chatId)
+        assertEquals(null, StagedDiagnosticCapture.findResumableSession(directory, diagnosticCaptureIdentity(chatId, true)))
+        assertNotNull(StagedDiagnosticCapture.findResumableSession(directory, diagnosticCaptureIdentity(chatId, true, DiagnosticContentMode.FULL_FORENSIC)))
+        assertTrue(runCatching { capture(resume = true) }.isFailure)
+        readSection = { section, before, consume ->
+            before()
+            if (section == "conversation") consume(buildJsonObject { put("content", "EXPLICIT FORENSIC ORIGINAL private-secret") })
+        }
+        val result = capture(resume = true, contentMode = DiagnosticContentMode.FULL_FORENSIC)
+        val files = archive(result)
+        assertTrue(files.getValue("conversation.jsonl").contains("EXPLICIT FORENSIC ORIGINAL"))
+        assertFalse(files.values.any { "private-secret" in it })
+        assertEquals(result.manifest, StagedDiagnosticCapture.verify(result.file))
+    }
+
+    @Test fun retainedTaskSchemasAreRedactedBeforeCheckpointAndStayRedactedInResumedArchive() = runBlocking {
+        val record = retainedTaskDiagnosticRecord()
+        var workspaceReads = 0
+        readSection = { section, before, consume ->
+            before()
+            if (section == "workspace") {
+                workspaceReads++
+                consume(record)
+            }
+            if (section == "answer_segments") throw CancellationException("fixture interruption after workspace checkpoint")
+        }
+        assertTrue(runCatching { capture() }.exceptionOrNull() is CancellationException)
+        val directory = DiagnosticCaptureStorage.directory(context, chatId)
+        assertNotNull(StagedDiagnosticCapture.findResumableSession(directory, diagnosticCaptureIdentity(chatId, true)))
+        val checkpoints = directory.walkTopDown().filter(File::isFile).map { it.readText() }.toList()
+        assertTrue(checkpoints.isNotEmpty())
+        for (privateValue in retainedTaskPrivateCanaries + "private-secret") assertFalse(privateValue, checkpoints.any { privateValue in it })
+        assertTrue(checkpoints.any { "synthetic-retained-task" in it })
+        readSection = { section, before, _ ->
+            before()
+            check(section != "workspace") { "The completed redacted workspace checkpoint must be reused" }
+        }
+        val resumed = capture(resume = true)
+        val files = archive(resumed)
+        for (privateValue in retainedTaskPrivateCanaries + "private-secret") assertFalse(privateValue, files.values.any { privateValue in it })
+        val workspace = files.getValue("workspace.jsonl")
+        for (metadata in listOf("synthetic-retained-task", "synthetic-source", "request_digest", "source_span", "total_count", "SYNTHETIC_METADATA_CODE")) assertTrue(metadata, workspace.contains(metadata))
+        assertEquals(1, workspaceReads)
+        assertEquals(JsonPrimitive(true), stage(resumed, "workspace")["reusedCheckpoint"])
+        assertEquals(resumed.manifest, StagedDiagnosticCapture.verify(resumed.file))
+    }
+
+    private suspend fun capture(temporary: Boolean = false, resume: Boolean = false, contentMode: DiagnosticContentMode = DiagnosticContentMode.REDACTED): DiagnosticCaptureResult = writeStagedChatDiagnostics(
         context, destination, ChatRoomV2(chatId, "Test", isTemporary = temporary),
-        listOf(PlatformV2(name = "Profile", token = "private-secret", systemPrompt = "Prompt private-secret")),
+        listOf(PlatformV2(uid = "profile-test-id", name = "Profile", token = "private-secret", systemPrompt = "Prompt private-secret")),
         ChatMcpToolConfig(), AppFeatureSettings(), "draft private-secret", emptyList(), database, null,
-        reducedMemory = false, resume = resume, fullHistory = true, stillAuthorized = {}
+        reducedMemory = false, resume = resume, fullHistory = true, contentMode = contentMode, stillAuthorized = {}
     )
 
     private fun archive(result: DiagnosticCaptureResult): Map<String, String> = ZipFile(result.file).use { zip -> zip.entries().asSequence().associate { it.name to zip.getInputStream(it).reader().use { reader -> reader.readText() } } }

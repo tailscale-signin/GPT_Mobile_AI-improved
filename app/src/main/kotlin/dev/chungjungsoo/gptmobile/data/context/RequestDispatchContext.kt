@@ -31,8 +31,27 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     private val omittedSettings = java.util.concurrent.atomic.AtomicLong()
     val omittedSerializedRequestSettings: Long get() = omittedSettings.get()
     val includedProducers = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val privacyReceipts = CopyOnWriteArrayList<JsonObject>()
+    private val privacyContexts = CopyOnWriteArrayList<dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext>()
+    private val omittedPrivacy = java.util.concurrent.atomic.AtomicLong()
+    val privacyDispatchReceipts: List<JsonObject> get() = privacyReceipts.toList()
+    val omittedPrivacyDispatchReceipts: Long get() = omittedPrivacy.get()
+    val privacyStreams: List<JsonObject> get() = privacyContexts.mapNotNull { it.streamSnapshot() }
+
+    @Volatile private var privacyRejected = false
+
+    /** Evidence is already content-free; replacement dictionaries never enter accounting. */
+    @Synchronized
+    fun privacyValidated(receipt: JsonObject, context: dev.chungjungsoo.gptmobile.data.privacy.PrivateDispatchContext) {
+        if ((receipt["outcome"] as? JsonPrimitive)?.content != "KNOWN_VALUES_ABSENT") privacyRejected = true
+        if (privacyReceipts.size < MAX_RETAINED_REQUEST_SETTINGS) privacyReceipts += receipt else omittedPrivacy.incrementAndGet()
+        if (privacyContexts.size < MAX_RETAINED_REQUEST_SETTINGS && context !in privacyContexts) privacyContexts += context
+    }
 
     private val httpTrace = java.util.concurrent.atomic.AtomicReference<dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace?>()
+
+    @Volatile private var currentHttpTrace: dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace? = null
+
     private val attemptTraces = java.util.concurrent.ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace>()
     private val pollTraces = java.util.concurrent.ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace>()
 
@@ -62,7 +81,7 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     /** A later rejected retry never erases a previous transmitted or uncertain attempt. */
     fun provenEntirelyUnsent(): Boolean =
         if (receipts.isEmpty()) {
-            preflightRejection != null
+            preflightRejection != null || privacyRejected
         } else {
             receipts.all { receipt ->
                 receipt.physicalAttemptId?.let { attemptTraces[it]?.provenUnsent } == true
@@ -76,14 +95,15 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     }
 
     fun armQueuePoll(jobId: String) {
-        val observer = researchTrace ?: return
+        armCurrentHttpTrace(null)
+        val observer = researchTrace
         val id = java.util.UUID.randomUUID().toString()
-        observer.prepared(id, invocationId, "QUEUE_POLL", jobId)
+        observer?.prepared(id, invocationId, "QUEUE_POLL", jobId)
         val trace = dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace { kind, elapsed ->
-            if (kind in setOf(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_BODY_END, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RESPONSE_HEADERS)) observer.transmitted(id, elapsed)
+            if (kind in setOf(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_BODY_END, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RESPONSE_HEADERS)) observer?.transmitted(id, elapsed)
         }
-        pollTraces[id] = trace
-        httpTrace.set(trace)
+        if (observer != null) pollTraces[id] = trace
+        armCurrentHttpTrace(trace)
     }
 
     fun queueJob(jobId: String, resumed: Boolean, cached: Boolean = false) {
@@ -102,6 +122,7 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     }
 
     fun armHttp() {
+        armCurrentHttpTrace(null)
         val receipt = receipts.lastOrNull() ?: return
         val owner = runId
         val invocation = invocationId
@@ -115,9 +136,16 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
             owner?.let { dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(it, kind, role, invocationId = invocation, physicalAttemptId = attempt, elapsedMillis = elapsed) }
         }
         attemptTraces[attempt] = trace
+        armCurrentHttpTrace(trace)
+    }
+
+    private fun armCurrentHttpTrace(trace: dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace?) {
+        currentHttpTrace = trace
         httpTrace.set(trace)
     }
     fun takeHttpTrace(): dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace? = httpTrace.getAndSet(null)
+    fun latestHttpAttemptEvidence(): dev.chungjungsoo.gptmobile.data.network.HttpAttemptEvidence? =
+        currentHttpTrace?.evidence()
     fun transportWait(kind: dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind, elapsed: Long) {
         runId?.let { owner -> dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(owner, kind, invocationId = invocationId, elapsedMillis = elapsed.coerceAtLeast(0)) }
     }

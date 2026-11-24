@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-streaming-modernization-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "localWorkingBranch": "voice-modernization-work",
+  "startingHead": "0aef39b01bfc565083899dd7aebecd1981b9150b",
+  "pullRequest": 2367,
+  "status": "SOURCE_IMPLEMENTED_AND_INDEPENDENTLY_REVIEWED_PENDING_FINAL_CI",
+  "intent": "Implement the supplied voice latency audit follow-up: genuine incremental PCM engines, verified model installation and selection, selected-rate CPU calibration, continuity-aware chunks, safe early preparation, bounded profile parsing and Gateway binary audio streaming. Compose the separately owned accelerator output qualification, memory-aware exact-shape cache and complete benchmark evidence before final verification and joint publication.",
+  "acceptance": [
+    "Preserve current native Kokoro and privacy/admission behavior while adding real MediaPipe 1.2.3 Kokoro, Phonon and Pocket adapters using immutable model revisions, byte lengths and SHA-256 verification.",
+    "Queue incremental PCM as it arrives with bounded backpressure, explicit native cancellation, correctly converted estimated word cues and no fabricated native phoneme timings or provider proof.",
+    "Calibrate native CPU with the selected voice/rate, balanced 1-4 thread candidates, cancellation and thermal guards; adapt follow-up chunks to observed synthesis cost and buffered audio.",
+    "Prepare local speech after a completed spoken turn and before admission completes while retaining recognition teardown, privacy and warmup-generation fences; keep remote preparation admission-gated.",
+    "Offer compatible bounded binary Gateway streaming while retaining the existing JSON endpoint and validating framing, cancellation and privacy.",
+    "Preserve every concurrent branch commit and reservation; qualify the final immutable PR and actual main source without bypassing required checks.",
+    "Verify predecessor publication before successor merge and verify public Android and Gateway release assets before completion."
+  ],
+  "qualification": {
+    "local": "Focused actual-source checks passed: 31 planning/calibration JVM, 21 SDK/model/lifecycle JVM, 13 Gateway decoder/protocol JVM, actual Ktor transport checks, 30 Gateway Python, 15 JNI gate Python and compiled C++ parser. Actual AAR metadata compatibility passes. Full app compilation refused by the unchanged 8960 MiB memory-admission requirement; ordinary CI remains mandatory.",
+    "hosted": "PENDING_FINAL_COMBINED_HEAD",
+    "publication": "NOT_PUBLISHED",
+    "physicalDeviceClaims": "NOT_MEASURED",
+    "checkpointSmoke": "Official wheel requirements and Phonon model bytes verified. Linux inference is blocked by missing runtime-required sysfs CPU topology; no local inference claimed. Three real model jobs plus packaged minified Android instrumentation are required on ordinary CI.",
+    "requiredMainWorkflows": [
+      "Build Android APK",
+      "CodeQL Advanced",
+      "PR Validation",
+      "Post-merge correctness",
+      "v0.9.50 Android acceptance",
+      "Gateway stability",
+      "Gateway Windows installer",
+      "Development environments",
+      "Speech engine model smoke",
+      "Minified native memory smoke"
+    ],
+    "admission": "35 current-source JVM admission/policy/qualification tests passed. A manual-admission bypass negative control failed 5 of 11 new admission regressions, including 1075ms versus2450ms. Two additional Robolectric persistence/preparation-timeout tests remain required in CI.",
+    "canonicalFast": "687 canonical host tests passed on the integrated ebda voice candidate. Pinned ktlint1.3.1 passed all64 changed Kotlin/Kotlin-script files. The independent TLS append is preserved; final combined-source gates remain required before merge. Full Android/model smoke remains pending normal CI."
+  },
+  "latestObservedPublicHead": "9b355e21491225b6e4226d5a3a530d725117f837",
+  "independentReview": {
+    "sdkLifecycle": "Resolved cancellation/destructor lock contention and failed-native-retirement lease ownership; blocking-destructor regressions passed.",
+    "entryAndPreview": "Resolved native-pack-only entry/saved-message gating and same-frame preview configuration ordering; actual Android tests are committed for CI.",
+    "acceleratorAdmission": "Resolved manual playback bypass of CPU-reference qualification and staged both successful and negative Recheck receipts; independent review clear and 35 focused JVM tests passed.",
+    "modelSmoke": "Resolved tee pipeline false-green exit behavior and required exact native CancellationException; model/Android proofs remain pending real CI execution.",
+    "composition": "All incoming changes through e056 preserved. Native profile4/cache2/progress1 identity also includes parser2; SDK family exports cannot claim an observed processor or exposed CPU thread count."
+  },
+  "compositionHeads": [
+    "537794706b93611e501bdc763f84f24ad44679ba",
+    "2630db65b9df55143f2fd61b1cd16dc9c60d2254"
+  ],
+  "ciRepairs": {
+    "invalidNativeWorkflowRun": 45259996983,
+    "source": "c2d24b795656ccc3ee430b12107abf5f2104a727",
+    "change": "Move runner-dependent job environment to an explicit Bash setup step; preserve all three model jobs and verification. Add a local policy regression that rejects both invalid declarations from the committed workflow.",
+    "entryExecution": "Run VoiceEntryInstrumentedTest in ordinary Android acceptance and require all three named methods to pass unskipped, including installed SDK entry without native Kokoro.",
+    "validation": "Independent source review clear. CI modernization21, native checker16 and emulator/runner52 focused host tests pass; final hosted Android execution remains pending.",
+    "concurrentWorkflowRepair": "6ca4baf43fd6d8035f25ef6fa806d36f2ee8368d independently corrected the same runner-context defect. Its complete workflow, smoke regression and task ledger are preserved; this append adds general CI policy enforcement and required voice-entry execution.",
+    "incidentReportContract": {
+      "source": "8ba187495f467aa17d992fa6a6d753eb89e7db12",
+      "failedWorkflowRun": 45262887512,
+      "failedJobs": [
+        138002193078,
+        138002193069
+      ],
+      "failure": "Existing closed-enum parity test rejected the four new selected SDK backends. Root inspection also found MEDIAPIPE engine family absent from the server vocabulary.",
+      "change": "Align selected backend, fallback source and engine family with exact Android values; preserve effective-provider closure, unknown-value rejection and report-area restrictions.",
+      "validation": "All 219 authentication tests pass: the existing 216 methods plus three active-engine, fallback-roundtrip and unknown/wrong-area regression methods. Hosted final-head qualification remains required.",
+      "command": "python3 -m unittest discover -s authentication -t . -p 'test_*.py' -v",
+      "logSha256": "e22ba3610a029d4886beb9347f640fd4811f7c854f829d5f819df03c33673b1b",
+      "independentReview": "Clear: exact Android/server selected-backend, fallback-source and engine-family parity; effective-provider vocabulary unchanged; active/fallback report serialization and strict unknown/type/area rejection retained."
+    },
+    "boundTransportFixture": {
+      "baselineSource": "6ca4baf43fd6d8035f25ef6fa806d36f2ee8368d",
+      "baselineRun": 45261111673,
+      "baselineJobs": {
+        "api34": 137998088163,
+        "api36": 137998087151
+      },
+      "failure": "Both device lanes fail only the obsolete corrected_arguments owner assertion. Current production and ordinary unit tests deliberately record selected repository binding as canonical_arguments, with no semantic repair.",
+      "change": "Use the actual canonical owner and repo, assert no corrected_arguments, assert the exact normalization kind/status/nonsemantic successful dispatch, and require the exact three GET paths. Preserve existing request count, foreign-target rejection/no-dispatch and complete owned-deletion regression. Production code is unchanged.",
+      "frozenTestSha256": "8124da2a1d1ad0f182ba4b3ca6f103019f60895a66fa07d605006bb2e3af28ef",
+      "validation": "Root and independent peer source traces are clear; pinned ktlint1.3.1 and diff checks pass. No local Android or standalone fixture execution. Both latest-head emulator matrices remain required.",
+      "historicalVoiceExecution": "The older6ca4 API34 lane passed20 selected voice methods with one explicit missing English system-TTS prerequisite skip; API36 passed all21 selected voice methods. That older script did not select the three new VoiceEntry methods, so this is historical diagnostic evidence only."
+    },
+    "voiceEntryLargeTextFixture": {
+      "baselineSource": "577ea512252b89f41fdfd1b90470b250700c0b0a",
+      "actualCheckout": "dc13dda90f05c7c6350340909987c996085ef40c",
+      "base": "8095c1aee67b64584033289944eff1dfac7a7b48",
+      "baselineRun": 45267301497,
+      "baselineJob": 138020522498,
+      "artifact": 14866352358,
+      "artifactSha256": "4093ce44e4589b6e222d2ba9afd5011fd0ccc28f33b61409e84b0459099a667c",
+      "observedDisplay": {
+        "size": "640x1280",
+        "densityDpi": 320,
+        "fontScale": 2.0
+      },
+      "failedMethods": [
+        "disabledPluginWaitsForExplicitOptIn",
+        "selectedStreamingPackCanStartVoiceChatWithoutTheNativeKokoroPack"
+      ],
+      "failure": "Both resolve voice_enable_start but fail assertIsDisplayed before any click. The actual ready screen already has a weighted scrollable content column; its start button can be below the fold at200percent font size. The fixture did not scroll.",
+      "change": "Scroll the real existing container to the start control before asserting visibility and enabled state and clicking. The selected streaming case also verifies zero starts before interaction. Preserve all3methods, explicit opt-in/exactly-one starts, selected installed SDK readiness without native Kokoro, original display/font profile and mandatory acceptance receipts. Production code is unchanged.",
+      "originalTestSha256": "c5752afd70ceb1c4a354773750dbfe9cb013b13665ff1b0ae6c4af10504deb77",
+      "frozenTestSha256": "20461811081468a681e42d847b09c4bc211dd43b62e1df9504a0bd3513cccd68",
+      "validation": "Exact reversal restores every original fixture byte. Root source trace and pinned ktlint1.3.1/diff checks pass. No local Android or standalone fixture execution. Both current-head API34/API36 matrices must execute all3entry methods unskipped.",
+      "baselineOtherCoverage": "The third entry method and all21selected voice methods passed; the third overall failure is the historical bound-receipt assertion separately corrected at858. These are historical diagnostic results, not final-source qualification."
+    },
+    "failureNoticeFixture": {
+      "baselineSource": "858c17e871a920b7575e44aede7e10e0edc4b561",
+      "actualCheckout": "1c9f4db8183deb0c2667589cfce1f8dcf5fe88a2",
+      "base": "8095c1aee67b64584033289944eff1dfac7a7b48",
+      "baselineRun": 45269820235,
+      "baselineJob": 138028914484,
+      "artifact": 14866862214,
+      "artifactBytes": 1988108,
+      "artifactSha256": "8666a89b3f06468c7849ecf6eb14ae7127f4656c558a2ee371a4e59117dba52a",
+      "appUnitResults": {
+        "cases": 13909,
+        "passed": 13900,
+        "failed": 4,
+        "skipped": 5
+      },
+      "coreDomainResults": {
+        "cases": 4,
+        "passed": 4
+      },
+      "failedMethods": [
+        "freshPublicPlaybackCollectsOnlyItsOwnCauseAfterThePrivateOperationRetires",
+        "publicOriginStillReportsItsActualCauseForStreamingAndTerminalFailures",
+        "privateOriginRemainsUncollectableWhenPrivacyReopensWithoutANewPlaybackTicket"
+      ],
+      "failure": "Three VoicePlaybackFailureReportingTest cases stop at the shared obsolete Kokoro-only notice equality. Production intentionally uses the selected-voice notice for every engine. Their later privacy/cause checks and second complete=true iteration still require corrected-source execution. The fourth baseline failure is the independently corrected pre1f84 composed-authority regression.",
+      "change": "Replace only the shared exact expected notice with the exact selected-voice production message. All12methods, five-second deadline, polling, complete/streaming phases, awaitingReply, irreversible private origin, fresh-ticket behavior, report counts, run hashes, throwable type/fingerprint and raw-canary exclusions are preserved byte-for-byte. Production code is unchanged.",
+      "originalTestSha256": "0fd9b2ba54f86467af64448322f7e8bebe81ac72718e4708d7881631ee833d57",
+      "frozenTestSha256": "74aebb324699c081cad9258658140b8ec37b021b236ed46d86349b3c434cf27e",
+      "validation": "Root and independent peer source review are clear; reversing the single literal restores the complete original file. Pinned ktlint1.3.1 and diff checks pass. No local Android or standalone privacy fixture execution. Complete ordinary project XML on the final source remains mandatory.",
+      "changedClassInventory": {
+        "methods": 1007,
+        "classes": 88,
+        "note": "All995previously declared methods remain; the12pre-existing reporting methods enter changed-class scope. No test method was added or removed."
+      }
+    }
+  }
+}

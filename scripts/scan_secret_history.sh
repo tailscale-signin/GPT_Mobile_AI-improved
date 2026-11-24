@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
 # Full-history PR gate. The Linux CI installer verifies the published archive.
 set -euo pipefail
+if [[ $# -eq 0 ]]; then
+  verify_integrity=false
+elif [[ $# -eq 1 && $1 == --verify-integrity ]]; then
+  verify_integrity=true
+else
+  echo 'Usage: scan_secret_history.sh [--verify-integrity]' >&2
+  exit 2
+fi
 cd "$(git rev-parse --show-toplevel)"
 if [[ $(git rev-parse --is-shallow-repository) != false ]]; then
   echo 'Full history required. Fetch the complete repository before scanning.' >&2
   exit 2
 fi
 python3 scripts/scan_secrets.py --history-paths
+# Gitleaks can return zero after its child Git stops at a missing object.
+# Require the complete selected patch stream before trusting scanner results.
+git log --all --full-history --diff-merges=first-parent --root \
+  --format= --patch -U0 --no-ext-diff --no-textconv --no-color >/dev/null
 version=8.30.1
 if command -v gitleaks >/dev/null && [[ $(gitleaks version) == "$version" ]]; then
   scanner=$(command -v gitleaks)
@@ -20,5 +32,8 @@ else
   tar -xzf "$scratch/scanner.tgz" -C "$scratch" gitleaks
   scanner="$scratch/gitleaks"
 fi
+if [[ $verify_integrity == true ]]; then
+  python3 scripts/test_secret_history_integrity.py --scanner "$scanner"
+fi
 python3 scripts/test_gitleaks_model_pin.py --scanner "$scanner"
-"$scanner" git --redact=100 --no-banner --no-color --log-opts='--all --full-history --diff-merges=first-parent --root' .
+python3 scripts/report_secret_history.py --scanner "$scanner"

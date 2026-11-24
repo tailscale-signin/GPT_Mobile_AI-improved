@@ -14,6 +14,9 @@ spec.loader.exec_module(gate)
 PREFIX = "Lcom/google/mediapipe/framework/"
 PACKET = PREFIX + "Packet;"
 CALLBACK = PREFIX + "PacketListCallback;"
+TTS = "Lcom/google/mediapipe/tasks/audio/texttospeech/"
+TTS_JNI = TTS + "MediaPipeTtsJni;"
+BASE_OPTIONS = "Lcom/google/mediapipe/tasks/core/BaseOptionsUtils;"
 # Independent fixture contract. Keep identifiers even after removing definitions
 # to reproduce a dangling method reference, rather than testing string presence.
 CONTRACT = {
@@ -21,6 +24,25 @@ CONTRACT = {
     CALLBACK: {"methods": [("process", "(Ljava/util/List;)V", 0x401)]},
     PREFIX + "MediaPipeException;": {"methods": [("<init>", "(I[B)V", 1)]},
     PREFIX + "ProtoUtil$SerializedMessage;": {"fields": [("typeName", "Ljava/lang/String;"), ("value", "[B")]},
+    TTS + "AudioResult;": {"methods": [("<init>", "([FILjava/util/List;)V", 1)]},
+    TTS + "AudioChunk;": {"methods": [("<init>", "([FIIZLjava/util/List;)V", 1)]},
+    TTS + "WordTimestamp;": {"methods": [("<init>", "(Ljava/lang/String;IIFF)V", 1)]},
+    TTS + "VoiceInfo;": {"methods": [("<init>", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IZ)V", 1)]},
+    TTS_JNI: {"methods": [
+        ("nativeCreate", "(Ljava/lang/String;IFILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)J", 0x111),
+        ("nativeListVoices", "(J)[Lcom/google/mediapipe/tasks/audio/texttospeech/VoiceInfo;", 0x111),
+        ("nativeSynthesize", "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lcom/google/mediapipe/tasks/audio/texttospeech/AudioResult;", 0x111),
+        ("nativeStartStream", "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)J", 0x111),
+        ("nativeStreamReadNext", "(J)Lcom/google/mediapipe/tasks/audio/texttospeech/AudioChunk;", 0x111),
+        ("nativeStreamPushText", "(JLjava/lang/String;)V", 0x111),
+        ("nativeStreamFinishInput", "(J)V", 0x111),
+        ("nativeStreamCancel", "(J)V", 0x111),
+        ("nativeStreamDestroy", "(J)V", 0x111),
+        ("nativeCancel", "(J)V", 0x111),
+        ("nativeDestroy", "(J)V", 0x111),
+        ("nativeComputeWordTimestamps", "(Ljava/lang/String;[FIF)Ljava/util/List;", 0x111),
+    ]},
+    BASE_OPTIONS: {"methods": [("nativeGetDirectBufferAddress", "(Ljava/nio/ByteBuffer;)J", 0x10a)]},
 }
 
 
@@ -162,6 +184,47 @@ class MediaPipeJniGateTest(unittest.TestCase):
         classes = copy.deepcopy(CONTRACT)
         classes[PREFIX + "ProtoUtil$SerializedMessage;"]["fields"] = [("typeName", "Ljava/lang/String;"), ("a", "[B")]
         with self.assertRaisesRegex(ValueError, "value:\\[B"):
+            self.check(dex_fixture(classes))
+
+    def test_tts_constructor_overload_cannot_replace_native_descriptor(self):
+        for name, overload in [
+            ("AudioResult", "([FI)V"),
+            ("AudioChunk", "([FIIZ)V"),
+            ("WordTimestamp", "(Ljava/lang/String;IIDD)V"),
+            ("VoiceInfo", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V"),
+        ]:
+            owner = TTS + name + ";"
+            classes = copy.deepcopy(CONTRACT)
+            classes[owner]["methods"] = [("<init>", overload, 1)]
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, name + r";-><init>"):
+                self.check(dex_fixture(classes))
+
+    def test_each_tts_native_definition_is_required_despite_dangling_reference(self):
+        for owner in (TTS_JNI, BASE_OPTIONS):
+            for index, (name, _, _) in enumerate(CONTRACT[owner]["methods"]):
+                classes = copy.deepcopy(CONTRACT)
+                del classes[owner]["methods"][index]
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, "->" + name):
+                    self.check(dex_fixture(classes))
+
+    def test_tts_native_flags_and_exact_return_type_are_required(self):
+        for owner in (TTS_JNI, BASE_OPTIONS):
+            for changed_flag in (0x8, 0x100):
+                classes = copy.deepcopy(CONTRACT)
+                name, descriptor, flags = classes[owner]["methods"][0]
+                classes[owner]["methods"][0] = (name, descriptor, flags ^ changed_flag)
+                with self.subTest(owner=owner, flag=changed_flag), self.assertRaisesRegex(ValueError, "->" + name):
+                    self.check(dex_fixture(classes))
+        classes = copy.deepcopy(CONTRACT)
+        index = next(i for i, method in enumerate(classes[TTS_JNI]["methods"]) if method[0] == "nativeStreamReadNext")
+        classes[TTS_JNI]["methods"][index] = ("nativeStreamReadNext", "(J)Ljava/lang/Object;", 0x111)
+        with self.assertRaisesRegex(ValueError, "->nativeStreamReadNext"):
+            self.check(dex_fixture(classes))
+
+    def test_tts_definition_renamed_outside_package_is_not_satisfied_by_reference(self):
+        classes = copy.deepcopy(CONTRACT)
+        classes["La;"] = classes.pop(TTS + "AudioChunk;")
+        with self.assertRaisesRegex(ValueError, r"AudioChunk;-><init>"):
             self.check(dex_fixture(classes))
 
     def test_missing_duplicate_and_corrupt_dex_fail_closed(self):

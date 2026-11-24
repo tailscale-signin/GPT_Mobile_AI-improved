@@ -73,6 +73,15 @@ class GitHubRequirementToolFocusTest {
         assertTrue(catalog.selected(listOf(catalog.definition)).all { it.name == ProgressiveToolCatalog.NAME })
     }
 
+    @Test fun focusedActionPrefetchesOnlyItsAuthorizedEvidenceSource() {
+        val definitions = definitions("github_commit", "github_stage_patch", "github_issue")
+        val catalog = ProgressiveToolCatalog(definitions, "Inspect the repository", githubMode = true)
+        catalog.focusRequirement(checkpoint(row("github_commit:commit_staged_patch")))
+        val selected = catalog.selected(definitions + catalog.definition)
+        assertTrue(selected.any { it.name == "github_stage_patch__native" })
+        assertTrue(catalog.selected(definitions.filter { it.name != "github_stage_patch__native" } + catalog.definition).none { it.name == "github_stage_patch__native" })
+    }
+
     @Test fun explicitDiscoveryActionsAndRecoveryDependenciesSurviveLaterFocus() = runTest {
         val recovery = AgentToolDefinition("read_recovery_context", "Read saved receipts", buildJsonObject { put("type", "object") })
         val decision = AgentToolDefinition("user_decision", "Request an authorized decision", buildJsonObject { put("type", "object") }, capabilities = setOf(AgentToolCapability.USER_DECISION))

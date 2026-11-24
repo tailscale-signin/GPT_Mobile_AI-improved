@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteConstraintException
 import dev.chungjungsoo.gptmobile.data.agent.GitHubHandoffReconciliationEvidence
 import dev.chungjungsoo.gptmobile.data.agent.GitHubToolHandoff
 import dev.chungjungsoo.gptmobile.data.agent.ToolHandoffReceipt
+import dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -27,6 +28,30 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], application = Application::class)
 class IssueReportIncidentCapsuleTest {
     private val time = 1_800_000_000_000L
+
+    @Test fun tlsPhaseSurvivesApprovedReportWithClosedTypesAndExplicitReceiverSupport() {
+        val values = mapOf(
+            "diagnostic_area" to "PROVIDER",
+            "tls_failure_kind" to "PROTOCOL",
+            "tls_last_observed_phase" to "REQUEST_BODY_COMPLETE",
+            "tls_request_body_completed" to true,
+            "tls_connection_reused" to true,
+            "tls_version" to "TLSv1.3",
+            "tls_http_protocol" to "h2"
+        )
+        val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "TLS_FAILURE", values)
+        val diagnostics = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive("PROTOCOL"), diagnostics.values["tls_failure_kind"])
+        assertEquals(JsonPrimitive("REQUEST_BODY_COMPLETE"), diagnostics.values["tls_last_observed_phase"])
+        assertTrue(IssueReportIncidentCapsule.TLS_TRANSPORT_PHASE_FEATURE in diagnostics.requiredServiceFeatures())
+        val approved = report(context).approvedPayload()
+        assertTrue(approved.contains("\"tls_request_body_completed\":true"))
+        for (field in IssueReportIncidentCapsule.tlsTransportPhaseFields) {
+            assertNull(diagnostics.copy(values = diagnostics.values + (field to JsonPrimitive("private endpoint or certificate"))).validated())
+        }
+        val legacy = capture(ReportFeature.CHAT, "CHAT_FAILURE", "TLS_FAILURE", mapOf("diagnostic_area" to "PROVIDER", "tls_failure_kind" to "PROTOCOL"))
+        assertFalse(IssueReportIncidentCapsule.TLS_TRANSPORT_PHASE_FEATURE in requireNotNull(legacy.diagnostics).requiredServiceFeatures())
+    }
 
     @Test fun modelInvocationSurvivesGenericErrorWithoutReplacingToolCausality() {
         val boundary = IssueReportIncidentCapsule.boundaryFields(IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE)
@@ -400,6 +425,47 @@ class IssueReportIncidentCapsuleTest {
         }
     }
 
+    @Test fun intelligencePolicyNamesFromAuthorityRetainOnlyClosedChangeEvidence() {
+        val additions = mapOf(
+            "intelligenceLevel" to JsonPrimitive("MAXIMUM_INTELLIGENCE"),
+            "recoveryConsultConsent" to JsonPrimitive("PRIVATE_RECOVERY_CONSENT"),
+            "engineeringTeamConsent" to JsonPrimitive("PRIVATE_TEAM_CONSENT"),
+            "recoveryExecutionConsent" to JsonPrimitive("PRIVATE_EXECUTION_CONSENT")
+        )
+        for ((name, setting) in additions) {
+            val field = "githubProfileOverride.$name"
+            val after = JsonObject(mapOf("githubProfileOverride" to JsonObject(mapOf(name to setting))))
+            val changed = ConfiguredDispatchAuthority.githubOverrideChanges(JsonObject(emptyMap()), after)
+            assertEquals(listOf(field), changed)
+            val context = capture(
+                ReportFeature.CHAT,
+                "CHAT_FAILURE",
+                "DISPATCH_POLICY_CHANGED",
+                mapOf("changed_policy_fields" to changed, field to "PRIVATE_POLICY_VALUE")
+            )
+            val diagnostic = requireNotNull(context.diagnostics)
+            assertTrue(diagnostic.isValid())
+            assertEquals(JsonArray(listOf(JsonPrimitive(field))), diagnostic.values["changed_policy_fields"])
+            assertEquals(JsonPrimitive("OBSERVED"), diagnostic.values["changed_policy_observation"])
+            assertEquals(JsonPrimitive(0), diagnostic.values["changed_policy_unknown_count"])
+            assertNull(diagnostic.values[field])
+            assertNull(diagnostic.values["request_replay_allowed"])
+            val approved = report(context).approvedPayload()
+            assertFalse(approved.contains("PRIVATE_"))
+            assertFalse(approved.contains("MAXIMUM_INTELLIGENCE"))
+            for (unknown in listOf("$field.PRIVATE_SELECTION", "$field=PRIVATE_POLICY_VALUE", name)) {
+                assertNull(IssueReportIncidentCapsule.validValue("changed_policy_fields", JsonArray(listOf(JsonPrimitive(unknown)))))
+                val partial = capture(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to listOf(field, unknown)))
+                val values = requireNotNull(partial.diagnostics).values
+                assertEquals(JsonArray(listOf(JsonPrimitive(field))), values["changed_policy_fields"])
+                assertEquals(JsonPrimitive(2), values["changed_policy_field_count"])
+                assertEquals(JsonPrimitive(1), values["changed_policy_unknown_count"])
+                assertEquals(JsonPrimitive("PARTIAL"), values["changed_policy_observation"])
+                assertFalse(report(partial).approvedPayload().contains("PRIVATE_"))
+            }
+        }
+    }
+
     @Test fun missingMalformedAndOversizedPolicyEvidenceStayDistinctFromObservedEmptyLists() {
         val missing = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", emptyMap()).diagnostics).values
         assertTrue(missing.keys.none { it.startsWith("changed_policy_") })
@@ -423,7 +489,7 @@ class IssueReportIncidentCapsuleTest {
     }
 
     @Test fun everyKnownPolicyNameSurvivesWithoutChangingAuthorityOrUnknownOutcomeEvidence() {
-        assertEquals(77, IssueReportIncidentCapsule.policyFieldNames.size)
+        assertEquals(81, IssueReportIncidentCapsule.policyFieldNames.size)
         for (field in IssueReportIncidentCapsule.policyFieldNames) {
             val context = capture(
                 ReportFeature.CHAT,

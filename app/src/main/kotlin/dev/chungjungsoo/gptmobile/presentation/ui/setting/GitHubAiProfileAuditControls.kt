@@ -40,6 +40,7 @@ internal fun GitHubAiProfileAuditControls(
     profiles: List<PlatformV2>,
     ready: Boolean,
     busy: Boolean,
+    qualification: @Composable (PlatformV2) -> Unit = {},
     onStart: (String, Boolean, Boolean) -> Unit
 ) {
     var profileUid by rememberSaveable { mutableStateOf<String?>(null) }
@@ -97,6 +98,7 @@ internal fun GitHubAiProfileAuditControls(
             }
             selected?.let {
                 Text(stringResource(R.string.github_ai_audit_selected, it.name, it.model), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                qualification(it)
             }
             HorizontalDivider()
             Text(stringResource(R.string.github_ai_audit_coverage), style = MaterialTheme.typography.labelLarge)

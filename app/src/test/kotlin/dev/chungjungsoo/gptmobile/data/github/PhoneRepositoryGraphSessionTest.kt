@@ -35,6 +35,7 @@ class PhoneRepositoryGraphSessionTest {
     private var truncated = false
     private var invalidSource = false
     private var sourceText: String? = null
+    private var delayedBlob: String? = null
 
     private suspend fun request(path: String): JsonElement = when {
         "/commits/" in path -> buildJsonObject {
@@ -62,6 +63,7 @@ class PhoneRepositoryGraphSessionTest {
         }
         "/git/blobs/" in path -> {
             blobs++
+            if (path.substringAfterLast('/') == delayedBlob) kotlinx.coroutines.delay(1000)
             buildJsonObject {
                 put("sha", path.substringAfterLast('/'))
                 put("encoding", "base64")
@@ -71,14 +73,15 @@ class PhoneRepositoryGraphSessionTest {
         else -> error("Unexpected transport $path")
     }
 
-    private fun session(task: String = "map", account: String = "account", store: GitHubRepositoryStateStore = state) = GitHubRepositorySession(
+    private fun session(task: String = "map", account: String = "account", store: GitHubRepositoryStateStore = state, contextReadTimeoutMs: Long = 2500) = GitHubRepositorySession(
         account,
         "connection",
         "map-conversation",
         task,
         store,
         ::request,
-        { _, _ -> error("Phone map must never write to GitHub") }
+        { _, _ -> error("Phone map must never write to GitHub") },
+        taskContextBlobTimeoutMs = contextReadTimeoutMs
     )
 
     private fun arguments(action: String, cursor: String? = null, revision: String = head) = buildJsonObject {
@@ -100,6 +103,47 @@ class PhoneRepositoryGraphSessionTest {
         val result = withContext(caller) { session().repositoryMap("owner", "repo", arguments("architecture")) }
         assertEquals(treeSize, result.getValue("graph").jsonObject.getValue("expected_files").jsonPrimitive.int)
         assertTrue("Map preparation posted ${resumes.get()} times to the caller for $treeSize files", resumes.get() <= 3)
+    }
+
+    @Test fun repeatedBlobDeadlinesStopRefetchingAndIndependentPinnedReadsCanRecoverTheBundle() = runTest {
+        treeSize = 2
+        delayedBlob = "%040x".format(1)
+        val args = JsonObject(arguments("task_context_bundle") + ("query" to JsonPrimitive("src/File1.kt src/File2.kt")))
+        val reader = session(contextReadTimeoutMs = 100)
+        repeat(2) {
+            val partial = reader.repositoryMap("owner", "repo", args)
+            assertEquals(JsonPrimitive(1), partial.getValue("deferred_reason_counts").jsonObject["BLOB_READ_DEADLINE"])
+            assertEquals(JsonPrimitive(false), partial["source_complete"])
+            assertTrue((partial.getValue("selected_paths") as JsonArray).contains(JsonPrimitive("src/File2.kt")))
+        }
+        val before = blobs
+        val bounded = session(contextReadTimeoutMs = 100).repositoryMap("owner", "repo", args)
+        assertEquals(before, blobs)
+        assertEquals(JsonPrimitive(1), bounded.getValue("deferred_reason_counts").jsonObject["NO_PROGRESS_LIMIT_REACHED"])
+        assertEquals(JsonPrimitive(false), bounded["automatic_retry"])
+
+        delayedBlob = null
+        reader.execute(
+            "read_ranges",
+            "owner",
+            "repo",
+            buildJsonObject {
+                put("ref", "main")
+                put("commit_sha", head)
+                put("path", "src/File1.kt")
+                put("start_line", 1)
+                put("end_line", 2)
+            }
+        )
+        val fetched = blobs
+        val recovered = reader.repositoryMap("owner", "repo", args)
+        assertEquals(fetched, blobs)
+        assertEquals(JsonPrimitive(true), recovered["source_complete"])
+        assertEquals(JsonPrimitive(2), recovered["cached_files"])
+        assertEquals(JsonObject(emptyMap()), recovered["deferred_reason_counts"])
+        val summary = reader.repositoryMap("owner", "repo", arguments("status")).getValue("task_context").jsonObject
+        assertFalse(summary.toString().contains("excerpt"))
+        assertFalse(summary.toString().contains("fun useful"))
     }
 
     @Test fun initialMapShowsTheRealTreeWithoutDownloadingAnySource() = runTest {

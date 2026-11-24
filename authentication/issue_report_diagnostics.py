@@ -44,6 +44,11 @@ PRIVACY_ELIGIBILITY_REASONS = {
     "MANAGEMENT_KEY_MISSING", "GUARDRAIL_UNVERIFIED", "GUARDRAIL_UPDATE_UNCONFIRMED", "GUARDRAIL_ASSIGNMENT_UNVERIFIED",
     "KEY_UNAVAILABLE", "VERIFICATION_RATE_LIMITED", "VERIFICATION_UNAVAILABLE",
 }
+PRIVACY_FINAL_REQUEST_CODE = "PRIVACY_FINAL_REQUEST_REJECTED"
+PRIVACY_FINAL_REQUEST_OUTCOMES = {
+    "POLICY_REVISION_MISMATCH", "KNOWN_VALUE_REINTRODUCED",
+    "NO_SUPPORTED_TEXT_SURFACES", "WIRE_VALIDATION_UNAVAILABLE",
+}
 GATEWAY_CAPABILITY_FIELDS = {"gateway_capability_failure_kind", "gateway_capability_decode_reason"}
 GATEWAY_CAPABILITY_FAILURE_KINDS = {
     "CONNECT_TIMEOUT", "TIMEOUT", "DNS", "TLS", "CONNECTION", "CONNECTION_CLOSED",
@@ -59,6 +64,7 @@ ENUMS = {
     "provider_failure_code": {"BUDGET_RESTRICTED", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE", "PRIVACY_SERVICE_UNVERIFIED"},
     "privacy_reason_code": PRIVACY_ELIGIBILITY_REASONS,
     "privacy_status": {"NOT_VERIFIED", "INCOMPATIBLE"},
+    "privacy_dispatch_outcome": PRIVACY_FINAL_REQUEST_OUTCOMES,
     "gateway_capability_failure_kind": GATEWAY_CAPABILITY_FAILURE_KINDS,
     "gateway_capability_decode_reason": GATEWAY_CAPABILITY_DECODE_REASONS,
     "voice_reply_state": {"FAILED_WITHOUT_DETAILS", "EMPTY_REPLY"},
@@ -81,7 +87,7 @@ ENUMS = {
         "provider_reported_initial", "provider_reported_interim", "runtime_reported_initial", "runtime_reported_interim", "gateway_reported_initial", "gateway_reported_interim", "mixed_reported_initial", "mixed_reported_interim",
     },
     "acceptance_evidence_scope": {"CURRENT_VERDICT", "RETAINED_VERDICT"},
-    "voice_engine": {"SYSTEM", "LOCAL", "KOKORO"},
+    "voice_engine": {"SYSTEM", "LOCAL", "KOKORO", "MEDIAPIPE"},
     "voice_phase": {"PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"},
     "voice_focus_result": {"GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"},
     "voice_first_audio_basis": {"UTTERANCE_START", "PLAYBACK_HEAD"},
@@ -132,6 +138,8 @@ FIELDS_BY_AREA = {
     "INCIDENT": COMMON_HASHES | {"original_error_code_hash", "chat_failure_code_state"},
 }
 FIELDS_BY_AREA["PROVIDER"].update(GATEWAY_CAPABILITY_FIELDS)
+FIELDS_BY_AREA["PROVIDER"].add("privacy_dispatch_outcome")
+ENUMS["provider_failure_code"].add(PRIVACY_FINAL_REQUEST_CODE)
 ENUMS["provider_failure_code"].update(capsule.CONVERSATION_RECOVERY_CODES | capsule.EXECUTION_COMPLETION_CODES | {"OUTPUT_CONTINUATION_UNAVAILABLE", "GITHUB_TASK_IDENTITY_CHANGED"})
 FIELDS_BY_AREA["PROVIDER"].update({"gateway_model_state", "gateway_model_advertised", "gateway_model_loaded"})
 FLAGS.update({"gateway_model_advertised", "gateway_model_loaded"})
@@ -139,6 +147,7 @@ ENUMS["provider_failure_code"].update({"SELECTED_MODEL_LOADING", "SELECTED_MODEL
 ENUMS["provider_failure_code"].update({"GATEWAY_CAPABILITY_UNAVAILABLE", "GATEWAY_ISOLATION_UNAVAILABLE"})
 # Bounded diagnostic additions for open issue recovery.
 ENUMS["tool_reason_code"].update({"SAVED_VIEW_CONTEXT_MISMATCH", "SAVED_VIEW_CURSOR_MALFORMED", "GITHUB_PATH_NOT_FOUND"})
+ENUMS["tool_reason_code"].add("EVIDENCE_REVISION_MISMATCH")
 ENUMS["tool_action"].update(repository_operations.TOOL_ACTIONS)
 ENUMS["tool_error_code"].update(repository_operations.ERROR_CODES)
 ENUMS["tool_reason_code"].update(repository_operations.TOOL_REASON_CODES)
@@ -293,14 +302,17 @@ ENUMS["composer_lifecycle"] = {"INITIALIZED", "CREATED", "STARTED", "RESUMED", "
 ENUMS["composer_input_mode"] = {"TOUCH", "KEYBOARD"}
 FLAGS.update({"composer_focused", "composer_ime_visible", "composer_enabled", "composer_window_focused"})
 SEARCH_ATTEMPT_FIELDS = {"search_attempt_count", "search_dispatched_attempt_count", "search_budget_rejected_attempt_count"}
-REPLAY_BUDGET_COUNTS = {"replay_allowance", "replay_tokens", "replay_exchange_count"}
+REPLAY_BUDGET_COUNTS = {"replay_allowance", "replay_tokens", "replay_exchange_count", "pending_saved_page_count"}
 COUNTS.update(REPLAY_BUDGET_COUNTS)
-ENUMS["replay_budget_state"] = {"NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE"}
+ENUMS["replay_budget_state"] = {"NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT"}
 FIELDS_BY_AREA["INCIDENT"].update(REPLAY_BUDGET_COUNTS | {"replay_budget_state"})
 COUNTS.add("reconciliation_tracked_signature_count")
 FLAGS.add("round_catalog_discovery_available")
 ENUMS["reconciliation_source"] = {"SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"}
 ENUMS["graph_transport_kind"] = {"DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN"}
+ENUMS["graph_local_phase"] = {"TREE_SELECTION", "PACKET_CACHE_READ", "SYMBOL_CATALOG", "SOURCE_LOAD", "MANIFEST_RANKING", "SOURCE_GRAPH", "SOURCE_RANGES", "SEMANTIC_RANKING", "PACKET_ASSEMBLY", "PACKET_CACHE_WRITE"}
+ENUMS["graph_local_reason"] = {"LOCAL_INVARIANT_REJECTED", "LOCAL_STATE_INVALID", "LOCAL_RUNTIME_FAILURE"}
+FIELDS_BY_AREA["TOOL"].update({"graph_local_phase", "graph_local_reason"})
 ENUMS["url_reader_refusal"] = {"DOMAIN_SCOPE", "HOP_LIMIT", "LOCATION_MISSING", "LOOP", "LOCATION_INVALID", "HTTP_ACCESS_DENIED", "TURN_DENIAL_CACHE"}
 FIELDS_BY_AREA["INCIDENT"].update({"reconciliation_source", "reconciliation_tracked_signature_count"})
 FIELDS_BY_AREA["TOOL"].update({"url_reader_refusal", "round_catalog_discovery_available", "graph_transport_kind"})
@@ -493,6 +505,11 @@ def validate_diagnostics(value):
             raise ValueError("invalid gateway capability evidence scope")
         if "gateway_capability_decode_reason" in values and kind != "DECODE_REJECTED":
             raise ValueError("invalid gateway capability decoder evidence")
+    if "privacy_dispatch_outcome" in values and (
+            values.get("provider_failure_code") != PRIVACY_FINAL_REQUEST_CODE
+            or values.get("provider_failure_stage") != "ADMISSION"
+            or values.get("provider_failure_domain") != "APPLICATION_VERIFICATION"):
+        raise ValueError("invalid privacy final request evidence scope")
     if not _aligned_composer(values):
         raise ValueError("unaligned composer observations")
     if area != "INCIDENT" and values.get("incident_capture_site") == "CHAT_FLOW_EMPTY_ANSWER":

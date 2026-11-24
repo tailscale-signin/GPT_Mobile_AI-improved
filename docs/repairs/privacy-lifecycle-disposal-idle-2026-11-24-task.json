@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-lifecycle-disposal-idle-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "d50a778d7ed7b41390d031fad9831689537935f1",
+  "workingBranch": "task/privacy-lifecycle-disposal-2026-11-24",
+  "pullRequest": 2367,
+  "recordedBeforeSourceEdits": true,
+  "status": "SOURCE_FROZEN_INDEPENDENTLY_REVIEWED_PENDING_NORMAL_CI",
+  "intent": "Drain the actual Compose/Android host frame after hiding the retained privacy comparison panel, before polling its disposal-driven cancellation.",
+  "scope": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyComparisonLifecycleTest.kt"
+  ],
+  "preEditCheckpoint": {
+    "lifecycleSha256": "98b4329d782971f2e1918bc71fd0cadf4530139c254b531258ac6cfd3be0bf1d",
+    "productionChanged": false,
+    "ordinaryMethods": 1
+  },
+  "sourceBasis": {
+    "workflowRun": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45302532778",
+    "jobId": 138138439050,
+    "head": "822d2ef347f47ba5e1844146b23c9643ee2461a7",
+    "checkout": "0e3ec66f427a869d5f2ed6fb2aec02c4e3bfafef",
+    "artifactId": 14882170896,
+    "artifactSha256": "9985840c1895d75733a6e60b61ac6b0f31dd0f417a73351e1a23d92db821db35",
+    "failure": "PrivacyComparisonLifecycleTest.stoppingRetainedScreenCancelsTheHeldRunAndResumeDoesNotRestart timed out at the final disposal wait after the second explicit Run. Earlier retained-screen ON_STOP cancellation, partial-result retention and resume-without-restart assertions passed.",
+    "diagnosisReceiptSha256": "22d5343d3ad24c039ec19be3b4729b5ac897470b9f5a4c25488235dc2e19d8cb",
+    "apiProof": "Read-only inspection of the repository-verified Compose ui-test-android 1.12.1 artifact confirms runOnIdle drains before mutation, while waitUntil's external-only predicate does not invoke the Android/Robolectric idling strategy. waitForIdle drains that strategy and waits for the next host frame.",
+    "apiArtifactSha256": "2beafe8ba6c4ac2335159a7bdc08ac3eaac205f183d5d6b29b2eb87a2458b7ff"
+  },
+  "acceptance": [
+    "Add one compose.waitForIdle() immediately after the runOnIdle block that sets visible=false and before the existing cleanup predicate.",
+    "Retain the held provider stream, real panel/ViewModel/runner, every assertion, original 5000 ms waits, exactly two held/cleaned streams, one disposal, zero observers, two explicit run IDs and eight opened attempts.",
+    "Keep the existing post-cleanup waitForIdle and every other prior byte; reversing only the added barrier/comment must reconstruct the exact incoming test.",
+    "Do not alter production lifecycle behavior, force cancellation from the test, ignore a failure, broaden a matcher or raise a deadline.",
+    "Preserve every shared commit and foreign ownership; Diagnostic93 owns the separate document/report repairs and c067 owns provider runtime repairs.",
+    "Qualify the frozen integration through canonical host checks, pinned formatting and exact release scope; final normal hosted ordinary CI must execute this method and every required suite.",
+    "Do not run local Kotlin, Android, Gradle, native or substitute privacy harnesses."
+  ],
+  "qualification": {
+    "sourceReview": "CLEAR: independent exact reversal and production-preservation review 8a9d48012983bc95bd40603f403b3be6abb0f6d477a7cf6ca00fe2cee6f709ef binds the final test bytes and pinned Compose diagnosis.",
+    "canonicalHost": "Required on the frozen candidate before guarded append; the retained external receipt records actual results without a circular ledger hash.",
+    "ordinaryProjectRuntime": "PENDING_NORMAL_HOSTED_CI",
+    "localApplicationRuntime": "NOT_RUN"
+  },
+  "implementation": {
+    "lifecycleSha256": "4f0df7bc346e210a78745a51437896eea0673f3ea14651f520c9e676c2e5a405",
+    "addedIdleBarriers": 1,
+    "addedCommentLines": 1,
+    "exactReversalRestoresIncomingTest": true,
+    "allPriorBytesAndAssertionsPreserved": true,
+    "productionUnchanged": true,
+    "timeoutValuesUnchanged": true
+  },
+  "integration": {
+    "parentCommit": "b50c29febaeb54808a4561955220f5b33bd09253",
+    "parentTree": "10b9ccf88805def2e7a337ce7df62cec7ee0b310",
+    "preservation": "Fast-forwarded the private working branch across the incoming candidate workflow fix; the reviewed lifecycle test and every production input remain unchanged."
+  }
+}

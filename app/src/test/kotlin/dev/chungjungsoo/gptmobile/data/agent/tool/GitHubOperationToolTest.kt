@@ -523,7 +523,7 @@ class GitHubOperationToolTest {
         assertEquals("restored-read", result.callId)
         assertEquals(JsonPrimitive("ranges"), authorized?.get("action"))
         assertEquals(1, budget.usedCalls())
-        assertEquals(authorized, result.executionReceipt?.get("corrected_arguments"))
+        assertEquals(authorized, result.executionReceipt?.get("canonical_arguments"))
         assertEquals(original.providerInvocation(), restored.providerInvocation())
         assertEquals(JsonPrimitive("read_ranges"), observed.single().second["action"])
         assertEquals(raw["response_detail"], authorized?.get("response_detail"))

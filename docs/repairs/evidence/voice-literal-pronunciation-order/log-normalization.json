@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "recordKind": "DERIVED_LOG_REPRESENTATION_NOT_NEW_EXECUTION",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pullRequest": 2367,
+  "rawSourceCommit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+  "normalizationCommit": "f3914d4bf6127d739cf16655a5d5edd18cdf13ae",
+  "reason": "The formatting correction removes one empty final line from five stored JUnit logs. Historical receipts deliberately retain their hashes of the original raw execution bytes.",
+  "interpretation": "Resolve a historical junitLogSha256 using rawLog.commit and rawLog.path. The current normalized copy is a derived representation, identified separately below. Its byte hash is not a replacement execution receipt.",
+  "verification": "Each historical receipt is unchanged across the two commits and its junitLogSha256 matches the raw log. Every normalized log equals the raw log with exactly one final LF removed. The normalization commit changes no other paths.",
+  "testResultScope": "The existing success and failure outcomes, test counts, source/runtime bindings and execution scopes are preserved. This record establishes no new JUnit pass, composed runtime qualification or physical-device result.",
+  "logs": [
+    {
+      "rawLog": {
+        "commit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/focused-junit.log",
+        "gitBlob": "ba810b9d2fcc8a1e50ad72881d87b0c94e138a22",
+        "bytes": 175,
+        "sha256": "ac2149f6276210ddca7eeee30c87f45da26d92a5fb4450752e00812ec3e3ae6b"
+      },
+      "normalizedLog": {
+        "commit": "f3914d4bf6127d739cf16655a5d5edd18cdf13ae",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/focused-junit.log",
+        "gitBlob": "5f4a08bcc3fffbc1a72f2c7f379c598cc982172d",
+        "bytes": 174,
+        "sha256": "aa72daba51ab997ecac89866c7a5ea24360f725224c52226c96c9d209e9b5cde"
+      },
+      "unchangedHistoricalReceipt": {
+        "commit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/focused-receipt.json",
+        "gitBlob": "fbe4101d96f9404c1b3a97cf7a56d56401af55a2",
+        "bytes": 19530,
+        "sha256": "d57aaeae6ff6b061a12a9e164e7c8e9a9cc2a81d7eeb1f766bb96b24c3143f16"
+      },
+      "receiptDigestField": "junitLogSha256",
+      "receiptDigestStillIdentifies": "rawLog",
+      "normalization": "Remove exactly one final LF byte; every preceding byte is unchanged."
+    },
+    {
+      "rawLog": {
+        "commit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/interior-before-junit.log",
+        "gitBlob": "4aaf15d58654346474c97d2b9c615f7f4a0a51e7",
+        "bytes": 1489,
+        "sha256": "cf8c25f4ccaa9adb51edea2764832743235ff342d47438e25eec9f2c0ddddb64"
+      },
+      "normalizedLog": {
+        "commit": "f3914d4bf6127d739cf16655a5d5edd18cdf13ae",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/interior-before-junit.log",
+        "gitBlob": "e8546a22444fe3638881b75a35e0aa903b9f623b",
+        "bytes": 1488,
+        "sha256": "b6f820c54fb2b1bfb3cf252cad3bc124492e4f698535beb11c4c7ac677d878de"
+      },
+      "unchangedHistoricalReceipt": {
+        "commit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/interior-before-receipt.json",
+        "gitBlob": "fd8bdf4a61603a35176004f97bb611024c34ddf7",
+        "bytes": 19234,
+        "sha256": "1fc01640fc3f922a9797eeb256362d19489b208e3862475a4ae0ac59cc86df7e"
+      },
+      "receiptDigestField": "junitLogSha256",
+      "receiptDigestStillIdentifies": "rawLog",
+      "normalization": "Remove exactly one final LF byte; every preceding byte is unchanged."
+    },
+    {
+      "rawLog": {
+        "commit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/prechange-junit.log",
+        "gitBlob": "c6ad4dadedeb360d2239fdd0682fee2cc9f7205e",
+        "bytes": 3321,
+        "sha256": "7625f4ecc441ac24d564d6f81def30a7ad38f3e6bbcc5355b2a5b262ca85040c"
+      },
+      "normalizedLog": {
+        "commit": "f3914d4bf6127d739cf16655a5d5edd18cdf13ae",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/prechange-junit.log",
+        "gitBlob": "5d08f7cb637b00f219f34bdcb6be60a5654f18ad",
+        "bytes": 3320,
+        "sha256": "51faa04d0d597799d9f7407202bd2beb04ca138bf7c229df3854eb046c553e42"
+      },
+      "unchangedHistoricalReceipt": {
+        "commit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/prechange-receipt.json",
+        "gitBlob": "bf3c8d81d5ba26b1b4c47ff920a0943d87f82f28",
+        "bytes": 19379,
+        "sha256": "9c094aed71d0416eeebcde9fc09a3daa911d85a379abda2bce7b45d190eb10d5"
+      },
+      "receiptDigestField": "junitLogSha256",
+      "receiptDigestStillIdentifies": "rawLog",
+      "normalization": "Remove exactly one final LF byte; every preceding byte is unchanged."
+    },
+    {
+      "rawLog": {
+        "commit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/prior-66-focused-junit.log",
+        "gitBlob": "bc8590420a705f5c752a2943621cdcfdea537478",
+        "bytes": 176,
+        "sha256": "d03c8fc9734225157f09a0dc20e12b096d500d8adb3c64aa136814dea87c5afb"
+      },
+      "normalizedLog": {
+        "commit": "f3914d4bf6127d739cf16655a5d5edd18cdf13ae",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/prior-66-focused-junit.log",
+        "gitBlob": "780236cf5780bee347fa1b23a8ce64f46a1587c3",
+        "bytes": 175,
+        "sha256": "3d9679a27dbc999cfab090894e47fb0d286ba8f780f2533829b8728389f308bf"
+      },
+      "unchangedHistoricalReceipt": {
+        "commit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/prior-66-focused-receipt.json",
+        "gitBlob": "65ca81f05f87ef01f0f5802c45380891d6e0edc3",
+        "bytes": 19502,
+        "sha256": "a37d715b4f6fdb88b9949eebf891ffb0ab5e29775bf19087a13dcf8c8b60a682"
+      },
+      "receiptDigestField": "junitLogSha256",
+      "receiptDigestStillIdentifies": "rawLog",
+      "normalization": "Remove exactly one final LF byte; every preceding byte is unchanged."
+    },
+    {
+      "rawLog": {
+        "commit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/prior-e43-focused-junit.log",
+        "gitBlob": "73ea14298cc0436bab41c143515998d3c4d84355",
+        "bytes": 174,
+        "sha256": "df5704dfe2c207e92bfa3fba868e13c3482e3e3c35c4dc0f142ecb5618853e96"
+      },
+      "normalizedLog": {
+        "commit": "f3914d4bf6127d739cf16655a5d5edd18cdf13ae",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/prior-e43-focused-junit.log",
+        "gitBlob": "fecd4ac5756cdaa2a369f32479bf2bc525c8ced1",
+        "bytes": 173,
+        "sha256": "3a94abe6e53a2c0b55f0cfab86a8578f7c8420514bd13b5ff187784e2fdb5171"
+      },
+      "unchangedHistoricalReceipt": {
+        "commit": "84dfa76cb9e69fc4ad5b10abc48c3ebfb0803023",
+        "path": "docs/repairs/evidence/voice-literal-pronunciation-order/prior-e43-focused-receipt.json",
+        "gitBlob": "5f4fc946ac3b47c83d7023729a2aa3c17334f5c3",
+        "bytes": 19558,
+        "sha256": "b1eaed31c1cfd69dc28a4006a7957c31593cb5736b866995c3239f0895855ba1"
+      },
+      "receiptDigestField": "junitLogSha256",
+      "receiptDigestStillIdentifies": "rawLog",
+      "normalization": "Remove exactly one final LF byte; every preceding byte is unchanged."
+    }
+  ]
+}

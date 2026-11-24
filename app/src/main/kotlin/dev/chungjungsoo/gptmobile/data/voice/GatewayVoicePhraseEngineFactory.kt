@@ -38,7 +38,7 @@ internal class GatewayVoicePhraseEngineFactory(
         pending.get()?.cancel()
     }
 
-    override val identity = "gateway-cuda-v2-${KokoroModelPack.MODEL_SHA256}-" + MessageDigest.getInstance("SHA-256")
+    override val identity = "gateway-cuda-pcm-v3-${KokoroModelPack.MODEL_SHA256}-" + MessageDigest.getInstance("SHA-256")
         .digest("$base\n${credential.orEmpty()}".toByteArray()).joinToString("") { "%02x".format(it) }
 
     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
@@ -69,6 +69,7 @@ private class GatewayVoicePhraseEngine(
     private val report: (String) -> Unit
 ) : VoicePhraseEngine {
     override val executionProvider = "gateway-cuda"
+    override val supportsStreaming: Boolean get() = streamingAvailable
     private val frontend = KokoroFrontend(File(directory, KokoroModelPack.TOKENS).absolutePath, File(directory, lexicon).absolutePath)
     private val cancelled = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
@@ -76,6 +77,7 @@ private class GatewayVoicePhraseEngine(
     private val running = AtomicReference<Job?>(null)
     private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var model = ""
+    private var streamingAvailable = false
     private val http = HttpClient(OkHttp) {
         install(dev.chungjungsoo.gptmobile.data.network.OkHttpConversationPrivacy)
         expectSuccess = false
@@ -91,7 +93,9 @@ private class GatewayVoicePhraseEngine(
                 addNetworkInterceptor { chain ->
                     val privacy = dev.chungjungsoo.gptmobile.data.network.ConversationPrivacyHttp.policy(chain.request())
                     privacy.recheckAuthorization()
-                    if (privacy.conversation?.enabled == true && chain.request().url.encodedPath.endsWith("/gateway/voice/synthesize")) {
+                    if (privacy.conversation?.enabled == true &&
+                        chain.request().url.encodedPath in setOf("/gateway/voice/synthesize", GatewayVoicePcmStream.PATH)
+                    ) {
                         throw java.io.IOException("PRIVACY_SERVICE_UNVERIFIED: Private speech stays on this phone.")
                     }
                     chain.proceed(chain.request())
@@ -111,9 +115,11 @@ private class GatewayVoicePhraseEngine(
         running.set(job)
         try {
             if (cancelled.get() || closed.get()) throw CancellationException("Speech cancelled")
-            model = withTimeout(10_000) {
-                GatewayVoiceProtocol.capabilityModel(transport.exchange("GET", "/gateway/voice/capabilities", null, 16_384))
+            val capability = withTimeout(10_000) {
+                transport.exchange("GET", "/gateway/voice/capabilities", null, 16_384)
             }
+            model = GatewayVoiceProtocol.capabilityModel(capability)
+            streamingAvailable = capability.optString("stream_protocol") == GatewayVoicePcmStream.PROTOCOL
             if (cancelled.get() || closed.get()) throw CancellationException("Speech cancelled")
             report("Gateway CUDA execution verified. Reply pronunciation tokens are sent to your selected PC.")
         } finally {
@@ -141,6 +147,39 @@ private class GatewayVoicePhraseEngine(
                     }
                     if (cancelled.get() || closed.get()) throw CancellationException("Speech cancelled")
                     GatewayVoiceProtocol.response(response, id, model, phrase.tokenIds.size, phrase.wordTokens)
+                } finally {
+                    running.compareAndSet(job, null)
+                }
+            }
+        } finally {
+            request.compareAndSet(id, null)
+        }
+    }
+
+    override fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+        check(streamingAvailable) { "Gateway PCM streaming is unavailable" }
+        if (closed.get() || cancelled.get()) throw CancellationException("Speech cancelled")
+        val phrase = frontend.encode(text)
+        val id = UUID.randomUUID().toString()
+        request.set(id)
+        try {
+            runBlocking(ConversationPrivacyContext.capture() ?: ConversationPrivacyContext(null, false)) {
+                val job = currentCoroutineContext()[Job]!!
+                running.set(job)
+                try {
+                    if (cancelled.get() || closed.get()) throw CancellationException("Speech cancelled")
+                    val payload = GatewayVoiceProtocol.request(id, model, phrase.tokenIds, phrase.wordTokens, speaker, speed)
+                    transport.stream(payload, phrase.tokenIds.size, phrase.wordTokens, text) { chunk ->
+                        if (cancelled.get() || closed.get() || !emit(chunk)) {
+                            this@GatewayVoicePhraseEngine.cancel()
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                } catch (error: UnverifiedServiceTransport) {
+                    report("Privacy Mode keeps speech on this phone. Select on-device CPU, GPU or NPU speech.")
+                    throw error
                 } finally {
                     running.compareAndSet(job, null)
                 }

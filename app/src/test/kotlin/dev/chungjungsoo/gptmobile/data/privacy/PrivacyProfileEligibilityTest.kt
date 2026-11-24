@@ -791,4 +791,31 @@ class PrivacyProfileEligibilityTest {
         assertFalse(protected.contains("expecting") || protected.contains("needs care"))
         assertEquals(text, mask.sealForResponse()(protected))
     }
+
+    @Test
+    fun familyHealthDisclosuresKeepTheWritingTaskAndRespectCategorySelection() {
+        val text = "My partner is expecting a baby. My sister needs care today, so please help me draft a note for class."
+        val mask = PrivateTextMask(setOf(PrivacyCategory.HEALTH), emptyList())
+        val protected = mask.protectWithReceipt(text)
+        assertEquals(2, protected.receipt.ranges.size)
+        assertFalse(protected.text.contains("expecting") || protected.text.contains("needs care"))
+        assertTrue(protected.text.contains("please help me draft a note for class"))
+        assertEquals(text, mask.sealForResponse()(protected.text))
+        assertEquals(text, PrivateTextMask(emptySet(), emptyList()).protect(text))
+    }
+
+    @Test
+    fun ordinaryFamilyAndTechnicalUsesOfExpectingAndCareStayReadable() {
+        val mask = PrivateTextMask(setOf(PrivacyCategory.HEALTH), emptyList())
+        for (text in listOf(
+            "My sister is expecting a delivery. My brother needs careful instructions.",
+            "My brother is expecting a child process to finish. My sister needs care instructions for a plant.",
+            "My parser is expecting a child. My bicycle needs care.",
+            "Explain family care for my class."
+        )) {
+            val protected = mask.protectWithReceipt(text)
+            assertEquals(text, protected.text)
+            assertTrue(protected.receipt.ranges.isEmpty())
+        }
+    }
 }

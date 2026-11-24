@@ -50,9 +50,11 @@ class ChatReadinessCoordinator @Inject constructor(
     fun hintProfiles(ids: List<String>) {
         ReadinessHints.selectProfiles(ids)
     }
-    fun trim() {
+    fun trim(trimSignal: Int? = null) {
         scheduler.cancelSpeculation()
-        mcp.clearReadinessCache(cancelProducers = false)
+        if (trimSignal == null || dev.chungjungsoo.gptmobile.data.memory.MemoryTrimPolicy.readinessEvictionReason(trimSignal) != null) {
+            mcp.clearReadinessCache(cancelProducers = false, trimSignal = trimSignal)
+        }
         memory.clear()
     }
     fun clear() {

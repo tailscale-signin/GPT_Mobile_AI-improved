@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_commit": "0aef39b01bfc565083899dd7aebecd1981b9150b",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "pull_request": 2367,
+  "owner": "Benchmark audit coordinator",
+  "state": "IMPLEMENTED_PENDING_FINAL_COMBINED_HEAD_HOSTED_QUALIFICATION",
+  "authorization": "Implement the latest features and fixes on the shared PR branch, preserve concurrent commits, qualify current PR and main, then publish both packages.",
+  "requirements": [
+    "Omit the resource value only for the already recognized source-excerpt schema; keep unrelated typed resource metadata.",
+    "Extend the real retained-producer fixture with a private repository-path canary, including its existing staged checkpoint/resume consumers.",
+    "Preserve revision, line spans, receipt identities, status, counts, hashes and explicit forensic content with unconditional credential removal.",
+    "Preserve all concurrent catalog, privacy, authorization, cancellation, scope and publication work.",
+    "Treat actual terminal diagnostic detail and recognized persisted continuation payload as opaque in default export while retaining typed preceding metadata and credential-redacted forensic content.",
+    "Allow a colon after complete is/at address separators while preserving every existing ordinary-language negative, masking range and exact restoration assertion."
+  ],
+  "validation": {
+    "baseline": "Actual excerpt producer and production redactor: two expected resource-path failures; forensic/credential and unrelated-resource controls pass; four methods, zero skips.",
+    "baseline_log_sha256": "aaf5fe175969e32316df6ef5d6179f344b6a662b33dc56091818ed1eedd948ff",
+    "probe_boundary": "Three unexecuted port files supply vault/connection and pinnedSource-only contracts. Actual producer collect and default/forensic redaction execute. No Android, Room or staged ZIP execution is claimed.",
+    "candidate": "Actual excerpt producer and final composed default/forensic redactor:4PASS,0FAIL,0SKIP.",
+    "hosted_android": "PENDING_FINAL_COMBINED_HEAD",
+    "candidate_log_sha256": "44c0f7bffbbecff87966a2e1dada5c02090bc0aa1de01f2cc82a46178d6e10d1",
+    "address": "Immutable4bf baseline: one expected failure and two unchanged controls pass. Corrected actual corpus:33PASS,0FAIL,0SKIP; all32 prior method bodies unchanged.",
+    "address_peer_sha256": "8cc82a1080fa1dc88c1ec76fc5d403a5603decc9bf854e4293d5fe29214ddbdd",
+    "detail_baseline": "Immutable4bf production helpers with final selected repository methods:24PASS,4 expected failures,0SKIP. Two real GitHubEvidenceBook integration methods remain required in hosted Android.",
+    "detail_candidate": "Actual diagnostic, credential and bounded-record producers:28PASS,0FAIL,0SKIP. Nine complete production files and three declared unused boundary ports. All25 previous methods/assertions remain; five methods added.",
+    "canonical": "Required on the frozen committed combined tree; immutable result will be recorded in PR qualification.",
+    "candidate_receipt_sha256": "8fc1e600922a9a98473f95affa232517363e1b5635bfe0904101f3466b109840",
+    "candidate_source_manifest_sha256": "c2436ae8bd0358da845343f01d3d1e19450844b52b4eedc4eaf3e744e4574092",
+    "detail_baseline_receipt_sha256": "4765144b6375a8f843e1e1a802f24106f78eadb21a4f69413e567a3402491184",
+    "detail_candidate_receipt_sha256": "245cedeb424f0d472395c75cf13e062a9045da5ec88f06856141eb39f82b5366",
+    "detail_qualification_sha256": "780a18b8d6a4d41ffd69b168303e9ef1a5ea937f4ab4bfc019cb2384ef65fdc6",
+    "fixture_schema_correction": "The same typed errorCode in the existing provider fixture precedes terminal detail, matching both actual OpenAI producers; every assertion remains."
+  },
+  "publication": "Keep draft until all source reservations and latest-head gates pass; preserve both predecessor publications before guarded normal merge, exact-main gates and joint successor publication.",
+  "first_reproduced_commit": "d646f28fbb170e381c7788f51cf98c77f2973672",
+  "reproduced_source_commit": "4bf01a98440ccc91b7ef2ab7ea4bb8adab86c583",
+  "findings": [
+    "GitHubEvidenceExcerpts.collect stores repository-relative paths in source-excerpt resource fields. Default diagnostic redaction removes excerpt values but retains these paths, including encoded retained catalogs.",
+    "Terminal provider/memory detail can retain private key-value text after a generic label boundary, and separately persisted continuation lines lack the original detail label.",
+    "The whole-word address separator correction misses explicit is: and at: forms, leaving the value unmasked."
+  ],
+  "behavior_qualifications": [
+    "Only the existing source-excerpt shape loses its resource filename; unrelated typed resources remain structural.",
+    "Terminal detail cannot introduce later trusted metadata, delimiters or JSON.",
+    "Recognized physical continuations retain their parent identity and positive sequence. Only a complete fixed HTTP METHOD value may retain its payload; arbitrary text, code/status labels, suffixes and JSON remain opaque.",
+    "Direct structured AppLogRecorder export still indexes raw captured records before finishIndex and structured output; the staged frozen-log path has no incident tracker. No tracker or storage source changes.",
+    "Portable source probes do not replace actual Room, staged archive, Compose, full Android or device qualification."
+  ]
+}

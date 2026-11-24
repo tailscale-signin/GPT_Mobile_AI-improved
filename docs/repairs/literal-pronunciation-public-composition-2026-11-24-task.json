@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-11-24T04:33:55.191407+00:00",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "parentPr": 2367,
+  "sharedHead": "5055dadedf1c1b318e66e7b78ccb0eeeed247c12",
+  "workingBranch": "task/literal-pronunciation-compose-20261124",
+  "workingDirectory": "/workspace/scratch/da4162210969/recovery-20261124/literal-integration-composed",
+  "component": "3663b23cb8b43578b92874852a4904b321f6701a",
+  "componentBase": "6623502134fda34a98ff3b9fc773ba7df51f2750",
+  "intent": "Compose reviewed literal pronunciation component over current GitHub-intelligence integration; preserve all incoming source; regenerate only shared generated inventories/maps/scope; add one mixed filtered-URL and surviving-correction source-range regression without altering earlier tests.",
+  "executionBoundary": "No local app/Kotlin/Gradle/native/model/privacy/custom-app-harness execution. Only source/data analysis, pinned lint and canonical fast validation.",
+  "sourceReviewInputs": {
+    "e43": "09041bd19d06e4f36b3ef3a234ebf6f3ad2d2acd1753b2bcd44b995a94c5c4a8",
+    "66": "c2f1f444b9cd723bbea6729224791712658e6abf3a4d53314426b038da0dc036",
+    "376FrontendPeer": "a2032342956b603097ac59d494b54240499d37854f06ba7e2c0edbc1206bb431",
+    "candidateDelivery": "79e7cd0e6159ded02e58612b5ec3aa3111d1dd871a2259dff7b5922329a7a80a"
+  },
+  "status": "SOURCE_COMPOSED_CANONICAL_AND_INDEPENDENT_REVIEW_PENDING",
+  "previousObservedSharedHead": "cffc64e0a99bc2ba6244f43ed76f014a6e53d5bf",
+  "incomingUpdate": "Preserve appended Android/Windows producer attestation bundle retention; no changes to those workflows during literal composition.",
+  "changes": [
+    "Merge the reviewed3663 literal component over5055 without changing any incoming GitHub-intelligence, Gateway or producer-attestation workflow source.",
+    "Retain all186 prior required ordinary method identities and all earlier test bodies; add owner and root mixed address-removal regressions proving exact separator/default behavior and surviving correction ranges through native and SDK consumers.",
+    "Reconcile generated app audit inventory, feature references and exact release scope for the combined tree."
+  ],
+  "qualification": {
+    "pinnedKtlint": "PENDING",
+    "canonicalFast": "PENDING",
+    "ordinaryAndroidAndNative": "REQUIRED_HOSTED_NOT_EXECUTED_LOCALLY"
+  },
+  "limitations": [
+    "Source review and host checks do not establish actual Session/Android/native/model behavior.",
+    "Final exact public-head and actual-main gates plus complete publication verification remain required."
+  ],
+  "requiredOrdinary": {
+    "priorMethods": 186,
+    "addedMethods": [
+      "dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.survivingLiteralCorrectionsKeepTheirRangesAfterAnInteriorAddressIsRemoved",
+      "dev.chungjungsoo.gptmobile.data.voice.VoiceLiteralPronunciationPipelineTest.survivingCorrectionsKeepSourceRangesAcrossInteriorAddressRemoval"
+    ],
+    "unionMethods": 188,
+    "unionClasses": 11,
+    "pipelineSourceGitBlob": "8a5252e7c1588d3f3ebd4631b3c1c34179510d08",
+    "pipelineSourceSha256": "aaa5292ff35015e3a56cb683b4f2bfacded003b01d723d8f869e5c1a690346b3",
+    "execution": "FINAL_HOSTED_ORDINARY_CI_REQUIRED_NOT_EXECUTED_LOCALLY"
+  },
+  "incomingComposition": {
+    "additionalPublicHead": "7e728578c2899d1ecafa284552466f075f46ecb4",
+    "priorQualifiedLocalCommit": "e65fc89e4ccd6191d8f966ddb03109968016f24a",
+    "priorHostChecks": 802,
+    "priorUnchangedInputs": 7277,
+    "intent": "Preserve the new authorized recovery consent/read session and519-member Gateway integration; no application or workflow overlap outside regenerated audit inventories."
+  },
+  "diagnosticParityComposition": {
+    "additionalPublicHead": "57721cdd9085f0a6dcc06e33d30d8004a955b71d",
+    "priorQualifiedLocalCommit": "9d8a470b9e01893ae3a288d0361af51f5f2f6cee",
+    "priorHostChecks": 802,
+    "priorUnchangedInputs": 7281,
+    "intent": "Preserve both exact81-name incident vocabularies and their four-name producer/consumer regressions; regenerate shared inventory without changing incident/privacy authority."
+  },
+  "ownerAdditiveTestComposition": {
+    "recordedBeforeEditsUtc": "2026-11-24T04:54:56.666468+00:00",
+    "ownerSource": "7e9e322f1341e06e93f0b63258ba040076aff88c",
+    "intent": "Preserve the owner exact separator/native filtering regression and hash-www negative alongside the root before/after source-range regression across raw, encoded and hash-www addresses. All production remains the reviewed3663 component.",
+    "ownerSourceReviewSha256": "b6db8cedc2d0963e769d807c69e86d21f40adaf2aef67a1998e8388c16fa7650",
+    "rootAdditiveReviewSha256": "51e46ed02c8d00180370255cb451f6bd2875d9b659bc7b74d3e092f7e394bd3b",
+    "ownerClaimed126PurePass": "SOURCE_SPECIFIC_OWNER_EVIDENCE_NOT_EXPANDED_TO_COMBINED_OR_ANDROID_RUNTIME"
+  },
+  "nativeRepairComposition": {
+    "recordedBeforeCompositionUtc": "2026-11-24T05:01:28.297306+00:00",
+    "additionalPublicHead": "4f348a5ddd4ea3cb020a9e2c74754d71f37cd687",
+    "nativeRepair": "6c11d5054bce30499679151ce9f69e9298da7dc9",
+    "priorQualifiedLocalCommit": "073f53c1c4771b798701f8f02282cbf42b54dc02",
+    "uploadedIsolatedCommit": "dcdefad1dae4fa40206e7661f494accc60b8d9b5",
+    "sharedRefMoved": false,
+    "intent": "Preserve the newly published native context serialization/cancellation repair and recovery final-synthesis test. The previous isolated upload was not appended because the expected shared head advanced."
+  }
+}

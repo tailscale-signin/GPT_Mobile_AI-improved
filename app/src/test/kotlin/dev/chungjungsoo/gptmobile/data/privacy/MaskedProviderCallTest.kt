@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.provider.toolRoundSystemPrompt
 import dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard
@@ -19,13 +20,19 @@ import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
 import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -35,6 +42,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MaskedProviderCallTest {
+    @Test
+    fun shortNameSurvivesActualMaskingFinalSystemTransformAndLocalRestoration() = runBlocking {
+        val fixture = Fixture()
+        fixture.response = { "Hello " + fixture.outgoingTurns.single().userMessage.content.removePrefix("My name is ") }
+        val events = fixture.collect(fixture.prepare(listOf(ConversationTurn(MessageV2(content = "My name is An.", platformType = null), null, true))))
+        assertEquals("Hello An.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(1, fixture.dispatches)
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertFalse(fixture.outgoingTurns.single().userMessage.content.contains("An"))
+        assertEquals(JsonPrimitive(1), fixture.finalWireReceipt?.get("validated_app_owned_public_suffixes"))
+    }
+
     @Test
     fun allOutgoingHistoryAndSystemTextAreMaskedBeforeLaterIntroductionsAreSent() = runBlocking {
         val fixture = Fixture()
@@ -49,14 +68,14 @@ class MaskedProviderCallTest {
         assertTrue(fixture.savedInputs.isEmpty())
         val events = fixture.collect(session)
         assertEquals(1, fixture.dispatches)
-        assertEquals("Alice and Sam can visit a museum.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals("Alice and Sam can visit a museum.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
         assertSame(ProviderEvent.Completed, events.last())
         assertEquals(listOf(1, 2, 3), fixture.savedInputs.map { it.first.id })
         assertEquals(listOf("Alice"), fixture.savedInputs[0].second.protectedValues(original[0].userMessage.content))
         assertEquals(listOf("Sam"), fixture.savedInputs[1].second.protectedValues(original[0].assistantMessage!!.content))
         assertEquals(listOf("Alice", "Sam"), fixture.savedInputs[2].second.protectedValues(original[1].userMessage.content))
         fixture.savedInputs.forEach { (message, receipt) -> assertTrue(receipt.validFor(message.content)) }
-        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
         val receipt = fixture.protection.displayReceipt(answer)
         assertTrue(receipt.validFor(answer))
         assertEquals(listOf("Alice", "Sam"), receipt.protectedValues(answer))
@@ -136,8 +155,8 @@ class MaskedProviderCallTest {
         var ownerChecks = 0
         val owner = RequestAuthorizationGuard("source-permissions-r7", captured) { ownerChecks++ }
         val fixture = Fixture(owner)
-        fixture.collect(fixture.prepare(sampleTurns()))
-        assertEquals(1, ownerChecks)
+        val events = fixture.collect(fixture.prepare(sampleTurns()))
+        assertEquals(events.size + 1, ownerChecks)
         assertEquals(1, fixture.dispatches)
         assertSame(captured, fixture.observedAuthority?.authority)
         assertEquals("source-permissions-r7:privacy-4", fixture.observedAuthority?.revision)
@@ -169,7 +188,7 @@ class MaskedProviderCallTest {
         val fixture = Fixture()
         fixture.response = { "Foreign marker $foreign stays literal." }
         val events = fixture.collect(fixture.prepare(sampleTurns()))
-        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        val answer = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
         assertEquals("Foreign marker $foreign stays literal.", answer)
         assertTrue(fixture.protection.displayReceipt(answer).ranges.isEmpty())
     }
@@ -197,6 +216,53 @@ class MaskedProviderCallTest {
         assertTrue(runCatching { unopened.prepare(withAttachment) }.exceptionOrNull() is IllegalArgumentException)
         assertEquals(0, unopened.opens)
         assertEquals(0, unopened.dispatches)
+    }
+
+    @Test
+    fun restoredProseArrivesBeforeTheProviderFinishesAndTerminalMetricsAreAlreadyAvailable() = runBlocking {
+        val fixture = Fixture()
+        val firstVisible = CompletableDeferred<String>()
+        fixture.afterFirstDelta = { withTimeout(2_000) { firstVisible.await() } }
+        val events = fixture.collect(fixture.prepare(sampleTurns()), onEvent = { event ->
+            if (event is ProviderEvent.TextDelta) {
+                assertFalse(event.text.contains("[PRIVATE_"))
+                firstVisible.complete(event.text)
+            }
+            if (event is ProviderEvent.Completed) {
+                val evidence = requireNotNull(fixture.dispatchProof?.streamSnapshot())
+                assertEquals("true", evidence["completed"].toString())
+                assertTrue(evidence.containsKey("first_upstream_answer_ms"))
+                assertTrue(evidence.containsKey("first_restored_answer_ms"))
+            }
+        })
+        assertTrue(firstVisible.isCompleted)
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().size >= 2)
+        assertEquals("Alice and Sam can visit a museum.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+    }
+
+    @Test
+    fun changedOwnedMarkerFailsWithoutPublishingAnOriginalOrReplayingTheRequest() = runBlocking {
+        val fixture = Fixture()
+        fixture.response = { fixture.outgoingTurns.first().userMessage.content.substringBefore(" likes").replace("_PERSON_", "_DATE_") }
+        val events = fixture.collect(fixture.prepare(sampleTurns()))
+        assertTrue(events.none { it is ProviderEvent.TextDelta || it is ProviderEvent.Completed })
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("PRIVACY_OUTPUT_PROTOCOL_INVALID", failure.errorCode)
+        assertEquals(1, fixture.dispatches)
+        assertFalse(failure.toString().contains("Alice") || failure.toString().contains("[PRIVATE_"))
+    }
+
+    @Test
+    fun draftPlaceholderForASuppliedPersonIsReportedAsUnverifiedWithoutInventingTheValue() = runBlocking {
+        val fixture = Fixture()
+        fixture.response = { "Regards, [Your full name]." }
+        val turns = sampleTurns().toMutableList()
+        val last = turns.last()
+        turns[turns.lastIndex] = last.copy(userMessage = last.userMessage.copy(content = last.userMessage.content + " Write a complete letter."))
+        val events = fixture.collect(fixture.prepare(turns))
+        assertTrue(events.filterIsInstance<ProviderEvent.Notice>().any { it.message.contains("not been verified") })
+        assertEquals("Regards, [Your full name].", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(1, fixture.dispatches)
     }
 
     private fun sampleTurns(): List<ConversationTurn> {
@@ -227,6 +293,7 @@ class MaskedProviderCallTest {
         val savedInputs = mutableListOf<Pair<MessageV2, PrivacyProtectionReceipt>>()
         var afterInput: suspend () -> Unit = {}
         var beforePhysicalBoundary: suspend () -> Unit = {}
+        var afterFirstDelta: suspend () -> Unit = {}
         val protection = PrivateProtectionContext { message, receipt ->
             savedInputs += message to receipt
             afterInput()
@@ -237,6 +304,8 @@ class MaskedProviderCallTest {
         var opens = 0
         var dispatches = 0
         var observedAuthority: RequestAuthorizationGuard? = null
+        var dispatchProof: PrivateDispatchContext? = null
+        var finalWireReceipt: JsonObject? = null
         var response: () -> String = {
             val alice = outgoingTurns[0].userMessage.content.removeSuffix(" likes museums.")
             val sam = outgoingTurns[0].assistantMessage!!.content.removeSuffix(" likes music.")
@@ -267,12 +336,25 @@ class MaskedProviderCallTest {
                         assertTrue(currentCoroutineContext()[MaskedProviderCall.Key] != null)
                         beforePhysicalBoundary()
                         val guard = requireNotNull(currentCoroutineContext()[RequestAuthorizationGuard])
+                        dispatchProof = currentCoroutineContext()[PrivateDispatchContext]
                         observedAuthority = guard
                         guard.validate()
+                        // The fixture models the provider's actual no-tools system transform,
+                        // then invokes the real final-wire validator before its dispatch port.
+                        val messages = buildList {
+                            fun message(role: String, text: String) = add(JsonObject(mapOf("role" to JsonPrimitive(role), "content" to JsonPrimitive(text))))
+                            message("system", requireNotNull(toolRoundSystemPrompt(outgoingProfile.systemPrompt, false)))
+                            outgoingTurns.forEach { turn ->
+                                message("user", turn.userMessage.content)
+                                turn.assistantMessage?.let { message("assistant", it.content) }
+                            }
+                        }
+                        finalWireReceipt = requireNotNull(dispatchProof).validate(JsonObject(mapOf("messages" to JsonArray(messages))).toString(), guard.revision)
                         dispatches++
                         val answer = response()
                         val split = answer.length / 2
                         emit(ProviderEvent.TextDelta(answer.substring(0, split)))
+                        afterFirstDelta()
                         emit(ProviderEvent.TextDelta(answer.substring(split)))
                         emit(ProviderEvent.Completed)
                     }
@@ -280,7 +362,10 @@ class MaskedProviderCallTest {
             }
         }
 
-        suspend fun collect(session: AgentProviderSession, tools: List<AgentToolDefinition> = emptyList()): List<ProviderEvent> =
-            withContext(executionContext) { session.streamRound(tools, emptyList()).toList() }
+        suspend fun collect(
+            session: AgentProviderSession,
+            tools: List<AgentToolDefinition> = emptyList(),
+            onEvent: (ProviderEvent) -> Unit = {}
+        ): List<ProviderEvent> = withContext(executionContext) { session.streamRound(tools, emptyList()).onEach(onEvent).toList() }
     }
 }

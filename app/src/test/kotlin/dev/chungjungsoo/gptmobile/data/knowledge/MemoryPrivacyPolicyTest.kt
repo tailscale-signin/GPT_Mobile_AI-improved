@@ -6,6 +6,8 @@ import dev.chungjungsoo.gptmobile.data.rag.KnowledgeFact
 import dev.chungjungsoo.gptmobile.data.rag.KnowledgeRelation
 import dev.chungjungsoo.gptmobile.data.rag.MemoryTopicEvidence
 import dev.chungjungsoo.gptmobile.data.rag.VaultFact
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,5 +89,21 @@ class MemoryPrivacyPolicyTest {
         assertFalse(ordinary.accepts(privateDocument, 22))
         assertTrue(MemoryScope(key = "private:chat:11", includePersonal = false, privateChatIds = setOf(11)).accepts(privateDocument, 11))
         assertEquals(fact.copy(sourceChatId = 22), MemoryPrivacyPolicy.protect(fact.copy(sourceChatId = 22), setOf(11)))
+    }
+
+    @Test fun restoredDerivedFactKeepsItsPrivateOwnerAfterOriginalSourceIsDeletedAndProtectionRetried() {
+        val derived = MemoryPrivacyPolicy.protect(fact.copy(source = "local_extractor_observation"), setOf(11))
+        val exported = Json.encodeToString(FactVaultSnapshot(facts = listOf(derived)))
+        val restored = Json.decodeFromString<FactVaultSnapshot>(exported).facts.single()
+        val withoutSource = restored.copy(sourceChatId = 0, sourceMessageId = 0, evidenceSources = emptySet(), lastSourceKey = "")
+        val retried = MemoryPrivacyPolicy.protect(withoutSource, emptySet())
+        assertEquals("private:chat:11", retried.scope)
+        assertTrue(retried.localOnly)
+        assertEquals(derived.id, retried.id)
+        assertFalse(MemoryScope().accepts(retried.scope))
+        val anotherChat = MemoryScope(key = "private:chat:12", includePersonal = false, inheritedScopes = setOf("private:chat:11"))
+        assertFalse(anotherChat.accepts(retried.scope))
+        assertFalse(anotherChat.acceptsSource(retried))
+        assertEquals(retried, MemoryPrivacyPolicy.protect(retried, setOf(12)))
     }
 }

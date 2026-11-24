@@ -38,6 +38,12 @@ internal object GitHubInventoryObservation {
                         records.filterIsInstance<JsonObject>().take(1000).map { row ->
                             JsonObject(
                                 row.filterKeys { it in setOf("id", "number", "name", "state", "tag_name", "draft", "run_id", "run_attempt", "head_sha", "status", "conclusion") } + buildJsonObject {
+                                    val path = (row["path"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isWorkspacePath() }
+                                    val blob = GitHubInventoryQuery.commitSha(row["sha"])
+                                    if (path != null && blob != null) {
+                                        put("path", path)
+                                        put("sha", blob)
+                                    }
                                     for (key in listOf("head", "base")) {
                                         (row[key] as? JsonObject)?.let { revision -> put(key, JsonObject(revision.filterKeys { it == "sha" })) }
                                     }
@@ -69,10 +75,55 @@ internal object GitHubInventoryObservation {
         val envelope = receipt["result"] as? JsonObject ?: return null
         val value = if (envelope["observationTruncated"] == JsonPrimitive(true)) envelope["excerpt"] as? JsonObject ?: JsonObject(emptyMap()) else envelope
         val root = (value["data"] as? JsonObject) ?: value
-        val inventory = receipt["inventory_observation"] as? JsonObject
+        val inventory = (receipt["inventory_observation"] as? JsonObject)?.takeIf { it["schema"] == JsonPrimitive("github.inventory-observation.v1") }
         val field = (inventory?.get("field") as? JsonPrimitive)?.contentOrNull
         val records = inventory?.get("planning_records") as? JsonArray
-        return if (field in fields && records != null) JsonObject(root + (requireNotNull(field) to records)) else root
+        if (field !in fields || records == null) return root
+        val revision = GitHubInventoryQuery.commitSha(inventory?.get("commit_sha"))
+        if (revision != null && "commit_sha" in root && GitHubInventoryQuery.commitSha(root["commit_sha"]) != revision) return null
+        return JsonObject(root + (requireNotNull(field) to records) + if (revision != null) mapOf("commit_sha" to revision) else emptyMap())
+    }
+
+    /** A search selector stays attached to the selected repository and exact returned revision. */
+    fun searchPath(receipts: List<JsonObject>): JsonPrimitive? = searchReceipts(receipts).asReversed().firstNotNullOfOrNull { receipt ->
+        // Older inventories retain only empty planning rows. A surviving
+        // original/excerpt selector remains usable without restoring any
+        // missing rows or claiming that the partial page was consumed.
+        listOfNotNull(planningRoot(receipt), sourceRoot(receipt)).firstNotNullOfOrNull { root ->
+            val rows = listOf("matches", "results", "files", "items").firstNotNullOfOrNull { root[it] as? JsonArray }.orEmpty()
+            rows.filterIsInstance<JsonObject>().firstNotNullOfOrNull { row ->
+                (row["path"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isWorkspacePath() && GitHubInventoryQuery.commitSha(row["sha"]) != null }
+            }
+        }
+    }
+
+    internal fun searchReceipts(receipts: List<JsonObject>): List<JsonObject> {
+        val selected = GitHubSelfTestPrerequisites.selected(receipts) ?: return emptyList()
+        val revision = GitHubInventoryQuery.commitSha(selected.head)
+        return selected.receipts.filter { receipt ->
+            val args = receipt["arguments"] as? JsonObject ?: return@filter false
+            if (receipt["success"] != JsonPrimitive(true) ||
+                (receipt["tool"] as? JsonPrimitive)?.contentOrNull?.githubOperationFamily() != "github_search" ||
+                args["action"] != JsonPrimitive("search") ||
+                "view_cursor" in args
+            ) {
+                return@filter false
+            }
+            if ("owner" in args || "repo" in args) {
+                val repository = "${(args["owner"] as? JsonPrimitive)?.contentOrNull}/${(args["repo"] as? JsonPrimitive)?.contentOrNull}"
+                if (!repository.equals((receipt["repository"] as? JsonPrimitive)?.contentOrNull, true)) return@filter false
+            }
+            val root = sourceRoot(receipt) ?: return@filter false
+            val inventory = (receipt["inventory_observation"] as? JsonObject)?.takeIf { it["schema"] == JsonPrimitive("github.inventory-observation.v1") }
+            val revisions = listOfNotNull(args["commit_sha"], root["commit_sha"], inventory?.get("commit_sha"), receipt["source_head_sha"]).filter { it != JsonNull }
+            revisions.isNotEmpty() && revisions.all { GitHubInventoryQuery.commitSha(it) == revision }
+        }
+    }
+
+    private fun sourceRoot(receipt: JsonObject): JsonObject? {
+        val envelope = receipt["result"] as? JsonObject ?: return null
+        val value = if (envelope["observationTruncated"] == JsonPrimitive(true)) envelope["excerpt"] as? JsonObject ?: JsonObject(emptyMap()) else envelope
+        return (value["data"] as? JsonObject) ?: value
     }
 
     private fun fromDispatchMetadata(receipt: JsonObject): JsonObject? {

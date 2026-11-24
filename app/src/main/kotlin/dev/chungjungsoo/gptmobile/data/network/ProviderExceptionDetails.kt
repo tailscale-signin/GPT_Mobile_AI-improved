@@ -413,7 +413,11 @@ internal fun providerExceptionDetails(
     val observedHttpStatus = httpFailure?.takeUnless { it.beforeDispatch && it.consecutiveRejections == 0 }
         ?.let { it.observedHttpStatus?.takeIf { status -> status in 100..599 } ?: it.status }
     val observedRetryAt = httpFailure?.takeIf { it.retrySource != null }?.retryAtMillis
-    val retryable = !partialOutput && (http?.retryable ?: (retryAt != null && (localLimit || category == FreeFailureCategory.PROVIDER_RATE_LIMITED)))
+    val retryable = !partialOutput &&
+        (
+            http?.let { it.retryable && httpFailure?.waitRefusal == null }
+                ?: (retryAt != null && (localLimit || category == FreeFailureCategory.PROVIDER_RATE_LIMITED))
+            )
     val code = http?.status?.toString() ?: requireNotNull(category).name
     return ErrorDetail(
         message = http?.message() ?: error.message.orEmpty(),
@@ -455,6 +459,7 @@ internal fun providerExceptionDetails(
             httpFailure?.consecutiveRejections?.takeIf { it > 0 }?.let { put("consecutive_rejections", it) }
             httpFailure?.errorOrigin?.let { put("provider_error_origin", it) }
             httpFailure?.errorType?.let { put("provider_error_type", it) }
+            httpFailure?.waitRefusal?.let { put("provider_wait_no_wait_reason", it.name) }
             put("retryable", retryable)
             put("partial_output_preserved", partialOutput)
         }

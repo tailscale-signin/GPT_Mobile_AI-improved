@@ -18,13 +18,27 @@ class VoiceMeasuredBackendPolicyTest {
             comparisonScope = "a".repeat(64),
             speakerId = 3,
             speechRate = 1f,
-            thermalStatuses = List(VoiceMeasuredBackendPolicy.thermalSampleCount) { 0 }
+            thermalStatuses = List(VoiceMeasuredBackendPolicy.thermalSampleCount) { 0 },
+            comparisonId = "c".repeat(32),
+            audioObservations = VoiceSpeechWorkload.calibrationPhrases.map(::speechReferenceFixture)
         )
 
     @Test fun noBaselineOrOnlyProviderRegistrationKeepsCpu() {
         assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(emptyList(), now))
         assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(receipt(VoiceSpeechBackend.QNN_GPU, 10)), now))
         assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(receipt(VoiceSpeechBackend.CPU, 100), receipt(VoiceSpeechBackend.QNN_GPU, 10, false)), now))
+    }
+
+    @Test fun fasterTruncatedAcceleratorOrAnotherComparisonRunCannotWinAuto() {
+        val cpu = receipt(VoiceSpeechBackend.CPU, 100)
+        val gpu = receipt(VoiceSpeechBackend.QNN_GPU, 30)
+        val truncated = gpu.copy(audioObservations = VoiceSpeechWorkload.calibrationPhrases.map { speechReferenceFixture(it, 43) })
+        assertTrue(truncated.verifiedAccelerator)
+        assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu, truncated), now))
+        assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu, gpu.copy(comparisonId = "d".repeat(32))), now))
+        assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu, gpu.copy(audioObservations = emptyList())), now))
+        assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu.copy(audioObservations = emptyList()), gpu), now))
+        assertEquals(VoiceSpeechBackend.QNN_GPU, VoiceMeasuredBackendPolicy.choose(listOf(gpu, cpu), now))
     }
 
     @Test fun measuredCompleteSpeechCostChoosesFastestVerifiedAccelerator() {

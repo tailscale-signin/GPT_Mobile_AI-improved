@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.PowerManager
 import dev.melo.kokoro.TimedKokoro
 import java.io.File
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -18,26 +19,43 @@ internal class QualcommVoicePhraseEngineFactory(
     private val report: (String) -> Unit,
     private val calibrateAll: Boolean = false,
     private val voice: KokoroVoice = KokoroVoice.HEART,
-    private val speechRate: Float = 1f
+    private val speechRate: Float = 1f,
+    private val htpPerformanceMode: String = "balanced",
+    private val modelVariant: KokoroModelVariant = KokoroModelVariant.INT8
 ) : VoicePhraseEngineFactory {
     init {
         require(speechRate.isFinite() && speechRate in .5f..2f)
+        require(htpPerformanceMode in setOf("balanced", "burst", "high_performance"))
     }
 
     override val selectedBackend: VoiceSpeechBackend get() = backend
+    override val cpuCalibrationFactory: VoicePhraseEngineFactory get() = TimedKokoroPhraseEngineFactory.forVariant(modelVariant)
+    override val nativeCleanupPending: Boolean get() = preparationRetirement.nativeCleanupPending
 
     // Recheck visits fourteen production chunks per backend, including changed-shape graph compilation.
     // Its explicit six-minute bound preserves complete measurements; normal model open keeps its separate thirty-second limit.
-    override val preparationTimeoutMs: Long get() = if (backend == VoiceSpeechBackend.AUTO && calibrateAll) 360_000 else 30_000
+    override val preparationTimeoutMs: Long get() = if ((backend == VoiceSpeechBackend.AUTO || backend in ACCELERATORS) && calibrateAll) 360_000 else 30_000
     private val pending = AtomicReference<TimedKokoro?>(null)
+    private val preparationRetirement = VoiceNativePreparationRetirement()
     private val generation = AtomicLong()
     private val calibrated = AtomicBoolean(false)
-    private val store = runCatching { VoiceBackendCapabilityStore(context) }.getOrNull()
+    private val runtimeConfiguration = "htp=$htpPerformanceMode;context=1"
+    private val store = runCatching { VoiceBackendCapabilityStore(context, runtimeConfiguration, modelVariant.modelSha256) }.getOrNull()
     private val thermal = context.getSystemService(PowerManager::class.java)
     private val libraryDirectory = context.applicationInfo.nativeLibraryDir
     private val profileDirectory = File(context.cacheDir, "voice-provider-profiles")
+    private val compiledContextRoot = context.cacheDir
+    private val compiledContextIdentity = Build.FINGERPRINT?.takeIf { it.isNotBlank() && it != "unknown" }?.let { firmware ->
+        MessageDigest.getInstance("SHA-256").digest(
+            listOf(
+                "kokoro-context-v1", modelVariant.modelSha256, TimedKokoro.RUNTIME_ID, runtimeConfiguration,
+                firmware, Build.VERSION.INCREMENTAL, Build.VERSION.SDK_INT.toString(), Build.SUPPORTED_ABIS.joinToString(),
+                Build.HARDWARE, Build.BOOTLOADER, Build.SOC_MODEL, Build.SOC_MANUFACTURER
+            ).joinToString("|").toByteArray(Charsets.UTF_8)
+        ).joinToString("") { "%02x".format(it) }
+    }.orEmpty()
     private val deviceKey = store?.deviceKey ?: "unavailable"
-    override val identity = "kokoro-${backend.name}-${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}-${TimedKokoro.RUNTIME_ID}-${KokoroModelPack.MODEL_SHA256}-$deviceKey-${voice.name}-${speechRate.toBits()}-${store?.revision() ?: 0}"
+    override val identity = "kokoro-${backend.name}-${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}-${TimedKokoro.RUNTIME_ID}-$runtimeConfiguration-${modelVariant.modelSha256}-$deviceKey-${voice.name}-${speechRate.toBits()}-${store?.revision() ?: 0}"
 
     override fun cancelPending() {
         generation.incrementAndGet()
@@ -47,77 +65,91 @@ internal class QualcommVoicePhraseEngineFactory(
     /** A benchmark measures the requested backend without hidden probes or CPU recovery. */
     fun createBenchmarkEngine(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
         require(backend in LOCAL_BACKENDS)
+        check(!nativeCleanupPending) { "Native speech cleanup is unconfirmed; restart the app before another preparation." }
         val ticket = generation.get()
         val native = open(directory, lexicon, threads, backend)
         try {
-            checkTicket(ticket)
-            var observed: VoiceSpeechExecutionEvidence? = null
-            return object : VoicePhraseEngine {
-                override val executionProvider: String get() = provider(backend)
-                override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed
-                override val executionProgress: VoiceSpeechProgress? get() = native.speechProgress()
-                override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
-                    val audio = try {
-                        native.generate(text, speaker, speed)
-                    } catch (error: Exception) {
-                        observed = speechFailureExecutionEvidence(error, backend, deviceKey)
-                        throw error
+            return preparationRetirement.transfer(native) {
+                checkTicket(ticket)
+                var observed: VoiceSpeechExecutionEvidence? = null
+                object : VoicePhraseEngine {
+                    override val executionProvider: String get() = provider(backend)
+                    override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed
+                    override val executionProgress: VoiceSpeechProgress? get() = native.speechProgress()
+                    override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+                        val audio = try {
+                            native.generate(text, speaker, speed)
+                        } catch (error: Exception) {
+                            observed = speechFailureExecutionEvidence(error, backend, deviceKey, modelVariant.modelSha256)
+                            throw error
+                        }
+                        val receipt = native.evidence()
+                        val actual = if (backend != VoiceSpeechBackend.CPU && receipt.acceleratorKernels == 0 && receipt.cpuKernels > 0) "cpu" else executionProvider
+                        observed = evidence(receipt, actual, null)
+                        return VoicePhraseAudio(audio.samples, audio.durations, audio.wordTokens)
                     }
-                    val receipt = native.evidence()
-                    val actual = if (backend != VoiceSpeechBackend.CPU && receipt.acceleratorKernels == 0 && receipt.cpuKernels > 0) "cpu" else executionProvider
-                    observed = evidence(receipt, actual, null)
-                    return VoicePhraseAudio(audio.samples, audio.durations, audio.wordTokens)
+                    override fun resetCancellation() = native.resetCancellation()
+                    override fun cancel() = native.cancel()
+                    override fun close() = native.close()
                 }
-                override fun resetCancellation() = native.resetCancellation()
-                override fun cancel() = native.cancel()
-                override fun close() = native.close()
             }
-        } catch (error: Exception) {
-            native.close()
-            throw error
         } finally {
             pending.compareAndSet(native, null)
         }
     }
 
     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+        check(!nativeCleanupPending) { "Native speech cleanup is unconfirmed; restart the app before another preparation." }
         val ticket = generation.get()
-        if (backend == VoiceSpeechBackend.AUTO && calibrateAll && calibrated.compareAndSet(false, true)) {
+        if ((backend == VoiceSpeechBackend.AUTO || backend in ACCELERATORS) && calibrateAll && calibrated.compareAndSet(false, true)) {
             // Reject a broken workload before opening a provider or writing any hardware receipt.
             val probes = VoiceSpeechWorkload.calibrationFixtures
-            for (candidate in VoiceMeasuredBackendPolicy.comparisonOrder(store?.revision() ?: 0)) {
-                checkTicket(ticket)
-                var trial: TimedKokoro? = null
-                try {
-                    notify("Comparing ${candidate.label} with changing phrase shapes, ${voice.label}, at $speechRate×…")
-                    val openedThermalStatus = thermalStatus()
-                    val started = System.nanoTime()
-                    trial = open(directory, lexicon, threads, candidate)
-                    measure(trial, candidate, lexicon, threads, ticket, started, probes, openedThermalStatus)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    if (inputOrSetupFailure(error)) throw error
-                    reject(candidate, lexicon, threads, classify(error), error)
-                } catch (_: LinkageError) {
-                    reject(candidate, lexicon, threads, VoiceSpeechFailureCode.PROVIDER_LOAD)
-                } finally {
-                    pending.compareAndSet(trial, null)
-                    runCatching { trial?.close() }
-                }
-            }
+            val comparisonId = UUID.randomUUID().toString().replace("-", "")
+            VoiceBackendAudioAdmission.recheck(
+                backend,
+                store?.revision() ?: 0,
+                { checkTicket(ticket) },
+                System::currentTimeMillis,
+                { candidate ->
+                    var trial: TimedKokoro? = null
+                    try {
+                        notify("Comparing ${candidate.label} with changing phrase shapes, ${voice.label}, at $speechRate×…")
+                        val openedThermalStatus = thermalStatus()
+                        val started = System.nanoTime()
+                        trial = open(directory, lexicon, threads, candidate)
+                        measure(trial, candidate, lexicon, threads, ticket, started, probes, openedThermalStatus, comparisonId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        if (inputOrSetupFailure(error)) throw error
+                        failureReceipt(candidate, lexicon, threads, classify(error), error, comparisonId)
+                    } catch (_: LinkageError) {
+                        failureReceipt(candidate, lexicon, threads, VoiceSpeechFailureCode.PROVIDER_LOAD, comparisonId = comparisonId)
+                    } finally {
+                        pending.compareAndSet(trial, null)
+                        runCatching { trial?.close() }
+                    }
+                },
+                { comparison -> store?.saveComparison(comparison) }
+            )
         }
         checkTicket(ticket)
         val now = System.currentTimeMillis()
-        val chosen = if (backend == VoiceSpeechBackend.AUTO) {
-            VoiceMeasuredBackendPolicy.choose(LOCAL_BACKENDS.mapNotNull { receipt(it, lexicon, threads, now) }, now)
-        } else {
-            backend
-        }
-        val cached = receipt(chosen, lexicon, threads, now)
-        var selected = chosen
+        val records = LOCAL_BACKENDS.mapNotNull { receipt(it, lexicon, threads, now) }
+        val admission = VoiceBackendAudioAdmission.select(backend, records, now)
+        val chosen = admission.denied ?: admission.selected
+        val cached = records.singleOrNull { it.backend == chosen }
+        var selected = admission.selected
         var failure = cached?.failure
         var failed = cached?.takeIf { it.failure != null && it.backend in ACCELERATORS }
+        val admissionNotice = admission.denied?.let {
+            if (admission.comparison?.status == VoiceSpeechAudioReferenceStatus.MISMATCH || failed?.failure == VoiceSpeechFailureCode.OUTPUT_INVALID) {
+                "${it.label} failed audio validation. Using CPU; a complete CPU-reference Recheck is required before accelerator playback."
+            } else {
+                "${it.label} needs a complete CPU-reference Recheck for this voice and speed. Using CPU."
+            }
+        }
+        if (admissionNotice != null) notify(admissionNotice)
         if (failed != null) {
             selected = VoiceSpeechBackend.CPU
             notify("${chosen.label}: ${checkNotNull(failure).name.lowercase().replace('_', ' ')}. Using CPU; Recheck will try again.")
@@ -126,9 +158,9 @@ internal class QualcommVoicePhraseEngineFactory(
         try {
             engine = if (selected == VoiceSpeechBackend.CPU) openCpu(directory, lexicon, threads, failed) else open(directory, lexicon, threads, selected)
             checkTicket(ticket)
-            // The first requested phrase must produce real kernels and aligned audio natively.
-            // Normal startup never runs a hidden complete benchmark or manufactures ranking samples.
-            if (selected != VoiceSpeechBackend.CPU) notify("${selected.label} will validate the first spoken phrase on this phone.")
+            // Accelerator admission was checked before any production audio/model was opened.
+            // The fixed-workload comparison is representative, not per-utterance equivalence.
+            if (selected != VoiceSpeechBackend.CPU) notify("${selected.label} matched the CPU reference workload. Individual phrases still receive native structural validation.")
         } catch (cancelled: CancellationException) {
             runCatching { engine?.close() }
             throw cancelled
@@ -153,7 +185,7 @@ internal class QualcommVoicePhraseEngineFactory(
         try {
             checkTicket(ticket)
             if (backend == VoiceSpeechBackend.AUTO) notify("Auto selected ${selected.label.lowercase()}. Recheck compares all local engines with CPU.")
-            return managed(ready, selected, failed, directory, lexicon, threads)
+            return managed(ready, selected, failed, directory, lexicon, threads, admissionNotice)
         } catch (error: Exception) {
             ready.close()
             throw error
@@ -168,48 +200,35 @@ internal class QualcommVoicePhraseEngineFactory(
         initialFailure: VoiceBackendCapability?,
         directory: File,
         lexicon: String,
-        threads: Int
+        threads: Int,
+        admissionNotice: String? = null
     ): VoicePhraseEngine {
         var failure = initialFailure
         var observed: VoiceSpeechExecutionEvidence? = initialFailure?.let(::failureEvidence)
-        var supportRecorded = receipt(initialBackend, lexicon, threads, System.currentTimeMillis())?.let {
-            it.failure == null && it.verifiedAccelerator
-        } == true
         fun wrap(native: TimedKokoro, selected: VoiceSpeechBackend): VoicePhraseEngine = object : VoicePhraseEngine {
             override val executionProvider: String get() = provider(selected)
             override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed
             override val executionProgress: VoiceSpeechProgress? get() = native.speechProgress()
+            override fun warmFirstInference(speaker: Int, speed: Float): Boolean =
+                selected == VoiceSpeechBackend.CPU && native.warmCpuInference(speaker, speed)
             override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+                check(selected == VoiceSpeechBackend.CPU || speaker == voice.speakerId && speed.toBits() == speechRate.toBits()) { "MODEL_CONFIGURATION" }
                 val audio = try {
                     native.generate(text, speaker, speed)
                 } catch (error: Exception) {
-                    observed = speechFailureExecutionEvidence(error, backend, deviceKey)
+                    observed = speechFailureExecutionEvidence(error, backend, deviceKey, modelVariant.modelSha256)
                     throw error
                 }
                 val result = native.evidence()
                 observed = evidence(result, executionProvider, failure)
-                if (selected != VoiceSpeechBackend.CPU && !supportRecorded && speaker == voice.speakerId && speed == speechRate) {
+                if (selected != VoiceSpeechBackend.CPU) {
                     check(result.validatedAudio && result.nonSilentSamples > 0) { "OUTPUT_INVALID" }
                     check(result.profileAvailable) { "EXECUTION_EVIDENCE_MISSING" }
                     check(result.acceleratorKernels > 0) { "CPU_ONLY" }
-                    store?.let { cache ->
-                        cache.save(
-                            VoiceBackendCapability(
-                                key(selected, lexicon, threads),
-                                selected,
-                                System.currentTimeMillis(),
-                                verifiedAccelerator = true,
-                                comparisonScope = cache.comparisonScope(lexicon, threads, voice, speechRate),
-                                speakerId = voice.speakerId,
-                                speechRate = speechRate
-                            )
-                        )
-                    }
-                    supportRecorded = true
                 }
                 val actual = if (selected != VoiceSpeechBackend.CPU && result.cpuKernels > 0) "${selected.label} + CPU" else selected.label
                 val reason = failure?.failure?.let { " · ${it.name.lowercase().replace('_', ' ')}" }.orEmpty()
-                notify("Selected ${backend.label}. Speaking with $actual$reason.")
+                notify(admissionNotice ?: "Selected ${backend.label}. Speaking with $actual$reason.")
                 return VoicePhraseAudio(audio.samples, audio.durations, audio.wordTokens)
             }
             override fun resetCancellation() = native.resetCancellation()
@@ -243,19 +262,30 @@ internal class QualcommVoicePhraseEngineFactory(
             ) { "PROVIDER_LOAD" }
             check(profileDirectory.isDirectory || profileDirectory.mkdirs()) { "PROVIDER_LOAD" }
         }
+        // Only HTP has a verified EPContext export path in the pinned plugin.
+        // A cache directory failure leaves normal source-model synthesis usable.
+        val contextPath = if (selected == VoiceSpeechBackend.QNN_HTP && compiledContextIdentity.isNotEmpty()) {
+            VoiceCompiledContextDirectory.prepare(compiledContextRoot)
+        } else {
+            ""
+        }
         return TimedKokoro(
-            File(directory, KokoroModelPack.MODEL).absolutePath,
+            File(directory, modelVariant.modelFile).absolutePath,
             File(directory, KokoroModelPack.VOICES).absolutePath,
             File(directory, KokoroModelPack.TOKENS).absolutePath,
             File(directory, lexicon).absolutePath,
             threads,
             provider(selected),
             libraryDirectory,
-            File(profileDirectory, UUID.randomUUID().toString()).absolutePath
+            File(profileDirectory, UUID.randomUUID().toString()).absolutePath,
+            contextPath,
+            compiledContextIdentity,
+            htpPerformanceMode
         ).also { pending.set(it) }
     }
 
-    private fun measure(native: TimedKokoro, selected: VoiceSpeechBackend, lexicon: String, threads: Int, ticket: Long, openedAt: Long, probes: List<List<String>>, openedThermalStatus: Int?) {
+    private fun measure(native: TimedKokoro, selected: VoiceSpeechBackend, lexicon: String, threads: Int, ticket: Long, openedAt: Long, probes: List<List<String>>, openedThermalStatus: Int?, comparisonId: String): VoiceBackendCapability {
+        var latestAudio: VoiceSpeechAudioObservation? = null
         val measurement = measureVoiceQualification(
             probes,
             selected,
@@ -265,30 +295,40 @@ internal class QualcommVoicePhraseEngineFactory(
             System::nanoTime,
             { checkTicket(ticket) },
             openedThermalStatus,
-            ::thermalStatus
+            ::thermalStatus,
+            { latestAudio }
         ) { phrase, speaker, rate ->
-            native.generate(phrase, speaker, rate)
+            val audio = native.generate(phrase, speaker, rate)
+            latestAudio = VoiceSpeechAudioObservation.measure(phrase, VoicePhraseAudio(audio.samples, audio.durations, audio.wordTokens))
             evidence(native.evidence(), provider(selected), null)
         }
-        store?.save(
-            VoiceBackendCapability(
-                key(selected, lexicon, threads),
-                selected,
-                System.currentTimeMillis(),
-                measurement.sampleMs.takeIf { measurement.rankingEligible }.orEmpty(),
-                selected != VoiceSpeechBackend.CPU,
-                comparisonScope = store.comparisonScope(lexicon, threads, voice, speechRate),
-                speakerId = voice.speakerId,
-                speechRate = speechRate,
-                thermalStatuses = measurement.thermalStatuses
-            )
-        )
         if (!measurement.rankingEligible) notify("${selected.label} execution was validated. A performance ranking needs known, cool thermal readings throughout the comparison.")
+        return VoiceBackendCapability(
+            key(selected, lexicon, threads),
+            selected,
+            System.currentTimeMillis(),
+            measurement.sampleMs.takeIf { measurement.rankingEligible }.orEmpty(),
+            selected != VoiceSpeechBackend.CPU,
+            comparisonScope = store?.comparisonScope(lexicon, threads, voice, speechRate),
+            speakerId = voice.speakerId,
+            speechRate = speechRate,
+            thermalStatuses = measurement.thermalStatuses,
+            comparisonId = comparisonId,
+            audioObservations = measurement.audioObservations
+        )
     }
 
     private fun reject(selected: VoiceSpeechBackend, lexicon: String, threads: Int, reason: VoiceSpeechFailureCode, error: Exception? = null): VoiceBackendCapability {
+        val record = failureReceipt(selected, lexicon, threads, reason, error)
+        store?.save(record)
+        notify("${selected.label}: ${reason.name.lowercase().replace('_', ' ')}. Speech can continue on CPU.")
+        return record
+    }
+
+    /** Recheck stages failures with its cohort; ordinary playback rejection persists immediately. */
+    private fun failureReceipt(selected: VoiceSpeechBackend, lexicon: String, threads: Int, reason: VoiceSpeechFailureCode, error: Exception? = null, comparisonId: String? = null): VoiceBackendCapability {
         val native = error as? TimedKokoro.Failure
-        val record = VoiceBackendCapability(
+        return VoiceBackendCapability(
             key(selected, lexicon, threads),
             selected,
             System.currentTimeMillis(),
@@ -303,11 +343,9 @@ internal class QualcommVoicePhraseEngineFactory(
             inputBytes = native?.inputBytes ?: (error as? VoiceSpeechWorkloadFailure)?.inputBytes,
             inputByteLimit = native?.inputByteLimit ?: (error as? VoiceSpeechWorkloadFailure)?.inputByteLimit,
             tokenLimit = native?.tokenLimit,
-            discoverySummary = safeSpeechDiscoverySummary(native?.discoverySummary)
+            discoverySummary = safeSpeechDiscoverySummary(native?.discoverySummary),
+            comparisonId = comparisonId
         )
-        store?.save(record)
-        notify("${selected.label}: ${reason.name.lowercase().replace('_', ' ')}. Speech can continue on CPU.")
-        return record
     }
     private fun receipt(selected: VoiceSpeechBackend, lexicon: String, threads: Int, now: Long) = store?.read(key(selected, lexicon, threads), now)
     private fun key(selected: VoiceSpeechBackend, lexicon: String, threads: Int) = store?.key(selected, lexicon, threads, voice, speechRate).orEmpty()
@@ -320,7 +358,7 @@ internal class QualcommVoicePhraseEngineFactory(
     private fun thermalStatus(): Int? = runCatching { thermal?.currentThermalStatus }.getOrNull()?.takeIf { it in 0..6 }
 
     private fun evidence(native: TimedKokoro.Evidence, effective: String, failure: VoiceBackendCapability?) = VoiceSpeechExecutionEvidence(
-        backend, effective, KokoroModelPack.MODEL_SHA256, TimedKokoro.RUNTIME_ID, deviceKey,
+        backend, effective, modelVariant.modelSha256, TimedKokoro.RUNTIME_ID, deviceKey,
         if (failure == null) VoiceSpeechStage.READY else VoiceSpeechStage.CPU_FALLBACK, failure?.failure,
         native.acceleratorKernels, native.cpuKernels, native.acceleratorMicros, native.cpuMicros, native.prepareMs,
         native.synthesisMs, native.tokenCount, native.validatedAudio, System.currentTimeMillis(), failure?.nativeCode,
@@ -333,10 +371,10 @@ internal class QualcommVoicePhraseEngineFactory(
         cachedShapeCount = native.cachedShapeCount,
         cacheLimit = native.cacheLimit,
         cacheEstimatedBytes = native.cacheEstimatedBytes,
-        audioRms = native.audioRms,
-        audioPeak = native.audioPeak,
-        clippedSamples = native.clippedSamples,
-        nonSilentSamples = native.nonSilentSamples,
+        audioRms = native.audioRms.takeIf { native.audioMeasurementAvailable == true },
+        audioPeak = native.audioPeak.takeIf { native.audioMeasurementAvailable == true },
+        clippedSamples = native.clippedSamples.takeIf { native.audioMeasurementAvailable == true },
+        nonSilentSamples = native.nonSilentSamples.takeIf { native.audioMeasurementAvailable == true },
         profileReused = native.profileReused,
         graphPreparedThisCall = native.graphPreparedThisCall,
         discoverySummary = safeSpeechDiscoverySummary(native.discoverySummary),
@@ -347,11 +385,38 @@ internal class QualcommVoicePhraseEngineFactory(
         frontendMs = native.frontendMs,
         validationMs = native.validationMs,
         cacheEvictions = native.cacheEvictions,
-        profileFinalizeMs = native.profileFinalizeMs
+        profileFinalizeMs = native.profileFinalizeMs,
+        cacheBudgetBytes = native.cacheBudgetBytes,
+        activeShapeEstimatedBytes = native.activeShapeEstimatedBytes,
+        availableMemoryBytes = native.availableMemoryBytes,
+        cacheAdmission = safeSpeechCacheAdmission(native.cacheAdmission),
+        audioMeasurementAvailable = native.audioMeasurementAvailable,
+        audioFinite = native.audioFinite,
+        validationReason = safeSpeechValidationReason(native.validationReason),
+        outputTensorCount = native.outputTensorCount,
+        outputFrames = native.outputFrames,
+        outputElementType = native.outputElementType,
+        outputRank = native.outputRank,
+        durationCount = native.durationCount,
+        durationElementType = native.durationElementType,
+        durationRank = native.durationRank,
+        durationSum = native.durationSum,
+        durationMin = native.durationMin,
+        durationMax = native.durationMax,
+        durationStatsAvailable = native.durationStatsAvailable,
+        durationSumOverflow = native.durationSumOverflow,
+        graphPreparationSource = safeSpeechGraphPreparation(native.graphPreparationSource),
+        contextCacheStatus = safeSpeechContextCacheStatus(native.contextCacheStatus),
+        contextLoadMs = native.contextLoadMs,
+        contextStoreMs = native.contextStoreMs,
+        contextBytes = native.contextBytes,
+        contextCacheEvictions = native.contextCacheEvictions,
+        contextFallback = native.contextFallback,
+        htpPerformanceMode = safeSpeechHtpPerformanceMode(native.htpPerformanceMode)
     )
 
     private fun failureEvidence(failure: VoiceBackendCapability) = VoiceSpeechExecutionEvidence(
-        backend, "cpu", KokoroModelPack.MODEL_SHA256, TimedKokoro.RUNTIME_ID, deviceKey,
+        backend, "cpu", modelVariant.modelSha256, TimedKokoro.RUNTIME_ID, deviceKey,
         VoiceSpeechStage.CPU_FALLBACK, failure.failure, tokenCount = failure.tokenCount ?: 0,
         observedAtMillis = System.currentTimeMillis(), nativeCode = failure.nativeCode,
         failureStage = failure.failureStage, failedProvider = provider(failure.backend), failedTokenCount = failure.tokenCount,

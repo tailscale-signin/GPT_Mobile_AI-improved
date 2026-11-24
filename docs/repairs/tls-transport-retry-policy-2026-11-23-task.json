@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "task": "tls-transport-retry-policy-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "e056d1378836ffc4eed08e879a71aac44b3fc10b",
+  "workingBranch": "work/tls-retry-correction-2026-11-23",
+  "parentPullRequest": 2367,
+  "status": "IMPLEMENTED_FOCUSED_VERIFIED_PENDING_INTEGRATION_AND_HOSTED_QUALIFICATION",
+  "intent": "Make actual provider retry admission obey the typed nonretryable TLS and cancellation contract before broad HTTP-status or IOException fallbacks.",
+  "finding": {
+    "actualPath": "OpenAI chat and responses call ResilientStreamingClient.executeWithRetry. Its prior early veto omitted SSLProtocolException and CertPathValidatorException, allowing an outer IOException or HTTP 502 to authorize another attempt before final diagnostics reported a nonretryable TLS failure.",
+    "causeDepth": "The diagnostic classifier inspects up to 16 distinct causes while the existing retry fallback inspected only eight. A veto restricted to that shorter scan would still admit typed TLS or cancellation deeper in the classified chain."
+  },
+  "correction": {
+    "source": "Use the existing cycle-safe, 16-cause networkFailureKind classifier at the start of isRetryable and deny only TLS or CANCELLED before existing fallbacks.",
+    "preserved": [
+      "Existing non-TLS transient HTTP/socket retry rules and provider contract rejection checks",
+      "Attempt limits, backoff, deadlines, coroutine cancellation and durable worker ownership",
+      "Final report classification, remote-acceptance uncertainty and gateway replay guards",
+      "Every existing retry test case and non-TLS assertion"
+    ],
+    "existingTestIdentityMapping": {
+      "from": "TLS record errors permit bounded retry but trust failures never do",
+      "to": "TLS record errors and trust failures never permit automatic retry",
+      "assertionChange": "Intentionally change SSLProtocolException isRetryable from assertTrue to assertFalse; keep the peer-verification and certificate trust assertions."
+    },
+    "newTests": [
+      "typedTlsCausesCannotBecomeRetryableThroughDeepIoOrHttpWrappers",
+      "tlsFailuresStopTheActualRetryLoopBeforeAnotherAttempt",
+      "ordinaryTransientFailuresStillUseTheBoundedRetryLoop",
+      "cancellationNeverStartsAnotherClientAttemptEvenWhenDeeplyWrapped"
+    ]
+  },
+  "focusedValidation": {
+    "baseline": "Actual e056 retry production with current project tests: 21 methods executed, four expected assertion failures, zero ignored. This demonstrates the protocol retry, deep-cause cancellation and intentionally corrected historical expectation mismatches.",
+    "corrected": "Actual corrected retry production: all 16 ResilientStreamingClientTest and five NetworkFailureKindTest methods passed, zero failures or ignored methods. Test code uses synthetic failures and virtual coroutine time; no endpoint was contacted.",
+    "causeControls": "Typed SSLProtocolException, SSLException and CertPathValidatorException at depths 1, 2, 9 and 16; actual retry-loop attempt counts; non-TLS HTTP 502/socket timeout success; direct and 16-deep wrapped cancellation.",
+    "executionBoundary": "Executed retry, classifier and both test files are whole verbatim project source. ProviderHttpFailure and ProviderConnectivityPendingException are complete verbatim class extractions. Only unused WorkerRequestBudget.preflight/acquireRequest methods and their unused AppLogRecorder import were omitted from the local dependency closure; no selected test instantiates the worker budget or calls omitted methods. Exact source/extraction/dependency hashes are retained in the review evidence.",
+    "limitations": "This focused proof does not qualify Android, HTTP transport, worker-budget methods, UI, private composed streams, devices or the complete project suite. Current-source canonical validation and all applicable hosted workflows remain required."
+  },
+  "integration": "Preparation used an isolated worktree and performed no commit, remote write or CI action. The parent coordinator owns reconciliation with later public commits, generated references and release scope, canonical validation, guarded append and final-source hosted qualification. Existing unrelated source and publication holds remain open."
+}

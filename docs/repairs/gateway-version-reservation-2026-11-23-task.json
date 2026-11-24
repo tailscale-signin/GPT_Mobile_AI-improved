@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "task": "gateway-version-reservation-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "b88fd367f23f9b66e7846363dad405932315b3bf",
+  "baseTree": "52a8e75faf31d8380224f6352863cadc47d967bb",
+  "parentPullRequest": 2367,
+  "workingBranch": "work/gateway-version-reservation-b88",
+  "owner": "root/native_speech_review",
+  "integrationOwner": "root",
+  "status": "FOCUSED_VALIDATION_PASSED_READY_FOR_INTEGRATION",
+  "intent": "Reserve Gateway 18.1.2 for the Android 0.9.66.14/code 148 successor without colliding with the active exact-source Gateway 18.1.1 publication from main commit 8abda66c9040d2c679cee8fe84452d67125a3fd7.",
+  "reason": "The coordinated trigger requests both publications when the reviewed version pair changes. The publisher rejects an existing Gateway tag or release bound to another source commit; unchanged implementation files do not permit reusing that tag for new-source packages or attestations.",
+  "ownedPaths": [
+    "gateway/v14/__init__.py",
+    "gateway/contracts/v18/capabilities.json",
+    "gateway/contracts/v18/gateway-v18-capabilities-full.json",
+    "app/src/test/resources/gateway-v18-capabilities-full.json",
+    "gateway/manifest-v14.json",
+    "release-scope.json",
+    "RELEASE_NOTES.md",
+    "CHANGELOG.md",
+    "docs/repairs/gateway-version-reservation-2026-11-23-task.json"
+  ],
+  "constraints": [
+    "Preserve Gateway features, contract semantics, historical capability fixtures and Android version 0.9.66.14/code 148.",
+    "Keep current full Gateway and Android capability fixtures byte-identical and regenerate the manifest from the reviewed working bytes.",
+    "Preserve immutable tag, exact-source package and binary provenance checks.",
+    "Do not change, cancel or replace the active main release or its retained Windows artifact.",
+    "No push, merge, workflow retry, dispatch or publication from this worker."
+  ],
+  "plannedValidation": [
+    "Validate the complete Gateway package manifest and current source/version identity.",
+    "Run existing capability mirror, release-trigger and scoped-release behavior tests.",
+    "Exercise the actual local Gateway capability route and its current full fixture when the pinned runtime is available.",
+    "Check generated references and whitespace; root owns aggregate validation after integration."
+  ],
+  "validation": {
+    "focused": {
+      "command": "python3 -m unittest scripts.tests.test_gateway_capability_fixtures scripts.tests.test_release_trigger scripts.tests.test_release_scope -v",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 1.961,
+      "result": "PASSED",
+      "scope": "Existing exact capability-mirror, release-trigger and scoped-release behavior tests. No Android or Windows execution."
+    },
+    "actualCandidateTrigger": {
+      "beforeCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+      "event": "push",
+      "ref": "refs/heads/main",
+      "outputs": {"publish": true, "publish_gateway": true},
+      "scope": "Executed the unchanged trigger against the actual edited checkout and captured only its local Actions-output file; no workflow or release was dispatched."
+    },
+    "manifest": "PASSED: generated with gateway/build_v14_package.py --manifest-only and validated all included file hashes against VERSION 18.1.2.",
+    "capabilityDelta": "Only the current version fields changed; all capability features and historical v14/v15/v16/v17 fixtures remain unchanged.",
+    "scope": "PASSED with the committed baseline delta plus all working and newly added paths.",
+    "generatedReferences": "PASSED: repository-reference, agent-metadata and architecture-index checks; no generated reference changes required.",
+    "whitespace": "PASSED",
+    "liveGatewayRoutes": "NOT_RUN: this host lacks the pinned requests/keyring runtime; the shared runtime was not modified. Actual Gateway route and Windows qualification remain required in hosted gates.",
+    "canonicalFast": "PENDING_ROOT_INTEGRATION",
+    "hostedWindowsAndPublication": "REQUIRED_ON_FINAL_MAIN_SOURCE"
+  },
+  "mutableRefsCheckedBeforeLocalCommit": {
+    "main": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+    "sharedBranch": "b88fd367f23f9b66e7846363dad405932315b3bf"
+  }
+}

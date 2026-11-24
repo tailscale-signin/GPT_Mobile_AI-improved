@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.AtomicFile
 import java.io.File
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
@@ -19,22 +18,41 @@ internal class VoiceSpeechBenchmarkStore internal constructor(private val direct
         var reports = (listOf(report) + readLocked().filterNot { it.startedAtMillis == report.startedAtMillis }).take(5)
         runCatching {
             check(directory.isDirectory || directory.mkdirs())
-            fun encode() = Json.encodeToString(JsonArray.serializer(), JsonArray(reports.map { speechBenchmarkJson(it, local = true) })).toByteArray()
-            var bytes = encode()
-            // Retain complete new evidence. Evict older runs rather than truncating a measured sample.
-            while (bytes.size > MAX_BYTES && reports.size > 1) {
-                reports = reports.dropLast(1)
-                bytes = encode()
-            }
-            check(bytes.size <= MAX_BYTES)
-            var stream: java.io.FileOutputStream? = null
-            try {
-                stream = file.startWrite()
-                stream.write(bytes)
-                file.finishWrite(stream)
-            } catch (error: Exception) {
-                file.failWrite(stream)
-                throw error
+            while (true) {
+                var stream: java.io.FileOutputStream? = null
+                try {
+                    stream = file.startWrite()
+                    val destination = stream
+                    var bytes = 0L
+                    val bounded = object : java.io.OutputStream() {
+                        override fun write(value: Int) {
+                            if (++bytes > MAX_BYTES) throw HistoryTooLarge()
+                            destination.write(value)
+                        }
+                        override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                            bytes += length
+                            if (bytes > MAX_BYTES) throw HistoryTooLarge()
+                            destination.write(buffer, offset, length)
+                        }
+                        override fun flush() = destination.flush()
+                    }
+                    bounded.write('['.code)
+                    reports.forEachIndexed { index, result ->
+                        if (index != 0) bounded.write(','.code)
+                        writeVoiceSpeechBenchmarkExport(result, bounded, local = true)
+                    }
+                    bounded.write(']'.code)
+                    file.finishWrite(stream)
+                    break
+                } catch (tooLarge: HistoryTooLarge) {
+                    file.failWrite(stream)
+                    // Evict complete older runs; never truncate the latest measured sample.
+                    check(reports.size > 1) { "The latest speech benchmark exceeds the history limit." }
+                    reports = reports.dropLast(1)
+                } catch (error: Exception) {
+                    file.failWrite(stream)
+                    throw error
+                }
             }
         }.isSuccess
     }
@@ -63,7 +81,15 @@ internal class VoiceSpeechBenchmarkStore internal constructor(private val direct
                 if (report.isRunning) {
                     report.copy(
                         state = VoiceSpeechBenchmarkRunState.INTERRUPTED,
+                        energyObservations = report.energyObservations.map { if (it.end == null) it.copy(interrupted = true) else it },
                         results = report.results.map { result ->
+                            if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) {
+                                result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN)
+                            } else {
+                                result
+                            }
+                        },
+                        engineResults = report.engineResults.map { result ->
                             if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) {
                                 result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN)
                             } else {
@@ -78,8 +104,10 @@ internal class VoiceSpeechBenchmarkStore internal constructor(private val direct
         }
     }.getOrDefault(emptyList())
 
+    private class HistoryTooLarge : java.io.IOException()
+
     companion object {
-        private const val MAX_BYTES = 4 * 1024 * 1024
+        private const val MAX_BYTES = 8 * 1024 * 1024
         private val lock = Any()
     }
 }

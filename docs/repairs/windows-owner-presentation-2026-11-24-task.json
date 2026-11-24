@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "target_branch": "main",
+  "base_branch": "PR #2367 captured source",
+  "base_sha": "e40659976e33b2e305169f66fbb5c017f6e93282",
+  "base_tree": "bff731067b2b69a8b7b334ce4226231d6e8c06d2",
+  "parent_pr": 2367,
+  "working_branch": "work/privacy-windows-presentation-2026-11-24",
+  "source_owner": "privacy/runtime; root owns integration and publication",
+  "recorded_at_utc": "2026-11-24T03:13:18.642477+00:00",
+  "status": "RECOVERED_SOURCE_INDEPENDENTLY_REVIEWED_HOSTED_QUALIFICATION_PENDING",
+  "intent": "Reconstruct the exact previously frozen Windows fixture source from the recorded apply_patch text, requiring SHA2565106b35e83396f89070606030705a336c7cde699d6d84b6df6c805bf3fd13fa3. The change establishes one-time presentation of the empty Tk owner before production constructors and adds bounded diagnostics to the six strict captured-hit assertions. This is fixture precondition and observability work, not a confirmed production root cause or qualified Windows fix.",
+  "owned_paths": [
+    "gateway/tests/test_gateway_desktop_native_ui.py",
+    "docs/repairs/windows-owner-presentation-2026-11-24-task.json"
+  ],
+  "base_test_sha256": "f04ae2242e4eac18d1bc3e0f132ed21fb2faf9d683ae5b5c3ccb08a349cfb113",
+  "expected_restored_test_sha256": "5106b35e83396f89070606030705a336c7cde699d6d84b6df6c805bf3fd13fa3",
+  "recovery": {
+    "reason": "The execution environment was replaced and the original local worktree and raw receipt files were not restored.",
+    "method": "Replay only the original apply_patch text retained in the assistant tool history against the recovered exact base; do not reimplement or infer missing source.",
+    "original_pre_edit_reservation_at_utc": "2026-11-24T02:56:57.883235+00:00",
+    "historical_receipts_available": false,
+    "historical_hashes_only": {
+      "reservation_readback_sha256": "21a273011c8f94a06ac664bcf5696949169dd9ece58edaabfdbf058f1ad0462d",
+      "design_review_sha256": "598b79ddd8113099bde365fe57aeb9eb40724500e819392332e29fcd6776b248",
+      "pre_edit_task_ledger_sha256": "4d3f6ee69cb5a301c1e8b89e952c1f421560605e1389979f67920b6123727030",
+      "static_preservation_sha256": "684d566fc91e906e03ac38999183ab301061dbeb8e98445692aec3ff671f63e1",
+      "unchanged_e406_windows_status_observation_sha256": "4279db72aaaf2599e833fa25d930c25865cf75b4a4cc111421bb85470f5f1ad1"
+    },
+    "historical_gate_observation": "Pipeline previously reported normal e406 Windows run45315720833 SUCCESS at2026-11-24T03:00:29UTC with the same Gateway bytes as the earlier dcfe failure. The raw observation is lost; this records the prior handoff, not a recovered per-method result or a current candidate qualification. The earlier failure cause remains unknown."
+  },
+  "invariants": [
+    "Present the empty root once in setUp: update_idletasks, deiconify, lift, focus_force and one update; require viewability and current focus_displayof identity equal to the root.",
+    "Register cleanup before Tk creation. Reuse unchanged tearDown only for incomplete setup; successful cases retain their original single teardown.",
+    "No geometry changes, sleeps, polling, retries, persistent topmost, new skip policy or None/alternate hit acceptance.",
+    "No new post-constructor Settings lift or forced focus; existing explicit keyboard-focus setup remains unchanged.",
+    "Query each of the six existing hit points exactly once and assert the exact original target with assertIs; diagnostics never repeat the hit query or pump/mutate UI events.",
+    "Failure-only diagnostics contain bounded numeric geometry/screen values, mapped/viewable state, application widget paths/current focus and at most16 application stack paths; no text, titles, content or foreign-window details.",
+    "Preserve all8 old methods, bounds, keyboard, cancellation, cleanup, deadlines and all production/workflow source."
+  ],
+  "validation": {
+    "local_scope": "Recomputed static AST, exact-hash, diff and preservation checks only; no desktop/application/native/tests or alternate harness execution.",
+    "hosted_windows": "PENDING for the final integrated candidate; no confirmed production cause is claimed.",
+    "root_integration": "Root owns generated metadata, scope, canonical host checks, commit and guarded publication.",
+    "fresh_recovery_static": {
+      "status": "PASS",
+      "receipt_sha256": "48b88ae91e2a849ba00044dd067463575770c23955195f645baaa56cc4f601cf",
+      "receipt": "privacy-audit/agent-runtime/windows-owner-presentation-recovery/static-preservation.json",
+      "all_old_test_methods": 8,
+      "strict_original_hit_sites": 6,
+      "new_test_methods": 0,
+      "all_old_methods_except_setup_reconstruct_after_hit_call_reversal": true,
+      "existing_setup_statements_retained_in_order": true,
+      "diff_check_exit_code": 0,
+      "runtime_execution": false
+    },
+    "independent_review": "Requested against the exact recovered5106 source; root will bind the fresh reviewer receipt before publication.",
+    "independent_recovered_source_review": {
+      "result": "SOURCE_CLEAR",
+      "sha256": "ebad7464d103952e55fdf72f9d505cc1060ae26d85808c3ae36784ee16b29fb6",
+      "source_sha256": "5106b35e83396f89070606030705a336c7cde699d6d84b6df6c805bf3fd13fa3",
+      "proof_boundary": "Fresh read-only review of recovered source and AST preservation; no Windows execution."
+    }
+  },
+  "source_sha256": {
+    "gateway/tests/test_gateway_desktop_native_ui.py": "5106b35e83396f89070606030705a336c7cde699d6d84b6df6c805bf3fd13fa3"
+  },
+  "pending_root_gateway_manifest_integration": {
+    "path": "gateway/manifest-v14.json",
+    "reason": "The existing513-entry payload inventory includes tests/test_gateway_desktop_native_ui.py; the frozen fixture needs a new reachable source anchor and matching payload hash.",
+    "owner": "Root integration only; this worktree does not modify the manifest.",
+    "requirements": [
+      "Preserve all512 other payload hashes and exact payload membership.",
+      "Keep Gateway18.1.3, base identity, schema and non-fixture protocol/version fields unchanged.",
+      "Use the canonical static manifest-only inventory generation against a reachable source commit containing the exact5106 fixture, then bind the resulting manifest in the subsequent integration append."
+    ],
+    "status": "PENDING_ROOT_SOURCE_AND_MANIFEST_INTEGRATION"
+  },
+  "integration": {
+    "retained_incoming": "be94 pronunciation and f9f original-retrospective wording are preserved.",
+    "source_node": "Final complete source snapshot after the reviewed test, ledger, relevant reference mapping and exact scope are delivered through the Contents API on an isolated recovery branch.",
+    "manifest_node": "One following commit changes only gateway/manifest-v14.json, generated by gateway/build_v14_package.py --manifest-only at the actual complete source-node SHA.",
+    "manifest_contract": {
+      "members": 513,
+      "unchanged_other_payloads": 512,
+      "changed_payload": "tests/test_gateway_desktop_native_ui.py",
+      "expected_sha256": "5106b35e83396f89070606030705a336c7cde699d6d84b6df6c805bf3fd13fa3",
+      "version": "18.1.3",
+      "base_and_schema_unchanged": true,
+      "prior_anchor_ancestry_preserved": "cb79f70224fd9ca45ad53a526c762ab1dbec9a7e"
+    },
+    "publication": "One guarded fast-forward to the final node after canonical host checks, pinned formatting, complete input binding and independent final metadata review.",
+    "hosted_windows_qualification": "Pending final actual-source run; prior natural e406 pass is not this fixture result.",
+    "base_commit": "f9f6fae9b4f267b8c76d3cdf1c1924b11c1de040",
+    "first_recovery_commit": "dc80e70ffacb0ef17a1b647091515a18133cef7f",
+    "delivery_recovery": {
+      "reason": "Raw Git-reference transactions rejected otherwise validated objects; repeated readbacks confirmed no shared update. The supported Contents API accepted the exact reviewed test on an isolated branch. The underlying backend cause remains unproven.",
+      "earlier_unattached_source_commit": "950c4e47199615fa62f4518bb1270c53910acc5a",
+      "earlier_unattached_manifest_commit": "02464cc0a774cc9c8ac019c141ce985f7b6dcf97",
+      "earlier_qualified_tree": "86d935a86045a02c12ce3a62a5c992e230546de7",
+      "earlier_qualification_sha256": "c2e0d3437dfa1b47154d0d1337f0f03e5ed2011dec943c1cd9692cc2a42b91a1",
+      "earlier_objects_were_not_shared_head": true,
+      "application_and_fixture_source_changed": false,
+      "current_final_tree_requires_fresh_qualification": true
+    }
+  }
+}

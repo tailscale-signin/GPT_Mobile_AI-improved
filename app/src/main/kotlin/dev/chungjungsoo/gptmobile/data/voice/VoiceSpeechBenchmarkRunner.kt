@@ -11,20 +11,50 @@ internal class VoiceSpeechBenchmarkRunner(
     private val thermalStatus: () -> Int? = { null },
     private val nanoTime: () -> Long = System::nanoTime,
     private val wallTime: () -> Long = System::currentTimeMillis,
-    private val plan: (VoiceSpeechBenchmarkFixture, VoiceSpeechBenchmarkWorkload) -> List<String> = VoiceSpeechWorkload::phrases
+    private val plan: (VoiceSpeechBenchmarkFixture, VoiceSpeechBenchmarkWorkload) -> List<String> = VoiceSpeechWorkload::phrases,
+    private val preparationOwner: () -> VoicePhraseEngineFactory? = { null },
+    private val watchdogFactory: (VoiceSpeechBenchmarkDeadlines, () -> VoiceSpeechStage?, (VoiceSpeechBenchmarkTimeout) -> Unit) -> VoiceSpeechBenchmarkWatchdog = { limits, progress, stop ->
+        VoiceSpeechBenchmarkWatchdog(limits, nanoTime, progress, stop)
+    }
 ) {
     private val cancelled = AtomicBoolean(false)
     private val currentEngine = AtomicReference<VoicePhraseEngine?>(null)
+    private data class CancellationRequest(val atNanos: Long, val stage: VoiceSpeechStage?)
+    private val cancellationRequest = AtomicReference<CancellationRequest?>(null)
+    private val currentWatchdog = AtomicReference<VoiceSpeechBenchmarkWatchdog?>(null)
+    private val cleanupUnconfirmed = AtomicBoolean(false)
+    private var unretiredPreparationOwner: VoicePhraseEngineFactory? = null
+    val nativeCleanupPending: Boolean get() = cleanupUnconfirmed.get()
 
     fun cancel() {
-        cancelled.set(true)
+        if (!cancelled.compareAndSet(false, true)) return
+        val engine = currentEngine.get()
+        val stage = runCatching { engine?.executionProgress?.takeIf { it.active }?.stage }.getOrNull()
+            ?: VoiceSpeechStage.PREPARING.takeIf { engine == null }
+        cancellationRequest.compareAndSet(null, CancellationRequest(nanoTime(), stage))
+        currentWatchdog.get()?.close()
         runCatching { cancelPreparation() }
         runCatching { currentEngine.get()?.cancel() }
     }
 
     fun run(initial: VoiceSpeechBenchmarkReport, publish: (VoiceSpeechBenchmarkReport) -> Unit): VoiceSpeechBenchmarkReport {
+        require(initial.configuration.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO && !initial.configuration.playback)
+        check(!nativeCleanupPending)
         var report = initial
-        fun emit() = publish(report)
+        val publicationLock = Any()
+        val published = AtomicReference(initial)
+        var activeBackend: VoiceSpeechBackend? = null
+        fun emit() = synchronized(publicationLock) {
+            currentWatchdog.get()?.timeout?.let { timeout ->
+                report = report.copy(
+                    results = report.results.map { row ->
+                        if (row.requestedBackend == activeBackend) row.copy(stopReason = row.stopReason ?: VoiceSpeechBenchmarkStopReason.DEADLINE, deadline = timeout, cleanupState = row.cleanupState ?: VoiceSpeechBenchmarkCleanupState.PENDING) else row
+                    }
+                )
+            }
+            published.set(report)
+            publish(report)
+        }
         fun update(index: Int, result: VoiceSpeechBenchmarkBackendResult) {
             report = report.copy(results = report.results.toMutableList().also { it[index] = result })
             emit()
@@ -90,7 +120,39 @@ internal class VoiceSpeechBenchmarkRunner(
             var attemptEvidence: VoiceSpeechExecutionEvidence? = null
             var attemptStarted: Long? = null
             var attemptedInputBytes: Int? = null
+            val stopLock = Any()
+            var backendActive = true
+            activeBackend = backend
+            val watchdog = watchdogFactory(
+                report.configuration.deadlines ?: VoiceSpeechBenchmarkDeadlines.forMode(report.configuration.mode),
+                { runCatching { currentEngine.get()?.executionProgress?.takeIf { it.active }?.stage }.getOrNull() }
+            ) { timeout ->
+                synchronized(stopLock) {
+                    if (backendActive && !cancelled.get()) {
+                        // Publish before the synchronous owner is allowed to retire. This
+                        // snapshot reports the request; it does not claim that JNI stopped.
+                        try {
+                            synchronized(publicationLock) {
+                                val snapshot = published.get().let { previous ->
+                                    previous.copy(
+                                        results = previous.results.map { row ->
+                                            if (row.requestedBackend == backend) row.copy(stopReason = VoiceSpeechBenchmarkStopReason.DEADLINE, deadline = timeout, cleanupState = VoiceSpeechBenchmarkCleanupState.PENDING) else row
+                                        }
+                                    )
+                                }
+                                published.set(snapshot)
+                                publish(snapshot)
+                            }
+                        } finally {
+                            runCatching { cancelPreparation() }
+                            runCatching { currentEngine.get()?.cancel() }
+                        }
+                    }
+                }
+            }
+            currentWatchdog.set(watchdog)
             try {
+                if (!watchdog.beginBackend()) throw CancellationException("Speech benchmark stopped before preparation")
                 checkActive()
                 var preparedAt = 0L
                 var preparationMs = 0L
@@ -98,6 +160,8 @@ internal class VoiceSpeechBenchmarkRunner(
                     checkActive()
                     preparedAt = nanoTime()
                     attemptStarted = preparedAt
+                    if (!watchdog.beginPhase(VoiceSpeechBenchmarkDeadlineScope.PREPARATION)) throw CancellationException("Speech benchmark preparation cancelled")
+                    checkActive()
                     create(result.requestedBackend).also {
                         preparationMs = elapsed(preparedAt)
                         currentEngine.set(it)
@@ -106,6 +170,7 @@ internal class VoiceSpeechBenchmarkRunner(
                 // Preparation has completed even if cancellation wins the next checkpoint.
                 result = result.copy(sessionPrepareMs = preparationMs)
                 attemptStarted = null
+                watchdog.endPhase()
                 checkActive()
                 result = result.copy(state = VoiceSpeechBenchmarkBackendState.RUNNING)
                 update(index, result)
@@ -136,6 +201,8 @@ internal class VoiceSpeechBenchmarkRunner(
                                 checkActive()
                                 val started = nanoTime()
                                 attemptStarted = started
+                                if (!watchdog.beginPhase(VoiceSpeechBenchmarkDeadlineScope.CHUNK)) throw CancellationException("Speech benchmark synthesis cancelled")
+                                checkActive()
                                 val audio = ready.generate(phrase, report.configuration.voice.speakerId, report.configuration.speechRate)
                                 val generationMs = elapsed(started)
                                 if (chunkIndex == 0 && result.samples.isEmpty()) prepareToFirstPcmMs = elapsed(preparedAt)
@@ -150,6 +217,8 @@ internal class VoiceSpeechBenchmarkRunner(
                                 }
                                 check(evidence?.verifiedAudio == true) { "OUTPUT_INVALID" }
                                 val observed = checkNotNull(evidence)
+                                val audioObservation = VoiceSpeechAudioObservation.measure(phrase, audio)
+                                check(audioObservation.tokenDurations.size == observed.tokenCount) { "OUTPUT_INVALID" }
                                 check(observed.effectiveProvider == VoiceSpeechBenchmarkBackendResult.provider(result.requestedBackend)) { "CPU_ONLY" }
                                 if (result.requestedBackend != VoiceSpeechBackend.CPU) {
                                     check(observed.profileAvailable == true) { "EXECUTION_EVIDENCE_MISSING" }
@@ -181,17 +250,43 @@ internal class VoiceSpeechBenchmarkRunner(
                                     cachedShapeCount = observed.cachedShapeCount,
                                     cacheLimit = observed.cacheLimit,
                                     cacheEstimatedBytes = observed.cacheEstimatedBytes,
-                                    audioRms = observed.audioRms,
-                                    audioPeak = observed.audioPeak,
-                                    clippedSamples = observed.clippedSamples,
-                                    nonSilentSamples = observed.nonSilentSamples,
+                                    audioRms = audioObservation.rms,
+                                    audioPeak = audioObservation.peak,
+                                    clippedSamples = audioObservation.clippedSamples,
+                                    nonSilentSamples = audioObservation.nonSilentSamples,
                                     discoverySummary = observed.discoverySummary,
                                     frontendMs = observed.frontendMs, validationMs = observed.validationMs, cacheEvictions = observed.cacheEvictions, profileFinalizeMs = observed.profileFinalizeMs,
-                                    nativeSynthesisMs = observed.synthesisMs
-                                ).also { attemptStarted = null }
+                                    nativeSynthesisMs = observed.synthesisMs,
+                                    audioObservation = audioObservation,
+                                    cacheBudgetBytes = observed.cacheBudgetBytes,
+                                    activeShapeEstimatedBytes = observed.activeShapeEstimatedBytes,
+                                    availableMemoryBytes = observed.availableMemoryBytes,
+                                    cacheAdmission = observed.cacheAdmission,
+                                    graphPreparationSource = observed.graphPreparationSource,
+                                    contextCacheStatus = observed.contextCacheStatus,
+                                    contextLoadMs = observed.contextLoadMs,
+                                    contextStoreMs = observed.contextStoreMs,
+                                    contextBytes = observed.contextBytes,
+                                    contextCacheEvictions = observed.contextCacheEvictions,
+                                    contextFallback = observed.contextFallback,
+                                    htpPerformanceMode = observed.htpPerformanceMode
+                                ).also {
+                                    watchdog.endPhase()
+                                    checkActive()
+                                    attemptStarted = null
+                                }
                             }
                             result = result.copy(incompleteChunks = result.incompleteChunks + chunk)
                             update(index, result)
+                            if (!report.configuration.deepDiagnostics && backend != VoiceSpeechBackend.CPU) {
+                                val reference = report.results.singleOrNull { it.requestedBackend == VoiceSpeechBackend.CPU }
+                                    ?.samples?.singleOrNull { it.fixture == fixture && it.repeat == iteration }
+                                    ?.chunks?.singleOrNull { it.index == chunk.index }
+                                if (VoiceSpeechAudioReference.compare(reference?.audioObservation, chunk.audioObservation).status == VoiceSpeechAudioReferenceStatus.MISMATCH) {
+                                    result = result.copy(stopReason = VoiceSpeechBenchmarkStopReason.AUDIO_REFERENCE_MISMATCH)
+                                    error("OUTPUT_INVALID")
+                                }
+                            }
                         }
                         val chunks = result.incompleteChunks
                         val first = chunks.first()
@@ -211,6 +306,7 @@ internal class VoiceSpeechBenchmarkRunner(
             } catch (_: CancellationException) {
                 val interruptedMs = attemptStarted?.let(::elapsed)
                 val interruptedGeneration = interruptedMs != null && attemptedInputBytes != null
+                val nativeProgress = runCatching { engine?.executionProgress }.getOrNull().takeIf { interruptedGeneration }
                 // Active UI fields can still name the previous completed chunk. Only a
                 // live timed call may contribute interrupted-attempt context or duration.
                 result = result.copy(
@@ -221,14 +317,16 @@ internal class VoiceSpeechBenchmarkRunner(
                     failedChunk = report.activeChunk.takeIf { interruptedGeneration },
                     failedInputBytes = attemptedInputBytes.takeIf { interruptedGeneration },
                     failedInputByteLimit = VoiceSpeechWorkload.MAX_PHRASE_BYTES.takeIf { interruptedGeneration },
-                    failedAttemptMs = interruptedMs.takeIf { interruptedGeneration }
+                    failedAttemptMs = interruptedMs.takeIf { interruptedGeneration },
+                    cancellationStage = cancellationRequest.get()?.stage.takeIf { interruptedMs != null },
+                    cancellationNativeStage = nativeProgress?.stage ?: VoiceSpeechStage.PREPARING.takeIf { interruptedMs != null && !interruptedGeneration }
                 )
             } catch (error: Exception) {
                 val failure = speechBenchmarkFailure(error)
                 if (failure.code.isInputFailure) report = report.copy(issue = VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD)
                 val native = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(12).filterIsInstance<dev.melo.kokoro.TimedKokoro.Failure>().firstOrNull()
                 val workload = error as? VoiceSpeechWorkloadFailure
-                val observed = attemptEvidence ?: speechFailureExecutionEvidence(native ?: error, result.requestedBackend, report.configuration.deviceKey)
+                val observed = attemptEvidence ?: speechFailureExecutionEvidence(native ?: error, result.requestedBackend, report.configuration.deviceKey, report.configuration.modelSha256)
                 result = result.copy(
                     state = failure.state,
                     failure = failure.code,
@@ -265,11 +363,55 @@ internal class VoiceSpeechBenchmarkRunner(
                     failedAttemptMs = attemptStarted?.let(::elapsed)
                 )
             } finally {
-                currentEngine.compareAndSet(engine, null)
-                VoiceNativeEngineGate.exclusive { runCatching { engine?.close() } }
-                update(index, result)
+                val deadlinePublicationFailure = synchronized(stopLock) {
+                    val failure = runCatching { watchdog.checkpoint() }.exceptionOrNull()
+                    watchdog.close()
+                    backendActive = false
+                    failure
+                }
+                val timeout = watchdog.timeout
+                var retirementPublicationFailure = deadlinePublicationFailure
+                if (timeout != null) {
+                    result = result.copy(
+                        state = if (cancelled.get()) VoiceSpeechBenchmarkBackendState.CANCELLED else VoiceSpeechBenchmarkBackendState.FAILED,
+                        stopReason = VoiceSpeechBenchmarkStopReason.DEADLINE,
+                        deadline = timeout,
+                        cleanupState = VoiceSpeechBenchmarkCleanupState.PENDING
+                    )
+                    val failure = runCatching { update(index, result) }.exceptionOrNull()
+                    if (retirementPublicationFailure == null) {
+                        retirementPublicationFailure = failure
+                    } else if (failure != null && failure !== retirementPublicationFailure) {
+                        retirementPublicationFailure.addSuppressed(failure)
+                    }
+                }
+                val preparationFailure = preparationOwner()?.takeIf { it.nativeCleanupPending }
+                if (preparationFailure != null) unretiredPreparationOwner = preparationFailure
+                val engineRetired = VoiceNativeEngineGate.exclusive { runCatching { engine?.close() }.isSuccess }
+                // A failed preparation never returned an engine to this runner. Its
+                // factory still owns the handle and must not be reported as retired.
+                val retired = engineRetired && preparationFailure == null
+                result = result.copy(cleanupState = if (retired) VoiceSpeechBenchmarkCleanupState.RETIRED else VoiceSpeechBenchmarkCleanupState.FAILED)
+                if (retired) {
+                    currentEngine.compareAndSet(engine, null)
+                    result = result.copy(deadlineNativeRetirementMs = watchdog.requestedAtNanos?.let { (nanoTime() - it).coerceAtLeast(0) / 1_000_000 })
+                } else {
+                    cleanupUnconfirmed.set(true)
+                    report = report.copy(issue = VoiceSpeechBenchmarkIssue.NATIVE_CLEANUP_PENDING)
+                }
+                if (result.state == VoiceSpeechBenchmarkBackendState.CANCELLED && retired) {
+                    result = result.copy(cancellationNativeRetirementMs = cancellationRequest.get()?.let { (nanoTime() - it.atNanos).coerceAtLeast(0) / 1_000_000 })
+                }
+                currentWatchdog.compareAndSet(watchdog, null)
+                try {
+                    update(index, result)
+                } catch (failure: Throwable) {
+                    retirementPublicationFailure?.takeUnless { it === failure }?.let(failure::addSuppressed)
+                    throw failure
+                }
+                retirementPublicationFailure?.let { throw it }
             }
-            if (result.state == VoiceSpeechBenchmarkBackendState.CANCELLED || report.issue == VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD) break
+            if (result.state == VoiceSpeechBenchmarkBackendState.CANCELLED || report.issue == VoiceSpeechBenchmarkIssue.INVALID_WORKLOAD || nativeCleanupPending) break
         }
         val finalState = when {
             cancelled.get() -> VoiceSpeechBenchmarkRunState.CANCELLED
@@ -283,7 +425,11 @@ internal class VoiceSpeechBenchmarkRunner(
         report = report.copy(
             state = finalState,
             finishedAtMillis = wallTime(),
-            issue = if (cancelled.get()) VoiceSpeechBenchmarkIssue.CANCELLED else report.issue,
+            issue = when {
+                nativeCleanupPending -> VoiceSpeechBenchmarkIssue.NATIVE_CLEANUP_PENDING
+                cancelled.get() -> VoiceSpeechBenchmarkIssue.CANCELLED
+                else -> report.issue
+            },
             activeFixture = null,
             activeRepeat = null,
             activeChunk = null,
@@ -295,6 +441,7 @@ internal class VoiceSpeechBenchmarkRunner(
 
     private fun checkActive() {
         if (cancelled.get() || Thread.currentThread().isInterrupted) throw CancellationException("Speech benchmark cancelled")
+        if (currentWatchdog.get()?.checkpoint() != null) throw CancellationException("Speech benchmark deadline requested cancellation")
     }
     private fun elapsed(started: Long): Long = ((nanoTime() - started).coerceAtLeast(0) / 1_000_000).coerceAtLeast(1)
 

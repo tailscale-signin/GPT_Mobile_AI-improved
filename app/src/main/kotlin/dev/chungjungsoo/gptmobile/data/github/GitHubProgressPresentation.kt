@@ -37,6 +37,9 @@ internal object GitHubProgressPresentation {
     }
 
     fun introduction(task: String): String {
+        if (Regex("""(?i)^\s*(?:what|which)\b.*\b(?:this session|this conversation|so far)\b""").containsMatchIn(task)) {
+            return "I’ll review the findings and blockers recorded in this conversation and explain what they prevented."
+        }
         when (GitHubWorkflowPreset.fromRequest(task)?.id) {
             "diagnose_ci" -> return "I’ll find the failed jobs on this revision and read their logs to see which step broke."
             "review_branch" -> return "I’ll compare the branch with its base, then follow the changed lines into the relevant tests."
@@ -75,6 +78,31 @@ internal object GitHubProgressPresentation {
             )
     }
 
+    /** Known activity-only prose is not a finding, even when the model writes it. */
+    fun isEmptySummary(text: String): Boolean {
+        val sentences = summaryKey(text).split(Regex("""[.!?]+\s*""")).filter(String::isNotBlank)
+        return sentences.isEmpty() ||
+            sentences.all { sentence ->
+                emptySummarySentence.matches(sentence.trim()) ||
+                    emptySummaryNotice.matches(sentence.trim()) ||
+                    sentence.trim() in setOf(
+                        "work is in progress",
+                        "the investigation is in progress",
+                        "i will report back with the results",
+                        "i will share an update when i have more information",
+                        "reviewing the latest result and the next step",
+                        "reviewing the latest result",
+                        "result received",
+                        "looking through the repository information for the task"
+                    )
+            }
+    }
+
+    private val emptySummarySentence = Regex(
+        """^(?:i am |i will |i have been )?(?:still |continue |continuing to )?(?:review(?:ing)?|check(?:ing)?|inspect(?:ing)?|examin(?:e|ing)|investigat(?:e|ing)|look(?:ing)?)(?: at| through| into)? (?:the |your |this )?(?:latest |current |requested |repository |source |available |relevant )*(?:results?|request|task|code|files?|information|details|evidence|issue|work|repository)$"""
+    )
+    private val emptySummaryNotice = Regex("""^(?:i have completed \d+ repository operations|saved operation results:\s*\d+|i have received (?:your|the) request|\d+ tool calls finished)$""")
+
     private val liveCounter = Regex("""^(checks?|files?|steps?|pages?|jobs?|items?|records?|operations?|tools?)\s*:?\s*\d+\s*/\s*\d+\b""", RegexOption.IGNORE_CASE)
 
     /** Reuse the row when an observed collection advances. */
@@ -104,6 +132,18 @@ internal object GitHubProgressPresentation {
 
     /** Compare displayed lines, including whitespace and formatting differences. */
     fun lineKey(text: String): String = preview(text).replace(Regex("\\s+"), " ").trim().trimEnd('.', '…').lowercase(java.util.Locale.ROOT)
+
+    /** Ignore presentation changes without erasing paths, identifiers, numbers or negation. */
+    fun summaryKey(text: String): String = preview(text)
+        .replace(Regex("""(?m)^\s{0,3}(?:#{1,6}|[-*+])\s+"""), "")
+        .replace(Regex("""\*\*|`"""), "")
+        .replace('’', '\'')
+        .lowercase(java.util.Locale.ROOT)
+        .replace(Regex("""\bi'll\b"""), "i will")
+        .replace(Regex("""\bi'm\b"""), "i am")
+        .replace(Regex("""\bi've\b"""), "i have")
+        .replace(Regex("""\s+"""), " ")
+        .trim().trimEnd('.', '…')
 
     /** Exact application staging notices expire when a visible response or terminal result arrives. */
     fun isTransientActivity(text: String): Boolean = lineKey(text) in setOf(

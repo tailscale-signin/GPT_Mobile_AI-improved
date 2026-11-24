@@ -257,6 +257,7 @@ internal object ToolArgumentValidator {
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
         if (toolName == ProgressiveToolCatalog.NAME &&
             arguments.keys.all { it in setOf("query", "names", "action", "catalog_only") } &&
+            arguments["catalog_only"] in setOf(null, JsonPrimitive(true)) &&
             arguments["names"] in setOf(null, JsonNull)
         ) {
             val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() && it.content.length <= 160 }?.content
@@ -264,6 +265,23 @@ internal object ToolArgumentValidator {
             if (action != null && (arguments["query"] in setOf(null, JsonNull) || query != null)) {
                 val discovery = buildJsonObject {
                     put("query", query ?: action)
+                    put("catalog_only", true)
+                }
+                return discovery.takeIf { errors(it, schema).isEmpty() }
+            }
+        }
+        if (toolName == ProgressiveToolCatalog.NAME &&
+            arguments.keys.all { it in setOf("query", "names", "catalog_only") } &&
+            arguments["catalog_only"] in setOf(null, JsonPrimitive(true))
+        ) {
+            val name = (arguments["names"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() && it.content.length <= 160 }
+            val query = (arguments["query"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
+            if (name != null && query != null) {
+                // This is a new local discovery proposal, not automatic scalar-name authorization.
+                // Preserve the literal selector as one name; never split it or infer a replacement.
+                val discovery = buildJsonObject {
+                    put("names", JsonArray(listOf(name)))
+                    put("query", query)
                     put("catalog_only", true)
                 }
                 return discovery.takeIf { errors(it, schema).isEmpty() }

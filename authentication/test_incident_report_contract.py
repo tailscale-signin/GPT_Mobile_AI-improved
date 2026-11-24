@@ -6,11 +6,111 @@ import re
 import unittest
 
 from authentication import incident_report_contract as capsule
+from authentication import issue_report_diagnostics as diagnostics
 from authentication.issue_report_diagnostics import CORE_FIELDS, GATEWAY_CAPABILITY_DECODE_REASONS, GATEWAY_CAPABILITY_FAILURE_KINDS, GATEWAY_CAPABILITY_FIELDS, MAX_DIAGNOSTIC_BYTES, PRIVACY_ELIGIBILITY_REASONS, validate_diagnostics
 from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CONTEXT_FIELDS_V5, ReportError, issue_from_report
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_typed_budget_metadata_and_manual_timing_survive_the_public_report(self):
+        for kind, source, reason, retry in (
+            ("ACCOUNT_CREDITS", "openrouter_credits", None, "AFTER_CONFIGURATION_CHANGE"),
+            ("KEY_LIMIT", "openrouter_key_limit", None, "AFTER_CONFIGURATION_CHANGE"),
+            ("REQUEST_AFFORDABILITY", "openrouter_credits", "weight_exceeds_budget", "AFTER_CONFIGURATION_CHANGE"),
+            ("IN_FLIGHT_BUDGET", "openrouter_in_flight_budget", "in_flight_budget_exhausted", "MANUAL_AFTER_PROVIDER_DELAY"),
+        ):
+            with self.subTest(kind=kind):
+                values = {"incident_phase": "model_invocation", "causal_failure_code": "BILLING_UNAVAILABLE",
+                          "provider_failure_kind": "BUDGET", "provider_budget_kind": kind,
+                          "provider_budget_limit_source": source, "provider_budget_retry": retry}
+                if reason:
+                    values["provider_budget_reason"] = reason
+                if retry == "MANUAL_AFTER_PROVIDER_DELAY":
+                    values.update(retry_delay_ms=12_000, retry_delay_source="PROVIDER_HEADER")
+                capture = self.capture("INCIDENT", values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = "BILLING_UNAVAILABLE"
+                report["context"]["stage"] = "model_invocation"
+                report["context"]["unavailableFields"].remove("stage")
+                self.assertIn(kind, issue_from_report(report)[1]["body"])
+        for field in ("provider_budget_kind", "provider_budget_limit_source", "provider_budget_reason", "provider_budget_retry"):
+            for invalid in ("private provider body", True, 42, {}, []):
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("INCIDENT", {field: invalid}))
+
+    def test_provider_wait_refusal_reason_survives_the_service_report(self):
+        for reason in ("GATEWAY_COMMAND_PRESENT", "REMOTE_OUTCOME_UNKNOWN", "RETRY_DEADLINE_UNAVAILABLE"):
+            with self.subTest(reason=reason):
+                capture = self.capture("INCIDENT", {
+                    "incident_phase": "provider_wait", "causal_failure_code": "PROVIDER_RATE_LIMITED",
+                    "provider_failure_kind": "RATE_LIMIT", "provider_semantic_status": 429,
+                    "provider_wait_decision_state": "NOT_SCHEDULED", "provider_wait_no_wait_reason": reason,
+                    "provider_wait_scheduler_state": "NOT_SCHEDULED", "provider_wait_persisted": False,
+                })
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = "PROVIDER_RATE_LIMITED"
+                report["context"]["stage"] = "provider_wait"
+                report["context"]["unavailableFields"].remove("stage")
+                self.assertIn(reason, issue_from_report(report)[1]["body"])
+
+    def test_streaming_voice_values_roundtrip_only_in_voice_without_claiming_an_observed_delegate(self):
+        additions = {
+            "voice_engine": {"MEDIAPIPE"},
+            "voice_selected_backend": {"LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"},
+            "voice_fallback_source": {"LITERT_KOKORO", "PHONON", "POCKET"},
+        }
+        for field, choices in additions.items():
+            for value in choices:
+                with self.subTest(field=field, value=value):
+                    capture = self.capture("VOICE", {field: value})
+                    self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                    approved = self.report(capture)
+                    before = json.dumps(approved, separators=(",", ":"))
+                    _, issue = issue_from_report(approved)
+                    self.assertIn(f"| {field} | `{value}` |", issue["body"])
+                    self.assertEqual(before, json.dumps(approved, separators=(",", ":")))
+                    with self.assertRaises(ValueError):
+                        validate_diagnostics(self.capture("PROVIDER", {field: value}))
+                    for observed in ("voice_effective_provider", "voice_fallback_target"):
+                        with self.assertRaises(ValueError):
+                            validate_diagnostics(self.capture("VOICE", {observed: value}))
+            for invalid in (True, 1, None, [], {}, "private speech or SDK details"):
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("VOICE", {field: invalid}))
+
+    def test_tls_phase_reaches_public_report_with_only_closed_protocol_and_boundary_values(self):
+        values = {"tls_failure_kind": "PROTOCOL", "tls_last_observed_phase": "REQUEST_BODY_COMPLETE",
+                  "tls_request_body_completed": True, "tls_connection_reused": True,
+                  "tls_version": "TLSv1.3", "tls_http_protocol": "h2"}
+        capture = self.capture("PROVIDER", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        approved = self.report(capture)
+        before = json.dumps(approved, separators=(",", ":"))
+        _, issue = issue_from_report(approved)
+        for field in values:
+            self.assertIn(field, issue["body"])
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {**values, field: "private endpoint or certificate"}))
+        self.assertEqual(before, json.dumps(approved, separators=(",", ":")))
+        for field in ("tls_request_body_completed", "tls_connection_reused"):
+            for invalid in (0, 1, "true", None):
+                with self.subTest(field=field, value=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("PROVIDER", {**values, field: invalid}))
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        for field in ("tls_last_observed_phase", "tls_version", "tls_http_protocol"):
+            match = re.search(r'"' + field + r'" to setOf\(([^)]+)\)', source)
+            self.assertIsNotNone(match, field)
+            self.assertEqual(capsule.ENUMS[field], set(re.findall(r'"([^"\n]+)"', match.group(1))))
+
+    def test_read_revision_mismatch_is_a_fixed_reason_without_private_source_metadata(self):
+        capture = self.capture("TOOL", {"tool_error_code": "GITHUB_VALIDATION_FAILED", "tool_reason_code": "EVIDENCE_REVISION_MISMATCH"})
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        self.assertIn("EVIDENCE_REVISION_MISMATCH", issue_from_report(self.report(capture))[1]["body"])
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"tool_reason_code": "private ref or path"}))
+
     def test_visible_output_recovery_survives_approved_report_without_private_checkpoint_fields(self):
         for reason, action in (
             ("BOUNDED_VISIBLE_OUTPUT_REPAIR", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST"),
@@ -104,6 +204,79 @@ class IncidentReportContractTest(unittest.TestCase):
         for field in ("speech_text", "voice_provider_request_id", "voice_native_exception"):
             with self.subTest(field=field), self.assertRaises(ReportError):
                 issue_from_report(self.report(self.capture("VOICE", {**values, field: "private-canary"})))
+
+    def test_active_mediapipe_voice_report_preserves_engine_without_unverified_provider(self):
+        for backend in ("LITERT_KOKORO_CPU", "LITERT_KOKORO_GPU", "PHONON_CPU", "POCKET_CPU"):
+            with self.subTest(backend=backend):
+                capture = self.capture("VOICE", {
+                    "voice_engine": "MEDIAPIPE", "voice_phase": "SPEAKING", "voice_selected_backend": backend,
+                })
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn("| voice_engine | `MEDIAPIPE` |", issue["body"])
+                self.assertIn(f"| voice_selected_backend | `{backend}` |", issue["body"])
+                self.assertNotIn("voice_effective_provider", issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        for invalid in ("MEDIAPIPE_GPU", "MEDIAPIPE_PHONON", "private speech or engine path", True, None):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {"voice_engine": invalid}))
+            with self.subTest(invalid=invalid), self.assertRaises(ReportError):
+                issue_from_report(self.report(self.capture("VOICE", {"voice_engine": invalid})))
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt").read_text()
+        match = re.search(r'"voice_engine" to setOf\(([^)]+)\)', source)
+        self.assertIsNotNone(match)
+        self.assertEqual(diagnostics.ENUMS["voice_engine"], set(re.findall(r'"([^"\n]+)"', match.group(1))))
+
+    def test_streaming_voice_selection_and_fallback_survive_approved_report(self):
+        for backend, engine in (
+            ("LITERT_KOKORO_CPU", "LITERT_KOKORO"),
+            ("LITERT_KOKORO_GPU", "LITERT_KOKORO"),
+            ("PHONON_CPU", "PHONON"),
+            ("POCKET_CPU", "POCKET"),
+        ):
+            with self.subTest(backend=backend):
+                values = {
+                    "voice_engine": "SYSTEM", "voice_phase": "SPEAKING",
+                    "voice_selected_backend": backend, "voice_effective_provider": "SYSTEM",
+                    "voice_fallback_source": engine, "voice_fallback_target": "SYSTEM",
+                    "voice_fallback_outcome": "SUCCEEDED", "voice_fallback_failure": "SYNTHESIS_FAILED",
+                    "voice_fallback_count": 1,
+                }
+                capture = self.capture("VOICE", values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(f"| voice_selected_backend | `{backend}` |", issue["body"])
+                self.assertIn(f"| voice_fallback_source | `{engine}` |", issue["body"])
+                self.assertIn("| voice_effective_provider | `SYSTEM` |", issue["body"])
+                self.assertIn("| voice_fallback_failure | `SYNTHESIS_FAILED` |", issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                for unverified_provider in (backend, engine):
+                    with self.subTest(unverified_provider=unverified_provider), self.assertRaises(ValueError):
+                        validate_diagnostics(self.capture("VOICE", {**values, "voice_effective_provider": unverified_provider}))
+                    with self.subTest(unverified_provider=unverified_provider), self.assertRaises(ReportError):
+                        issue_from_report(self.report(self.capture("VOICE", {**values, "voice_effective_provider": unverified_provider})))
+
+    def test_streaming_voice_execution_still_rejects_unknown_or_wrong_area_values(self):
+        for field, invalid in (
+            ("voice_selected_backend", "LITERT_KOKORO_NPU"),
+            ("voice_selected_backend", "PHONON_GPU"),
+            ("voice_selected_backend", "POCKET_GPU"),
+            ("voice_selected_backend", "private speech or model path"),
+            ("voice_fallback_source", "PHONON_CPU"),
+            ("voice_fallback_source", "POCKET_CPU"),
+            ("voice_fallback_source", "private speech or exception"),
+        ):
+            with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {field: invalid}))
+            with self.subTest(field=field, invalid=invalid), self.assertRaises(ReportError):
+                issue_from_report(self.report(self.capture("VOICE", {field: invalid})))
+        for field, valid in (("voice_selected_backend", "PHONON_CPU"), ("voice_fallback_source", "PHONON")):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {field: valid}))
 
     def test_voice_execution_count_and_enums_are_closed_and_match_native_contract(self):
         for field, choices in capsule.VOICE_EXECUTION_ENUMS.items():
@@ -2396,6 +2569,35 @@ class IncidentReportContractTest(unittest.TestCase):
                 with self.assertRaises(ReportError):
                     issue_from_report(self.report(rejected))
 
+    def test_intelligence_policy_names_preserve_approved_bytes_and_reject_unknown_lookalikes(self):
+        names = ("intelligenceLevel", "recoveryConsultConsent", "engineeringTeamConsent", "recoveryExecutionConsent")
+        for name in names:
+            field = "githubProfileOverride." + name
+            with self.subTest(field=field):
+                fields = {"changed_policy_fields": [field], "changed_policy_field_count": 1,
+                          "changed_policy_unknown_count": 0, "changed_policy_malformed_count": 0,
+                          "changed_policy_omitted_count": 0, "changed_policy_observation": "OBSERVED"}
+                capture = self.capture(values=fields)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                issue_from_report(report)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                self.assertNotIn("request_replay_allowed", capture["values"])
+                self.assertNotIn("remoteAcceptance", report["context"])
+                for unknown in (field + ".PRIVATE_SELECTION", field + "=PRIVATE_POLICY_VALUE", name):
+                    with self.subTest(unknown=unknown):
+                        rejected = self.capture(values={**fields, "changed_policy_fields": [unknown]})
+                        with self.assertRaises(ValueError):
+                            validate_diagnostics(rejected)
+                        with self.assertRaises(ReportError):
+                            issue_from_report(self.report(rejected))
+                raw_value = self.capture(values={**fields, field: "PRIVATE_POLICY_VALUE"})
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(raw_value)
+                with self.assertRaises(ReportError):
+                    issue_from_report(self.report(raw_value))
+
     def test_policy_field_vocabulary_matches_native_and_actual_production_producers(self):
         root = Path(__file__).resolve().parents[1]
         base = root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile"
@@ -2414,12 +2616,12 @@ class IncidentReportContractTest(unittest.TestCase):
         reported_keys = re.search(r"return\s+listOf\(([^)]*)\)", override_helper)
         self.assertIsNotNone(reported_keys)
         override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', reported_keys.group(1))}
-        self.assertEqual(12, len(override_keys))
+        self.assertEqual(16, len(override_keys))
         behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
         behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
         self.assertEqual(9, len(behavior_keys))
         self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
-        self.assertEqual(77, len(capsule.POLICY_FIELD_NAMES))
+        self.assertEqual(81, len(capsule.POLICY_FIELD_NAMES))
 
     def test_replay_capacity_reason_and_estimates_are_bounded_incident_fields(self):
         code = "REPLAY_EVIDENCE_REQUIRED"
@@ -2439,6 +2641,30 @@ class IncidentReportContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("TOOL", {"replay_allowance": 0}))
 
+    def test_missing_saved_replay_page_survives_public_issue_without_source_body(self):
+        code = "REPLAY_EVIDENCE_REQUIRED"
+        fields = {"causal_failure_code": code, "incident_phase": "planning",
+                  "replay_budget_state": "REQUIRED_SAVED_PAGE_NOT_PRESENT", "pending_saved_page_count": 1,
+                  "replay_allowance": 24000, "replay_tokens": 9728, "replay_exchange_count": 11}
+        capture = self.capture("INCIDENT", fields)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        report.update(feature="chat", errorCode=code)
+        report["context"]["source"] = "CHAT_FAILURE"
+        before = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("| replay_budget_state | `REQUIRED_SAVED_PAGE_NOT_PRESENT` |", issue["body"])
+        self.assertIn("| pending_saved_page_count | `1` |", issue["body"])
+        self.assertEqual(before, json.dumps(report, separators=(",", ":")))
+        for invalid in (-1, 16_000_001, True, "1", None, {"body": "private source"}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {"pending_saved_page_count": invalid}))
+        for area in ("TOOL", "PROVIDER"):
+            with self.subTest(area=area), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {"pending_saved_page_count": 1}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("INCIDENT", {"saved_page_body": "private source"}))
+
     def test_graph_transport_archives_only_closed_tool_values(self):
         for kind in ("DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN"):
             capture = self.capture("TOOL", {"tool_reason_code": "GRAPH_TRANSPORT_UNAVAILABLE", "graph_transport_kind": kind})
@@ -2446,6 +2672,21 @@ class IncidentReportContractTest(unittest.TestCase):
         for area, value in (("PROVIDER", "DNS"), ("TOOL", "private endpoint"), ("TOOL", True)):
             with self.assertRaises(ValueError):
                 validate_diagnostics(self.capture(area, {"graph_transport_kind": value}))
+
+    def test_local_graph_failure_keeps_closed_stage_and_reason_without_source_text(self):
+        for phase in ("TREE_SELECTION", "PACKET_CACHE_READ", "SYMBOL_CATALOG", "SOURCE_LOAD", "MANIFEST_RANKING", "SOURCE_GRAPH", "SOURCE_RANGES", "SEMANTIC_RANKING", "PACKET_ASSEMBLY", "PACKET_CACHE_WRITE"):
+            for reason in ("LOCAL_INVARIANT_REJECTED", "LOCAL_STATE_INVALID", "LOCAL_RUNTIME_FAILURE"):
+                fields = {"graph_local_phase": phase, "graph_local_reason": reason}
+                capture = self.capture("TOOL", fields)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for area, fields in (
+            ("PROVIDER", {"graph_local_phase": "SOURCE_LOAD"}),
+            ("TOOL", {"graph_local_phase": "private/source.kt"}),
+            ("TOOL", {"graph_local_reason": "private task text"}),
+            ("TOOL", {"graph_local_reason": True}),
+        ):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, fields))
 
     def test_reader_and_reconciliation_evidence_is_scoped_and_bounded(self):
         for area, fields in (

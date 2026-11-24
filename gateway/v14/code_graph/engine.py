@@ -124,21 +124,28 @@ class GraphStore:
         self.store.tx(write)
         return key
 
-    def notes(self, namespace, snapshot, query=''):
+    def notes(self, namespace, snapshot, query='', *, relevant_only=False, kind=None):
         def read(db):
             self.schema(db)
             rows = db.execute('SELECT id,payload FROM code_graph_notes WHERE scope=? ORDER BY created DESC LIMIT 512', (namespace,)).fetchall()
             return [dict(json.loads(EngineeringCipher.decrypt(db, 'graph-note:' + namespace + ':' + key, payload)), id=key) for key, payload in rows]
         rows = self.store.tx(read)
         superseded = {row.get('supersedes') for row in rows}
-        terms = set(re.findall(r'\w{3,}', query.lower()))
+        # Only note contents and their source paths can connect two symptoms.
+        # IDs, receipt envelopes and generated labels are never retrieval terms.
+        terms = history_terms(query)
         selected = []
         for row in rows:
             row['superseded'] = row['id'] in superseded
             row['historical'] = True
             row['review_required'] = any(snapshot['manifest'].get(path, {}).get('sha') != blob for path, blob in row.get('sources', {}).items())
             row['same_commit'] = row.get('sha') == snapshot['sha']
-            row['retrieval_score'] = len(terms & set(re.findall(r'\w{3,}', encoded(row).lower())))
+            if kind and row['kind'] != kind:
+                continue
+            matched = terms & history_terms(row.get('content', '') + ' ' + ' '.join(row.get('sources', {})))
+            if relevant_only and (row['superseded'] or not matched):
+                continue
+            row['retrieval_score'] = sum(4 if re.search(r'[0-9_]', term) else 1 for term in matched)
             selected.append(row)
         return sorted(selected, key=lambda row: (not row['superseded'], row['retrieval_score']), reverse=True)[:32]
 
@@ -187,6 +194,27 @@ def search_terms(text):
     stop = {'the', 'and', 'for', 'all', 'are', 'this', 'that', 'with', 'from', 'then', 'them', 'its',
             'please', 'fix', 'find', 'examine', 'issues', 'issue', 'problem', 'problems', 'working', 'make', 'can', 'our'}
     return {word for word in re.findall(r'[A-Za-z][A-Za-z0-9]{2,}', split.lower()) if word not in stop}
+
+
+def history_terms(text):
+    generic = {'error', 'failed', 'exception', 'failure', 'errors', 'warnings', 'was', 'when',
+               'during', 'line', 'file', 'request', 'src', 'test', 'tests', 'python', 'java'}
+    signatures = re.findall(r'(?<!\w)(?:[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+|[45]\d{2})(?!\w)', text)
+    return (search_terms(text) - generic) | {value.lower() for value in signatures}
+
+
+def near_identifier(query, candidate):
+    """A single edit (including an adjacent transposition), bounded by the query length."""
+    short, long = sorted((query.casefold(), candidate.casefold()), key=len)
+    if len(long) - len(short) > 1:
+        return False
+    offset = next((i for i, letter in enumerate(short) if letter != long[i]), len(short))
+    if offset == len(short):
+        return True
+    if len(short) != len(long):
+        return short[offset:] == long[offset + 1:]
+    return (short[offset + 1:] == long[offset + 1:] or
+            short[offset:offset + 2] == long[offset:offset + 2][::-1] and short[offset + 2:] == long[offset + 2:])
 
 
 class Graph:
@@ -316,6 +344,9 @@ class Graph:
         return matches[0], None
 
     def ranked(self, question, paths=None):
+        return self.search_candidates(question, paths)[0]
+
+    def search_candidates(self, question, paths=None):
         terms = search_terms(question)
         aliases = {'pronunciation': {'speech', 'tts', 'lexicon'}, 'speaking': {'speech', 'tts'},
                    'microphone': {'capture', 'recorder'}, 'scrolling': {'scroll', 'anchor'},
@@ -324,16 +355,26 @@ class Graph:
         expanded -= terms
         frequencies = collections.defaultdict(set)
         matches = []
+        identifier = question.strip()
+        try_symbol = not paths and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{4,79}', identifier)
+        exact = identifier.lower()
+        literal_found = False
         for node in self.nodes.values():
             haystack = (node['qualified'] + ' ' + node['path'] + ' ' + node['excerpt']).lower()
+            if try_symbol and not literal_found and exact in haystack:
+                literal_found = True
             matched = {term for term in terms | expanded if term in haystack}
             for term in matched:
                 frequencies[term].add(node['path'])
             matches.append((node, matched))
+        if try_symbol and not literal_found:
+            nearby = [node for node in self.nodes.values() if node['kind'] in {'class', 'function', 'interface'}
+                      and near_identifier(identifier, node['name'])]
+            if nearby:
+                return nearby, 'APPROXIMATE_SYMBOL'
         total_files = max(1, len(self.snapshot['fragments']))
         weights = {term: (1 + math.log((total_files + 1) / (len(paths) + 1))) * (0.75 if term in expanded else 1)
                    for term, paths in frequencies.items()}
-        exact = question.strip().lower()
         requested_paths = set(paths or [])
         scored = []
         prefer_docs = bool(terms & {'documentation', 'document', 'design', 'requirements', 'decision', 'architecture'})
@@ -357,23 +398,29 @@ class Graph:
         for _, node in ranked:
             counts[node['path']] += 1
             (first if counts[node['path']] <= 3 else remainder).append(node)
-        return first + remainder
+        return first + remainder, 'LEXICAL_SYMBOL_AND_PATH' if ranked else 'NO_MATCH'
 
     def query(self, question, limit=30, depth=1, paths=None):
-        ranked = self.ranked(question, paths)
+        ranked, strategy = self.search_candidates(question, paths)
         seeds = [n['id'] for n in ranked[:limit]]
         selected = set(seeds)
         frontier = set(seeds)
+        expanded_all = True
         for _ in range(min(depth, 3)):
+            if not frontier:
+                break
             following = set()
             for key in sorted(frontier):
                 for edge in self.out[key] + self.incoming[key]:
                     if edge['relation'] != 'contains':
                         following.update([edge['source'], edge['target']])
-            frontier = following - selected
-            selected.update(sorted(frontier)[:max(0, limit * 2 - len(selected))])
+            candidates = sorted(following - selected)
+            frontier = set(candidates[:max(0, limit * 2 - len(selected))])
+            expanded_all &= len(frontier) == len(candidates)
+            selected.update(frontier)
         ids = seeds + sorted(selected - set(seeds))
         return {'status': 'FOUND' if ids else 'NOT_FOUND_IN_INDEX', 'nodes': [self.nodes[key] for key in ids], 'total_matches': len(ranked),
+                'search_strategy': strategy, 'neighborhood_limited': not expanded_all, 'seeds_limited': len(ranked) > limit,
                 'edges': [e for e in self.edges if e['source'] in selected and e['target'] in selected]}
 
     def neighbors(self, label, direction='both', relation=None):

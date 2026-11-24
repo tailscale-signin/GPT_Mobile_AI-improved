@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-paired-comparison-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "8f84696ad0b61b805892ad9c7fbe412a2dca7359",
+  "workingBranch": "work/privacy-paired-comparison-2026-11-23",
+  "pullRequest": 2367,
+  "recordedBeforeSourceEdits": true,
+  "intent": "Complete the original privacy audit P2 requirement for same-model, same-fictional-prompt privacy-on/off comparison with separate detector, task-rubric and latency evidence. Retain the existing offline check and all production privacy authority.",
+  "acceptance": [
+    "Only compiled fictional corpus case identifiers enter the provider binding; no real chat history, saved system prompt, private custom terms, attachments or tools.",
+    "Run is explicit; selection, expansion and composition send no request. One copied selected profile and equal bounded generation settings serve both arms.",
+    "The protected arm uses existing private turn, receiving authorization, route selection, final request validation and restoration; the generic unprotected benchmark guard remains unchanged.",
+    "Preserve real policy/profile change fences and cancellation. Unknown measurements, missing arms, failed warmups and incomplete generations cannot become task passes.",
+    "Read the current hydrated saved profile directly, preserve existing configured provider activation/permission guards around suspensions, and freeze the first warmup authority fingerprint across every subsequent leg.",
+    "Report actual known detector misses, altered public phrases, explicit task criteria, first-text/completion timings and actual optional usage separately; make no universal privacy or general semantic-quality claim.",
+    "Show nearest-rank p50/p95 with actual sample counts only for complete observed-runtime/output-ceiling matched pairs; group different configurations separately, use equal paired populations per answer-time metric, include completed rubric failures, and exclude warmups and unverified strict-route parity.",
+    "Both warmups are excluded from scored cases. Four cases use counterbalanced arm order; requests, output size and total run time are bounded.",
+    "Retain all shared-branch changes, run canonical checks and exact final-source ordinary project tests, merge only green and fully verify both successor publications.",
+    "Cancel the fictional provider comparison when its screen lifecycle stops or its composition is disposed; retain recorded and partial results, wait for provider cleanup, and require an explicit new Run after resuming."
+  ],
+  "qualification": {
+    "sourceReview": {
+      "status": "CLEAR",
+      "rootIndependentReviewSha256": "e857b96f52a8c1d597601ed2b24e3c2b942a8a0099194f6ba0a61c944732c69b",
+      "uiHandoffSha256": "30c15f85057b0d1891cb79af290071674a91536e67b1df487049197d2b286fc0",
+      "providerBindingRootReviewSha256": "fb844880264553291d48d2d7c5eed3b0722cc922c4e981865104dbabaf6f1ced"
+    },
+    "canonicalHost": "Final frozen-source result is recorded in PR2367 qualification evidence before append.",
+    "ordinaryProjectTests": "Required on final committed source; not replaced by local source checks.",
+    "actualProviderPerformance": "NOT_MEASURED_BY_IMPLEMENTATION_TESTS",
+    "canonicalKotlinFormatting": "PASS_PINNED_1.3.1"
+  },
+  "integratedParent": "ce0689733e9e46d4600aa58d1b199cb50d4b9277",
+  "sourceTests": {
+    "runnerMethods": 23,
+    "providerBindingMethods": 18,
+    "composeMethods": 4,
+    "viewModelMethods": 6,
+    "totalMethods": 52,
+    "status": "WRITTEN; FINAL_SOURCE_PROJECT_EXECUTION_REQUIRED",
+    "lifecycleMethods": 1
+  },
+  "lifecycleFollowup": {
+    "startingHead": "80794bd5827d176c002ef2b71293be8731342ce6",
+    "reviewReference": "PR2367 issuecomment7116104077",
+    "finding": "A stopped screen can retain its composition and ViewModel; lifecycle-aware state observation alone does not cancel provider work.",
+    "implementation": "Actual current-owner ON_STOP observation plus existing disposal cancellation; remove observer on disposal or owner change; no automatic resume action.",
+    "ordinaryRegression": "PrivacyComparisonLifecycleTest.stoppingRetainedScreenCancelsTheHeldRunAndResumeDoesNotRestart",
+    "evidence": "Actual panel and runner with held provider flow, completed and partial rows, stop without disposal, cleanup, no later leg or resume dispatch, explicit new Run and disposal cleanup.",
+    "runtime": "NOT_RUN_LOCALLY; FINAL_COMMITTED_ORDINARY_PROJECT_CI_REQUIRED"
+  }
+}

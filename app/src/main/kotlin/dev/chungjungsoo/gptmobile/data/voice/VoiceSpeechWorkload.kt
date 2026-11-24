@@ -14,7 +14,7 @@ internal class VoiceSpeechWorkloadFailure(val code: String, val inputBytes: Int,
 /** Shared with Auto/Recheck. Every native call obeys the production frontend's byte limit. */
 internal object VoiceSpeechWorkload {
     const val FIXTURE_VERSION = 2
-    const val PROTOCOL = "planned-utterances-v2-alternating-shapes-complete-cost-v2"
+    const val PROTOCOL = "planned-utterances-v2-alternating-shapes-complete-cost-v3-audio-reference"
     const val MAX_PHRASE_BYTES = 128
     const val CALIBRATION_FIXTURE_COUNT = 6
     const val MAX_CHUNKS = 32

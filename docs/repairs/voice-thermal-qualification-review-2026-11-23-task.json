@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-thermal-qualification-review-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "startingHead": "e056d1378836ffc4eed08e879a71aac44b3fc10b",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "pullRequest": 2367,
+  "status": "IMPLEMENTED_PENDING_FINAL_COMBINED_HEAD_HOSTED_QUALIFICATION",
+  "intent": "Restore the existing thermal-negative test as an isolated thermal control after the required valid audio observation was added.",
+  "finding": {
+    "classification": "TEST_COVERAGE_GAP",
+    "method": "VoiceBackendQualificationTest.completeSupportedExecutionWithUnknownOrTransientWarmThermalsCannotRank",
+    "evidence": "The completed-workload fixture omitted audioObservation; rankingEligible was already false because valid audio was absent. This does not establish a production thermal-filter bug.",
+    "sourceSha256": "394d361afbd2f0c4401d8397f043844acf197045d93f29ece8e60d3ac5f801dd"
+  },
+  "correction": {
+    "sourcePath": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendQualificationTest.kt",
+    "candidateSha256": "fb1eae2bda019664d1ed4ebe8f3b8ae0d05dbe7f6e09a4dcc3376a57cbd68944",
+    "changes": [
+      "Supply the existing speechReferenceFixture callback to the completed-workload thermal-negative call.",
+      "Require the same measured result to become rankingEligible when only its thermalStatuses are changed to normal."
+    ],
+    "preserved": [
+      "All six original methods and every original assertion.",
+      "All null, status2 and status6 rejection cases; complete workload, sample count and native call assertions.",
+      "Every production thermal, audio quality, comparison identity, cancellation, runtime, resource and budget rule."
+    ]
+  },
+  "validation": {
+    "baseline": {
+      "receipt": "baseline/result.json",
+      "sha256": "34b262b49263fd4284064f25175367df10b05594d03a5bed3ff97acc01259d2a",
+      "tests": 6,
+      "passed": 5,
+      "failed": 1,
+      "ignored": 0,
+      "assumption_skips": 0,
+      "failure": "Only existing thermal-negative method at newly added normal-thermal counterfactual line131. The first null-thermal subcase fails there; later2/6 loop cases are not claimed executed in this baseline.",
+      "meaning": "Exposes missing audio prerequisite in the test fixture. Unchanged e056 production is expected correct; this is not a thermal-filter production-bug reproduction."
+    },
+    "candidate": {
+      "receipt": "candidate/result.json",
+      "sha256": "0b03c273782027e2ff838395122472f5d1b4228bfda0d39789e2aab79c96399e",
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "assumption_skips": 0,
+      "meaning": "Same strengthened class plus existing valid audio callback. All null/2/6 rejections and each same-measurement normal-thermal positive complete."
+    },
+    "closure": {
+      "full_actual_production_kotlin_files": 17,
+      "actual_java": "TimedKokoro.java",
+      "actual_tests": "All six VoiceBackendQualificationTest methods and full VoiceSpeechAudioTestFixtures.kt",
+      "boundary": "Existing owner engine/interface and enum excerpts plus constant-only KokoroModelPack metadata port. No thermal/audio/measurement logic stub. No Android, Room, UI, actual native/provider or physical-device execution.",
+      "compiler": "Kotlin2.4.20/Java21;900MiB;2processors;120s cap",
+      "runtime": "JUnit4.13.2;384MiB;2processors;30s cap",
+      "owner_107_case_result_sha256": "9d17d149ab53fb79f6ef0fe88356cf9467cd9e8beaa5a42c15d8bbbdee599799",
+      "harness_sha256": "6ec287b52e611dc83c09f4a073c4be504e50c2e02efa139c9d0ee64a9c547a55",
+      "launcher_sha256": "3c8254b9a9152e4c7dcf0863adf1eeff03880a5a8c2ef76b91238360c65bd9a6",
+      "source_inputs": 22,
+      "dependencies": 21
+    },
+    "frozenQualificationSha256": "22a923b814d1085fe18fc1b16961477e827078530268185f03ec77ad1781d92d",
+    "productionBinding": "Both runs have identical complete production sources, dependencies and original contract excerpts; only the compiled target test callback differs. Frozen candidate hash equals compiled-copy hash.",
+    "format": {
+      "ktlint": "1.3.1",
+      "jar_sha256": "a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1",
+      "format_exit": 0,
+      "check_exit": 0,
+      "git_diff_check_exit": 0
+    },
+    "canonical": "Run on the frozen composed tree; exact commit/tree result is retained with PR qualification.",
+    "hostedAndroid": "All six actual methods must pass unskipped on the final combined source; focused JVM proof does not replace full Android/native/physical-device execution."
+  },
+  "concurrency": "Preserve all existing appends and external TLS retry, receiving-authority, ordinary saved-page allowance and voice streaming source reservations. Update the branch only by guarded non-forced append.",
+  "publication": "Keep draft until all owners and final-head gates close. Finish both predecessor publications/readbacks before normal merge, exact-main gates and joint successor publication."
+}

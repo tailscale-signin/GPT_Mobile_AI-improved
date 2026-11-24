@@ -10,8 +10,8 @@ import kotlinx.serialization.json.JsonPrimitive
 
 // These run before enqueueing to protect privacy even if the process stops.
 // Compile once: logging from text input or frame callbacks must not rebuild patterns.
-private val sensitivePayload = Regex("""(?i)(?:\\?["'](?:[a-z_]+_)?(?:query|prompt|arguments|result|document|content|text|error_body)\\?["']\s*:|\b(?:[a-z_]+_)?(?:query|prompt|arguments|result|document|error_body)\s*=)""")
-private val privateJsonKey = Regex("(?:^|_)(?:query|prompt|arguments|result|document|content|text|error_body)$")
+private val sensitivePayload = Regex("""(?i)(?:\\?["'](?:[a-z_]+_)?(?:query|prompt|arguments|result|document|content|text|thoughts|thinking|reasoning_content|reasoning_text|error_body)\\?["']\s*:|\b(?:[a-z_]+_)?(?:query|prompt|arguments|result|document|content|text|thoughts|thinking|reasoning_content|reasoning_text|error_body)\s*=)""")
+private val privateJsonKey = Regex("(?:^|_)(?:query|prompt|arguments|result|document|content|text|thoughts|thinking|reasoningcontent|reasoningtext|error_body)$")
 private val secretJsonKey = Regex("^(?:authorization|proxy_authorization|cookie|set_cookie|x_api_key|x_goog_api_key|x_subscription_token|mcp_session_id|anthropic_organization_id|anthropic_workspace_id|openai_organization|openai_project|x_organization_id|x_workspace_id|api_?key|access_?token|refresh_?token|password|client_?secret)$")
 private val queryString = Regex("""(https?://[^\s?"']+)\?[^\s"']+""")
 private val privatePath = Regex("""(?:/data/|/storage/|/sdcard/|/home/)[^\s,;]+""")
@@ -51,7 +51,7 @@ private fun redactDiagnosticSegments(message: String, credentials: Boolean): Str
     }
 
 /** Bound scanning before parsing, including malformed or deeply nested logcat payloads. */
-private fun diagnosticJsonEnd(line: String, start: Int): Int? {
+internal fun diagnosticJsonEnd(line: String, start: Int): Int? {
     var depth = 0
     var quoted = false
     var escaped = false

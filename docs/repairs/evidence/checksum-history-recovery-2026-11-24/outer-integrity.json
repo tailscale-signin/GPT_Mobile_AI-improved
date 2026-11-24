@@ -1,0 +1,101 @@
+{
+  "scannerVersion": "8.30.1",
+  "cases": [
+    {
+      "case": "intact_history",
+      "exitCode": 0,
+      "gitFatalObserved": false,
+      "pinControls": 94,
+      "pinControlsPassed": true,
+      "scannerCompleted": true,
+      "passed": true
+    },
+    {
+      "case": "missing_historical_blob",
+      "exitCode": 128,
+      "gitFatalObserved": true,
+      "pinControls": 0,
+      "pinControlsPassed": false,
+      "scannerCompleted": false,
+      "passed": true,
+      "filenamePreflightExitCode": 0
+    },
+    {
+      "case": "restored_historical_blob",
+      "exitCode": 0,
+      "gitFatalObserved": false,
+      "pinControls": 94,
+      "pinControlsPassed": true,
+      "scannerCompleted": true,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "scannerSha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+  "evidenceKind": "STRUCTURED_PROJECTION_OF_ACTUAL_COMPONENT_REPORT",
+  "rawReceiptSha256": "9e95074dcdf5a2367dc726a3a99e2ee541262150e4212aa6c034e1ff46ab4ad3",
+  "actualSourceComponent": "3d3b25dea",
+  "sourceInputs": [
+    {
+      "path": ".gitleaks.toml",
+      "sha256": "df2c3f2a917c2e9f9fded472fd23954de733392269a4b24874238d69ef0339c4"
+    },
+    {
+      "path": ".gitleaksignore",
+      "sha256": "0c416dea2ec20fd56d7bc192c6f06eedb60a95f9e7236ba199fe094784484fd4"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt",
+      "sha256": "4d3b59b9d02e3a7e07ce68d926fe8b9371d7bed7ae16d1e8b917768e6cee56cb"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol.kt",
+      "sha256": "3a1b01c95c39e1229656c696c001a58012bd4f747427e27e88400b8b6bae05be"
+    },
+    {
+      "path": "docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log",
+      "sha256": "239d494e49bd476ad148e2be462a2a0a0e3a857372dcafe7904c02b6f68e42e6"
+    },
+    {
+      "path": "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
+      "sha256": "32ae7dd7c706f871ef4211275c24fb2b75e2fad38b09d3d303f93f5292cab166"
+    },
+    {
+      "path": "docs/repairs/evidence/speech-playback-reliability-2026-11-23/native-qnn.json",
+      "sha256": "c51174fc4a2aee2150c281050c16a7c6434fdbad96561a1a27fcf00ffb28ebdc"
+    },
+    {
+      "path": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json",
+      "sha256": "165927636314ba54ef6b2a4afc7bede1eb6c5c22df389de0b1061de02dacde14"
+    },
+    {
+      "path": "docs/repairs/privacy-lifecycle-disposal-idle-2026-11-24-task.json",
+      "sha256": "249fb575a68b206c8148fdb2c5fdf88ccf5b7d166fbe8653371f54229d55fbca"
+    },
+    {
+      "path": "gradle/verification-metadata.xml",
+      "sha256": "bd7589142cbe10fecacda69ac6f0487418719c9d77a5dcbb28b76565af95217f"
+    },
+    {
+      "path": "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+      "sha256": "fda17cf627be0057cb9439197107882506b66a80b066895e972ec4cc7d3bdb08"
+    },
+    {
+      "path": "scripts/report_secret_history.py",
+      "sha256": "4bae92d11ea7f1fc7bc86d4eeb0bb344b364a70659f55046702f33c6210e9fb8"
+    },
+    {
+      "path": "scripts/scan_secret_history.sh",
+      "sha256": "d3c62151d7cf40467999121e949ab5bdaf9195635b075b8d6b4d97b4f5744074"
+    },
+    {
+      "path": "scripts/scan_secrets.py",
+      "sha256": "7bc36f594e4b12b4f3e26b9aa78e06a6fd3af6c5cfa26f6c987fbd57c63431db"
+    },
+    {
+      "path": "scripts/test_gitleaks_model_pin.py",
+      "sha256": "1f1512b576909143ad62a12decf3013d7e151841ae4a578b309a57898b9d3f69"
+    }
+  ],
+  "scope": "Actual synthetic intact/missing/restored Git histories on the reviewed1973-based checksum component; final current public all-ref qualification remains required."
+}

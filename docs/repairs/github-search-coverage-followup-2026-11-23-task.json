@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "task": "github-search-coverage-followup-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "5c976b57c13046bf6892a235ff6af99e2822ae56",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "pullRequest": 2367,
+  "intent": "Preserve explicitly exhaustive instruction searches and repository-wide audit continuations while keeping incidental instruction lookups and explicitly sampled or unrelated narrow queries bounded.",
+  "acceptance": [
+    "Follow only the exact native-issued search frontier for an explicitly exhaustive or comprehensive named instruction search.",
+    "Continue a repository-wide bug audit using a derived non-instruction query without requiring the query to appear literally in the accepted task.",
+    "Do not automatically page incidental instruction lookups, explicit samples, or unrelated narrowly named searches.",
+    "Retain repository, commit, query and cursor binding, duplicate prevention, the existing 32-attempt cap, authorization and task limits.",
+    "Add behavioral regressions through GitHubReplayRecovery.nextRemoteRead and report hosted Kotlin execution separately from local host validation."
+  ],
+  "qualification": {
+    "status": "IMPLEMENTED_AND_SOURCE_REVIEWED",
+    "kotlinExecution": "Not run locally; final-head hosted unit execution is required."
+  }
+}

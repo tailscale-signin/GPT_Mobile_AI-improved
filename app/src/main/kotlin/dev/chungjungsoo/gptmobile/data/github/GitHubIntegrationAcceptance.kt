@@ -38,6 +38,7 @@ internal object GitHubIntegrationAcceptance {
                 var conditionalFixture = false
                 var blocker: GitHubCriterionBlocker? = null
                 var reserveState: VerificationReserveState? = null
+                var evidenceComponents: JsonObject? = null
                 val assessment: Pair<Boolean, String> = when {
                     "classify" in text && "capabilit" in text && "before" in text -> {
                         val plan = fixturePreflight?.get("capability_classification") as? JsonObject
@@ -56,16 +57,44 @@ internal object GitHubIntegrationAcceptance {
                         val testIds = targets.flatMap { (it["test_job_receipts"] as? JsonArray).orEmpty() }.toSet()
                         val jobs = eligible.filter { it["receipt_id"] in testIds }
                         val discovery = receipts.values.filter { it.text("tool") == GitHubAuthorizedCatalog.TOOL || remotePage(it) }
-                        reserveState = verificationReserve(discovery)
-                        blocker = when (reserveState) {
+                        val reserve = verificationReserve(discovery)
+                        reserveState = reserve
+                        val pages = GitHubTestChecklist.pendingPages(receipts)
+                        val pagesPreserved = pages.all { page ->
+                            val arguments = page["arguments"] as? JsonObject
+                            arguments != null &&
+                                tools.any { it.modelVisible && it.name == page.text("tool") && GitHubSelfTestReads.valid(it, arguments) } &&
+                                (page.text("tool") == GitHubAuthorizedCatalog.TOOL || GitHubAuthorizationBoundary.isReplayableRead(page.text("tool"), arguments))
+                        }
+                        blocker = when (reserve) {
                             VerificationReserveState.UNKNOWN -> GitHubCriterionBlocker.VERIFICATION_RESERVE_NOT_OBSERVED
                             VerificationReserveState.EXHAUSTED -> GitHubCriterionBlocker.VERIFICATION_RESERVE_EXHAUSTED
-                            else -> null
+                            else -> when {
+                                jobs.isEmpty() -> GitHubCriterionBlocker.WORKFLOW_RUN_OR_JOB_REQUIRED
+                                !pagesPreserved -> GitHubCriterionBlocker.CONTINUATION_REQUIRED
+                                else -> null
+                            }
                         }
-                        val pages = GitHubTestChecklist.pendingPages(receipts)
-                        proof = jobs + discovery + eligible.filter { it["receipt_id"] in targets.map { run -> run["dispatch_receipt"] } }
-                        (jobs.isNotEmpty() && reserveState == VerificationReserveState.PRESERVED && pages.all { it["arguments"] is JsonObject && it.text("tool").isNotBlank() }) to
-                            "Exact-revision test job receipts: ${jobs.size}. Saved pending page recipes: ${pages.size}. Discovery verification reserve: ${reserveState.name}."
+                        evidenceComponents = buildJsonObject {
+                            put("exact_sha_test_receipts", if (jobs.isNotEmpty()) "OBSERVED" else "NOT_OBSERVED")
+                            put("exact_sha_test_receipt_count", jobs.size)
+                            put(
+                                "pending_continuations",
+                                if (!pagesPreserved) {
+                                    "INVALID_OR_UNAUTHORIZED"
+                                } else if (pages.isEmpty()) {
+                                    "NONE_PENDING"
+                                } else {
+                                    "PRESERVED"
+                                }
+                            )
+                            put("pending_continuation_count", pages.size)
+                            put("verification_reserve", reserve.name)
+                            put("saved_pages_are_test_execution", false)
+                        }
+                        proof = jobs + discovery.filter(::eligible) + eligible.filter { it["receipt_id"] in targets.map { run -> run["dispatch_receipt"] } }
+                        (jobs.isNotEmpty() && reserve == VerificationReserveState.PRESERVED && pagesPreserved) to
+                            "Exact-revision test job receipts: ${jobs.size}. Saved pending page recipes: ${pages.size} (${if (pagesPreserved) "preserved" else "invalid or currently unauthorized"}). Discovery verification reserve: ${reserve.name}. Saved pages and discovery do not establish test execution."
                     }
                     listOf("separate", "separation", "distinguish").any { it in text } && "device" in text && ("mock" in text || "live" in text) -> {
                         proof = eligible
@@ -140,6 +169,7 @@ internal object GitHubIntegrationAcceptance {
                     put("acceptance", assessment.second)
                     blocker?.takeUnless { assessment.first }?.let { put("blocker_code", it.name) }
                     reserveState?.let { put("verification_reserve_state", it.name) }
+                    evidenceComponents?.let { put("evidence_components", it) }
                     put("evidence_receipt_ids", JsonArray(proof.mapNotNull { it["receipt_id"] }.distinct()))
                 }
             }

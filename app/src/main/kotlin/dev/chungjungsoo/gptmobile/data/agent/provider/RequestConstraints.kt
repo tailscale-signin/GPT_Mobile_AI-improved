@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent.provider
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel
+import dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort
+
 /** Per-request hard constraints take precedence over saved provider preferences. */
 data class RequestConstraints(
     val maxOutputTokens: Int? = null,
@@ -37,7 +40,9 @@ data class RequestConstraints(
     val structuredOutputProbe: Boolean = false,
     val structuredOutputCompatibilityResolver: (suspend (dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec) -> String)? = null,
     /** Identity of the complete retained answer, even when the wire sends only its tail. */
-    val continuationPrefixDigest: String? = null
+    val continuationPrefixDigest: String? = null,
+    val gitHubIntelligenceLevel: GitHubIntelligenceLevel? = null,
+    val gitHubEffort: GitHubReasoningEffort? = null
 ) {
     init {
         finalResponseSchemaJson?.let { schema ->
@@ -66,6 +71,17 @@ data class RequestConstraints(
                 dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.PREFLIGHT_ROLE -> minOf(maxOutputTokens ?: Int.MAX_VALUE, dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.OUTPUT_TOKENS)
                 dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.OUTPUT_RETRY_ROLE -> minOf(maxOutputTokens ?: Int.MAX_VALUE, dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.OUTPUT_RETRY_TOKENS)
                 else -> maxOutputTokens
+            },
+            gitHubEffort = when {
+                gitHubEffort == null || !allowReasoning -> null
+                briefHelper -> GitHubReasoningEffort.LOW
+                gitHubIntelligenceLevel != GitHubIntelligenceLevel.INSTANT && role == "github-execution-continuation" -> when (gitHubEffort) {
+                    GitHubReasoningEffort.LOW -> GitHubReasoningEffort.MEDIUM
+                    GitHubReasoningEffort.MEDIUM -> GitHubReasoningEffort.HIGH
+                    else -> gitHubEffort
+                }
+                gitHubIntelligenceLevel != GitHubIntelligenceLevel.INSTANT && role in setOf("github-task-resume", dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.CONTINUATION_ROLE) && gitHubEffort == GitHubReasoningEffort.LOW -> GitHubReasoningEffort.MEDIUM
+                else -> gitHubEffort
             },
             // A short helper is a preference, not a new strict Off requirement. Preserve the
             // user's explicit policy; the serializer chooses verified Off only for Auto helpers.

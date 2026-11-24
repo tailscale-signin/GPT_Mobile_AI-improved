@@ -71,6 +71,15 @@ interface ChatRepository {
         onPhysicalRequest: (String) -> Unit = {}
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession = error("Benchmark sessions are unavailable")
 
+    /** Closed fictional cases compare the same frozen profile through the actual private path. */
+    suspend fun openPrivacyComparisonSession(
+        profile: PlatformV2,
+        caseId: String,
+        protection: Boolean,
+        runId: String,
+        deadlineMs: Long
+    ): dev.chungjungsoo.gptmobile.data.privacy.PrivacyComparisonSession = error("Privacy comparison sessions are unavailable")
+
     /** Tool-free article examination uses the same provider adapters and physical invocation ledger. */
     suspend fun openResearchSession(
         platform: PlatformV2,

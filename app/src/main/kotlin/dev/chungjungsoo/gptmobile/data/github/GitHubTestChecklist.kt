@@ -60,6 +60,10 @@ internal object GitHubTestChecklist {
             }
         )
         put("mutation_dispatched", false)
+        put("ordinary_tool_auto_approval_is_fixture_authority", false)
+        put("approval_source", "TASK_BOUND_FIXTURE_POLICY")
+        put("completed_read_receipts_reusable", true)
+        put("read_only_alternative", "Start an Inspect existing fixtures only workflow to qualify read-only coverage without creating or modifying fixtures.")
         put("runtime_identity", runtime)
         put("scope", "AUTO_APPROVE applies only to the dedicated codex-self-test/* fixture branch; regular repository writes still use their configured approval policy.")
         put(
@@ -70,7 +74,7 @@ internal object GitHubTestChecklist {
                 if (mode == null) {
                     "The effective GitHub approval mode could not be verified. Recheck the bound profile and task before preparing a fixture."
                 } else {
-                    "Fixture testing needs an explicit approval decision. Enable fixture-only automatic approval or use the approval interaction harness."
+                    "This task retains its accepted fixture policy. General tool auto-approval does not authorize fixture changes. Use its exact approval interaction, or select fixture-only automatic approval before starting a new fixture test. Completed reads remain retained."
                 }
             }
         )

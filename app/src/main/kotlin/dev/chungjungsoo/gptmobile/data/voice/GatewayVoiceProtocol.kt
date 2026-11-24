@@ -7,6 +7,8 @@ import java.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal data class GatewayVoiceTiming(val durations: LongArray, val frameCount: Int)
+
 internal object GatewayVoiceProtocol {
     const val PROTOCOL = "kokoro-timed-v1"
     const val FRONTEND = "kokoro-english-v1"
@@ -45,7 +47,7 @@ internal object GatewayVoiceProtocol {
             .put("speaker", speaker).put("speed", speed.toDouble())
     }
 
-    fun response(json: JSONObject, id: String, model: String, tokenCount: Int, expectedWords: IntArray): VoicePhraseAudio {
+    fun timing(json: JSONObject, id: String, model: String, tokenCount: Int, expectedWords: IntArray): GatewayVoiceTiming {
         envelope(json)
         check(json.getString("request_id") == id && json.getString("model_sha256") == model)
         check(json.getInt("sample_rate") == 24_000 && json.getString("execution_provider") == "CUDAExecutionProvider")
@@ -56,17 +58,24 @@ internal object GatewayVoiceProtocol {
         val words = json.getJSONArray("word_tokens")
         check(words.length() == expectedWords.size)
         check(expectedWords.indices.all { strictLong(words, it) == expectedWords[it].toLong() })
+        val frames = durations.sum() * 600
+        check(frames in 1..MAX_FRAMES.toLong())
+        return GatewayVoiceTiming(durations, frames.toInt())
+    }
+
+    fun response(json: JSONObject, id: String, model: String, tokenCount: Int, expectedWords: IntArray): VoicePhraseAudio {
+        val timing = timing(json, id, model, tokenCount, expectedWords)
         val encoded = json.getString("pcm_f32le")
         check(encoded.length <= (MAX_FRAMES * 4 + 2) / 3 * 4)
         val bytes = Base64.getDecoder().decode(encoded)
         check(bytes.isNotEmpty() && bytes.size <= MAX_FRAMES * 4 && bytes.size % 4 == 0)
         val count = bytes.size / 4
-        check(durations.sum() * 600 == count.toLong())
+        check(timing.frameCount == count)
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
         val samples = FloatArray(count)
         buffer.get(samples)
         check(samples.all(Float::isFinite))
-        return VoicePhraseAudio(samples, durations, expectedWords)
+        return VoicePhraseAudio(samples, timing.durations, expectedWords)
     }
 
     private fun envelope(json: JSONObject) {

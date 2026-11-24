@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
@@ -15,9 +16,57 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePerformanceExportTest {
+    @Test fun streamingModelAndDelegateRequestNeverBecomeProcessorOrThreadEvidence() {
+        for ((family, provider, delegate) in listOf(
+            Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-cpu-requested", "CPU"),
+            Triple("MEDIAPIPE_KOKORO", "mediapipe-kokoro-gpu-requested", "GPU"),
+            Triple("MEDIAPIPE_PHONON", "mediapipe-phonon-cpu-requested", "CPU"),
+            Triple("MEDIAPIPE_POCKET", "mediapipe-pocket-cpu-requested", "CPU")
+        )) {
+            val history = VoicePerformanceHistory()
+            history.observe("text_to_audio", 125, family, true)
+            val sample = VoiceSynthesisFeedback(generatedAudioMs = 1000, synthesisMs = 100, executionProvider = provider, threads = 4)
+            val document = Json.parseToJsonElement(voicePerformanceExport(history.snapshots.value, sample)).jsonObject
+            val row = document.getValue("series").jsonArray.single().jsonObject
+            assertEquals(family, row.getValue("modelFamily").jsonPrimitive.content)
+            assertEquals(JsonNull, row["observedProvider"])
+            val synthesis = document.getValue("latestSynthesis").jsonObject
+            assertEquals(family, synthesis.getValue("modelFamily").jsonPrimitive.content)
+            assertEquals(delegate, synthesis.getValue("requestedDelegate").jsonPrimitive.content)
+            assertEquals(JsonNull, synthesis["observedProvider"])
+            assertEquals(JsonNull, synthesis["threads"])
+            assertEquals("not_exposed_by_sdk", synthesis.getValue("threadsScope").jsonPrimitive.content)
+            assertEquals(JsonNull, synthesis["executionEvidence"])
+        }
+    }
+
+    @Test fun graphicsOnlyExportIdentifiesMissingSpeechAndUtilizationWithoutInventingZeros() {
+        val history = VoicePerformanceHistory()
+        repeat(6295) {
+            history.observe("frame_duration", 5, publish = false)
+            history.observe("gpu_duration", 0, publish = false)
+        }
+        history.framesDropped(3)
+        history.publish()
+        val json = Json.parseToJsonElement(voicePerformanceExport(history.snapshots.value)).jsonObject
+        val availability = json.getValue("availability").jsonObject
+        assertEquals("NO_RECORDED_SAMPLES", availability.getValue("speechStageTimings").jsonPrimitive.content)
+        assertEquals("OBSERVED", availability.getValue("graphicsGpuFrameDuration").jsonPrimitive.content)
+        assertEquals("NOT_MEASURED", availability.getValue("cpuGpuNpuUtilization").jsonPrimitive.content)
+        assertEquals("NOT_MEASURED", availability.getValue("endToEndConversationLatency").jsonPrimitive.content)
+        for (field in listOf("cpuUtilization", "gpuUtilization", "npuUtilization", "latestSynthesis")) assertEquals(JsonNull, json[field])
+        assertEquals(6295L, json.getValue("observedFrameSamples").jsonPrimitive.long)
+        assertEquals(3L, json.getValue("droppedFrameMetricCallbacks").jsonPrimitive.long)
+        for (row in json.getValue("series").jsonArray.map { it.jsonObject }) {
+            assertEquals(64, row.getValue("samples").jsonPrimitive.int)
+            assertEquals(6295L, row.getValue("observedSamples").jsonPrimitive.long)
+            assertEquals(6231L, row.getValue("evictedSamples").jsonPrimitive.long)
+        }
+    }
+
     @Test fun absentMeasurementsStayUnknownAndDoNotCertifyPhysicalPerformance() {
         val json = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot())).jsonObject
-        assertEquals(2, json.getValue("schemaVersion").jsonPrimitive.int)
+        assertEquals(4, json.getValue("schemaVersion").jsonPrimitive.int)
         assertEquals(JsonNull, json["captureQueueMs"])
         assertEquals(JsonNull, json["thermalStatus"])
         assertEquals(JsonNull, json["latestSynthesis"])
@@ -42,6 +91,7 @@ class VoicePerformanceExportTest {
         assertEquals(120L, warm.getValue("p95Ms").jsonPrimitive.long)
         assertEquals("qnn-gpu", json.getValue("latestSynthesis").jsonObject.getValue("observedProvider").jsonPrimitive.content)
         assertEquals(JsonNull, json.getValue("latestSynthesis").jsonObject["firstAudioMs"])
+        assertEquals("playback_operation_start_to_first_observed_presented_audio", json.getValue("latestSynthesis").jsonObject.getValue("firstAudioScope").jsonPrimitive.content)
     }
 
     @Test fun unknownLabelsCannotExportConversationTextOrDeviceNames() {
@@ -92,6 +142,25 @@ class VoicePerformanceExportTest {
         assertTrue(observed.getValue("audioTimingValidated").jsonPrimitive.boolean)
     }
 
+    @Test fun cacheAdmissionReportsBudgetAndUnknownMemoryWithoutClaimingUtilization() {
+        val evidence = VoiceSpeechExecutionEvidence(
+            VoiceSpeechBackend.QNN_HTP, "qnn-htp", "private-model", "private-runtime", "private-device", VoiceSpeechStage.READY,
+            observedAtMillis = 1000, cacheBudgetBytes = 536870912, activeShapeEstimatedBytes = 240000000,
+            availableMemoryBytes = null, cacheAdmission = "MEMORY_UNKNOWN"
+        )
+        fun exported(value: VoiceSpeechExecutionEvidence) = Json.parseToJsonElement(
+            voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionEvidence = value))
+        ).jsonObject.getValue("latestSynthesis").jsonObject.getValue("executionEvidence").jsonObject
+        val observed = exported(evidence)
+        assertEquals(536870912L, observed.getValue("cacheBudgetBytes").jsonPrimitive.long)
+        assertEquals(240000000L, observed.getValue("activeShapeEstimatedBytes").jsonPrimitive.long)
+        assertEquals(JsonNull, observed["availableMemoryBytes"])
+        assertEquals("MEMORY_UNKNOWN", observed.getValue("cacheAdmission").jsonPrimitive.content)
+        assertFalse(observed.toString().contains("private"))
+        val invalid = exported(evidence.copy(cacheBudgetBytes = -1, activeShapeEstimatedBytes = Long.MAX_VALUE, availableMemoryBytes = -1, cacheAdmission = "private device details"))
+        for (field in listOf("cacheBudgetBytes", "activeShapeEstimatedBytes", "availableMemoryBytes", "cacheAdmission")) assertEquals(JsonNull, invalid[field])
+    }
+
     @Test fun collectedProfileKeepsCachedEvidenceDistinctFromCurrentPreparation() {
         val evidence = VoiceSpeechExecutionEvidence(
             VoiceSpeechBackend.QNN_HTP, "qnn-htp", "model", "runtime", "device", VoiceSpeechStage.READY,
@@ -99,7 +168,7 @@ class VoicePerformanceExportTest {
             prepareMs = 300, synthesisMs = 100, tokenCount = 41, verifiedAudio = true, observedAtMillis = 1000,
             profileAvailable = true, profileId = 7, profileReused = true, cacheHit = true, currentPrepareMs = 0,
             graphPreparedThisCall = false, cachedShapeCount = 2, cacheLimit = 2, cacheEstimatedBytes = 1024,
-            audioRms = .1, audioPeak = .2, clippedSamples = 0, nonSilentSamples = 1200
+            audioRms = .1, audioPeak = .2, clippedSamples = 0, nonSilentSamples = 1200, audioMeasurementAvailable = true
         )
         val observed = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionEvidence = evidence)))
             .jsonObject.getValue("latestSynthesis").jsonObject.getValue("executionEvidence").jsonObject
@@ -141,5 +210,29 @@ class VoicePerformanceExportTest {
                 assertEquals(field, JsonNull, observed[field])
             }
         }
+    }
+
+    @Test fun earlyValidationFailureCannotExportUnmeasuredZeroesAndSignedDurationEvidenceSurvives() {
+        val evidence = VoiceSpeechExecutionEvidence(
+            VoiceSpeechBackend.QNN_GPU, "qnn-gpu", "model", "runtime", "device", VoiceSpeechStage.VALIDATING,
+            failure = VoiceSpeechFailureCode.OUTPUT_INVALID, observedAtMillis = 1000,
+            audioMeasurementAvailable = false, audioRms = 0.0, audioPeak = 0.0, clippedSamples = 0, nonSilentSamples = 0,
+            validationReason = "TOKEN_DURATION_INVALID", outputFrames = 600,
+            durationStatsAvailable = true, durationSumOverflow = false, durationCount = 2,
+            durationSum = -1, durationMin = -2, durationMax = 1, cacheAdmission = "BOUNDED_THREE_SHAPES"
+        )
+        val observed = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionEvidence = evidence)))
+            .jsonObject.getValue("latestSynthesis").jsonObject.getValue("executionEvidence").jsonObject
+        assertEquals(JsonPrimitive(false), observed["audioMeasurementAvailable"])
+        for (field in listOf("audioRms", "audioPeak", "clippedSamples", "nonSilentSamples")) assertEquals(JsonNull, observed[field])
+        assertEquals(JsonPrimitive("TOKEN_DURATION_INVALID"), observed["validationReason"])
+        assertEquals(JsonPrimitive(-2L), observed["durationMin"])
+        assertEquals(JsonPrimitive(-1L), observed["durationSum"])
+        assertEquals(JsonPrimitive("BOUNDED_THREE_SHAPES"), observed["cacheAdmission"])
+        val malformed = evidence.copy(validationReason = "private driver text", durationSumOverflow = true)
+        val rejected = Json.parseToJsonElement(voicePerformanceExport(VoicePerformanceSnapshot(), VoiceSynthesisFeedback(generatedAudioMs = 1000, executionEvidence = malformed)))
+            .jsonObject.getValue("latestSynthesis").jsonObject.getValue("executionEvidence").jsonObject
+        assertEquals(JsonNull, rejected["validationReason"])
+        assertEquals(JsonNull, rejected["durationSum"])
     }
 }

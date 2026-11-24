@@ -16,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.github.githubRequest
 import dev.chungjungsoo.gptmobile.data.github.normalizeGitHubWorkflowSelector
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.userMessage
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.header
@@ -2160,6 +2161,9 @@ class GitHubTool(
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubReadValidation) {
             val receipt = buildJsonObject {
                 put("failed_stage", "tool_precheck")
+                put("reason_code", throwable.code)
+                put("recovery_status", if (throwable.code == "EVIDENCE_REVISION_MISMATCH") "CHOICE_REQUIRED" else "PRECHECK_REJECTED")
+                put("repair_dispatched", false)
                 throwable.details.filterKeys { it in dev.chungjungsoo.gptmobile.data.github.GitHubSearchCursorDiagnostics.fields }
                     .forEach { (key, value) -> put(key, value) }
             }
@@ -2175,7 +2179,7 @@ class GitHubTool(
             return AgentToolResult(callId, ToolResultContent.Text("GitHub returned a response that could not be decoded. Retain the resource and HTTP receipt; an accepted write must be reconciled before another mutation."), true, errorCode = "GITHUB_UNEXPECTED_RESPONSE")
         }
         if (networkFailureKind(throwable) == NetworkFailureKind.TLS) {
-            return AgentToolResult(callId, ToolResultContent.Text("GitHub TLS verification failed. Check the connection's certificate configuration; this failure is not automatically retried."), true, errorCode = "GITHUB_TLS_FAILURE")
+            return AgentToolResult(callId, ToolResultContent.Text(NetworkFailureKind.TLS.userMessage(partialOutput = false, failure = throwable)), true, errorCode = "GITHUB_TLS_FAILURE")
         }
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected) {
             val recordedCode = detail.substringBefore(" · ")

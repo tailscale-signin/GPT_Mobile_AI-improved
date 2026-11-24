@@ -174,6 +174,8 @@ internal class GitHubEvidenceBook(
 
     @Volatile private var renewalFailure: ProviderEvent.Failed? = null
 
+    suspend fun recoveryReadHead(captured: String): String = mutex.withLock { observedHead ?: captured }
+
     /** Stable task identity already includes account, conversation, repository and branch scope. */
     fun checkpointBinding(): String = binding
 
@@ -252,7 +254,7 @@ internal class GitHubEvidenceBook(
         val operation = GitHubOperationTool.operationName(call.name) ?: "github".takeIf { call.name.substringBefore("__") == it }
         val authorizedTool = call.name in trustedTools
         val trusted = authorizedTool && (operation != null || call.name == "discover_available_tools" || call.name.isGatewayRepositoryTool())
-        val effectiveArguments = (result.executionReceipt?.get("corrected_arguments") as? JsonObject) ?: call.arguments
+        val effectiveArguments = ((result.executionReceipt?.get("corrected_arguments") ?: result.executionReceipt?.get("canonical_arguments")) as? JsonObject) ?: call.arguments
         val savedSource = savedViewSource(call, result)
         val owner = (effectiveArguments["owner"] as? JsonPrimitive)?.contentOrNull
         val repo = (effectiveArguments["repo"] as? JsonPrimitive)?.contentOrNull
@@ -646,6 +648,22 @@ internal class GitHubEvidenceBook(
             augmented.putIfAbsent(id, resolution)
         }
         return augmented to currentEpoch
+    }
+
+    suspend fun nextPinnedSearchRead(
+        ids: Collection<String>,
+        tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>,
+        authorized: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>
+    ): ProviderEvent.ToolCall? = mutex.withLock {
+        for (id in ids) {
+            val record = records[id] ?: continue
+            if (record["success"] != JsonPrimitive(true) || (record["tool"] as? JsonPrimitive)?.content?.substringBefore("__") != "github_search") continue
+            if (record["epoch"] != JsonPrimitive(epoch) || observedHead?.let { record["source_head_sha"] != JsonPrimitive(it) } == true) continue
+            val saved = if ("review_projection" in record) load(id)?.let { restoredOriginal(id, it) } ?: continue else record
+            val next = GitHubSearchSourceRead.next(id, revalidate(saved), binding, tools, authorized, records.values) ?: continue
+            if (next.name in trustedTools || next.name == GitHubAuthorizedCatalog.TOOL) return@withLock next
+        }
+        null
     }
 
     /** Resolve a typed search receipt before the runner's ordinary read admission and authorization. */

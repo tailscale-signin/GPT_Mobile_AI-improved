@@ -22,7 +22,7 @@ class VoiceDiagnosticTrace internal constructor(
     private val allowed: () -> Boolean = { LocalDiagnosticsPolicy.enabled && !AppLogRecorder.privateSessionActive && !IssueReportIncidents.privateSession.value },
     private val retainSnapshot: (IssueReportDiagnostics) -> Unit = ReportDiagnosticSnapshots::retain
 ) {
-    enum class Engine { SYSTEM, LOCAL, KOKORO }
+    enum class Engine { SYSTEM, LOCAL, KOKORO, MEDIAPIPE }
     enum class Focus { GRANTED, DENIED, ERROR, NOT_REQUESTED }
     enum class PlaybackAudioMode {
         NORMAL,
@@ -162,7 +162,7 @@ class VoiceDiagnosticTrace internal constructor(
 
     private fun performanceEngine(metric: String): String = when (metric) {
         "final_to_request", "request_to_text", "text_to_queue" -> "SESSION"
-        else -> if (values["voice_engine"] == Engine.KOKORO.name) speechProvider ?: "KOKORO" else values["voice_engine"] as? String ?: "SESSION"
+        else -> if (values["voice_engine"] in setOf(Engine.KOKORO.name, Engine.MEDIAPIPE.name)) speechProvider ?: values["voice_engine"] as String else values["voice_engine"] as? String ?: "SESSION"
     }
 
     /** Backends retain this immutable ticket inside their capture/playback operation. */
@@ -194,10 +194,10 @@ class VoiceDiagnosticTrace internal constructor(
             }
             owner.values["voice_engine"] = engine.name
             if (engine == Engine.SYSTEM) owner.values["voice_effective_provider"] = "SYSTEM"
-            if (engine == Engine.LOCAL) owner.values.remove("voice_effective_provider")
+            if (engine != Engine.SYSTEM) owner.values.remove("voice_effective_provider")
         }
 
-        /** Actual execution only: a fallback CPU run never inherits the selected experimental backend. */
+        /** Engine identity can be observed even when the SDK supplies no processor-execution proof. */
         fun speechProvider(raw: String) = owner.record(this) {
             val provider = when (raw) {
                 "cpu" -> "KOKORO_CPU"
@@ -206,11 +206,17 @@ class VoiceDiagnosticTrace internal constructor(
                 "gateway-cuda" -> "GATEWAY_CUDA"
                 else -> null
             }
-            if (owner.speechProvider != null && provider != null && owner.speechProvider != provider) {
+            val engine = provider ?: when (raw) {
+                "mediapipe-kokoro-cpu-requested", "mediapipe-kokoro-gpu-requested" -> "MEDIAPIPE_KOKORO"
+                "mediapipe-phonon-cpu-requested" -> "MEDIAPIPE_PHONON"
+                "mediapipe-pocket-cpu-requested" -> "MEDIAPIPE_POCKET"
+                else -> null
+            }
+            if (owner.speechProvider != null && engine != null && owner.speechProvider != engine) {
                 owner.values["voice_engine_warm"] = false
             }
-            owner.speechProvider = provider
-            if (provider != null) owner.values["voice_effective_provider"] = provider
+            owner.speechProvider = engine
+            if (provider != null) owner.values["voice_effective_provider"] = provider else owner.values.remove("voice_effective_provider")
         }
 
         fun selectedSpeechBackend(selected: String) = owner.record(this) {
@@ -225,6 +231,9 @@ class VoiceDiagnosticTrace internal constructor(
                 "qnn-gpu" -> "QNN_GPU"
                 "qnn-htp" -> "QNN_HTP"
                 "gateway-cuda" -> "GATEWAY_CUDA"
+                "mediapipe-kokoro-cpu-requested", "mediapipe-kokoro-gpu-requested" -> "LITERT_KOKORO"
+                "mediapipe-phonon-cpu-requested" -> "PHONON"
+                "mediapipe-pocket-cpu-requested" -> "POCKET"
                 else -> "KOKORO"
             }
             owner.values["voice_fallback_source"] = source

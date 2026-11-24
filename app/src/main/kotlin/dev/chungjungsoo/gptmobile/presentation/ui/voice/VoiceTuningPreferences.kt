@@ -2,7 +2,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import dev.chungjungsoo.gptmobile.data.voice.VoiceListeningStyle
 import dev.chungjungsoo.gptmobile.data.voice.VoicePronunciationOverrides
-import java.util.Locale
 import org.json.JSONObject
 
 internal data class VoiceTuningPreferences(
@@ -45,7 +44,7 @@ internal fun parsePronunciationEditor(text: String): Map<String, String>? {
         if (separator < 1) return null
         val word = line.substring(0, separator).trim()
         val replacement = line.substring(separator + 1).trim()
-        if (!validPronunciation(word, replacement) || !seen.add(word.lowercase(Locale.ROOT))) return null
+        if (!validPronunciation(word, replacement) || !seen.add(VoicePronunciationOverrides.key(word))) return null
         result[word] = replacement
     }
     return result

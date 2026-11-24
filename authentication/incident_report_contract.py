@@ -185,6 +185,10 @@ POLICY_FIELD_NAMES = {
     'githubProfileOverride.engineeringGatewayProfileUid',
     'githubProfileOverride.executionBatchMode',
     'githubProfileOverride.sampling',
+    'githubProfileOverride.intelligenceLevel',
+    'githubProfileOverride.recoveryConsultConsent',
+    'githubProfileOverride.engineeringTeamConsent',
+    'githubProfileOverride.recoveryExecutionConsent',
 
     'githubProfileSelection',
     'llamaReasoning',
@@ -351,16 +355,17 @@ ACCEPTANCE_EXPLANATION_FIELDS = {'acceptance_applicability', 'acceptance_contrac
 REVIEW_COMPARISON_OBSERVATION_FIELDS = {'review_comparison_state', 'review_comparison_policy'}
 TOOL_EVENT_SIGNED_SEQUENCES = {'tool_event_requested_sequence', 'tool_event_previous_max_sequence'}
 TOOL_EVENT_PERSISTENCE_FIELDS = TOOL_EVENT_SIGNED_SEQUENCES | {'tool_event_persistence_operation', 'tool_event_persistence_phase', 'tool_event_persistence_failure', 'tool_event_assigned_sequence', 'tool_event_write_attempted'}
-PROVIDER_FIELDS = {'claim_extraction_validation_stage', 'claim_extraction_schema_hash', 'provider_route_hash', 'provider_wait_checkpoint_hash', 'provider_wait_claim_hash', 'provider_wait_terminal_status', 'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'tool_protocol_frame_kind', 'tool_protocol_recovery_outcome', 'claim_extraction_failure_kind', 'claim_extraction_response_characters', 'claim_extraction_max_claims', 'claim_extraction_completed', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
+TLS_TRANSPORT_PHASE_FIELDS = {'tls_last_observed_phase', 'tls_request_body_completed', 'tls_connection_reused', 'tls_version', 'tls_http_protocol'}
+PROVIDER_FIELDS = TLS_TRANSPORT_PHASE_FIELDS | {'claim_extraction_validation_stage', 'claim_extraction_schema_hash', 'provider_route_hash', 'provider_wait_checkpoint_hash', 'provider_wait_claim_hash', 'provider_wait_terminal_status', 'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'tool_protocol_frame_kind', 'tool_protocol_recovery_outcome', 'claim_extraction_failure_kind', 'claim_extraction_response_characters', 'claim_extraction_max_claims', 'claim_extraction_completed', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
 VOICE_PLAYBACK_FAILURES = {
     'AUDIO_FOCUS_DENIED', 'AUDIO_FOCUS_LOST', 'AUDIO_FOCUS_TIMEOUT', 'AUDIO_FOCUS_RESUME_FAILED',
     'TIMEOUT', 'MEMORY_PRESSURE', 'TEXT_QUEUE_FULL', 'SYNTHESIS_FAILED', 'ENGINE_FAILED', 'AUDIO_FAILED',
     'PRONUNCIATION_UNAVAILABLE', 'LEXICON_UNAVAILABLE',
 }
 VOICE_EXECUTION_ENUMS = {
-    'voice_selected_backend': {'AUTO', 'CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
+    'voice_selected_backend': {'AUTO', 'CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA', 'LITERT_KOKORO_CPU', 'LITERT_KOKORO_GPU', 'PHONON_CPU', 'POCKET_CPU'},
     'voice_effective_provider': {'SYSTEM', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
-    'voice_fallback_source': {'KOKORO', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA'},
+    'voice_fallback_source': {'KOKORO', 'KOKORO_CPU', 'QNN_GPU', 'QNN_HTP', 'GATEWAY_CUDA', 'LITERT_KOKORO', 'PHONON', 'POCKET'},
     'voice_fallback_target': {'SYSTEM', 'KOKORO_CPU'},
     'voice_fallback_outcome': {'STARTED', 'SUCCEEDED', 'FAILED'},
     'voice_fallback_failure': VOICE_PLAYBACK_FAILURES,
@@ -408,7 +413,7 @@ FLAGS = FAILED_EVENT_FIELDS | REMOTE_PAGINATION_FLAGS | {
     'tool_event_write_attempted',
     'chat_delivery_counts_capped',
     'claim_extraction_completed',
-    'tls_response_started', 'provider_local_budget_block',
+    'tls_response_started', 'tls_request_body_completed', 'tls_connection_reused', 'provider_local_budget_block',
     'dispatch_policy_resume_required',
     'voice_reply_failed',
     'argument_repair_exhausted',
@@ -581,6 +586,9 @@ ENUMS = {
     'tool_budget_phase': {'BEFORE_DISPATCH', 'AFTER_DISPATCH'},
     'tool_permission_scope': {'ANDROID_LOCATION', 'GITHUB_LOCAL_GRANT'},
     'tls_failure_kind': {'CERTIFICATE', 'PROTOCOL', 'HANDSHAKE', 'OTHER'},
+    'tls_last_observed_phase': {'NOT_OBSERVED', 'CALL_STARTED', 'CONNECTING', 'TLS_HANDSHAKE', 'CONNECTION_ACQUIRED', 'REQUEST_HEADERS', 'REQUEST_BODY', 'REQUEST_BODY_COMPLETE', 'RESPONSE_HEADERS'},
+    'tls_version': {'TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3', 'SSLv3'},
+    'tls_http_protocol': {'http/1.0', 'http/1.1', 'h2', 'h2_prior_knowledge', 'quic', 'h3'},
     'remote_pagination_reason': {'INCOMPLETE', 'STALLED'},
     'provider_tool_rejection': {'TOOL_USE_FAILED'},
     'tool_protocol_frame_kind': {'MISSING_FUNCTION_NAME', 'UNFINISHED_STREAM', 'NON_OBJECT_ARGUMENTS', 'MALFORMED_JSON'},
@@ -690,7 +698,7 @@ ACCEPTANCE_FIELDS.add('acceptance_advertised_tool_count')
 HASHES.add('provider_wait_observed_checkpoint_hash')
 TOOL_FIELDS.add('issue_continuation_state')
 FIELD_NAMES.update({'after', 'expected_updated_at', 'names', 'inventory_cursor', 'inventory_version', 'catalog_only'})
-ENUMS['incident_capture_site'].update({'GITHUB_VERIFICATION_CATCH', 'OUTPUT_CONTINUATION_OPEN_CATCH'})
+ENUMS['incident_capture_site'].update({'GITHUB_VERIFICATION_CATCH', 'OUTPUT_CONTINUATION_OPEN_CATCH', 'REPOSITORY_GRAPH_CATCH'})
 ENUMS.update({
     'verification_phase': {
         'DESCENDANTS', 'AUTHORITY', 'SNAPSHOT', 'RECEIPT_RENDERING',
@@ -741,6 +749,10 @@ EXECUTION_COMPLETION_ENUMS = {
     'evidence_record_kind': {'github_evidence', 'github_engineering_memory', 'synthesis_checkpoint'},
     'evidence_writer_phase': {'IMMUTABLE_APPEND', 'CHECKPOINT_REPLACE', 'TERMINAL_RECONCILIATION'},
     'provider_failure_kind': {'AUTHENTICATION', 'BUDGET', 'PERMISSION', 'CONTENT_POLICY', 'FORBIDDEN_UNKNOWN', 'RATE_LIMIT', 'UNAVAILABLE', 'UNKNOWN'},
+    'provider_budget_kind': {'ACCOUNT_CREDITS', 'KEY_LIMIT', 'REQUEST_AFFORDABILITY', 'IN_FLIGHT_BUDGET', 'UNKNOWN'},
+    'provider_budget_limit_source': {'openrouter_credits', 'openrouter_key_limit', 'openrouter_in_flight_budget'},
+    'provider_budget_reason': {'weight_exceeds_budget', 'in_flight_budget_exhausted'},
+    'provider_budget_retry': {'MANUAL_AFTER_PROVIDER_DELAY', 'PROVIDER_TIMING_UNAVAILABLE', 'AFTER_CONFIGURATION_CHANGE', 'REVIEW_SAVED_WORK'},
     'upstream_error_code': EXECUTION_COMPLETION_UPSTREAM_CODES,
     'upstream_error_type': EXECUTION_COMPLETION_UPSTREAM_CODES,
     'stream_event_type': {'error', 'response.failed'},
@@ -751,6 +763,7 @@ EXECUTION_COMPLETION_ENUMS = {
         'DECISION_UNAVAILABLE', 'REJECTION_NOT_REPLAY_SAFE', 'RETRY_LIMIT_REACHED', 'CONNECTIVITY_RESUME_UNSAFE',
         'RESEARCH_CHECKPOINT_INVALID', 'ROUTE_MISMATCH', 'RUN_UNAVAILABLE', 'MESSAGE_UNAVAILABLE', 'OWNER_CHANGED',
         'CHECKPOINT_UNAVAILABLE', 'CHECKPOINT_CHANGED', 'REMOTE_JOB_PRESENT', 'INITIAL_OUTPUT_PRESENT',
+        'GATEWAY_COMMAND_PRESENT', 'REMOTE_OUTCOME_UNKNOWN', 'RETRY_DEADLINE_UNAVAILABLE',
         'CONTINUATION_PREFIX_CHANGED', 'COMBINED_SNAPSHOT_INVALID', 'COMBINED_RESUME_UNSAFE', 'AUTHORITY_UNAVAILABLE',
         'AUTHORITY_CHANGED', 'PROFILE_UNAVAILABLE', 'INPUT_UNAVAILABLE', 'TASK_SOURCE_UNAVAILABLE', 'TASK_SOURCE_INVALID',
         'DEADLINE_EXPIRED', 'PERSISTENCE_REJECTED', 'PERSISTENCE_FAILED', 'PERSISTENCE_OUTCOME_UNKNOWN',

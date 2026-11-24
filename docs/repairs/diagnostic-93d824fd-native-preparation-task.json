@@ -1,0 +1,59 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "diagnostic-93d824fd-native-preparation-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "d74dcb445b3381920f373b3f09a7cb9e1c5877d8",
+  "working_branch": "work/93d824fd-native-preparation",
+  "pr_number": 2367,
+  "intent": "Retain and quarantine the native preparation owner when cancellation rejects a newly opened engine and its destructor fails, including native runner and ViewModel ownership propagation.",
+  "state": "IMPLEMENTED_PENDING_INTEGRATED_ANDROID_VALIDATION",
+  "constraints": [
+    "Preserve every existing method, test and benchmark cap.",
+    "Only an observed destructor failure can mark cleanup unconfirmed; cancellation alone cannot quarantine ownership.",
+    "Keep the native handle, model lease and process-wide speech ownership retained until confirmed cleanup or process restart.",
+    "Do not modify SDK deadline handling, generated inventory/reference metadata, public branches or PR state.",
+    "Use ordinary project regressions; do not substitute a Kotlin harness for Android project qualification."
+  ],
+  "acceptance": [
+    "Cancellation after native preparation opens a handle closes it once before returning the cancellation.",
+    "If that close fails, preserve the original cancellation and close cause, retain the actual failed owner, report failed cleanup, and prevent another backend or speech owner.",
+    "Successful preparation cleanup retains existing cancellation behavior and releases ownership normally.",
+    "The ViewModel carries failed native preparation ownership into its existing process-wide quarantine and retains the model lease."
+  ],
+  "implementation": [
+    "The factory-owned preparation retirement helper closes rejected native handles once, preserves the original throwable, and retains the handle plus suppressed destructor failure if cleanup fails.",
+    "The native runner retains the failed preparation factory and reports FAILED cleanup even when creation returned no engine. Cancellation keeps its run state while preserving NATIVE_CLEANUP_PENDING as the issue.",
+    "The ViewModel passes the failed factory into the runner before clearing active preparation, so its existing quarantine retains the native owner, model lease and process-wide speech lease.",
+    "Three ordinary JUnit methods cover failed and successful cancellation cleanup, model-removal blocking, replacement-owner refusal, original runtime/cancellation failure preservation, and successful preparation transfer. Native loading is an explicit fake boundary; JNI/device qualification is not claimed."
+  ],
+  "validation": [
+    {
+      "kind": "KTLINT",
+      "version": "1.3.1",
+      "status": "PASSED",
+      "source_count": 5,
+      "scope": "All changed Kotlin production and test files."
+    },
+    {
+      "kind": "GIT_DIFF_CHECK",
+      "status": "PASSED"
+    },
+    {
+      "kind": "INDEPENDENT_SOURCE_REVIEW",
+      "status": "NO_REMAINING_BLOCKER_FOUND",
+      "reviewer": "replay_audit",
+      "scope": "Reviewed handle retention, original failure preservation, factory/runner/ViewModel propagation, cancellation issue precedence, and composed ordinary-test type plausibility. This is not test execution."
+    },
+    {
+      "kind": "ORDINARY_ANDROID_PROJECT_TESTS",
+      "status": "NOT_EXECUTED",
+      "scope": "The integration owner retains the combined-source Android/Gradle and device qualification gates. No substitute compiler harness was run."
+    },
+    {
+      "kind": "GENERATED_REFERENCE_RECONCILIATION",
+      "status": "PENDING_INTEGRATION",
+      "scope": "The integration owner will add the new helper/test to central navigation and required-test metadata, then regenerate reference hashes."
+    }
+  ]
+}

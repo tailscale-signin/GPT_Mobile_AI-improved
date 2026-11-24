@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "task": "pronunciation-complete-exponents",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseSha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "task/pronunciation-complete-exponents-20261124",
+  "parentPr": 2367,
+  "publicParent": "1973d18aca6be64b326d6b8f90faddccc9c4580f",
+  "intent": "Prevent partial numeric-exponent tokenization and partial square/cubic/rate-unit interpretation while preserving complete signed numeric wording, original caption ranges, existing integer powers, bounded output and all prior tests.",
+  "reservation": "Root-owned exponent-only reservation in speech-live-publication-coordination; other pronunciation/native workers retain literal override ordering and engine/planner integration.",
+  "initialFinding": {
+    "reviewSha256": "6596b5385c6b8b7019dab9e9831011ce91c08b28a9ed84fff9be922e29c84228",
+    "kind": "SOURCE_TRACE_NOT_EXECUTED",
+    "examples": [
+      "x^2.5",
+      "10^-0.5",
+      "x^12.5",
+      "m^2.5",
+      "m/s^2.5"
+    ]
+  },
+  "status": "SOURCE_IMPLEMENTED_AND_INDEPENDENTLY_REVIEWED; CANONICAL_AND_HOSTED_REQUIRED",
+  "qualification": {
+    "applicationOrKotlinExecution": "NOT_RUN_LOCALLY",
+    "sourceReview": {
+      "disposition": "SCOPED_SOURCE_CLEAR",
+      "receiptSha256": "d5dc24430e80bc144dcc99025c0f43cac07c8524e302b5a17bb2a8c3c56d7251",
+      "sourceOnly": true,
+      "priorMethodsAndHelperByteIdentical": true
+    },
+    "pinnedKtlint": {
+      "version": "1.3.1",
+      "sha256": "a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1",
+      "files": 2,
+      "exitCode": 0,
+      "initialFinding": "One missing blank line before a declaration comment; corrected without semantic change."
+    },
+    "canonicalHost": "REQUIRED",
+    "finalHostedOrdinary": "REQUIRED_ON_ACTUAL_FINAL_PR_AND_MAIN",
+    "published": false
+  },
+  "originalPublicParent": "f9f6fae9b4f267b8c76d3cdf1c1924b11c1de040",
+  "sources": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
+      "sha256": "78a312c1a23bfcad0788c4786e07006655c942b38eb9f8c5066f2eedbeeb6a91"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt",
+      "sha256": "ee7b3adc46e8e730d10e1149ebbfbad87850d64095c4ec4291f84d27a3e95e0d"
+    }
+  ],
+  "regressionMethods": [
+    "decimalAndScientificExponentsKeepTheirCompleteNumericValue",
+    "unitPowersDoNotConsumePrefixesOfLongerNumericExponents",
+    "completeExponentFallbackKeepsOriginalCaptionRangesAcrossPhraseBoundaries",
+    "completeIntegerAndSuperscriptPowersRetainTheirExistingReadingsAndRanges"
+  ],
+  "regressionExecution": "REQUIRED_IN_ORDINARY_CI; SOURCE_EXPECTATIONS_ONLY_LOCALLY",
+  "priorVocabularyMethodsRetained": 23
+}

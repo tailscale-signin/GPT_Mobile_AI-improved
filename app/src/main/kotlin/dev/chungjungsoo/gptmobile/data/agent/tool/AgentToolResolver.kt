@@ -584,8 +584,13 @@ class AgentToolResolver @Inject constructor(
             val tool = ModelDelegationTool(
                 platform,
                 {
-                    val defaults = settingRepository.getFeatureSettings().delegationFor(profileUid)
-                    chatToolConfig?.effectiveDelegation(defaults) ?: defaults
+                    val live = settingRepository.getFeatureSettings()
+                    val defaults = live.delegationFor(profileUid)
+                    val workspace = chatToolConfig?.github
+                    val policy = workspace?.let { dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringTeam.policy(live, it, userMessage?.chatId, chatToolConfig.delegation) }
+                        ?: chatToolConfig?.effectiveDelegation(defaults) ?: defaults
+                    val team = workspace?.let { dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringTeam.admitted(it, settingRepository.fetchPlatformV2s(), live, policy) }
+                    GitHubChatPolicy.delegation(policy, workspace, team)
                 },
                 { settingRepository.fetchPlatformV2s() },
                 generate = delegate,

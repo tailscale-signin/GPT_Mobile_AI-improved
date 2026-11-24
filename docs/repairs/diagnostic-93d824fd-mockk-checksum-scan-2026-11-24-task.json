@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "task": "diagnostic-93d824fd-mockk-checksum-scan-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "1cc96b1936c1b3f6442cc89441cce3c6ee77daaa",
+  "baseTree": "ba5935499911df8489afe09ccc97150f071b36db",
+  "parentPullRequest": 2367,
+  "workingBranch": "work/93d824fd-mockk-pin",
+  "owner": "root/source_recovery_audit",
+  "integrationOwner": "root",
+  "recordedUtc": "2026-11-24 01:34:23 UTC",
+  "status": "PUBLIC_SOURCE_AND_CONTROLS_VALIDATED_FULL_HISTORY_REQUIRED",
+  "intent": "Recognize one documented public MockK artifact checksum declaration in its exact benchmark evidence path while preserving complete reachable-history credential scanning and every existing scanner control.",
+  "authorization": "Root reserved this exact scanner correction in the owned PR2367 block at2026-11-24T01:31:48Z before edits.",
+  "publicHeadRecheck": {
+    "head": "1cc96b1936c1b3f6442cc89441cce3c6ee77daaa",
+    "equivalentFixPresent": false,
+    "scannerFilesUnchangedFrom822": true,
+    "recheckedBeforeCommit": true
+  },
+  "failureEvidence": {
+    "workflowRun": 45302532778,
+    "job": 138138438906,
+    "head": "822d2ef347f47ba5e1844146b23c9643ee2461a7",
+    "checkoutCommit": "0e3ec66f427a869d5f2ed6fb2aec02c4e3bfafef",
+    "hostedScannedCommits": 8920,
+    "hostedReportedFindings": 2,
+    "reproducedFindings": 2,
+    "rule": "generic-api-key",
+    "path": "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
+    "line": 81,
+    "fieldPath": [
+      "dependencySha256",
+      "mockk-agent-api-jvm-1.14.11.jar"
+    ],
+    "classification": "PUBLIC_DEPENDENCY_CHECKSUM_FALSE_POSITIVE",
+    "proof": "The evidence field equals the approved io.mockk:mockk-agent-api-jvm:1.14.11 artifact SHA256 in the introducing source's Gradle verification metadata. The same declaration is reported in the introducing commit and CI first-parent merge. No checksum or matched value is included in this ledger.",
+    "requestedAncestryCommits": 6359,
+    "actualScannedCommits": 1174,
+    "localTraversalCompleted": false
+  },
+  "ownedPaths": [
+    ".gitleaks.toml",
+    "scripts/test_gitleaks_model_pin.py",
+    "docs/repairs/diagnostic-93d824fd-mockk-checksum-scan-2026-11-24-task.json"
+  ],
+  "constraints": [
+    "Preserve all14 existing real-scanner controls and all other security rules.",
+    "Add only an exact path AND exact fully anchored JAR filename/checksum line exception.",
+    "Leave scanner8.30.1, archive pin, --redact=100 and --all --full-history --diff-merges=first-parent --root unchanged.",
+    "Never print credential values or raw Secret/Match fields; checksum literal appears only in the necessary config and generated fixtures.",
+    "Do not edit generated references, inventories or release scope; root owns integrated metadata and final qualification.",
+    "No public writes, CI cancellation/rerun or changes to other workers."
+  ],
+  "plannedValidation": [
+    "Run actual pinned scanner controls under baseline and candidate configurations; retain all14 existing cases and add exact declaration plus changed value/path/field/prefix/trailing/adjacent-value negatives.",
+    "Attempt baseline/candidate comparison on the same immutable CI checkout ancestry of 6359 reachable commits. The retained logs later showed only1174 scanned commits followed by a child Git fatal; this attempt establishes neither complete ancestry nor complete hosted-ref qualification.",
+    "Check config semantics, Python syntax, task ledger and whitespace; root runs canonical integrated gates and final all-ref CI."
+  ],
+  "validation": {
+    "scanner": {
+      "version": "8.30.1",
+      "archiveSha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "binaryComparedWithVerifiedArchive": true,
+      "redactionPercent": 100
+    },
+    "actualScannerControls": {
+      "cases": 22,
+      "existingCasesPreserved": 14,
+      "candidatePassed": 22,
+      "baselinePassed": 19,
+      "baselineExpectedFailures": [
+        "mockk_exact_declaration",
+        "mockk_secret_after",
+        "mockk_secret_before"
+      ],
+      "baseline": {
+        "file": "baseline-controls-22.json",
+        "sha256": "78b668d037221323dd86ddcd51ad925eaa5995fd0b888a0268ebf7b9775add05"
+      },
+      "initialCandidate": {
+        "file": "candidate-controls-22.json",
+        "sha256": "bc8a6fa61801d16b7ac27030d370e2a980989b841d9c0b87f356f67d9d0740a6"
+      },
+      "candidate": {
+        "file": "candidate-controls-22-v2.json",
+        "sha256": "98434f4f416a9b94c09bd886d759e6609ef019800eacb9e7279652aec2af489e"
+      },
+      "candidateConfigSha256": "e247e5f29f0e9ab288fbabbf5ce1180c63c019c50c4118870bd294747c743076",
+      "existingCaseAstsUnchanged": true,
+      "all22ExpectedFindingCountsUnchangedDuringCorrection": true,
+      "scanCaseIdentityAndRedactionGuardsUnchanged": true,
+      "initialControlCorrection": {
+        "initialConfigSha256": "84fce5ccf3912f3b3401d9ac973b710330ecbd9883b0045495e9aa59044b7f0d",
+        "initialPassed": 19,
+        "initialFailedCases": [
+          "mockk_exact_declaration",
+          "mockk_secret_after",
+          "mockk_secret_before"
+        ],
+        "change": "Only the new exact-line exception changed leading/trailing horizontal-whitespace character classes to the existing anchored whitespace convention. The horizontal-only form matched a literal line but not the real scanner control input. No path, filename, checksum, expected count or rule/path/line/commit identity guard was loosened.",
+        "meaning": "The exact public declaration became allowed; the neighboring changed-value findings remain required and independently identified.",
+        "failedEvidenceRetained": true
+      }
+    },
+    "frozenCheckoutHistory": {
+      "sourceSha": "0e3ec66f427a869d5f2ed6fb2aec02c4e3bfafef",
+      "sourceTree": "3f00f278ca97d171113bd5e4065034212ce2230f",
+      "baselineFindings": 2,
+      "candidateFindings": 0,
+      "baselineExitCode": 1,
+      "candidateExitCode": 0,
+      "scope": "PARTIAL_EXACT_CI_CHECKOUT_ANCESTRY_STOPPED_AT_MISSING_OBJECT",
+      "receipt": {
+        "file": "old2-new0-exact-checkout.json",
+        "sha256": "20ec1c5e138b00dcc85ee0bfd559e4f5972159666c7aefccc276e46074746c89"
+      },
+      "boundary": "Both retained logs stopped after1174 scanned commits at missing object5feb3d0c7a80d099d9f9a7256a2db8ada43d56cc. The candidate exit0 and two-to-zero findings apply only to that partial traversal. Neither the requested6359-commit ancestry nor the8920-commit hosted ref set is qualified. Original raw evidence is preserved; complete hosted scanning remains required.",
+      "requestedAncestryCommits": 6359,
+      "actualScannedCommits": 1174,
+      "traversalComplete": false
+    },
+    "securityPolicyPreservation": {
+      "allExistingAllowlistTablesUnchanged": true,
+      "onlyOneExactPathAndExactLineExceptionAdded": true,
+      "historyScriptUnchanged": true,
+      "ignoreFileUnchanged": true,
+      "defaultRulesPreserved": true
+    },
+    "canonicalFast": {
+      "command": "bash scripts/validate-local.sh fast",
+      "status": "PASSED",
+      "tests": 711,
+      "receipt": {
+        "file": "canonical-fast.log",
+        "sha256": "629438214b0910ea37bbf7525e88ab6729e17c36f8f04c0d85ae24d32249a789"
+      },
+      "qualification": "Host contracts, policy, generated metadata checks, regex and resource validation; no Android/native/device execution claimed."
+    },
+    "syntaxAndWhitespace": "PASSED: Python AST parse, task JSON parse, git diff --check",
+    "integratedMetadata": "Root owns release scope and generated metadata reconciliation.",
+    "finalHostedFullHistory": "REQUIRED_ON_INTEGRATED_PUBLIC_SOURCE"
+  },
+  "completedUtc": "2026-11-24T01:41:19.558965+00:00",
+  "coverageCorrection": {
+    "recordedUtc": "2026-11-24T02:21:41.023258+00:00",
+    "receipt": "prior-history-qualification-correction.json",
+    "receiptSha256": "8e95d9ba84120fb87d5d53907efa0b0e24211f8527ed00fd2b6688ba60e20000",
+    "originalEvidencePreserved": true,
+    "correctedClaim": "Earlier fields conflated reachable commit count with completed scanner traversal. Gitleaks reported child Git failure without a failing exit code.",
+    "validEvidenceRetained": [
+      "All22 actual model-pin controls and exact declaration binding.",
+      "The same partial traversal reported two introducing/merge findings before correction and zero afterward.",
+      "The separate committed-fix single-commit scan completed without Git errors."
+    ],
+    "relatedEarlier822Ancestry": {
+      "requestedCommits": 6358,
+      "actualScannedCommits": 1159,
+      "traversalComplete": false
+    },
+    "repair": "The separate secret-history-integrity task adds a complete Git patch traversal preflight; its synthetic controls do not replace final hosted history qualification."
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSHA": "80794bd5827d176c002ef2b71293be8731342ce6",
+  "baseTree": "cf869a0184eb2cd31b7df8469372df55b188ca9f",
+  "workingBranch": "work/acceptance-diagnostic-retention-807",
+  "parentPR": 2367,
+  "recordedBeforeSourceEditAt": "2026-11-23T23:37:06.463803+00:00",
+  "intent": "Preserve one valid aligned unmet-criterion sample and honest total/omission counts under the existing3072-byte diagnostic bound when publication/recovery metadata saturates a report. Fix diagnostic evidence loss only, not an unestablished original acceptance cause.",
+  "constraints": [
+    "Keep3072 hard byte bound and existing closed field/value validation",
+    "Preserve all original tests and malformed-input fail-closed behavior",
+    "Do not change acceptance decisions, permissions, call budgets, replay, privacy/approval contracts or service schemas",
+    "Use fictional controlled fields only, never original report/private text as a repository fixture",
+    "No live provider call or standalone composed privacy harness",
+    "Preserve concurrent commits and source owners with expected-head non-forced append"
+  ],
+  "ownedPathsBeforeSourceEdit": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt",
+    "docs/repairs/acceptance-diagnostic-retention-2026-11-23-task.json",
+    "docs/architecture/feature-map.source.json"
+  ],
+  "observation": "Bounded schema-v3 trimming can remove the last aligned unmet-criterion sample while keeping publication/recovery/explanation summaries. The original acceptance cause is unavailable; this change repairs evidence retention only.",
+  "validation": {
+    "regression": "PASS: complete ordinary retention class2/2, no skips; saturated1/8-row fixtures retain one aligned row and11/10 counts; malformed alignment remains excluded.",
+    "ordinaryProjectCI": "REQUIRED_FINAL_SOURCE",
+    "canonicalFast": "Require exact clean committed-tree qualification before guarded append; retain its non-self-referential receipt separately.",
+    "standalonePrivacyExecution": "NOT_RUN",
+    "ktlint": "PASS pinned1.3.1 on both changed Kotlin files after required argument wrapping; initial formatting failure retained in task history.",
+    "independentReview": "Require exact production/test source and preservation review before guarded append; retain separate review receipt."
+  },
+  "status": "SOURCE_IMPLEMENTED_FOCUSED_REGRESSION_PASSED",
+  "baselineRegression": {
+    "source": "80794bd5827d176c002ef2b71293be8731342ce6",
+    "testSha256": "b922d2f4357ece4ccd72c487448dcd2835ea5ae314ac4fc0f02349b583adfd20",
+    "manifest": "analysis/acceptance-diagnostic-retention/baseline/source-manifest.json",
+    "manifestSha256": "0cb07e0aad52fd943401faa74a86d399fa9420c70e7682c794375839f02eae30",
+    "logSha256": "7af5f0e6d28533fa9edbd414124821abd8fca325b9c0c8824ced3fd586c1c1e2",
+    "scope": "Complete actual pure diagnostic capture/validation/serialization and complete ordinary test, with explicitly recorded dependency declaration boundaries; no provider, network, Android, approval or composed privacy execution.",
+    "preliminaryFixtureWork": "Initial fixture did not force final-row removal; an intermediate policy-heavy fixture produced null. Both preliminary receipts are retained separately and are not evidence for the final-row defect."
+  },
+  "design": [
+    "Protect present total/omitted counts while a valid aligned nonempty schema-v3 sample exists.",
+    "Once one row remains, protect every present criterion column in ordinary and fallback trim selection.",
+    "Remove only existing other values; never synthesize missing columns/counts or change acceptance authority.",
+    "Every trim iteration removes a row or removable field, or exits to the unchanged hard-bound validation."
+  ],
+  "integration": {
+    "parentSHA": "59e61ba6fa277b8cab839ad219b7189895a10deb",
+    "parentTree": "92447436fb3bec81b653553c2947bbf4e1a0c5e6",
+    "preservation": "Fast-forwarded isolated branch with root patch retained; all 55 baseline dependency source reads are byte-identical from807 through59; lifecycle and literal fixes preserved."
+  },
+  "correctedRegression": {
+    "manifestSha256": "972e5258ca74d2659a52377e4d5e9c63535e2b9b90bba15132a355f967c432fc",
+    "logSha256": "2cf1c53bb8e570d7c4ca0fdbfae1b84e27ad84eb1106dd265af702490d6301f5",
+    "boundaries": "Actual complete diagnostic capture/validation/serialization sources and complete ordinary retention test. Other platform/session/context declarations are explicit compiler boundaries; no Android/Gradle, private composed stream, provider, GitHub network or approval execution.",
+    "testSha256": "b922d2f4357ece4ccd72c487448dcd2835ea5ae314ac4fc0f02349b583adfd20",
+    "finalTestSha256": "231f37398d375043e68763836adf6d0940770815fa32c3bb9b7f3ab158d32a3f",
+    "formatBinding": "Only three argument-separating spaces became line breaks in the final criterionFields list, as required by pinned ktlint; exact replacement reconstructs the complete final test. Executed test body and all assertions unchanged."
+  },
+  "focusedQualificationSha256": "8cca4b085f142d3e10fe6c63d252d843604956e9ebd38511e64aa92310649404",
+  "sourceFreezeSha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt": "d6f01ff9751c43de3474e235b843b21726be7ac773e6dac4fda0197c56d78e37",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAcceptanceRetentionTest.kt": "231f37398d375043e68763836adf6d0940770815fa32c3bb9b7f3ab158d32a3f"
+  }
+}

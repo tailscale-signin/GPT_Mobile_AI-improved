@@ -5,15 +5,20 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector
 import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticJsonShapeFailure
 import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticNodeBudget
 import dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData
+import java.io.ByteArrayInputStream
+import java.io.InputStreamReader
 import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromStream
 
 internal data class WorkspaceDiagnosticPayload(
     val protected: Boolean,
@@ -22,6 +27,7 @@ internal data class WorkspaceDiagnosticPayload(
 )
 
 /** Reads at most one bounded receipt, validating authority both before and after decryption. */
+@OptIn(ExperimentalSerializationApi::class)
 internal suspend fun readWorkspaceDiagnosticPayload(
     chatId: Int,
     metadata: JsonObject,
@@ -97,15 +103,17 @@ internal suspend fun readWorkspaceDiagnosticPayload(
             val digest = DiagnosticRecordChunks.hex(MessageDigest.getInstance("SHA-256").apply { update(output, 0, used) }.digest())
             if (digest != expectedDigest) return missing("PROTECTED_DIGEST_MISMATCH")
         }
-        val text = try {
-            output.decodeToString(0, used, throwOnInvalidSequence = true)
+        val shapeFailure = try {
+            val decoder = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
+            InputStreamReader(ByteArrayInputStream(output, 0, used), decoder).use { reader ->
+                diagnosticJsonShapeFailure(reader, diagnosticNodeBudget(maximumBytes))
+            }
         } catch (_: CharacterCodingException) {
             return missing("PROTECTED_PAYLOAD_INVALID_UTF8")
         }
-        val shapeFailure = diagnosticJsonShapeFailure(text, diagnosticNodeBudget(maximumBytes))
         if (shapeFailure != null) return missing(shapeFailure)
         val value = try {
-            Json.parseToJsonElement(text) as? JsonObject
+            ByteArrayInputStream(output, 0, used).use { Json.decodeFromStream(JsonElement.serializer(), it) as? JsonObject }
         } catch (_: IllegalArgumentException) {
             null
         } ?: return missing("PROTECTED_PAYLOAD_INVALID_JSON")

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "task": "privacy-stream-backpressure-review-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "7bc50e086c483d76e85929f58995c301de7e1856",
+  "pullRequest": 2367,
+  "status": "SYNTHETIC_PROJECT_REGRESSION_PREPARING_NORMAL_CI",
+  "intent": "Qualify the additive synthetic composed-wrapper regression through the normal application test pipeline. No production or existing test behavior is changed; no runtime defect or passing regression is claimed before execution.",
+  "observedBoundary": "Existing authority tests collect MaskedProviderSession directly. New PrivateLocalToolSession buffer(0) may suspend an already producer-authorized send while an earlier collector callback is paused; no receive-side authorization check was found in the inspected route. This is currently a source-supported coverage/contract gap, not an independently reproduced runtime failure.",
+  "constraints": [
+    "No shared ref mutation, fetch, remote update, CI retry or cancellation by the test worker.",
+    "Preserve all current fixes and other owners reservations.",
+    "Use actual production wrappers and guards for a composed regression, with explicit platform ports if local compilation needs them; do not bypass validation or change tool/policy authority.",
+    "No production edit until behavior is reproduced; preserve typed partial policy-change/cancellation/no-replay semantics.",
+    "Keep existing project dependencies, workflow limits, source guards and assertions; do not introduce a custom runtime or dependency substitution."
+  ],
+  "draftPreparationHead": "f842dcf6b9deabc1aca77150856bbb26ca8cafdd",
+  "validationBoundary": {
+    "sourceReview": "Two independent source reviews found no API or fixture-design blocker",
+    "runtime": "NOT_RUN",
+    "subcases": "One JUnit method, inherited authorization first then privacy revision; a first-subcase failure prevents the second from executing",
+    "fixture": "Actual production wrappers around synthetic events and a local mocked settings store; no external service or live account/data",
+    "standaloneHarness": "A delegated standalone attempt was automatically stopped before edits or execution. It is not retried. The alternative is additive repository test source and ordinary project CI."
+  }
+}

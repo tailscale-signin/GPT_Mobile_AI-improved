@@ -23,6 +23,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
+import io.ktor.utils.io.ByteChannel
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.writeStringUtf8
 import io.mockk.every
 import io.mockk.mockk
 import java.net.UnknownHostException
@@ -41,6 +44,246 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenAIRecoveryTransportTest {
+    @Test fun failed429EndsBothActualAdaptersWithoutReadingAHeldOpenOrFailingTail() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (failTail in listOf(false, true)) {
+                val failureObserved = java.util.concurrent.atomic.AtomicBoolean(false)
+                val lateReads = java.util.concurrent.atomic.AtomicInteger(0)
+                val stream = ByteChannel(autoFlush = true)
+                val responseBody = object : ByteReadChannel by stream {
+                    override suspend fun awaitContent(min: Int): Boolean {
+                        if (failureObserved.get()) {
+                            lateReads.incrementAndGet()
+                            if (failTail) throw java.io.IOException("Fixture tail failed after the original rejection")
+                        }
+                        return stream.awaitContent(min)
+                    }
+                }
+                val body = if (responses) {
+                    """data: {"type":"response.failed","response":{"id":"failed_held","status":"failed","usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18},"error":{"code":"429","message":"Provider capacity"}}}"""
+                } else {
+                    """data: {"id":"failed_held","usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18},"error":{"code":429,"message":"Provider capacity"}}"""
+                }
+                stream.writeStringUtf8("$body\n\n")
+                var attempts = 0
+                val selected = PlatformV2(uid = "held-$responses-$failTail", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://held-$responses-$failTail.$fixtureHost/v1/", model = "fixture", timeout = 30)
+                try {
+                    withApi(
+                        MockEngine {
+                            attempts++
+                            respond(responseBody, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+                        }
+                    ) { api ->
+                        val observingApi = object : OpenAIAPI by api {
+                            override fun streamChatCompletion(request: ChatCompletionRequest, timeoutSeconds: Int, config: ProviderRequestConfig) =
+                                api.streamChatCompletion(request, timeoutSeconds, config).onEach { if (it.error?.code == "429") failureObserved.set(true) }
+
+                            override fun streamResponses(request: ResponsesRequest, timeoutSeconds: Int, config: ProviderRequestConfig) =
+                                api.streamResponses(request, timeoutSeconds, config).onEach { if (it is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent && it.code == "429") failureObserved.set(true) }
+                        }
+                        withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                            val session = if (responses) {
+                                dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(observingApi, transportEncoder()).openSession(transportTurns(), selected)
+                            } else {
+                                OpenAICompatibleAdapter(observingApi, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                            }
+                            val events = kotlinx.coroutines.withTimeout(3_000) { session.streamRound(emptyList(), emptyList()).toList() }
+                            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                            val decision = requireNotNull(failure.providerLimit)
+                            assertEquals(1, attempts)
+                            assertEquals(0, lateReads.get())
+                            assertTrue(failureObserved.get())
+                            assertEquals("429", failure.errorCode)
+                            assertFalse(decision.knownNotAccepted)
+                            assertTrue(decision.checkpointContinuationAllowed)
+                            assertFalse(decision.mayWait)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive("failed_held"), failure.failureDetails?.get("provider_response_id"))
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("generation_completed"))
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+                            assertTrue(events.filterIsInstance<ProviderEvent.Usage>().any { it.inputTokens == 11 && it.outputTokens == 7 })
+                            assertFalse(events.any { it is ProviderEvent.Completed })
+                        }
+                    }
+                } finally {
+                    stream.cancel(kotlinx.coroutines.CancellationException("Fixture cleanup"))
+                }
+            }
+        }
+    }
+
+    @Test fun sameFrame429RetainsAcceptedOutputAndUsageBeforeCheckpointOnlyAdapterHandoff() = runBlocking {
+        for (payload in listOf("text", "tools", "usage")) {
+            var attempts = 0
+            val selected = PlatformV2(uid = "frame-$payload", name = "Fixture", compatibleType = ClientType.OPENROUTER, apiUrl = "https://frame-$payload.$fixtureHost/v1/", model = "fixture", timeout = 30)
+            val choices = when (payload) {
+                "text" -> """, "choices":[{"delta":{"content":"Retained same-frame answer"}}]"""
+                "tools" -> """, "choices":[{"delta":{"tool_calls":[{"index":0,"id":"uncommitted","type":"function","function":{"name":"mutate","arguments":"{}"}}]},"finish_reason":"tool_calls"}]"""
+                else -> ""
+            }
+            withApi(
+                MockEngine {
+                    attempts++
+                    respond(
+                        """data: {"id":"generation_same_frame","usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18},"error":{"code":429,"message":"Provider capacity"}$choices}
+
+                        """.trimIndent(),
+                        headers = headersOf(HttpHeaders.ContentType, "text/event-stream")
+                    )
+                }
+            ) { api ->
+                withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                    val events = OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder())
+                        .openSession(transportTurns(), selected, RequestConstraints(lockSelectedRoute = true, queuePersistent = true, gatewayConversationKey = "saved-chat"))
+                        .streamRound(emptyList(), emptyList()).toList()
+                    val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                    val limit = requireNotNull(failure.providerLimit)
+                    assertEquals(1, attempts)
+                    assertEquals("429", failure.errorCode)
+                    assertFalse(limit.knownNotAccepted)
+                    assertTrue(limit.checkpointContinuationAllowed)
+                    assertFalse(limit.mayWait)
+                    assertEquals(if (payload == "text") "Retained same-frame answer" else "", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+                    assertTrue(events.filterIsInstance<ProviderEvent.Usage>().any { it.inputTokens == 11 && it.outputTokens == 7 })
+                    assertFalse(events.any { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("generation_completed"))
+                }
+            }
+        }
+    }
+
+    @Test fun sameFrameGatewayActivityAnd429KeepReconciliationAndNeverOfferAProviderWait() = runBlocking {
+        var attempts = 0
+        val selected = PlatformV2(uid = "gateway-frame", name = "Fixture", compatibleType = ClientType.CUSTOM, apiUrl = "https://gateway-frame.$fixtureHost/v1/", model = "fixture", timeout = 30)
+        withApi(
+            MockEngine {
+                attempts++
+                respond(
+                    """data: {"gateway_progress":{"event":"tool_started"},"choices":[{"delta":{"content":"Saved gateway finding"}}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18},"error":{"code":429,"message":"Provider capacity"}}
+
+                    """.trimIndent(),
+                    headers = headersOf(HttpHeaders.ContentType, "text/event-stream")
+                )
+            }
+        ) { api ->
+            withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                val events = OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                    .streamRound(emptyList(), emptyList()).toList()
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                assertEquals(1, attempts)
+                assertEquals("GATEWAY_OUTCOME_UNKNOWN", failure.errorCode)
+                assertNull(failure.providerLimit)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(true), failure.failureDetails?.get("requires_reconciliation"))
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("REMOTE_OUTCOME_UNKNOWN"), failure.failureDetails?.get("provider_wait_no_wait_reason"))
+                assertTrue(events.filterIsInstance<ProviderEvent.Usage>().any { it.inputTokens == 11 && it.outputTokens == 7 })
+                assertEquals("Saved gateway finding", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+                assertFalse(events.any { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+            }
+        }
+    }
+
+    @Test fun responsesFailed429RetainsItsReportedUsageAndIdentityThroughTheActualAdapter() = runBlocking {
+        var attempts = 0
+        val selected = PlatformV2(uid = "failed-response", name = "Fixture", compatibleType = ClientType.OPENAI, apiUrl = "https://failed-response.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+        withApi(
+            MockEngine {
+                attempts++
+                respond(
+                    """data: {"type":"response.failed","response":{"id":"resp_failed_usage","status":"failed","usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18},"error":{"code":"429","message":"Provider capacity"}}}
+
+                    """.trimIndent(),
+                    headers = headersOf(HttpHeaders.ContentType, "text/event-stream")
+                )
+            }
+        ) { api ->
+            withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                val events = dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                    .streamRound(emptyList(), emptyList()).toList()
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                val limit = requireNotNull(failure.providerLimit)
+                assertEquals(1, attempts)
+                assertFalse(limit.knownNotAccepted)
+                assertTrue(limit.checkpointContinuationAllowed)
+                assertFalse(limit.mayWait)
+                assertTrue(events.filterIsInstance<ProviderEvent.Usage>().any { it.inputTokens == 11 && it.outputTokens == 7 })
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("resp_failed_usage"), failure.failureDetails?.get("provider_response_id"))
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("response.failed"), failure.failureDetails?.get("stream_event_type"))
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+                assertFalse(events.any { it is ProviderEvent.Completed })
+            }
+        }
+    }
+
+    @Test fun typed402CannotRotateEitherActualAdapterToAnotherConfiguredCredential() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (source in listOf("openrouter_credits", "openrouter_key_limit", "openrouter_in_flight_budget")) {
+                var attempts = 0
+                val selected = PlatformV2(uid = "billing-$responses-$source", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://billing-keys-$responses-$source.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                withApi(
+                    MockEngine {
+                        attempts++
+                        respond("""{"error":{"code":402,"message":"Insufficient credits","metadata":{"limit_source":"$source"}}}""", HttpStatusCode.PaymentRequired, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("12")))
+                    }
+                ) { api ->
+                    val session = if (responses) {
+                        dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                    } else {
+                        OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                    }
+                    val events = session.streamRound(emptyList(), emptyList()).toList()
+                    val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                    assertEquals(1, attempts)
+                    assertEquals("BILLING_UNAVAILABLE", failure.errorCode)
+                    assertNull(failure.providerLimit)
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("retryable"))
+                    assertFalse(events.any { it is ProviderEvent.Completed })
+                }
+            }
+        }
+    }
+
+    @Test fun repeatedCollectionOwnsFreshOutputAndDispatchStateForBothProviderApis() = runTest {
+        for (responses in listOf(false, true)) {
+            var calls = 0
+            val selected = config.copy(apiUrl = "https://cold-stream-$responses.$fixtureHost/v1/", profileUid = "saved")
+            withApi(
+                MockEngine {
+                    calls++
+                    if (calls == 1) {
+                        val body = if (responses) {
+                            "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"text\",\"output_index\":0,\"content_index\":0,\"delta\":\"First answer\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"first\",\"status\":\"completed\"}}\n\n"
+                        } else {
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"First answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+                        }
+                        respond(body, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+                    } else {
+                        respond("""{"error":{"code":429,"message":"Provider capacity"}}""", HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.RetryAfter, "600"))
+                    }
+                }
+            ) { api ->
+                withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                    val decision = if (responses) {
+                        val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                        val flow = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected)
+                        assertEquals(1, flow.toList().filterIsInstance<ResponseCompletedEvent>().size)
+                        flow.toList().filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single().providerLimit
+                    } else {
+                        val flow = api.streamChatCompletion(request, 5, selected)
+                        val first = flow.toList()
+                        assertTrue(first.none { it.error != null })
+                        assertEquals("First answer", first.flatMap { it.choices.orEmpty() }.single().effectiveDelta.content)
+                        flow.toList().mapNotNull { it.error }.single().providerLimit
+                    }
+                    assertEquals(2, calls)
+                    assertTrue(requireNotNull(decision).knownNotAccepted)
+                    assertTrue(decision.mayWait)
+                }
+            }
+        }
+    }
+
     @Test fun httpGoneRetainsObservedCategoryAndPayloadContractWithoutGuessingModelReplacement() = runTest {
         var requests = 0
         withApi(
@@ -105,6 +348,60 @@ class OpenAIRecoveryTransportTest {
                             assertFalse(known?.outputComplete == true)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    @Test fun responsesHttp429RetainsEarlierBackendAttemptsWithoutReplayOrCredentialRotation() = runBlocking {
+        for (measured in listOf(false, true)) {
+            val credentials = mutableListOf<String?>()
+            val selected = PlatformV2(uid = "responses-retained-$measured-$fixtureHost", name = "Fixture", compatibleType = ClientType.OPENAI, apiUrl = "https://responses-retained-$measured.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+            val usage = if (measured) """, "usage_origin":"PROVIDER_REPORTED","usage_estimated":false,"completed_attempts":1,"failed_attempt":2,"failed_attempt_usage_available":false,"attempt_usage":[{"prompt_tokens":12,"completion_tokens":7,"total_tokens":19}]""" else ""
+            val body = """{"error":{"code":"429","message":"Rate limit exceeded","gateway_recovery":{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"},{"attempt":2,"output_allowance":43,"finish_reason":"UNKNOWN","visible_output_bytes":null,"reasoning_output_bytes":null,"terminal_error_code":"backend_http_error","terminal_status_code":429,"backend_response_observed":true,"status":"FAILED"}]$usage}}}"""
+            val expectedRecovery = NetworkClient.json.parseToJsonElement(body).jsonObject.getValue("error").jsonObject.getValue("gateway_recovery")
+            withApi(
+                MockEngine { outgoing ->
+                    credentials += outgoing.headers[HttpHeaders.Authorization]
+                    assertEquals("/v1/responses", outgoing.url.encodedPath)
+                    assertFalse(NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject.containsKey("gateway"))
+                    respond(body, HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("600")))
+                }
+            ) { api ->
+                withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                    val events = dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder())
+                        .openSession(transportTurns(), selected).streamRound(emptyList(), emptyList()).toList()
+                    val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                    assertEquals(listOf("Bearer one"), credentials)
+                    assertEquals("429", failure.errorCode)
+                    assertNull(failure.providerLimit)
+                    assertFalse(failure.transportComplete)
+                    assertFalse(events.any { it is ProviderEvent.Completed })
+                    val timingUsage = events.filterIsInstance<ProviderEvent.Usage>().single()
+                    assertEquals(dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INITIAL, timingUsage.phase)
+                    assertEquals(429, timingUsage.providerResponseTiming?.httpStatus)
+                    assertNull(timingUsage.inputTokens)
+                    assertNull(timingUsage.outputTokens)
+                    assertNull(timingUsage.totalTokens)
+                    assertNull(timingUsage.reasoningTokens)
+                    assertNull(timingUsage.finishReason)
+                    val details = requireNotNull(failure.failureDetails)
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(429), details["http_status"])
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                    assertFalse(details["logical_continuation_allowed"] == kotlinx.serialization.json.JsonPrimitive(true))
+                    assertFalse(details["remote_acceptance"] == kotlinx.serialization.json.JsonPrimitive("NO"))
+                    assertFalse(details["generation_completed"] == kotlinx.serialization.json.JsonPrimitive(true))
+                    assertFalse(details.containsKey("cause_types"))
+                    assertEquals(expectedRecovery, details["gateway_recovery"])
+                    val retained = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromDetails(details)
+                    assertTrue(dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.observedBackendExecution(retained))
+                    val known = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(details)
+                    assertEquals(if (measured) 12 else null, known?.inputTokens)
+                    assertEquals(if (measured) 7 else null, known?.outputTokens)
+                    assertFalse(known?.inputComplete == true)
+                    assertFalse(known?.outputComplete == true)
+                    if (!measured) assertNull(known)
                 }
             }
         }
@@ -416,6 +713,502 @@ class OpenAIRecoveryTransportTest {
         }
     }
 
+    @Test fun persistedDirectChatsHandOffHttpAndStreamedRateLimitsForBothApis() = runTest {
+        for (responses in listOf(false, true)) {
+            for (streamed in listOf(false, true)) {
+                val selectedEndpoint = "https://saved-limit-$responses-$streamed.$fixtureHost/v1/"
+                val selected = config.copy(
+                    apiUrl = selectedEndpoint,
+                    profileUid = "saved-chat",
+                    providerType = "OPENROUTER",
+                    lockedModel = "fixture",
+                    lockedApiUrl = selectedEndpoint,
+                    queuePersistent = true,
+                    gatewayConversationKey = "local-chat-identity"
+                )
+                var attempts = 0
+                val rejected = """{"error":{"code":429,"message":"Provider capacity"}}"""
+                val body = if (!streamed) {
+                    rejected
+                } else if (responses) {
+                    "data: {\"type\":\"error\",\"code\":\"429\",\"message\":\"Provider capacity\"}\n\n"
+                } else {
+                    "data: $rejected\n\n"
+                }
+                withApi(
+                    MockEngine { outgoing ->
+                        attempts++
+                        assertFalse(NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject.containsKey("gateway"))
+                        respond(
+                            body,
+                            if (streamed) HttpStatusCode.OK else HttpStatusCode.TooManyRequests,
+                            headersOf(HttpHeaders.ContentType to listOf(if (streamed) "text/event-stream" else "application/json"), HttpHeaders.RetryAfter to listOf("600"))
+                        )
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        val decision = if (responses) {
+                            val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                            api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected).toList()
+                                .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single().providerLimit
+                        } else {
+                            api.streamChatCompletion(request, 5, selected).toList().mapNotNull { it.error }.single().providerLimit
+                        }
+                        assertTrue(requireNotNull(decision).knownNotAccepted)
+                        assertTrue(decision.mayWait)
+                        assertEquals("saved-chat", decision.profileUid)
+                        assertEquals("fixture", decision.model)
+                        assertEquals("RETRY_AFTER", decision.retrySource)
+                        assertEquals(1, decision.consecutiveRejections)
+                        assertEquals(1, attempts)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun savedChatRateLimitSurvivesTheActualTransportAndAdapterWithoutCredentialRotation() = runBlocking {
+        val profile = PlatformV2(uid = "saved-router", name = "OpenRouter", compatibleType = ClientType.OPENROUTER, apiUrl = "https://adapter-limit.$fixtureHost/v1/", model = "fixture", token = "fixture-key", timeout = 30)
+        var attempts = 0
+        withApi(
+            MockEngine { outgoing ->
+                attempts++
+                assertFalse(NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject.containsKey("gateway"))
+                respond("""{"error":{"code":429,"message":"Provider capacity"}}""", HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.RetryAfter, "600"))
+            }
+        ) { api ->
+            val encoder = object : ProviderAttachmentEncoder(null as android.content.Context?) {
+                override fun gatewayPerformanceHeaders(): Map<String, String> = emptyMap()
+                override suspend fun openAIChatMessages(turns: List<ConversationTurn>, systemPrompt: String?): List<ChatMessage> = request.messages
+            }
+            val turns = listOf(ConversationTurn(MessageV2(content = "Saved task", platformType = null), null, isCurrentTurn = true))
+            withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                val events = OpenAICompatibleAdapter(api, mockk<GroqAPI>(), encoder)
+                    .openSession(turns, profile, RequestConstraints(lockSelectedRoute = true, queuePersistent = true, gatewayConversationKey = "local-chat-identity"))
+                    .streamRound(emptyList(), emptyList()).toList()
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                val decision = requireNotNull(failure.providerLimit)
+                assertEquals(1, attempts)
+                assertTrue(decision.mayWait)
+                assertEquals(profile.uid, decision.profileUid)
+                assertEquals(profile.model, decision.model)
+                assertEquals("RETRY_AFTER", decision.retrySource)
+                assertFalse(events.any { it is ProviderEvent.Completed })
+            }
+        }
+    }
+
+    @Test fun dispatchedGatewayCommandsAndObservedJobsRefuseRateWaitWithoutRetryForBothApis() = runTest {
+        for (responses in listOf(false, true)) {
+            for (command in listOf(false, true)) {
+                for (streamed in listOf(false, true)) {
+                    var attempts = 0
+                    val reserved = mutableListOf<String>()
+                    val selected = config.copy(
+                        apiUrl = "https://gateway-limit-$responses-$command-$streamed.$fixtureHost/v1/",
+                        profileUid = "saved-chat",
+                        providerType = if (command) "OLLAMA" else "OPENAI",
+                        queuePersistent = true,
+                        queueScope = "saved-turn",
+                        gatewayConversationKey = "local-chat-identity",
+                        onGatewayCommandPrepared = { reserved += it },
+                        onGatewayCommandDispatching = {}
+                    )
+                    withApi(
+                        MockEngine { outgoing ->
+                            if (outgoing.url.encodedPath.endsWith("gateway/capabilities")) {
+                                respond("""{"gatewayVersion":"15.0.0","features":{"conversation_sync_v1":true}}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                            } else {
+                                attempts++
+                                val payload = NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject
+                                assertEquals(command, payload.containsKey("gateway"))
+                                val headers = mapOf(HttpHeaders.RetryAfter to listOf("600"), HttpHeaders.ContentType to listOf(if (streamed) "text/event-stream" else "application/json")) + if (command) emptyMap() else mapOf("X-Gateway-Job-ID" to listOf("owned-job"))
+                                val body = when {
+                                    !streamed -> """{"error":{"code":429,"message":"Provider capacity"}}"""
+                                    responses -> "data: {\"type\":\"error\",\"code\":\"429\",\"message\":\"Provider capacity\"}\n\n"
+                                    else -> "data: {\"error\":{\"code\":429,\"message\":\"Provider capacity\"}}\n\n"
+                                }
+                                respond(body, if (streamed) HttpStatusCode.OK else HttpStatusCode.TooManyRequests, headersOf(*headers.toList().toTypedArray()))
+                            }
+                        }
+                    ) { api ->
+                        withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                            val failure = if (responses) {
+                                val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                                val error = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected).toList()
+                                    .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                                assertNull(error.providerLimit)
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), error.failureDetails?.get("logical_continuation_allowed"))
+                                dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                            } else {
+                                val error = api.streamChatCompletion(request, 5, selected).toList().mapNotNull { it.error }.single()
+                                assertNull(error.providerLimit)
+                                assertEquals(false, error.retryable)
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), error.failureDetails?.get("logical_continuation_allowed"))
+                                dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                            }
+                            assertEquals(1, attempts)
+                            assertEquals(if (command) 1 else 0, reserved.size)
+                            assertFalse(failure.retryAllowed)
+                            assertEquals(false, failure.requestReplayAllowed)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(if (command) "GATEWAY_COMMAND_PRESENT" else "REMOTE_JOB_PRESENT"), failure.recoveryDetails?.get("provider_wait_no_wait_reason"))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun structuredJobAndUnknownOutcomeRefuseStreamed429WaitsAndCredentialRotationInBothAdapters() = runBlocking {
+        for (event in listOf("chat", "error", "response.failed")) {
+            for (evidence in listOf("job", "unknown")) {
+                val responses = event != "chat"
+                var attempts = 0
+                val selected = PlatformV2(uid = "structured-$event-$evidence", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://structured-$event-$evidence.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                val detail = if (evidence == "job") "\"job_id\":\"owned-job\"" else "\"command_outcome_unknown\":true"
+                val error = """{"code":"429","message":"Provider capacity",$detail}"""
+                val body = when (event) {
+                    "chat" -> """data: {"error":$error}"""
+                    "response.failed" -> """data: {"type":"response.failed","response":{"id":"structured_failed","status":"failed","error":$error}}"""
+                    else -> """data: {"type":"error","code":"429","message":"Provider capacity",$detail}"""
+                }
+                withApi(
+                    MockEngine {
+                        attempts++
+                        respond("$body\n\n", headers = headersOf(HttpHeaders.ContentType to listOf("text/event-stream"), HttpHeaders.RetryAfter to listOf("600")))
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        val session = if (responses) {
+                            dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                        } else {
+                            OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                        }
+                        val events = session.streamRound(emptyList(), emptyList()).toList()
+                        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                        assertEquals(1, attempts)
+                        assertEquals(if (evidence == "job") "429" else "GATEWAY_OUTCOME_UNKNOWN", failure.errorCode)
+                        assertNull(failure.providerLimit)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("retryable"))
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(if (evidence == "job") "REMOTE_JOB_PRESENT" else "REMOTE_OUTCOME_UNKNOWN"), failure.failureDetails?.get("provider_wait_no_wait_reason"))
+                        if (evidence == "job") {
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive("owned-job"), failure.failureDetails?.get("job_id"))
+                        } else {
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(true), failure.failureDetails?.get("requires_reconciliation"))
+                        }
+                        assertFalse(events.any { it is ProviderEvent.Completed })
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun bodyOnlyRemoteEvidenceRefusesHttp429ThroughBothActualAdapters() = runBlocking {
+        val cases = listOf(
+            Triple("job", "\"job_id\":\"owned-job\"", "429"),
+            Triple("reconciliation", "\"requires_reconciliation\":true", "GATEWAY_OUTCOME_UNKNOWN"),
+            Triple("command", "\"command_outcome_unknown\":true", "GATEWAY_OUTCOME_UNKNOWN"),
+            Triple("stricter", "\"requires_reconciliation\":true", "TOOL_OUTCOME_UNKNOWN")
+        )
+        for (responses in listOf(false, true)) {
+            for ((name, evidence, expectedCode) in cases) {
+                var attempts = 0
+                val selected = PlatformV2(uid = "http-body-$responses-$name", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://http-body-$responses-$name.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                val reportedCode = if (name == "stricter") expectedCode else "429"
+                withApi(
+                    MockEngine { outgoing ->
+                        attempts++
+                        assertFalse(NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject.containsKey("gateway"))
+                        respond("""{"error":{"code":"$reportedCode","message":"Provider capacity",$evidence}}""", HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("600")))
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        val session = if (responses) {
+                            dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                        } else {
+                            OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                        }
+                        val events = session.streamRound(emptyList(), emptyList()).toList()
+                        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                        assertEquals(1, attempts)
+                        assertEquals(expectedCode, failure.errorCode)
+                        assertNull(failure.providerLimit)
+                        val details = requireNotNull(failure.failureDetails)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(429), details["http_status"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive("UNKNOWN"), details["remote_acceptance"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["logical_continuation_allowed"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(if (name == "job") "REMOTE_JOB_PRESENT" else "REMOTE_OUTCOME_UNKNOWN"), details["provider_wait_no_wait_reason"])
+                        if (name == "job") {
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive("owned-job"), details["job_id"])
+                        } else {
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details["requires_reconciliation"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), details["next_action"])
+                        }
+                        assertFalse(events.any { it is ProviderEvent.Completed })
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun cleanHttp429StillCreatesADurableWaitThroughBothActualAdapters() = runBlocking {
+        for (responses in listOf(false, true)) {
+            var attempts = 0
+            val selected = PlatformV2(uid = "http-clean-$responses", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://http-clean-$responses.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+            withApi(
+                MockEngine {
+                    attempts++
+                    respond("""{"error":{"code":"429","message":"Provider capacity"}}""", HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.RetryAfter, "600"))
+                }
+            ) { api ->
+                withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                    val session = if (responses) {
+                        dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                    } else {
+                        OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                    }
+                    val events = session.streamRound(emptyList(), emptyList()).toList()
+                    val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                    val decision = requireNotNull(failure.providerLimit)
+                    assertEquals(1, attempts)
+                    assertTrue(decision.knownNotAccepted)
+                    assertTrue(decision.mayWait)
+                    assertEquals(selected.uid, decision.profileUid)
+                    assertEquals(selected.model, decision.model)
+                    assertEquals("RETRY_AFTER", decision.retrySource)
+                    assertNull(failure.failureDetails?.get("provider_wait_no_wait_reason"))
+                    assertFalse(events.any { it is ProviderEvent.Completed })
+                }
+            }
+        }
+    }
+
+    @Test fun bodyOnlyRemoteEvidencePreventsManual402TimingThroughBothActualAdapters() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for ((name, evidence) in listOf("clean" to "", "job" to ",\"job_id\":\"owned-job\"", "reconciliation" to ",\"requires_reconciliation\":true", "command" to ",\"command_outcome_unknown\":true")) {
+                var attempts = 0
+                val selected = PlatformV2(uid = "http-budget-$responses-$name", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://http-budget-$responses-$name.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                withApi(
+                    MockEngine {
+                        attempts++
+                        respond("""{"error":{"code":402,"message":"Provider capacity","metadata":{"limit_source":"openrouter_in_flight_budget","reason":"in_flight_budget_exhausted"}$evidence}}""", HttpStatusCode.PaymentRequired, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("12")))
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        val session = if (responses) {
+                            dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                        } else {
+                            OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                        }
+                        val events = session.streamRound(emptyList(), emptyList()).toList()
+                        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                        val details = requireNotNull(failure.failureDetails)
+                        assertEquals(1, attempts)
+                        assertNull(failure.providerLimit)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(if (name == "clean") "NO" else "UNKNOWN"), details["remote_acceptance"])
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(if (name == "clean") "MANUAL_AFTER_PROVIDER_DELAY" else "REVIEW_SAVED_WORK"), details["provider_budget_retry"])
+                        assertEquals(if (name == "clean") kotlinx.serialization.json.JsonPrimitive(12_000) else null, details["retry_after_ms"])
+                        if (name == "job") assertEquals(kotlinx.serialization.json.JsonPrimitive("owned-job"), details["job_id"])
+                        if (name in setOf("reconciliation", "command")) assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details["requires_reconciliation"])
+                        assertFalse(events.any { it is ProviderEvent.Completed })
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun standaloneAcceptanceAndUnknownCodesRefuseHttpWaitsThroughBothAdapters() = runBlocking {
+        val codes = listOf("GATEWAY_OUTCOME_UNKNOWN", "EXECUTION_OPERATION_UNKNOWN_OUTCOME", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
+        val cases = listOf(
+            Triple<String?, String, String>(null, ",\"remote_acceptance\":\"YES\"", "YES"),
+            Triple<String?, String, String>(null, ",\"remote_acceptance\":\"UNKNOWN\"", "UNKNOWN")
+        ) + codes.map { Triple(it, "", "UNKNOWN") }
+        for (responses in listOf(false, true)) {
+            for (status in listOf(HttpStatusCode.TooManyRequests, HttpStatusCode.PaymentRequired)) {
+                for ((index, observation) in cases.withIndex()) {
+                    val (code, evidence, acceptance) = observation
+                    var attempts = 0
+                    val selected = PlatformV2(uid = "standalone-$responses-${status.value}-$index", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://standalone-$responses-${status.value}-$index.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                    val budget = if (status == HttpStatusCode.PaymentRequired) ",\"metadata\":{\"limit_source\":\"openrouter_in_flight_budget\",\"reason\":\"in_flight_budget_exhausted\"}" else ""
+                    val body = """{"error":{"code":"${code ?: status.value}","message":"Provider capacity"$evidence$budget}}"""
+                    assertFalse(body.contains("job_id") || body.contains("requires_reconciliation"))
+                    withApi(
+                        MockEngine {
+                            attempts++
+                            respond(body, status, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("600")))
+                        }
+                    ) { api ->
+                        withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                            val session = if (responses) {
+                                dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                            } else {
+                                OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                            }
+                            val events = session.streamRound(emptyList(), emptyList()).toList()
+                            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                            val details = requireNotNull(failure.failureDetails)
+                            assertEquals(1, attempts)
+                            val expectedCode = if (!responses && code == "REMOTE_OUTCOME_UNKNOWN") "GATEWAY_OUTCOME_UNKNOWN" else code ?: if (status == HttpStatusCode.TooManyRequests) "429" else "BILLING_UNAVAILABLE"
+                            assertEquals(expectedCode, failure.errorCode)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(acceptance), details["remote_acceptance"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(status.value), details["http_status"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                            assertNull(failure.providerLimit)
+                            assertNull(details["retry_after_ms"])
+                            if (status == HttpStatusCode.TooManyRequests) {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive("REMOTE_OUTCOME_UNKNOWN"), details["provider_wait_no_wait_reason"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["logical_continuation_allowed"])
+                            } else {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive("REVIEW_SAVED_WORK"), details["provider_budget_retry"])
+                            }
+                            if (code != null) {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(code), details["code"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details["requires_reconciliation"])
+                            }
+                            assertFalse(events.any { it is ProviderEvent.Completed })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun explicitHttpRetryRefusalCannotCreateAWaitOrRotateEitherAdapter() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (status in listOf(HttpStatusCode.TooManyRequests, HttpStatusCode.PaymentRequired)) {
+                for ((refusalIndex, refusalField) in listOf("retryable", "request_replay_allowed").withIndex()) {
+                    var attempts = 0
+                    val selected = PlatformV2(uid = "no-retry-$responses-${status.value}-$refusalIndex", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://no-retry-$responses-${status.value}-$refusalIndex.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                    val budget = if (status == HttpStatusCode.PaymentRequired) ",\"metadata\":{\"limit_source\":\"openrouter_in_flight_budget\",\"reason\":\"in_flight_budget_exhausted\"}" else ""
+                    withApi(
+                        MockEngine {
+                            attempts++
+                            respond("""{"error":{"code":${status.value},"message":"Provider capacity","$refusalField":false$budget}}""", status, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("600")))
+                        }
+                    ) { api ->
+                        withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                            val session = if (responses) {
+                                dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                            } else {
+                                OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                            }
+                            val events = session.streamRound(emptyList(), emptyList()).toList()
+                            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                            val details = requireNotNull(failure.failureDetails)
+                            assertEquals(1, attempts)
+                            assertNull(failure.providerLimit)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                            assertNull(details["retry_after_ms"])
+                            if (status == HttpStatusCode.TooManyRequests) {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive("REJECTION_NOT_REPLAY_SAFE"), details["provider_wait_no_wait_reason"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["logical_continuation_allowed"])
+                            } else {
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive("REVIEW_SAVED_WORK"), details["provider_budget_retry"])
+                            }
+                            assertFalse(events.any { it is ProviderEvent.Completed })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun explicitUnacceptedHttpErrorsRetainSafeWaitAndManualDelayInBothAdapters() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (status in listOf(HttpStatusCode.TooManyRequests, HttpStatusCode.PaymentRequired)) {
+                for ((variant, replayField) in listOf("", ",\"request_replay_allowed\":true", ",\"request_replay_allowed\":\"false\"").withIndex()) {
+                    var attempts = 0
+                    val selected = PlatformV2(uid = "explicit-no-$responses-${status.value}-$variant", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://explicit-no-$responses-${status.value}-$variant.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+                    val budget = if (status == HttpStatusCode.PaymentRequired) ",\"metadata\":{\"limit_source\":\"openrouter_in_flight_budget\",\"reason\":\"in_flight_budget_exhausted\"}" else ""
+                    val body = """{"error":{"code":${status.value},"message":"Provider capacity","remote_acceptance":"NO"$replayField$budget}}"""
+                    assertNull(structuredProviderFailure(body, status.value)?.get("request_replay_allowed"))
+                    withApi(
+                        MockEngine {
+                            attempts++
+                            respond(body, status, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("12")))
+                        }
+                    ) { api ->
+                        withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                            val session = if (responses) {
+                                dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                            } else {
+                                OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                            }
+                            val events = session.streamRound(emptyList(), emptyList()).toList()
+                            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                            val details = requireNotNull(failure.failureDetails)
+                            assertEquals(1, attempts)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive("NO"), details["remote_acceptance"])
+                            assertNull(details["provider_wait_no_wait_reason"])
+                            if (status == HttpStatusCode.TooManyRequests) {
+                                val decision = requireNotNull(failure.providerLimit)
+                                assertTrue(decision.knownNotAccepted)
+                                assertTrue(decision.mayWait)
+                                assertEquals(selected.uid, decision.profileUid)
+                                assertEquals(selected.model, decision.model)
+                            } else {
+                                assertNull(failure.providerLimit)
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive("MANUAL_AFTER_PROVIDER_DELAY"), details["provider_budget_retry"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(12_000), details["retry_after_ms"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                            }
+                            assertFalse(events.any { it is ProviderEvent.Completed })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun typedInFlight402RetainsManualTimingWithoutAutomaticWaitOrCredentialRetryForEitherApi() = runTest {
+        for (responses in listOf(false, true)) {
+            for (retryAfter in listOf("12", "invalid", "0")) {
+                var attempts = 0
+                val selected = config.copy(apiUrl = "https://budget-$responses-$retryAfter.$fixtureHost/v1/", providerType = "OPENROUTER", profileUid = "budget-profile", gatewayConversationKey = "local-chat-identity")
+                withApi(
+                    MockEngine {
+                        attempts++
+                        respond("""{"error":{"code":402,"message":"private provider message","metadata":{"limit_source":"openrouter_in_flight_budget","reason":"in_flight_budget_exhausted","remedy_hint":"private account link"}}}""", HttpStatusCode.PaymentRequired, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf(retryAfter)))
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        val record = if (responses) {
+                            val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                            val error = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected).toList()
+                                .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                            assertNull(error.providerLimit)
+                            assertTrue(error.message.contains("temporarily committed"))
+                            dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                        } else {
+                            val error = api.streamChatCompletion(request, 5, selected).toList().mapNotNull { it.error }.single()
+                            assertNull(error.providerLimit)
+                            assertEquals(false, error.retryable)
+                            assertTrue(error.message.contains("temporarily committed"))
+                            dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                        }
+                        assertEquals(1, attempts)
+                        assertEquals("BILLING_UNAVAILABLE", record.category)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive("IN_FLIGHT_BUDGET"), record.providerFailure?.get("provider_budget_kind"))
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(if (retryAfter == "12") "MANUAL_AFTER_PROVIDER_DELAY" else "PROVIDER_TIMING_UNAVAILABLE"), record.providerFailure?.get("provider_budget_retry"))
+                        assertEquals(retryAfter == "12", record.retryAfterMillis != null)
+                        assertFalse(record.retryAllowed)
+                        assertEquals(false, record.requestReplayAllowed)
+                        assertFalse(record.providerFailure.toString().contains("private"))
+                    }
+                }
+            }
+        }
+    }
+
     @Test fun explicitBillingDenialDoesNotCreateADurableRateWaitForEitherApi() = runTest {
         val bodies = listOf(
             """{"error":{"code":"insufficient_quota","message":"The account allowance is exhausted"}}""",
@@ -604,6 +1397,106 @@ class OpenAIRecoveryTransportTest {
                 assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details?.get("logical_continuation_allowed"))
                 assertFalse(requireNotNull(details).containsKey("failure_kind"))
                 assertFalse(details.containsKey("http_status"))
+            }
+        }
+    }
+
+    @Test fun retainedSamplingRejectionCannotReplayOrDropBackendWorkThroughEitherAdapter() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (measured in listOf(false, true)) {
+                assertRetainedHttpRejection(responses, 400, measured, "temperature")
+            }
+        }
+    }
+
+    @Test fun retainedToolRejectionCannotEscapeAsAReplayableCapabilityFailureThroughEitherAdapter() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (measured in listOf(false, true)) {
+                assertRetainedHttpRejection(responses, 400, measured, "tools")
+            }
+        }
+    }
+
+    @Test fun retainedTransientHttpRejectionCannotReplayOrDropBackendWorkThroughEitherAdapter() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (status in listOf(502, 503, 504)) {
+                for (measured in listOf(false, true)) {
+                    assertRetainedHttpRejection(responses, status, measured, null)
+                }
+            }
+        }
+    }
+
+    private suspend fun assertRetainedHttpRejection(responses: Boolean, status: Int, measured: Boolean, parameter: String?) {
+        val credentials = mutableListOf<String?>()
+        val rejectedParameter = parameter.orEmpty()
+        val kind = parameter ?: "transient"
+        val selected = PlatformV2(uid = "retained-$responses-$status-$kind-$measured-$fixtureHost", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://retained-$responses-$status-$kind-$measured.$fixtureHost/v1/", model = "fixture", token = "one,two", temperature = .4f, timeout = 30)
+        val usage = if (measured) """, "usage_origin":"PROVIDER_REPORTED","usage_estimated":false,"completed_attempts":1,"failed_attempt":2,"failed_attempt_usage_available":false,"attempt_usage":[{"prompt_tokens":12,"completion_tokens":7,"total_tokens":19}]""" else ""
+        val message = if (parameter != null) "Unsupported parameter: '$parameter' is not supported with this model." else "Backend unavailable"
+        val body = """{"error":{"code":"$status","message":"$message","param":"$rejectedParameter","failed_stage":"gateway_recovery","http_status":599,"retryable":true,"request_replay_allowed":true,"gateway_recovery":{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"},{"attempt":2,"output_allowance":43,"finish_reason":"UNKNOWN","visible_output_bytes":null,"reasoning_output_bytes":null,"terminal_error_code":"backend_http_error","terminal_status_code":$status,"backend_response_observed":true,"status":"FAILED"}]$usage}}}"""
+        val expectedRecovery = NetworkClient.json.parseToJsonElement(body).jsonObject.getValue("error").jsonObject.getValue("gateway_recovery")
+        assertFalse(body.contains("job_id") || body.contains("requires_reconciliation") || body.contains("command_outcome_unknown"))
+        val tools = if (parameter == "tools") {
+            listOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("fixture_read", "Read a fictional value.", NetworkClient.json.parseToJsonElement("""{"type":"object","properties":{}}""").jsonObject))
+        } else {
+            emptyList()
+        }
+        withApi(
+            MockEngine { outgoing ->
+                credentials += outgoing.headers[HttpHeaders.Authorization]
+                assertEquals(io.ktor.http.HttpMethod.Post, outgoing.method)
+                assertEquals(if (responses) "/v1/responses" else "/v1/chat/completions", outgoing.url.encodedPath)
+                val sent = NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(.4f), sent["temperature"])
+                assertFalse(sent.containsKey("gateway"))
+                if (parameter == "tools") assertEquals(1, (sent["tools"] as kotlinx.serialization.json.JsonArray).size)
+                respond(body, HttpStatusCode.fromValue(status), headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+        ) { api ->
+            withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                val session = if (responses) {
+                    dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                } else {
+                    OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                }
+                val events = session.streamRound(tools, emptyList()).toList()
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                assertEquals(listOf("Bearer one"), credentials)
+                assertEquals(status.toString(), failure.errorCode)
+                assertNull(failure.providerLimit)
+                assertFalse(failure.transportComplete)
+                assertFalse(events.any { it is ProviderEvent.Completed || it is ProviderEvent.TextDelta || it is ProviderEvent.ToolCall })
+                val timingUsage = events.filterIsInstance<ProviderEvent.Usage>().single { it.providerResponseTiming != null }
+                assertEquals(status, timingUsage.providerResponseTiming?.httpStatus)
+                assertEquals(if (responses) dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INITIAL else dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INTERIM, timingUsage.phase)
+                events.filterIsInstance<ProviderEvent.Usage>().forEach {
+                    assertNull(it.inputTokens)
+                    assertNull(it.outputTokens)
+                    assertNull(it.totalTokens)
+                    assertNull(it.reasoningTokens)
+                    assertNull(it.finishReason)
+                }
+                val details = requireNotNull(failure.failureDetails)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(status), details["http_status"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("gateway_recovery"), details["failed_stage"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(if (responses) "OPENAI_RESPONSES" else "CHAT_COMPLETIONS"), details["payload_contract"])
+                parameter?.let { assertEquals(kotlinx.serialization.json.JsonPrimitive(it), details["provider_parameter"]) }
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                assertFalse(details["logical_continuation_allowed"] == kotlinx.serialization.json.JsonPrimitive(true))
+                assertFalse(details["remote_acceptance"] == kotlinx.serialization.json.JsonPrimitive("NO"))
+                assertFalse(details["generation_completed"] == kotlinx.serialization.json.JsonPrimitive(true))
+                assertFalse(details.containsKey("cause_types"))
+                assertEquals(expectedRecovery, details["gateway_recovery"])
+                val retained = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromDetails(details)
+                assertTrue(dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.observedBackendExecution(retained))
+                val known = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(details)
+                assertEquals(if (measured) 12 else null, known?.inputTokens)
+                assertEquals(if (measured) 7 else null, known?.outputTokens)
+                assertFalse(known?.inputComplete == true)
+                assertFalse(known?.outputComplete == true)
+                if (!measured) assertNull(known)
             }
         }
     }
@@ -1042,6 +1935,16 @@ class OpenAIRecoveryTransportTest {
         } finally {
             client.close()
         }
+    }
+
+    private fun transportTurns() = listOf(ConversationTurn(MessageV2(content = "Saved task", platformType = null), null, isCurrentTurn = true))
+
+    private fun transportEncoder() = object : ProviderAttachmentEncoder(null as android.content.Context?) {
+        override fun gatewayPerformanceHeaders(): Map<String, String> = emptyMap()
+        override suspend fun openAIChatMessages(turns: List<ConversationTurn>, systemPrompt: String?): List<ChatMessage> = request.messages
+        override suspend fun responsesInput(turns: List<ConversationTurn>, platformUid: String) = listOf(
+            dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt"))
+        )
     }
 
     @Test fun malformedChunkAfterUsableTextDegradesTheStreamAndDoesNotCommitTools() = runTest {

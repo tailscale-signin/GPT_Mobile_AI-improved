@@ -53,6 +53,35 @@ class GitHubTaskContextPreparationTest {
         assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID))
     }
 
+    @Test fun candidateOnlyContextSurvivesPreparationButStillRevalidatesItsConnection() = runTest {
+        val candidates = buildJsonObject {
+            put("source_sha", "a".repeat(40))
+            put("source_readiness", "SOURCE_UNAVAILABLE")
+            put("selected_ranges", JsonArray(emptyList()))
+            put("documents", JsonArray(emptyList()))
+            put(
+                "source_read_candidates",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("path", "src/Parser.kt")
+                            put("blob_sha", "b".repeat(40))
+                            put("source_loaded", false)
+                        }
+                    )
+                )
+            )
+        }
+        coEvery { maps.executeForMap(context, any(), true) } returns GatewayGraphResponse(candidates, "task_context_bundle", "", "On this phone", durableIndexJobs = false, modelAccess = "NATIVE_GITHUB_AUTHORIZED")
+        coEvery { connections.getConnection("selected") } returns connection
+        val prepared = preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID)
+        assertTrue(prepared.contains("src/Parser.kt"))
+        assertTrue(prepared.contains("unread paths"))
+        assertTrue(prepared.contains("\"source_loaded\":false"))
+        coEvery { connections.getConnection("selected") } returnsMany listOf(connection, connection.copy(updatedAt = connection.updatedAt + 1))
+        assertEquals("", preparation.prepare(context, 1, "parser task", GitHubContextVariant.TASK, 12_000, listOf(source), GitHubEngineeringMemoryMode.HYBRID))
+    }
+
     @Test fun cancellationStillCancelsTheOriginalTask() = runTest {
         coEvery { connections.getConnection("selected") } returns connection
         val cancelled = CancellationException("task cancelled")

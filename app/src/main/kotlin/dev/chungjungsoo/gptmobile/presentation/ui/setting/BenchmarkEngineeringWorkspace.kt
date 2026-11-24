@@ -408,6 +408,9 @@ internal fun BenchmarkEngineeringWorkspace(
                 } ?: EngineeringEmpty("No task evidence", "Recorded tasks appear here as the comparison progresses.")
             }
             3 -> {
+                listOfNotNull(first, second).filter { it.enabled && it.model.isNotBlank() }.distinctBy { it.uid }.forEach { profile ->
+                    GitHubQualificationPanel(profile, viewModel)
+                }
                 EngineeringRunPicker(laneRuns, selectedRun) {
                     runId = it.id
                     taskId = null

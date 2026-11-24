@@ -485,6 +485,20 @@ def install_benchmark_routes(app, service):
                 return JSONResponse({'error': {'code': 'benchmark_request_too_large'}}, status_code=413)
         return await invoke(lambda: service.evaluate(owner(request), json.loads(raw)))
 
+    @app.get('/gateway/benchmarks/intelligence-score')
+    async def intelligence_score(request: Request):
+        def read():
+            principal = owner(request)
+            if not request.headers.get('x-gateway-installation-id') or not request.headers.get('x-gateway-principal-id'):
+                raise PermissionError('A paired gateway identity is required')
+            installation = service.engineering.store.conversations.gateway_id()
+            verify_mutation_identity(request.headers, principal.id, lambda: installation)
+            scope = hashlib.sha256((installation + '\0' + principal.id).encode()).hexdigest()
+            if request.query_params.get('owner_scope') != scope:
+                raise PermissionError('Qualification owner changed')
+            return service.qualifications.intelligence_score(principal, request.query_params.get('profile_revision'))
+        return await invoke(read)
+
     @app.get('/gateway/benchmarks/qualifications')
     async def qualifications(request: Request):
         return await invoke(lambda: service.qualifications.history(owner(request).id, request.query_params.get('request_id')))

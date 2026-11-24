@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "task": "github-runtime-claim-scope-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8abda66c9040d2c679cee8fe84452d67125a3fd7",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "91bc80c36114fd1fe3e08d7693be69424246e35f",
+  "pullRequest": 2367,
+  "intent": "Preserve legitimate source-backed engineering explanations about application or CI resource behavior while retaining the runtime ledger as the authority for this agent session's capabilities and budget.",
+  "evidence": {
+    "sourceCase": "The application's resource notice derives the remaining tool-call budget from the supplied runtime resource object",
+    "observedFailure": "On an engineering task, the broad runtime-subject regex suppresses this application-source inference before its source references are verified."
+  },
+  "acceptance": [
+    "Retain valid source-backed application or CI resource findings and recommendations under the existing evidence-verification rules.",
+    "Retain clearly application-scoped questions without allowing an arbitrary subject label or unrelated citation to validate current-session resource claims.",
+    "Continue suppressing unsupported assertions that this agent session exhausted its calls or lacks already authorized capabilities, and retain grounded runtime resource reporting.",
+    "Preserve typed approval notices, uncertain-outcome reconciliation, accepted task identity, authorization, call limits and deadlines.",
+    "Add behavior regressions for the concrete source-scoped collision and current-session suppression controls; report local policy and hosted Android execution separately."
+  ],
+  "qualification": {
+    "status": "FINAL_HEAD_QUALIFICATION_REQUIRED",
+    "incidentCause": "A source-level rendering collision is established; this does not establish the original device incident's exact cause.",
+    "runtime": "Hosted Android behavior execution, all final PR/main gates and both published-package readbacks remain required."
+  }
+}

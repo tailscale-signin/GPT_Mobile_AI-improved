@@ -5,9 +5,16 @@ internal object VoiceSpeechText {
     const val LIMIT_NOTICE = "The rest of this response is available in the chat."
 
     /** Incomplete words and markup stay pending, so later snapshots cannot expose a URL fragment. */
-    fun project(input: String, final: Boolean = true, includeDetails: Boolean = false): String {
+    fun project(input: String, final: Boolean = true, includeDetails: Boolean = false): String =
+        projectBounded(input, final, includeDetails, preserveLiteralTerms = false)
+
+    /** Engines match saved literal terms after safety filtering and before default identifier rendering. */
+    fun forPlayback(input: String, final: Boolean = true, includeDetails: Boolean = false): String =
+        projectBounded(input, final, includeDetails, preserveLiteralTerms = true)
+
+    private fun projectBounded(input: String, final: Boolean, includeDetails: Boolean, preserveLiteralTerms: Boolean): String {
         val end = minOf(input.length, 12000).let { if (it > 0 && input[it - 1].isHighSurrogate()) it - 1 else it }
-        val spoken = project(input.substring(0, end), final && input.length <= 12000, 0, Notices(), completed = final, includeDetails)
+        val spoken = project(input.substring(0, end), final && input.length <= 12000, 0, Notices(preserveLiteralTerms = preserveLiteralTerms), completed = final, includeDetails)
         return if (final && input.length > 12000) {
             spoken + (if (spoken.isNotEmpty() && !spoken.last().isWhitespace()) " " else "") + LIMIT_NOTICE
         } else {
@@ -126,7 +133,7 @@ internal object VoiceSpeechText {
     private fun isQuoteStart(text: String, index: Int): Boolean =
         text[index] in "\"“" || text[index] in "'‘" && text.getOrNull(index - 1)?.isLetterOrDigit() != true
 
-    private class Notices(var codeAnnounced: Boolean = false)
+    private class Notices(var codeAnnounced: Boolean = false, val preserveLiteralTerms: Boolean = false)
 
     private fun project(text: String, final: Boolean, depth: Int, notices: Notices, completed: Boolean = final, includeDetails: Boolean = false, literalTags: Boolean = false): String {
         if (depth > 4) return ""
@@ -199,6 +206,7 @@ internal object VoiceSpeechText {
                 if (index >= stableEnd) break
             }
             val character = text[index]
+            val literalTerm = if (notices.preserveLiteralTerms) safeLiteralTermAt(text, index, final, literalTags) else null
             when {
                 !literalTags && isQuoteStart(text, index) -> {
                     val close = quotedEnd(text, index, final && completed)
@@ -236,7 +244,8 @@ internal object VoiceSpeechText {
                         break
                     }
                     val content = text.substring(endMarker, close)
-                    if (inlineProse.matches(content) && !reference.matches(content)) spoken.append(content) else codeNotice()
+                    val readable = inlineSpeech(content)
+                    if (readable != null) spoken.append(readable) else codeNotice()
                     index = close + marker.length
                 }
                 character == '[' || character == '!' && text.getOrNull(index + 1) == '[' -> {
@@ -336,19 +345,17 @@ internal object VoiceSpeechText {
                         index = end
                     }
                 }
+                literalTerm != null -> {
+                    spoken.append(text, literalTerm.first, literalTerm.last + 1)
+                    index = literalTerm.last + 1
+                }
                 character == '&' -> {
                     val entity = entity.matchAt(text, index)
                     if (entity != null) {
-                        spoken.append(
-                            when (entity.groupValues[1]) {
-                                "amp" -> "&"
-                                "quot" -> "\""
-                                "apos", "#39" -> "'"
-                                "lt" -> " less than "
-                                "gt" -> " greater than "
-                                else -> " "
-                            }
-                        )
+                        val decoded = decodeEntity(entity.groupValues[1])
+                        // Decode a scalar once. Encoded literal tags never become executable
+                        // markup, and unknown entities keep their visible spelling.
+                        spoken.append(decoded?.let(::spokenEntity) ?: entity.value)
                         index = entity.range.last + 1
                     } else {
                         spoken.append(character)
@@ -394,7 +401,14 @@ internal object VoiceSpeechText {
                         index = markerEnd
                     }
                 }
-                character in "_~\\]" -> index++
+                character == '_' -> {
+                    val endMarker = text.indexOfFirstFrom(index) { it != '_' }
+                    // An identifier is two words, not a new word made by deleting its
+                    // separator. Leading/trailing emphasis markers still remain silent.
+                    if (text.getOrNull(index - 1)?.isLetterOrDigit() == true && text.getOrNull(endMarker)?.isLetterOrDigit() == true) spoken.append(' ')
+                    index = endMarker
+                }
+                character in "~\\]" -> index++
                 else -> {
                     spoken.append(character)
                     index++
@@ -402,6 +416,20 @@ internal object VoiceSpeechText {
             }
         }
         return spoken.toString()
+    }
+
+    private fun safeLiteralTermAt(text: String, index: Int, final: Boolean, literalTags: Boolean): IntRange? {
+        val term = VoicePronunciationOverrides.literalTermAt(text, index) ?: return null
+        // A spelling span must never jump over a safety decision in the normal character walk.
+        // For example, x_https://... contains a source address beginning after its underscore.
+        for (cursor in term.first + 1..term.last) {
+            if (!literalTags && isQuoteStart(text, cursor) || rawLinkAt(text, cursor)) return null
+            if (!text[cursor - 1].isLetterOrDigit() && text[cursor].isLetterOrDigit()) {
+                val referenceEnd = reference.matchAt(text, cursor)?.range?.last?.plus(1)
+                if (referenceEnd != null && (referenceEnd == text.length && !final || text.getOrNull(referenceEnd)?.isLetterOrDigit() != true)) return null
+            }
+        }
+        return term
     }
 
     private data class Table(val end: Int, val speech: String = "", val pending: Boolean = false)
@@ -533,6 +561,44 @@ internal object VoiceSpeechText {
     private inline fun String.indexOfFirstFrom(start: Int, predicate: (Char) -> Boolean): Int =
         (start until length).firstOrNull { predicate(this[it]) } ?: length
 
+    private fun inlineSpeech(content: String): String? {
+        if (content.length !in 1..120 || reference.matches(content) || uriPrefix.containsMatchIn(content)) return null
+        if (inlineProse.matches(content)) return content
+        return when {
+            // Keep the original spelling until the selected engine applies saved
+            // whole-term corrections and then its built-in pronunciation rules.
+            content in setOf("C++", "c++", "C#", "c#", "F#", "f#") -> content
+            inlineOption.matches(content) -> "dash dash " + content.removePrefix("--").replace('-', ' ')
+            inlineTechnicalName.matches(content) || inlineRate.matches(content) || inlineQuantity.matches(content) -> content
+            else -> null
+        }
+    }
+
+    private fun decodeEntity(name: String): String? {
+        namedEntities[name]?.let { return it }
+        if (!name.startsWith('#')) return null
+        val hexadecimal = name.getOrNull(1) in listOf('x', 'X')
+        val codePoint = name.substring(if (hexadecimal) 2 else 1).toIntOrNull(if (hexadecimal) 16 else 10) ?: return null
+        if (!Character.isValidCodePoint(codePoint) || codePoint in 0xD800..0xDFFF || Character.isISOControl(codePoint)) return null
+        return String(Character.toChars(codePoint))
+    }
+
+    private fun spokenEntity(value: String): String = when (value) {
+        "<" -> " less than "
+        ">" -> " greater than "
+        "≤" -> " less than or equal to "
+        "≥" -> " greater than or equal to "
+        "≠" -> " does not equal "
+        "×" -> " times "
+        "÷" -> " divided by "
+        "±" -> " plus or minus "
+        "≈" -> " approximately "
+        "∞" -> " infinity "
+        "\u00A0", "\u2002", "\u2003", "\u2009" -> " "
+        "\u00AD", "\u200B", "\u200C", "\u200D", "\u2060", "\uFEFF" -> ""
+        else -> value
+    }
+
     private fun rawLinkAt(text: String, index: Int): Boolean {
         if (index > 0 && text[index - 1].isLetterOrDigit()) return false
         val webLink = when (text[index]) {
@@ -540,13 +606,34 @@ internal object VoiceSpeechText {
             'w', 'W' -> text.regionMatches(index, "www.", 0, 4, ignoreCase = true)
             else -> false
         }
-        return webLink || (index == 0 || text[index - 1] !in "+-.") && uriPrefix.matchAt(text, index) != null
+        if (webLink || (index == 0 || text[index - 1] !in "+-.") && uriPrefix.matchAt(text, index) != null) return true
+        if (index > 0 && text[index - 1] in "+-.") return false
+        if (!text[index].isLetter() && text[index] != '&') return false
+        // Decoding punctuation or letters must not expose an entity-encoded source URL.
+        // Only inspect a bounded scheme/prefix, never decode arbitrary markup recursively.
+        val prefix = StringBuilder()
+        var cursor = index
+        var decoded = false
+        while (cursor < text.length && cursor - index < 256 && prefix.length < 128) {
+            val encoded = if (text[cursor] == '&') entity.matchAt(text, cursor) else null
+            val value = if (encoded == null) text[cursor].toString() else decodeEntity(encoded.groupValues[1]) ?: return false
+            if (value.length != 1 || value[0] !in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-:/") return false
+            prefix.append(value)
+            decoded = decoded || encoded != null
+            cursor = encoded?.range?.last?.plus(1) ?: cursor + 1
+            if (decoded && uriPrefix.matchAt(prefix, 0) != null) return true
+        }
+        return false
     }
 
     private const val CODE_NOTICE = "Code is available in the chat."
     private val uriPrefix = Regex("(?:[a-z][a-z0-9+.-]*://|www\\.)", RegexOption.IGNORE_CASE)
     private val reference = Regex("(?:[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32,})")
     private val inlineProse = Regex("[\\p{L}\\p{N} .,'’!?]{1,120}")
+    private val inlineOption = Regex("--[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*")
+    private val inlineTechnicalName = Regex("[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+")
+    private val inlineRate = Regex("(?:[kKMGT]?[Bb]|[ckm]?m|[mun]?g|frames|tokens)/(?:s|sec|min|h)")
+    private val inlineQuantity = Regex("[$£€]?[+\\-−]?(?:[0-9]+(?:[.,][0-9]+)*|\\.[0-9]+)(?:[%°]|[ \\t]*(?:°[CF]|[µμ]g|[a-zA-Z]{1,5}(?:/[smh])?))?")
     private val fenceStart = Regex("^(`{3,}|~{3,})")
     private val lineMarker = Regex("^(?:#{1,6}|>|[-+*]|[0-9]+[.)])[ \\t]+")
     private val referenceDefinition = Regex("^\\[[^]\\n]+]:")
@@ -568,5 +655,21 @@ internal object VoiceSpeechText {
     private val htmlTagName = Regex("^/?([A-Za-z][A-Za-z0-9_-]*)(?=\\s|/|$)")
     private val htmlTags = setOf("a", "b", "br", "blockquote", "code", "del", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "li", "ol", "p", "pre", "span", "strong", "sub", "sup", "table", "tbody", "td", "th", "thead", "tr", "u", "ul")
     private val lineBreakTag = Regex("^/?(?:br|hr|p|div|li|h[1-6]|details|voice_details|sources|references|summary|table|thead|tbody|tr|td|th)(?:\\s|/|$)", RegexOption.IGNORE_CASE)
-    private val entity = Regex("&([A-Za-z][A-Za-z0-9]*|#[0-9]+|#x[0-9a-fA-F]+);")
+    private val entity = Regex("&([A-Za-z][A-Za-z0-9]*|#[0-9]+|#[xX][0-9a-fA-F]+);")
+    private val namedEntities = buildMap {
+        putAll(
+            mapOf(
+                "amp" to "&", "quot" to "\"", "apos" to "'", "lt" to "<", "gt" to ">", "colon" to ":", "sol" to "/",
+                "nbsp" to "\u00A0", "ensp" to "\u2002", "emsp" to "\u2003", "thinsp" to "\u2009", "shy" to "\u00AD",
+                "lsquo" to "‘", "rsquo" to "’", "ldquo" to "“", "rdquo" to "”", "hellip" to "…",
+                "ndash" to "–", "mdash" to "—", "minus" to "−", "plusmn" to "±", "times" to "×", "divide" to "÷",
+                "le" to "≤", "ge" to "≥", "ne" to "≠", "asymp" to "≈", "infin" to "∞", "deg" to "°",
+                "pound" to "£", "euro" to "€", "cent" to "¢", "yen" to "¥", "copy" to "©", "reg" to "®", "trade" to "™",
+                "frac14" to "¼", "frac12" to "½", "frac34" to "¾", "micro" to "µ", "sup1" to "¹", "sup2" to "²", "sup3" to "³",
+                "OElig" to "Œ", "oelig" to "œ", "Scaron" to "Š", "scaron" to "š", "Yuml" to "Ÿ"
+            )
+        )
+        val names = "Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml"
+        names.split(' ').forEachIndexed { index, name -> put(name, (0x00C0 + index).toChar().toString()) }
+    }
 }

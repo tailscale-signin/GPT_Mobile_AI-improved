@@ -101,6 +101,21 @@ class RequestByteBudgetTest {
         assertNull(RequestByteBudget.replayTarget(missing, 5000, 5000))
     }
 
+    @Test fun providerSchemaWindowUsesOnlyMeasuredBytesAndCannotHideAnOversizedFixedRequest() {
+        val fields = JsonObject(
+            mapOf(
+                "request_serialized_bytes" to JsonPrimitive(10000),
+                "request_tool_schema_bytes" to JsonPrimitive(6000),
+                "payload_replan_allowed" to JsonPrimitive(true)
+            )
+        )
+        assertEquals(500, RequestByteBudget.schemaTarget(fields, 1000))
+        assertEquals(320, RequestByteBudget.schemaTarget(JsonObject(fields + ("provider_request_byte_limit" to JsonPrimitive(6040))), 1000))
+        assertNull(RequestByteBudget.schemaTarget(JsonObject(fields + ("provider_request_byte_limit" to JsonPrimitive(3000))), 1000))
+        assertNull(RequestByteBudget.schemaTarget(JsonObject(fields + ("payload_replan_allowed" to JsonPrimitive(false))), 1000))
+        assertNull(RequestByteBudget.schemaTarget(JsonObject(fields - "request_serialized_bytes"), 1000))
+    }
+
     @Test fun reportsKeepLargeByteCountsAndRequireMatchingServiceFeature() {
         val fields = mapOf<String, Any?>(
             "diagnostic_area" to "PROVIDER", "diagnostic_capture_mode" to "INCIDENT",

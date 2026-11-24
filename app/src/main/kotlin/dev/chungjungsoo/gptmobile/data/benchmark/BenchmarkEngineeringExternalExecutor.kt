@@ -45,9 +45,12 @@ class BenchmarkEngineeringExternalExecutor @Inject constructor(
         if (plan.externalTransport == BenchmarkEngineeringExternalTransport.PHONE_GITHUB_ACTIONS) {
             return phone.open(profileUid, plan)
         }
-        val gateway = settings.engineeringGateway(profileUid)
+        return gatewayRoute(settings.engineeringGateway(profileUid))
+    }
+
+    private suspend fun gatewayRoute(gateway: PlatformV2, observed: GatewayEngineeringClient.ConnectionIdentity? = null): BenchmarkEngineeringTransport {
         val config = gateway.engineeringConfig()
-        val identity = client.connectionIdentity(config)
+        val identity = observed ?: client.connectionIdentity(config)
         val fenced = config.withGatewayIdentity(GatewayScopeIdentity(identity.gatewayId, identity.principal))
         return object : BenchmarkEngineeringTransport {
             override val identityDigest = benchmarkHash(listOf(identity.gatewayId, identity.principal, benchmarkConfigKey(gateway, "", BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1)).joinToString("\u0000"))
@@ -59,6 +62,22 @@ class BenchmarkEngineeringExternalExecutor @Inject constructor(
                 return client.benchmark(fenced, path, body)
             }
         }
+    }
+
+    internal suspend fun intelligenceScore(profile: PlatformV2, gateway: PlatformV2): GitHubIntelligenceScore? {
+        suspend fun revision(): String {
+            val current = requireNotNull(settings.fetchPlatformV2s().singleOrNull { it.uid == profile.uid && it.enabled })
+            check(current == profile && current.model.isNotBlank() && settings.engineeringGateway(profile.uid) == gateway)
+            val connection = current.providerConnectionUid?.let { settings.getProviderConnection(it) }
+            return dev.chungjungsoo.gptmobile.data.github.executionSelection(current, connection, "qualification-readback").profileRevision
+        }
+        val expectedRevision = revision()
+        val identity = client.connectionIdentity(gateway.engineeringConfig())
+        val route = gatewayRoute(gateway, identity)
+        val ownerScope = benchmarkHash(identity.gatewayId + "\u0000" + identity.principal)
+        val receipt = route.request("intelligence-score?profile_revision=$expectedRevision&owner_scope=$ownerScope")
+        check(revision() == expectedRevision && gatewayRoute(gateway).authorityDigest == route.authorityDigest)
+        return GitHubIntelligenceScore.read(receipt, profile.uid, profile.model, expectedRevision)
     }
 
     /** Frozen against every selected host before the first profile can see any executable task. */

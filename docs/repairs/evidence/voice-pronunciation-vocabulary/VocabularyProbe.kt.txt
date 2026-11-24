@@ -1,0 +1,52 @@
+package dev.chungjungsoo.gptmobile.data.voice
+import java.io.File
+fun main() {
+    val inputs = listOf(
+      "github ChatGPT OpenAI OpenGL glm qnn onnx gpu api",
+      "C++ C# .NET PCIe JSON RAM NASA NATO",
+      "U.S.A. G.P.U. Q.N.N.",
+      "Dr. Smith and Mr. Jones e.g. vs. Prof. Lee i.e. approx. ready etc.",
+      "1 ms. 2 ms. Mrs. Jones and Ms. Lee",
+      "1st 2nd 3rd 4th 11th 12th 13th 21st 40th 100th 101st 1000th 1000000th",
+      "6.022e23 and -1.2E-3 and .5e+2",
+      "1e3ms 1e3 ms 2e1 m 1e0 ms",
+      "1/2 3/4 -2/3 1/0 2/100",
+      "1/2.5 1/2e3 1/2x 1.5/2.5",
+      "½ ⅓ 1½ 2¾",
+      "03/04/2026 1/2/2026",
+      "x² and 10⁻³ and 2¹²",
+      "1 m² and 2 cm³ and 9.8 m/s²",
+      "1 m³/s and 2 km²/h",
+      "H₂O CO₂ O₂ N₂ NaCl",
+      "Søren Łukasz Straße Ægir Œuvre Þór Đorđe",
+      "formula2 build147 Layer2D",
+      "-.5 and +.25",
+      "10^-2 and x^3",
+      "1/2 mg and 1½ m and 2½ km",
+      "zero one half thirds fourths twenty fourths square cubic",
+      "Read C++ and .NET, then GPT-4",
+      "We have read access and I live stream games.",
+      "0th 01st 11st 12nd",
+      "1e999999999999999999999999",
+      "H₂O₂ and Na₂CO₃",
+      "2²=4 5³=125 and x⁻²",
+      "CO₂e in climate data.",
+      "1e-3m/s²",
+      "1⁄2 3⁄4 1⁄2⁄2026",
+      "Dr. Søren uses github and G.P.U. today."
+    )
+    for (dialect in listOf("us", "gb")) {
+        val words = File("/workspace/scratch/02b2dec72938/kokoro-lab/kokoro-int8-multi-lang-v1_0/lexicon-$dialect-en.txt").useLines(block = KokoroLexicon::words)
+        for (input in inputs) {
+            try {
+                val result = KokoroSpeechText.timed(input, words::contains)
+                val spoken = result.parts?.joinToString(" ").orEmpty()
+                val misses = Regex("[a-z]+(?:'[a-z]+)*").findAll(spoken).map { it.value }.filter { it !in words }.distinct().toList()
+                val rangesValid = result.phrases?.flatMap { it.wordRanges }?.all { it.first >= 0 && it.last < input.length } == true
+                println(listOf(dialect,input,spoken,"failure="+result.observation.failure,"unknown="+result.observation.unknownWords,"misses="+misses.joinToString(","),"ranges="+rangesValid).joinToString("\t"))
+            } catch (error: Throwable) {
+                println("$dialect\t$input\tEXCEPTION:${error.javaClass.simpleName}:${error.message}")
+            }
+        }
+    }
+}

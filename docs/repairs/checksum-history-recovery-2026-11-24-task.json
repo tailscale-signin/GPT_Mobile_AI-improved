@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "task": "exact-public-checksum-history-recovery-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "parentPublic": "1e9ece5656172bf1e0678097d9f9784114856b9e",
+  "parentPullRequest": 2367,
+  "workingBranch": "work/scanner-checksum-composed-20261124",
+  "owner": "benchmark-coordinator",
+  "recordedUtc": "2026-11-24T03:54:46.776776+00:00",
+  "status": "SOURCE_REVIEW_AND_CANONICAL_COMPOSITION_PENDING",
+  "intent": "Recover paused checksum classification using actual source evidence; allow only reviewed historical declarations and a frozen complete receipt line while retaining every real-scanner negative control.",
+  "recovery": {
+    "originalOwnerPausedSinceUtc": "2026-11-24T03:02:00Z",
+    "originalWorkspaceAbsent": true,
+    "claimed821422ProofBytesRecovered": false,
+    "old9473FourFindingIdentityReportRecovered": false,
+    "newEvidence": "Actual public8095..1973 explicit-range scan with11 findings; not full-history qualification.",
+    "preservedPrivateComposeCommit": "33b823fface6d270fd48c59a4763183496623ba6"
+  },
+  "changes": [
+    "Preserve exact private Compose AAR exception, all eight real-scanner controls and its integrity-fixture input.",
+    "Add exact path/field/value/complete-line exceptions for five public wrapper declarations and one token-asset declaration.",
+    "Add an exception for the exact complete2287-byte historical receipt line; every one of its13 source hashes matches actual public Git bytes and the scanner pin is unchanged. No general receipt/JSON/hash exemption.",
+    "Add56 real-scanner controls retaining all38 previous controls, including changed values, fields, paths, prefixes, suffixes and neighboring credentials.",
+    "Copy the frozen historical log into synthetic integrity fixtures as an explicit input; retain actual intact/missing/restored Git-object controls."
+  ],
+  "invariants": [
+    "No secret value is emitted by the classified report.",
+    "No scanner/version/binary/download/dependency/model pin or wrapper/history option changes.",
+    "No history rewriting, broad-path exception, changed ignore list, skipped integrity fixture or weakened result handling.",
+    "Public evidence contains historical source checksums; this correction is not new application/native/device execution."
+  ],
+  "focusedValidation": {
+    "realScannerVersion": "8.30.1",
+    "realScannerSha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+    "cases": 94,
+    "passed": 94,
+    "failed": 0,
+    "old38CaseAstExact": true,
+    "newCases": 56,
+    "initialPolicyAttempt": "21 controls correctly failed because the new line expressions did not match actual scanner line padding. Whitespace-only anchors consistent with existing rules were corrected; all negative expectations were retained.",
+    "outerIntegrity": {
+      "passed": true,
+      "cases": 3,
+      "pinControlsForIntactAndRestored": 94,
+      "missingObjectExitCode": 128,
+      "filenameOnlyPreflightExitCode": 0,
+      "actualComponentSource": "1973-based3d3b25dea",
+      "rawReportSha256": "9e95074dcdf5a2367dc726a3a99e2ee541262150e4212aa6c034e1ff46ab4ad3"
+    },
+    "canonical": "NOT_RUN_YET",
+    "allRefFinalHistory": "NOT_RUN",
+    "hostedFinalHead": "REQUIRED"
+  },
+  "sourceFiles": [
+    {
+      "path": ".gitleaks.toml",
+      "sha256": "df2c3f2a917c2e9f9fded472fd23954de733392269a4b24874238d69ef0339c4"
+    },
+    {
+      "path": "scripts/test_gitleaks_model_pin.py",
+      "sha256": "1f1512b576909143ad62a12decf3013d7e151841ae4a578b309a57898b9d3f69"
+    },
+    {
+      "path": "scripts/test_secret_history_integrity.py",
+      "sha256": "920fbf6c9a786428ac30fc32a29453564c70e4b9905d1f5d794f7df2c64190ae"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "docs/repairs/evidence/checksum-history-recovery-2026-11-24/classification.json",
+      "sha256": "d9efd7a4281fdda18a7ceb10cba3b6552b87555a162465b800d3f270bccc8807"
+    },
+    {
+      "path": "docs/repairs/evidence/checksum-history-recovery-2026-11-24/pin-controls.json",
+      "sha256": "828706896690b2092a171681950a5f971875e99bd179fd96ffdfb7f341c8a835"
+    },
+    {
+      "path": "docs/repairs/evidence/checksum-history-recovery-2026-11-24/outer-integrity.json",
+      "sha256": "2e3c38dfa29198aa95b9d80cf319b0cb54e69a4f6a1411d408bc30cb82f020ba",
+      "representation": "Structured projection; original actual report hash retained."
+    }
+  ],
+  "limits": [
+    "Original lost proof is not represented as recovered.",
+    "Scoped classification and synthetic controls do not qualify the final current reachable history.",
+    "Current-source hosted PR/main and signed publication remain required."
+  ],
+  "sourceComponent": "3d3b25dea",
+  "composition": {
+    "incoming": "1e9ece5656172bf1e0678097d9f9784114856b9e",
+    "incomingScannerFilesExactPrivateComposePrefix": true,
+    "privateComposeSource": "33b823fface6d270fd48c59a4763183496623ba6",
+    "functionalSourceExactComponent": true,
+    "publicDelivery": false,
+    "currentAllRefHistory": "PENDING"
+  }
+}

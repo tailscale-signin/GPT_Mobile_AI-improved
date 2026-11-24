@@ -345,6 +345,7 @@ object StagedDiagnosticCapture {
         val nextPart = stages.any { it.resumableRecords } && published != null
         val archivePart = (savedSession?.long("archivePart") ?: 1L) + if (nextPart) 1 else 0
         val previousArchive = if (nextPart) published else savedSession?.get("previousArchive") as? JsonObject
+        var effectiveOptions = if (savedSession?.get("cooperativeHeapRecovery") == JsonPrimitive(true)) options.copy(cooperativeHeapRecovery = true) else options
         atomicJson(
             sessionFile,
             buildJsonObject {
@@ -357,6 +358,7 @@ object StagedDiagnosticCapture {
                 put("captureCompleted", false)
                 put("archivePart", archivePart)
                 put("previousArchive", previousArchive ?: JsonNull)
+                put("cooperativeHeapRecovery", effectiveOptions.cooperativeHeapRecovery)
             }
         )
         options.guard()
@@ -372,7 +374,15 @@ object StagedDiagnosticCapture {
             options.guard()
             val available = options.maxArchiveBytes - MANIFEST_LIMIT - receipts.sumOf { it.long("bytes") ?: 0 }
             val stageStarted = System.nanoTime()
-            receipts += captureStage(session, stage, options, available.coerceAtLeast(0), archivePart, previousArchive)
+            val receipt = captureStage(session, stage, effectiveOptions, available.coerceAtLeast(0), archivePart, previousArchive)
+            receipts += receipt
+            if (receipt.text("omissionReason") == "JAVA_HEAP_PRESSURE" && !effectiveOptions.cooperativeHeapRecovery) {
+                // Latch the smaller page mode for subsequent stages and resumed
+                // parts. Keep the same source limits and admission headroom.
+                effectiveOptions = options.copy(cooperativeHeapRecovery = true)
+                val saved = readObject(sessionFile, CHECKPOINT_LIMIT)
+                atomicJson(sessionFile, JsonObject(saved + ("cooperativeHeapRecovery" to JsonPrimitive(true))))
+            }
             stageElapsed[stage.id] = (System.nanoTime() - stageStarted).coerceAtLeast(0)
         }
         // Heap pressure is often transient. Once cheap sections have completed, retry
@@ -418,7 +428,7 @@ object StagedDiagnosticCapture {
                 val retryStarted = System.nanoTime()
                 // Keep source/record limits unchanged. Smaller source pages and yielding
                 // between committed rows reduce bursts without omitting large records.
-                val retried = captureStage(session, stage, options.copy(cooperativeHeapRecovery = true), available.coerceAtLeast(0), archivePart, previousArchive)
+                val retried = captureStage(session, stage, effectiveOptions.copy(cooperativeHeapRecovery = true), available.coerceAtLeast(0), archivePart, previousArchive)
                 stageElapsed[stage.id] = (stageElapsed[stage.id] ?: 0) + (System.nanoTime() - retryStarted).coerceAtLeast(0)
                 receipts[index] = JsonObject(
                     retried + buildJsonObject {
@@ -508,6 +518,7 @@ object StagedDiagnosticCapture {
                 }
             )
             put("reducedMemory", options.reducedMemory)
+            put("cooperativeHeapRecovery", effectiveOptions.cooperativeHeapRecovery)
             put("bufferBytes", options.bufferBytes)
             put("maxRecordBytes", options.maxRecordBytes)
             put("maxStageBytes", options.maxStageBytes)
@@ -556,6 +567,7 @@ object StagedDiagnosticCapture {
                 put("startedAtMillis", start)
                 put("updatedAtMillis", System.currentTimeMillis())
                 put("captureCompleted", complete)
+                put("cooperativeHeapRecovery", effectiveOptions.cooperativeHeapRecovery)
                 put("retryRecommended", retry)
                 put("archivePart", archivePart)
                 put("previousArchive", previousArchive ?: JsonNull)

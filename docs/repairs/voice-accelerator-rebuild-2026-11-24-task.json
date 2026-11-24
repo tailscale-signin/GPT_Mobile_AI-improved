@@ -5,12 +5,12 @@
   "baseBranch": "main",
   "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
   "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
-  "localWorkingBranch": "task/voice-rebuild-integration",
+  "localWorkingBranch": "task/voice-published-integration",
   "startingHead": "1cc96b1936c1b3f6442cc89441cce3c6ee77daaa",
   "startingTree": "ba5935499911df8489afe09ccc97150f071b36db",
-  "localSnapshotCommit": "fa6326f8018",
+  "localSnapshotCommit": "bbdcb670676e40049887dabb1903ee9502697497",
   "pullRequest": 2367,
-  "status": "SOURCE_COMPOSED_PENDING_FRESH_CANONICAL_AND_SHARED_BRANCH_RECONCILIATION",
+  "status": "SOURCE_RECONCILED_NATIVE_CONTEXT_QUALIFIED_HOSTED_PENDING",
   "intent": "Implement the approved GPU/NPU runtime, graph preparation, SDK streaming, memory reuse, thermal scheduling, diagnostic export and qualification improvements; preserve concurrent changes and all existing verification gates; finish with verified publication after current PR and actual-main checks pass.",
   "authorization": "The user explicitly resumed implementation, draft push, green-gated merge and publication after the earlier Stop. This task is active and must be reconciled before publishing the shared release.",
   "acceptance": [
@@ -50,7 +50,7 @@
     }
   ],
   "qualification": {
-    "local": "SCOPED_CONTROLS_AND_RESTORED_CANONICAL_PASSED; final combined tree and hosted gates remain required",
+    "local": "Scoped source and host controls passed, including the clean actual full-model/JNI context and lifecycle run; exact composed canonical and final hosted qualification remain separate requirements.",
     "hosted": "PENDING_FINAL_COMBINED_HEAD",
     "physicalDevice": "NOT_MEASURED; the supplied screenshot is prior-build baseline evidence",
     "publication": "NOT_PUBLISHED"
@@ -72,7 +72,14 @@
     "f9f6fae9b4f267b8c76d3cdf1c1924b11c1de040",
     "0e05b1949d83a3cba3aea9ff823a1ef76cfbe009",
     "1973d18aca6be64b326d6b8f90faddccc9c4580f",
-    "38c52eea9eb9703147025c0e6cab6b663d79ef78"
+    "38c52eea9eb9703147025c0e6cab6b663d79ef78",
+    "1e9ece5656172bf1e0678097d9f9784114856b9e",
+    "1a5407eebe65931068c22cc80b169a851ee90c17",
+    "6623502134fda34a98ff3b9fc773ba7df51f2750",
+    "cffc64e0a99bc2ba6244f43ed76f014a6e53d5bf",
+    "5055dadedf1c1b318e66e7b78ccb0eeeed247c12",
+    "7e728578c2899d1ecafa284552466f075f46ecb4",
+    "57721cdd9085f0a6dcc06e33d30d8004a955b71d"
   ],
   "pendingPublicHead": null,
   "publishedDraftPreparationCommits": [
@@ -94,7 +101,25 @@
       "scope": "Actual pinned tasks-audio1.2.3 APIs and recorded dependency closure; no full Android build or hardware claims"
     },
     "nativeContext": {
-      "scope": "Atomic cache/ABI/6 native control tests passed; minimal real HTP host-emulator embedded context roundtrip passed; full-model lifecycle processes SIGKILL, no full-model pass claimed"
+      "historicalInitialControls": {
+        "scope": "Atomic cache/ABI/6 native control tests passed; minimal real HTP host-emulator embedded context roundtrip passed; full-model lifecycle processes SIGKILL, no full-model pass claimed"
+      },
+      "sourceCommit": "48287649351098398a47cfd12b73be4e1cbce0a1",
+      "evidence": "docs/repairs/evidence/voice-runtime-recovery/native-context-serialization.json",
+      "evidenceSha256": "917566e5545082df5d587f7331abba1b03fba271d43f83a4b8596a23550347f8",
+      "status": "PASSED_CLEAN_FULL_NATIVE_DRIVER",
+      "qualification": "Pinned full Kokoro model/frontend, production JNI source, ORT 1.28.2/QNN 2.8/QAIRT 2.52, explicit x86 host emulator and host-only fault ports.",
+      "nativeTestsPassed": 8,
+      "jniCasesPassed": [
+        "unqualified_cancel",
+        "unqualified_failure",
+        "qualified_cancel",
+        "context_roundtrip"
+      ],
+      "sourceBindingsUnchanged": 32,
+      "observations": "Initial compile/load/store, resident reuse, fresh disk hit, corruption repair and preparation cancellation pass; the source-preparation cancellation case starts zero compilations and zero fallbacks; no orphan profiles or source snapshots. All inference paths retain 39 QNN and 1477 CPU kernels. Original-model signal consistency passes with normalized RMS error 0.150871; bitwise or listening equivalence is not asserted.",
+      "receiptSha256": "dfa5363f66bb9e99f09848a0115f24cd7bbc891d22fd0061d2dd6094945ab08f",
+      "scope": "Host execution only. Android packaging, final-head hosted native/JNI execution and publication remain pending; physical-phone performance and listening quality remain unqualified and unclaimed."
     },
     "localAndroidCompile": {
       "status": "DAEMON_DISAPPEARED_BEFORE_COMPILATION",
@@ -219,9 +244,9 @@
     }
   },
   "remaining": [
-    "Regenerate/freeze current source references, run fresh canonical validation and append the complete voice draft after reconciling shared branch advances",
-    "Preserve other owners pronunciation, scanner and privacy comparison follow-ups; qualify the actual final combined source",
-    "Pass unchanged current-head PR gates, merge normally, pass actual-main gates and verify all14 Android/Gateway publication asset bytes"
+    "Freeze the final combined source and pass canonical, exact-head ordinary/heap, Android, native/JNI, model, packaging and all applicable hosted gates.",
+    "Preserve the coordinated pronunciation, scanner, privacy comparison and GitHub intelligence follow-ups and close their source reservations before readiness.",
+    "Merge normally only after current-head PR qualification, pass every actual-main gate and verify all14 Android/Gateway public asset bytes, signatures and trusted provenance."
   ],
   "recovery": {
     "checkpointCommit": "30f4ea9858d772cee7c0eb1eb66c0dc0b57f2057",

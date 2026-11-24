@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b7eaccb55a51dbcf573770ae637041f240d7efc269a087e498c264a5283fd6db",
+  "source_digest": "79e1375176a28d3fc4ebc57b21074540c772f8080ad26d24258d968e07e4c008",
   "file_count": 3083,
   "indexed_line_count": 522794,
   "line_coverage_available": false,
@@ -8341,7 +8341,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "dc8eacefc70e7903050611253ff1995383bc62a31281dcfb6f06386ef7d97ac9",
+      "sha256": "2680034826d6f23706235ed013091c492e376a0516d7e5f6bd92189e7493e2d3",
       "indexed_lines": 128
     },
     {

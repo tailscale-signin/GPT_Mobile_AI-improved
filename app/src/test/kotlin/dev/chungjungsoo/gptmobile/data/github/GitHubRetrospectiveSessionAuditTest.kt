@@ -9,11 +9,13 @@ import org.junit.Test
 class GitHubRetrospectiveSessionAuditTest {
     private val pendingTask = "Implement the accepted fixes on the selected PR; do not merge until all checks pass."
     private val reportedQuestion = "What issues have you discovered this session that prevented you from doing what I asked?"
+    private val originalReportedQuestion = "What issues have you discovered this session that prevented you from doing the work?"
     private fun wrapped(text: String) = "GitHub workspace: owner/repository\nBranch: repair-branch\n\n$text"
 
     @Test fun retrospectiveQuestionsUseSavedDiagnosticsWithoutBecomingExecutionControls() {
         val questions = listOf(
             reportedQuestion,
+            originalReportedQuestion,
             "Which problems did you encounter in this conversation?",
             "What blockers have you encountered in our chat?",
             "What errors did you find so far?",
@@ -36,6 +38,7 @@ class GitHubRetrospectiveSessionAuditTest {
     @Test fun additionalActionsAndRepositoryQuestionsKeepTheirOwnRequest() {
         val requests = listOf(
             "$reportedQuestion Then merge PR #2.",
+            "$originalReportedQuestion Then merge PR #2.",
             "Which errors did you encounter in this session? Fix them now.",
             "What issues have you discovered in owner/repository?",
             "What issues have you discovered in this repository this session?",
@@ -43,7 +46,9 @@ class GitHubRetrospectiveSessionAuditTest {
             "Why did CI stop on PR #2?",
             "Audit this session and fix the bugs.",
             "\"$reportedQuestion\"",
+            "\"$originalReportedQuestion\"",
             "Use the text: $reportedQuestion",
+            "Use the text: $originalReportedQuestion",
             "What${" ".repeat(301)}issues have you discovered this session?"
         )
         for (request in requests) {

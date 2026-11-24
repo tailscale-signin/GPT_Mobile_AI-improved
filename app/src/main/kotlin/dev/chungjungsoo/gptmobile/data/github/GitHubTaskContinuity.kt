@@ -39,7 +39,7 @@ internal object GitHubTaskContinuity {
         "^(?:what|which) (?:issues|errors|failures|problems|bugs|blockers) " +
             "(?:have you (?:discovered|found|encountered|observed)|did you (?:discover|find|encounter|observe)) " +
             "(?:(?:(?:in|during) )?(?:this|our|the current) (?:github )?(?:session|chat|conversation)|so far)" +
-            "(?: that (?:prevented|stopped|blocked) you from (?:doing what i asked|(?:completing|finishing) (?:the|my) (?:task|request)))?$"
+            "(?: that (?:prevented|stopped|blocked) you from (?:doing (?:what i asked|the work)|(?:completing|finishing) (?:the|my) (?:task|request)))?$"
     )
 
     /** This identifies a resume request only. The claimed commit is verified by read receipts. */

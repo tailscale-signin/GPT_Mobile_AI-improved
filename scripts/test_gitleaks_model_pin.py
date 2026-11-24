@@ -22,6 +22,8 @@ EVIDENCE_PATH = "docs/repairs/evidence/speech-playback-reliability-2026-11-23/na
 CALIBRATION_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCpuCalibrationProtocol.kt"
 MOCKK_EVIDENCE_PATH = "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json"
 MOCKK_ARTIFACT = "mockk-agent-api-jvm-1.14.11.jar"
+WAVEFORM_EVIDENCE_PATH = "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json"
+MODEL_PACK_PATH = "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt"
 HISTORY_OPTIONS = "--all --full-history --diff-merges=first-parent --root"
 
 
@@ -66,6 +68,20 @@ def mockk_dependency_line():
     if pins != [digest]:
         raise ValueError("mockk_dependency_pin_contract")
     return '    "' + MOCKK_ARTIFACT + '": "' + digest + '",'
+
+
+def waveform_model_line(known_digest):
+    document = json.loads((ROOT / WAVEFORM_EVIDENCE_PATH).read_text(encoding="utf-8"))
+    if not isinstance(document, dict) or not isinstance(document.get("inputs"), dict):
+        raise ValueError("waveform_model_pin_contract")
+    pins = document["inputs"].get("sha256")
+    if not isinstance(pins, dict) or pins.get("tokens.txt") != known_digest:
+        raise ValueError("waveform_model_pin_contract")
+    pack = (ROOT / MODEL_PACK_PATH).read_text(encoding="utf-8")
+    pack_pins = re.findall(r'\bfile\(TOKENS,\s*\d[\d_]*,\s*"([0-9a-f]{64})"\s*\)', pack)
+    if pack_pins != [known_digest]:
+        raise ValueError("waveform_model_pin_contract")
+    return '      "tokens.txt": "' + known_digest + '",'
 
 
 def isolated_environment():
@@ -134,6 +150,8 @@ def main():
         alternate_calibration = re.sub(r'"[^"]+"', '"' + alternate_digest + '"', calibration_line, count=1)
         mockk_line = mockk_dependency_line()
         alternate_mockk = f'    "{MOCKK_ARTIFACT}": "{alternate_digest}",'
+        waveform_line = waveform_model_line(known_digest)
+        alternate_waveform = waveform_line.replace(known_digest, alternate_digest)
         cases = [
             ("exact_evidence", EVIDENCE_PATH, exact_line, 0),
             ("existing_native_harness", NATIVE_PATH, exact_line, 0),
@@ -157,6 +175,14 @@ def main():
             ("mockk_prefix_content", MOCKK_EVIDENCE_PATH, '"extra": true, ' + mockk_line.lstrip(), 1),
             ("mockk_secret_after", MOCKK_EVIDENCE_PATH, mockk_line + "\n" + alternate_mockk, 1, 3),
             ("mockk_secret_before", MOCKK_EVIDENCE_PATH, alternate_mockk + "\n" + mockk_line, 1),
+            ("waveform_exact_declaration", WAVEFORM_EVIDENCE_PATH, waveform_line, 0),
+            ("waveform_different_value", WAVEFORM_EVIDENCE_PATH, alternate_waveform, 1),
+            ("waveform_different_path", WAVEFORM_EVIDENCE_PATH.replace("single-cpu-waveform-validation.json", "other-cpu-waveform-validation.json"), waveform_line, 1),
+            ("waveform_different_field", WAVEFORM_EVIDENCE_PATH, waveform_line.replace("tokens.txt", "tokens_other.txt"), 1),
+            ("waveform_trailing_content", WAVEFORM_EVIDENCE_PATH, waveform_line + ' "extra": true,', 1),
+            ("waveform_prefix_content", WAVEFORM_EVIDENCE_PATH, '"extra": true, ' + waveform_line.lstrip(), 1),
+            ("waveform_secret_after", WAVEFORM_EVIDENCE_PATH, waveform_line + "\n" + alternate_waveform, 1, 3),
+            ("waveform_secret_before", WAVEFORM_EVIDENCE_PATH, alternate_waveform + "\n" + waveform_line, 1),
         ]
         with tempfile.TemporaryDirectory(prefix="gitleaks-model-pin-") as temporary:
             parent = Path(temporary)

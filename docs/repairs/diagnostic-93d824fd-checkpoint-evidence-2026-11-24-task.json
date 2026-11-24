@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "task": "diagnostic-93d824fd-checkpoint-evidence-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "5575c6fac0ddd21b8d4772f051a5c87360f9d0ad",
+  "baseTree": "ed463d047a37d305047a3db9ccad796b7c5bcb91",
+  "parentPullRequest": 2367,
+  "workingBranch": "work/diagnostics-93d824fd-2026-11-23",
+  "owner": "diagnostic93",
+  "status": "INTEGRATED_SOURCE_REVIEW_CLEAR_PENDING_HOSTED_QUALIFICATION",
+  "intent": "Require the existing complete owning-stage evidence before the public rate-limit report retains CLAIM_EXTRACTION_CHECKPOINT_REQUIRED. An incomplete raw reason must use the ordinary decision-unavailable fallback rather than appearing to prove a separate extraction checkpoint.",
+  "observedFailure": {
+    "run": 45302532778,
+    "job": 138138439050,
+    "head": "822d2ef347f47ba5e1844146b23c9643ee2461a7",
+    "actualCheckout": "0e3ec66f427a869d5f2ed6fb2aec02c4e3bfafef",
+    "method": "ProviderFailureReportTest.extractionCheckpointHandoffDoesNotBecomeAnUnexplainedMissingWaitDecision",
+    "line": 58,
+    "observed": "Removing failed_stage still exported CLAIM_EXTRACTION_CHECKPOINT_REQUIRED instead of DECISION_UNAVAILABLE.",
+    "artifactId": 14882170896,
+    "artifactSha256": "9985840c1895d75733a6e60b61ac6b0f31dd0f417a73351e1a23d92db821db35"
+  },
+  "constraints": [
+    "Preserve the existing positive composed capture and all seven missing-field negative controls byte-for-byte.",
+    "Keep the existing complete checkpoint predicate and scheduling/dispatch authority unchanged.",
+    "Preserve all other typed no-wait reasons, route mismatch and actual decision fallback.",
+    "Do not modify concurrent provider, privacy lifecycle, native or readiness source.",
+    "Require actual ordinary Kotlin/Android execution on the final public source; host checks are separate."
+  ],
+  "validation": {
+    "sourceReview": "CLEAR: independent review of component 280bab24a163398cbb8a205650ad3530cc609fd3 verifies the owning-evidence guard, exact unchanged regression bytes and unchanged scheduling authority; no runtime pass is claimed.",
+    "canonicalIntegratedHost": "Required on the frozen combined source; the integrating owner retains the source-hash manifest and canonical receipt separately.",
+    "finalOrdinaryRuntime": "REQUIRED",
+    "pinnedFormatting": {
+      "version": "1.3.1",
+      "status": "PASSED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ]
+    },
+    "existingProjectionTestFileUnchanged": true,
+    "existingSchedulingAuthorityFileUnchanged": true,
+    "whitespace": "PASSED",
+    "testFileSha256": "eac6594ec400bfcbb4cc904e7b41173661c9c10ce4c843510f29b3c308c184a0"
+  },
+  "latestPublicHeadObservedBeforeCommit": "d50a778d7ed7b41390d031fad9831689537935f1",
+  "incomingChangesDisjointFromOwnedSource": true,
+  "implementation": "The INELIGIBLE branch cannot retain the checkpoint-only label. The existing complete predicate selects NOT_SCHEDULED for valid owning evidence; other typed reasons and decision/route handling remain unchanged.",
+  "latestPublicHeadObservedBeforeIntegration": "55b8490ffdb7a11d78f9721d422c78b2ea467948"
+}

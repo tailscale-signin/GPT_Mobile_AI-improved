@@ -219,6 +219,8 @@ internal object ProviderFailureReport {
                 "ROUTE_MISMATCH" -> ProviderWaitSchedulingResult.NoWaitReason.ROUTE_MISMATCH
                 "NOT_SCHEDULED" -> ProviderWaitSchedulingResult.NoWaitReason.CLAIM_EXTRACTION_CHECKPOINT_REQUIRED
                 "INELIGIBLE" -> ProviderWaitSchedulingResult.retainedNoWaitReason(failure.failureDetails)
+                    // The complete owning-stage evidence above is required for this reason.
+                    ?.takeUnless { it == ProviderWaitSchedulingResult.NoWaitReason.CLAIM_EXTRACTION_CHECKPOINT_REQUIRED }
                     ?: if (decision == null) ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE else ProviderWaitSchedulingResult.NoWaitReason.REJECTION_NOT_REPLAY_SAFE
                 else -> null
             }

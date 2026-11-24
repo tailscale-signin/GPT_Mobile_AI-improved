@@ -56,6 +56,9 @@ class BoundedAssistantDocumentTransitionTest {
         }
         compose.waitUntil(5_000) { compose.onAllNodesWithText("loaded:old page").fetchSemanticsNodes().isNotEmpty() }
         compose.runOnIdle { reference = reference.copy(revisionId = "new", bodyDigest = researchHash("new page")) }
+        // Lazy item recomposition also needs Android layout; an external deferred
+        // predicate alone does not drain Robolectric's pending platform work.
+        compose.waitForIdle()
         compose.waitUntil(5_000) { entered.isCompleted }
         compose.onNodeWithText("loaded:old page").assertDoesNotExist()
         compose.onNodeWithText("loaded:new page").assertDoesNotExist()

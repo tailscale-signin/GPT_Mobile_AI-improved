@@ -1653,9 +1653,9 @@
       "sha256": "3c727cbede82ed80495821fc2b0d0d3646a56207302f510a58f6df7d9897d9bd"
     },
     ".github/workflows/speech-engine-smoke.yml": {
-      "blob_sha": "0232b82eb6fd93e4d0ca15e551028d051992862a",
-      "bytes": 7042,
-      "sha256": "4af641dab05afd35acf5c0f3fd499c7c62091924e330d2bce32b4d9dd503c862"
+      "blob_sha": "3cbee4f2ee5729a7bf933d6a5b3fd4d582aaebb8",
+      "bytes": 8760,
+      "sha256": "659d7c59b3d5b4b63a60bb7cc33b83afaf83b6b837453aa2925780d1e57e93b5"
     },
     ".gitleaks.toml": {
       "blob_sha": "5f3fa1b284bfb68b81e27588b18e12d26e2e4551",
@@ -4018,9 +4018,9 @@
       "sha256": "87e64d50ee1b3927465bc1f95b905e4ab0e339c3054815515b08642f745a5e03"
     },
     "docs/audits/kokoro-model-workbench.md": {
-      "blob_sha": "c84cd06f5f31725e9601d9886485afbc8109eec8",
-      "bytes": 15930,
-      "sha256": "4b7195e0d4077d9b578084a83646096a22d2ee8156ed36eb9bbdf074e02e5378"
+      "blob_sha": "00c5b10620eee7281e75165be3b37547f79831f4",
+      "bytes": 16138,
+      "sha256": "8fe8fb142fccba5aae562996075e55953443bbe1877b47f8d2dc5fdf3d3d5ea6"
     },
     "docs/audits/kokoro-original-fp32.json": {
       "blob_sha": "3411c3effa62be651b712751b78560e041ec9e23",
@@ -4788,9 +4788,9 @@
       "sha256": "c9c759719603e0b8ac4b957b42b4198964ba5f60af9f95dce76fe82c002545cf"
     },
     "local-kokoro-runtime/src/testHost/test_kokoro_model_workbench.py": {
-      "blob_sha": "e55c46eb51c2b183f713f6971751d63f18dae051",
-      "bytes": 16839,
-      "sha256": "2c5a598b1f7a21bb8a6d257ef9992c7d45a885e3a1bf98195a4442f54c21bd04"
+      "blob_sha": "8f445776c7baf90a362f043d5f41853c5f8257e1",
+      "bytes": 18210,
+      "sha256": "6a0bd3240b139de7373b3e60375be41d2f6da5b8aa781a8bdb013280f8bcb547"
     },
     "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py": {
       "blob_sha": "66a603c04e3e28bc875743b72827ffae7387228f",
@@ -4848,9 +4848,9 @@
       "sha256": "dc9322958558bcf334b2b8f7cde834add051ac16986809260bd9e7464950fbca"
     },
     "scripts/kokoro_model_workbench.py": {
-      "blob_sha": "1df81408b52a6da24fa16a622d3a5758746690ce",
-      "bytes": 42742,
-      "sha256": "6cb3e3a1864845c0fe1785cfa20b763711bdda21f5ec364e3fa5b9f6cf08ba36"
+      "blob_sha": "74ab61d9130b1389920999f81aa1e95438002269",
+      "bytes": 47309,
+      "sha256": "508eb1a2ceea7ab6d9cad449890709280ca2eddd3171e995ad1f718cb2e90fb9"
     },
     "scripts/native/qnn_gpu_precision_probe.cpp": {
       "blob_sha": "2500df8478fb60c2210c8373dd341e130d8e19ac",

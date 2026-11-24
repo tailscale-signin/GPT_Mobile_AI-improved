@@ -11,6 +11,7 @@ import ast
 import collections
 from contextlib import nullcontext
 import hashlib
+import heapq
 import json
 import math
 import os
@@ -127,6 +128,46 @@ def new_artifact(output, generate):
     return output / "manifest.json"
 
 
+def order_captured_inputs(graph):
+    """Stably order nodes, including outer-scope tensors consumed in nested graphs."""
+    import onnx
+    nodes = list(graph.node)
+    producers = {name: i for i, node in enumerate(nodes) for name in node.output if name}
+    available = {v.name for v in graph.input} | {v.name for v in graph.initializer}
+    available.update(v.values.name for v in graph.sparse_initializer)
+    external = {v.name for v in graph.output} - producers.keys() - available
+    indegree, consumers = [], [[] for _ in nodes]
+    for index, node in enumerate(nodes):
+        inputs = {name for name in node.input if name}
+        for attribute in node.attribute:
+            if attribute.type == onnx.AttributeProto.GRAPH:
+                inputs.update(order_captured_inputs(attribute.g))
+            elif attribute.type == onnx.AttributeProto.GRAPHS:
+                for child in attribute.graphs:
+                    inputs.update(order_captured_inputs(child))
+        external.update(inputs - producers.keys() - available)
+        dependencies = {producers[name] for name in inputs if name in producers}
+        indegree.append(len(dependencies))
+        for dependency in dependencies:
+            consumers[dependency].append(index)
+    ready = [i for i, degree in enumerate(indegree) if degree == 0]
+    heapq.heapify(ready)
+    ordered = []
+    while ready:
+        current = heapq.heappop(ready)
+        ordered.append(current)
+        for consumer in consumers[current]:
+            indegree[consumer] -= 1
+            if indegree[consumer] == 0:
+                heapq.heappush(ready, consumer)
+    if len(ordered) != len(nodes):
+        raise ValueError("Model contains a dependency cycle")
+    if ordered != list(range(len(nodes))):
+        del graph.node[:]
+        graph.node.extend(nodes[i] for i in ordered)
+    return external
+
+
 def load_model(path, expected):
     import onnx
     model = onnx.load(str(checked_file(path, expected)), load_external_data=False)
@@ -134,7 +175,15 @@ def load_model(path, expected):
     # accepts self-contained models so an untracked sidecar cannot change a result.
     if any(t.data_location == onnx.TensorProto.EXTERNAL for t in all_tensors(model.graph)):
         raise ValueError("External initializers must first be bundled into a fingerprinted model")
-    onnx.checker.check_model(model)
+    try:
+        onnx.checker.check_model(model)
+    except onnx.checker.ValidationError as error:
+        if "must be topologically sorted" not in str(error):
+            raise
+        # The compact publisher model's Loop captures a sequence produced later
+        # in the serialized node list. Only the diagnostic copy is reordered.
+        order_captured_inputs(model.graph)
+        onnx.checker.check_model(model)
     return model
 
 
@@ -517,6 +566,46 @@ def prepare(args):
     return new_artifact(args.output_dir, generate)
 
 
+def short_reference(args):
+    """Rebuild the public 43-token Heart reference using the pinned pack data."""
+    import numpy as np
+    publisher = read_json(Path(__file__).resolve().parents[1] / "docs/audits/kokoro-original-fp32.json")["files"]
+
+    def pack_bytes(name):
+        record = publisher[name]
+        with local_file(args.pack, name).open("rb") as stream:
+            data = stream.read(record["bytes"] + 1)
+        if len(data) != record["bytes"] or hashlib.sha256(data).hexdigest() != record["sha256"]:
+            raise ValueError("Public reference requires the verified voice and frontend files")
+        return data
+
+    symbols = dict((token, int(index)) for line in pack_bytes("tokens.txt").decode().splitlines()
+                   for token, index in [line.rsplit(" ", 1)])
+    phrase = "the voice is ready for your next question."
+    words = set(re.findall("[a-z]+", phrase))
+    lexicon = {}
+    for line in pack_bytes("lexicon-us-en.txt").decode().splitlines():
+        fields = line.split()
+        if fields and fields[0] in words:
+            lexicon[fields[0]] = [symbols[p] for p in fields[1:] if p in symbols]
+    tokens = [0]
+    for part in re.findall("[a-z]+|[^a-z]", phrase):
+        tokens.extend(lexicon[part] if part in words else [symbols[part]])
+    tokens.append(0)
+    if len(tokens) != 43:
+        raise ValueError("Public reference token shape differs from the native fixture")
+    voices = np.frombuffer(pack_bytes("voices.bin"), dtype="<f4").reshape(-1, 510, 256)
+    speed = np.float32(1.1445191)
+    def generate(directory):
+        case = directory / "case.npz"
+        np.savez(case, tokens=np.asarray([tokens], dtype=np.int64), style=voices[3, len(tokens) - 2].reshape(1, 256),
+                 speed=np.asarray([speed], dtype=np.float32))
+        return {"kind": "kokoro-fixed-input", "caseFile": case.name, "caseSha256": digest(case),
+                "speechInputSha256": hashlib.sha256(phrase.encode()).hexdigest(), "tokenCount": len(tokens),
+                "speakerId": 3, "speechRate": float(speed)}
+    return new_artifact(args.output_dir, generate)
+
+
 def duration_checkpoints(graph, types):
     """Choose bounded prediction checkpoints from the native two-output contract."""
     import onnx
@@ -784,6 +873,9 @@ def main(argv=None):
             sub.add_argument("--seed", type=int, default=7)
         elif command == "stages":
             sub.add_argument("--specification", required=True, type=Path)
+    sub = commands.add_parser("short-reference")
+    sub.add_argument("--pack", required=True, type=Path)
+    sub.add_argument("--output-dir", required=True, type=Path)
     sub = commands.add_parser("capture")
     sub.add_argument("--model-manifest", required=True, type=Path)
     sub.add_argument("--case", required=True, type=Path)
@@ -804,7 +896,7 @@ def main(argv=None):
         write_report(args.output, inspect_model(load_model(args.model, args.model_sha256), args.model_sha256), [args.model])
         result = args.output
     else:
-        result = {"prepare": prepare, "trace": trace, "capture": capture, "compare": compare, "stages": stages}[args.command](args)
+        result = {"prepare": prepare, "trace": trace, "short-reference": short_reference, "capture": capture, "compare": compare, "stages": stages}[args.command](args)
     print(result)
 
 

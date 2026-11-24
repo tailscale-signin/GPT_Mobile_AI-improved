@@ -27,8 +27,28 @@
     "C++ native output validation harness",
     "JVM native evidence parser including cross-process and invalid receipts",
     "35 dependency-free model-workbench tests",
-    "13 actual ONNX/ONNX Runtime preparation, capture and comparison tests using the repository hash-locked dependencies, including the new duration-branch trace",
-    "Release scope validated across 848 changed paths"
+    "14 actual ONNX/ONNX Runtime preparation, capture and comparison tests using the repository hash-locked dependencies, including the new duration-branch trace",
+    "Release scope validated across 848 changed paths",
+    "The full fast validation suite passed 809 tests on the integration revision."
   ],
-  "deviceQualification": "Fresh on-device playback and hardware qualification are pending. The build-149 device report is the baseline."
+  "deviceQualification": "Fresh on-device playback and hardware qualification are pending. The build-149 device report is the baseline.",
+  "publicFixtureHostEvidence": {
+    "caseSha256": "b23f6257f33273d1e236002a26f5be6431b02a214469407f6f9a04aea7f9d11b",
+    "speechInputSha256": "353d1a13c548596724e04333936f68527fc492350c54fecb4f50e51c626ae274",
+    "speaker": "HEART",
+    "tokens": 43,
+    "compact": {
+      "frames": 61200,
+      "durationUnits": 102,
+      "clippedSamples": 0,
+      "allTokenDurationsMatchBuild149Cpu": true,
+      "tracedOutputs": 14
+    },
+    "originalFp32": {
+      "frames": 60600,
+      "durationUnits": 101,
+      "clippedSamples": 0
+    },
+    "execution": "Desktop CPU with ONNX Runtime 1.28.0. Each capture uses its own verified source model and the same case file."
+  }
 }

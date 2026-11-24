@@ -277,7 +277,7 @@ and [ORT quantization diagnostics](https://onnxruntime.ai/docs/performance/model
 
 ## Investigating collapsed token durations
 
-Use `trace --duration-path` on the exact model from the failed run. It selects up to twelve typed prediction checkpoints feeding the native duration output, followed by token durations and waveform. Capture one pinned token, style and rate input on CPU and GPU using that diagnostic model, then run `compare` to find the first observed difference. Repeat both captures with the original FP32 variant. Separate variant pairs carry different model hashes.
+Use `short-reference --pack <verified-pack> --output-dir <new-directory>` to rebuild the public 43-token Heart fixture and its case SHA-256. Both packs use the same frontend, voice embedding and speech rate. Use `trace --duration-path` on the exact model from the failed run. It selects up to twelve typed prediction checkpoints feeding the native duration output, followed by token durations and waveform. Capture one pinned token, style and rate input on CPU and GPU using that diagnostic model, then run `compare` to find the first observed difference. Repeat both captures with the original FP32 variant. Separate variant pairs carry different model hashes.
 
 Capture manifests include per-provider kernel microseconds and the 24 most expensive provider/operator pairs. For the HTP path, compare CPU `ConvInteger` time with QNN convolution placement on a calibrated candidate prepared from the original FP32 weights. Instrumentation can alter placement. Repeat the uninstrumented comparison before selecting a model for playback.
 

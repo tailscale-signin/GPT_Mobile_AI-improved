@@ -63,6 +63,27 @@ class ModelWorkbenchExecutionTest(unittest.TestCase):
         self.assertFalse(manifest["physicalDeviceQualified"])
         self.assertEqual(self.model_hash, workbench.digest(self.model))
 
+    def test_nested_capture_is_ordered_on_the_copy_and_unresolved_inputs_still_fail(self):
+        def value(name, dtype):
+            return helper.make_tensor_value_info(name, dtype, [1])
+        def branch(label):
+            return helper.make_graph([helper.make_node("Identity", ["later"], [label])], label, [], [value(label, TensorProto.FLOAT)])
+        graph = helper.make_graph([
+            helper.make_node("If", ["condition"], ["result"], then_branch=branch("yes"), else_branch=branch("no")),
+            helper.make_node("Identity", ["x"], ["later"])
+        ], "outer", [helper.make_tensor_value_info("condition", TensorProto.BOOL, []), value("x", TensorProto.FLOAT)],
+            [value("result", TensorProto.FLOAT)])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 21)], ir_version=10)
+        onnx.save(model, self.model)
+        source_hash = workbench.digest(self.model)
+        repaired = workbench.load_model(self.model, source_hash)
+        self.assertEqual(["Identity", "If"], [node.op_type for node in repaired.graph.node])
+        self.assertEqual(source_hash, workbench.digest(self.model))
+        model.graph.node[1].input[0] = "missing"
+        onnx.save(model, self.model)
+        with self.assertRaises(onnx.checker.ValidationError):
+            workbench.load_model(self.model, workbench.digest(self.model))
+
     def test_duration_trace_follows_the_prediction_branch_before_the_waveform(self):
         model = onnx.load(self.model)
         model.graph.node.extend([helper.make_node("Round", ["scaled"], ["rounded"]),

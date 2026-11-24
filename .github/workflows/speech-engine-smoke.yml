@@ -77,6 +77,31 @@ jobs:
           mkdir -p artifacts
           python scripts/prepare_kokoro_native_host.py --output-dir "$RUNNER_TEMP/kokoro-native-inputs" 2>&1 | tee artifacts/native-inputs.log
           cp "$RUNNER_TEMP/kokoro-native-inputs/inputs.json" artifacts/native-inputs.json
+      - name: Compare the compact CPU duration trace with the public handset fixture
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-kokoro-model-workbench.txt
+          pack="$RUNNER_TEMP/kokoro-native-inputs/pack"
+          fixture="$RUNNER_TEMP/short-reference"
+          trace="$RUNNER_TEMP/short-trace"
+          capture="$RUNNER_TEMP/short-capture"
+          python scripts/kokoro_model_workbench.py short-reference --pack "$pack" --output-dir "$fixture"
+          python scripts/kokoro_model_workbench.py trace --duration-path --model "$pack/model.int8.onnx" \
+            --model-sha256 75635ea3b85a32d00094dcdd61a258aba87c160f7c264c304a7b3ae9d734195e --output-dir "$trace"
+          case_sha="$(jq -er .caseSha256 "$fixture/manifest.json")"
+          python scripts/kokoro_model_workbench.py capture --model-manifest "$trace/manifest.json" \
+            --case "$fixture/case.npz" --case-sha256 "$case_sha" --backend cpu --output-dir "$capture"
+          python - "$capture/outputs.npz" <<'PYTHON'
+          import sys
+          import numpy as np
+          with np.load(sys.argv[1], allow_pickle=False) as values:
+              pcm, durations = values["audio"].ravel(), values["onnx::Shape_3411"].ravel()
+              if pcm.size != 61200 or durations.size != 43 or durations.sum() != 102 or not np.all(np.isfinite(pcm)) or np.any(np.abs(pcm) >= 1):
+                  raise SystemExit("Compact CPU output differs from the public fixture")
+          PYTHON
+          cp "$capture/manifest.json" artifacts/compact-short-cpu.json
       - name: Execute actual JNI lifecycle and full-model context store/load/recovery
         timeout-minutes: 33
         shell: bash
@@ -97,6 +122,7 @@ jobs:
           name: kokoro-native-context-${{ github.sha }}
           path: |
             artifacts/native-inputs.json
+            artifacts/compact-short-cpu.json
             artifacts/native-inputs.log
             artifacts/native-driver.log
             artifacts/native/*.json

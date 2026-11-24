@@ -277,13 +277,17 @@ class GitHubCiWatchContinuationTest {
             }
             val store = mockk<GatewayQueueStore>(relaxed = true) { every { active } returns MutableStateFlow(emptyList<GatewaySubmissionRecord>()) }
             val availability = mockk<GatewayAvailabilityRepository> { every { observe(any()) } returns flowOf(emptyMap()) }
-            val queueDatabase = if (observed == null) database else mockk<ChatDatabaseV2> {
-                every { pendingPromptDao() } returns object : PendingPromptDao by database.pendingPromptDao() {
-                    override fun observePending() = observed
+            val queueDatabase = if (observed == null) {
+                database
+            } else {
+                mockk<ChatDatabaseV2> {
+                    every { pendingPromptDao() } returns object : PendingPromptDao by database.pendingPromptDao() {
+                        override fun observePending() = observed
+                    }
+                    every { agentPersistenceDao() } returns database.agentPersistenceDao()
+                    every { gatewayJobDao() } returns database.gatewayJobDao()
+                    every { agentRunDao() } returns database.agentRunDao()
                 }
-                every { agentPersistenceDao() } returns database.agentPersistenceDao()
-                every { gatewayJobDao() } returns database.gatewayJobDao()
-                every { agentRunDao() } returns database.agentRunDao()
             }
             queue = DurablePromptQueue(queueDatabase, chats, settings, coordinator, context, store, availability, mockk(relaxed = true), mockk(relaxed = true), Lazy { watches })
         }

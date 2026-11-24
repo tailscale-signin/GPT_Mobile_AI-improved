@@ -335,7 +335,8 @@
     "Retain all38 scanner controls and add56 exact-declaration and frozen-receipt boundary controls; exercise all three actual Git-integrity fixtures without broad exceptions.",
     "Retain explicit Gradle worker lifecycle and heap command evidence for both existing constrained-heap CI invocations while preserving their exact selectors, init script, heap limits, retry behavior and deadlines.",
     "GitHub engineering now uses four intelligence levels, relevance-ranked replay and recoverable acceptance plans. Named workers, review, branch restaging and production benchmark scores retain revision, permission and evidence checks.",
-    "Retain the exact Android and Windows package attestation bundles as separate source/run/attempt artifacts for 14 days without changing signing, package assets, subjects, permissions or publication gates."
+    "Retain the exact Android and Windows package attestation bundles as separate source/run/attempt artifacts for 14 days without changing signing, package assets, subjects, permissions or publication gates.",
+    "Align the four GitHub intelligence and consent policy-change field names across Android incident projection and the reporting receiver, preserving exact vocabulary parity and rejection of unknown names or raw setting values."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -965,6 +966,7 @@
     "docs/repairs/gitleaks-model-pin-2026-11-23-task.json",
     "docs/repairs/heap-worker-observability-2026-11-24-task.json",
     "docs/repairs/hosted-privacy-stream-and-health-2026-11-23-task.json",
+    "docs/repairs/incident-policy-vocabulary-parity-2026-11-24-task.json",
     "docs/repairs/locked-speech-dependency-coverage-2026-11-23-task.json",
     "docs/repairs/native-speech-smoke-paths-2026-11-23-task.json",
     "docs/repairs/open-pr-issue-remediation-2026-11-23-task.json",

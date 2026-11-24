@@ -57,6 +57,7 @@ Optional battery-counter decreases describe whole-device observations, not energ
 
 ## Diagnostic recovery and export completion
 
+- Run the oversized saved-timeout OkHttp boundary regression with the Android runtime shadows it exercises, preserving the actual builder limits and all existing timeout assertions.
 - Follow the newest qualified head of the same pull request and connection. Requalify reads after a head change and allow one bounded read-only refresh/retry without replaying mutations or renewing task limits.
 - Recover older PR context reads that lack an expected head through one fresh live header and one pinned retry. Preserve explicit revision constraints, request options, restored attempt identity and verification reserve; stop after another head change.
 - Preserve validated search paths, blob identities and the selected commit through saved inventory projections, so dependent source reads remain available after the original page is compacted.

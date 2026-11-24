@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.util
 
+import android.app.Application
 import io.ktor.client.plugins.HttpTimeoutCapability
 import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.request.HttpRequestBuilder
@@ -9,7 +10,12 @@ import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class)
 class PlatformTimeoutTest {
 
     @Test

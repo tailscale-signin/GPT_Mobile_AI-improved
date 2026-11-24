@@ -344,7 +344,8 @@
     "Recognize explicit read-only questions about the selected repository and allow one bounded evidence-acquisition retry when a GitHub task returns prose before any repository receipt.",
     "Repair the reproduced Robolectric OS-shadow initialization boundary and close SQLite fixture handles deterministically, preserving production behavior, existing test identities, original permission assertions, transaction semantics and all CI gates.",
     "Show recovery reads as unavailable for a LiteRt-LM primary, keep saved execution consent inactive at candidate admission, and preserve advice-only eligibility, existing authorization and the internal-tools session guard.",
-    "Restrict automatic selected-repository context to leading unquoted read requests, preserve multiline quoted code boundaries and recognize technical prompt questions; retain application reports, diagnostic output and session-owned recovery without stacking evidence correction after protocol or output recovery."
+    "Restrict automatic selected-repository context to leading unquoted read requests, preserve multiline quoted code boundaries and recognize technical prompt questions; retain application reports, diagnostic output and session-owned recovery without stacking evidence correction after protocol or output recovery.",
+    "Run the oversized saved-timeout OkHttp boundary regression with its Android runtime shadows so the actual builder limit remains covered without changing production timeout behavior or prior assertions."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1192,7 +1193,8 @@
     "docs/repairs/github-chat-continuation-intent-checkpoint.json",
     "docs/repairs/windows-sqlite-fixture-lifecycle-2026-11-24-task.json",
     "docs/repairs/voice-ci-fixtures-litert-closure-2026-11-24-task.json",
-    "docs/repairs/github-selected-read-report-finality-2026-11-24-task.json"
+    "docs/repairs/github-selected-read-report-finality-2026-11-24-task.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/PlatformTimeoutTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

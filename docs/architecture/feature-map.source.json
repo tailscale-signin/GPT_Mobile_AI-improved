@@ -916,6 +916,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderTransportFailure.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderCooldown.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/PlatformTimeout.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderBudgetEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderFailure.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailure.kt",
@@ -933,7 +934,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
         "scripts/tests/test_chat_method_size.py",
         "authentication/test_incident_report_contract.py",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderToolRejectionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderToolRejectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/PlatformTimeoutTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -953,6 +955,7 @@
         "Durable retry requires current route authority, an unchanged output contract and replay-safe typed evidence.",
         "Unknown or malformed budget metadata stays unknown; budget rejection never automatically changes output limits, spending policy or credentials.",
         "Request, response and stream helper state belongs to one collection, preserving cancellation, accounting and cleanup order.",
+        "Saved streaming timeouts remain bounded at the actual OkHttp builder boundary under the Android runtime shadows used by the application.",
         "The packaged named-method guard measures unminified debug/benchmark DEX; release obfuscation and device latency are separate evidence.",
         "HTTP error-body remote-job and reconciliation evidence prevents a new durable wait or manual budget delay and remains attached to the terminal failure.",
         "Standalone accepted or unknown remote state, a closed reconciliation code and an explicit typed retry or replay refusal cannot establish a new known-unaccepted provider wait; raw string and true replay values cannot grant authority.",

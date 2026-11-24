@@ -481,7 +481,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt",
         "scripts/scan_secret_history.sh",
-        ".github/workflows/pr-validation.yml"
+        ".github/workflows/pr-validation.yml",
+        "scripts/report_secret_history.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
@@ -503,7 +504,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgressTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt",
         "scripts/test_secret_history_integrity.py",
-        "scripts/test_gitleaks_model_pin.py"
+        "scripts/test_gitleaks_model_pin.py",
+        "scripts/tests/test_secret_history_reporting.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -515,7 +517,8 @@
         ".github/instructions/ai-engineering.md",
         "docs/ci-cd/modernization.md",
         "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json",
-        "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json"
+        "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
+        "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -527,7 +530,8 @@
         "Fixture mutation authority comes from the accepted task policy; general tool auto approval does not grant it.",
         "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery.",
         "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority.",
-        "The mandatory PR/main credential-history gate runs the same pinned scanner against intact, missing-object and restored synthetic histories before the unchanged real reachable-history scan; a missing Git object, failed control or malformed mode cannot produce successful qualification."
+        "The mandatory PR/main credential-history gate runs the same pinned scanner against intact, missing-object and restored synthetic histories before the unchanged real reachable-history scan; a missing Git object, failed control or malformed mode cannot produce successful qualification.",
+        "Credential-history findings retain only bounded validated rule, commit, path and line identities; scanner detection or invalid/missing report evidence cannot qualify a clean history, and raw match/secret/commit-author content is never published by the identity reporter."
       ]
     },
     {
@@ -1162,6 +1166,37 @@
         "Charts and exports preserve structured check counts, source identity and complete or incomplete captured coverage.",
         "Routine summaries retain the existing 45-second first and 135-second follow-up cadence.",
         "Only a bounded, call-bound immutable source capture can refresh preview repetition after a commit or result change; saved, negative, malformed or mismatched receipts do not gain current-source or completion authority."
+      ]
+    },
+    {
+      "id": "qnn-runtime-candidate",
+      "title": "QNN candidate downloads and source build",
+      "terms": [
+        "QNN candidate",
+        "QAIRT dispatch",
+        "publisher checksum",
+        "HTTP429",
+        "Retry-After"
+      ],
+      "paths": [
+        "scripts/build_qualcomm_dispatch_candidate.py",
+        "scripts/rebuild_qualcomm_dispatch.py",
+        "scripts/check_local_runtime_apk.py",
+        ".github/workflows/qnn-runtime-candidate.yml"
+      ],
+      "tests": [
+        "scripts/tests/test_qualcomm_candidate_download.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/audits/qnn-runtime-candidate.json",
+        "docs/repairs/qnn-candidate-rate-limit-2026-11-24-task.json"
+      ],
+      "invariants": [
+        "Candidate artifact downloads retry only an opening HTTP429 within three attempts and two bounded waits; unusable server cooldowns retain the failure, and every publisher checksum and native qualification gate remains required.",
+        "The isolated candidate retains publisher pins and structural native verification; it does not establish production promotion or physical-device performance."
       ]
     }
   ]

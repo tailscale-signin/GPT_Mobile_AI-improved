@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "39b0c48f5507ab040f73e861375653ffc322cf9922d47c6e678fce77e08055c4"
+    val sourceDigest: String = "44d7851f0033da4ddc7ac750a298e9ff2e87b860ed8ffa677377aeb5d19a6ffa"
     val fileCount: Int = 3109
-    val lineCount: Int = 527300
+    val lineCount: Int = 527305
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -40,14 +40,14 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14068),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 47, 5091),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 111, 15091),
-        AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 106, 16839),
+        AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 106, 16840),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 151, 25209),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 56, 8301),
         AppAuditSourceArea("voice_and_media", "Voice and media", 128, 22454),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4095),
         AppAuditSourceArea("gateway_software", "Companion gateway software", 278, 102123),
-        AppAuditSourceArea("authentication_service", "Authentication broker software", 10, 2942),
+        AppAuditSourceArea("authentication_service", "Authentication broker software", 10, 2946),
         AppAuditSourceArea("external_integrations", "External integration servers", 63, 6513),
         AppAuditSourceArea("other_production", "Additional production source", 62, 2870)
     )

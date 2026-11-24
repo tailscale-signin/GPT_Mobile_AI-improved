@@ -813,7 +813,8 @@
         "bash scripts/validate-local.sh full"
       ],
       "documents": [
-        "docs/repairs/diagnostic-93d824fd-provider-2026-11-23-task.json"
+        "docs/repairs/diagnostic-93d824fd-provider-2026-11-23-task.json",
+        "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json"
       ],
       "invariants": [
         "Only the actual dispatched remote command or job creates Gateway uncertainty; a saved local conversation key alone does not.",
@@ -2203,9 +2204,9 @@
       "sha256": "3c4be9e7352c61a00fb64be4d6422f88ab877f1bc96b1edf8962a8120f0d760f"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt": {
-      "blob_sha": "00de874e28d8b4297c73d580c6dd49837cd65acf",
-      "bytes": 109003,
-      "sha256": "a73e38f01243a47d48dc50b6479b52f67a7f5c98dcff3b4a80f7582686edb4e1"
+      "blob_sha": "051ce620417282d9dbfeae2950dd7b937d858748",
+      "bytes": 109028,
+      "sha256": "9288c543d8c9dd4e0bd5ce0e1787c9a1f7de692d5a4f00964206de4fb66ecb0f"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/PrivateFinalRequestBoundaryTest.kt": {
       "blob_sha": "7bf29c7c0ca4ae413da57f376c5e0359eebafcb1",
@@ -2693,9 +2694,9 @@
       "sha256": "604b4ed8563d24f50945070a99e66102125faee53beb0206de9ef5b2f7c41f7d"
     },
     "docs/repairs/diagnostic-93d824fd-implementation-2026-11-23-task.json": {
-      "blob_sha": "9374cb2330789180005aa60efeedfa1f8ab7a200",
-      "bytes": 11276,
-      "sha256": "3b1910af791849f604d05a1300d92e4896ccc247dabc02d7ab5ecdc558939f81"
+      "blob_sha": "9bc4793c839b479a1a45811090f00bc512139c99",
+      "bytes": 11988,
+      "sha256": "b3844663d3b4d7fccbc7f2de40bf18e0c436c38f095a473d4df0dae437ca76a3"
     },
     "docs/repairs/diagnostic-93d824fd-native-preparation-task.json": {
       "blob_sha": "085a1a443f2e14b7fa87a00a0d28f62216b00195",
@@ -2746,6 +2747,11 @@
       "blob_sha": "e91e7966fc38824a9caf3b14a40e7536205eac3e",
       "bytes": 9775,
       "sha256": "11e8309a920ad344493cd7d6c220b893d2139dab2c0b18a1fcaf0ca7c1bac12c"
+    },
+    "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json": {
+      "blob_sha": "5c3b2654c0a667692912244ebd7e333f3ac9103c",
+      "bytes": 1975,
+      "sha256": "186513deb81643e34662176765f143e18341bc586a866a8e74d4f5c2fa18dcee"
     },
     "docs/repairs/phone-repository-map-2026-11-22.md": {
       "blob_sha": "23da70ead0d18768ec4376fc0e79c5375e8b6a50",

@@ -772,7 +772,7 @@ class OpenAIRecoveryTransportTest {
                                     responses -> "data: {\"type\":\"error\",\"code\":\"429\",\"message\":\"Provider capacity\"}\n\n"
                                     else -> "data: {\"error\":{\"code\":429,\"message\":\"Provider capacity\"}}\n\n"
                                 }
-                                respond(body, if (streamed) HttpStatusCode.OK else HttpStatusCode.TooManyRequests, headersOf(headers))
+                                respond(body, if (streamed) HttpStatusCode.OK else HttpStatusCode.TooManyRequests, headersOf(*headers.toList().toTypedArray()))
                             }
                         }
                     ) { api ->

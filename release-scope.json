@@ -293,7 +293,8 @@
     "Retain a cancelled or rejected native preparation handle when destruction fails, preserve the original failure, and quarantine its factory/model/speech ownership without treating a null returned engine as successful cleanup.",
     "Honor an already-recorded SDK benchmark deadline independently of callback publication, preserve once-only cancellation and stale-owner fences, and retain measured partial PCM on runtime-link failure.",
     "Keep absent SDK stream-call evidence explicitly unknown in speech playback result cards while preserving actual zero/nonzero counts and all measurement, export and ownership behavior.",
-    "Require saved-page replay, local graph failure and provider-limit evidence capabilities in deployment readiness probes while preserving the4096-byte response bound and native-only routing."
+    "Require saved-page replay, local graph failure and provider-limit evidence capabilities in deployment readiness probes while preserving the4096-byte response bound and native-only routing.",
+    "Correct the OpenAI recovery regression header fixture to pass the existing header pairs to Ktor, preserving all eight API/command/stream cases and assertions after hosted test compilation identified the invalid map overload."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -723,6 +724,7 @@
     "docs/repairs/locked-speech-dependency-coverage-2026-11-23-task.json",
     "docs/repairs/native-speech-smoke-paths-2026-11-23-task.json",
     "docs/repairs/open-pr-issue-remediation-2026-11-23-task.json",
+    "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json",
     "docs/repairs/pillow-speech-smoke-security-2026-11-23-task.json",
     "docs/repairs/privacy-address-context-review-2026-11-23-task.json",
     "docs/repairs/privacy-cancellation-health-controls-2026-11-23-task.json",

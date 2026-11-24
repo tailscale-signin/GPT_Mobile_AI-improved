@@ -809,7 +809,8 @@
         "bash scripts/validate-local.sh full"
       ],
       "documents": [
-        "docs/repairs/diagnostic-93d824fd-provider-2026-11-23-task.json"
+        "docs/repairs/diagnostic-93d824fd-provider-2026-11-23-task.json",
+        "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json"
       ],
       "invariants": [
         "Only the actual dispatched remote command or job creates Gateway uncertainty; a saved local conversation key alone does not.",

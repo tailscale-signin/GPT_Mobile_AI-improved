@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "task": "openai-recovery-header-compile-2026-11-24",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parentPr": 2367,
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseCommit": "d48509ecc158182f339d36b68fc3016821f0c669",
+  "workingBranch": "work/93d824fd-recovery-header-compile",
+  "intent": "Correct the Ktor headersOf vararg call in the actual hosted-failing OpenAI recovery test without changing its header cases, dispatch paths or assertions.",
+  "status": "IMPLEMENTED_STATIC_CHECKS_PASSED_HOSTED_COMPILATION_PENDING",
+  "scope": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt"
+  ],
+  "ownership": "Narrow hosted compiler correction. Readiness routing and privacy mapping remain with their reserved owners. Root owns derived metadata, combined validation and public append.",
+  "evidence": {
+    "workflowRun": 45299454235,
+    "job": 138128144633,
+    "task": ":app:compileDebugUnitTestKotlin",
+    "sourceLocation": "OpenAIRecoveryTransportTest.kt:775:126",
+    "compilerDiagnostic": "Argument type mismatch: actual type is Map<String, List<String>>, but Pair<String, List<String>> was expected."
+  },
+  "validation": {
+    "status": "STATIC_CHECKS_PASSED",
+    "checks": [
+      "Repository-wide Kotlin headersOf search found this as the only bare map-argument call; no second identical overload mistake found.",
+      "Pinned ktlint 1.3.1 passed for OpenAIRecoveryTransportTest.kt.",
+      "git diff --check passed and the task ledger parsed as JSON.",
+      "The Kotlin diff changes exactly one expression to spread the existing map's pairs. All eight API/command/stream combinations, header values and existing assertions are unchanged."
+    ],
+    "limitation": "No local Kotlin/Android compilation, standalone harness, test skips or workflow reruns. The corrected source still requires actual hosted project compilation and ordinary tests."
+  }
+}

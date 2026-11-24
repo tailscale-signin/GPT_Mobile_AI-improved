@@ -10,7 +10,7 @@
   "recordedBeforeSourceEdit": true,
   "status": "OWNED_SOURCE_CLOSED_FINAL_QUALIFICATION_AND_TYPED_PRIVACY_OWNER_PENDING",
   "intent": "Implement every actionable finding in the diagnostic audit, preserve all concurrent owner changes, validate the final draft, merge on green, validate actual main and verify joint publication.",
-  "latestObservedHead": "9f475b1d8f94ee31b8b8857a064c0517511cb310",
+  "latestObservedHead": "d48509ecc158182f339d36b68fc3016821f0c669",
   "lanes": {
     "github": "qualified fresh head recovery, persisted paths, saved-page diagnostic contract and qualification",
     "provider": "durable limit handoff, typed 402, suspend method size and DEX guard",
@@ -53,7 +53,8 @@
     "concurrentNativeIntegration": "Observed the new public head before blob upload; adopted its full immutable commit/production/tests. Source review of native lifecycle/evidence and final combined frozen host qualification follow; preserve its83required ordinary methods, all prior methods and separate physical limits.",
     "concurrentNativeEvidenceReview": "Independent source review found no blocker in SDK engine/Stability/PCM/export/native-v5 evidence: requested delegates remain distinct from unobserved hardware,20warm samples and bounded callback/timeline totals remain explicit, three-shape retention preserves640MiB single/1280MiB aggregate estimates and512MiB reserve, and unmeasured PCM remains distinct from scanned silence. No runtime or physical claim.",
     "retainedTestInventory": "Preserve all58prior owner/publisher manifests, current owner2109named methods and492peer selectors. d74native extends retained baseline to203suites/2165names including all83required changed native-owner methods; final source inventory adds every changed diagnostic/provider/graph method. Six ordinary assumption exceptions require separate256MiB/64MiB gate passes.",
-    "nativeIntegrationCorrections": "Independent review closed the failed native preparation destructor escape, delayed SDK timeout notification race, partial PCM omission on LinkageError, and cleanup issue precedence during cancellation. Actual helper/runner/model-store/speech-lease and deterministic watchdog/runner tests are added; ordinary project execution remains pending. Existing native gates and every prior method remain required."
+    "nativeIntegrationCorrections": "Independent review closed the failed native preparation destructor escape, delayed SDK timeout notification race, partial PCM omission on LinkageError, and cleanup issue precedence during cancellation. Actual helper/runner/model-store/speech-lease and deterministic watchdog/runner tests are added; ordinary project execution remains pending. Existing native gates and every prior method remain required.",
+    "hostedCompileRepair": "Public d485 GitHub build-download job138128144633 and release-validation job138128314548 passed production compilation, then both reported the same single OpenAIRecoveryTransportTest.kt775 map-to-Pair-vararg compiler error. The reviewed one-expression correction preserves every header and all eight matrix cases/assertions. Reversal reconstructs the complete prior test file; final hosted test compilation/execution remains pending."
   },
   "rootChanges": [
     "Parse authenticated protected JSON from bounded byte streams with strict UTF-8 and shape validation; avoid full plaintext String copies.",
@@ -96,10 +97,14 @@
     ],
     "deploymentProbe": [
       "2e30b15ce9a8cff65204004a2f0460baf77e72ee"
+    ],
+    "ciFixture": [
+      "bd7cf90ff9e61c69ce4441ef783fe60c57e0f832"
     ]
   },
   "remainingExternalSource": [
-    "Typed PrivateDispatchRejected through actual adapter/masked-session for reports2411/2412, owned by existing coordinator."
+    "Typed PrivateDispatchRejected through actual adapter/masked-session for reports2411/2412, owned by existing coordinator.",
+    "Extended-readiness selection for saved-page, local graph, provider-limit and related existing replay/graph transport evidence; owned by existing privacy coordinator."
   ],
   "additionalIntegrationFindings": [
     "Retain failed native factory cleanup after cancellation during preparation and propagate quarantine through runner/ViewModel before releasing model/process ownership.",

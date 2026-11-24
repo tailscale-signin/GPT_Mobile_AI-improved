@@ -578,6 +578,7 @@ internal object IssueReportIncidents {
         val run = evidence.runIdHash ?: return false
         val fields = evidence.diagnostics?.values ?: return false
         val catalog = fields["catalog_revision_hash"] ?: return false
+        val missingTool = fields["missing_tool_hash"] ?: return false
         if (fields["catalog_rejection_count"] != JsonPrimitive(1) || fields["tool_reason_code"] != JsonPrimitive("UNKNOWN_TOOL")) return false
         val queued = mutablePending.value
         val index = queued.indexOfFirst {
@@ -585,6 +586,7 @@ internal object IssueReportIncidents {
             it.errorCode == code &&
                 it.context?.runIdHash == run &&
                 earlier["catalog_revision_hash"] == catalog &&
+                earlier["missing_tool_hash"] == missingTool &&
                 earlier["tool_reason_code"] == fields["tool_reason_code"]
         }
         if (index < 0) return false

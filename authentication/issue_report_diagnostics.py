@@ -375,10 +375,10 @@ ENUMS.update({
     "reasoning_probe_thinking": REASONING_PROBE_NEGATIVES,
 })
 FLAGS.update({"native_trace_truncated", "search_explicit_mode"})
-HASH_FIELDS.update({"native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash", "research_blocker_receipt_hash", "catalog_revision_hash"})
+HASH_FIELDS.update({"native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash", "research_blocker_receipt_hash", "catalog_revision_hash", "missing_tool_hash"})
 COUNTS.update({"research_unread_sources", "research_read_sources", "research_blocked_sources", "catalog_rejection_count", "catalog_selector_count"})
 HASH_LISTS.add("catalog_rejected_call_hashes")
-FIELDS_BY_AREA["TOOL"].update({"catalog_revision_hash", "catalog_rejection_count", "catalog_selector_count", "catalog_rejected_call_hashes"})
+FIELDS_BY_AREA["TOOL"].update({"catalog_revision_hash", "missing_tool_hash", "catalog_rejection_count", "catalog_selector_count", "catalog_rejected_call_hashes"})
 FIELDS_BY_AREA["INCIDENT"].update({"failure_boundary", "stream_answer_state", "research_delivery_criterion", "research_unread_sources", "research_read_sources", "research_blocked_sources", "research_blocker_receipt_hash"})
 COUNTS.update({"search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count"})
 REQUIRED_SCHEMA_DETAIL_FIELDS = {"required_schema_count", "required_catalog_schema_tokens", "required_recovery_schema_tokens", "required_github_operation_tokens"}

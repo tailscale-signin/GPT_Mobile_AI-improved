@@ -351,7 +351,8 @@
     "Recover interrupted GitHub result replay and CI watches at the selected revision, share phone index batches and resume saved progress, retain editable silenced speech, and preserve bounded research and diagnostic evidence across the issue cohorts reported through #2526. Build unsigned packages for release candidates and retain signed payload inventory on gate failures.",
     "Exclude the unused MediaPipe proofreading/summarization JNI, enforce retention of actual speech and embedding JNI, and losslessly recompress and align every unsigned APK before signature and strict size checks.",
     "Preserve a bound local phone deadline in public reporting, restore reply playback after explicitly sending an interrupted voice draft, and bind incomplete research diagnostics to the same refreshed authorized evidence as the partial report and receipt.",
-    "Resume interrupted phone indexing from the native status body with unchanged receipt, scope, revision and cursor checks; validate unsigned packaging changes even when the version stays fixed, including the actual recompression and native provisioning helpers. Retain the 230 MiB universal limit."
+    "Resume interrupted phone indexing from the native status body with unchanged receipt, scope, revision and cursor checks; validate unsigned packaging changes even when the version stays fixed, including the actual recompression and native provisioning helpers. Retain the 230 MiB universal limit.",
+    "Wait for every observed check and commit status on a revision before continuing its authorized saved CI diagnosis. Allow one missing-capability catalog lookup per revision and require a verified, admitted reader before replaying its arguments."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1234,7 +1235,15 @@
     "scripts/tests/test_release_apk_compression.py",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolPrecheckIssueReportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/delivery/ResearchDeliveryBoundaryTest.kt",
-    "docs/repairs/recovery-review-followup-2026-11-24-task.json"
+    "docs/repairs/recovery-review-followup-2026-11-24-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CatalogMissRecovery.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReadUrlTool.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummary.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchWorker.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiWatchTask.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatChecks.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CatalogMissRecoveryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummaryTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

@@ -49,4 +49,14 @@ class GitHubCheckSummaryTest {
         assertEquals("RUNNING", check("""{"total_count":0,"check_runs":[]}""", """{"total_count":1,"state":"pending"}"""))
         assertEquals("UNKNOWN", check("""{"total_count":0,"check_runs":[]}""", "{}"))
     }
+
+    @Test fun aggregateUsesEachNamedStatusBeforeReleasingTheSavedDiagnosis() {
+        val runs = Json.parseToJsonElement("""{"total_count":0,"check_runs":[]}""").jsonObject
+        fun summary(row: String) = gitHubCheckSummary(runs, Json.parseToJsonElement("""{"total_count":1,"state":"success","statuses":[$row]}""").jsonObject, waitForAll = true)
+        assertEquals("FAILED", summary("""{"context":"build","state":"failure"}"""))
+        assertEquals("RUNNING", summary("""{"context":"build","state":"pending"}"""))
+        assertEquals("UNKNOWN", summary("""{"state":"success"}"""))
+        assertEquals("UNKNOWN", summary("""{"context":"build","state":"unknown"}"""))
+        assertEquals("PASSED", summary("""{"context":"build","state":"success"}"""))
+    }
 }

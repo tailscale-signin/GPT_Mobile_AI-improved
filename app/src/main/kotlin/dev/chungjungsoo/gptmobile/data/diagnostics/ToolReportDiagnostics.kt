@@ -240,6 +240,7 @@ internal object ToolReportDiagnostics {
                 (pathReceipt["catalog_revision_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let {
                     put("catalog_revision_hash", it)
                     put("catalog_rejection_count", 1)
+                    (pathReceipt["missing_tool_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.matches(Regex("[a-f0-9]{64}")) }?.let { value -> put("missing_tool_hash", value) }
                 }
             }
             (pathReceipt["available_tool_count"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..100_000 }?.let { put("round_catalog_tool_count", it) }

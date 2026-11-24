@@ -296,8 +296,7 @@ internal object GitHubCiObservationReport {
             watchName != null &&
                 row.text("tool") == watchName &&
                 result?.get("background_subscription") == JsonPrimitive(true) &&
-                result["run_id"] == runId &&
-                (result["run_attempt"] == attempt || result["run_attempt"] == null && attempt == JsonPrimitive(1)) &&
+                result["all_checks"] == JsonPrimitive(true) &&
                 result.text("head_sha") == head &&
                 result.text("subscription_id").isNotEmpty()
         }
@@ -307,7 +306,7 @@ internal object GitHubCiObservationReport {
             (if (jobId != null) "Logs for job `$jobId` are pending. " else "") +
             "The workflow outcome remains open; no passing build or new test execution is established." +
             when {
-                subscription != null -> "\n\nBackground monitoring is registered for this run. Updates will appear in its check card."
+                subscription != null -> "\n\nBackground monitoring is registered for all checks at this commit. Updates will appear in its check card."
                 runId == null -> "\n\nA workflow run and attempt at this revision have yet to be identified. Background monitoring requires that match. Refresh the checks at this commit to continue."
                 else -> "\n\nBackground monitoring has no confirmed subscription. Reopen the check at this commit to register or refresh it under the current GitHub connection."
             }

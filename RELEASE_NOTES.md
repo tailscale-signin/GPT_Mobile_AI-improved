@@ -6,6 +6,8 @@ Application native-library stripping uses the same pinned NDK as the native modu
 
 ## November 24 issue fixes
 
+- CI can wait for all observed checks and commit statuses on a revision, then resume the saved diagnosis once after rechecking the account, repository, profile and revision.
+- When a tool is missing, one catalog lookup can recover an authorized reader. Each catalog revision retains its own attempt history. Recovery checks the reader's declared capabilities and schema before using the original arguments.
 - GitHub chat can reopen an exact missing local result page, make room for it before optional history, and recover a pull request read after the branch head changes.
 - Running CI can look up a matching workflow, register or reattach its watch, and report why monitoring is pending. Watches distinguish workflow attempts. Integration reports identify the blocked capability and the prerequisites to resume.
 - Concurrent phone index requests share the same authorized batch. Each caller checks repository access, and an interrupted batch can resume from its saved revision and issued cursor. Recovery recognizes the phone's own status response before resuming that cursor.

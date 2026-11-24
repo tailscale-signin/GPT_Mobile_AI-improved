@@ -4,6 +4,14 @@ from authentication.issue_report_diagnostics import CORE_FIELDS, validate_diagno
 
 
 class FailureDetailsTest(unittest.TestCase):
+    def test_catalog_rejections_carry_only_a_bounded_missing_tool_fingerprint(self):
+        values = {"catalog_revision_hash": "a" * 64, "missing_tool_hash": "b" * 64,
+                  "catalog_rejection_count": 2}
+        sample = self.snapshot("TOOL", values)
+        self.assertEqual(sample, validate_diagnostics(sample))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.snapshot("TOOL", {**values, "missing_tool_hash": "private_tool_name"}))
+
     def test_repository_interruptions_keep_their_closed_cause_without_private_source_data(self):
         from authentication import repository_operation_report_contract as contract
         from authentication.issue_reports import ERROR_CODES

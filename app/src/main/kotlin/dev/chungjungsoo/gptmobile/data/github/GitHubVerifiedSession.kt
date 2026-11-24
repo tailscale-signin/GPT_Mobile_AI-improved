@@ -352,6 +352,7 @@ internal class GitHubVerifiedSession(
                     val watch = tools.singleOrNull { it.modelVisible && JsonPrimitive(it.name) == report["watch_tool"] }
                     val args = buildJsonObject {
                         put("run_id", report.getValue("run_id"))
+                        put("all_checks", true)
                         put("commit_sha", report.getValue("head_sha"))
                         if ((watch?.inputSchema?.get("properties") as? JsonObject)?.containsKey("run_attempt") == true) report["run_attempt"]?.let { put("run_attempt", it) }
                     }
@@ -365,7 +366,7 @@ internal class GitHubVerifiedSession(
                         val id = (if (reattach) "ci-watch-reattach-" else "ci-watch-") + GitHubEvidenceBook.digest("${evidence.checkpointBinding()}|$args").take(24)
                         if (receipts.values.none { it["call_id"] == JsonPrimitive(id) }) {
                             if (reattach) validatePublication()
-                            progress("Registering a background check for the active workflow")
+                            progress("Registering background monitoring for all checks at the observed commit")
                             emit(ProviderEvent.ToolCall(id, watch.name, args))
                             emit(ProviderEvent.Completed)
                             return@flow

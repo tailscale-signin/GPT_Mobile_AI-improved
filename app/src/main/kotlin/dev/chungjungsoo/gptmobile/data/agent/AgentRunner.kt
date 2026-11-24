@@ -449,6 +449,7 @@ class AgentRunner(
                 resolvedCalls.filterNot { it.callId in restoredCompleted }.forEach { emit(AgentRunEvent.Provider(it)) }
                 val calls = routeSearchCalls(resolvedCalls, executableToolByName)
                 savedResultRecovery.record(calls)
+                calls.filter { CatalogMissRecovery.isRecovery(it.callId) }.forEach { catalogRecoveryAttempts.add(it.callId) }
                 if (calls.isEmpty()) {
                     // A successful delivery round may acknowledge the page without
                     // choosing another tool. Resume only an already-admitted automatic
@@ -698,6 +699,11 @@ class AgentRunner(
                     return AutomaticRead(it, "Reading the next workflow page from the issued continuation.")
                 }
             }
+            if (remoteAllowed && ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) > 0) {
+                CatalogMissRecovery.next(exchanges, definitions.filter { it.name in executableToolByName }, catalogRecoveryAttempts)?.let {
+                    return AutomaticRead(it, if (it.name == ProgressiveToolCatalog.NAME) "Checking the authorized tool catalog." else "Using the verified reading tool from the catalog.")
+                }
+            }
             if (!limits.githubTask) return null
             if (remoteAllowed && !limits.githubTaskRequest.isNullOrBlank() && ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) > 0) {
                 PhoneIndexContinuation.next(exchanges, definitions.filter { it.name in executableToolByName })?.let {
@@ -761,6 +767,7 @@ class AgentRunner(
         val unknownOutcomes = java.util.concurrent.ConcurrentHashMap<String, JsonObject>()
         val consumedCallIds = recovery?.consumedCallIds.orEmpty().toMutableSet()
         val deliveredResultDigests = recovery?.deliveredResultDigests.orEmpty().toMutableMap()
+        val catalogRecoveryAttempts = recovery?.completedExchanges.orEmpty().flatMap { it.calls }.map { it.callId }.filter(CatalogMissRecovery::isRecovery).toMutableSet()
         val savedResultRecovery = GitHubReplayRecovery.State(
             recovery?.completedExchanges.orEmpty().flatMap { it.calls } + recovery?.pending.orEmpty(),
             recovery?.completedExchanges.orEmpty().flatMap { it.results } + recovery?.pendingCompletedExchange?.results.orEmpty()
@@ -1437,7 +1444,7 @@ class AgentRunner(
                 limits.maxToolOutputBytes
             ) != null
         val canReadOtherSources = savedReadAvailable ||
-            (plan.unavailableIds.isNotEmpty() && executableToolByName.isNotEmpty()) ||
+            (plan.unavailableIds.isNotEmpty() && executableToolByName.isNotEmpty() && deferredResults.any { it.callId in plan.unavailableIds && it.executionReceipt?.get("same_catalog_rejection") != JsonPrimitive(true) }) ||
             hostSuppressedIds.isNotEmpty() ||
             deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName }
         // Give a scoped read one round to choose another source, then stop
@@ -1566,6 +1573,8 @@ class AgentRunner(
                         put("dispatched", false)
                         put("retryable", false)
                         put("available_tool_count", availableNames.size)
+                        put("missing_tool_hash", dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(call.name))
+                        put("same_catalog_rejection", previouslyUnavailable)
                         catalogHash?.let { put("catalog_revision_hash", it) }
                         put("discovery_available", ProgressiveToolCatalog.NAME in availableNames)
                         suggested?.let { put("suggested_tool", it) }

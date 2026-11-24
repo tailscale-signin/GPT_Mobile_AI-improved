@@ -2,11 +2,15 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApi
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringApiFactory
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceDao
@@ -211,10 +215,65 @@ class GitHubCheckWatchConcurrencyTest {
         put("wait_timeout_seconds", seconds)
     }
 
-    private fun api(response: suspend () -> String) = object : GitHubEngineeringApi({ "token" }) {
+    private fun api(expectedPath: String = "/repos/owner/repo/actions/runs/42", response: suspend () -> String) = object : GitHubEngineeringApi({ "token" }) {
         override suspend fun request(path: String, method: String, body: JSONObject?): String {
-            assertEquals("/repos/owner/repo/actions/runs/42", path)
+            assertEquals(expectedPath, path)
             return response()
+        }
+    }
+
+    @Test fun wholeCommitWatchWaitsForTheOtherWorkflowAfterAnchorSucceeds() = runBlocking {
+        var secondStatus = "in_progress"
+        var secondConclusion: String? = null
+        val aggregateApi = object : GitHubEngineeringApi({ "token" }) {
+            override suspend fun request(path: String, method: String, body: JSONObject?): String = when (path) {
+                "/repos/owner/repo/commits/$head/check-runs?per_page=100&page=1" -> {
+                    val second = buildJsonObject {
+                        put("id", 2)
+                        put("status", secondStatus)
+                        secondConclusion?.let { put("conclusion", it) }
+                    }
+                    """{"total_count":2,"check_runs":[{"id":1,"status":"completed","conclusion":"success"},$second]}"""
+                }
+                "/repos/owner/repo/commits/$head/status?per_page=100" -> """{"total_count":0,"statuses":[]}"""
+                else -> error("Unexpected watch request $path")
+            }
+        }
+        val repository = fixture(aggregateApi).repository
+        val watch = watch().copy(allChecks = true)
+        val pending = repository.inspect(watch, aggregateApi)
+        assertEquals("RUNNING", pending.status)
+        assertFalse(pending.terminal)
+        secondStatus = "completed"
+        secondConclusion = "failure"
+        val failed = repository.inspect(pending, aggregateApi)
+        assertEquals("FAILED", failed.status)
+        assertTrue(failed.terminal)
+    }
+
+    @Test fun terminalAggregateResumesOnlyItsBoundSourceOnceAndIgnoresAChangedHead() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "CI", model = "tester")
+        val scope = GitHubConversationContext("connection", "owner", "repo", "main", head, "profile")
+        val task = GitHubCiWatchTask("original", 10, "main", "tester", GitHubApprovalBinding.profileContract(profile.compatibleType.name, profile.apiUrl, profile.providerConnectionUid, profile.reasoning))
+        val terminal = watch().copy(allChecks = true, waitingTasks = listOf(task), status = "PASSED")
+        var live = head
+        val fixture = fixture(api("/repos/owner/repo/commits/main") { """{"sha":"$live"}""" }, initial = record(terminal), profile = profile, features = AppFeatureSettings(conversationGitHub = mapOf(1 to scope)))
+        val db = fixture.workspace.database
+        var state = AgentRunStatus.RUNNING
+        coEvery { db.agentRunDao().getById("original") } answers { AgentRun("original", 1, 10, 11, "profile", "OPENAI", "tester", state) }
+        coEvery { db.agentPersistenceDao().rawRecoveryMessage(10) } returns MessageV2(id = 10, chatId = 1, platformType = null, content = "Diagnose CI failures")
+        coEvery { db.agentPersistenceDao().getChatRoom(1) } returns ChatRoomV2(id = 1, title = "CI", activePlatform = listOf("profile"))
+        val queue = mockk<DurablePromptQueue>(relaxed = true)
+        val lazyQueue = dagger.Lazy { queue }
+        assertFalse(fixture.repository.deliverTerminalTasks(terminal.id, lazyQueue))
+        state = AgentRunStatus.COMPLETED
+        assertTrue(fixture.repository.deliverTerminalTasks(terminal.id, lazyQueue))
+        assertTrue(fixture.repository.deliverTerminalTasks(terminal.id, lazyQueue))
+        live = "b".repeat(40)
+        fixture.record.set(record(terminal))
+        assertTrue(fixture.repository.deliverTerminalTasks(terminal.id, lazyQueue))
+        coVerify(exactly = 1) {
+            queue.enqueue(1, "Continue", match { it.recovery?.sourceMessageId == 10 && it.tools.github?.commitSha == head }, "github-ci-task:${terminal.id}:$head:10")
         }
     }
 

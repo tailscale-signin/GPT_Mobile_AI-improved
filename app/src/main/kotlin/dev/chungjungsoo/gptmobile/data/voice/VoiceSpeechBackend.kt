@@ -2,9 +2,9 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 internal enum class VoiceSpeechBackend(val label: String) {
     AUTO("Auto · measured on this phone"),
-    CPU("On-device CPU"),
-    QNN_GPU("Adreno GPU"),
-    QNN_HTP("Hexagon NPU"),
+    CPU("On-device CPU · recommended"),
+    QNN_GPU("Adreno GPU · experimental"),
+    QNN_HTP("Hexagon NPU · experimental"),
     GATEWAY_CUDA("Gateway CUDA · optional"),
     LITERT_KOKORO_CPU("Kokoro streaming · CPU"),
     LITERT_KOKORO_GPU("Kokoro streaming · GPU requested"),

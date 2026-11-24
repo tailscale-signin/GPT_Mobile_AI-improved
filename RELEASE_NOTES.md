@@ -2,6 +2,16 @@
 
 Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
+## CPU, GPU and NPU speech follow-up
+
+- Keep CPU as the recommended default and mark the native GPU/NPU options experimental while preserving saved selections and CPU-reference admission.
+- Reject even one clipped raw PCM sample before playback, preserve its precise failure measurements, and require zero clipping in both sides of CPU-reference comparison. Refresh accelerator qualification after the runtime change.
+- Prepare the first CPU inference silently for the selected voice and rate. Live replies take priority, optional preparation skips elevated or unknown thermal state, and stale cancellation deadlines cannot stop later speech.
+- Export the hottest observed CPU/QNN operator categories with bounded counts and timings, explicit first-inference/reuse scope and no raw node names.
+- Add optional whole-device battery-counter evidence, honest interrupted/charging/unsupported states, and engineering goals for first PCM, long-speech RTF, clipping and accelerator kernel-time share. The goals are separate from measured results.
+
+Optional battery-counter decreases describe whole-device observations, not energy attributable to a speech engine, wattage or savings; missing, coarse, interrupted or charging observations remain explicit. Silent CPU warmup and strict zero-clipping controls do not prove target-phone speed or acoustic continuity. Persistent QNN context export failed the pinned ORT 1.28.2 host control with a duplicate tensor definition, so on-disk compiled-context caching remains disabled; in-process memory-admitted shape caching is retained.
+
 ## Diagnostic recovery and export completion
 
 - Follow the newest qualified head of the same pull request and connection. Requalify reads after a head change and allow one bounded read-only refresh/retry without replaying mutations or renewing task limits.

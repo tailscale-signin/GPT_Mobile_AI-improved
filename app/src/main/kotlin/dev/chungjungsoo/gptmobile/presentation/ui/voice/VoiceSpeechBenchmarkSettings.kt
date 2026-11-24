@@ -45,14 +45,17 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkAudioReference
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBackendResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBackendState
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkConfiguration
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEnergyObservation
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkFixture
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkIssue
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkMode
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkOutcome
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkReport
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkTargets
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkWorkload
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechCalibrationPolicy
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEnergyStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackScenario
 import dev.chungjungsoo.gptmobile.data.voice.mediaPipeEngine
@@ -298,17 +301,44 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
         Text("${report.configuration.workload.label} · ${report.completedSamples}/${report.totalSamples} fixture iterations", style = MaterialTheme.typography.bodySmall)
         for (result in report.engineResults) VoiceSpeechEngineBenchmarkCard(result)
     }
+    for (observation in report.energyObservations) VoiceSpeechBenchmarkEnergySummary(observation)
+    Text(
+        "Engineering goals · not measured results: preparation to first PCM below ${VoiceSpeechBenchmarkTargets.PREPARE_TO_FIRST_PCM_MS} ms; warm first PCM below ${VoiceSpeechBenchmarkTargets.WARM_FIRST_PCM_MS} ms; long-speech RTF below ${VoiceSpeechBenchmarkTargets.LONG_SPEECH_RTF}; zero clipped samples or playback interruptions. Accelerator kernel time share above ${(VoiceSpeechBenchmarkTargets.ACCELERATOR_KERNEL_TIME_SHARE * 100).toInt()}% is a goal where feasible and does not determine qualification.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
     Text(
         if (report.configuration.playback) {
-            "Presented audio uses the production AudioTrack timestamp or playback head. Caption checks validate that clock, not perceptual word accuracy. Independent fixture manifests detect missing caption sections. Acoustic speaker latency, acoustic word alignment, CPU/GPU/NPU utilization and battery energy remain unmeasured."
+            "Presented audio uses the production AudioTrack timestamp or playback head. Caption checks validate that clock, not perceptual word accuracy. Independent fixture manifests detect missing caption sections. Acoustic speaker latency, acoustic word alignment, CPU/GPU/NPU utilization and energy attributable to an engine remain unmeasured."
         } else if (nativeEngine) {
-            "First PCM is the first complete native chunk; total synthesis includes every chunk. Accelerator ranking requires comparable duration, token timing and signal against CPU for the same input and settings. This numerical check does not establish listening quality. Playback and acoustic latency, underruns and battery energy are unmeasured. First use retains the phone's file cache. Medians average the middle pair; p95 is withheld below twenty samples."
+            "First PCM is the first complete native chunk; total synthesis includes every chunk. Accelerator ranking requires comparable duration, token timing and signal against CPU for the same input and settings. This numerical check does not establish listening quality. Playback and acoustic latency, underruns and energy attributable to an engine are unmeasured. First use retains the phone's file cache. Medians average the middle pair; p95 is withheld below twenty samples."
         } else {
-            "First PCM is the first nonempty SDK callback. Timings include the engine's stream calls and callback delivery. The spoken fixtures are shared, but each engine has its own voice and internal timing. Intelligibility, listening quality, acoustic latency, energy and actual processor placement remain unmeasured. These results do not select a cross-engine winner."
+            "First PCM is the first nonempty SDK callback. Timings include the engine's stream calls and callback delivery. The spoken fixtures are shared, but each engine has its own voice and internal timing. Intelligibility, listening quality, acoustic latency, energy attributable to an engine and actual processor placement remain unmeasured. These results do not select a cross-engine winner."
         },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
+}
+
+@Composable
+private fun VoiceSpeechBenchmarkEnergySummary(observation: VoiceSpeechBenchmarkEnergyObservation) {
+    val summary = when (observation.status) {
+        VoiceSpeechEnergyStatus.IN_PROGRESS -> "observing whole-device battery counter"
+        VoiceSpeechEnergyStatus.INTERRUPTED -> "battery observation interrupted; final endpoint unavailable"
+        VoiceSpeechEnergyStatus.COUNTER_UNAVAILABLE -> "battery energy counter unavailable"
+        VoiceSpeechEnergyStatus.POWER_STATE_UNKNOWN -> "power state unknown; no counter difference reported"
+        VoiceSpeechEnergyStatus.EXTERNAL_POWER_OBSERVED -> "external power observed; no counter difference reported"
+        VoiceSpeechEnergyStatus.MONITOR_UNCONFIRMED -> "power monitoring unconfirmed; endpoints only"
+        VoiceSpeechEnergyStatus.TIMING_UNAVAILABLE -> "observation interval unavailable; endpoints only"
+        VoiceSpeechEnergyStatus.COUNTER_ZERO_OR_RESET -> "zero counter or possible reset; endpoints only"
+        VoiceSpeechEnergyStatus.COUNTER_INCREASED -> "counter increased; possible recharge or reset"
+        VoiceSpeechEnergyStatus.NO_COUNTER_CHANGE -> "counter unchanged; this does not establish zero consumption"
+        VoiceSpeechEnergyStatus.COUNTER_DECREASE_OBSERVED -> "whole-device counter decreased by ${format(checkNotNull(observation.observedCounterDecreaseNanowattHours) / 1_000_000.0)} mWh over ${format(checkNotNull(observation.elapsedMs) / 1000.0)} s"
+    }
+    Text("${observation.requestedBackend.label} · $summary", style = MaterialTheme.typography.bodySmall)
+    if (observation.status == VoiceSpeechEnergyStatus.COUNTER_DECREASE_OBSERVED) {
+        Text("Includes the display, background apps, preparation and reporting. Device counter resolution and power-event delivery vary; this observation cannot establish engine energy, power or savings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable

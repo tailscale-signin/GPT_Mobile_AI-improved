@@ -19,7 +19,9 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceBackendCapabilityStore
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhraseEngineFactory
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBackend
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBackendState
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBatterySource
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkConfiguration
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEnergyTracker
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkIssue
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkMode
@@ -196,23 +198,27 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
             engineResults = if (nativeEngine) emptyList() else backends.map(::VoiceSpeechEngineBenchmarkResult)
         )
         var persistedSamples = -1
+        val batterySource = VoiceSpeechBenchmarkBatterySource(context)
+        val energy = VoiceSpeechBenchmarkEnergyTracker(batterySource::begin)
         fun publish(value: VoiceSpeechBenchmarkReport) {
-            val normalized = if (value.isRunning) {
-                value
-            } else {
-                value.copy(
-                    results = value.results.map { result ->
-                        if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) {
-                            result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN)
-                        } else {
-                            result
+            val normalized = energy.attach(
+                if (value.isRunning) {
+                    value
+                } else {
+                    value.copy(
+                        results = value.results.map { result ->
+                            if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) {
+                                result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN)
+                            } else {
+                                result
+                            }
+                        },
+                        engineResults = value.engineResults.map { result ->
+                            if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN) else result
                         }
-                    },
-                    engineResults = value.engineResults.map { result ->
-                        if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN) else result
-                    }
-                )
-            }
+                    )
+                }
+            )
             report = normalized
             // Stage notifications stay in memory; disk I/O cannot inflate the first-PCM measurement.
             val progress = normalized.completedChunks + normalized.playbackResults.size
@@ -353,8 +359,12 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
         } catch (_: LinkageError) {
             publish(report.copy(state = VoiceSpeechBenchmarkRunState.FAILED, issue = VoiceSpeechBenchmarkIssue.EXECUTION_FAILED, finishedAtMillis = System.currentTimeMillis()))
         } finally {
-            if (report.isRunning) {
-                publish(report.copy(state = VoiceSpeechBenchmarkRunState.INTERRUPTED, finishedAtMillis = System.currentTimeMillis()))
+            try {
+                if (report.isRunning) {
+                    publish(report.copy(state = VoiceSpeechBenchmarkRunState.INTERRUPTED, finishedAtMillis = System.currentTimeMillis()))
+                }
+            } finally {
+                energy.close()
             }
             val unconfirmed = runner.get()?.takeIf { it.nativeCleanupPending }
                 ?: engineRunner.get()?.takeIf { it.nativeCleanupPending }

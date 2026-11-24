@@ -1,18 +1,63 @@
 #ifndef MELO_KOKORO_PROFILE_H_
 #define MELO_KOKORO_PROFILE_H_
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
-struct KokoroProfileStats {
+struct KokoroOperatorStats {
+  std::string operation;
   int kernels = 0;
   int64_t microseconds = 0;
 };
 
+struct KokoroProfileStats {
+  int kernels = 0;
+  int64_t microseconds = 0;
+  std::vector<KokoroOperatorStats> operators;
+};
+
 namespace kokoro_profile_detail {
+
+// These are public operator types, never node names, graph hashes, paths or
+// caller-controlled strings. QNN's opaque fused-node names describe partitions,
+// not the operators inside them; collapse them to an explicitly generic label.
+inline std::string OperatorLabel(const std::string &operation, const std::string &provider) {
+  static constexpr std::string_view known[] = {
+      "Abs", "Add", "And", "ArgMax", "ArgMin", "Attention", "AveragePool", "Cast", "Ceil", "Clip",
+      "Concat", "Constant", "ConstantOfShape", "Conv", "ConvInteger", "ConvTranspose", "Cos", "CumSum",
+      "DequantizeLinear", "Div", "DynamicQuantizeLinear", "DynamicQuantizeLSTM", "EmbedLayerNormalization",
+      "Equal", "Erf", "Exp", "Expand", "FastGelu", "Flatten", "Floor", "FusedConv", "Gather",
+      "GatherElements", "GatherND", "Gelu", "Gemm", "GlobalAveragePool", "Greater", "GreaterOrEqual",
+      "Identity", "If", "InstanceNormalization", "LayerNormalization", "LeakyRelu", "Less", "LessOrEqual",
+      "Log", "Loop", "LSTM", "MatMul", "MatMulInteger", "MatMulIntegerToFloat", "Max", "MaxPool", "Min",
+      "Mul", "Neg", "NonZero", "Not", "Pad", "Pow", "PRelu", "QLinearConv", "QLinearMatMul",
+      "QuantizeLinear", "RandomNormal", "RandomNormalLike", "Range", "Reciprocal", "ReduceL2", "ReduceMax",
+      "ReduceMean", "ReduceMin", "ReduceProd", "ReduceSum", "Relu", "Reshape", "Resize", "Round",
+      "ScatterElements", "ScatterND", "Shape", "Sigmoid", "Sin", "SkipLayerNormalization", "Slice",
+      "Softmax", "Split", "Sqrt", "Squeeze", "Sub", "Tanh", "Tile", "TopK", "Transpose", "Trilu",
+      "Unsqueeze", "Where"};
+  if (provider == "QNNExecutionProvider" && operation.rfind("QNNExecutionProvider_", 0) == 0)
+    return "QnnPartition";
+  for (const auto label : known) if (operation == label) return std::string(label);
+  return "Other";
+}
+
+inline void ObserveOperator(KokoroProfileStats &profile, const std::string &operation,
+    const std::string &provider, int64_t microseconds) {
+  const auto label = OperatorLabel(operation, provider);
+  for (auto &observed : profile.operators) if (observed.operation == label) {
+    ++observed.kernels;
+    observed.microseconds += microseconds;
+    return;
+  }
+  // The fixed vocabulary above plus Other/QnnPartition bounds unique buckets.
+  profile.operators.push_back({label, 1, microseconds});
+}
 
 // Scan once without copying whole events or repeatedly searching nested shape
 // and thread records. Only event-level labels and args.provider prove execution.
@@ -159,19 +204,20 @@ class Reader {
     else Skip(2);
   }
 
-  void Provider(std::string &provider) {
+  void Arguments(std::string &provider, std::string &operation) {
     if (!Take('{')) { Skip(2); return; }
-    bool seen = false;
+    unsigned seen = 0;
     if (!Take('}')) {
       do {
         std::string key;
         String(&key);
         Expect(':');
-        if (key == "provider") {
-          if (seen) Invalid();
-          seen = true;
-          Label(provider);
-        } else Skip(3);
+        const unsigned bit = key == "provider" ? 1 : key == "op_name" ? 2 : 0;
+        if (seen & bit) Invalid();
+        seen |= bit;
+        if (bit == 1) Label(provider);
+        else if (bit == 2) Label(operation);
+        else Skip(3);
       } while (Take(','));
       Expect('}');
     }
@@ -179,7 +225,7 @@ class Reader {
 
   void Event() {
     Expect('{');
-    std::string category, phase, name, provider;
+    std::string category, phase, name, provider, operation;
     double duration = 0;
     unsigned seen = 0;
     if (!Take('}')) {
@@ -194,7 +240,7 @@ class Reader {
         if (bit == 1) Label(category);
         else if (bit == 2) Label(phase);
         else if (bit == 4) Label(name);
-        else if (bit == 8) Provider(provider);
+        else if (bit == 8) Arguments(provider, operation);
         else if (bit == 16 && (Peek() == '-' || Digit(Peek()))) {
           const auto number = Number();
           try { duration = std::stod(std::string(number)); }
@@ -208,7 +254,9 @@ class Reader {
         name.size() >= suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0 &&
         duration > 0 && std::isfinite(duration) && duration <= 300000000) {
       ++result_.kernels;
-      result_.microseconds += static_cast<int64_t>(std::ceil(duration));
+      const auto microseconds = static_cast<int64_t>(std::ceil(duration));
+      result_.microseconds += microseconds;
+      ObserveOperator(result_, operation, provider, microseconds);
     }
   }
 
@@ -226,5 +274,72 @@ inline KokoroProfileStats KokoroExecutedProviderStats(const std::string &json, c
 
 inline int KokoroExecutedProviderKernels(const std::string &json, const std::string &provider) {
   return KokoroExecutedProviderStats(json, provider).kernels;
+}
+
+// Optional formatting must not replace the original JNI failure or throw from
+// its catch handler. The caller owns both strings; failure borrows the existing
+// discovery without allocating or copying it, even when enrichment ran out of
+// memory after partially filling its storage.
+template <typename Compose>
+inline const std::string &KokoroBestEffortEvidenceSummary(const std::string &discovery,
+    std::string &storage, Compose &&compose) noexcept {
+  try {
+    storage = compose();
+    return storage;
+  } catch (...) {
+    return discovery;
+  }
+}
+
+// The existing JNI discovery channel accepts at most 512 safe ASCII bytes.
+// Keep complete semicolon-delimited records, retain an explicit first-inference
+// scope, and alternate hottest CPU/QNN observations so neither provider hides
+// the other. These are observed kernel placements/times, not support reasons,
+// utilization, exclusive wall time, or timings from the current reused call.
+inline std::string KokoroObservedOperatorSummary(const std::string &discovery,
+    const KokoroProfileStats &cpu, const KokoroProfileStats &qnn, bool reused) {
+  if (cpu.operators.empty() && qnn.operators.empty()) return discovery;
+  constexpr size_t maximum = 512, discovery_limit = 192;
+  const std::string truncated = ";truncated=1";
+  std::string result;
+  size_t position = 0;
+  while (position < discovery.size()) {
+    const auto next = discovery.find(';', position);
+    const auto length = (next == std::string::npos ? discovery.size() : next) - position;
+    const auto record = std::string(result.empty() ? "" : ";") + discovery.substr(position, length);
+    if (result.size() + record.size() + truncated.size() > discovery_limit) {
+      result += truncated;
+      break;
+    }
+    result += record;
+    if (next == std::string::npos) break;
+    position = next + 1;
+  }
+  result += ";observed_ops_scope=first_inference;observed_ops_reused=";
+  result += reused ? "1" : "0";
+  auto ordered = [](const KokoroProfileStats &profile) {
+    auto operators = profile.operators;
+    std::sort(operators.begin(), operators.end(), [](const auto &first, const auto &second) {
+      return first.microseconds != second.microseconds ? first.microseconds > second.microseconds :
+          first.operation < second.operation;
+    });
+    return operators;
+  };
+  const auto cpu_ops = ordered(cpu), qnn_ops = ordered(qnn);
+  const std::string omitted = ";observed_ops_more=1";
+  bool more = cpu_ops.size() > 3 || qnn_ops.size() > 3;
+  for (size_t rank = 0; rank < 3; ++rank) {
+    for (bool accelerator : {false, true}) {
+      const auto &operators = accelerator ? qnn_ops : cpu_ops;
+      if (rank >= operators.size()) continue;
+      const auto &item = operators[rank];
+      const auto record = std::string(accelerator ? ";observed_qnn_ops=" : ";observed_cpu_ops=") +
+          item.operation + ":" + std::to_string(item.kernels) + ":" + std::to_string(item.microseconds);
+      if (result.size() + record.size() + omitted.size() <= maximum) result += record;
+      else more = true;
+    }
+  }
+  if (more) result += omitted;
+  return result;
 }
 #endif

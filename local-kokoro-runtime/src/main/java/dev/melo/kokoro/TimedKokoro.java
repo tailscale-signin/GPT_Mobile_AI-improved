@@ -5,7 +5,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /** One synthesis worker owns this model and closes it after its final phrase. */
 public final class TimedKokoro implements AutoCloseable {
     public static final int SAMPLE_RATE = 24000;
-    public static final String RUNTIME_ID = "ort1.28.2-qnn2.7-qairt2.51-convex2-profile5-cache3-progress1-parser2-validation1";
+    public static final String RUNTIME_ID = "ort1.28.2-qnn2.7-qairt2.51-convex2-profile5-cache3-progress1-parser3-validation2";
     public static final int MAX_INPUT_BYTES = 128;
     static { System.loadLibrary("timed_kokoro"); }
 
@@ -59,6 +59,8 @@ public final class TimedKokoro implements AutoCloseable {
         public final long profileId, currentPrepareMs, cacheEstimatedBytes, clippedSamples, nonSilentSamples;
         public final int cachedShapeCount, cacheLimit;
         public final double audioRms, audioPeak;
+        /** May include bounded observed_cpu_ops/observed_qnn_ops type:count:microseconds records.
+         * These describe the first-inference profile and retain an explicit reuse marker. */
         public final String discoverySummary;
         /** Current-call phase costs; null when reading the historical v2 snapshot. */
         public final Long frontendMs, validationMs, profileFinalizeMs;
@@ -120,7 +122,7 @@ public final class TimedKokoro implements AutoCloseable {
             validationReason = current && data[33] != 0 ? new String[] {
                     "NONE", "OUTPUT_COUNT", "AUDIO_TENSOR_TYPE", "AUDIO_FRAME_COUNT", "AUDIO_TOO_LONG",
                     "TIMING_TENSOR_TYPE", "TIMING_TOKEN_COUNT", "TOKEN_DURATION_INVALID", "TIMING_PCM_MISMATCH",
-                    "NONFINITE_PCM", "SILENT_PCM", "TENSOR_METADATA_UNAVAILABLE"
+                    "NONFINITE_PCM", "SILENT_PCM", "TENSOR_METADATA_UNAVAILABLE", "CLIPPED_PCM"
             }[(int) data[33]] : null;
             outputTensorCount = current && data[35] >= 0 ? data[35] : null;
             outputFrames = current && data[36] >= 0 ? data[36] : null;
@@ -137,7 +139,7 @@ public final class TimedKokoro implements AutoCloseable {
         }
 
         private static void validateCurrentEvidence(long[] data) {
-            boolean valid = data[33] >= 0 && data[33] <= 11 && data[32] >= 0 && data[32] <= 4;
+            boolean valid = data[33] >= 0 && data[33] <= 12 && data[32] >= 0 && data[32] <= 4;
             for (int index : new int[] {11, 12, 14, 23, 24, 34, 42, 46, 47}) valid &= data[index] == 0 || data[index] == 1;
             for (int index = 35; index <= 41; index++) valid &= data[index] >= -1;
             valid &= data[16] >= 0 && data[16] <= 3 && data[17] >= 1 && data[17] <= 3;
@@ -149,8 +151,13 @@ public final class TimedKokoro implements AutoCloseable {
                         data[39] > 0 && data[39] <= 511 && data[40] == 7 && data[41] >= 0 && data[42] == 1 && data[46] == 0 &&
                         data[43] > 0 && data[43] <= 30L * SAMPLE_RATE / 600 && data[43] * 600 == data[36] && data[44] > 0;
             } else valid &= data[47] == 0;
-            if (data[11] == 1) valid &= data[34] == 1 && data[47] == 1 && data[33] == 0;
+            if (data[11] == 1) valid &= data[34] == 1 && data[47] == 1 && data[33] == 0 && data[21] == 0;
             if (data[33] == 9 || data[33] == 10) valid &= data[34] == 1;
+            if (data[33] == 12) {
+                double peak = Double.longBitsToDouble(data[20]);
+                valid &= data[34] == 1 && data[47] == 1 && data[21] > 0 && data[21] <= data[36] &&
+                        Double.isFinite(peak) && peak >= 1;
+            }
             if (!valid) throw new IllegalStateException("Invalid speech execution evidence");
         }
     }

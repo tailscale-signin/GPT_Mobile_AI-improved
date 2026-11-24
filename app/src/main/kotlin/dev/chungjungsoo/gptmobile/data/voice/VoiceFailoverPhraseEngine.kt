@@ -27,6 +27,13 @@ internal class VoiceFailoverPhraseEngine(
     override val executionEvidence: VoiceSpeechExecutionEvidence? get() = active.executionEvidence
     override val executionProgress: VoiceSpeechProgress? get() = if (closed) null else active.executionProgress
 
+    override fun warmFirstInference(speaker: Int, speed: Float): Boolean {
+        checkActive()
+        val warmed = active.warmFirstInference(speaker, speed)
+        checkActive()
+        return warmed
+    }
+
     override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
         checkActive()
         val audio = try {

@@ -934,6 +934,85 @@
         "An already-recorded deadline remains effective independently of delayed notification; measured partial PCM never implies completed audio validation.",
         "Preserve unknown SDK stream-call counts as unknown in playback result displays; a missing observation is not a measured zero."
       ]
+    },
+    {
+      "id": "voice-performance-observations",
+      "title": "CPU preparation, zero-clipping admission and performance observations",
+      "terms": [
+        "CPU speech default",
+        "GPU clipped audio",
+        "silent warmup",
+        "battery counter",
+        "operator hotspots",
+        "QNN context cache",
+        "speech performance goals",
+        "unknown audio measurements"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmup.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailoverPhraseEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTracker.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkBatterySource.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReference.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBackendSettings.kt",
+        "local-kokoro-runtime/src/main/cpp/kokoro_output_validation.h",
+        "local-kokoro-runtime/src/main/cpp/kokoro_profile.h",
+        "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+        "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
+        "scripts/check_speech_native_contracts.sh"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmupTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSilentWarmupTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTrackerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkBatterySourceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt",
+        "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp",
+        "local-kokoro-runtime/src/main/cpp/kokoro_provider_profile_test.cpp",
+        "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java",
+        "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeIntegration.java",
+        "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "bash scripts/check_speech_native_contracts.sh",
+        "python3 -m unittest discover -s local-kokoro-runtime/src/testHost -p test_kokoro_reference_comparison.py"
+      ],
+      "documents": [
+        "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23.md",
+        "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23-task.json",
+        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/native-contract-validation.json",
+        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/qnn-context-cache-investigation.json",
+        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/single-cpu-waveform-validation.json",
+        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/warmup-validation.json",
+        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/benchmark-validation.json",
+        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/ordinary-test-methods.json",
+        "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/integration-validation.json"
+      ],
+      "invariants": [
+        "Optional fixed-phrase CPU inference preparation is silent, bound to one resident model/speaker/rate and known cool thermal state; live speech cancels its attempt before queueing, and its delayed deadline cannot cancel later work.",
+        "Raw native PCM must contain zero clipped samples before delivery; reject contradictory successful clipping receipts and require zero clipping in both sides of CPU-reference protocol v2 without overwriting retained invalid observations.",
+        "Whole-device battery-counter observations retain optional raw endpoints and observed power events, preserve interrupted and unavailable states, and never establish engine-attributable energy, wattage, savings or a ranking winner.",
+        "Advisory first-PCM, RTF, zero-clipping and accelerator-share targets are distinct from observations and do not confer qualification.",
+        "Operator summaries expose only bounded public categories and first-shape profile count/time with explicit reuse and omission; observed CPU placement does not prove an unsupported operator.",
+        "Explicit unknown audio measurement availability stays unknown on restore; only legacy absence may use the existing compatibility inference.",
+        "Persistent context export must pass generation and reload qualification before production activation; the recorded failed host export does not qualify on-disk caching or physical hardware."
+      ]
     }
   ]
 }

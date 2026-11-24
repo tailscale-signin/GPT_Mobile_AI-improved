@@ -57,6 +57,9 @@ internal interface VoicePhraseEngine : AutoCloseable {
      */
     fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean): Unit =
         throw UnsupportedOperationException("This engine generates complete phrases")
+
+    /** Optional CPU-only inference of a fixed public phrase. Discard PCM and keep reply evidence untouched. */
+    fun warmFirstInference(speaker: Int, speed: Float): Boolean = false
     fun resetCancellation()
     fun cancel()
 }
@@ -92,9 +95,17 @@ internal object TimedKokoroPhraseEngineFactory : VoicePhraseEngineFactory {
             override val executionProgress: VoiceSpeechProgress? get() = engine.speechProgress()
             override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio =
                 engine.generate(text, speaker, speed).let { VoicePhraseAudio(it.samples, it.durations, it.wordTokens) }
+            override fun warmFirstInference(speaker: Int, speed: Float): Boolean = engine.warmCpuInference(speaker, speed)
             override fun resetCancellation() = engine.resetCancellation()
             override fun cancel() = engine.cancel()
             override fun close() = engine.close()
         }
     }
+}
+
+internal fun TimedKokoro.warmCpuInference(speaker: Int, speed: Float): Boolean {
+    // generate validates native PCM and durations. None of these samples enter the
+    // playback queue, captions, benchmark observations or conversational diagnostics.
+    generate(VoiceSilentWarmup.PHRASE, speaker, speed)
+    return true
 }

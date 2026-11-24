@@ -37,7 +37,7 @@ internal fun VoiceSpeechBackendSettings(
         if (value.backend == VoiceSpeechBackend.AUTO) {
             Text("Auto uses saved measurements from this phone. Compare engines to time CPU, GPU and NPU before the next reply.", style = MaterialTheme.typography.bodySmall)
         } else if (value.backend != VoiceSpeechBackend.CPU) {
-            Text("Supported graph sections run on the selected accelerator; other sections can use CPU. Failed qualification uses CPU for the unplayed phrase.", style = MaterialTheme.typography.bodySmall)
+            Text("This accelerator is experimental. Supported graph sections can run alongside CPU fallback. Audio must pass the CPU comparison before playback; failed qualification uses CPU for the unplayed phrase.", style = MaterialTheme.typography.bodySmall)
         }
         TextButton(onClick = recheckBackend, enabled = enabled && value.loaded) {
             Text(if (value.backend == VoiceSpeechBackend.AUTO) "Compare engines on next reply" else "Recheck engine on next reply")

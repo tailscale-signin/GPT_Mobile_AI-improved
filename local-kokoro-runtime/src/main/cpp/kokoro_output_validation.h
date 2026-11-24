@@ -11,7 +11,7 @@ namespace kokoro_runtime {
 enum class OutputValidationReason : int64_t {
   None, OutputCount, AudioTensorType, AudioFrameCount, AudioTooLong,
   TimingTensorType, TimingTokenCount, TokenDurationInvalid, TimingPcmMismatch,
-  NonFinitePcm, SilentPcm, TensorMetadataUnavailable
+  NonFinitePcm, SilentPcm, TensorMetadataUnavailable, ClippedPcm
 };
 
 struct OutputValidationObservation {
@@ -86,6 +86,13 @@ inline void ValidateMeasuredAudio(const AudioMeasurement &audio, OutputValidatio
   observation.audio_measured = true;
   RequireOutput(audio.finite, OutputValidationReason::NonFinitePcm, observation);
   RequireOutput(audio.NonSilent(), OutputValidationReason::SilentPcm, observation);
+  // Validate the original float waveform before it is copied to Java or any
+  // playback conversion can clamp it. The speech quality target is zero
+  // clipped samples, including exact full-scale values measured by the same
+  // >= 1.0 rule as the benchmark. Preserve the measured signal on failure so
+  // an accelerator's unplayed phrase can be retried on CPU without concealing
+  // corruption behind normalization or a reference-relative tolerance.
+  RequireOutput(audio.clipped_samples == 0, OutputValidationReason::ClippedPcm, observation);
 }
 
 }  // namespace kokoro_runtime

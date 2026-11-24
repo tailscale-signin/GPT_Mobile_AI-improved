@@ -36,6 +36,7 @@ def validate(outputs, count):
     audio, durations = outputs
     assert audio.dtype == np.float32 and 0 < audio.size <= 30 * 24000
     assert np.isfinite(audio).all() and np.any(audio != 0)
+    assert np.all(np.abs(audio) < 1.0), "Clipped PCM cannot qualify"
     assert durations.dtype == np.int64 and durations.shape == (count,)
     assert (durations > 0).all() and int(durations.sum()) * 600 == audio.size
 
@@ -61,10 +62,10 @@ def compare_audio(reference, candidate):
         reason = "DURATION_MISMATCH"
     elif timing_distance > .15:
         reason = "TOKEN_TIMING_MISMATCH"
+    elif first_clipping > 0 or second_clipping > 0:
+        reason = "CLIPPING_MISMATCH"
     elif not .5 <= rms_ratio <= 2.0 or second_peak > max(first_peak * 2.0, first_peak + .1):
         reason = "SIGNAL_LEVEL_MISMATCH"
-    elif second_clipping > first_clipping + .001:
-        reason = "CLIPPING_MISMATCH"
     elif activity_difference > .15:
         reason = "SIGNAL_ACTIVITY_MISMATCH"
     return {"status": "CONSISTENT" if reason is None else "MISMATCH", "reason": reason,

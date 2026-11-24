@@ -317,7 +317,8 @@ internal data class VoiceSpeechBenchmarkReport(
     val activeRepeat: Int? = null,
     val activeChunk: Int? = null,
     val playbackResults: List<VoiceSpeechPlaybackResult> = emptyList(),
-    val engineResults: List<VoiceSpeechEngineBenchmarkResult> = emptyList()
+    val engineResults: List<VoiceSpeechEngineBenchmarkResult> = emptyList(),
+    val energyObservations: List<VoiceSpeechBenchmarkEnergyObservation> = emptyList()
 ) {
     val completedSamples: Int get() = when {
         configuration.playback -> playbackResults.size

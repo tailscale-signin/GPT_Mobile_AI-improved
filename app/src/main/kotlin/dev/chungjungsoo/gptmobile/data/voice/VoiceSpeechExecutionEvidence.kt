@@ -197,7 +197,7 @@ internal fun safeSpeechValidationReason(value: String?): String? = value?.takeIf
     it in setOf(
         "OUTPUT_COUNT", "AUDIO_TENSOR_TYPE", "AUDIO_FRAME_COUNT", "AUDIO_TOO_LONG", "TIMING_TENSOR_TYPE",
         "TIMING_TOKEN_COUNT", "TOKEN_DURATION_INVALID", "TIMING_PCM_MISMATCH", "NONFINITE_PCM", "SILENT_PCM",
-        "TENSOR_METADATA_UNAVAILABLE"
+        "TENSOR_METADATA_UNAVAILABLE", "CLIPPED_PCM"
     )
 }
 

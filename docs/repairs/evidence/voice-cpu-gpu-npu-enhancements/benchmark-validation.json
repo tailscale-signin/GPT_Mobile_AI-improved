@@ -1,0 +1,447 @@
+{
+  "schemaVersion": 1,
+  "scope": "Focused final formatted-source regression checks, executed sequentially outside Gradle with bounded JVM memory. These are not full application, JNI, device, performance or energy qualification results.",
+  "workingTreeBaseRevision": "1cc96b1936c1b3f6442cc89441cce3c6ee77daaa",
+  "workingTreeSourceSnapshots": true,
+  "toolchain": {
+    "javaVersion": "21.0.13.1+2",
+    "kotlinVersion": "2.4.20",
+    "junitVersion": "4.13.2",
+    "robolectricVersion": "4.17",
+    "compileSdkLevel": 37,
+    "robolectricSdkLevels": [
+      31,
+      34
+    ],
+    "compilerHeapLimitMiB": 512,
+    "testHeapLimitMiB": 512,
+    "compilerAndTestMetaspaceLimitMiB": 256,
+    "javaCompilerHeapLimitMiB": 128,
+    "offlineRobolectric": true,
+    "dependencyVerification": [
+      "Compiler and library jars matched gradle/verification-metadata.xml SHA-256 pins.",
+      "AndroidX test classes were extracted from repository-pinned AARs.",
+      "Cached Robolectric Android runtimes matched their cached publisher SHA-512 sidecars.",
+      "The installed Android SDK 37 framework jar was used for compilation."
+    ]
+  },
+  "checks": [
+    {
+      "suite": "energy-and-android-battery-source",
+      "recordedAt": "2026-11-24T01:40:39.066926+00:00",
+      "compileExitCode": 0,
+      "testExitCode": 0,
+      "testCount": 20,
+      "outcome": "PASS",
+      "testClasses": [
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEnergyTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkBatterySourceTest"
+      ],
+      "scope": "Full actual standalone energy model/source/exporter and complete ordinary energy/battery tests using Robolectric API31 and34. Does not compile/run app ViewModel, broader benchmark report/tracker integration, Android hardware or JNI.",
+      "junitSummary": "OK (20 tests)"
+    },
+    {
+      "suite": "report-reference-export-store-and-tracker",
+      "recordedAt": "2026-11-24T01:41:15.675844+00:00",
+      "compileExitCode": 0,
+      "testExitCode": 0,
+      "testCount": 69,
+      "outcome": "PASS",
+      "testClasses": [
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEnergyTrackerTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechAudioReferenceTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEvidenceExportTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechFailureEvidenceTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackProtocolTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkTest",
+        "dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkStoreTest"
+      ],
+      "scope": "Full selected actual benchmark report/runner/reference/export/store/energy tracker production sources, native Java ABI, and complete ordinary test classes. Android store uses Robolectric34. No production ViewModel, Compose, AudioTrack, physical device, model or JNI execution.",
+      "junitSummary": "OK (69 tests)"
+    }
+  ],
+  "wholeSourceSnapshots": [
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroLexicon.kt",
+      "sha256": "2c52fc37806ed3d05d9e80042ceca3aff434cad4f8a782f263fa3d9738a4177c",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt",
+      "sha256": "36990d41041060bfe3060e0fc3ec22eaf444ad36cdad43cb4a3974a1aa4695eb",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
+      "sha256": "e45e77b074d856a9e0b238c3d0eac66cafce69c86caf2d2b0bee54c8d22553c5",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/ReasoningTagScanner.kt",
+      "sha256": "c4e398159fbe183935089dc7b82ac3ded7db1c71c72cd9a92147f94de47f8c12",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendAudioAdmission.kt",
+      "sha256": "4092af64cf1b32a485c990915ece766005f3d85e9bd7b59a47d7917307db41d1",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt",
+      "sha256": "479b2edced99998d36fe8453a74db86fc659c1e089f7f9ebf85ae7e196f60bce",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativeEngineGate.kt",
+      "sha256": "272d6d0712a48410f818446146abd5c050839ad1ea6d75852dcdced8a87e47a7",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
+      "sha256": "91a94d9a4bcadb46dbb0f6cbd01e054e0e0c2d8e5d7434f8c0572082f62927ab",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePhraseEngine.kt",
+      "sha256": "7833ef3920da93d808aeabf5ca30f76f508baa1c5c384bc0039a2da2ea66d434",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackControl.kt",
+      "sha256": "17026a8f15cd71342a6f3d24bdb01704080c7c8dcda7850c5fc732de7cf4530f",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmup.kt",
+      "sha256": "0653d3b4633dd1208aafce109d096537bda4aec8954a58977d974820038c5279",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReference.kt",
+      "sha256": "b63b1afc749cf3d0ca1adc203510112102289de98227cce930cca7d07f159dbe",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBackend.kt",
+      "sha256": "a6a971240552df15c5ae025828bd3db63bafcdf13d5a426c5fac93e46d563344",
+      "compilation": "whole-source-file",
+      "suites": [
+        "energy-and-android-battery-source",
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmark.kt",
+      "sha256": "f0eeda4a4730c987bbc0f31601b861829b75b824ea7087db0381a6f3cc7ef81b",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkBatterySource.kt",
+      "sha256": "e104f68e00dfff8596c5ce5968f1ea925e1ccea1805f4c7fb11bc2b0daf2dc8c",
+      "compilation": "whole-source-file",
+      "suites": [
+        "energy-and-android-battery-source"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergy.kt",
+      "sha256": "82c58c3cafaa7c9552a54d6bc76f3e340a1b9581efa282cc071cbcf016e631e4",
+      "compilation": "whole-source-file",
+      "suites": [
+        "energy-and-android-battery-source",
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyExport.kt",
+      "sha256": "372a2aa6ccb2057f095c0076fd3ad959ada594f31fc44082810d7b89add3cc8a",
+      "compilation": "whole-source-file",
+      "suites": [
+        "energy-and-android-battery-source",
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTracker.kt",
+      "sha256": "e11d5c5c2bfd7fbd01a54e894a166aa9fa9bb6ad63e1a1631eca912e3ea1bd30",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEngine.kt",
+      "sha256": "9aeda61f136c6184c8b2f56e1f0a07ea3dd7056df340c15eec79e05d98a6eefc",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkExport.kt",
+      "sha256": "d8d172a98e478d349bb3cc5a2026851e62161148b572365fc72bc4bb5f627c76",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkRunner.kt",
+      "sha256": "393fcb1edb635b036b512f21ac13e0b4416544b3f8a254e82bd7bb227b09c953",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStore.kt",
+      "sha256": "d5e9d20b62520fef402b53fd8d47c594fdeaa5b4b85bf858eedb82672d162634",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkWatchdog.kt",
+      "sha256": "5c75f3977b618642744e7883fa82ff85e7a67a22a858d1694a7b002ad46fc011",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkExport.kt",
+      "sha256": "5e17244645bbb11a9bfd3b53b33c7f525892fd41eaa9e71c9c053ee1a877c39c",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEngineBenchmarkResult.kt",
+      "sha256": "ac341f51fdffe506164d03f8104d7e9939f270a958c3e1334792ab3b976591a8",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechEnginePcmMeasurement.kt",
+      "sha256": "14f259eca73d65535107a2f60439e696e17d806550f77ee7073006148abf0b7e",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechExecutionEvidence.kt",
+      "sha256": "3e20af94d29b57c800e96b635eca370fbf15eaaa8cc44321c019f06d8621d48b",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocol.kt",
+      "sha256": "ef3ee45ffa7f4a43c13b8d21f2f05cc5e5f4bf29ce09e1b519f774a5f3664496",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackResult.kt",
+      "sha256": "160bc865f5ff245bdff09a98267f284414d981868dcb65705e21670d0a5a57b6",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
+      "sha256": "92b0959d0cb0df19a94f6915476864079a4da77995fa69e9eab6c63471d83a29",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechWorkload.kt",
+      "sha256": "e7443ac135f07d1e38afeb37c387308bc27d6fb6a2af37df0155968db8c2a79f",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceStreamFrames.kt",
+      "sha256": "c5424cb99866a2e70b204eb1fae6637e8e3d4308673a614cee860576389949a9",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioReferenceTest.kt",
+      "sha256": "0272eed519670bededa7dd961d5f6ec7e8a935d7a87956e0015505cd6bd1b3f3",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechAudioTestFixtures.kt",
+      "sha256": "a18b2f8fb34bc7801477d6eec0541eda2a517d822fd8793778ea93cc6252078a",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkBatterySourceTest.kt",
+      "sha256": "5b7a9f7a43c66fb2787b3d7b7142c2ff7923adbb287cea14cf5a3e7a63cee63b",
+      "compilation": "whole-source-file",
+      "suites": [
+        "energy-and-android-battery-source"
+      ]
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTest.kt",
+      "sha256": "33f1f98fc7b6062a8fdf643aa11ee5a0569f1875ba5e0a68294f26228d67c81d",
+      "compilation": "whole-source-file",
+      "suites": [
+        "energy-and-android-battery-source"
+      ]
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEnergyTrackerTest.kt",
+      "sha256": "519cadabcc263594a94c5f507fe18ce4ba39796506abe3d4bd1c3291498b506e",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkEvidenceExportTest.kt",
+      "sha256": "97294ea8a990a39df08d9f0f68761d3347e0cd8d18034c6070608ba12aafaa53",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStoreTest.kt",
+      "sha256": "6860ccb0b809b3bbe73bc815062d8e98773cad339fdfeb6229ba34f2f03c2240",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkTest.kt",
+      "sha256": "d81cbd2304cae4e86dbe89e3d73747308cfbb86f800a63790b912076673b10d2",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechFailureEvidenceTest.kt",
+      "sha256": "82cf458e4fb939681e6d46b047b743b521e1551f1d2d463650909e768f1b597f",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPlaybackProtocolTest.kt",
+      "sha256": "b762590b0c22c7e4f07d52b462da36eb04c3912b28f1a24a5fa3bbfccf25c5be",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
+      "sha256": "e82e3d197109f80ce5ef603f51935449b7d5a44ae24f4a8014e3fce5b70b9ea6",
+      "compilation": "whole-source-file",
+      "suites": [
+        "report-reference-export-store-and-tracker"
+      ]
+    }
+  ],
+  "unchangedDeclarationBoundary": {
+    "suite": "report-reference-export-store-and-tracker",
+    "scope": "Only unchanged KokoroVoice and MediaPipeSpeechEngine enums and six unchanged model identity/filename constants isolated from their Android asset/output implementations; no tested body, report, reader, store, tracker, failure parser, engine interface or assertion replaced. Model and JNI execution do not occur.",
+    "declarations": [
+      "KokoroVoice enum",
+      "MediaPipeSpeechEngine enum",
+      "KokoroModelPack constants MODEL, MODEL_SHA256, VOICES, TOKENS, US_LEXICON and GB_LEXICON"
+    ],
+    "compilationUnitSha256": "6fd5c4a4bf35c86c11cd86c86b93a6ee6839d3cac3813bb837663bf5d2ec02b4",
+    "originalSourceSnapshots": [
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt",
+        "sha256": "f686952c854e5250fcb6304493c5655b415293ab09f872267b8f31a7d23c191b"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt",
+        "sha256": "4d3b59b9d02e3a7e07ce68d926fe8b9371d7bed7ae16d1e8b917768e6cee56cb"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MediaPipeSpeechCatalog.kt",
+        "sha256": "56ec1151a2974927d716e8b2c1636d63cd763de9012701acba0796451dc51e02"
+      }
+    ],
+    "changedProductionOrTestBodiesReplaced": false
+  },
+  "notEstablishedByTheseChecks": [
+    "Full Android app or Hilt/ViewModel/Compose compilation and integration.",
+    "Production AudioTrack execution, audible gaps or physical speaker latency.",
+    "Model generation, linked JNI execution or Snapdragon GPU/NPU correctness and placement.",
+    "Performance target attainment, thermal behavior or attributable engine energy/power/savings."
+  ],
+  "remainingGates": [
+    "Ordinary hosted Android build and Gradle unit/Robolectric checks on the final PR revision.",
+    "Physical Snapdragon correctness and repeated synthesis/playback measurements before making acceleration or target-attainment claims."
+  ]
+}

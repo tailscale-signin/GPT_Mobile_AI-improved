@@ -68,6 +68,28 @@ class VoiceSpeechAudioReferenceTest {
         assertEquals(VoiceSpeechAudioReferenceStatus.UNOBSERVED, VoiceSpeechAudioReference.compare(reference, reference.copy(rms = 0.0, nonSilentSamples = 0)).status)
     }
 
+    @Test fun evenOneClippedSampleDisqualifiesCandidateAndCpuBaselineIncludingRetainedRuns() {
+        val reference = speechReferenceFixture(phrase)
+        for (count in listOf(1L, 8L)) {
+            val clipped = reference.copy(clippedSamples = count)
+            assertEquals(VoiceSpeechAudioReferenceReason.CLIPPING_MISMATCH, VoiceSpeechAudioReference.compare(reference, clipped).reason)
+            assertEquals(VoiceSpeechAudioReferenceReason.CLIPPING_MISMATCH, VoiceSpeechAudioReference.compare(clipped, reference).reason)
+            assertEquals(VoiceSpeechAudioReferenceReason.CLIPPING_MISMATCH, VoiceSpeechAudioReference.compare(clipped, clipped).reason)
+        }
+        val valid = run { _, _ -> 98 }
+        assertEquals(VoiceSpeechBackend.QNN_GPU, valid.recommendation())
+        for (backend in listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU)) {
+            val clipped = valid.copy(
+                results = valid.results.map { result ->
+                    if (result.requestedBackend != backend) result else result.copy(samples = result.samples.map { sample -> sample.copy(chunks = sample.chunks.map { chunk -> chunk.copy(clippedSamples = 8, audioObservation = chunk.audioObservation!!.copy(clippedSamples = 8)) }) })
+                }
+            )
+            val restored = checkNotNull(speechBenchmarkReportFromJson(speechBenchmarkJson(clipped, local = true)))
+            assertEquals(if (backend == VoiceSpeechBackend.CPU) null else VoiceSpeechBackend.CPU, restored.recommendation())
+            assertFalse(restored.qualifiedResults().any { it.requestedBackend == backend })
+        }
+    }
+
     @Test fun missingBaselineOrLegacyMeasurementsNeverQualifyAndExportsExcludeWaveforms() {
         val report = run { _, _ -> 98 }
         val gpuOnly = report.copy(configuration = report.configuration.copy(backends = listOf(VoiceSpeechBackend.QNN_GPU)), results = listOf(report.results[1]))

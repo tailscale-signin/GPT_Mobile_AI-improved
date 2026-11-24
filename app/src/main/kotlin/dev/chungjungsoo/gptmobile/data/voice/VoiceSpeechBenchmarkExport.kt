@@ -63,6 +63,7 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
             put("maximumPeakRatio", VoiceSpeechAudioReference.MAX_PEAK_RATIO)
             put("maximumPeakAbsoluteIncrease", VoiceSpeechAudioReference.MAX_PEAK_ABSOLUTE_INCREASE)
             put("maximumClippedFractionIncrease", VoiceSpeechAudioReference.MAX_CLIPPED_FRACTION_INCREASE)
+            put("maximumReferenceAndCandidateClippedSamples", VoiceSpeechBenchmarkTargets.CLIPPED_SAMPLES)
             put("maximumActivityFractionDifference", VoiceSpeechAudioReference.MAX_ACTIVITY_FRACTION_DIFFERENCE)
         }.takeIf { nativeEngine } ?: JsonNull
     )
@@ -77,13 +78,18 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
     put("acousticLatencyMs", JsonNull)
     put("audioUnderruns", JsonNull)
     put("batteryEnergy", JsonNull)
+    put("batteryCounterScope", "WHOLE_DEVICE_REMAINING_NWH_COUNTER_ENDPOINTS_AND_OBSERVED_POWER_EVENTS_NOT_ENGINE_ENERGY_OR_POWER")
+    put("batteryCounterWindow", "BACKEND_PUBLICATION_WINDOW_INCLUDES_PREPARATION_WORKLOAD_REPORTING_AND_OBSERVED_CLEANUP_PARTIAL_WORK_RETAINED")
+    put("batteryCounterLimitations", "DEVICE_SUPPORT_RESOLUTION_AND_BROADCAST_DELIVERY_VARY_BACKGROUND_LOAD_AND_UNOBSERVED_TRANSITIONS_ARE_NOT_ISOLATED_NO_AUTOMATIC_ENERGY_RANKING")
+    put("batteryCounterObservations", buildJsonArray { report.energyObservations.forEach { add(speechBenchmarkEnergyJson(it)) } })
     put(
         "measurementAvailability",
         buildJsonObject {
             put("synthesisSamples", if (report.configuration.playback) "NOT_APPLICABLE_PLAYBACK_MODE" else "COLLECTED_PER_FIXTURE")
             put("playbackTiming", if (report.configuration.playback) "COLLECTED_PER_SAMPLE" else "NOT_RUN")
             put("acousticLatency", "NOT_MEASURED_EXTERNAL_SENSOR_REQUIRED")
-            put("batteryEnergy", "NOT_COLLECTED")
+            put("batteryEnergy", "NOT_ATTRIBUTABLE_TO_ENGINE")
+            put("batteryCounter", if (report.energyObservations.isEmpty()) "NOT_COLLECTED" else "SEE_BOUNDED_ENDPOINT_AND_POWER_EVENT_OBSERVATIONS")
             put("processorUtilization", "NOT_COLLECTED_PROVIDER_KERNEL_EVIDENCE_IS_DISTINCT")
             put("acousticCaptionAlignment", "NOT_TESTED")
             put("semanticCorrectness", "NOT_MEASURED")
@@ -99,6 +105,12 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
             put("cancellationMs", VoiceSpeechPlaybackProtocol.CANCELLATION_TARGET_MS)
             put("activePlaybackUnderruns", 0)
             put("bufferRestarts", 0)
+            put("prepareToFirstPcmExclusiveUpperBoundMs", VoiceSpeechBenchmarkTargets.PREPARE_TO_FIRST_PCM_MS)
+            put("warmFirstPcmExclusiveUpperBoundMs", VoiceSpeechBenchmarkTargets.WARM_FIRST_PCM_MS)
+            put("longSpeechRealTimeFactorExclusiveUpperBound", VoiceSpeechBenchmarkTargets.LONG_SPEECH_RTF)
+            put("acceleratorKernelTimeShareExclusiveLowerBound", VoiceSpeechBenchmarkTargets.ACCELERATOR_KERNEL_TIME_SHARE)
+            put("acceleratorShareScope", "OBSERVED_KERNEL_TIME_WHERE_FEASIBLE_NOT_DEVICE_UTILIZATION_OR_A_QUALIFICATION_REQUIREMENT")
+            put("maximumClippedSamples", VoiceSpeechBenchmarkTargets.CLIPPED_SAMPLES)
         }
     )
     put(
@@ -460,7 +472,8 @@ private fun failureObservationJson(o: VoiceSpeechBenchmarkFailureObservation) = 
 }
 
 private fun readFailureObservation(o: JsonObject, validatedAudio: Boolean = false): VoiceSpeechBenchmarkFailureObservation {
-    val measured = o.optionalBoolean("audioMeasurementAvailable") ?: true.takeIf { validatedAudio }
+    // A current explicit unknown cannot inherit the legacy success-only inference.
+    val measured = if ("audioMeasurementAvailable" in o) o.optionalBoolean("audioMeasurementAvailable") else true.takeIf { validatedAudio }
     return VoiceSpeechBenchmarkFailureObservation(
         profileAvailable = o.optionalBoolean("profileAvailable"), profileId = o.optionalBoundedLong("profileId", Long.MAX_VALUE),
         profileReused = o.optionalBoolean("profileReused"), acceleratorMicros = o.optionalBoundedLong("acceleratorMicros", 3_600_000_000) ?: 0,
@@ -775,6 +788,8 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
     val engines = value["engineResults"]?.jsonArray.orEmpty().also { require(it.size == if (nativeEngine) 0 else configuration.backends.size) }
         .map { readSpeechEngineBenchmark(it.jsonObject, configuration) }
     require(nativeEngine || engines.map { it.requestedBackend } == configuration.backends)
+    val energy = value["batteryCounterObservations"]?.jsonArray.orEmpty().also { require(it.size <= configuration.backends.size) }.map { readSpeechBenchmarkEnergy(it.jsonObject) }
+    require(energy.map { it.requestedBackend }.distinct().size == energy.size && energy.all { it.requestedBackend in configuration.backends })
     VoiceSpeechBenchmarkReport(
         startedAtMillis = value.getValue("startedAtMillis").jsonPrimitive.long.also { require(it >= 0) },
         configuration = configuration,
@@ -783,7 +798,8 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
         finishedAtMillis = value.optionalLong("finishedAtMillis")?.also { require(it >= 0) },
         issue = value.optionalString("issue")?.let(VoiceSpeechBenchmarkIssue::valueOf),
         playbackResults = playback,
-        engineResults = engines
+        engineResults = engines,
+        energyObservations = energy
     )
 }.getOrNull()
 

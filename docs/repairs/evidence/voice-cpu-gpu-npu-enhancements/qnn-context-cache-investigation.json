@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "scope": "One exact 17-token shape in a standalone host driver using pinned ORT 1.28.2, QNN plugin 2.7.0 and QAIRT 2.51.0 HTP host emulation.",
+  "currentAndroidJniQualified": false,
+  "physicalDeviceQualified": false,
+  "persistentContextCacheQualified": false,
+  "contextReloadQualified": false,
+  "acceleratorNumericalParityQualified": false,
+  "runtime": {
+    "onnxRuntime": "1.28.2",
+    "qnnPlugin": "2.7.0",
+    "qairt": "2.51.0",
+    "inspectedQnnSourceCommit": "9d7bc6621895d691eecb3609bdcc1dfa14f8c660",
+    "ortLibrarySha256": "615e9342ef049b54d5f4bdc542ad54065b838aeb7934dedc3e417adc9b75b37b",
+    "qnnPluginLibrarySha256": "629dfc151fc842bf9aa6ecdba89c0a864cd50e90fda960f9631e234fed5fc457",
+    "htpLibrarySha256": "66fbcc1a97b3ca186c0170123e03978f2351222d59b2e9ceb0202e4a9b0116c0",
+    "cachedAdapterLibrarySha256": "a4e047fe3485aef632ef950695ac472e52ded73e753323c0caa8cb5e93e28eed",
+    "cachedAdapterRebuiltForThisExperiment": false,
+    "cachedAdapterSourceToBinaryProvenanceObserved": false,
+    "adapterProvenanceLimitation": "Only the cached adapter binary digest is bound to this experiment; no source-to-binary build binding for that exact artifact was observed."
+  },
+  "probe": {
+    "sourceFile": "qnn-context-probe.cpp",
+    "sourceSha256": "aaccacc45f92e11039c0fc7dbc2607ad9b50571a79120ecf83416d86a510ee2d",
+    "binarySha256": "dce944203a165b0176dccb5bf86be3d27b51bfb2da5ff1ba7afccff39ba6a015",
+    "outputValidationHeaderSha256": "6e58b9ff05fd93b4dc459f6737872092ab959212a3104452320328cea32abeeb",
+    "measurementHeaderSha256": "04f77d08a9c855774a6bfde5ea41d42df0f89bdf446b55c36d075e7539348116"
+  },
+  "inputs": {
+    "modelSha256": "75635ea3b85a32d00094dcdd61a258aba87c160f7c264c304a7b3ae9d734195e",
+    "voicesSha256": "1c5a5b983d3d50d8586d437a51f3faa2da7919ce76a013c081e65671a3447c29",
+    "tokenIds": [
+      0,
+      47,
+      43,
+      54,
+      54,
+      57,
+      47,
+      43,
+      54,
+      54,
+      57,
+      47,
+      43,
+      54,
+      54,
+      57,
+      0
+    ],
+    "tokensInt64LittleEndianSha256": "d2aeaa496f27a95143e9722298d720b858a366cdb39327ce851252a87a3fe786",
+    "speakerIndex": 0,
+    "styleRowIndex": 15,
+    "styleFloat32LittleEndianSha256": "666dfdc593aa11be386a323d14c8bc0a2fbb60d126c0a4f5f9545f463f712b2b",
+    "speed": 1.0,
+    "speedFloat32LittleEndianSha256": "e00e5eb9444182f352323374ef4e08ebcb784725fdd4fd612d7730540b3e0c8c",
+    "contentScope": "Fixed public synthetic phoneme IDs; no user speech or conversation text."
+  },
+  "providerOptions": {
+    "backend": "QnnHtp",
+    "hostDeviceType": "CPU (HTP host emulator)",
+    "htp_arch": "79",
+    "soc_model": "69",
+    "intraOpThreads": 1,
+    "interOpThreads": 1,
+    "freeDimensionOverride": {
+      "sequence_length": 17
+    },
+    "ep.context_embed_mode": "1",
+    "ep.context_file_path": "EXPERIMENT_OUTPUT/kokoro-17-ctx.onnx",
+    "ep.context_enable": {
+      "generate": "1",
+      "control": "0"
+    }
+  },
+  "resourcePolicy": {
+    "minimumAdmittedAvailableKiB": 1572864,
+    "maximumObservedProcessRssKiB": 1179648,
+    "minimumAvailableHeadroomKiB": 524288,
+    "maximumSecondsPerProcess": 90,
+    "rssPollingIntervalSeconds": 0.05,
+    "modesExecutedSequentially": true,
+    "largeNativeDependenciesRebuilt": false
+  },
+  "results": [
+    {
+      "mode": "generate",
+      "contextCacheEnabled": true,
+      "processExitCode": 1,
+      "admittedAvailableKiB": 2400428,
+      "peakObservedProcessRssKiB": 499136,
+      "observed": {
+        "status": "FAILED",
+        "mode": "generate",
+        "ort": "1.28.2",
+        "error": "CONTEXT_DUPLICATE_CAST_DEFINITION",
+        "native_code": 1
+      },
+      "sessionCreated": false,
+      "inferenceExecuted": false,
+      "contextReloadAttempted": false,
+      "fixedModelError": "This is an invalid model. Error: Duplicate definition of name (/Cast_5_output_0).",
+      "failureStage": "context-enabled session creation before inference"
+    },
+    {
+      "mode": "control",
+      "contextCacheEnabled": false,
+      "processExitCode": 0,
+      "admittedAvailableKiB": 2247528,
+      "peakObservedProcessRssKiB": 521328,
+      "observed": {
+        "status": "PASS",
+        "mode": "control",
+        "ort": "1.28.2",
+        "frames": 60600,
+        "tokens": 17,
+        "peak": 0.410947,
+        "clipped_samples": 0,
+        "cpu_kernels": 1345,
+        "qnn_kernels": 39
+      },
+      "sessionCreated": true,
+      "inferenceExecuted": true,
+      "checkedOutputs": [
+        "two outputs",
+        "float32 mono audio",
+        "int64 token durations",
+        "positive bounded durations",
+        "duration sum matches audio frames",
+        "finite non-silent audio",
+        "zero full-scale or out-of-range samples"
+      ],
+      "modelMetadataChecks": {
+        "sampleRate": "24000",
+        "speakerCountKeyPresent": "n_speakers"
+      },
+      "observedOperatorSummary": "stage=selected;host_htp_emulator=1;observed_ops_scope=first_inference;observed_ops_reused=0;observed_cpu_ops=ConvInteger:88:2120870;observed_qnn_ops=QnnPartition:39:8963237;observed_cpu_ops=Sin:51:116651;observed_cpu_ops=Mul:294:85646;observed_ops_more=1"
+    }
+  ],
+  "decision": "Leave persistent context caching disabled. The context-enabled exporter failed before producing a session; the otherwise matched cache-disabled control generated structurally valid, non-clipped PCM with actual CPU and QNN kernels.",
+  "limits": [
+    "The duplicated fixed tensor name isolates an observed context-enabled session failure, not its root cause.",
+    "The result is specific to the recorded model, shape, library digests and cached adapter. It does not establish that every QNN context cache or every device fails.",
+    "Host-emulator kernel durations and RSS are diagnostic observations, not Snapdragon latency, energy, utilization or speed targets.",
+    "No context reload or original-versus-reloaded numerical and metadata parity result is available.",
+    "No dependency upgrade, graph renaming, waveform normalization or production context-cache flag was introduced."
+  ],
+  "reproduction": {
+    "pathVariables": [
+      "KOKORO_ORT_ROOT",
+      "KOKORO_MODEL_PACK",
+      "KOKORO_QNN_LIBRARIES",
+      "KOKORO_PROBE_OUT"
+    ],
+    "requirements": "Resolve libraries and input pack to the recorded digests, create a fresh output directory, and supervise each process with the stated memory/headroom/time limits.",
+    "compile": "g++ -std=c++17 -O1 -Wall -Wextra -Werror -I \"$KOKORO_ORT_ROOT/include\" -I local-kokoro-runtime/src/main/cpp docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/qnn-context-probe.cpp -L \"$KOKORO_ORT_ROOT/lib\" \"-Wl,-rpath,$KOKORO_ORT_ROOT/lib\" -lonnxruntime -o \"$KOKORO_PROBE_OUT/probe\"",
+    "generate": "\"$KOKORO_PROBE_OUT/probe\" generate \"$KOKORO_MODEL_PACK\" \"$KOKORO_QNN_LIBRARIES\" \"$KOKORO_PROBE_OUT\"",
+    "control": "\"$KOKORO_PROBE_OUT/probe\" control \"$KOKORO_MODEL_PACK\" \"$KOKORO_QNN_LIBRARIES\" \"$KOKORO_PROBE_OUT\""
+  }
+}

@@ -267,7 +267,7 @@ class VoiceSpeechPlaybackProtocolTest {
             playbackResults = listOf(result)
         )
         val json = speechBenchmarkJson(report, local = true)
-        assertEquals(4, (json.getValue("schemaVersion") as JsonPrimitive).content.toInt())
+        assertEquals(5, (json.getValue("schemaVersion") as JsonPrimitive).content.toInt())
         assertTrue(json.getValue("results").jsonArray.isEmpty())
         assertEquals(1, json.getValue("backendStates").jsonArray.size)
         assertFalse(json.getValue("backendStates").toString().contains("measuredCostMs"))

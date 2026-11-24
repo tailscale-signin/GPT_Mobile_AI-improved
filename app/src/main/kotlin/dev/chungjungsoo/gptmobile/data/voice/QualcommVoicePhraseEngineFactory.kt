@@ -193,6 +193,8 @@ internal class QualcommVoicePhraseEngineFactory(
             override val executionProvider: String get() = provider(selected)
             override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed
             override val executionProgress: VoiceSpeechProgress? get() = native.speechProgress()
+            override fun warmFirstInference(speaker: Int, speed: Float): Boolean =
+                selected == VoiceSpeechBackend.CPU && native.warmCpuInference(speaker, speed)
             override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
                 check(selected == VoiceSpeechBackend.CPU || speaker == voice.speakerId && speed.toBits() == speechRate.toBits()) { "MODEL_CONFIGURATION" }
                 val audio = try {

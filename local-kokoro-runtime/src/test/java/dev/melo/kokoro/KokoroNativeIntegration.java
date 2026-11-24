@@ -56,7 +56,8 @@ public final class KokoroNativeIntegration {
                     evidence.activeShapeEstimatedBytes != null && evidence.activeShapeEstimatedBytes.equals(evidence.cacheEstimatedBytes) &&
                     "CPU_SINGLE".equals(evidence.cacheAdmission), "Current memory-admission evidence was lost");
             require(evidence.audioRms > 0 && Double.isFinite(evidence.audioRms) && evidence.audioPeak > 0 &&
-                    evidence.nonSilentSamples > 0 && evidence.clippedSamples >= 0, "Missing audio validation metrics");
+                    evidence.audioPeak < 1 && evidence.nonSilentSamples > 0 && evidence.clippedSamples == 0,
+                    "Missing audio validation metrics or clipped audio escaped native validation");
             require(Boolean.TRUE.equals(evidence.audioMeasurementAvailable) && Boolean.TRUE.equals(evidence.audioFinite) &&
                     evidence.validationReason == null && evidence.outputFrames == audio.samples.length &&
                     evidence.outputElementType == 1 && evidence.durationElementType == 7 && evidence.durationCount == encoded.tokenIds.length &&
@@ -166,6 +167,7 @@ public final class KokoroNativeIntegration {
         long units = 0;
         for (long duration : audio.durations) { require(duration > 0, "Nonpositive duration"); units += duration; }
         require(units * 600 == audio.samples.length, "Audio and captions differ");
-        for (float sample : audio.samples) require(Float.isFinite(sample), "Nonfinite audio");
+        for (float sample : audio.samples) require(Float.isFinite(sample) && Math.abs(sample) < 1,
+                "Nonfinite or clipped audio escaped native validation");
     }
 }

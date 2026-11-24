@@ -133,6 +133,35 @@ class VoiceSpeechFailureEvidenceTest {
         assertFalse(historical.verifiedAudio)
     }
 
+    @Test fun clippedPcmFailureKeepsMeasuredSignalAndAppendOnlyNativeReasonWithoutQualifying() {
+        val snapshot = profile().copyOf(48).also {
+            it[0] = 5
+            it[20] = 1.02.toRawBits()
+            it[21] = 8
+            it[33] = 12 // CLIPPED_PCM, appended without changing the v5 payload layout.
+            it[34] = 1
+            it[35] = 2
+            it[36] = 21 * 600L
+            it[37] = 1
+            it[38] = 1
+            it[39] = 21
+            it[40] = 7
+            it[41] = 1
+            it[42] = 1
+            it[43] = 21
+            it[44] = 1
+            it[45] = 1
+            it[47] = 1
+        }
+        val receipt = checkNotNull(speechFailureExecutionEvidence(failure("validating", "OUTPUT_INVALID", snapshot), VoiceSpeechBackend.QNN_HTP, "device"))
+        assertEquals("CLIPPED_PCM", receipt.validationReason)
+        assertEquals(8L, receipt.clippedSamples)
+        assertEquals(1.02, checkNotNull(receipt.audioPeak), 0.0)
+        assertEquals(true, receipt.audioMeasurementAvailable)
+        assertFalse(receipt.verifiedAudio)
+        assertEquals("CLIPPED_PCM", receipt.diagnostics()["speech_validation_reason"])
+    }
+
     @Test fun frontendPreparationAndGenericFailuresCannotBorrowPreviousEvidence() {
         assertNull(speechFailureExecutionEvidence(failure("frontend", "FRONTEND_INPUT_TOO_LONG", null), VoiceSpeechBackend.QNN_HTP, "device"))
         assertNull(speechFailureExecutionEvidence(failure("preparing", "GRAPH_PREPARATION", null), VoiceSpeechBackend.QNN_HTP, "device"))

@@ -94,6 +94,43 @@ class VoiceSpeechBenchmarkEvidenceExportTest {
         }
     }
 
+    @Test fun clippedFailureAndAdvisoryTargetsRoundTripWithoutCreatingSuccessfulPerformanceEvidence() {
+        val clipped = failure(true).copy(validationReason = "CLIPPED_PCM", audioRms = .1, audioPeak = 1.02, clippedSamples = 8, nonSilentSamples = 1200)
+        val report = VoiceSpeechBenchmarkReport(
+            10,
+            configuration(),
+            VoiceSpeechBenchmarkRunState.COMPLETE,
+            results = listOf(VoiceSpeechBenchmarkBackendResult(VoiceSpeechBackend.CPU, VoiceSpeechBenchmarkBackendState.FAILED, failure = VoiceSpeechFailureCode.OUTPUT_INVALID, failureObservation = clipped))
+        )
+        val json = speechBenchmarkJson(report, local = true)
+        assertEquals(report, speechBenchmarkReportFromJson(json))
+        assertEquals(JsonPrimitive("cpu-reference-duration-timing-signal-v2"), json["audioReferenceProtocol"])
+        assertEquals(JsonPrimitive(0L), json.getValue("audioReferenceLimits").jsonObject["maximumReferenceAndCandidateClippedSamples"])
+        val targets = json.getValue("performanceTargets").jsonObject
+        assertEquals(JsonPrimitive("PRODUCT_BUDGETS_NOT_MEASURED_ACHIEVEMENTS"), targets["scope"])
+        assertEquals(JsonPrimitive(800L), targets["prepareToFirstPcmExclusiveUpperBoundMs"])
+        assertEquals(JsonPrimitive(400L), targets["warmFirstPcmExclusiveUpperBoundMs"])
+        assertEquals(JsonPrimitive(.5), targets["longSpeechRealTimeFactorExclusiveUpperBound"])
+        assertEquals(JsonPrimitive(.8), targets["acceleratorKernelTimeShareExclusiveLowerBound"])
+        assertNull(report.recommendation())
+        assertTrue(report.qualifiedResults().isEmpty())
+    }
+
+    @Test fun boundedBatteryCounterHistoryPreservesUnknownAndRejectsDuplicateOrUnselectedBackends() {
+        val pending = VoiceSpeechBenchmarkEnergyObservation(VoiceSpeechBackend.CPU, VoiceSpeechEnergyEndpoint())
+        val report = VoiceSpeechBenchmarkReport(10, configuration(), energyObservations = listOf(pending))
+        val local = speechBenchmarkJson(report, local = true)
+        assertEquals(report, speechBenchmarkReportFromJson(local))
+        assertEquals(JsonNull, local["batteryEnergy"])
+        val historical = checkNotNull(speechBenchmarkReportFromJson(JsonObject(local - "batteryCounterObservations")))
+        assertTrue(historical.energyObservations.isEmpty())
+        val entry = local.getValue("batteryCounterObservations").jsonArray.single()
+        assertNull(speechBenchmarkReportFromJson(JsonObject(local + ("batteryCounterObservations" to JsonArray(listOf(entry, entry))))))
+        val wrongBackend = JsonObject(entry.jsonObject + ("requestedBackend" to JsonPrimitive(VoiceSpeechBackend.QNN_GPU.name)))
+        assertNull(speechBenchmarkReportFromJson(JsonObject(local + ("batteryCounterObservations" to JsonArray(listOf(wrongBackend))))))
+        assertNull(report.recommendation())
+    }
+
     @Test fun playbackGenerationWallCostDoesNotMasqueradeAsInferenceWithoutGraphPreparation() {
         val observation = failure(true).copy(currentPrepareMs = 120, synthesisMs = 100)
         val chunk = VoiceSpeechPlaybackChunk(0, 220, 220, 1000, 4, "a".repeat(64), "cpu", true, null, null, observation)
@@ -107,6 +144,24 @@ class VoiceSpeechBenchmarkEvidenceExportTest {
         val unknown = speechBenchmarkJson(missing).getValue("playbackResults").jsonArray.single().jsonObject
         assertEquals(JsonNull, unknown["totalGraphPreparationMs"])
         assertEquals(JsonNull, unknown["totalNativeRunMs"])
+    }
+
+    @Test fun verifiedPlaybackDoesNotPromoteAnExplicitUnknownPcmMeasurementWhenRestored() {
+        for (available in listOf(null, false, true)) {
+            val observation = failure(available).copy(
+                audioRms = .1.takeIf { available == true },
+                audioPeak = .2.takeIf { available == true },
+                clippedSamples = 0L.takeIf { available == true },
+                nonSilentSamples = 24_000L.takeIf { available == true },
+                validationReason = null
+            )
+            val chunk = VoiceSpeechPlaybackChunk(0, 100, 100, 1000, 4, "a".repeat(64), "cpu", true, null, null, observation)
+            val row = VoiceSpeechPlaybackResult(VoiceSpeechBackend.CPU, VoiceSpeechPlaybackState.COMPLETE, totalSynthesisMs = 100, totalAudioMs = 1000, chunks = 1, validatedChunks = 1, chunkRecords = listOf(chunk))
+            val report = VoiceSpeechBenchmarkReport(10, configuration().copy(playback = true), playbackResults = listOf(row))
+            val restored = checkNotNull(speechBenchmarkReportFromJson(speechBenchmarkJson(report, local = true)))
+            assertEquals(available, restored.playbackResults.single().chunkRecords.single().observation!!.audioMeasurementAvailable)
+            assertEquals(report, restored)
+        }
     }
 
     private fun sdkReport(): VoiceSpeechBenchmarkReport {

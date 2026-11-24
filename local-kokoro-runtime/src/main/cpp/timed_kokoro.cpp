@@ -11,6 +11,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 #include <unistd.h>
@@ -242,6 +243,10 @@ struct Model : Frontend {
     discovery = active->discovery;
   }
 
+  std::string DiscoveryEvidence() const {
+    return KokoroObservedOperatorSummary(discovery, qualification.cpu, qualification.accelerator, profile_reused);
+  }
+
   jobject Generate(JNIEnv *env, const std::string &text, jint sid, jfloat speed) const {
     progress.Begin(kokoro_runtime::SteadyMillis());
     ModelSession *attempt_session = nullptr;
@@ -470,7 +475,7 @@ jlongArray ModelEvidence(JNIEnv *env, const Model *model) {
 }
 
 void ReportFailure(JNIEnv *env, const char *stage_name, const char *code, int native_code,
-    int token_count, const std::string &provider_name, int bytes, int token_limit, const std::string &discovery,
+    int token_count, const char *provider_name, int bytes, int token_limit, const char *discovery,
     const Model *current_attempt = nullptr) {
   if (env->ExceptionCheck()) return;
   const auto cls = env->FindClass("dev/melo/kokoro/TimedKokoro$Failure");
@@ -479,8 +484,8 @@ void ReportFailure(JNIEnv *env, const char *stage_name, const char *code, int na
   if (!constructor) return;
   auto stage = env->NewStringUTF(stage_name);
   auto reason = env->NewStringUTF(code);
-  auto provider = env->NewStringUTF(provider_name.c_str());
-  auto device_info = env->NewStringUTF(discovery.c_str());
+  auto provider = env->NewStringUTF(provider_name);
+  auto device_info = env->NewStringUTF(discovery);
   if (!stage || !reason || !provider || !device_info) return;
   const auto evidence = current_attempt ? ModelEvidence(env, current_attempt) : nullptr;
   if (env->ExceptionCheck()) return;
@@ -492,11 +497,11 @@ void ReportFailure(JNIEnv *env, const char *stage_name, const char *code, int na
 
 void ReportModelFailure(JNIEnv *env, const Model *model, const std::exception &error, int native_code) {
   if (const auto *input = dynamic_cast<const kokoro_runtime::InputFailure *>(&error)) {
-    ReportFailure(env, "frontend", input->code, native_code, input->tokens, model->config.provider,
+    ReportFailure(env, "frontend", input->code, native_code, input->tokens, model->config.provider.c_str(),
         input->bytes, input->token_limit, "stage=frontend");
     return;
   }
-  const std::string detail(error.what());
+  const std::string_view detail(error.what()), stage(model->stage);
   const char *code = "EXECUTION_FAILED";
   if (detail.find("fused together") != std::string::npos || detail.find("partition") != std::string::npos)
     code = "GRAPH_PARTITION";
@@ -504,15 +509,16 @@ void ReportModelFailure(JNIEnv *env, const Model *model, const std::exception &e
   else if (detail.find("No Qualcomm speech device") != std::string::npos) code = "DEVICE_UNAVAILABLE";
   else if (detail.find("could not load") != std::string::npos || detail.find("register") != std::string::npos ||
       detail.find("PROVIDER_LOAD") != std::string::npos) code = "PROVIDER_LOAD";
-  else if (std::string(model->stage) == "validating") code = "OUTPUT_INVALID";
-  else if (std::string(model->stage) == "preparing") code = "GRAPH_PREPARATION";
-  else if (std::string(model->stage) == "frontend") code = "FRONTEND_INPUT_INVALID";
-  const bool attempted_model = std::string(model->stage) == "preparing" ||
-      std::string(model->stage) == "synthesis" || std::string(model->stage) == "validating";
-  ReportFailure(env, model->stage, code, native_code, model->phrase_tokens, model->config.provider,
-      model->input_bytes, model->max_tokens + 1,
-      std::string(model->stage) == "preparing" ? kokoro_runtime::LastDiscovery() :
-      std::string(model->stage) == "frontend" ? "stage=frontend" : model->discovery,
+  else if (stage == "validating") code = "OUTPUT_INVALID";
+  else if (stage == "preparing") code = "GRAPH_PREPARATION";
+  else if (stage == "frontend") code = "FRONTEND_INPUT_INVALID";
+  const bool attempted_model = stage == "preparing" || stage == "synthesis" || stage == "validating";
+  std::string enriched;
+  const char *discovery = stage == "preparing" ? kokoro_runtime::LastDiscovery().c_str() :
+      stage == "frontend" ? "stage=frontend" : KokoroBestEffortEvidenceSummary(model->discovery, enriched,
+          [&] { return model->DiscoveryEvidence(); }).c_str();
+  ReportFailure(env, model->stage, code, native_code, model->phrase_tokens, model->config.provider.c_str(),
+      model->input_bytes, model->max_tokens + 1, discovery,
       attempted_model ? model : nullptr);
 }
 
@@ -615,7 +621,13 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_kokoro_TimedKokoro_executi
 
 extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_kokoro_TimedKokoro_executionDiscovery(
     JNIEnv *env, jclass, jlong handle) {
-  return env->NewStringUTF(reinterpret_cast<Model *>(handle)->discovery.c_str());
+  try {
+    const auto summary = reinterpret_cast<Model *>(handle)->DiscoveryEvidence();
+    return env->NewStringUTF(summary.c_str());
+  } catch (const std::exception &) {
+    ReportError(env, "java/lang/IllegalStateException", "Speech discovery evidence unavailable");
+    return nullptr;
+  }
 }
 
 extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_kokoro_KokoroFrontend_open(

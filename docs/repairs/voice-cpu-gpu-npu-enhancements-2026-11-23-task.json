@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "task": "voice-cpu-gpu-npu-enhancements-2026-11-23",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseCommit": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "localWorkingBranch": "work/voice-benchmark-enhancements",
+  "startingHead": "6d3b9e4500099e34998f8a95c25dd896381c8fd3",
+  "pullRequest": 2367,
+  "status": "SOURCE_IMPLEMENTED_PENDING_FINAL_HOSTED_QUALIFICATION",
+  "intent": "Complete the remaining CPU/GPU/NPU Kokoro benchmark enhancements while preserving all concurrent shared-PR work. Reuse already integrated playback, caching, diagnostics and sample-count improvements; retain explicit physical measurement limitations.",
+  "acceptance": [
+    "CPU remains the default and invalid accelerator PCM cannot qualify or be played; preserve bounded pre-playback CPU failover.",
+    "Inspect continuous playback, concurrent synthesis, adaptive buffering and early preparation and correct remaining concrete gaps.",
+    "Retain bounded memory-admitted exact-shape graph caches, actual CPU fallback profiles and runtime-bound qualification.",
+    "Collect 20 warm repetitions in Stability mode and exclude invalid/incomplete/thermally ineligible candidates from ranking.",
+    "Expose requested first-PCM, warm-chunk, RTF, accelerator-share, clipping and playback targets as engineering goals with measured and unknown results kept distinct.",
+    "Record available energy/thermal/playback-gap evidence without inventing acoustic or hardware-attributable measurements.",
+    "Review, run relevant behavior regressions and canonical checks, refresh current-head evidence, and append to the existing PR without replacing concurrent commits."
+  ],
+  "qualification": {
+    "local": "CANONICAL_FAST_AND_FOCUSED_CHECKS_PASSED_FULL_ANDROID_ADMISSION_UNAVAILABLE",
+    "hosted": "REQUIRED_ON_FINAL_PUSHED_SOURCE",
+    "physicalDeviceClaims": "NOT_MEASURED",
+    "publication": "OWNED_BY_EXISTING_SHARED_RELEASE_WORKFLOW",
+    "review": "INDEPENDENT_NATIVE_WARMUP_AND_BENCHMARK_REVIEWS_COMPLETE_NO_REMAINING_CONCRETE_BLOCKER"
+  },
+  "preservedSharedHead": "dcaa851dce7fb7f602ed6d230f24bdf69838c06a",
+  "implemented": [
+    "Absolute zero-clipping native delivery/decoder/reference gates and runtime-bound admission invalidation.",
+    "Cancellable fixed-phrase silent CPU preparation bound to resident model, speaker and rate.",
+    "CPU recommended and native GPU/NPU experimental labels.",
+    "Bounded observed first-inference operator count/time summaries with explicit reuse and omissions.",
+    "Optional whole-device battery counter and power-state evidence, interrupted history and conservative unknown states.",
+    "Explicit engineering targets and preserved measurement/protocol distinctions.",
+    "Restore explicitly unknown audio measurement availability without legacy inference."
+  ],
+  "retainedExistingWork": [
+    "Concurrent synthesis/playback, adaptive bounded reserve and backpressure.",
+    "Memory-admitted in-process exact-shape graph cache, CPU fallback profiling and memory-admission evidence.",
+    "Twenty warm repetitions in Stability mode, eligible-sample p95 rules, thermal/playback-gap evidence and separate quantized engine comparisons."
+  ],
+  "focusedValidation": {
+    "warmup": {
+      "pureMethods": 7,
+      "workerCases": 6,
+      "receipt": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/warmup-validation.json"
+    },
+    "benchmark": {
+      "energyAndAndroidCases": 20,
+      "reportMethods": 69,
+      "receipt": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/benchmark-validation.json"
+    },
+    "native": {
+      "referenceComparatorCases": 8,
+      "receipt": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/native-contract-validation.json"
+    },
+    "ordinaryMethodInventory": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/ordinary-test-methods.json",
+    "integration": {
+      "canonicalHostTests": 711,
+      "changedKotlinFilesFormatted": 29,
+      "receipt": "docs/repairs/evidence/voice-cpu-gpu-npu-enhancements/integration-validation.json"
+    }
+  },
+  "limits": [
+    "Full local Android compile admission did not qualify: 8960 MiB verified headroom required, cgroup availability unknown and observed MemAvailable 1986506752 bytes; no production compile or retry started.",
+    "Focused Kotlin harnesses preserve changed bodies and ordinary test methods but isolate declared unchanged dependency/diagnostic boundaries; they do not prove whole-application integration.",
+    "Persistent compiled context export remains disabled after a pinned-runtime host failure with a passing context-disabled control; cached adapter source-to-binary provenance was not independently established.",
+    "No target-phone, acoustic, latency, stutter, thermal, energy-saving, hardware utilization or GPU arithmetic improvement is claimed.",
+    "Existing shared provider source holds, final complete hosted scanner verification and coordinated final-head/main/publication gates remain owned by their existing workers."
+  ]
+}

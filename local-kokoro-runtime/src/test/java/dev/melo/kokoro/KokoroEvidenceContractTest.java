@@ -68,6 +68,16 @@ public final class KokoroEvidenceContractTest {
         require("SILENT_PCM".equals(parse(silent).validationReason) && Boolean.TRUE.equals(parse(silent).audioFinite), "Measured silence unavailable");
         long[] nonfinite = measured(); nonfinite[11] = 0; nonfinite[33] = 9; nonfinite[47] = 0;
         require(Boolean.FALSE.equals(parse(nonfinite).audioFinite), "Measured invalid PCM became unknown");
+        long[] clipped = measured(); clipped[11] = 0; clipped[33] = 12; clipped[21] = 8;
+        clipped[19] = Double.doubleToLongBits(.25); clipped[20] = Double.doubleToLongBits(1.2);
+        TimedKokoro.Evidence clippedEvidence = parse(clipped);
+        require("CLIPPED_PCM".equals(clippedEvidence.validationReason) && !clippedEvidence.validatedAudio &&
+                Boolean.TRUE.equals(clippedEvidence.audioMeasurementAvailable) && Boolean.TRUE.equals(clippedEvidence.audioFinite) &&
+                clippedEvidence.clippedSamples == 8 && clippedEvidence.audioPeak == 1.2 && clippedEvidence.audioRms == .25 &&
+                clippedEvidence.outputFrames == 1800 && clippedEvidence.durationSum == 3,
+                "Rejected clipping lost original waveform measurements or became valid audio");
+        long[] exactFullScale = clipped.clone(); exactFullScale[20] = Double.doubleToLongBits(1);
+        require("CLIPPED_PCM".equals(parse(exactFullScale).validationReason), "Exact full-scale clipping was not retained");
         long[] overflow = tooLong.clone(); overflow[33] = 7; overflow[46] = 1; overflow[43] = 0; overflow[45] = Long.MAX_VALUE;
         require(parse(overflow).durationSum == null && Boolean.TRUE.equals(parse(overflow).durationSumOverflow), "Duration overflow became a valid sum");
         rejected(Arrays.copyOf(complete, 47));
@@ -75,7 +85,13 @@ public final class KokoroEvidenceContractTest {
         for (int index : new int[] {11, 12, 14, 23, 24, 34, 42, 46, 47}) {
             long[] badFlag = complete.clone(); badFlag[index] = 2; rejected(badFlag);
         }
-        long[] badReason = complete.clone(); badReason[33] = 12; rejected(badReason);
+        long[] badReason = complete.clone(); badReason[33] = 13; rejected(badReason);
+        long[] falseClipping = empty(); falseClipping[33] = 12; rejected(falseClipping);
+        long[] zeroClipping = clipped.clone(); zeroClipping[21] = 0; rejected(zeroClipping);
+        long[] excessiveClipping = clipped.clone(); excessiveClipping[21] = excessiveClipping[36] + 1; rejected(excessiveClipping);
+        long[] falsePeak = clipped.clone(); falsePeak[20] = Double.doubleToLongBits(.99); rejected(falsePeak);
+        long[] nonfiniteClipping = clipped.clone(); nonfiniteClipping[47] = 0; rejected(nonfiniteClipping);
+        long[] acceptedClipping = complete.clone(); acceptedClipping[21] = 1; rejected(acceptedClipping);
         long[] falseMeasurement = empty(); falseMeasurement[11] = 1; rejected(falseMeasurement);
         long[] falseSilence = empty(); falseSilence[33] = 10; rejected(falseSilence);
         long[] badTiming = complete.clone(); badTiming[43] = Long.MAX_VALUE; rejected(badTiming);

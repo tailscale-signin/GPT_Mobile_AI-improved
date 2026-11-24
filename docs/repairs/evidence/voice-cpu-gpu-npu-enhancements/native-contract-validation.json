@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "scope": "Current native policy/parser controls, current Java evidence decoder and host numerical controls. Syntax-only native compilation uses cached pinned dependency headers. This is not a linked current Android/JNI or physical-device result.",
+  "sourceSha256": {
+    "scripts/check_speech_native_contracts.sh": "02e15f8b22cf836b1833ba9dfb25397dce225c3df8293e7ae23acbf48eb22fcd",
+    "local-kokoro-runtime/src/main/cpp/kokoro_output_validation.h": "6e58b9ff05fd93b4dc459f6737872092ab959212a3104452320328cea32abeeb",
+    "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp": "8ef2f475f679560844c33269c4081a45d927b7309aef9d9c016d922da0f83208",
+    "local-kokoro-runtime/src/main/cpp/kokoro_profile.h": "2a5d66bdfd496af79f389d8de611683681be48181bb3312fc912764e1820823f",
+    "local-kokoro-runtime/src/main/cpp/kokoro_provider_profile_test.cpp": "208950c6e1b6a0aa90676ea3d30ef7fc9b64dbae412e1b71574e141bddc6cf58",
+    "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp": "7005af57c297420cd9f77506690dafaf288e3b4a53007461529970b980a4a955",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java": "e82e3d197109f80ce5ef603f51935449b7d5a44ae24f4a8014e3fce5b70b9ea6",
+    "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroEvidenceContractTest.java": "b7fc2c8e501eb3e3ef438f86ecfef585f184dfda2944b280caf3ed5ffdde8e04",
+    "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeIntegration.java": "47ce75d1cf6f911e4888273a1ee0d77eb2e48192b3b1be765ad16707d27edd28",
+    "local-kokoro-runtime/src/testHost/kokoro_qnn_model_qualification.py": "c9c759719603e0b8ac4b957b42b4198964ba5f60af9f95dce76fe82c002545cf",
+    "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py": "c91a1628bcef996063d3ec876febcc01022aa90c4f2940daf3e503ad4d3736de"
+  },
+  "checks": [
+    {
+      "command": "bash scripts/check_speech_native_contracts.sh",
+      "exitCode": 0,
+      "covers": [
+        "C++ output-validation and measurement controls",
+        "C++ executed-provider parser and bounded observed-operator summaries",
+        "Optional-summary allocation/formatting failure fallback",
+        "Java v2-v5 native evidence decoder controls including CLIPPED_PCM"
+      ]
+    },
+    {
+      "command": "python3 -m unittest -v test_kokoro_reference_comparison.py",
+      "workingDirectory": "local-kokoro-runtime/src/testHost",
+      "exitCode": 0,
+      "testCount": 8,
+      "covers": [
+        "Zero clipping in either CPU reference or candidate",
+        "Duration/token timing mismatch precedence",
+        "Signal level/activity controls"
+      ]
+    },
+    {
+      "commandTemplate": "g++ <cached pinned CMake definitions/includes/flags> -std=c++17 -I local-kokoro-runtime/src/main/cpp -fsyntax-only local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+      "exitCode": 0,
+      "dependencyHeaderRuntimeVersion": "1.28.2",
+      "linkedOrExecutedCurrentJni": false
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "ordinaryCiGatesStillRequired": [
+    "Current Android app and JNI compilation with the project-required memory admission.",
+    "Ordinary Gradle unit/Robolectric suites, including native-evidence export/restore and playback warmup integration.",
+    "Linked current native Kokoro integration and pinned-model qualification where CI provisions the model/runtime.",
+    "Physical Snapdragon GPU/NPU correctness, audio playback, thermal, power and latency measurements before claiming engineering targets."
+  ],
+  "externalExperimentReceipts": [
+    "single-cpu-waveform-validation.json",
+    "qnn-context-cache-investigation.json"
+  ],
+  "sourceSnapshots": [
+    "qnn-context-probe.cpp",
+    "SingleCpuWaveform.java",
+    "validate-waveform.cpp"
+  ]
+}

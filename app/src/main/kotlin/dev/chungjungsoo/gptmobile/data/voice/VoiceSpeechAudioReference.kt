@@ -84,7 +84,7 @@ internal data class VoiceSpeechAudioComparison(
 
 /** A numerical consistency gate, not a claim of perceptual or linguistic equivalence. */
 internal object VoiceSpeechAudioReference {
-    const val PROTOCOL = "cpu-reference-duration-timing-signal-v1"
+    const val PROTOCOL = "cpu-reference-duration-timing-signal-v2"
     const val MIN_DURATION_RATIO = .9
     const val MAX_DURATION_RATIO = 1.1
     const val MAX_TOKEN_TIMING_DISTANCE = .15
@@ -92,7 +92,7 @@ internal object VoiceSpeechAudioReference {
     const val MAX_RMS_RATIO = 2.0
     const val MAX_PEAK_RATIO = 2.0
     const val MAX_PEAK_ABSOLUTE_INCREASE = .1
-    const val MAX_CLIPPED_FRACTION_INCREASE = .001
+    const val MAX_CLIPPED_FRACTION_INCREASE = 0.0
     const val MAX_ACTIVITY_FRACTION_DIFFERENCE = .15
 
     fun compare(reference: VoiceSpeechAudioObservation?, candidate: VoiceSpeechAudioObservation?): VoiceSpeechAudioComparison {
@@ -109,8 +109,8 @@ internal object VoiceSpeechAudioReference {
             !sameTokens -> VoiceSpeechAudioReferenceReason.TOKEN_COUNT_MISMATCH
             ratio !in MIN_DURATION_RATIO..MAX_DURATION_RATIO -> VoiceSpeechAudioReferenceReason.DURATION_MISMATCH
             timingDistance == null || timingDistance > MAX_TOKEN_TIMING_DISTANCE -> VoiceSpeechAudioReferenceReason.TOKEN_TIMING_MISMATCH
+            reference.clippedSamples != 0L || candidate.clippedSamples != 0L -> VoiceSpeechAudioReferenceReason.CLIPPING_MISMATCH
             rmsRatio !in MIN_RMS_RATIO..MAX_RMS_RATIO || candidate.peak > max(reference.peak * MAX_PEAK_RATIO, reference.peak + MAX_PEAK_ABSOLUTE_INCREASE) -> VoiceSpeechAudioReferenceReason.SIGNAL_LEVEL_MISMATCH
-            candidate.clippedSamples.toDouble() / candidate.sampleCount > reference.clippedSamples.toDouble() / reference.sampleCount + MAX_CLIPPED_FRACTION_INCREASE -> VoiceSpeechAudioReferenceReason.CLIPPING_MISMATCH
             abs(candidate.nonSilentSamples.toDouble() / candidate.sampleCount - reference.nonSilentSamples.toDouble() / reference.sampleCount) > MAX_ACTIVITY_FRACTION_DIFFERENCE -> VoiceSpeechAudioReferenceReason.SIGNAL_ACTIVITY_MISMATCH
             else -> null
         }

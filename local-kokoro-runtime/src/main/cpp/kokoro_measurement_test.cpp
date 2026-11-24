@@ -70,6 +70,41 @@ void ValidationObservations() {
   const float corrupt[] = {std::numeric_limits<float>::infinity()};
   try { ValidateMeasuredAudio(MeasureAudio(corrupt, 1), value); throw std::runtime_error("Nonfinite PCM passed"); }
   catch (const OutputFailure &error) { Require(error.reason == OutputValidationReason::NonFinitePcm && value.audio_measured); }
+
+  // One exact full-scale sample is already outside the requested zero-clipping
+  // gate; small counts must not disappear inside a relative CPU tolerance.
+  for (const float sample : {1.f, -1.f, 1.2f, -1.2f}) {
+    auto clipped_output = Output(600, 1);
+    std::vector<float> clipped(600, .1f);
+    clipped[299] = sample;
+    const auto before = clipped;
+    const auto measured = MeasureAudio(clipped.data(), clipped.size());
+    try { ValidateMeasuredAudio(measured, clipped_output); throw std::runtime_error("Clipped PCM passed"); }
+    catch (const OutputFailure &error) {
+      Require(error.reason == OutputValidationReason::ClippedPcm && clipped_output.audio_measured &&
+          clipped_output.reason == OutputValidationReason::ClippedPcm && measured.finite &&
+          measured.clipped_samples == 1 && measured.peak >= 1 && measured.rms > 0);
+    }
+    Require(clipped == before);  // Validation never repairs or clamps the waveform.
+  }
+  std::vector<float> reported_gpu(25800, .1f);
+  for (size_t i = 0; i < 8; ++i) reported_gpu[100 + i] = i % 2 == 0 ? 1.f : -1.2f;
+  const auto measured_gpu = MeasureAudio(reported_gpu.data(), reported_gpu.size());
+  auto rejected_gpu = Output(reported_gpu.size(), 1);
+  try { ValidateMeasuredAudio(measured_gpu, rejected_gpu); throw std::runtime_error("Sparse GPU clipping passed"); }
+  catch (const OutputFailure &error) {
+    Require(error.reason == OutputValidationReason::ClippedPcm && measured_gpu.clipped_samples == 8);
+  }
+  // A signal immediately below full scale remains eligible without a changed
+  // waveform. Nonfinite corruption retains its existing, more specific reason.
+  const float below_scale[] = {std::nextafter(1.f, 0.f), std::nextafter(-1.f, 0.f), .1f};
+  auto accepted = Output(600, 1);
+  ValidateMeasuredAudio(MeasureAudio(below_scale, 3), accepted);
+  Require(accepted.audio_measured && accepted.reason == OutputValidationReason::None);
+  const float clipped_nonfinite[] = {1.f, std::numeric_limits<float>::quiet_NaN()};
+  auto rejected_nonfinite = Output(600, 1);
+  try { ValidateMeasuredAudio(MeasureAudio(clipped_nonfinite, 2), rejected_nonfinite); throw std::runtime_error("Clipped nonfinite PCM passed"); }
+  catch (const OutputFailure &error) { Require(error.reason == OutputValidationReason::NonFinitePcm); }
 }
 
 int ReplayLongShapes(size_t maximum) {

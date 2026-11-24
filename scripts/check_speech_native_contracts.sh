@@ -10,6 +10,11 @@ timeout 90s g++ -std=c++17 -O2 -Wall -Wextra -Werror \
     -o "$speech_contract_dir/measurement-test"
 timeout 30s "$speech_contract_dir/measurement-test"
 
+timeout 90s g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+    local-kokoro-runtime/src/main/cpp/kokoro_provider_profile_test.cpp \
+    -o "$speech_contract_dir/provider-profile-test"
+timeout 30s "$speech_contract_dir/provider-profile-test"
+
 # Use the JDK compiler module so a JDK with no javac launcher on PATH is still usable.
 timeout 30s java -Xmx256m --add-modules jdk.compiler com.sun.tools.javac.Main \
     -d "$speech_contract_dir/java" \

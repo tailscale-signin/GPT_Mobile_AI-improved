@@ -44,12 +44,19 @@ class VoiceSpeechBenchmarkStoreTest {
     @Test fun processInterruptionRestoresPartialResultsWithoutClaimingCompletion() {
         val directory = temporary.newFolder()
         val store = VoiceSpeechBenchmarkStore(directory)
-        assertTrue(store.save(report(1, VoiceSpeechBenchmarkRunState.RUNNING)))
+        val pending = VoiceSpeechBenchmarkEnergyObservation(VoiceSpeechBackend.CPU, VoiceSpeechEnergyEndpoint(1000, VoiceSpeechEnergyChargeState.DISCHARGING, false), monitorRegistered = true)
+        assertTrue(store.save(report(1, VoiceSpeechBenchmarkRunState.RUNNING).copy(energyObservations = listOf(pending))))
         val restored = VoiceSpeechBenchmarkStore(directory).read().single()
         assertEquals(VoiceSpeechBenchmarkRunState.INTERRUPTED, restored.state)
         assertEquals(VoiceSpeechBenchmarkBackendState.NOT_RUN, restored.results.single().state)
         assertFalse(restored.results.single().verified)
         assertNull(restored.recommendation())
+        val energy = restored.energyObservations.single()
+        assertEquals(VoiceSpeechEnergyStatus.INTERRUPTED, energy.status)
+        assertEquals(pending.start, energy.start)
+        assertNull(energy.end)
+        assertNull(energy.observedCounterDecreaseNanowattHours)
+        assertEquals(restored, speechBenchmarkReportFromJson(speechBenchmarkJson(restored, local = true)))
     }
 
     @Test fun corruptAndOversizedHistoryCannotProduceBenchmarksAndDoesNotBlockANewRun() {

@@ -63,6 +63,7 @@ internal class VoiceSpeechBenchmarkStore internal constructor(private val direct
                 if (report.isRunning) {
                     report.copy(
                         state = VoiceSpeechBenchmarkRunState.INTERRUPTED,
+                        energyObservations = report.energyObservations.map { if (it.end == null) it.copy(interrupted = true) else it },
                         results = report.results.map { result ->
                             if (result.state in setOf(VoiceSpeechBenchmarkBackendState.PENDING, VoiceSpeechBenchmarkBackendState.PREPARING, VoiceSpeechBenchmarkBackendState.RUNNING)) {
                                 result.copy(state = VoiceSpeechBenchmarkBackendState.NOT_RUN)

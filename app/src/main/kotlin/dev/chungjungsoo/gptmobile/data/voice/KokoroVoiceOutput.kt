@@ -266,7 +266,9 @@ internal class KokoroVoiceOutput(
 
     @Volatile private var active: Playback? = null
 
-    @Volatile private var warmupRequest: ModelKey? = null
+    @Volatile private var warmupRequest: WarmupKey? = null
+
+    private val silentWarmup = VoiceSilentWarmup()
 
     private var threadCount = 2
     private var pause = VoicePauseDuration.SHORT
@@ -361,6 +363,7 @@ internal class KokoroVoiceOutput(
         if (active != null || calibrating) return completed("Pause playback and finish the current calibration first.")
         if (!speechFactory.selectedBackend.supportsCpuThreadCalibration) return completed("Select on-device CPU or Auto speech to calibrate CPU threads.")
         if ((powerManager?.currentThermalStatus ?: 0) >= PowerManager.THERMAL_STATUS_MODERATE) return completed("Let the phone cool before calibrating speech.")
+        cancelPrewarm()
         calibrating = true
         val ticket = ++calibrationTicket
         val selectionIdentity = speechFactory.identity
@@ -417,8 +420,11 @@ internal class KokoroVoiceOutput(
     }
 
     private data class ModelKey(val lexicon: String, val threads: Int, val factory: VoicePhraseEngineFactory)
+    private data class WarmupKey(val model: ModelKey, val speaker: Int, val rateBits: Int)
     private class LexiconUnavailable : IllegalStateException()
-    private class LoadedModel(val key: ModelKey, val engine: VoicePhraseEngine, val words: Set<String>, val leasedKokoroAssets: Boolean)
+    private class LoadedModel(val key: ModelKey, val engine: VoicePhraseEngine, val words: Set<String>, val leasedKokoroAssets: Boolean) {
+        val warmupIdentity = Any()
+    }
 
     private class Playback(
         val runId: String?,
@@ -552,6 +558,7 @@ internal class KokoroVoiceOutput(
     override fun cancelPrewarm() {
         warmupGeneration++
         warmupRequest = null
+        silentWarmup.cancel()
         if (active == null && !calibrating) speechFactory.cancelPending()
     }
 
@@ -559,7 +566,7 @@ internal class KokoroVoiceOutput(
         val factory = speechFactory
         if (closed || active != null || calibrating || !factory.isReady() || factory.requiresKokoroAssets && !models.isInstalled()) return
         val speed = VoiceCpuCalibrationProtocol.rate(rate())
-        val key = ModelKey(voice.lexicon, effectiveThreads(voice, speed), factory)
+        val key = WarmupKey(ModelKey(voice.lexicon, effectiveThreads(voice, speed), factory), voice.speakerId, speed.toBits())
         if (warmupRequest == key) return
         warmupRequest = key
         val generation = ++warmupGeneration
@@ -572,9 +579,10 @@ internal class KokoroVoiceOutput(
                         if (!closed && active == null && !calibrating && warmupRequest == key && warmupGeneration == generation) {
                             // Preference hydration precedes this task on the same worker. Resolve
                             // its measured thread choice now, instead of warming the startup fallback.
-                            val resolved = key.copy(threads = effectiveThreads(voice, speed))
-                            loadModelExclusive(resolved)
+                            val resolved = key.copy(model = key.model.copy(threads = effectiveThreads(voice, speed)))
+                            val model = loadModelExclusive(resolved.model)
                             if (warmupGeneration == generation) warmupRequest = resolved
+                            warmFirstCpuInference(model, voice, speed, generation)
                         }
                     }
                 }
@@ -585,6 +593,23 @@ internal class KokoroVoiceOutput(
             } catch (_: OutOfMemoryError) {
                 main.post { if (warmupGeneration == generation) warmupRequest = null }
             }
+        }
+    }
+
+    private fun warmFirstCpuInference(model: LoadedModel, voice: KokoroVoice, speed: Float, generation: Long) {
+        // Explicit CPU selection alone opts in. Accelerators retain their existing
+        // admission and benchmark paths; Gateway never receives a warmup phrase.
+        if (model.key.factory.selectedBackend != VoiceSpeechBackend.CPU || powerManager?.currentThermalStatus !in 0..1) return
+        fun authorized() = !closed && active == null && !calibrating && warmupGeneration == generation && loaded === model
+        val attempt = silentWarmup.begin(model.warmupIdentity, voice.speakerId, speed, ::authorized, model.engine::resetCancellation, model.engine::cancel) ?: return
+        val deadline = Runnable { silentWarmup.cancel(attempt) }
+        main.postDelayed(deadline, VoiceSilentWarmup.CANCELLATION_DEADLINE_MS)
+        var succeeded = false
+        try {
+            if (silentWarmup.isCurrent(attempt, ::authorized)) succeeded = model.engine.warmFirstInference(voice.speakerId, speed)
+        } finally {
+            silentWarmup.finish(attempt, succeeded, ::authorized)
+            main.removeCallbacks(deadline)
         }
     }
 
@@ -613,6 +638,9 @@ internal class KokoroVoiceOutput(
 
     override fun openReplyWithFailure(voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit): VoiceReplyPlayback? {
         if (closed) return null
+        // A queued or active optional inference yields to the actual reply. Its
+        // worker still owns the model until native cancellation has returned.
+        cancelPrewarm()
         if (calibrating) {
             calibrationTicket++
             runCatching { loaded?.engine?.cancel() }
@@ -1461,13 +1489,14 @@ internal class KokoroVoiceOutput(
 
     override fun releaseWarmModel() {
         if (closed) return
+        warmupGeneration++
+        warmupRequest = null
+        silentWarmup.cancel()
         speechFactory.cancelPending()
         if (calibrating) {
             calibrationTicket++
             runCatching { loaded?.engine?.cancel() }
         }
-        warmupGeneration++
-        warmupRequest = null
         synthesis.execute(::releaseModel)
     }
 
@@ -1507,11 +1536,12 @@ internal class KokoroVoiceOutput(
     override fun stop() = stop("audio_stop")
 
     override fun stop(reason: String) {
+        warmupGeneration++
+        warmupRequest = null
+        silentWarmup.cancel()
         speechFactory.cancelPending()
         calibrationTicket++
         if (calibrating) runCatching { loaded?.engine?.cancel() }
-        warmupGeneration++
-        warmupRequest = null
         val origin = reason.takeIf { it.matches(Regex("[a-z_]{1,64}")) } ?: "unspecified"
         active?.let { end(it, "interrupted", origin) }
     }

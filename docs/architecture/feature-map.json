@@ -1271,7 +1271,8 @@
         "local-kokoro-runtime/src/main/cpp/kokoro_cancellation.h",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectory.kt",
         "scripts/prepare_kokoro_native_host.py",
-        ".github/workflows/speech-engine-smoke.yml"
+        ".github/workflows/speech-engine-smoke.yml",
+        "local-kokoro-runtime/src/main/cpp/kokoro_context_export.h"
       ],
       "tests": [
         "local-kokoro-runtime/src/main/cpp/kokoro_context_cache_test.cpp",
@@ -1282,7 +1283,10 @@
         "local-kokoro-runtime/src/main/cpp/kokoro_cancellation_test.cpp",
         "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroContextSignalContractTest.java",
         "scripts/tests/test_kokoro_native_host_inputs.py",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectoryTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCompiledContextDirectoryTest.kt",
+        "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+        "local-kokoro-runtime/src/testHost/kokoro_profile_fault.cpp",
+        "local-kokoro-runtime/src/testHost/kokoro_profile_fault.h"
       ],
       "commands": [
         "bash scripts/check_speech_native_contracts.sh",
@@ -1290,7 +1294,8 @@
       ],
       "documents": [
         "docs/repairs/voice-accelerator-rebuild-2026-11-24.md",
-        "docs/audits/qnn-host-context-2.8-ort-1.28.json"
+        "docs/audits/qnn-host-context-2.8-ort-1.28.json",
+        "docs/repairs/evidence/voice-runtime-recovery/native-context-serialization.json"
       ],
       "invariants": [
         "Cache publication follows successful PCM, timing and observed-provider validation; no context can grant execution or CPU-reference playback admission.",
@@ -1299,7 +1304,10 @@
         "Engine load, compilation, disk-context load and resident reuse are distinct observations; legacy absence stays unknown.",
         "Slow cache finalization does not hold the cancellation lock; completion rechecks accepted cancellation under the same short lock before publishing audio or Ready.",
         "The Android private directory requires no-follow descriptor, application UID, directory type,0700 mode and stable device/inode/canonical path checks; failure disables disk persistence.",
-        "Full-model context qualification requires the actual JNI production source and pinned model/runtime. Unseeded vocoder nodes use explicit signal consistency controls, not bitwise waveform or listening-equivalence claims."
+        "Full-model context qualification requires the actual JNI production source and pinned model/runtime. Unseeded vocoder nodes use explicit signal consistency controls, not bitwise waveform or listening-equivalence claims.",
+        "Full-model HTP export uses a same-runtime CPU BASIC source snapshot and the supported Compile API embedded-initializer callback, with explicit full QNN optimization. The first inference loads the serialized context before cache publication.",
+        "Private temporary source snapshots require 512 MiB of additional free-space admission and a post-write 512 MiB bound. They are removed before context inference and on every exit; this is not an in-flight file-size cap or a larger retained-cache allowance.",
+        "Cancellation accepted at the source-preparation boundary prevents QNN compilation and any uncached fallback; later cancellation checks prevent further work or publication. Cancellation cannot publish PCM, a Ready state, an orphan profile or a retained source snapshot."
       ]
     },
     {
@@ -4098,6 +4106,11 @@
       "bytes": 19004,
       "sha256": "ba128bb17d232ce464693bb880f11b8b61b2bc100cc939408fcc4ab951362774"
     },
+    "docs/repairs/evidence/voice-runtime-recovery/native-context-serialization.json": {
+      "blob_sha": "800a4567dab65aaec8eada7eaeabb0aebedcf2a8",
+      "bytes": 18639,
+      "sha256": "917566e5545082df5d587f7331abba1b03fba271d43f83a4b8596a23550347f8"
+    },
     "docs/repairs/gateway-stream-ownership-2026-11-23-task.json": {
       "blob_sha": "961825824124ab42ded2661d82970177cec70d3c",
       "bytes": 7057,
@@ -4239,14 +4252,14 @@
       "sha256": "ff86b577d7763b325cef1bdbc2d1f6afd9827d0d9c9ae0e67d318b0657e49da8"
     },
     "docs/repairs/voice-accelerator-rebuild-2026-11-24-task.json": {
-      "blob_sha": "af4a7deba28c1e43b8820956c57559e6a225d4d8",
-      "bytes": 20125,
-      "sha256": "60d768450e8505c89be745df28dc86090f8aa50d588f3b569855602cd832d6c1"
+      "blob_sha": "42f994ae58dfd4ee2cda425f470d2c24bd82d235",
+      "bytes": 22138,
+      "sha256": "89a2647dfbc2e5b1153c4fb78ab51adbc694d656c9727d473eab7837756b8db6"
     },
     "docs/repairs/voice-accelerator-rebuild-2026-11-24.md": {
-      "blob_sha": "794b0270e6099b84c071c70f103f1fbe817e8929",
-      "bytes": 9626,
-      "sha256": "b33053529ee1e52b184ae719e4463e6a0f45c352f021da74632b245e0c459042"
+      "blob_sha": "e56fbd89ae7b954bb33f7ddf1d6c2e164e09875f",
+      "bytes": 11168,
+      "sha256": "10071e9956359ffabf15647d25a41e072fb8c2b6ea481e8f51683099945f8591"
     },
     "docs/repairs/voice-cpu-gpu-npu-enhancements-2026-11-23-task.json": {
       "blob_sha": "9e47f51a069b2b59406ea372e91b4170519e8d85",
@@ -4514,14 +4527,19 @@
       "sha256": "3ac4c74172c5160a0c7224dc32d25f9e45acf6667aa087f92d3d2f6d2fde6701"
     },
     "local-kokoro-runtime/src/main/cpp/kokoro_context_cache.h": {
-      "blob_sha": "155541d8f6d4fdfca60b8fa45d60ca0406ecdb27",
-      "bytes": 11607,
-      "sha256": "7a33c811cc26b2bcbc9eaec0482094d5e61711e916a245fd02ebeae428a145bd"
+      "blob_sha": "ef2ddc529776c73d94eba493bc0d86b8ab6c4925",
+      "bytes": 13674,
+      "sha256": "48d3e7b04e288ec2848c7715ee1a92bf1bc00cec1763f2464e9c21ddcf33c47f"
     },
     "local-kokoro-runtime/src/main/cpp/kokoro_context_cache_test.cpp": {
-      "blob_sha": "1a31862c59c5cb1c257b3990e90764a483a20ce0",
-      "bytes": 6603,
-      "sha256": "98869cea15464c628a96c6e2a1146e52243e832da0cc0f0c3470a936511ce525"
+      "blob_sha": "acfc30c7e5604c2285899f51d58a15d45a375c4e",
+      "bytes": 9206,
+      "sha256": "9cd7b248db152f024237a6f9a94081c20d30d80b65576accc1e3d28eaf291046"
+    },
+    "local-kokoro-runtime/src/main/cpp/kokoro_context_export.h": {
+      "blob_sha": "f7ff0c539303fdbbaeea064615e959911c9161ea",
+      "bytes": 4240,
+      "sha256": "e7ec3cc9a3d6200e4eb4e02ae5f5f09139e4c8af27da058816f6337040ef0115"
     },
     "local-kokoro-runtime/src/main/cpp/kokoro_digest.h": {
       "blob_sha": "4f73448cbdfd8c96b3e8f1d19b657b87cff77e0c",
@@ -4574,14 +4592,14 @@
       "sha256": "9ed88e6e73c0f334d6beefe56ee79e3f4da3b833b47ec7bf6da07a7b5601d1bb"
     },
     "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp": {
-      "blob_sha": "567e606c49fbd9551557b851107e304f9a76b8ac",
-      "bytes": 43577,
-      "sha256": "79a53b81f5bb13f448f40a015972bdb0223785423eba7ba8df8a2747ead17e74"
+      "blob_sha": "433a8caac6384c6b1d5e84853990827679272764",
+      "bytes": 44407,
+      "sha256": "ca3b5a38bf342139e77ddee2dd70f55f0920ebeeb97ed6a248bb75cf7b95e3e3"
     },
     "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java": {
-      "blob_sha": "9963b70c144c82d49d435c29355e61efffcad694",
+      "blob_sha": "c299381c7e5d90c016d3e1a2e49eacfb74254c0e",
       "bytes": 17250,
-      "sha256": "14b7365596909876706e4ed5e372843f2c85cb3ac65e5db48b05f72eb3c190e2"
+      "sha256": "df3835fc66666fc140334c28e965e2318268f25c828a65950a1c06dc103ceb6f"
     },
     "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroContextSignalContractTest.java": {
       "blob_sha": "9f63f5b97056abf07a2f93df95843aa62c01b50a",
@@ -4594,9 +4612,9 @@
       "sha256": "b62ada9a483e18190e2183268485b8f2ad7f81e8485b0febc9fab57ff1426275"
     },
     "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeContextIntegration.java": {
-      "blob_sha": "d88ab7c8d5f4a6b6712d47af03d56419fc6f611f",
-      "bytes": 9662,
-      "sha256": "33a98478257b1b2a3ad93af6c8f7f63bf65f95ada77b9a3a6fa5678e061e9d2c"
+      "blob_sha": "4dd41150b860e7cc65123a082d950db7b40dff8d",
+      "bytes": 16164,
+      "sha256": "0f9a24a3216a011013dff1afe1b7114f6e236401fe05d2badc3c977ec82e9bc9"
     },
     "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeIntegration.java": {
       "blob_sha": "8969575d882ff3097dffbf520c900ec00d97184c",
@@ -4614,9 +4632,19 @@
       "sha256": "2515a9e1533508721f9c7ad15fed0235f9b8f70837e20eeb9c5cb1b2495a1ef7"
     },
     "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py": {
-      "blob_sha": "64bf2aaaac4569014b849759525a8e92e32c2520",
-      "bytes": 15832,
-      "sha256": "5f50c2287ea64f25047d833184ccfd2f8e3201d259c2462d038b76c9ededcd19"
+      "blob_sha": "11c3d7a1518ea32152b77f431d7cf6745f3332e9",
+      "bytes": 17327,
+      "sha256": "0a17798de707d95cd930262645efc25fbf3cff4176cf41ebcb2d72974690b788"
+    },
+    "local-kokoro-runtime/src/testHost/kokoro_profile_fault.cpp": {
+      "blob_sha": "848963992d28ddc5552003130e7a3edcc6e648ab",
+      "bytes": 3443,
+      "sha256": "62e755e94da5f94c89c1b0efcbd11036a1119c0d3ea74bac4a448a9af5a1c241"
+    },
+    "local-kokoro-runtime/src/testHost/kokoro_profile_fault.h": {
+      "blob_sha": "1251812e7d5dcc04a26039fc17698a1c1f3c1b35",
+      "bytes": 558,
+      "sha256": "82d26506bb8fd6b612c50fb957c45efa67ea7f510b158d96c69691642a421dc3"
     },
     "local-kokoro-runtime/src/testHost/kokoro_qnn_model_qualification.py": {
       "blob_sha": "7112c65c77cc3cba6e2ec41862a02de2ca26135e",

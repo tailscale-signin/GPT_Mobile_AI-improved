@@ -13,6 +13,7 @@ Production GitHub intelligence scores and comparisons with ChatGPT or Codex requ
 - Upgrade the QNN execution-provider plugin to 2.8.0 and shared QAIRT to 2.52.0 while retaining ONNX Runtime 1.28.2; package the matching hosted source-built LiteRT dispatch with exact publisher checksums, native inventory and immutable provenance.
 - Provide separately verified original FP32 and compact INT8 Kokoro installations, persisted selection, same-model CPU references and cache identity; retire the previous native/model owner before replacement.
 - Add bounded atomic HTP compiled-context persistence with model/runtime/provider/device/shape/options identity, digest and private-path checks, nonblocking ownership, validation before publication and one source-model retry; keep unsupported GPU disk contexts disabled.
+- Repair full Kokoro context serialization through the supported embedded-initializer compile path, load the saved context before publication, and remove private preparation snapshots on success, failure or cancellation. Preserve the retained-cache limits and require additional temporary disk space before export.
 - Distinguish engine load, graph compilation, disk-context loading, resident reuse, inference, cache size/eviction/fallback and requested HTP policy in current native evidence; preserve legacy unknown observations.
 - Provide reproducible exact-shape, representative-calibration, quantized-candidate, explicit-stage and intermediate-divergence model diagnostics with original FP32 hashes and observed execution, plus a native GPU precision probe using the SDK graph API.
 - Use the actual SDK incremental text API for one bounded reply stream with source-aligned captions, PCM backpressure and real retirement; retain a phrase-stream comparison mode and persisted Auto/64/128/256 Kokoro buckets without text truncation.
@@ -23,7 +24,8 @@ Production GitHub intelligence scores and comparisons with ChatGPT or Codex requ
 - Add playback protocol v4 with 1/5/10-minute validated-presented-audio targets, same-owner repeats, bounded wall time/reply counts, thermal interruption and recomputed duration receipts; require sustained completion but exclude unequal sustained elapsed totals from speed ranking.
 - Split benchmark execution into bounded helpers to respect the existing packaged ART method-size limit while preserving cancellation, energy observations, model leases and retirement.
 
-The runtime rebuild, original-weight tools, incremental-input controls and sustained qualification are implemented with scoped source/host checks and required Android release gates. They do not establish full-model context reload, perceptual speech quality, lower battery use or a measured GPU/NPU speedup on the target phone; fresh device reports are required.
+The runtime rebuild, original-weight tools, incremental-input controls and sustained qualification are implemented with scoped source/host checks and required Android release gates. Full Kokoro context save/load/corruption recovery passes with the pinned x86 HTP host emulator. These observations do not establish physical-phone cache performance, perceptual speech quality, lower battery use or a measured GPU/NPU speedup; fresh device reports are required.
+
 ## Input integrity and progress continuity
 
 - Preserve actual SDK text separators and source/UTF-8 mappings across hard chunk boundaries, retaining the incoming pronunciation projection and benchmark/playback behavior.

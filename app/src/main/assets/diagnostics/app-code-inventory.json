@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "44d7851f0033da4ddc7ac750a298e9ff2e87b860ed8ffa677377aeb5d19a6ffa",
-  "file_count": 3109,
-  "indexed_line_count": 527305,
+  "source_digest": "c40f6419b055be216f311f8966ff89c536dffed60956763b281ce42bd18ecdfe",
+  "file_count": 3110,
+  "indexed_line_count": 527483,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -148,8 +148,8 @@
     {
       "id": "voice_and_media",
       "label": "Voice and media",
-      "file_count": 128,
-      "indexed_line_count": 22454
+      "file_count": 129,
+      "indexed_line_count": 22632
     },
     {
       "id": "portable_domain",
@@ -21648,15 +21648,22 @@
       "path": "local-kokoro-runtime/src/main/cpp/kokoro_context_cache.h",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "7a33c811cc26b2bcbc9eaec0482094d5e61711e916a245fd02ebeae428a145bd",
-      "indexed_lines": 239
+      "sha256": "48d3e7b04e288ec2848c7715ee1a92bf1bc00cec1763f2464e9c21ddcf33c47f",
+      "indexed_lines": 277
     },
     {
       "path": "local-kokoro-runtime/src/main/cpp/kokoro_context_cache_test.cpp",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "98869cea15464c628a96c6e2a1146e52243e832da0cc0f0c3470a936511ce525",
-      "indexed_lines": 135
+      "sha256": "9cd7b248db152f024237a6f9a94081c20d30d80b65576accc1e3d28eaf291046",
+      "indexed_lines": 186
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/kokoro_context_export.h",
+      "area_id": "voice_and_media",
+      "kind": "source",
+      "sha256": "e7ec3cc9a3d6200e4eb4e02ae5f5f09139e4c8af27da058816f6337040ef0115",
+      "indexed_lines": 77
     },
     {
       "path": "local-kokoro-runtime/src/main/cpp/kokoro_digest.h",
@@ -21788,8 +21795,8 @@
       "path": "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "79a53b81f5bb13f448f40a015972bdb0223785423eba7ba8df8a2747ead17e74",
-      "indexed_lines": 837
+      "sha256": "ca3b5a38bf342139e77ddee2dd70f55f0920ebeeb97ed6a248bb75cf7b95e3e3",
+      "indexed_lines": 849
     },
     {
       "path": "local-kokoro-runtime/src/main/java/dev/melo/kokoro/KokoroFrontend.java",
@@ -21802,7 +21809,7 @@
       "path": "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "14b7365596909876706e4ed5e372843f2c85cb3ac65e5db48b05f72eb3c190e2",
+      "sha256": "df3835fc66666fc140334c28e965e2318268f25c828a65950a1c06dc103ceb6f",
       "indexed_lines": 300
     },
     {

@@ -336,7 +336,8 @@
     "Retain explicit Gradle worker lifecycle and heap command evidence for both existing constrained-heap CI invocations while preserving their exact selectors, init script, heap limits, retry behavior and deadlines.",
     "GitHub engineering now uses four intelligence levels, relevance-ranked replay and recoverable acceptance plans. Named workers, review, branch restaging and production benchmark scores retain revision, permission and evidence checks.",
     "Retain the exact Android and Windows package attestation bundles as separate source/run/attempt artifacts for 14 days without changing signing, package assets, subjects, permissions or publication gates.",
-    "Align the four GitHub intelligence and consent policy-change field names across Android incident projection and the reporting receiver, preserving exact vocabulary parity and rejection of unknown names or raw setting values."
+    "Align the four GitHub intelligence and consent policy-change field names across Android incident projection and the reporting receiver, preserving exact vocabulary parity and rejection of unknown names or raw setting values.",
+    "Repair full Kokoro HTP context serialization using the supported embedded-initializer compile path and a bounded private source snapshot; load and validate the serialized context before publication, preserve cancellation, and qualify real store/load/corruption recovery with the pinned host runtime."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -371,7 +372,7 @@
     "The added engine benchmark measures structural PCM, callback delivery and playback behavior. It does not establish cross-engine intelligibility, perceptual equivalence, acoustic latency, energy savings or an automatic engine winner. The supplied 631bad14 phone logs are baseline observations, not verification of these changes.",
     "Final-request refusal diagnostics report only the four observed typed outcomes from current validation. Missing historical receipt causes remain unknown; prior accepted or uncertain work cannot be reduced to unsent. Source and receiver data checks do not replace ordinary hosted composed runtime qualification or private capture/approval policy.",
     "Optional battery-counter decreases describe whole-device observations, not energy attributable to a speech engine, wattage or savings; missing, coarse, interrupted or charging observations remain explicit. Silent CPU warmup and strict zero-clipping controls do not prove target-phone speed or acoustic continuity. The earlier context-export failure remains historical evidence. The paired QNN 2.8/QAIRT 2.52 mixed-graph host test now passes embedded-context save/reload; this does not qualify the full Kokoro graph, physical-phone cache performance or arbitrary-utterance GPU/NPU correctness.",
-    "The runtime rebuild, original-weight tools, incremental-input controls and sustained qualification are implemented with scoped source/host checks and required Android release gates. They do not establish full-model context reload, perceptual speech quality, lower battery use or a measured GPU/NPU speedup on the target phone; fresh device reports are required.",
+    "The runtime rebuild, original-weight tools, incremental-input controls and sustained qualification are implemented with scoped source/host checks and required Android release gates. Full Kokoro context save/load/corruption recovery passes with the pinned x86 HTP host emulator. These observations do not establish physical-phone cache performance, perceptual speech quality, lower battery use or a measured GPU/NPU speedup; fresh device reports are required.",
     "Pronunciation checks verify readable text, source-aligned captions and frontend token compatibility; they do not establish phone acoustic accuracy, general multilingual support or sentence-dependent homograph correctness.",
     "Production GitHub intelligence scores and comparisons with ChatGPT or Codex require matched live qualification runs. Proposed performance targets remain unmeasured without the corresponding observations."
   ],
@@ -940,6 +941,7 @@
     "docs/repairs/evidence/voice-pronunciation-vocabulary/independent-review-reconstructed.json",
     "docs/repairs/evidence/voice-pronunciation-vocabulary/reconstructed-validation.json",
     "docs/repairs/evidence/voice-pronunciation-vocabulary/required-junit-methods.json",
+    "docs/repairs/evidence/voice-runtime-recovery/native-context-serialization.json",
     "docs/repairs/evidence/voice-runtime-recovery/reporter-composition-review.json",
     "docs/repairs/evidence/voice-runtime-recovery/scoped-secret-classification-33b.json",
     "docs/repairs/evidence/voice-runtime-recovery/scoped-secret-classification.json",
@@ -1066,6 +1068,7 @@
     "local-kokoro-runtime/src/main/cpp/kokoro_cancellation_test.cpp",
     "local-kokoro-runtime/src/main/cpp/kokoro_context_cache.h",
     "local-kokoro-runtime/src/main/cpp/kokoro_context_cache_test.cpp",
+    "local-kokoro-runtime/src/main/cpp/kokoro_context_export.h",
     "local-kokoro-runtime/src/main/cpp/kokoro_digest.h",
     "local-kokoro-runtime/src/main/cpp/kokoro_execution_provider.h",
     "local-kokoro-runtime/src/main/cpp/kokoro_measurement_test.cpp",
@@ -1082,6 +1085,8 @@
     "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeIntegration.java",
     "local-kokoro-runtime/src/testHost/kokoro_epcontext_compatibility_probe.py",
     "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+    "local-kokoro-runtime/src/testHost/kokoro_profile_fault.cpp",
+    "local-kokoro-runtime/src/testHost/kokoro_profile_fault.h",
     "local-kokoro-runtime/src/testHost/kokoro_qnn_model_qualification.py",
     "local-kokoro-runtime/src/testHost/test_kokoro_model_workbench.py",
     "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py",

@@ -22,6 +22,7 @@
 #include "kokoro_measurement.h"
 #include "kokoro_cancellation.h"
 #include "kokoro_context_cache.h"
+#include "kokoro_context_export.h"
 #include "kokoro_output_validation.h"
 #include "kokoro_pronunciation.h"
 #include "kokoro_execution_provider.h"
@@ -215,7 +216,7 @@ struct Model : Frontend {
 #endif
         context_seed = kokoro_runtime::Digest(seed);
       }
-      return kokoro_runtime::Digest(context_seed + "|qnn-htp|" + std::to_string(config.num_threads) + "|" +
+      return kokoro_runtime::Digest(context_seed + "|" + kokoro_runtime::kContextExportRecipe + "|qnn-htp|" + std::to_string(config.num_threads) + "|" +
           htp_performance_mode + "|" + std::to_string(token_count) + "|" + std::to_string(device.type) + "|" +
           std::to_string(device.vendor) + "|" + std::to_string(device.id));
     } catch (const std::exception &) {
@@ -292,8 +293,16 @@ struct Model : Frontend {
     const auto create = [&](const std::string &model_path, const std::string &export_path, const std::string &attempt) {
       auto selected_config = config;
       selected_config.kokoro.model = model_path;
+      if (!export_path.empty()) {
+        kokoro_runtime::CompileEmbeddedContext(*kokoro_runtime::Environment(), config.num_threads, model_path,
+            config.provider, library_dir, profile + "-compile-only", token_count, export_path, htp_performance_mode, cancelled);
+        selected_config.kokoro.model = export_path;
+      }
+      Require(!cancelled.load(), "Kokoro generation cancelled");
+      // A newly compiled context is loaded and executed before Commit just like
+      // a later disk hit. A successful compile alone never publishes a cache.
       auto value = std::make_unique<sherpa_onnx::OfflineTtsKokoroModel>(selected_config, library_dir,
-          profile + attempt, token_count, export_path, htp_performance_mode);
+          profile + attempt, token_count, "", htp_performance_mode);
       Require(value->GetMetaData().sample_rate == kSampleRate &&
               value->GetMetaData().max_token_len == max_tokens, "Unexpected Kokoro pack");
       return value;
@@ -312,6 +321,7 @@ struct Model : Frontend {
             preparation_source = kokoro_runtime::GraphPreparation::DiskContext;
           } catch (const std::bad_alloc &) { throw; }
           catch (const std::exception &) {
+            Require(!cancelled.load(), "Kokoro generation cancelled");
             session->context_cache->Invalidate();
             context_fallback = true;
           }
@@ -320,12 +330,14 @@ struct Model : Frontend {
       ObserveContext(*session);
     }
     if (!session->model) {
-      const auto export_path = session->context_cache ? session->context_cache->BeginExport() : std::string{};
+      const auto export_path = session->context_cache ?
+          session->context_cache->BeginExport(kokoro_runtime::ContextSourceSnapshot::kMaximumBytes) : std::string{};
       preparation_source = config.provider == "cpu" ? kokoro_runtime::GraphPreparation::CpuDynamic : kokoro_runtime::GraphPreparation::Compiled;
       try {
         session->model = create(config.kokoro.model, export_path, "-compile");
       } catch (const std::bad_alloc &) { throw; }
       catch (const std::exception &) {
+        Require(!cancelled.load(), "Kokoro generation cancelled");
         if (export_path.empty()) throw;
         // Unsupported export/cache I/O is optional. Retry the original graph
         // exactly once without EPContext configuration; retain normal errors.

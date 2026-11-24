@@ -70,6 +70,28 @@ identity plus finite, unclipped, non-silent signal statistics; they do not requi
 bitwise waveform equality or claim perceptual equivalence. Preparing the inputs
 or passing the lightweight signal controls does not qualify that full-model job.
 
+The first full-model run exposed duplicate initializers in retained CPU control-flow
+subgraphs during context serialization. The repair prepares a CPU BASIC snapshot
+with the same runtime, then uses the supported Compile API callback to embed
+initializers with explicit full QNN optimization. The first inference loads the
+serialized context itself before publication. The private source snapshot has a
+512 MiB post-write bound and requires 512 MiB of additional free-space admission;
+it is removed before context inference and on every exit. This is not an in-flight
+size cap, and retained-cache limits remain unchanged. Cancellation at the source-
+preparation boundary prevents compilation or an uncached fallback; later checks
+prevent further work or publication.
+
+The clean source-bound run now passes all eight native test targets and all four
+actual JNI lifecycle/context cases. It verifies initial store, resident reuse,
+fresh disk loading, corruption recovery, and cancellation without orphan profiles
+or source snapshots. All tested inference paths retain 39 QNN and 1,477 CPU
+kernels. The original-model comparison passes the existing signal-consistency
+protocol; the unseeded vocoder still does not establish waveform or listening
+equivalence. The [native serialization receipt](evidence/voice-runtime-recovery/native-context-serialization.json)
+records the exact source, runtime, model, tests and independent reviews. This is
+host-emulator qualification; current Android packaging and final-head workflows
+remain separate gates.
+
 ## Incremental speech and resident ownership
 
 The SDK path uses its real incremental-input API: one reply stream accepts

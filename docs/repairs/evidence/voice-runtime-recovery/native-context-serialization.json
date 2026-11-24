@@ -1,0 +1,474 @@
+{
+  "schemaVersion": 1,
+  "task": "Repair full Kokoro native compiled-context serialization",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "sourceBase": "1e9ece5656172bf1e0678097d9f9784114856b9e",
+  "sourceBranch": "task/voice-native-context-ci-repair-1e9",
+  "sourceBindings": [
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/kokoro_context_cache.h",
+      "sha256": "48d3e7b04e288ec2848c7715ee1a92bf1bc00cec1763f2464e9c21ddcf33c47f"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/kokoro_context_cache_test.cpp",
+      "sha256": "9cd7b248db152f024237a6f9a94081c20d30d80b65576accc1e3d28eaf291046"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+      "sha256": "ca3b5a38bf342139e77ddee2dd70f55f0920ebeeb97ed6a248bb75cf7b95e3e3"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
+      "sha256": "df3835fc66666fc140334c28e965e2318268f25c828a65950a1c06dc103ceb6f"
+    },
+    {
+      "path": "local-kokoro-runtime/src/test/java/dev/melo/kokoro/KokoroNativeContextIntegration.java",
+      "sha256": "0f9a24a3216a011013dff1afe1b7114f6e236401fe05d2badc3c977ec82e9bc9"
+    },
+    {
+      "path": "local-kokoro-runtime/src/testHost/kokoro_native_profile_lifecycle.py",
+      "sha256": "0a17798de707d95cd930262645efc25fbf3cff4176cf41ebcb2d72974690b788"
+    },
+    {
+      "path": "local-kokoro-runtime/src/testHost/kokoro_profile_fault.cpp",
+      "sha256": "62e755e94da5f94c89c1b0efcbd11036a1119c0d3ea74bac4a448a9af5a1c241"
+    },
+    {
+      "path": "local-kokoro-runtime/src/testHost/kokoro_profile_fault.h",
+      "sha256": "82d26506bb8fd6b612c50fb957c45efa67ea7f510b158d96c69691642a421dc3"
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/kokoro_context_export.h",
+      "sha256": "e7ec3cc9a3d6200e4eb4e02ae5f5f09139e4c8af27da058816f6337040ef0115"
+    }
+  ],
+  "problem": {
+    "observedFailure": "Default session EPContext export rejects duplicate /Cast_5_output_0 in the CPU-owned Loop body before writing a model.",
+    "baselineHostedRun": 45322654535,
+    "baselineHostedJob": 138204631089,
+    "baselineArtifact": {
+      "id": 14888478036,
+      "sha256": "f9cf8bf2ffcd04964f9e0c32670b9a894761b7ae7d5af70bf7bc2f1cab5b1b81",
+      "bytes": 13509
+    },
+    "failedDiagnostics": [
+      {
+        "recipe": "Export-only ConstantFolding exclusion",
+        "result": "Export succeeded but reload failed; seven pairs of nested initializers were duplicated. Kernel counts changed to75QNN/2483CPU. Not adopted."
+      },
+      {
+        "recipe": "Same-runtime CPU BASIC snapshot followed by default session export",
+        "result": "Export succeeded with39QNN/1477CPU but reload failed; all eight nested initializers were duplicated. Not adopted alone."
+      },
+      {
+        "recipe": "Private first custom-serializer trial in reused build directory",
+        "result": "All execution, signal and corruption stages passed, but final cleanup assertion failed on eight pre-existing failed-trial profile files. Exit1 is retained; superseded only by the fresh fully passing run."
+      }
+    ]
+  },
+  "implementation": {
+    "recipe": "basic-source1-all-embedded-initializers1",
+    "runtimeId": "ort1.28.2-qnn2.8-qairt2.52-convex2-profile6-cache3-progress1-parser3-validation2-context2",
+    "steps": [
+      "Save an exact-token-shape CPU BASIC snapshot using the same pinned ORT binary, then destroy its preparation session.",
+      "Use the documented CompileModel initializer-location callback with null external location to embed unchanged initializer values through the serializer that rebuilds nested lists.",
+      "Explicitly retain ORT_ENABLE_ALL for QNN compilation, since CompileModel defaults to ORT_DISABLE_ALL; require compiled nodes and refuse an existing output.",
+      "Disable compile-only profiling, remove the hidden snapshot, and load/execute the emitted context before atomic cache publication.",
+      "Preserve ordinary uncached execution, observed-provider/PCM validation, fresh profiles, corrupt-cache fallback and short final cancellation linearization."
+    ],
+    "sourceMaximumBytes": 536870912,
+    "retainedCacheLimitsUnchanged": {
+      "entries": 6,
+      "totalBytes": 536870912,
+      "entryBytes": 268435456,
+      "freeReserveBytes": 67108864
+    },
+    "diskAdmission": "The maximum temporary source allowance is added to entry plus reserve before export. Source size is checked after save; no in-flight hard cap is claimed.",
+    "cancellation": "Checks between both preparations and before either fallback; the embedding callback also checks accepted cancellation. No lock is held over model construction or filesystem work.",
+    "identity": "Original model/runtime/device identity remains; both native preparation recipe and Java context epoch change, preventing old cache/capability reuse."
+  },
+  "validation": {
+    "scope": "Actual full INT8 Kokoro model, JNI, Sherpa, ORT1.28.2 and QNN2.8/QAIRT2.52 on an explicit x86 CPU emulator port.",
+    "freshOutputDirectory": true,
+    "buildJobs": 1,
+    "configure": "PASS",
+    "nativeBuild": "PASS",
+    "ctest": {
+      "passed": 8,
+      "failed": 0
+    },
+    "javaCompile": "PASS",
+    "jniCases": {
+      "unqualified_cancel": 0,
+      "unqualified_failure": 0,
+      "qualified_cancel": 0,
+      "context_roundtrip": 0
+    },
+    "allFrozenSourceFilesMatched": 9,
+    "allNativeDriverSourceFiles": 32,
+    "providerIdentity": {
+      "applicationRuntimeId": "ort1.28.2-qnn2.8-qairt2.52-convex2-profile6-cache3-progress1-parser3-validation2-context2",
+      "hostQnnPluginVersion": "2.8.0",
+      "hostQairtVersion": "2.52.0",
+      "packageBuildMetadataSha256": "6d6ec89b5381bf4d30f41903d5758919d7a2d910aca32138fcb1e404cbefa57a",
+      "inputIdentity": {
+        "kind": "AUDITED_PUBLISHER_MANIFEST",
+        "sha256": "63b81b59d14253d7b47ef9107744fbe2559c69ed81b2efd7600d63d30f73114a"
+      },
+      "validation": "APPLICATION_AND_HOST_VERSIONS_MATCH",
+      "executionScope": "X86_CPU_EMULATOR_ONLY"
+    },
+    "nativeBinary": {
+      "sha256": "00c8285c24cc1fe3a4b27006eeda8441258a4bd37c40c45801d455a8c44ab6da"
+    },
+    "adapterBinary": {
+      "sha256": "f16e5183d2264f17ccea9bae6db7acd68c55ab7361524cebeafcca127168db6a"
+    },
+    "ortBinary": {
+      "sha256": "615e9342ef049b54d5f4bdc542ad54065b838aeb7934dedc3e417adc9b75b37b"
+    },
+    "modelBindings": [
+      {
+        "path": "model.int8.onnx",
+        "sha256": "75635ea3b85a32d00094dcdd61a258aba87c160f7c264c304a7b3ae9d734195e"
+      },
+      {
+        "path": "voices.bin",
+        "sha256": "1c5a5b983d3d50d8586d437a51f3faa2da7919ce76a013c081e65671a3447c29"
+      },
+      {
+        "path": "tokens.txt",
+        "sha256": "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425"
+      },
+      {
+        "path": "lexicon-us-en.txt",
+        "sha256": "7daaab53a181be9885b853a8582bf1838186317e5dadacbcef9c426d6fa0da14"
+      }
+    ],
+    "contextResult": {
+      "scope": "actual_native_htp_context_emulator",
+      "physical_device_qualified": false,
+      "preparationCancellationPassed": true,
+      "preparationCancellationCompileAttempts": 0,
+      "preparationCancellationFallbackAttempts": 0,
+      "unfinishedProfiles": 0,
+      "retainedSourceSnapshots": 0,
+      "uncachedQnnKernels": 39,
+      "uncachedCpuKernels": 1477,
+      "compiledContextBytes": 118961640,
+      "compiledQnnKernels": 39,
+      "compiledCpuKernels": 1477,
+      "compiledPrepareMs": 8457,
+      "loadedQnnKernels": 39,
+      "loadedCpuKernels": 1477,
+      "contextLoadMs": 937,
+      "corruptionRecovered": true,
+      "originalModelPcm": {
+        "status": "CONSISTENT",
+        "scope": "SIGNAL_CONSISTENCY_ONLY_NOT_WAVEFORM_EQUIVALENCE",
+        "protocol": "cpu-reference-duration-timing-signal-v2",
+        "bitwiseEqualityRequired": false,
+        "rmsRatio": 1.0010678881435142,
+        "peakRatio": 0.9957711786842184,
+        "activityFractionDifference": 0.00012295081967213115,
+        "maximumSampleDifference": 0.10709746181964874,
+        "normalizedRmsError": 0.1508710165099387
+      },
+      "loadedPcm": {
+        "status": "CONSISTENT",
+        "scope": "SIGNAL_CONSISTENCY_ONLY_NOT_WAVEFORM_EQUIVALENCE",
+        "protocol": "cpu-reference-duration-timing-signal-v2",
+        "bitwiseEqualityRequired": false,
+        "rmsRatio": 1.0,
+        "peakRatio": 1.0,
+        "activityFractionDifference": 0.0,
+        "maximumSampleDifference": 0.0,
+        "normalizedRmsError": 0.0
+      },
+      "recoveredPcm": {
+        "status": "CONSISTENT",
+        "scope": "SIGNAL_CONSISTENCY_ONLY_NOT_WAVEFORM_EQUIVALENCE",
+        "protocol": "cpu-reference-duration-timing-signal-v2",
+        "bitwiseEqualityRequired": false,
+        "rmsRatio": 1.0,
+        "peakRatio": 1.0,
+        "activityFractionDifference": 0.0,
+        "maximumSampleDifference": 0.0,
+        "normalizedRmsError": 0.0
+      }
+    },
+    "phaseObservations": [
+      {
+        "phase": "uncached",
+        "graphPreparationSource": "COMPILED",
+        "contextCacheStatus": "DISABLED",
+        "contextFallback": false,
+        "contextBytes": 0,
+        "contextLoadMs": 0,
+        "contextStoreMs": 0,
+        "profileAvailable": true,
+        "currentPrepareMs": 6970,
+        "graphPreparedThisCall": true,
+        "acceleratorKernels": 39,
+        "cpuKernels": 1477,
+        "cacheHit": false,
+        "profileReused": false,
+        "validatedAudio": true
+      },
+      {
+        "phase": "preparation_cancelled",
+        "graphPreparationSource": "COMPILED",
+        "contextCacheStatus": "MISS",
+        "contextFallback": false,
+        "contextBytes": 0,
+        "contextLoadMs": 0,
+        "contextStoreMs": 0,
+        "profileAvailable": false,
+        "currentPrepareMs": 2323,
+        "graphPreparedThisCall": false,
+        "acceleratorKernels": 0,
+        "cpuKernels": 0,
+        "cacheHit": false,
+        "profileReused": false,
+        "validatedAudio": false
+      },
+      {
+        "phase": "invalid_voice",
+        "graphPreparationSource": "COMPILED",
+        "contextCacheStatus": "PENDING",
+        "contextFallback": false,
+        "contextBytes": 0,
+        "contextLoadMs": 0,
+        "contextStoreMs": 0,
+        "profileAvailable": false,
+        "currentPrepareMs": 9184,
+        "graphPreparedThisCall": true,
+        "acceleratorKernels": 0,
+        "cpuKernels": 0,
+        "cacheHit": false,
+        "profileReused": false,
+        "validatedAudio": false
+      },
+      {
+        "phase": "compiled",
+        "graphPreparationSource": "COMPILED",
+        "contextCacheStatus": "STORED",
+        "contextFallback": false,
+        "contextBytes": 118961640,
+        "contextLoadMs": 0,
+        "contextStoreMs": 437,
+        "profileAvailable": true,
+        "currentPrepareMs": 8457,
+        "graphPreparedThisCall": true,
+        "acceleratorKernels": 39,
+        "cpuKernels": 1477,
+        "cacheHit": false,
+        "profileReused": false,
+        "validatedAudio": true
+      },
+      {
+        "phase": "resident",
+        "graphPreparationSource": "RESIDENT",
+        "contextCacheStatus": "NOT_ACCESSED",
+        "contextFallback": false,
+        "contextBytes": 0,
+        "contextLoadMs": 0,
+        "contextStoreMs": 0,
+        "profileAvailable": true,
+        "currentPrepareMs": 0,
+        "graphPreparedThisCall": false,
+        "acceleratorKernels": 39,
+        "cpuKernels": 1477,
+        "cacheHit": true,
+        "profileReused": true,
+        "validatedAudio": true
+      },
+      {
+        "phase": "loaded",
+        "graphPreparationSource": "DISK_CONTEXT",
+        "contextCacheStatus": "HIT",
+        "contextFallback": false,
+        "contextBytes": 118961640,
+        "contextLoadMs": 937,
+        "contextStoreMs": 0,
+        "profileAvailable": true,
+        "currentPrepareMs": 2300,
+        "graphPreparedThisCall": true,
+        "acceleratorKernels": 39,
+        "cpuKernels": 1477,
+        "cacheHit": false,
+        "profileReused": false,
+        "validatedAudio": true
+      },
+      {
+        "phase": "recovered",
+        "graphPreparationSource": "COMPILED",
+        "contextCacheStatus": "STORED",
+        "contextFallback": true,
+        "contextBytes": 118961718,
+        "contextLoadMs": 1,
+        "contextStoreMs": 486,
+        "profileAvailable": true,
+        "currentPrepareMs": 9658,
+        "graphPreparedThisCall": true,
+        "acceleratorKernels": 39,
+        "cpuKernels": 1477,
+        "cacheHit": false,
+        "profileReused": false,
+        "validatedAudio": true
+      }
+    ],
+    "savedGraph": {
+      "contextModel": {
+        "sha256": "d8dcfe8586a93d589625f825352c04c477f03150d6335dadc74f921b5123c722",
+        "bytes": 118961544
+      },
+      "exactTokenShape": [
+        1,
+        28
+      ],
+      "epContextNodes": 39,
+      "originalMetadataAndIoNamesPreserved": true,
+      "nestedInitializerCounts": [
+        {
+          "scope": "root//Loop:body",
+          "count": 6
+        },
+        {
+          "scope": "root//If:else_branch",
+          "count": 0
+        },
+        {
+          "scope": "root//If:then_branch",
+          "count": 1
+        },
+        {
+          "scope": "root//If_1:else_branch",
+          "count": 0
+        },
+        {
+          "scope": "root//If_1:then_branch",
+          "count": 1
+        }
+      ],
+      "duplicateDefinitions": 0,
+      "externalInitializers": 0,
+      "inspectionBinding": {
+        "role": "saved_graph_inventory",
+        "path": "native-context-production-validation/saved-context-inventory.json",
+        "sha256": "076070080d60dc966f9923c245ebe46383c6b6e35354e78e620c613844103f3e",
+        "bytes": 2326
+      }
+    },
+    "artifacts": [
+      {
+        "role": "complete_driver_receipt",
+        "path": "native-context-production-validation/full-native/verification.json",
+        "sha256": "dfa5363f66bb9e99f09848a0115f24cd7bbc891d22fd0061d2dd6094945ab08f",
+        "bytes": 8768
+      },
+      {
+        "role": "explicit_host_emulator_and_fault_boundary_changes",
+        "path": "native-context-production-validation/full-native/host-port.diff",
+        "sha256": "4dd723b580efeafcf1ffa456eb9b082536ee4cb80d5c32d779de4e08c0f9dc35",
+        "bytes": 5411
+      },
+      {
+        "role": "native_configure",
+        "path": "native-context-production-validation/full-native/configure.log",
+        "sha256": "30272b6a357378099ef733cee599892aeeaddceb19ebfed5246d6f3f4fce0f05",
+        "bytes": 4965
+      },
+      {
+        "role": "native_build",
+        "path": "native-context-production-validation/full-native/build.log",
+        "sha256": "f1f0e7ca7a52a9adcf647e0c69bcc58b2942ff2a75eb0390209be694f41162d2",
+        "bytes": 3102
+      },
+      {
+        "role": "eight_native_contract_targets",
+        "path": "native-context-production-validation/full-native/ctest.log",
+        "sha256": "861bb474ed5d6732a3eed899f54c15459e4348bdddfbe1b4d0cb6916c0bbcfa4",
+        "bytes": 1289
+      },
+      {
+        "role": "actual_java_bridge_compile",
+        "path": "native-context-production-validation/full-native/javac.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "role": "observed_context_phases",
+        "path": "native-context-production-validation/full-native/context_roundtrip.log",
+        "sha256": "f08917764ebde32ac8c629e76ca8d945aca7d7d9b76cf8163317bfef8176004e",
+        "bytes": 4111
+      },
+      {
+        "role": "complete_context_result",
+        "path": "native-context-production-validation/full-native/context_roundtrip.json",
+        "sha256": "d286c6877047179c6be5e87d34aec29535632711f45736caa085521f8501cdc2",
+        "bytes": 1493
+      },
+      {
+        "role": "first_inference_cancellation",
+        "path": "native-context-production-validation/full-native/unqualified_cancel.json",
+        "sha256": "4cc29231a8dc385276bc581ba50b54ddc6b31cdcd7f4cb6a7d9fdaea23ec4c13",
+        "bytes": 284
+      },
+      {
+        "role": "first_inference_failure",
+        "path": "native-context-production-validation/full-native/unqualified_failure.json",
+        "sha256": "820170ba3bb43d51dfaf4b43e7e6878374549610689fcd152d86d3af3588d957",
+        "bytes": 285
+      },
+      {
+        "role": "qualified_reuse_and_concurrent_close",
+        "path": "native-context-production-validation/full-native/qualified_cancel.json",
+        "sha256": "069092489a8c9b479336a0bc42cb5cae7d0c0b512bc290a432785b2667b70a03",
+        "bytes": 280
+      }
+    ]
+  },
+  "independentReviews": [
+    {
+      "role": "root_source_review",
+      "path": "native-context-production-validation/root-source-review.json",
+      "sha256": "42ff1dbd4786f55a5693a6cb05eb686e0587735fbd4928b53aeec8d3c23e77b7",
+      "bytes": 4064
+    },
+    {
+      "role": "independent_source_review",
+      "path": "native-context-production-validation/independent-source-review.json",
+      "sha256": "b9d98e456416b9d228ad295dacd0904ce40c07c3391e85e6ef6060c0a4e45d20",
+      "bytes": 4459
+    },
+    {
+      "role": "independent_complete_run_readback",
+      "path": "native-context-production-validation/independent-runtime-readback.json",
+      "sha256": "05d6a77a95bfac455fc19e6c98a3774c834b22caec0b71accc03b6025ba4672c",
+      "bytes": 5523
+    }
+  ],
+  "primaryImplementationEvidence": [
+    {
+      "role": "pinned_host_compile_api_and_serializer",
+      "path": "native-export-primary/custom-initializer-api-evidence.json",
+      "sha256": "4f02bf23b34d4dfd39895adda9ffcdafefb8c8875505c35dca5667663a04ad99",
+      "bytes": 2330
+    },
+    {
+      "role": "pinned_android_arm64_static_implementation",
+      "path": "android-ort-compile-api/verification-receipt.json",
+      "sha256": "dfcecf6262d72fad1cd25d7261f8f025ca705d8754889d7b235fcb20bb5779f1",
+      "bytes": 9743
+    }
+  ],
+  "limitations": [
+    "This host execution does not qualify Android packaging, physical GPU/NPU performance, thermal behavior or listening quality.",
+    "The exact Android arm64 archive statically contains the implemented Compile API and custom serializer; device execution remains separate.",
+    "Equal kernel counts are count parity, not proof of identical partitions.",
+    "The model has unseeded vocoder random operators. Original-versus-compiled PCM passed duration/timing/signal consistency with measured nonzero sample error; no waveform-equivalence claim is made.",
+    "937ms is the measured cache-load subphase; total fresh-hit preparation was2300ms in this host run.",
+    "All recorded local source checks remain scoped; final merged public-head CI and the normal release gates are still required."
+  ]
+}

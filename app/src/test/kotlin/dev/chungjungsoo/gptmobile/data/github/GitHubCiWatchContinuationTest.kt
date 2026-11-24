@@ -23,6 +23,7 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityReposi
 import dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
 import dev.chungjungsoo.gptmobile.data.queue.GatewayQueueStore
 import dev.chungjungsoo.gptmobile.data.queue.PendingPrompt
+import dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao
 import dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -33,6 +34,7 @@ import dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -160,6 +162,38 @@ class GitHubCiWatchContinuationTest {
         }
     }
 
+    @Test fun bufferedContinuationCannotRetryAfterRoomPausesIt() = runBlocking {
+        val observed = MutableStateFlow(emptyList<PendingPrompt>())
+        val fixture = Fixture(this)
+        try {
+            fixture.initialize(observed)
+            val dao = fixture.database.pendingPromptDao()
+            val accepted = fixture.watch.waitingTasks.single().currentDelivery(fixture.watch, fixture.database, fixture.settings) as GitHubCiWatchTask.Delivery.Ready
+            val id = UUID.nameUUIDFromBytes("1:${fixture.key()}".toByteArray(Charsets.UTF_8)).toString()
+            dao.enqueue(PendingPrompt(id, 1, "Continue", Json.encodeToString(accepted.payload.copy(githubCiWatch = null)), 0))
+            val earlier = fixture.pending()
+            dao.pauseUnconsumed(earlier.id, true)
+
+            val other = ChatRoomV2(id = 2, title = "Other queued chat", enabledPlatform = listOf("profile"))
+            fixture.database.chatRoomDao().addChatRoom(other)
+            val next = PendingPrompt("other-prompt", other.id, "Start the other chat", Json.encodeToString(PendingPromptPayload(profileUids = listOf("profile"))), 0)
+            dao.enqueue(next)
+            // The dispatcher receives the pre-pause row and a valid new row in that order.
+            observed.value = listOf(earlier, requireNotNull(dao.get(next.id)))
+            fixture.queue.start()
+            fixture.release.complete(Unit)
+            val run = withTimeout(5_000) { fixture.started.await() }.single()
+            assertEquals(other.id, run.chatId)
+            assertEquals(1, fixture.persistenceCalls.get())
+            assertNotNull(dao.get(next.id)?.userMessageId)
+            val paused = requireNotNull(dao.get(earlier.id))
+            assertTrue(paused.paused)
+            assertNull(paused.userMessageId)
+        } finally {
+            fixture.close()
+        }
+    }
+
     private class Fixture(private val owner: CoroutineScope) {
         val database = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
         val head = "a".repeat(40)
@@ -177,10 +211,11 @@ class GitHubCiWatchContinuationTest {
         lateinit var unrelated: PersistAgentTurnResult
         lateinit var watch: GitHubCheckWatch
         lateinit var watches: GitHubCheckWatchRepository
+        lateinit var settings: SettingRepository
         lateinit var queue: DurablePromptQueue
         var beforePersistence: suspend (PersistAgentTurnRequest) -> PersistAgentTurnRequest = { it }
 
-        suspend fun initialize() {
+        suspend fun initialize(observed: MutableStateFlow<List<PendingPrompt>>? = null) {
             val context = RuntimeEnvironment.getApplication()
             context.getSharedPreferences("prompt_queue", Context.MODE_PRIVATE).edit().clear().commit()
             StartupRecoveryGate.start(owner) { release.await() }
@@ -194,7 +229,7 @@ class GitHubCiWatchContinuationTest {
             }
             original = turn("Diagnose CI failures", "original")
             unrelated = turn("Inspect a different pull request", "unrelated")
-            val settings = mockk<SettingRepository> {
+            settings = mockk<SettingRepository> {
                 coEvery { fetchPlatformV2s() } answers { profiles.value }
                 coEvery { getFeatureSettings() } answers { features.value }
                 every { observePlatformV2s() } returns profiles
@@ -225,8 +260,8 @@ class GitHubCiWatchContinuationTest {
             val factory = mockk<GitHubEngineeringApiFactory> { every { createForEndpoint(any(), any()) } returns api }
             watches = GitHubCheckWatchRepository(context, WorkspaceRepository(database, mockk(relaxed = true)), connections, settings, auth, factory)
             val chats = mockk<ChatRepository> {
-                coEvery { fetchMessagesV2(1) } coAnswers { database.agentPersistenceDao().getMessages(1) }
-                coEvery { fetchChatPlatformModels(1) } returns mapOf("profile" to "tester")
+                coEvery { fetchMessagesV2(any()) } coAnswers { database.agentPersistenceDao().getMessages(firstArg()) }
+                coEvery { fetchChatPlatformModels(any()) } returns mapOf("profile" to "tester")
                 coEvery { persistAgentTurn(any()) } coAnswers {
                     persistenceCalls.incrementAndGet()
                     database.agentPersistenceDao().persistAgentTurn(beforePersistence(firstArg()))
@@ -242,7 +277,15 @@ class GitHubCiWatchContinuationTest {
             }
             val store = mockk<GatewayQueueStore>(relaxed = true) { every { active } returns MutableStateFlow(emptyList<GatewaySubmissionRecord>()) }
             val availability = mockk<GatewayAvailabilityRepository> { every { observe(any()) } returns flowOf(emptyMap()) }
-            queue = DurablePromptQueue(database, chats, settings, coordinator, context, store, availability, mockk(relaxed = true), mockk(relaxed = true), Lazy { watches })
+            val queueDatabase = if (observed == null) database else mockk<ChatDatabaseV2> {
+                every { pendingPromptDao() } returns object : PendingPromptDao by database.pendingPromptDao() {
+                    override fun observePending() = observed
+                }
+                every { agentPersistenceDao() } returns database.agentPersistenceDao()
+                every { gatewayJobDao() } returns database.gatewayJobDao()
+                every { agentRunDao() } returns database.agentRunDao()
+            }
+            queue = DurablePromptQueue(queueDatabase, chats, settings, coordinator, context, store, availability, mockk(relaxed = true), mockk(relaxed = true), Lazy { watches })
         }
 
         fun key() = "github-ci-task:${watch.id}:$head:${original.userMessage.id}"

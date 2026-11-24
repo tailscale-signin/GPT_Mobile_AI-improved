@@ -180,6 +180,8 @@ class DurablePromptQueue @Inject constructor(
         externalBlocker: String?
     ) {
         val chatId = prompt.chatId
+        // A wake-up can retain this snapshot while the previous attempt pauses, edits, or consumes the row.
+        if (dao.firstPending(chatId) != prompt) return
         val profiles = snapshot.profiles
         val payload = prompt.details()
         val selected = payload.gateway

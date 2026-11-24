@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "18.1.3",
   "schemaVersion": 1,
-  "sourceCommit": "cb79f70224fd9ca45ad53a526c762ab1dbec9a7e",
+  "sourceCommit": "eebb48018a783a2d83ede60591be7f46ab9a42c4",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -277,7 +277,7 @@
     "tests/test_gateway_desktop_dashboard.py": "157fe8ab703fee2789f4aa01a29fc9467577242aabf8cad9786825c125d79c7b",
     "tests/test_gateway_desktop_feature_repairs.py": "69578d14251756b4868635186418f166b974ec0ef5be0f4ef4ff408915dbb788",
     "tests/test_gateway_desktop_native_bridge.py": "d1a33b6d7d7994c242aed53581e6058dc1d3bc7bee0491058d6b2a81392e228b",
-    "tests/test_gateway_desktop_native_ui.py": "f04ae2242e4eac18d1bc3e0f132ed21fb2faf9d683ae5b5c3ccb08a349cfb113",
+    "tests/test_gateway_desktop_native_ui.py": "5106b35e83396f89070606030705a336c7cde699d6d84b6df6c805bf3fd13fa3",
     "tests/test_gateway_desktop_phone.py": "7a7be479d3a612fa0877c54097fd2a9fc054168f4bf84f4a263cf0c6a02f3617",
     "tests/test_gateway_desktop_qualification.py": "234d54859dfb2bd432678a38e8e777112ad0486be9c05b81f07ab9e4a416a864",
     "tests/test_gateway_desktop_updates.py": "070fabf22ebebd0ad2e74bc4c6577b8e02947d1b99df787eee7116ae6524d786",

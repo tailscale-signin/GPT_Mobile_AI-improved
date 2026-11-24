@@ -194,10 +194,8 @@ class OpenAIResponsesAdapter @Inject constructor(
                         ReasoningConfig(
                             effort = if (mechanicalReasoning) {
                                 "low"
-                            } else if (constraints.maximizeReasoning) {
-                                GitHubReasoningPolicy.openAiEffort(platform.model) ?: "high"
                             } else {
-                                "medium"
+                                GitHubReasoningPolicy.requestedOpenAiEffort(platform.model, constraints)
                             },
                             summary = "auto"
                         )
@@ -581,6 +579,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                     OpenRouterReasoning(
                         effort = when {
                             lowExtractionReasoning || mechanicalReasoning -> "low"
+                            constraints.gitHubEffort != null &&
+                                isOpenRouter &&
+                                dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true -> constraints.gitHubEffort.wire
                             constraints.maximizeReasoning -> "high"
                             else -> "medium"
                         }
@@ -1242,26 +1243,29 @@ class OpenAICompatibleAdapter @Inject constructor(
         var caughtEvidence: kotlinx.serialization.json.JsonObject? = null
         var limit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         val effectiveOutputTokens = ProviderRouteCapacity.output(platform, constraints.outputLimit(platform.maxTokens))
+        val reasoningEnabled = (platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning
+        val baseRequest = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = reasoningEnabled))
+        val effort = when {
+            !reasoningEnabled || baseRequest.reasoningEffort == null -> baseRequest.reasoningEffort
+            constraints.gitHubEffort != null -> constraints.gitHubEffort.wire
+            constraints.maximizeReasoning -> "high"
+            else -> baseRequest.reasoningEffort
+        }
+        val request = baseRequest.copy(
+            tools = requestTools,
+            parallelToolCalls = false.takeIf { !requestTools.isNullOrEmpty() },
+            maxCompletionTokens = effectiveOutputTokens,
+            reasoningEffort = effort
+        )
         if (constraints.maxOutputTokens != null) {
             emit(
                 ProviderEvent.RequestConfigured(
                     configuredProfileOutputTokens = platform.maxTokens,
                     requestedOutputTokens = constraints.maxOutputTokens,
                     effectiveOutputTokens = effectiveOutputTokens,
-                    reasoningEffort = if (platform.model.contains("gpt-oss", true)) {
-                        if (constraints.allowReasoning && (platform.reasoning || constraints.maximizeReasoning)) {
-                            if (constraints.maximizeReasoning) "high" else "medium"
-                        } else {
-                            "low"
-                        }
-                    } else {
-                        null
-                    }
+                    reasoningEffort = request.reasoningEffort
                 )
             )
-        }
-        val request = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = (platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning)).let { request ->
-            request.copy(tools = requestTools, parallelToolCalls = false.takeIf { !requestTools.isNullOrEmpty() }, maxCompletionTokens = effectiveOutputTokens, reasoningEffort = if (constraints.maximizeReasoning && constraints.allowReasoning && platform.model.contains("gpt-oss", true)) "high" else request.reasoningEffort)
         }
         val assembler = ChatCompletionsEventAssembler()
         val reasoningParser = GroqReasoningParser()

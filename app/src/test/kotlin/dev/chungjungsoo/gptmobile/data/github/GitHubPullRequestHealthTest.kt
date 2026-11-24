@@ -75,6 +75,15 @@ class GitHubPullRequestHealthTest {
         "totalCount":${count ?: checks.size},"pageInfo":{"hasNextPage":$more},"nodes":${JsonArray(checks)}}}}}]}}}}}"""
     ).jsonObject
 
+    @Test fun baseAdvanceBetweenFileReviewAndHealthLookupRequiresFreshEvidence() {
+        val health = gitHubPullRequestHealth(response(), head, "c".repeat(40))
+        assertEquals("STALE", health.state)
+        assertFalse(health.eligible)
+        assertFalse(health.githubPermitsMerging)
+        assertFalse(health.requestedValidationPassed)
+        assertTrue(gitHubPullRequestHealth(response(), head, "b".repeat(40)).eligible)
+    }
+
     @Test fun greenChecksCannotOverrideGitHubMergeRules() {
         for (merge in listOf("BLOCKED", "BEHIND", "DIRTY", "UNKNOWN", "UNSTABLE", "HAS_HOOKS")) {
             assertFalse(merge, gitHubPullRequestHealth(response(merge = merge), head).eligible)

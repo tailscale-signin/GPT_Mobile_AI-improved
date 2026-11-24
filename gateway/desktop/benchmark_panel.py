@@ -379,6 +379,10 @@ class BenchmarkPanel(tk.Frame):
         self.metrics['score'].configure(text='Qualified' if report['qualified'] else 'Not qualified')
         self.metrics['completion'].configure(text=f"{report['passed']} / {report['total']}")
         self.metrics['latency'].configure(text='Not measured')
+        rubric = report.get('githubIntelligenceScore')
+        if rubric:
+            points = rubric['pointsOutOf100']
+            self.metrics['score'].configure(text=f'{points:.1f} / 100' if points is not None else 'Incomplete')
         from benchmarks.engineering_qualification import CONTINUOUS_SCHEMA
         from benchmarks import workspace_qualification as workspace
         label = 'Development workspace' if report['schema'] == workspace.SCHEMA else 'Continuous engineering' if report['schema'] == CONTINUOUS_SCHEMA else 'Production tasks'
@@ -386,6 +390,9 @@ class BenchmarkPanel(tk.Frame):
         measured = [row for row in report['cases'] if row.get('elapsed_seconds') is not None]
         self.chart.set([(row['scenario'].replace('_', ' '), row['elapsed_seconds'], theme.CYAN if row['status'] == 'PASSED' else theme.ERROR) for row in measured], ' s')
         self.summary_text.configure(text=f'{report["total"]} scenario-specific evidence gates. Missing runtime, recovery, device, or mutation observations remain unverified. Fixture scores are separate.')
+        if rubric:
+            observed = sum(d['points'] is not None for d in rubric['dimensions'].values())
+            self.summary_text.configure(text=f'GitHub intelligence · {observed} of 8 dimensions scored. Open Evidence for the rubric and missing observations.')
         self.case_table.delete(*self.case_table.get_children())
         for index, row in enumerate(report['cases']):
             self.case_table.insert('', 'end', iid=str(index), values=(row['scenario'].replace('_', ' '), row['status'],

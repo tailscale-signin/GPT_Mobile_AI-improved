@@ -64,7 +64,7 @@ def architecture_records(graph, request):
 
 
 def query_records(graph, request):
-    ranked = graph.ranked(request.get('query', ''), request.get('paths', []))
+    ranked, strategy = graph.search_candidates(request.get('query', ''), request.get('paths', []))
     records, seen, expanded = [], set(), {}
     depth = min(request.get('depth', 1), 3)
     for node in ranked:
@@ -88,13 +88,13 @@ def query_records(graph, request):
             # makes their relationships unreachable from every result cursor.
             frontier = following - visited
             visited.update(frontier)
-    return records, {'total_matches': len(ranked)}
+    return records, {'total_matches': len(ranked), 'search_strategy': strategy}
 
 
 def graph_page(graph, namespace, request, envelope):
     action = request['action']
     records, totals = architecture_records(graph, request) if action == 'architecture' else query_records(graph, request)
-    binding = identity(namespace, snapshot_fingerprint(graph.snapshot), action, request.get('query', ''),
+    binding = identity(namespace, snapshot_fingerprint(graph.snapshot), 'query-v2' if action == 'query' else action, request.get('query', ''),
                        sorted(request.get('paths', [])), request.get('depth', 1))
     offset = cursor_offset(request.get('result_cursor'), binding, len(records))
     result = dict(envelope, **totals, status='FOUND' if records else 'EMPTY' if action == 'architecture' else 'NOT_FOUND_IN_INDEX',

@@ -51,6 +51,22 @@ class PhoneRepositoryGraphTest {
         assertEquals("false", map.text("compiler_resolution"))
     }
 
+    @Test fun queryFindsSpokenDescriptionsAndRecoversOneMisspelledSymbol() {
+        val sources = mapOf("Audio.kt" to "fun startRecorder() {}\nfun dispatch() {}", "Display.kt" to "fun refresh() {}")
+        val tree = tree(*sources.keys.toTypedArray())
+        val cache = cached(sources)
+        fun search(query: String) = execute(tree, cache, "query", buildJsonObject { put("query", query) })
+
+        val described = search("Where is microphone capture?")
+        assertEquals("QUERY_TERM_EXPANSION", described.text("search_strategy"))
+        assertEquals("startRecorder", described.objects("nodes").first().text("name"))
+        val corrected = search("disptach")
+        assertEquals("APPROXIMATE_SYMBOL", corrected.text("search_strategy"))
+        assertEquals(listOf("dispatch"), corrected.objects("nodes").map { it.text("name") })
+        assertEquals("LITERAL", search("dispatch").text("search_strategy"))
+        assertEquals("NOT_FOUND_IN_INDEX", search("unrelatedxyz").text("status"))
+    }
+
     @Test fun pythonScopesEndAtDedentAndDocstringsDoNotBecomeCode() {
         val code = "def first():\n    second()\n    \"\"\"\n    fake()\n    \"\"\"\ndef second():\n    pass\nsecond()\n"
         val shard = PhoneRepositoryGraph.sourceIndex("code.py", code)

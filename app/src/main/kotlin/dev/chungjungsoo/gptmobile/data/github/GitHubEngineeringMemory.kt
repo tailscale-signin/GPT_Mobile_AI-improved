@@ -147,7 +147,12 @@ class GitHubEngineeringMemory @Inject constructor(
         val recent = authorizedScopes.flatMap { workspace.dao.engineeringMemory(it) }.distinctBy { it.id }.sortedByDescending { it.updatedAt }.take(128)
         // Decisions have their own bounded retrieval lane, so busy tool activity
         // cannot remove an older architectural choice before relevance ranking.
-        val rows = (recent + authorizedScopes.flatMap { workspace.dao.engineeringDecisions(it) }).distinctBy { it.id }
+        val resume = GitHubTaskContinuity.control(task) ||
+            GitHubTaskContinuity.followUp(task) ||
+            task.trim().lowercase().trimEnd('.', '!') in setOf("keep going", "continue testing", "continue work")
+        val checkpoints = if (resume) authorizedScopes.flatMap { workspace.dao.engineeringCheckpoints(it, chatId) } else emptyList()
+        val rows = (recent + authorizedScopes.flatMap { workspace.dao.engineeringDecisions(it) } + checkpoints)
+            .distinctBy { it.id }.sortedByDescending { it.updatedAt }
         val candidates = rows.mapNotNull { row ->
             workspace.protectedSynthesisCheckpoint(row.id)?.takeIf {
                 it["kind"] != JsonPrimitive("task_checkpoint_reference") &&
@@ -156,10 +161,19 @@ class GitHubEngineeringMemory @Inject constructor(
                     (it["kind"] != JsonPrimitive("task_checkpoint") || it["chat_id"] == JsonPrimitive(chatId))
             }?.let { row.id to it }
         }.toMap()
-        val resume = task.trim().lowercase().trimEnd('.', '!') in setOf("continue", "resume", "keep going", "continue testing")
+        // Resume uses the newest canonical checkpoint for this chat. Older snapshots can contradict it.
+        val currentCheckpoint = candidates.entries.firstOrNull { it.value["kind"] == JsonPrimitive("task_checkpoint") }?.key
         val tokens = GitHubEngineeringMemoryPolicy.terms(task)
-        val ranked = candidates.entries.sortedByDescending { (_, value) ->
-            GitHubEngineeringMemoryPolicy.terms(value["content"].toString()).intersect(tokens).size +
+        fun signature(record: JsonObject): String? = (record["failure_signature"] as? JsonPrimitive)?.contentOrNull?.takeIf { record["kind"] == JsonPrimitive("failure") }
+        val failureGroups = candidates.values.filter { signature(it) != null }.groupBy { signature(it) }.mapValues { (_, records) ->
+            records.mapNotNull { (it["source_receipt"] as? JsonPrimitive)?.contentOrNull }.distinct()
+        }
+        val lookupText = candidates.mapValues { (_, record) ->
+            listOfNotNull(signature(record), (record["error_code"] as? JsonPrimitive)?.contentOrNull, (record["content"] as? JsonPrimitive)?.contentOrNull).joinToString(" ")
+        }
+        val matches = lookupText.mapValues { (_, value) -> GitHubEngineeringMemoryPolicy.terms(value).intersect(tokens).size }
+        val ranked = candidates.entries.filter { !resume || it.value["kind"] != JsonPrimitive("task_checkpoint") || it.key == currentCheckpoint }.sortedByDescending { (id, value) ->
+            matches.getValue(id) +
                 if (resume && value["kind"] == JsonPrimitive("task_checkpoint")) {
                     100
                 } else if (value["kind"] == JsonPrimitive("requirements")) {
@@ -167,21 +181,22 @@ class GitHubEngineeringMemory @Inject constructor(
                 } else {
                     0
                 }
-        }.take(48)
+        }.distinctBy { (id, record) -> signature(record) ?: id }.take(48)
         val meanings = if (settings.engineeringMemory == GitHubEngineeringMemoryMode.HYBRID) {
             kotlinx.coroutines.withTimeoutOrNull(750) {
-                semantic.rankEngineering(task, scope, ranked.associate { it.key to it.value["content"].toString().take(4000) })
+                semantic.rankEngineering(task, scope, ranked.associate { it.key to lookupText.getValue(it.key).take(4000) })
             }
         } else {
             null
         }
         val selected = ranked.sortedByDescending { entry ->
-            (meanings?.get(entry.key) ?: 0.0) * 10 + GitHubEngineeringMemoryPolicy.terms(entry.value["content"].toString()).intersect(tokens).size +
+            (meanings?.get(entry.key) ?: 0.0) * 10 + matches.getValue(entry.key) +
                 if (resume && entry.value["kind"] == JsonPrimitive("task_checkpoint")) 100 else 0
         }
         val budget = budgetCharacters.coerceIn(0, 12_000)
         var remaining = budget
         val retained = selected.mapNotNull { (id, record) ->
+            val checkpoint = (record["checkpoint"] as? JsonObject)?.takeIf { resume && id == currentCheckpoint }
             val content = buildJsonObject {
                 put("memory_id", id)
                 put("kind", record["kind"] ?: JsonPrimitive("observation"))
@@ -189,7 +204,17 @@ class GitHubEngineeringMemory @Inject constructor(
                 put("historical", true)
                 put("refresh_required", record["commit_sha"] != JsonPrimitive(context.commitSha))
                 put("source_receipt", record["source_receipt"] ?: JsonPrimitive("user_request"))
-                put("content", (record["content"] as? JsonPrimitive)?.contentOrNull.orEmpty().take(2000))
+                val excerpt = (record["content"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+                val limit = if (checkpoint == null) 2000 else 240
+                put("content", excerpt.take(limit))
+                if (excerpt.length > limit) put("content_excerpt_complete", false)
+                checkpoint?.let { put("saved_progress", GitHubEngineeringMemoryPolicy.resumeBrief(it)) }
+                signature(record)?.let { key ->
+                    val references = failureGroups[key].orEmpty()
+                    put("failure_signature", key)
+                    put("matching_retained_receipts", references.size)
+                    put("sample_receipts", JsonArray(references.take(3).map(::JsonPrimitive)))
+                }
             }.toString()
             if (content.length > remaining) null else content.also { remaining -= it.length }
         }.take(8)
@@ -266,7 +291,10 @@ class GitHubEngineeringMemory @Inject constructor(
             tool.startsWith("github_read") || tool.startsWith("github_search") -> "repository_knowledge"
             else -> "workflow"
         }
-        val result = receipt["result"] ?: return
+        val code = (receipt["error_code"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[A-Z0-9_]{2,96}")) }
+        val family = tool.githubOperationFamily()
+        val signature = if (kind == "failure" && code != null && family.matches(Regex("github_[a-z0-9_]{1,64}"))) "$family/$code" else null
+        val result = receipt["result"] ?: if (signature != null) buildJsonObject { put("error_code", code) } else return
         val record = buildJsonObject {
             put("schema_version", 1)
             put("scope", scope)
@@ -281,6 +309,7 @@ class GitHubEngineeringMemory @Inject constructor(
             val root = (result as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
             root?.get("context_graph")?.let { put("context_graph", it) }
             receipt["error_code"]?.let { put("error_code", it) }
+            signature?.let { put("failure_signature", it) }
         }
         workspace.saveProtectedSynthesisCheckpoint(key, chatId, scope, record, appendOnly = true, engineeringMemory = true)
     }

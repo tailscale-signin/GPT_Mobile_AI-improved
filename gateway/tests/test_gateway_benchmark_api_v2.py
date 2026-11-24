@@ -1,6 +1,8 @@
 """Durable one-task admission and qualification recovery, without live writes."""
 from copy import deepcopy
+import hashlib
 import json
+import sqlite3
 from pathlib import Path
 import tempfile
 import threading
@@ -114,6 +116,51 @@ class QualificationAdmissionTests(unittest.TestCase):
             self.qualifications.refresh('bob', saved['id'])
         self.assertEqual([], self.admissions)
 
+    def test_saved_score_readback_is_owner_profile_and_binding_specific(self):
+        value = qualification_value(execute=False)
+        revision = 'a' * 64
+        self.binding['profile_revision'] = self.route['profile_revision'] = revision
+        value['manifest']['expected_route']['profile_revision'] = revision
+        saved = self.qualifications.create(self.principal, value)
+        self.service.engineering.bindings = SimpleNamespace(bound_route=lambda owner, bind: (deepcopy(self.binding), {}))
+        # A later report on a different profile must not obscure this record.
+        self.service.engineering.authorized = lambda _: True
+        other = deepcopy(value)
+        other['request_id'] = 'other-profile'
+        other['manifest']['expected_route']['profile_revision'] = 'b' * 64
+        self.qualifications.create(self.principal, other)
+        result = self.qualifications.intelligence_score(self.principal, revision)
+        self.assertEqual(saved['id'], result['report']['id'])
+        self.assertEqual(8, len(result['report']['score']['dimensions']))
+        self.assertIsNone(result['report']['score']['pointsOutOf100'])
+        self.assertNotIn('cases', result['report'])
+        self.assertIsNone(self.qualifications.intelligence_score(Principal('bob', self.principal.scopes), revision)['report'])
+        self.binding['backend_endpoint_identity'] = 'changed'
+        with self.assertRaises(PermissionError):
+            self.qualifications.intelligence_score(self.principal, revision)
+        self.assertEqual([], self.admissions)
+
+    def test_paired_score_readback_rechecks_granted_repository_and_role(self):
+        owner = Principal('paired:alice', self.principal.scopes)
+        self.service.engineering.authorized = lambda job: job['principal'] == owner.id
+        self.service.engineering.bindings = SimpleNamespace(bound_route=lambda who, binding: (self.binding, {}))
+        value = qualification_value(execute=False)
+        revision = 'a' * 64
+        self.binding['profile_revision'] = value['manifest']['expected_route']['profile_revision'] = revision
+        self.service.runtime = SimpleNamespace(GATEWAY_JOB_DB_PATH=Path(self.directory.name) / 'jobs.sqlite3')
+        with sqlite3.connect(self.service.runtime.GATEWAY_JOB_DB_PATH) as db:
+            db.execute('CREATE TABLE gateway_control_devices(id TEXT,role TEXT,repositories TEXT,revoked INTEGER)')
+            db.execute('INSERT INTO gateway_control_devices VALUES(?,?,?,0)', ('alice', 'owner', '["owner/fixture"]'))
+        saved = self.qualifications.create(owner, value)
+        self.assertEqual(saved['id'], self.qualifications.intelligence_score(owner, revision)['report']['id'])
+        for role, repos, revoked in [('owner', '[]', 0), ('viewer', '["owner/fixture"]', 0), ('owner', '["owner/fixture"]', 1)]:
+            with self.subTest(role=role, repos=repos, revoked=revoked):
+                with sqlite3.connect(self.service.runtime.GATEWAY_JOB_DB_PATH) as db:
+                    db.execute('UPDATE gateway_control_devices SET role=?,repositories=?,revoked=?', (role, repos, revoked))
+                with self.assertRaises(PermissionError):
+                    self.qualifications.intelligence_score(owner, revision)
+        self.assertEqual([], self.admissions)
+
     def test_all_requests_are_validated_before_any_admission(self):
         mutations = (
             lambda value: value['manifest']['cases'][-1]['request'].update(base='main'),
@@ -167,6 +214,24 @@ class BenchmarkApiV2Tests(unittest.TestCase):
         install_benchmark_routes(app, self.service)
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
+
+    def test_score_route_requires_both_the_frozen_owner_and_engineering_permission(self):
+        from desktop.control_server import proxy_permission
+        from desktop.control_store import ControlError
+        route = '/gateway/benchmarks/intelligence-score'
+        grant = {'role': 'owner', 'repositories': '["owner/fixture"]'}
+        proxy_permission(route, 'GET', {}, grant)
+        with self.assertRaises(ControlError):
+            proxy_permission(route, 'POST', {}, grant)
+        self.service.engineering.store.conversations.gateway_id = lambda: 'gateway'
+        scope = hashlib.sha256(b'gateway\x00alice').hexdigest()
+        target = route + '?profile_revision=' + 'a' * 64 + '&owner_scope=' + scope
+        headers = {'X-Gateway-Installation-ID': 'gateway', 'X-Gateway-Principal-ID': 'alice'}
+        self.assertEqual(200, self.client.get(target, headers=headers).status_code)
+        self.assertEqual(403, self.client.get(target).status_code)
+        self.assertEqual(403, self.client.get(target, headers=dict(headers, **{'x-test-scope': 'read'})).status_code)
+        self.assertEqual(403, self.client.get(target.replace(scope, 'c' * 64), headers=headers).status_code)
+        self.assertEqual(409, self.client.get(target, headers=dict(headers, **{'x-test-owner': 'bob'})).status_code)
 
     def test_one_task_catalog_admission_and_recovery_share_frozen_digests(self):
         with patch.object(sandbox, 'preflight', return_value='docker'):

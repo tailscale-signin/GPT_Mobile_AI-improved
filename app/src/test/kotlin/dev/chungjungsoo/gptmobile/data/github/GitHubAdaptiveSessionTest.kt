@@ -76,6 +76,31 @@ class GitHubAdaptiveSessionTest {
         }
     }
 
+    @Test fun semanticPlanRunsOnceWithNoToolsAndAnInvalidPlanFallsBackToTheOriginalSession() = runBlocking {
+        val plan = """{"intent":"MIXED","objective":"Explain the earlier result and inspect the change","steps":[{"goal":"Resolve the earlier result","proof":"A pinned source observation"}]}"""
+        for (response in listOf(plan, "unstructured answer", plan.replace("MIXED", "AUTHORIZE"))) {
+            var saved: JsonObject? = null
+            var calls = 0
+            val wrapper = GitHubAdaptiveSession(session(ProviderEvent.TextDelta("original"), ProviderEvent.Completed), GitHubAdaptiveSession.INTENT_ROLE, "same-task", open = { _, _ ->
+                calls++
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(response), ProviderEvent.Completed).also {
+                        assertTrue(tools.isEmpty() && exchanges.isEmpty())
+                    }
+                }
+            }, continueWith = { instruction ->
+                assertTrue(instruction.contains("not evidence"))
+                session(ProviderEvent.TextDelta("planned"), ProviderEvent.Completed)
+            }, load = { saved }, save = { saved = it })
+            repeat(2) {
+                val text = wrapper.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.TextDelta>().single().text
+                assertEquals(if (response == plan) "planned" else "original", text)
+            }
+            assertEquals(response == plan, saved?.containsKey("intent_plan") == true)
+            assertEquals(1, calls)
+        }
+    }
+
     @Test fun changedBindingDiscardsOldProposalAndCancellationRemainsCancellation() = runBlocking {
         val saved = Json.parseToJsonElement("""{"binding":"other-task","options":$options,"selection":$selection}""") as JsonObject
         val wrapper = GitHubAdaptiveSession(session(), "github-design-options", "task", open = { _, _ -> throw CancellationException("cancel") }, continueWith = { session() }, load = { saved }, save = {})

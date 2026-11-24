@@ -1462,6 +1462,74 @@
         "Integer and squared-unit tokens must not consume a prefix of a decimal, scientific or longer integer exponent; complete numeric fallback preserves the amount and original caption ranges.",
         "Existing integer and Unicode superscript readings, every prior pronunciation method and bounded phrase output remain required."
       ]
+    },
+    {
+      "id": "github-engineering-intelligence",
+      "title": "GitHub engineering strategy, recovery and intelligence qualification",
+      "terms": [
+        "GitHub intelligence",
+        "acceptance resolution",
+        "semantic intent",
+        "source retrieval",
+        "reasoning effort",
+        "payload recovery",
+        "independent reviewer",
+        "intelligence benchmark",
+        "Git worktree"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntelligenceLevel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringTeam.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubIntelligenceScore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAdaptiveSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceWork.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRelevance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GitHubReasoningPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryConsult.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReviewerPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubQualificationPanel.kt",
+        "gateway/v14/agent_local.py",
+        "gateway/benchmarks/github_intelligence.py",
+        "gateway/benchmarks/github_intelligence_targets.py",
+        "gateway/benchmarks/engineering_qualification.py",
+        "gateway/qualify_engineering.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubIntelligenceScoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceWorkTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringStrategyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringTeamTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPatchWorkflowTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAdaptiveSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRequestByteReplanTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactorTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReviewerPolicyTest.kt",
+        "gateway/tests/test_gateway_github_intelligence.py",
+        "gateway/tests/test_gateway_github_intelligence_targets.py",
+        "gateway/tests/test_gateway_agent_adapters.py"
+      ],
+      "documents": [
+        "docs/architecture/repository-guide.md",
+        "gateway/benchmarks/README.md"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "python3 -m unittest discover -s gateway/tests -p test_gateway_github_intelligence.py"
+      ],
+      "invariants": [
+        "Model-generated plans and delegated advice cannot grant repository write authority.",
+        "A recoverable rejection can shrink the next request only within its original permissions and resource budget.",
+        "Score comparisons require independently measured work under matching task, policy, environment and budget identities."
+      ]
     }
   ],
   "file_blobs": {
@@ -1536,9 +1604,9 @@
       "sha256": "1c0e6725bea8a27085878c091362e96c23bc983e2e510ab7dedcfd8d2f58fc7c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": {
-      "blob_sha": "d2d78812455f07e6cfd8fe2b6b1c7897ea515f69",
-      "bytes": 167429,
-      "sha256": "fca366b6be6385dafacfc37a768b3c80391f67569c9f88f2889bfef6083b393b"
+      "blob_sha": "306401d7e7d9ccce23fd985b04c2f1f4f7fa8e15",
+      "bytes": 169725,
+      "sha256": "567514152aa67cce292b11edcfca724a811ca32a87e67e017bf03f53c3a18601"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvestigationProgress.kt": {
       "blob_sha": "389dff549bb22a0118306daa203c529b28c02d95",
@@ -1570,6 +1638,11 @@
       "bytes": 8346,
       "sha256": "ecefe6d1be56afc1b7f0be8960adc40bb7b734170f502adc581a89f364b0091c"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt": {
+      "blob_sha": "366a46f33bf1aa542ecb5304c9dfa1d4e3b62580",
+      "bytes": 61379,
+      "sha256": "1b6fb5d21c74861f955e8b3982f84b32617b8adeca5195faa2249bf11a412fd1"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitSchedulingResult.kt": {
       "blob_sha": "7e728ba0093826a0d42a695ad02cdc95bef14beb",
       "bytes": 7191,
@@ -1591,9 +1664,9 @@
       "sha256": "c1a999db8c8894bc7cae8b44aed5d20173ae425671da8b390c5c82c1a6499e64"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt": {
-      "blob_sha": "0a9d5cca4ed5c2678db65bcd044a0e6bc23c26ab",
-      "bytes": 20113,
-      "sha256": "befdfd049e0e1fff858739bd89cb5b3cf435e11ba1dc3b214835894a6e696993"
+      "blob_sha": "4138377d01671d7de77dd3312a89a18f1a870ffe",
+      "bytes": 21550,
+      "sha256": "dd04ff06213976bbf0434f98c2bc4a22e710b6a3383748679876b6a168e594d8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": {
       "blob_sha": "a6d99effee0538ef7d3a9c855fb024478470f127",
@@ -1605,15 +1678,25 @@
       "bytes": 3464,
       "sha256": "c1d9ad263438ea8701324b55ca4f987e74c3996519a86575d1e09bf19242afef"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GitHubReasoningPolicy.kt": {
+      "blob_sha": "8c8ff7a3f8c25813acf27078001f7cf401ecf199",
+      "bytes": 5489,
+      "sha256": "35cc5af39012513fbbe40e6cbb6aab08e32bd06e359f3f109ac4eb10ff347e1f"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt": {
-      "blob_sha": "263f1e1421369554b7b54803f1c7f038731512a8",
-      "bytes": 134970,
-      "sha256": "7d4a23e64567065265eb0176937dd7aaf2281f20aaa0b107383c78fd8a0a6c7b"
+      "blob_sha": "92afcd3c571d0ec357933c2889df2df06883cdd7",
+      "bytes": 135130,
+      "sha256": "77769d3707cfa78fe599249603dfbfed565cce62945682b9f9ae1b60821e2b50"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt": {
       "blob_sha": "3cb69b3b505c17fd33738b7445f3852bf309cad9",
       "bytes": 167429,
       "sha256": "b26a9849f171746dec15c9dc596af066083c9a81effa904aa6ad8878c03796a8"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReviewerPolicy.kt": {
+      "blob_sha": "5a77ee7b05126b26fbdd0352029ed09b1be6012d",
+      "bytes": 3924,
+      "sha256": "a4b424ed3cd98cd47b36fe3b00875713a56e427be361789870d2087ae23ee365"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt": {
       "blob_sha": "c47dc4b2248ca64239c2f115e60738d261b4389e",
@@ -1636,9 +1719,9 @@
       "sha256": "f9c7911ba09e11744f038a50766acad63e49945997f44d0224ff42a2c176934a"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringExternalExecutor.kt": {
-      "blob_sha": "be3e3363f041acbdf3d5e326b5af4b690a03d0cd",
-      "bytes": 35094,
-      "sha256": "4d714b49ab92fe5ca22b20ccd9c46000b6a545bbdf6f13e82d47092dacd92286"
+      "blob_sha": "1526e08c795cdabdb3f7f1e70c1e463e05d81e1a",
+      "bytes": 36525,
+      "sha256": "89399202257740152ec7a70b0c363a64b768b354db2d055d07b955deca3d45d7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlan.kt": {
       "blob_sha": "6d80df8ca7d35cebeaaa325a9e399d54f342ecb6",
@@ -1659,6 +1742,11 @@
       "blob_sha": "7e3f621858637f4eef76196be3b6467eefa214a9",
       "bytes": 13502,
       "sha256": "8adcddd298e716d7ed1fc45706532803eb9b0645f14382a35a8a0baf028666ea"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubIntelligenceScore.kt": {
+      "blob_sha": "f76a33632acaa303ca5d113cae469c20ac0b948e",
+      "bytes": 3894,
+      "sha256": "e97b299082c994e6a6817e688085dc69470f9c32fc337b20cc1021ca484eec16"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ChatRoomV2.kt": {
       "blob_sha": "5488d2896469e85055a0fe739a4585969a328c85",
@@ -1765,6 +1853,16 @@
       "bytes": 8116,
       "sha256": "3f3f847b549869fdf88f7a99990b57849ca58c1d2b5e94293ee8a4e0cbcbdb02"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceWork.kt": {
+      "blob_sha": "223f9dfc0d1c96f2c98980c31c80abf30a43d6a1",
+      "bytes": 5177,
+      "sha256": "6e43968d04b3fd3c9d13718868d67e43a9e84b22b480c3bd6edb01c4f95bc3ba"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAdaptiveSession.kt": {
+      "blob_sha": "9128756ddc3f5c3ea6825975065fc841ffc6dde2",
+      "bytes": 10949,
+      "sha256": "883b84e7e9abfae0dcb274e7b0cda16aac6a1349b103cbe07e3814e20d7a242d"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundRepositoryTool.kt": {
       "blob_sha": "5d3380bb1487fdeb4ccc0344b83413ae91bbb091",
       "bytes": 8882,
@@ -1781,19 +1879,34 @@
       "sha256": "0305df18fbb9a72637a837fd7f06520bbfe1d7a6704942caf20314227d0fa7ed"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt": {
-      "blob_sha": "aee2ff386a5cc4e9e2b19a60b477e0da3ef2ea5f",
-      "bytes": 5940,
-      "sha256": "f88ba921fdbba9df03d1a526cc8b897baee400082653810dd0368ae72569c100"
+      "blob_sha": "aa7fd91e875293377a70b5ca6748734f2813ebde",
+      "bytes": 5244,
+      "sha256": "bb4d6dd8190b6ceadb5be1c73fb57c29f8d6685c05addd0eb47a670dddbabcf5"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemory.kt": {
-      "blob_sha": "ca0c5ab3c44e9df9dc6614f6a033b95f06457e12",
-      "bytes": 18010,
-      "sha256": "0118ed839abf08087fc1e1e3fe20deac55f03212ea8fc32ae2705cc70f320233"
+      "blob_sha": "eef23831dd06fd1b0bd851999b1c9487bc86566d",
+      "bytes": 20549,
+      "sha256": "680474ddfaa9b4d83316941875d91d979d7c1908ab5919e237ae7f7ce0ffda4c"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringTeam.kt": {
+      "blob_sha": "2b4a3edd7dfc3c2927331b53a37a20def3b99abc",
+      "bytes": 4210,
+      "sha256": "9d2909dc6b37f4333b286e131593930066a70925a0ab6625e9dc8820c795f42d"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRelevance.kt": {
+      "blob_sha": "dc936c6e8c4c6b8ebc26189f062e284bfa482e94",
+      "bytes": 1867,
+      "sha256": "035f2726dfb65722a70377bfae4823f97e97007598edd5c373212b087e7070eb"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRevisionGuard.kt": {
       "blob_sha": "93317da07ee03ce2cc74e6172f189409908cf87e",
       "bytes": 4593,
       "sha256": "6d8827d665e31a6565f7b8c45fa567fa9bf39370adad8a197acfc9d5285efbe4"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt": {
+      "blob_sha": "2b332a46bae41a544b72907a657394eae3d85f0a",
+      "bytes": 37669,
+      "sha256": "af3a1f5d50434d09d803b15b22147cb4314b5bf9647266dc7c1831ef236ab2d0"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFixtureTestMode.kt": {
       "blob_sha": "1ade640c6bfc4bc1eae72c274a69a31779342c06",
@@ -1810,6 +1923,11 @@
       "bytes": 10461,
       "sha256": "d320c98569050c3b5468f6a7290a3345ca7297664f355fdb79e7565c6b9cf332"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntelligenceLevel.kt": {
+      "blob_sha": "c67e97c612f977513db032105d7b27ad96b4731b",
+      "bytes": 3446,
+      "sha256": "7926e984e47f5698860a4101ef6ebc6130ae857f1ceb80c577b46cd8cb83ae57"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryObservation.kt": {
       "blob_sha": "a41c34e4b635c0a89f8892b1a5770c80ac67d6d4",
       "bytes": 11293,
@@ -1825,10 +1943,15 @@
       "bytes": 1201,
       "sha256": "3f89ef9db742d799c300b0e46ead456360c3f49d1072c45c21cada6a636cb7ed"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryConsult.kt": {
+      "blob_sha": "82bed5f7dec7f03e8dd28233feb0ee6222d49811",
+      "bytes": 3173,
+      "sha256": "f15b850ce39242e6ed659be0599d7ce6292096e1c505640335bf323c7c46d0fa"
+    },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt": {
-      "blob_sha": "9c26c53c1b7d78b0e0a4aa104fd094820f52fb16",
-      "bytes": 131193,
-      "sha256": "dc4616601b5f7cf6e580d3aba6d4fb3d5d72df88680e49e55bf16aa7c0207c4a"
+      "blob_sha": "027406b648c36a267a90aa4f3abb7ddc67ba7480",
+      "bytes": 136275,
+      "sha256": "2dee7eef5b461450f57f3e22a3b5ca1e2fb95ee3d6148ea962083ebba30c5737"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryStateStore.kt": {
       "blob_sha": "f26cca336214cda8be14dc73b8376624e3ef84d3",
@@ -1861,9 +1984,9 @@
       "sha256": "b91dae53e3ab56870570422d99a448953680563ffb8a86aca75d0252a0e8612a"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextBundle.kt": {
-      "blob_sha": "2786d8888af80fe333aa701275661dc3e2b62aef",
-      "bytes": 28837,
-      "sha256": "abec1854a0d2ab4ed97d4a6c236f62934b7a5975596ddeab23575c21eae0f79d"
+      "blob_sha": "94d61bcedd3f1cfd8e9f7dada508a875dfbcc7a1",
+      "bytes": 29679,
+      "sha256": "ca8a426b4345681ce146338da014abe2abc1d791b048d61823ef153712efb8a7"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextPreparation.kt": {
       "blob_sha": "a3d68a042db05d98e74224a79b50508f4deab2f4",
@@ -1891,9 +2014,9 @@
       "sha256": "c33966f43cc04ac5307c3539770d49ce30f7052a16d23c16cd9a97ea983b2030"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraph.kt": {
-      "blob_sha": "ff5af2330c3062fffcd30e6551ede38738d77fb6",
-      "bytes": 32467,
-      "sha256": "6f2c4f22f2caf8d7c81597e30c1232931abde8a496f076362395df1a86562cbd"
+      "blob_sha": "f2385c0f5a0255a4d16c205130e0dba584868a25",
+      "bytes": 35365,
+      "sha256": "d548764deeccb9d4ff15a836e2b393a0e3fbad73923698f9d398316943efd5ce"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepository.kt": {
       "blob_sha": "fcd766d3f1500510e79dab8f270a0b5f9cfbbdc5",
@@ -2096,9 +2219,9 @@
       "sha256": "055cab72c57e3fc35d137345ffdf609c4aa29a208cb844b1d943c0d4860c180f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt": {
-      "blob_sha": "39595f360c2bab1c07b82321831d33cdece8cec4",
-      "bytes": 603261,
-      "sha256": "c06982f3c6aa1a84ff44d1f8d5ca5256fa6b8f9b819217f2a3487ea68e435e25"
+      "blob_sha": "cf9bdf5b99602521859596112cf8c293c57126be",
+      "bytes": 614345,
+      "sha256": "8527b44cd805281c5718503b65ba9af0eb9d6afa3644cc9b4bd9c62961ec86b8"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/StartupDatabasePreparation.kt": {
       "blob_sha": "f61e90d5e8bcde5583d1e7384a520401f8e82d9f",
@@ -2531,9 +2654,9 @@
       "sha256": "0d27a35d4f4581d818c7819ae9ba7e856971021f768c3b39e5d63ca61672cbc2"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkEngineeringWorkspace.kt": {
-      "blob_sha": "d6a747e5f511428f859f9929e78e00f03c990cca",
-      "bytes": 48301,
-      "sha256": "2c817c9c44d2b4ef092e8f7e52666d5c739957368a70a8f45e88dc8659b2cffb"
+      "blob_sha": "f2d2b708b12d59d380c9e1bc745910360d1451f6",
+      "bytes": 48519,
+      "sha256": "2ec74ac16a571178397899b8a196e86dca8d9c53da5fe7cad17d736f5fead089"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkExportArtifactStore.kt": {
       "blob_sha": "8857951216b40032eccf2259151e8fc1b4f499e8",
@@ -2541,9 +2664,14 @@
       "sha256": "aa55ed6043c34e56f39b1bfd6a43e7ebb7563eafd85bac0502b69660e1adf15c"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerSettings.kt": {
-      "blob_sha": "f8e125c14e4780420e3f999fcf621b8d18afac57",
-      "bytes": 34263,
-      "sha256": "7b64acd3e4e004ffafe1190022d1079a3c7126e8504269c9f71715f6633016da"
+      "blob_sha": "9943521a2aa4a5ef097cf4b258e3535ef66dc8ed",
+      "bytes": 38507,
+      "sha256": "288d1660a2751b3582879f3beb567c1d0bf2f33f28c369267180ed81bdac0788"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubQualificationPanel.kt": {
+      "blob_sha": "5dfaceadbc93967d6499800b621ca53ffd548340",
+      "bytes": 3432,
+      "sha256": "c8deb65b4abc1629028e240244a6edbb1ae37d805c425f071c23a78c39925cb3"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyBenchmarkPanel.kt": {
       "blob_sha": "4efa10340319c321c64e7b4457bac7550730fc60",
@@ -2670,6 +2798,11 @@
       "bytes": 46463,
       "sha256": "4f40a7e71b792087380c97ebb33c311bb7d2d2aa7e9e10e9b376f9e1cb9b393d"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRequestByteReplanTest.kt": {
+      "blob_sha": "a53ef3692cc50b550c245b2052b4ab0f2a4cc506",
+      "bytes": 9821,
+      "sha256": "8c52689d48c9613926cf09f27c23eb6b5c63ec4b7ef9f082c540f2e7c3244e93"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunProviderWaitTest.kt": {
       "blob_sha": "969531af412c2cb6f3a9bf1b684a6cc10f55eab2",
       "bytes": 16919,
@@ -2726,14 +2859,19 @@
       "sha256": "709ef1a6085e2efc2caadc076793459267936688b44609c837517630f1f0de35"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PublicProgressInstructionsTest.kt": {
-      "blob_sha": "0dd525f13588416a27a1aeab49cb80e564e69e17",
-      "bytes": 3257,
-      "sha256": "fdc5ec50f907fc2880cb132d2ff86a2f9fc9eb5e9d38e343e6e3962ff47cea6c"
+      "blob_sha": "78c2064577fb07a2701fcece27ba3c2d57d47ecf",
+      "bytes": 4062,
+      "sha256": "9387b8bc2bc086a6243be317756a09c55e8c087c87dec743d80925208055de1c"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalizationTest.kt": {
       "blob_sha": "b3ec4a444b32ecaaf1555883a2ca5ac80b83ae93",
       "bytes": 2280,
       "sha256": "56e8708d5ae0ab9127929ce0d489d7b17d1a01da3dab4a2af576a3b28e77c113"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactorTest.kt": {
+      "blob_sha": "665e0568a1fccc8066f12156c504a743acde33dd",
+      "bytes": 29678,
+      "sha256": "3134105c2588749e01797d900a68a59df4015f1361b4bda9f442885ae063a260"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ToolRoundInstructionsTest.kt": {
       "blob_sha": "f89ce6c4ea4a234b93f469a62767c73076739ec3",
@@ -2764,6 +2902,11 @@
       "blob_sha": "ce48a980e23a863e782b346e54bfe2f60f050fdc",
       "bytes": 20783,
       "sha256": "f74e1f6ecc00b1108aeb5d42d1e8e785a434032ed94dbb3e6ec98634a42135e6"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReviewerPolicyTest.kt": {
+      "blob_sha": "d024f01aeef62ede9ea23b951ba60635e847d087",
+      "bytes": 3783,
+      "sha256": "23f8bafeafe623d94f815e6cb355685346147f278ecf53b2f9f363895cfc2fbb"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/PrivacyAuthorityBackupTest.kt": {
       "blob_sha": "985b5d1a8355e36b715a41e9eeb32e1b75992523",
@@ -2809,6 +2952,11 @@
       "blob_sha": "fd2334d07a641112b779f8f55949f54102ad402f",
       "bytes": 8991,
       "sha256": "ac137d44645c65ca026c2737934c64c4ae9aaa5b71dfb86b4c0a48d858f5d44e"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubIntelligenceScoreTest.kt": {
+      "blob_sha": "6520860d6b16476c1ce2de2a0698b9860a76ab44",
+      "bytes": 3739,
+      "sha256": "3ab3cfad7266d8faf01c8500a55b9751d2c3f23ba2570b4e5085040196374d25"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticCaptureAdaptiveMemoryTest.kt": {
       "blob_sha": "72f9c25a4cab79c7f4eb4c67b6505e6ab2e418d3",
@@ -2900,6 +3048,16 @@
       "bytes": 6545,
       "sha256": "0de7e4b223d32f2503f68980a2943730263864fd8cc0192c9d2bf2f7f80dc870"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceWorkTest.kt": {
+      "blob_sha": "e137c3590cc4d7a21f895a554813ee1191eb4cf7",
+      "bytes": 2581,
+      "sha256": "4a50cd33e088541c17a7388fec83fbfa3a3167cd839881caa5460d79efcc8235"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAdaptiveSessionTest.kt": {
+      "blob_sha": "08205dd97de08916d35da3a3a58abac29b89ca25",
+      "bytes": 6442,
+      "sha256": "1d95137e8d5018e7cf401295733d152f41348f3f535517cb76aae49a15e5e60d"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgressTest.kt": {
       "blob_sha": "a7127ce8ef52cae2cabaf50b2594de9f5f2a7934",
       "bytes": 46186,
@@ -2916,9 +3074,19 @@
       "sha256": "92f10bddb6b85ba62d570febc77b0d12cc011f13d55fc41371c6ec8de4fc5226"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryTest.kt": {
-      "blob_sha": "f532e9c73ae3a1fbf443f3a785b8dd5867fcdd1e",
-      "bytes": 11193,
-      "sha256": "f5d591290a31f6e095ff9034433421cb58bb55cc7a93288c4cc4bf73d8750d34"
+      "blob_sha": "48dde0748ca0b0a7149c2786bde622f3cc58e448",
+      "bytes": 14716,
+      "sha256": "9c82e8824998ccc784fd8ccf5d8c748e97b2dfd56112169a418155360f34d774"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringStrategyTest.kt": {
+      "blob_sha": "be209eaaae8d1f2f69288dc7eb8c4c6ce974fb45",
+      "bytes": 5370,
+      "sha256": "8ad4c02bba275d7b33dd6e7ef6fe6dacd8cdac278f09c6c07b0bff3e055282fe"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringTeamTest.kt": {
+      "blob_sha": "b5bbcff748d59a9362218dae764015a2bcf6d78e",
+      "bytes": 4211,
+      "sha256": "0328400045895640baa38741b9b89c3559c8b8d44c00cae1cb22b46d3518a3cd"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRevisionGuardTest.kt": {
       "blob_sha": "2cc41e3ee6ee3135e3dc2175c1e479ddae436ce1",
@@ -2949,6 +3117,11 @@
       "blob_sha": "2eca15452a0eedf9913f18703e7ff0b8ebada178",
       "bytes": 7648,
       "sha256": "94d13d69079b3abe82d2028e7987b028dc75f0ec6d78c13ce4e82c24b596dc0b"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPatchWorkflowTest.kt": {
+      "blob_sha": "f36bf893a0af6ff1ebeeb355f0c9c274c94d391d",
+      "bytes": 14351,
+      "sha256": "043253035b865580a421e8df0e4f7a6eb1d83360993c581f3def6e38aec3f623"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressNarratorTest.kt": {
       "blob_sha": "8c9c5fbfd0c5e38a9e9dc288e23f327995bdf708",
@@ -3001,9 +3174,9 @@
       "sha256": "dae607325a1685258c53872e9bf12e13d2cb60772d3025921b9b187990c5fca1"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextBundleTest.kt": {
-      "blob_sha": "e17dff97bc774a2a03c34b77756344ea3005a43a",
-      "bytes": 16153,
-      "sha256": "111fc0c37ed5cbe32d5f12d80863d8fdeb0e362cffc382ff3c8b479e5a34c3ff"
+      "blob_sha": "e9b137e81219ef275f3c5866935b58efcebcc6fe",
+      "bytes": 16966,
+      "sha256": "f1f6b6f998dad8c4a7123ba67fa5548394cdf9166a63d4b7afc8610555f0d492"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContextPreparationTest.kt": {
       "blob_sha": "d7cefa4d389e10f2effdfb8564b11cba7bf66e24",
@@ -3661,9 +3834,9 @@
       "sha256": "378e7fa6a41a056e37fa8a6cb802c669093db796a01c24c03dd64a5567a0d1c6"
     },
     "docs/architecture/repository-guide.md": {
-      "blob_sha": "7624e5cc7c5720c40a928448e2257b50e66674fa",
-      "bytes": 8059,
-      "sha256": "e526d7cef4d4afe018574d0121839a7ed0fed160964a9f281b165a7dc91cf58b"
+      "blob_sha": "280375078715559ddd19c25274be947d00147454",
+      "bytes": 10670,
+      "sha256": "e1b596b4e211e7fce31f73e076ae7ddab3d7dd00621a20071f679521fbb3c5dd"
     },
     "docs/architecture/voice-streaming.md": {
       "blob_sha": "d81468663d09f2cf4a845b9e6afb6a0f4e780f37",
@@ -4040,6 +4213,11 @@
       "bytes": 9604,
       "sha256": "949dbd4debdafebff4339588cd9cb5b00a4ae1a9fc75c11a42b4e9820e5d2e10"
     },
+    "gateway/benchmarks/README.md": {
+      "blob_sha": "840e32bdf4d8b51929dcc49e19df94950b181036",
+      "bytes": 15875,
+      "sha256": "e2f8313e26e1ef76f749e0c09709f15561021a1b83deafdd8e48ca4dc3c5c431"
+    },
     "gateway/benchmarks/context_experiment.py": {
       "blob_sha": "043780d7cffe31a2ca9ef7914f6a240a4d8930e9",
       "bytes": 23364,
@@ -4055,10 +4233,25 @@
       "bytes": 6257,
       "sha256": "4e92285c2fde29c889c889d4cd4dcf5cadee223fe8c5bc28709fe176b787bfa3"
     },
+    "gateway/benchmarks/engineering_qualification.py": {
+      "blob_sha": "9d3aac8ed11756608909c87f93d0e1bb76dd3b1a",
+      "bytes": 22127,
+      "sha256": "dae62ea4a69f2935ee88b341e480dfc8b8bdcf6458b8d239771d6c26b6e6d50f"
+    },
+    "gateway/benchmarks/github_intelligence.py": {
+      "blob_sha": "1d893811f3e36321f56e4461e95352efadb5cc6c",
+      "bytes": 11140,
+      "sha256": "722c88809966172d30e61c1ebc467c4d23a22a1dc1ffed232a4c313d413d74fa"
+    },
+    "gateway/benchmarks/github_intelligence_targets.py": {
+      "blob_sha": "26c46791734421f51af5206208f1c817579d7c02",
+      "bytes": 3248,
+      "sha256": "0f23bbe753fba803b43fc7d61054ccd277b9247e0d5df1cd921583418468966d"
+    },
     "gateway/benchmarks/service.py": {
-      "blob_sha": "bcd12a99f157c998944025ab920dafc3078bd98e",
-      "bytes": 29522,
-      "sha256": "5b69747d7ce6c2dbbc7ec5e767bee0f6a7bbc1553f1d782d211f3d1777722b08"
+      "blob_sha": "96bd3ffce4bca6098d88d26203684b9f102150fd",
+      "bytes": 30440,
+      "sha256": "28555df33cfa08ca1043c356c4868613a5f1fd3967a80d77de7aba579f324875"
     },
     "gateway/desktop/conversation_client.py": {
       "blob_sha": "1a5ca4958037f320281c3865153b67390dece2e2",
@@ -4075,10 +4268,15 @@
       "bytes": 26225,
       "sha256": "f03fa8b47a420e25fb37ef087bcf5533be7451ff64c94666e4e5a61007deeda4"
     },
+    "gateway/qualify_engineering.py": {
+      "blob_sha": "b6e30ccc604fe3f25267cf389c060a2d9724453d",
+      "bytes": 4646,
+      "sha256": "e1b8fe1d0ed5965c57098a8f18464dc2aeb29e01b7c8dbfca4415e9aa50aaac7"
+    },
     "gateway/tests/test_gateway_agent_adapters.py": {
-      "blob_sha": "55b8ef2c179a8d6006fe15dec88c484b5e054565",
-      "bytes": 85763,
-      "sha256": "da91516cdcd7ebe14b8feb84b77e032ff75acb86a5154f6498997bf1addae9db"
+      "blob_sha": "d432a73e3466c99cd955aa47ba23e15ac8a7c70e",
+      "bytes": 88418,
+      "sha256": "f661593469085492c49ae57094ba35df77c14dad409f4e5d8cf84a090dba4ce7"
     },
     "gateway/tests/test_gateway_benchmark_qualification.py": {
       "blob_sha": "6d655256094e8a80133cb3439e52237ea12ca5c8",
@@ -4110,6 +4308,16 @@
       "bytes": 23841,
       "sha256": "5106b35e83396f89070606030705a336c7cde699d6d84b6df6c805bf3fd13fa3"
     },
+    "gateway/tests/test_gateway_github_intelligence.py": {
+      "blob_sha": "fe97e3870421e93c8f0227c65f30da80f5f0ed93",
+      "bytes": 8447,
+      "sha256": "b71e9a0c7eea27cd73ffeb8a7a362365e5aa4f123a6612caf04e749f39704cb6"
+    },
+    "gateway/tests/test_gateway_github_intelligence_targets.py": {
+      "blob_sha": "a7ef2866699567ca956b89a99126219219e768df",
+      "bytes": 2456,
+      "sha256": "b20996ff895874bbe4ca98fc983a33d1983e5614e8a55b6d7b26ef1c72f9de9e"
+    },
     "gateway/tests/test_gateway_graph_context.py": {
       "blob_sha": "5d1f5a8fe519ff65c64bb162dfe02e935bcbb708",
       "bytes": 5119,
@@ -4135,10 +4343,15 @@
       "bytes": 11808,
       "sha256": "8f7ea9f350778d4b7f6d1636ab7b0dee25c0f0217c18ee710cbbd3326aa96e8e"
     },
+    "gateway/v14/agent_local.py": {
+      "blob_sha": "2f58e9b2c14b5a6fb4804ff75e17b1990e0c67f9",
+      "bytes": 18318,
+      "sha256": "875097c608b01db1f4009c3d4946905660b5ee10c8eaadb4df555f4a3056ee9f"
+    },
     "gateway/v14/engineering_backend.py": {
-      "blob_sha": "6c1c86813b1be757d3ecbb4d5ae3c415b772e12e",
-      "bytes": 82518,
-      "sha256": "08805079a13559997b50f60b01786632ce5ac85b5db5866aeba63ed5da783fdb"
+      "blob_sha": "35c111ab1fbb5936d82709936dfb7f8b21d63973",
+      "bytes": 84735,
+      "sha256": "9f51e0c2190eb258e61117c2f0b625232c12964bc3a564367f3bed8ecddd4c5c"
     },
     "gateway/v14/engineering_source.py": {
       "blob_sha": "fe637ba2722c0100eac883f617223c22ceac6d84",

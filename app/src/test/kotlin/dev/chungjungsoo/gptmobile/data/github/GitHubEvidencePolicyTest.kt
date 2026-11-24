@@ -257,7 +257,9 @@ class GitHubEvidencePolicyTest {
         assertFalse(text, text.contains("PR 42 · PR 42"))
         assertTrue(text.contains("As of (UTC)"))
         assertTrue(text.contains("1970-01-01T00:00:01Z"))
-        assertTrue(text.contains("Recommendation (inference)"))
+        val recommendations = text.substringAfter("## Recommendations")
+        assertTrue(recommendations.contains("Recommendation (inference)"))
+        assertTrue(recommendations.contains("Supported by PR 42 · Observed branch · [fix/feature](https://github.com/other/project/tree/fix/feature) (1970-01-01T00:00:01Z)"))
     }
 
     @Test fun historicalReviewNeedsARealObservationTimeAndLabelsExpiredFacts() {

@@ -239,7 +239,8 @@ internal class GitHubRepositorySession(
             val saved = requireNotNull(store.read(scope, "stage:$savedId")) { "Patch stage is unavailable or belongs to another task/account." }
             require(saved.s("owner").equals(owner, true) && saved.s("repo").equals(repo, true)) { "Stage belongs to another repository." }
             require(args.s("branch").isBlank() || args.s("branch") == saved.s("branch")) { "Stage belongs to a different explicit branch." }
-            require(args.s("commit_sha").isBlank() || args.s("commit_sha") == saved.s("expected_head_sha")) { "Stage belongs to a different base revision." }
+            val requestedBase = if (action == "stage_patch") args.s("expected_head_sha").ifBlank { saved.s("expected_head_sha") } else saved.s("expected_head_sha")
+            require(args.s("commit_sha").isBlank() || args.s("commit_sha") == requestedBase) { "Stage base arguments disagree." }
             return GitHubTaskSnapshot(accountId, connectionUid, conversationId, taskId, owner, repo, saved.s("branch"), saved.s("expected_head_sha"), saved.s("tree_sha"), stagedPatchId = savedId)
         }
         val branch = args.s("branch")
@@ -1935,6 +1936,12 @@ internal class GitHubRepositorySession(
         val id = args.s("restore_stage_id")
         val staged = requireNotNull(store.read(scope, "stage:$id")) { "Stage version is unavailable in this task/account." }
         require(staged.s("owner").equals(context.owner, true) && staged.s("repo").equals(context.repo, true) && staged.s("expected_head_sha") == context.commitSha && staged.s("branch") == context.ref) { "Restore requires the same repository, branch and immutable base revision." }
+        val target = args.s("expected_head_sha")
+        if (target.isNotBlank() && target != context.commitSha) {
+            require(args.s("branch") == context.ref && target.sha()) { "Restaging needs the original branch and its current immutable head." }
+            require(args["commit_immediately"] != JsonPrimitive(true)) { "Review the revalidated stage at its new revision before publishing." }
+            return restageUnpublishedPatch(context, staged, target)
+        }
         rememberStage(context, id)
         return buildJsonObject {
             put("stage_id", id)
@@ -1948,6 +1955,65 @@ internal class GitHubRepositorySession(
             put("remote_state_changed", false)
             put("message", "The saved local patch version is selected. Existing publication receipts remain attached; no branch, tag or remote write was rolled back.")
         }
+    }
+
+    private suspend fun restageUnpublishedPatch(context: GitHubTaskSnapshot, staged: JsonObject, target: String): JsonObject {
+        val id = staged.s("stage_id")
+        fun unsubmitted(row: JsonObject?) = row != null && "commit_receipt" !in row && "engineering_review_receipt" !in row
+        val publication = staged["publication_arguments"]
+        val publicationId = publication?.let { GitHubRepositoryStateStore.digest("$scope|commit_staged_patch|${GitHubExecutionJournal.canonical(it)}") }
+        suspend fun requireRejectedOrUnclaimed() {
+            if (publicationId != null) {
+                require(store.read(scope, "execution:$publicationId")?.s("status") == "REJECTED") { "Recover the original publication or review receipt before restaging." }
+            }
+        }
+        require(unsubmitted(staged)) { "Recover the original publication or review receipt before restaging." }
+        requireRejectedOrUnclaimed()
+        val unresolved = (executions.context()["executions"] as? JsonArray).orEmpty().any {
+            it.jsonObject.s("action") == "commit_staged_patch" && it.jsonObject.s("status") in setOf("RUNNING", "RECONCILE_REQUIRED")
+        }
+        require(!unresolved) { "Reconcile the earlier staged publication with its original arguments before restaging." }
+        val root = root(context.owner, context.repo)
+        val head = request("$root/commits/${GitHubWorkspaceClient.segment(context.ref)}").jsonObject
+        val treeSha = (head["commit"] as? JsonObject)?.get("tree")?.jsonObject?.s("sha").orEmpty()
+        require(head.s("sha") == target && treeSha.sha()) { "The branch moved again. Refresh its head before restaging." }
+        val ancestry = request("$root/compare/${context.commitSha}...$target?per_page=1&page=1").jsonObject
+        require(ancestry.s("status") == "ahead" && (ancestry["merge_base_commit"] as? JsonObject)?.s("sha") == context.commitSha) {
+            "The branch history diverged. Review the new base before preparing another patch."
+        }
+        val next = context.copy(commitSha = target, treeSha = treeSha, stagedPatchId = id)
+        val originalTree = tree(context)
+        val currentTree = tree(next)
+        val files = staged.getValue("files").jsonArray
+        val entries = GitHubPatchStager.revalidatedEntries(files, originalTree, currentTree)
+        val edits = JsonArray(
+            files.map { row ->
+                val file = row.jsonObject
+                val original = blob(next, entries.getValue(file.s("path")))
+                buildJsonObject {
+                    put("path", file.getValue("path"))
+                    put("expected_blob_sha", file.getValue("expected_blob_sha"))
+                    put("old_text", original.getValue("content"))
+                    put("new_text", file.getValue("content"))
+                }
+            }
+        )
+        // Atomically exclude an in-flight or later publication on the old lease before exposing a child stage.
+        store.update(scope, "stage:$id") { current ->
+            require(unsubmitted(current) && current?.get("publication_arguments") == publication && current?.get("files") == files) { "The original publication changed during restaging. Recover its receipt." }
+            JsonObject(requireNotNull(current) + ("restaged_for_head" to JsonPrimitive(target)))
+        }
+        // A retry that claimed the journal before this fence can still require read-only reconciliation.
+        requireRejectedOrUnclaimed()
+        val result = stage(
+            next,
+            buildJsonObject {
+                put("branch", context.ref)
+                put("expected_head_sha", target)
+                put("edits", edits)
+            }
+        )
+        return JsonObject(result + mapOf("previous_head_sha" to JsonPrimitive(context.commitSha), "remote_state_changed" to JsonPrimitive(false)))
     }
 
     private suspend fun commitStage(context: GitHubTaskSnapshot, args: JsonObject): JsonElement {
@@ -1986,12 +2052,16 @@ internal class GitHubRepositorySession(
         val bound = store.update(scope, "stage:$id") { current ->
             require(current?.get("files_digest") == staged["files_digest"]) { "Stage changed before publication." }
             val savedArguments = current?.get("publication_arguments")
+            require(current?.get("restaged_for_head") == null || savedArguments == journalArguments) { "This stage was revalidated at a new head. Review and submit its new stage ID." }
             require(savedArguments == null || savedArguments == journalArguments) { "This stage already has a different publication intent. Recover its saved receipt before changing the commit message." }
             JsonObject(requireNotNull(current) + ("publication_arguments" to journalArguments))
         }
         val commitArgs = JsonObject(publication + mapOf("files" to bound.getValue("files")))
         val root = root(context.owner, context.repo)
         val result = executions.run("commit_staged_patch", journalArguments, reconcile = { reconcileCommit(root, commitArgs) }) {
+            // Reconciliations above remain available. A fresh dispatch must still own the current local stage.
+            val latest = requireNotNull(store.read(scope, "stage:$id")) { "Restore the stage identity before publishing." }
+            require(latest["restaged_for_head"] == null && latest["publication_arguments"] == journalArguments) { "Review the revalidated stage at its new head before publishing." }
             commit(root, commitArgs)
         }
         if (result.jsonObject["execution"]?.jsonObject?.s("status") != "COMPLETED") return result

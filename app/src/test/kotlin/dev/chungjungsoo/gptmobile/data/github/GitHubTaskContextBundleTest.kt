@@ -59,6 +59,24 @@ class GitHubTaskContextBundleTest {
         assertTrue(result.toString().contains("commands_executed\":false"))
     }
 
+    @Test fun referenceSelectsAnUnregisteredRunbookByItsPinnedPath() = runBlocking {
+        val path = "docs/runbooks/packet-replay.md"
+        val blob = "b".repeat(40)
+        val result = GitHubTaskContextBundle.build(
+            "owner/repository",
+            commit,
+            "main",
+            listOf(GitHubContextFile(path, blob)),
+            "packet replay runbook",
+            GitHubContextVariant.REFERENCE,
+            load = { GitHubContextSource(it, blob, "# Packet replay\nRead the job receipt.") }
+        )
+        val document = (result["documents"] as JsonArray).single().jsonObject
+        assertEquals(JsonPrimitive(path), document["path"])
+        assertEquals(JsonPrimitive(blob), document["blob_sha"])
+        assertEquals(JsonPrimitive(true), document["source_data_only"])
+    }
+
     @Test fun wrongBlobIdentityFailsClosed() = runBlocking {
         var rejected = false
         try {

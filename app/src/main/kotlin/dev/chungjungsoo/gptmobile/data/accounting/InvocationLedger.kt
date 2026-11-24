@@ -217,7 +217,7 @@ class InvocationLedger @Inject constructor(
             try {
                 if (retainAccounting) dao.reserve(record, totalLimit, spend)
             } catch (error: SpendAllowanceReached) {
-                if (kind in setOf("benchmark", "github-progress-summary")) {
+                if (kind in setOf("benchmark", "github-progress-summary", dev.chungjungsoo.gptmobile.data.github.GitHubRecoveryConsult.ROLE)) {
                     emit(ProviderEvent.Failed("${error.message} No model request was sent.", errorCode = "POLICY_BLOCKED"))
                 } else {
                     emit(ProviderEvent.TextDelta("\n\n${error.message} No model request was sent.", dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR)))
@@ -225,7 +225,7 @@ class InvocationLedger @Inject constructor(
                 }
                 return@flow
             } catch (_: TokenAllowanceReached) {
-                if (kind in setOf("benchmark", "github-progress-summary")) {
+                if (kind in setOf("benchmark", "github-progress-summary", dev.chungjungsoo.gptmobile.data.github.GitHubRecoveryConsult.ROLE)) {
                     emit(ProviderEvent.Failed("The request reached its configured token allowance before dispatch. No model request was sent.", errorCode = "POLICY_BLOCKED"))
                 } else if (combined != null) {
                     emit(ProviderEvent.Failed("The accepted Combined turn reached its configured total token ceiling before dispatch. Completed evidence is retained."))

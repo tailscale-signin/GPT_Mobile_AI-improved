@@ -39,16 +39,26 @@ internal object RequestByteBudget {
     )
 
     /** Reduce only replayable tool evidence, retaining the accepted request and exact tool-result pairs. */
-    fun replayTarget(details: JsonObject?, replayTokens: Long, admittedLimit: Int): Int? {
+    fun replayTarget(details: JsonObject?, replayTokens: Long, admittedLimit: Int): Int? = componentTarget(details, "request_evidence_bytes", minOf(replayTokens, admittedLimit.toLong()))
+
+    fun schemaTarget(details: JsonObject?, currentSchemaTokens: Long): Int? =
+        componentTarget(details, "request_tool_schema_bytes", currentSchemaTokens)
+
+    private fun componentTarget(details: JsonObject?, component: String, current: Long): Int? {
+        if (current !in 2..Int.MAX_VALUE.toLong()) return null
         if (details?.get("payload_replan_allowed")?.let { (it as? JsonPrimitive)?.booleanOrNull } != true) return null
         fun count(key: String) = (details[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it in 0..Int.MAX_VALUE }
         val bytes = count("request_serialized_bytes")?.takeIf { it > 0 } ?: return null
-        val evidence = count("request_evidence_bytes")?.takeIf { it > 0 } ?: return null
+        val componentBytes = count(component)?.takeIf { it in 1..bytes } ?: return null
         val ceiling = count("provider_request_byte_limit")
-        val reduction = if (ceiling != null) (bytes - ceiling + 1024).coerceAtLeast(1024) else (evidence / 2).coerceAtLeast(1024)
-        if (reduction >= evidence) return null // The fixed request cannot be made to fit by replay compaction.
-        val current = minOf(replayTokens, admittedLimit.toLong())
-        return (current * (evidence - reduction) / evidence).takeIf { it in 1 until current }?.toInt()
+        val reduction = if (ceiling != null) {
+            val headroom = (ceiling / 50).coerceIn(1, 1024)
+            (bytes - ceiling + headroom).coerceAtLeast(headroom)
+        } else {
+            (componentBytes / 2).coerceAtLeast(1)
+        }
+        if (reduction >= componentBytes) return null
+        return (current * (componentBytes - reduction) / componentBytes).takeIf { it in 1 until current }?.toInt()
     }
 }
 

@@ -29,6 +29,32 @@ class ToolExchangeCompactorTest {
         return AgentToolExchange(listOf(call), listOf(result))
     }
 
+    @Test fun olderRequestedSourceSurvivesUnrelatedRecentReadsAndThePendingPairStaysLast() {
+        fun read(index: Int, path: String): AgentToolExchange {
+            val call = ProviderEvent.ToolCall("read-$index", "github_read", buildJsonObject { put("path", path) })
+            return AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("source evidence for $path"), false)))
+        }
+        val exchanges = listOf(read(0, "src/InvoiceTax.kt")) + (1..12).map { read(it, "src/Unrelated$it.kt") }
+        val replay = ToolExchangeCompactor.compact(exchanges, 220, 80, taskRequest = "Inspect InvoiceTax rounding")
+        assertTrue(ToolExchangeCompactor.estimateTokens(replay) <= 220)
+        assertEquals(exchanges.first(), replay.first())
+        assertEquals(exchanges.last(), replay.last())
+        assertTrue(replay.size < exchanges.size)
+    }
+
+    @Test fun taskMatchesCannotDisplaceAnAdmittedUnreadPageDuringHardCompaction() {
+        fun exchange(call: ProviderEvent.ToolCall) = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("selected source"), false)))
+        val tool = "github_read__account"
+        val cursor = "retained-source:0:2048"
+        val pageId = "saved-result-consume-" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$tool:$cursor").take(24)
+        val page = exchange(ProviderEvent.ToolCall(pageId, tool, buildJsonObject { put("view_cursor", cursor) }))
+        val historical = (0..9).map { i -> exchange(ProviderEvent.ToolCall("source-$i", tool, buildJsonObject { put("path", "src/InvoiceTax$i.kt") })) }
+        val pending = exchange(ProviderEvent.ToolCall("latest", tool, buildJsonObject { put("path", "src/latest.kt") }))
+        val pairBudget = ToolExchangeCompactor.estimateTokens(listOf(pending, page))
+        val replay = ToolExchangeCompactor.compact(historical + pending + page, pairBudget, 70, resultTokenAllowances = mapOf(pageId to 100), taskRequest = "Trace invoice tax")
+        assertEquals(listOf(pending, page), replay)
+    }
+
     @Test fun unreadRetainedResultDoesNotClaimDeliveryWhenOnlyItsSummaryFits() {
         val exchange = retainedSummaryExchange()
         val replay = ToolExchangeCompactor.compact(listOf(exchange), 2000, 512)

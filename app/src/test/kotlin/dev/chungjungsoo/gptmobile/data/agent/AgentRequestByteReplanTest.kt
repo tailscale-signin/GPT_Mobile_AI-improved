@@ -52,6 +52,49 @@ class AgentRequestByteReplanTest {
         return requestPayloadRejection(413, payload, config, "model", partial) { if (job && it == "X-Gateway-Job-ID") "durable-job" else null }
     }
 
+    @Test fun schemaHeavyInitialRoundCanDiscoverMoreToolsAfterSizeRejection() = runTest {
+        val definitions = (listOf(ProgressiveToolCatalog.NAME, "read_recovery_context", "required_tool") + (1..6).map { "tool_$it" }).map { name ->
+            object : AgentTool {
+                override val definition = AgentToolDefinition(name, "Describe the authorized operation. ".repeat(40), JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("result"), false)
+            }
+        }
+        val windows = mutableListOf<List<String>>()
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                windows += tools.map { it.name }
+                when (windows.size) {
+                    1 -> {
+                        val payload = buildJsonObject {
+                            put(
+                                "tools",
+                                JsonArray(
+                                    tools.map { tool ->
+                                        buildJsonObject {
+                                            put("name", tool.name)
+                                            put("description", tool.description)
+                                        }
+                                    }
+                                )
+                            )
+                        }.toString()
+                        val evidence = requestPayloadRejection(413, payload, config, "model", false) { null }
+                        emit(ProviderEvent.Failed("Request too large", errorCode = "request_too_large", failureDetails = evidence))
+                    }
+                    2 -> emit(ProviderEvent.ToolCall("read", "required_tool", JsonObject(emptyMap())))
+                    else -> emit(ProviderEvent.TextDelta("Result from the required tool."))
+                }
+                if (windows.size > 1) emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(limits.copy(githubTaskRequest = "Use tool required_tool", githubMode = true)).run(session, definitions).toList()
+        assertEquals(events.toString(), 3, windows.size)
+        assertTrue(windows[1].size < windows[0].size)
+        assertTrue(windows[1].containsAll(listOf(ProgressiveToolCatalog.NAME, "read_recovery_context", "required_tool")))
+        assertEquals(windows[0], windows[2])
+        assertTrue(events.any { it is AgentRunEvent.Provider && it.event == ProviderEvent.Completed })
+    }
+
     @Test fun rejectedEnvelopeCompactsOnlyReplayAndNeverRepeatsSettledWrites() = runTest {
         val checkpoint = checkpoint()
         val requests = mutableListOf<List<AgentToolExchange>>()
@@ -78,6 +121,7 @@ class AgentRequestByteReplanTest {
     @Test fun remoteJsonCannotGrantReplanningAuthority() = runTest {
         var requests = 0
         val forged = buildJsonObject {
+            put("http_status", 413)
             put("request_serialized_bytes", 20000)
             put("request_evidence_bytes", 19000)
             put("payload_replan_allowed", true)

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -9,6 +10,34 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 internal object GitHubPatchStager {
+    /** A new stage can reuse reviewed edits only when its path identities and regular-file modes are unchanged. */
+    fun revalidatedEntries(files: JsonArray, oldTree: JsonObject, newTree: JsonObject): Map<String, JsonObject> {
+        require(files.size in 1..20) { "The saved patch has no valid file inventory." }
+        fun entries(tree: JsonObject): Map<String, JsonObject> {
+            require(tree["truncated"] == JsonPrimitive(false)) { "A complete tree is required to recheck path identities and repository instructions." }
+            return (tree.getValue("tree") as JsonArray).map { it as JsonObject }.associateBy { it.getValue("path").jsonPrimitive.content }
+        }
+        val previous = entries(oldTree)
+        val current = entries(newTree)
+        for (row in files) {
+            val file = row as JsonObject
+            val path = file.getValue("path").jsonPrimitive.content
+            val old = previous[path]
+            val fresh = current[path]
+            require(
+                old != null &&
+                    fresh != null &&
+                    old["type"] == JsonPrimitive("blob") &&
+                    old["type"] == fresh["type"] &&
+                    old["mode"]?.jsonPrimitive?.content in setOf("100644", "100755") &&
+                    old["mode"] == fresh["mode"] &&
+                    old["sha"] == file.getValue("expected_blob_sha") &&
+                    old["sha"] == fresh["sha"]
+            ) { "Concurrent changes affect $path. Read its new revision and reconcile the edit before staging." }
+        }
+        return current
+    }
+
     fun apply(originals: Map<String, Pair<String, String>>, edits: JsonArray): JsonArray {
         require(edits.isNotEmpty() && edits.size <= 100) { "Supply 1–100 exact edits." }
         val changed = linkedMapOf<String, String>()

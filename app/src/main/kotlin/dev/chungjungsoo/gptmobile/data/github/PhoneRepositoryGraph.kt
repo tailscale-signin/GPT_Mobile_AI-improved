@@ -19,6 +19,12 @@ internal object PhoneRepositoryGraph {
     private const val DEFAULT_PAGE_SIZE = 60
     private val actions = setOf("status", "index", "architecture", "query", "node", "callers", "callees", "path", "impact", "metrics")
     private val identifier = Regex("[A-Za-z_$][A-Za-z_0-9$]*")
+    private val queryAliases = mapOf(
+        "microphone" to setOf("capture", "recorder"),
+        "pronunciation" to setOf("speech", "tts", "lexicon"),
+        "scrolling" to setOf("scroll", "anchor"),
+        "map" to setOf("graph")
+    )
     private val sourceExtensions = listOf("kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "c", "cc", "cpp", "h", "hpp", "cs", "rs", "go", "swift")
     private const val LIMITATIONS = "Tree containment is observed. Symbols, imports and call relationships are bounded source candidates, without compiler resolution. Missing, generated, dynamic, aliased or unscanned references remain unknown. No executed tests are implied."
 
@@ -233,7 +239,9 @@ internal object PhoneRepositoryGraph {
                 resultEdges = nearby
             }
             "query" -> {
-                resultNodes = allNodes.filter { value -> listOf("name", "qualified", "path").any { value.text(it).contains(query, true) } }
+                val (matches, strategy) = queryNodes(allNodes, query)
+                resultNodes = matches
+                extra["search_strategy"] = JsonPrimitive(strategy)
             }
             "node" -> {
                 val ids = selected.mapTo(mutableSetOf()) { it.text("id") }
@@ -324,8 +332,45 @@ internal object PhoneRepositoryGraph {
                 }
             }
         ).take(24)
-        val queryIdentity = digest(JsonObject(arguments.filterKeys { it !in setOf("result_cursor", "budget_bytes") }.toSortedMap()).toString()).take(24)
+        val queryVersion = if (action == "query") "symbol-search-v2:" else ""
+        val queryIdentity = digest(queryVersion + JsonObject(arguments.filterKeys { it !in setOf("result_cursor", "budget_bytes") }.toSortedMap())).take(24)
         return page(base(graph, outcome), resultNodes, resultEdges, arguments, snapshot, queryIdentity, extra)
+    }
+
+    private fun queryNodes(nodes: List<JsonObject>, query: String): Pair<List<JsonObject>, String> {
+        val literal = nodes.filter { it.text("qualified").contains(query, true) || it.text("path").contains(query, true) }
+        if (literal.isNotEmpty()) {
+            return literal.sortedByDescending { it.text("name").equals(query, true) || it.text("path").equals(query, true) } to "LITERAL"
+        }
+        if (query.length in 5..80 && identifier.matches(query)) {
+            val symbols = nodes.filter { it.text("kind") != "file" && it.text("kind") != "directory" && nearIdentifier(query, it.text("name")) }
+            if (symbols.isNotEmpty()) return symbols to "APPROXIMATE_SYMBOL"
+        }
+        val terms = GitHubTaskContextBundle.terms(query, 16) - setOf("where", "which", "find", "show", "locate", "handles")
+        val aliases = terms.flatMap { queryAliases[it].orEmpty() }.toSet() - terms
+        if (terms.isEmpty()) return emptyList<JsonObject>() to "NO_MATCH"
+        val ranked = nodes.mapNotNull { node ->
+            val name = node.text("name").lowercase(Locale.ROOT)
+            val path = node.text("path").lowercase(Locale.ROOT)
+            val score = 4 * terms.count { it in name } + 2 * terms.count { it in path } +
+                aliases.count { it in name || it in path }
+            if (score > 0) node to score else null
+        }.sortedByDescending { it.second }.map { it.first }
+        return ranked to if (ranked.isEmpty()) "NO_MATCH" else "QUERY_TERM_EXPANSION"
+    }
+
+    /** One insertion, deletion, substitution or adjacent transposition in a symbol. */
+    private fun nearIdentifier(query: String, candidate: String): Boolean {
+        if (kotlin.math.abs(query.length - candidate.length) > 1) return false
+        val shorter = if (query.length <= candidate.length) query else candidate
+        val longer = if (query.length <= candidate.length) candidate else query
+        val index = shorter.indices.firstOrNull { !shorter[it].equals(longer[it], true) } ?: return true
+        if (longer.length > shorter.length) return shorter.regionMatches(index, longer, index + 1, shorter.length - index, true)
+        if (shorter.regionMatches(index + 1, longer, index + 1, shorter.length - index - 1, true)) return true
+        return index + 1 < shorter.length &&
+            shorter[index].equals(longer[index + 1], true) &&
+            shorter[index + 1].equals(longer[index], true) &&
+            shorter.regionMatches(index + 2, longer, index + 2, shorter.length - index - 2, true)
     }
 
     private fun page(base: JsonObject, nodes: List<JsonObject>, edges: List<JsonObject>, arguments: JsonObject, snapshot: String, query: String, extra: Map<String, kotlinx.serialization.json.JsonElement>): JsonObject {

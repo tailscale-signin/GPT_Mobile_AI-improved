@@ -429,6 +429,7 @@ fun ProfileBenchmarkScreen(
                         profiles = auditModelCandidates,
                         ready = ready,
                         busy = session != null || progress != null,
+                        qualification = { GitHubQualificationPanel(it, viewModel) },
                         onStart = { profileUid, allActions, strictDeterministic ->
                             if (viewModel.startGitHubToolAudit(profileUid, allActions, strictDeterministic)) cancellationRequestedFor = null
                         }

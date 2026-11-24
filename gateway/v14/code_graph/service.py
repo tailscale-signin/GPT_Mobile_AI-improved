@@ -340,7 +340,7 @@ class GraphService:
                     result['index_job'] = self.index_jobs.status(principal, request)
             elif action == 'query':
                 related = [{**{key: note[key] for key in ('id', 'kind', 'sha', 'review_required', 'historical', 'same_commit') if key in note},
-                            'content_preview': note.get('content', '')[:200], 'full_content_action': 'notes'} for note in notes()[:4]]
+                            'content_preview': note.get('content', '')[:200], 'full_content_action': 'notes'} for note in self.store.notes(namespace, snapshot, request.get('query', ''), relevant_only=True)[:4]]
                 result = graph_page(graph, namespace, request, {'graph': graph.metadata(), 'stale': head != snapshot['sha'],
                                                                  'observed_branch_head': head, 'related_memory': related})
             elif action in {'node', 'callers', 'callees'}:
@@ -370,7 +370,7 @@ class GraphService:
                 if not isinstance(log, str) or len(log) > 24000:
                     raise ValueError('Diagnostic excerpt exceeds its bound')
                 result = graph.diagnose(log)
-                result['previous_repairs'] = [n for n in self.store.notes(namespace, snapshot, log) if n['kind'] == 'repair'][:8]
+                result['previous_repairs'] = self.store.notes(namespace, snapshot, log, relevant_only=True, kind='repair')[:8]
             elif action == 'contracts':
                 result = graph.contracts(request.get('producer', ''), request.get('consumer', ''))
             elif action == 'prs':
@@ -546,6 +546,8 @@ class GraphService:
                                                        metadata_fragment(path, 'File exceeds structural parsing bound; file identity retained', size))
                 self.store.save(namespace, snapshot)
         elif phase in {'PLAN', 'CI', 'REVIEW'}:
+            if phase == 'CI' and output.get('checks_failed') is not True:
+                return
             kind = {'PLAN': 'requirement', 'CI': 'repair', 'REVIEW': 'decision'}[phase]
             paths = [p for p in job['data'].get('files', {}) if permitted(p)]
             self.store.note(namespace, {'kind': kind, 'sha': job['data'].get('head_sha'),
@@ -619,7 +621,19 @@ class GraphService:
         if self.backend.api('/user')['id'] != job['data']['actor_id']:
             raise PermissionError('GitHub account changed during graph retrieval')
         from v14.graph_context import rank_graph
-        result = rank_graph(dict(graph.query(query, 36, 1, paths), graph=graph.metadata()), query, paths)
+        focus = list(paths or [])
+        history = []
+        if role == 'repair planner' or role == 'planner' and job['data'].get('ci'):
+            # Repair history suggests where to look. Only unchanged source blobs
+            # become current search seeds, even when the incident signature matches.
+            for note in self.store.notes(namespace, snapshot, query, relevant_only=True, kind='repair')[:4]:
+                current = [path for path, sha in note['sources'].items() if snapshot['manifest'].get(path, {}).get('sha') == sha]
+                focus.extend(current[:4])
+                history.append({'id': note['id'], 'source_commit': note['sha'], 'review_required': note['review_required'],
+                                'historical': True, 'current_evidence': False})
+        result = rank_graph(dict(graph.query(query, 36, 1, focus), graph=graph.metadata()), query, focus)
+        if history:
+            result['previous_repairs'] = history
         result['retrieval'] = {'status': result['status'], 'reason': 'MATCHES_FOUND' if result['nodes'] else 'NO_MATCH_IN_INDEX',
                                'provider': provider, 'commit_sha': snapshot['sha'], 'indexed_sha': snapshot['sha'],
                                'role': (role or 'unspecified')[:64], 'coverage_complete': result['graph']['coverage_complete'],

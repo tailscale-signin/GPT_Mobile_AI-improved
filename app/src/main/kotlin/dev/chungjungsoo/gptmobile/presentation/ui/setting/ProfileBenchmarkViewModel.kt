@@ -63,6 +63,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -71,7 +72,7 @@ data class EverydayToolPerformance(val profileUid: String, val provider: String,
 }
 
 @HiltViewModel
-class ProfileBenchmarkViewModel @Inject constructor(
+class ProfileBenchmarkViewModel @Inject internal constructor(
     private val settings: SettingRepository,
     private val chats: ChatRepository,
     private val store: BenchmarkStore,
@@ -83,6 +84,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
     savedState: SavedStateHandle,
     @param:ApplicationContext private val context: Context,
     private val auditModels: AppAuditSelectedModelServices,
+    private val externalBenchmarks: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkEngineeringExternalExecutor,
+    private val gatewayControls: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository,
     auditSources: Set<@JvmSuppressWildcards dev.chungjungsoo.gptmobile.data.audit.AppAuditProbeSource>
 ) : ViewModel() {
     private val auditPlugins = auditSources.filterIsInstance<dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSource>().singleOrNull()
@@ -151,6 +154,65 @@ class ProfileBenchmarkViewModel @Inject constructor(
             )
         }
     }
+
+    private data class QualificationSource(
+        val profile: PlatformV2?,
+        val gateway: PlatformV2?,
+        val connection: dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection?,
+        val installation: String?,
+        val principal: String?,
+        val grantRevision: Long?,
+        val pairingBlocked: Boolean
+    )
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    internal fun intelligenceScore(profile: PlatformV2) = combine(
+        settings.observePlatformV2s(),
+        settings.observeFeatureSettings(),
+        settings.observeProviderConnections(),
+        gatewayControls.states
+    ) { available, features, connections, controls ->
+        val selected = available.singleOrNull { it.uid == profile.uid && it.enabled && it.model == profile.model }
+        val gatewayUid = features.githubProfileOverrides[profile.uid]?.engineeringGatewayProfileUid
+        val control = gatewayUid?.let(controls::get)
+        QualificationSource(
+            selected,
+            dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(available, gatewayUid),
+            connections.singleOrNull { it.uid == selected?.providerConnectionUid },
+            control?.snapshot?.installationId,
+            control?.snapshot?.principalId,
+            control?.snapshot?.revision,
+            control?.snapshot?.role == "viewer" ||
+                control?.revocationPending == true ||
+                control?.phase in setOf(
+                    dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlPhase.REVOKED,
+                    dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlPhase.UNPAIRED,
+                    dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlPhase.PAIRING
+                )
+        )
+    }.distinctUntilChanged().transformLatest { source ->
+        emit(GitHubQualificationRead())
+        val selected = source.profile
+        val gateway = source.gateway
+        val result = when {
+            selected == null -> GitHubQualificationRead(message = "The selected profile is unavailable.")
+            gateway == null -> GitHubQualificationRead(message = "Select an enabled engineering Gateway for this profile in GitHub settings.")
+            source.pairingBlocked -> GitHubQualificationRead(message = "The Gateway owner connection is unavailable.")
+            !dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(selected) ->
+                GitHubQualificationRead(message = "This profile has no supported Gateway execution binding.")
+            else -> try {
+                val score = externalBenchmarks.intelligenceScore(selected, gateway)
+                GitHubQualificationRead(score, if (score == null) "No saved production qualification matches this profile revision." else null)
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                GitHubQualificationRead(message = "The current Gateway could not verify a saved score for this profile.")
+            }
+        }
+        emit(result)
+    }.catch { failure ->
+        if (failure is CancellationException) throw failure
+        emit(GitHubQualificationRead(message = "The selected profile and Gateway settings could not be read."))
+    }.flowOn(Dispatchers.IO)
 
     internal fun dismissAuditGatewayCheck() {
         gatewayCheckJob?.cancel()

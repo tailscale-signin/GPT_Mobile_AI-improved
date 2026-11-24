@@ -24,6 +24,19 @@ class PublicProgressInstructionsTest {
         assertFalse(system.contains("untrusted continuation"))
     }
 
+    @Test fun longBindingAndCommitMetadataCannotDisplaceTheTaskOrSplitAnInstruction() {
+        val snapshot = context.copy(ref = "release/".repeat(300))
+        val prompt = snapshot.promptContext("Test all tools, review the selected branch and fix the issue", contextTokens = 32000)
+        assertTrue(prompt.length < 2000)
+        assertTrue(prompt.contains("Captured head at chat binding: ${snapshot.commitSha}"))
+        assertTrue(prompt.contains("resolve selected ref with github_context"))
+        assertTrue(prompt.contains("never infer write approval"))
+        assertTrue(prompt.contains("Testing acceptance"))
+        assertTrue(prompt.contains("Branch review"))
+        assertTrue(prompt.contains("github_stage_patch"))
+        assertFalse(prompt.contains("[bounded GitHub context]"))
+    }
+
     @Test fun compactIntegrationContextKeepsTheSamePrimaryPreviewProtocol() {
         val repository = context.promptContext("Test all GitHub integration tools", contextTokens = 8192)
         val system = toolStageInstructions(toolProgressInstructions(githubMode = true)) + "\n" + repository

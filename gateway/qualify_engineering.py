@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from benchmarks.engineering_qualification import CONTINUOUS_SCHEMA, CONTINUOUS_SCENARIOS, run_manifest
+from benchmarks.engineering_qualification import CONTINUOUS_SCHEMA, CONTINUOUS_SCENARIOS, PRODUCTION_SCHEMA, SCENARIOS, run_manifest
 from benchmarks import workspace_qualification as workspace
 from desktop.configuration import atomic_json
 from desktop.conversation_client import Client
@@ -18,7 +18,28 @@ def main():
     parser.add_argument('--workspace-template', metavar='OWNER/REPO', help='Create a coding qualification manifest for one model and executor')
     parser.add_argument('--workspace-profile', choices=('local', 'remote'), default='local', help='Exercise the selected inference route in the workspace template')
     parser.add_argument('--execute', action='store_true', help='Submit listed implementation jobs with their fixed request IDs')
+    parser.add_argument('--intelligence-template', metavar='OWNER/REPO', help='Prepare the ten real GitHub engineering scenarios')
+    parser.add_argument('--compare-intelligence', nargs=2, metavar=('LEFT', 'RIGHT'), help='Compare two measured production reports')
     args = parser.parse_args()
+    if args.intelligence_template or args.compare_intelligence:
+        if args.execute or args.manifest or args.workspace_template or args.continuous_template or (args.intelligence_template and args.compare_intelligence):
+            parser.error('Choose a single template or comparison')
+        if args.compare_intelligence:
+            from benchmarks.github_intelligence import compare
+            paths = [Path(p) for p in args.compare_intelligence]
+            try:
+                if any(p.stat().st_size > 4 * 1024 * 1024 for p in paths):
+                    parser.error('A qualification report exceeds 4 MiB')
+                result = compare(*(json.loads(p.read_bytes()) for p in paths))
+            except (OSError, KeyError, TypeError, ValueError) as error:
+                parser.error(str(error))
+        else:
+            result = {'schema': PRODUCTION_SCHEMA, 'test_repository': args.intelligence_template,
+                      'disposable': True, 'cohort': '', 'expected_route': {key: '' for key in
+                      ('model', 'profile_uid', 'profile_revision', 'binding_id', 'endpoint_identity', 'base_sha', 'settings_digest')},
+                      'cases': [{'scenario': case} for case in SCENARIOS]}
+        atomic_json(Path(args.output), result)
+        return 0
     if args.workspace_template:
         if args.execute or args.manifest or args.continuous_template:
             parser.error('Choose one template or an existing manifest')

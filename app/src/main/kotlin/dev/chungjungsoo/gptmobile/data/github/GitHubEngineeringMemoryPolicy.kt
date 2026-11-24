@@ -32,6 +32,34 @@ internal object GitHubEngineeringMemoryPolicy {
         }
     }
 
+    /** The canonical checkpoint remains in protected storage. Resume with whole fields and visible omissions. */
+    fun resumeBrief(checkpoint: JsonObject): JsonObject = buildJsonObject {
+        val remaining = checkpoint["remaining_requirements"] as? JsonArray
+        remaining?.let { put("remaining_count", it.size) }
+        val next = checkpoint["next_requirement"] as? JsonObject ?: remaining?.firstOrNull() as? JsonObject
+        next?.let {
+            put(
+                "next_requirement",
+                buildJsonObject {
+                    for (key in listOf("id", "requirement_id", "requirement", "status", "reason", "blocker", "acceptance")) {
+                        val value = (next[key] as? JsonPrimitive)?.contentOrNull ?: continue
+                        if (value.length <= 280) {
+                            put(key, value)
+                        } else {
+                            put("${key}_excerpt", value.take(280))
+                            put("${key}_excerpt_complete", false)
+                        }
+                    }
+                }
+            )
+        }
+        listOf("task_outcome", "recovery_action", "retryable_without_new_input", "approval_state", "stop_code").forEach { key ->
+            val value = checkpoint[key] as? JsonPrimitive
+            if (value != null && value.content.length <= 96) put(key, value)
+        }
+        put("completion_verified", false)
+    }
+
     /** Model-facing orientation only; durable receipts and approval/ownership fences remain authoritative. */
     fun workingBrief(task: String, context: GitHubConversationContext?, receipts: Map<String, JsonObject>): String {
         val selected = buildJsonObject {
@@ -41,6 +69,7 @@ internal object GitHubEngineeringMemoryPolicy {
                 put("recorded_head_sha", it.commitSha)
             }
         }
+        val relevance = GitHubEvidenceRelevance(task)
         val eligible = receipts.entries.toList().asReversed().filter { (_, receipt) ->
             receipt["trusted"] == JsonPrimitive(true) &&
                 receipt["success"] == JsonPrimitive(true) &&
@@ -51,15 +80,17 @@ internal object GitHubEngineeringMemoryPolicy {
             // source do not displace the issue or source finding that explained the task.
             val summary = receipt["semantic_summary"] as JsonObject
             listOf(receipt["repository"], receipt["source_head_sha"], summary["operation"], summary["action"], summary["source_result_sha256"] ?: JsonPrimitive(id))
-        }.sortedBy { (_, receipt) ->
-            val summary = receipt["semantic_summary"] as JsonObject
-            when {
-                "resource_observations" in summary -> 0
-                "source_excerpts" in summary || "search_observations" in summary || "path_observations" in summary || "branch_observations" in summary -> 1
-                "check_counts" in summary -> 2
-                else -> 3
+        }.map { entry ->
+            val summary = entry.value["semantic_summary"] as JsonObject
+            val score = relevance.score(entry.value["arguments"] as? JsonObject, summary)
+            val evidenceType = when {
+                "resource_observations" in summary -> 3
+                "source_excerpts" in summary || "search_observations" in summary || "path_observations" in summary || "branch_observations" in summary -> 2
+                "check_counts" in summary -> 1
+                else -> 0
             }
-        }
+            entry to (score * 4 + evidenceType)
+        }.sortedByDescending { it.second }.map { it.first }
         // Project only the small candidate slice, not every archived summary.
         val candidates = eligible.take(32).map { (id, receipt) ->
             buildJsonObject {

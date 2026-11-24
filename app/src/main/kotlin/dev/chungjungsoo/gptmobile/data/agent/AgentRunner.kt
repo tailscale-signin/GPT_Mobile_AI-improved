@@ -4,6 +4,8 @@ import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits
+import dev.chungjungsoo.gptmobile.data.network.RequestByteBudget
+import dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import java.net.URI
 import java.nio.charset.StandardCharsets
@@ -151,7 +153,8 @@ class AgentRunner(
             if (rawTokens <= maxReplayTokens) maxReplayTokens else maxResultTokens,
             consumed,
             replayRenderCache,
-            if (limits.githubTask) GitHubReplayRecovery.savedPageResultAllowances(exchanges, consumed, maxReplayTokens, maxResultTokens) else emptyMap()
+            if (limits.githubTask) GitHubReplayRecovery.savedPageResultAllowances(exchanges, consumed, maxReplayTokens, maxResultTokens) else emptyMap(),
+            taskRequest = limits.githubTaskRequest.takeIf { limits.githubTask }
         )
         ReplayProjection(
             exchanges = compacted,
@@ -162,7 +165,7 @@ class AgentRunner(
     }
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
-        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope() + dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope() + AdaptiveBatchScope(limits.maxConcurrentTools)))
+        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope() + RequestByteBudgetScope() + AdaptiveBatchScope(limits.maxConcurrentTools)))
     }
 
     private fun runWithRepairScope(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): Flow<AgentRunEvent> = flow {
@@ -318,7 +321,8 @@ class AgentRunner(
                 val searchContext = searchRoundContext(toolByName, executableToolByName, exchanges)
                 val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
                 val roundDefinitions = try {
-                    fitProviderToolSchemas(selectedForRound(exposedDefinitions, selectDefinitions), limits, initialSchemaTokens, replayTokens)
+                    val available = fitProviderToolSchemas(selectedForRound(exposedDefinitions, selectDefinitions), limits, initialSchemaTokens, replayTokens)
+                    retrySchemaNames?.let { names -> available.filter { it.name in names } } ?: available
                 } catch (capacity: GitHubToolContextBudgetException) {
                     emit(AgentRunEvent.Provider(capacity.providerFailure()))
                     return
@@ -371,29 +375,16 @@ class AgentRunner(
                 }
                 if (round.failure != null) {
                     val admission = round.failureDetails
-                    if (capacityReplans < 2 &&
-                        !session.handlesToolsInternally &&
-                        !retainedUnknownOutcome &&
-                        unknownOutcomes.isEmpty() &&
-                        !round.textEmitted &&
-                        round.calls.isEmpty() &&
-                        exchanges.isNotEmpty() &&
-                        admission?.get("logical_continuation_allowed") != JsonPrimitive(false) &&
-                        round.errorCode in setOf("413", dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE) &&
-                        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope]?.consumeReplan(admission) == true
-                    ) {
-                        val target = dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.replayTarget(admission, replayTokens, admittedReplayLimit)
-                        if (target != null) {
-                            val fit = prepareReplay(exchanges, target, limits.maxReplayResultTokens, consumedCallIds, deliveredResultDigests)
-                            if (fit.compactedTokens <= target && fit.compactedTokens.toLong() < replayTokens) {
-                                admittedReplayLimit = target
-                                replayTokens = fit.compactedTokens.toLong()
-                                capacityReplans++
-                                rounds--
-                                emit(AgentRunEvent.Notice("The provider's request-size limit was reached. I have retained the findings and am reducing the tool-result replay before continuing.", persistent = false))
-                                continue
-                            }
-                        }
+                    val payloadRetry = if (capacityReplans < 2 && !session.handlesToolsInternally) {
+                        replanRejectedPayload(round, state, exchanges, admittedReplayLimit, roundDefinitions, initialSchemaTokens)
+                    } else {
+                        null
+                    }
+                    if (payloadRetry != null) {
+                        admittedReplayLimit = payloadRetry
+                        capacityReplans++
+                        rounds--
+                        continue
                     }
                     if (capacityReplans < 2 &&
                         !session.handlesToolsInternally &&
@@ -435,6 +426,7 @@ class AgentRunner(
                     }
                     continue
                 }
+                if (!restoringBatch && automaticRead == null) retrySchemaNames = null
                 // A provider may ignore an empty tool catalog. Offer one correction,
                 // then stop instead of spending the observed-call ceiling on refusals.
                 if (finalResponseRequested && exposedDefinitions.isEmpty() && round.calls.isNotEmpty()) {
@@ -519,6 +511,55 @@ class AgentRunner(
                 }
             }
         }
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.replanRejectedPayload(
+        round: RoundResult,
+        state: LoopState,
+        exchanges: List<AgentToolExchange>,
+        admittedReplayLimit: Int,
+        definitions: List<AgentToolDefinition>,
+        initialSchemaTokens: Long
+    ): Int? {
+        val admission = round.failureDetails ?: return null
+        if (state.retainedUnknownOutcome ||
+            state.unknownOutcomes.isNotEmpty() ||
+            round.textEmitted ||
+            round.calls.isNotEmpty() ||
+            admission["logical_continuation_allowed"] == JsonPrimitive(false) ||
+            admission["requires_reconciliation"] == JsonPrimitive(true) ||
+            round.providerLimit != null ||
+            round.taskOutcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "WAITING_FOR_APPROVAL")
+        ) {
+            return null
+        }
+        if (admission["http_status"] != JsonPrimitive(413) && round.errorCode != RequestByteBudget.CODE) return null
+        if (kotlinx.coroutines.currentCoroutineContext()[RequestByteBudgetScope]?.consumeReplan(admission) != true) return null
+        val target = RequestByteBudget.replayTarget(admission, state.replayTokens, admittedReplayLimit)
+        if (target != null) {
+            val fit = prepareReplay(exchanges, target, limits.maxReplayResultTokens, state.consumedCallIds, state.deliveredResultDigests)
+            if (fit.compactedTokens <= target && fit.compactedTokens.toLong() < state.replayTokens) {
+                state.replayTokens = fit.compactedTokens.toLong()
+                emit(AgentRunEvent.Notice("The provider's request-size limit was reached. I have retained the findings and am reducing the tool-result replay before continuing.", persistent = false))
+                return target
+            }
+        }
+        state.retrySchemaNames = narrowerSchemaWindow(definitions, admission, initialSchemaTokens, state.replayTokens) ?: return null
+        emit(AgentRunEvent.Notice("The provider rejected this request's size. Tool discovery stays available while I send fewer optional tool descriptions.", persistent = false))
+        return admittedReplayLimit
+    }
+
+    /** Defer optional schemas for the rejected model round. Discovery may still select every authorized operation. */
+    private fun narrowerSchemaWindow(definitions: List<AgentToolDefinition>, admission: JsonObject?, initialSchemaTokens: Long, replayTokens: Long): Set<String>? {
+        if (definitions.none { it.name == ProgressiveToolCatalog.NAME }) return null
+        val current = definitions.sumOf { providerSchemaTokens(it, limits.githubMode) }
+        val target = RequestByteBudget.schemaTarget(admission, current) ?: return null
+        val selected = try {
+            fitProviderToolSchemas(definitions, limits, initialSchemaTokens, replayTokens, target)
+        } catch (_: GitHubToolContextBudgetException) {
+            return null
+        }
+        return selected.mapTo(linkedSetOf()) { it.name }.takeIf { ProgressiveToolCatalog.NAME in it && it.size < definitions.size }
     }
 
     /** Verification can read settled receipts, but cannot advance the saved execution journal. */
@@ -688,6 +729,7 @@ class AgentRunner(
         var roundLimitFinalizationAttempted = false
         var wrapUpNoticeEmitted = false
         var replayTokens = 0L
+        var retrySchemaNames: Set<String>? = null
         var observedToolCalls = 0
         var stormFinalizationAttempted = false
         var batchRepairAttempted = false

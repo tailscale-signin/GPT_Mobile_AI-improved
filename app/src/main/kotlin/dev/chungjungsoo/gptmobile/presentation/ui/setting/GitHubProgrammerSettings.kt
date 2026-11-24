@@ -27,6 +27,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
 import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
+import dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -242,6 +243,17 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         GitHubCreativitySettings(state.profileSettings.sampling, state.profileUid != null) {
             onSettings(state.profileSettings.copy(sampling = it))
         }
+        GitHubRecoveryConsultSetting(state, onSettings)
+        if (state.profileSettings.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE) {
+            val key = state.engineeringTeamKey
+            GitHubOverrideSwitch(
+                "Engineering team",
+                state.engineeringTeamDescription?.let { "$it Share selected repository excerpts for analysis and code review in this workspace." }
+                    ?: "Configure eligible helpers and review preferences in Model Delegation.",
+                key != null && key == state.profileSettings.engineeringTeamConsent,
+                key != null && state.privacyModeLocked == false
+            ) { enabled -> onSettings(state.profileSettings.copy(engineeringTeamConsent = key.takeIf { enabled })) }
+        }
         GitHubProfileOverrides(state.profileSettings, state.profileUid != null, state.profiles.firstOrNull { it.uid == state.profileUid }?.maxToolCalls, onSettings)
         GitHubWorkflowSettings(state.profileSettings.quickWorkflows, state.profileUid != null) {
             onSettings(state.profileSettings.copy(quickWorkflows = it))
@@ -311,8 +323,43 @@ internal fun GitHubGatewayConnectionCheck(profileUid: String?, onCheck: (String)
 }
 
 @Composable
+private fun GitHubRecoveryConsultSetting(state: GitHubProgrammerState, onChange: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit) {
+    val consent = state.profileSettings.recoveryConsultConsent
+    if (state.profileSettings.intelligenceLevel != GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE && consent == null) return
+    val candidates = if (state.privacyModeLocked == false) state.recoveryAdvisors else emptyMap()
+    val selected = candidates[consent]
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Text("Recovery advisor", style = MaterialTheme.typography.titleSmall)
+        OutlinedButton(onClick = { expanded = true }, enabled = candidates.isNotEmpty() || consent != null, modifier = Modifier.testTag("github_recovery_advisor")) {
+            Text(selected?.name ?: if (consent != null) "Saved advisor unavailable" else "Selected profile only")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("Selected profile only") }, onClick = {
+                expanded = false
+                onChange(state.profileSettings.copy(recoveryConsultConsent = null))
+            })
+            candidates.forEach { (key, helper) ->
+                DropdownMenuItem(text = { Text("${helper.name} · ${helper.model}") }, onClick = {
+                    expanded = false
+                    onChange(state.profileSettings.copy(recoveryConsultConsent = key))
+                })
+            }
+        }
+        val guidance = when {
+            state.privacyModeLocked == true -> "Private chats use the selected profile for recovery."
+            state.profiles.singleOrNull { it.uid == state.profileUid }?.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM -> "The primary profile already uses the on-device runtime. Recovery continues on that profile."
+            candidates.isEmpty() -> "Open a saved GitHub chat, enable delegation and automatic fallback, and approve an on-device helper in the profile’s delegation settings."
+            else -> "For this repository and branch, the on-device advisor can suggest a next step after an empty answer or unfinished criterion. It receives the request and sends a text proposal to the primary profile."
+        }
+        Text(guidance, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
 private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride, enabled: Boolean, configuredCallLimit: Int?, onChange: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit) {
     var menu by remember { mutableStateOf(false) }
+    var intelligenceMenu by remember { mutableStateOf(false) }
     var workflowMenu by remember { mutableStateOf(false) }
     var contextMenu by remember { mutableStateOf(false) }
     var advanced by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
@@ -320,6 +367,21 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("GitHub chat preferences", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Text("Saved separately for this AI profile in GitHub chats.", style = MaterialTheme.typography.bodySmall)
+            Column {
+                Text("Intelligence level", style = MaterialTheme.typography.titleSmall)
+                OutlinedButton(onClick = { intelligenceMenu = true }, enabled = enabled, modifier = Modifier.testTag("github_intelligence_level")) {
+                    Text(value.intelligenceLevel.title)
+                }
+                DropdownMenu(expanded = intelligenceMenu, onDismissRequest = { intelligenceMenu = false }) {
+                    GitHubIntelligenceLevel.entries.forEach { level ->
+                        DropdownMenuItem(text = { Text(level.title) }, onClick = {
+                            intelligenceMenu = false
+                            onChange(value.copy(intelligenceLevel = level))
+                        })
+                    }
+                }
+                Text(value.intelligenceLevel.description, style = MaterialTheme.typography.bodySmall)
+            }
             Column {
                 Text("Workflow", style = MaterialTheme.typography.titleSmall)
                 OutlinedButton(onClick = { workflowMenu = true }, enabled = enabled, modifier = Modifier.testTag("github_workflow_preset")) {

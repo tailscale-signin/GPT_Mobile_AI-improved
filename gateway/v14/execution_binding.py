@@ -230,12 +230,16 @@ class ExecutionBindings:
             return binding
         return self.store.tx(read)
 
-    def validate(self, principal, binding_id, *, force=False):
+    def bound_route(self, principal, binding_id):
         binding = self.read(principal, binding_id)
         route = configured_route(self.runtime, binding['provider_kind'])
         if binding['gateway_installation_id'] != self.installation_id() or any(binding[field] != route[key] for field, key in
                 (('runtime_config_revision', 'runtime_config_revision'), ('backend_endpoint_identity', 'endpoint_identity'), ('backend_connection_id', 'backend_connection_id'))):
             raise ExecutionBindingError('EXECUTION_CONFIGURATION_CHANGED', 'The original configured backend is unavailable. Work is retained; select a new binding explicitly to change it.')
+        return binding, route
+
+    def validate(self, principal, binding_id, *, force=False):
+        binding, route = self.bound_route(principal, binding_id)
         observation = self.capabilities.inspect(route, binding['requested_model_id'], force=force)
         self.capabilities.require(observation, binding)
         self.capabilities.require_local(route, binding)

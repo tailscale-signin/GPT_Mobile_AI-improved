@@ -532,6 +532,9 @@ class GitHubEngineeringBackend:
         # Access must still exist before historical private source reaches a model.
         metadata = self.api(self.root(job), job=job)
         job['data']['permission_revision'] = digest(metadata.get('permissions', {}))
+        original_permissions = job['data'].get('initial_permission_revision')
+        if original_permissions and job['data']['permission_revision'] != original_permissions:
+            job['data']['qualification_permissions_changed'] = True
         scoped_worker = role == 'workspace specialist' or job.get('_workspace_scoped_worker') is True
         historical = {'records': [], 'scope': 'EXPLICIT_WORKER_READS'} if scoped_worker else self.recall_memory(job, job['request']['objective'])
         graph_query, graph_paths = stage_selection(job, role, evidence)
@@ -666,6 +669,8 @@ class GitHubEngineeringBackend:
             if data.get('head_sha') != head:
                 data.pop('active_instructions', None)
             data.update(actor_id=actor['id'], head_sha=head, tree=tree)
+            if metadata.get('permissions'):
+                data['initial_permission_revision'] = digest(metadata['permissions'])
             from v14.engineering_specialists import investigate
             selection = {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'head_sha': head}
             from v14.workspace_guidance import requested_procedure, start_procedure
@@ -679,7 +684,9 @@ class GitHubEngineeringBackend:
             merge_method = next((method for method in ('squash', 'merge', 'rebase') if metadata.get('allow_' + method + '_merge')), None)
             if writable and merge_method is None:
                 raise ValueError('No supported merge method is enabled')
-            return dict(retained_pr or {}, merge_method=merge_method, actor_id=actor['id'], head_sha=head, initial_head=head, base_sha=base, tree=tree, plan=plan, **({'workflow': selection['workflow']} if 'workflow' in selection else {}))
+            return dict(retained_pr or {}, merge_method=merge_method, actor_id=actor['id'],
+                        initial_permission_revision=data.get('initial_permission_revision'), head_sha=head, initial_head=head,
+                        initial_base_sha=base, base_sha=base, tree=tree, plan=plan, **({'workflow': selection['workflow']} if 'workflow' in selection else {}))
         if phase == 'READ':
             tree = self.tree(job, data['head_sha'])
             binding = digest([data['actor_id'], root, data['head_sha']])
@@ -769,6 +776,12 @@ class GitHubEngineeringBackend:
             excerpt_limit = min(16000, 140000 // max(1, len(files)))
             files = {path: dict(value, preview_characters=excerpt_limit) for path, value in files.items()}
             result = {'files': files, 'tree': tree, 'plan': plan, 'active_instructions': instructions}
+            if data['head_sha'] == job['request'].get('source_sha'):
+                # Include the initially selected, byte-verified sources in path coverage, even when
+                # the coder needs no extra range reads. Store identities only, not source bytes.
+                paths = {digest([data['head_sha'], path]) for path in files}
+                result['initial_source_paths'] = sorted(paths.union(data.get('initial_source_paths', [])))
+                result['initial_source_acquisitions'] = data.get('initial_source_acquisitions', 0) + len(paths)
             data.update(files=files, tree=tree, active_instructions=instructions)
             task_scope = accepted_scope(job['request'])
             if task_scope in {'read', 'plan'}:
@@ -804,8 +817,21 @@ class GitHubEngineeringBackend:
                 counts = dict(data.get('workspace_action_counts', {}))
                 signature = digest(proposal['workspace_action'])
                 counts[signature] = counts.get(signature, 0) + 1
+                # Only identical immutable source ranges qualify as repeat reads.
+                # There are at most 120 workspace actions in this job.
+                reads = data.get('workspace_source_reads') or {'complete': data.get('workspace_iterations', 0) == 0,
+                                                               'paths': [], 'ranges': [], 'total': 0}
+                if (receipt.get('action') == 'read' and receipt.get('blob_sha') and receipt.get('content_sha256')
+                        and receipt['end_line'] >= receipt['start_line']):
+                    path_id = digest([receipt['head_sha'], receipt['path']])
+                    range_id = digest([path_id, receipt['blob_sha'], receipt['start_line'], receipt['end_line']])
+                    reads = dict(reads, paths=sorted({*reads['paths'], path_id}),
+                                 ranges=sorted({*reads['ranges'], range_id}), total=reads['total'] + 1)
+                    if receipt['start_line'] > 200:
+                        reads['paged_paths'] = sorted({*reads.get('paged_paths', []), path_id})
                 return {'workspace_continue': True, 'workspace_iterations': data.get('workspace_iterations', 0) + 1,
-                        'workspace_action_counts': counts, 'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
+                        'workspace_action_counts': counts, 'workspace_source_reads': reads,
+                        'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
                         'workspace_checks': data.get('workspace_checks', {}),
                         'workspace_check_executions': data.get('workspace_check_executions', 0),
                         'active_instructions': data.get('active_instructions', []), 'workflow': data.get('workflow'), 'workflow_batch': data.get('workflow_batch'),

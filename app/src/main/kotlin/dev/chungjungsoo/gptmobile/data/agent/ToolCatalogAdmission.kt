@@ -154,21 +154,29 @@ internal data class GitHubSchemaBudget(val capacity: Int, val input: Long, val o
 internal fun providerSchemaTokens(tool: AgentToolDefinition, githubMode: Boolean): Long = ProgressiveToolCatalog.schemaTokens(tool).toLong() + if (githubMode) 16 else 0
 
 /** Recheck warm as well as cold discoveries against the current request's remaining room. */
-internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limits: AgentRunLimits, initialSchemaTokens: Long, replayTokens: Long): List<AgentToolDefinition> {
+internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limits: AgentRunLimits, initialSchemaTokens: Long, replayTokens: Long, maxSchemaTokens: Int? = null): List<AgentToolDefinition> {
     val visible = definitions.filter { it.modelVisible }
-    if (limits.contextTokens == Int.MAX_VALUE) return visible
+    if (limits.contextTokens == Int.MAX_VALUE && maxSchemaTokens == null) return visible
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
     val budget = GitHubSchemaBudget(limits.contextTokens, base + replayTokens, limits.finalResponseReserveTokens, minOf(256, limits.contextTokens / 16))
-    var remaining = budget.available
+    var remaining = minOf(budget.available, maxSchemaTokens?.toLong() ?: Long.MAX_VALUE)
     // The native status plan needs every admitted status/health read even when
     // replay grows. Other engineering operations remain staged on demand.
     val statusOperations = limits.githubTaskRequest?.takeIf {
         dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(it) &&
             it.lineSequence().none { line -> line.trim() == "[github-workflow-preset:test_integration]" }
     }?.let(dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest::requiredOperations).orEmpty()
-    val required = visible.filter {
-        (limits.githubMode || limits.githubTask) &&
-            (it.name == "read_recovery_context" || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in statusOperations)
+    val explicitlyRequired = if (maxSchemaTokens != null) {
+        explicitlyRequiredToolNames(limits.githubTaskRequest.orEmpty(), visible.mapTo(hashSetOf()) { it.name })
+    } else {
+        emptySet()
+    }
+    val required = visible.filter { tool ->
+        val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
+        val requiredForGitHub = (limits.githubMode || limits.githubTask) && (tool.name == "read_recovery_context" || operation in statusOperations)
+        val requested = tool.name in explicitlyRequired || operation in explicitlyRequired
+        val requiredForRetry = maxSchemaTokens != null && (requested || AgentToolCapability.USER_DECISION in tool.capabilities)
+        requiredForGitHub || requiredForRetry
     }
     val requiredSchemaTokens = required.sumOf { providerSchemaTokens(it, limits.githubMode) }
     if (requiredSchemaTokens > remaining) throw GitHubToolContextBudgetException(requiredSchemaTokens, remaining, budget).withRequiredSchemas(required, limits.githubMode)
@@ -177,8 +185,9 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     // Preserve a path to the rest of the authorized catalog when a large optional
     // schema consumes the remaining round budget. The returned order stays stable.
     val discovery = visible.firstOrNull { it.name == ProgressiveToolCatalog.NAME }
-    val discoveryFits = discovery != null && providerSchemaTokens(discovery, limits.githubMode) <= remaining
-    if (discoveryFits) remaining -= providerSchemaTokens(requireNotNull(discovery), limits.githubMode)
+    val discoveryCost = discovery?.takeUnless { it.name in requiredNames }?.let { providerSchemaTokens(it, limits.githubMode) } ?: 0L
+    val discoveryFits = discovery != null && discoveryCost <= remaining
+    if (discoveryFits) remaining -= discoveryCost
     val omitted = linkedMapOf<String, String>()
     val selected = visible.filter { tool ->
         if (tool.name in requiredNames || tool === discovery && discoveryFits) return@filter true

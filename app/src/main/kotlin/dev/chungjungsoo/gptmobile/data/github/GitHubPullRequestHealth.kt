@@ -52,7 +52,7 @@ internal val gitHubPullRequestHealthQuery = """
     }
 """.trimIndent()
 
-internal fun gitHubPullRequestHealth(response: JsonObject, expectedHead: String): GitHubPullRequestHealth {
+internal fun gitHubPullRequestHealth(response: JsonObject, expectedHead: String, expectedBase: String? = null): GitHubPullRequestHealth {
     fun JsonObject.obj(key: String) = this[key] as? JsonObject
     fun JsonObject.text(key: String) = (this[key] as? JsonPrimitive)?.contentOrNull
     fun JsonObject.flag(key: String) = (this[key] as? JsonPrimitive)?.booleanOrNull
@@ -68,7 +68,8 @@ internal fun gitHubPullRequestHealth(response: JsonObject, expectedHead: String)
         githubPermitsMerging = pr.text("mergeStateStatus") == "CLEAN" && pr.text("mergeable") == "MERGEABLE" && pr.flag("isDraft") == false
     )
     if (!health.baseSha.matches(Regex("[a-fA-F0-9]{40}"))) return health.copy(detail = "PR base revision is unavailable.")
-    if (health.headSha != expectedHead) return health.copy(state = "STALE", detail = "The PR head changed; refresh before continuing.")
+    if (health.headSha != expectedHead) return health.copy(state = "STALE", detail = "The PR head changed; refresh before continuing.", githubPermitsMerging = false)
+    if (expectedBase != null && health.baseSha != expectedBase) return health.copy(state = "STALE", detail = "The PR base changed; refresh the diff and checks before continuing.", githubPermitsMerging = false)
     if (pr.text("state") == "MERGED") return health.copy(state = "MERGED", detail = "This pull request has been merged.")
     if (pr.text("state") != "OPEN") return health.copy(state = "CLOSED", detail = "This pull request is no longer open.")
     val merge = pr.text("mergeStateStatus")

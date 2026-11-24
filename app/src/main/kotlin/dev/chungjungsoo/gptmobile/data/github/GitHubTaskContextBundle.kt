@@ -24,10 +24,12 @@ data class GitHubContextSource(val path: String, val blobSha: String, val text: 
 /** Bounded, source-pinned retrieval. Documents and commands are data; this class never executes them. */
 object GitHubTaskContextBundle {
     const val SCHEMA = "repository.task_context.v1"
-    const val VERSION = 4
+    const val VERSION = 5
     const val FEATURE_MAP = "docs/architecture/feature-map.json"
     private const val MAX_FILE_BYTES = 2 * 1024 * 1024
     private val sha = Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")
+    private val word = Regex("[\\p{L}\\p{N}]+")
+    private val camelBoundary = Regex("([a-z0-9])([A-Z])")
     private val ignoredTerms = setOf("the", "this", "that", "with", "from", "and", "for", "please", "fix", "improve", "implement", "feature", "code", "file", "files", "github", "repo", "repository", "all", "can", "how", "what", "does", "should", "would")
 
     suspend fun build(
@@ -54,7 +56,8 @@ object GitHubTaskContextBundle {
         val budget = budgetBytes.coerceIn(4096, 64_000)
         val accepted = files.take(20_000).filter { validPath(it.path) && it.blobSha.matches(sha) && it.size in 0..MAX_FILE_BYTES.toLong() }
             .distinctBy { it.path }.associateBy { it.path }
-        val queryTerms = terms(query.take(6000))
+        val boundedQuery = query.take(6000)
+        val queryTerms = terms(boundedQuery)
         val loaded = linkedMapOf<String, GitHubContextSource>()
         val missing = linkedSetOf<String>()
         val readStates = linkedMapOf<String, GitHubContextReadState>()
@@ -217,7 +220,15 @@ object GitHubTaskContextBundle {
         // document-only behavior. No additional calls or deadline are granted.
         if (variant != GitHubContextVariant.CURRENT) {
             val defaults = listOf("docs/architecture/repository-guide.md", "AGENTS.md", "README.md")
-            val docPaths = (featureDocuments + defaults.filter { it in accepted }).take(4)
+            val documentTerms = queryTerms - setOf("docs", "documentation", "document", "documents", "markdown")
+            val matchingDocuments = accepted.keys.asSequence().filter {
+                it.endsWith(".md", true) && (it.startsWith("docs/") || '/' !in it && !it.startsWith('.')) && it !in staleManifestPaths
+            }.map { path ->
+                val score = if (boundedQuery.contains(path, true)) 1000 else terms(path.substringBeforeLast('.')).intersect(documentTerms).size
+                path to score
+            }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+                .take(2).map { it.first }.toList()
+            val docPaths = (matchingDocuments + featureDocuments + defaults.filter { it in accepted }).distinct().take(4)
             for (path in docPaths) {
                 val value = source(path) ?: continue
                 if (value.text.isBlank()) continue
@@ -441,7 +452,7 @@ object GitHubTaskContextBundle {
         }
     }.take(4).toList()
 
-    internal fun terms(text: String, limit: Int = 256): Set<String> = Regex("[\\p{L}\\p{N}]+").findAll(text.replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").lowercase(Locale.ROOT))
+    internal fun terms(text: String, limit: Int = 256): Set<String> = word.findAll(text.replace(camelBoundary, "$1 $2").lowercase(Locale.ROOT))
         .map { it.value }.filter { it.length > 2 && it !in ignoredTerms }.distinct().take(limit).toSet()
 
     private fun validPath(path: String): Boolean = path.isNotBlank() && path.length <= 2048 && !path.startsWith('/') && '\\' !in path && path.none(Char::isISOControl) && path.split('/').none { it.isBlank() || it == "." || it == ".." }

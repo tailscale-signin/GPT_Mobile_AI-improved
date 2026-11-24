@@ -332,7 +332,8 @@
     "Retain bounded redacted rule/commit/path/line identities from the actual complete-history credential scan while preserving every scanner rule, pin, preflight, strict CI integrity control and failure outcome; refuse malformed, absent or inconsistent report evidence.",
     "Preserve complete decimal and scientific speech exponents and reject partial dimensional/rate powers while retaining integer/superscript behavior, original caption ranges and every prior pronunciation test.",
     "Recover exact historical public-checksum classification from actual source and approved artifact evidence while preserving the pinned full-history scanner.",
-    "Retain all38 scanner controls and add56 exact-declaration and frozen-receipt boundary controls; exercise all three actual Git-integrity fixtures without broad exceptions."
+    "Retain all38 scanner controls and add56 exact-declaration and frozen-receipt boundary controls; exercise all three actual Git-integrity fixtures without broad exceptions.",
+    "Retain explicit Gradle worker lifecycle and heap command evidence for both existing constrained-heap CI invocations while preserving their exact selectors, init script, heap limits, retry behavior and deadlines."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -901,6 +902,7 @@
     "docs/repairs/github-search-coverage-followup-2026-11-23-task.json",
     "docs/repairs/github-unheaded-context-recovery-2026-11-24-task.json",
     "docs/repairs/gitleaks-model-pin-2026-11-23-task.json",
+    "docs/repairs/heap-worker-observability-2026-11-24-task.json",
     "docs/repairs/hosted-privacy-stream-and-health-2026-11-23-task.json",
     "docs/repairs/locked-speech-dependency-coverage-2026-11-23-task.json",
     "docs/repairs/native-speech-smoke-paths-2026-11-23-task.json",

@@ -16,6 +16,7 @@ Application native-library stripping uses the same pinned NDK as the native modu
 
 ## Speech benchmark and playback
 
+- Opening a foreground voice room starts preparation for Moonshine and the selected speech pack. During web lookups, a ready answer takes priority over a progress update that has not started playing. The Performance panel records the timing.
 - Auto can warm its admitted CPU session on voice entry. Adaptive playback takes a short opening clause or up to six complete opening words before adjusting phrase lengths to the audio queue.
 - Synthesis benchmarks can alternate short, medium and long fixtures. Reports show the native rejection reason, matching CPU frame counts, timing differences when recoverable, and distinct first-inference kernel time.
 - HTP cache reports distinguish storage, firmware, identity and directory failures. A validated disk load can identify a context stored by an earlier process. Model diagnostics can trace the token-duration branch and rank CPU and accelerator operators by measured kernel time.

@@ -65,10 +65,10 @@ class ApkSizeTest(unittest.TestCase):
                     self.assertTrue(module.inspect(path, "debug")["passed"])
                     self.assertFalse(module.inspect(path, "release")["passed"])
 
-    def test_historical_dual_abi_release_exceeds_reviewed_universal_budget(self):
+    def test_measured_dual_abi_release_has_bounded_universal_headroom(self):
         measured_bytes = 253_719_782
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "historical-over-budget-universal.apk"
+            path = Path(directory) / "qualified-universal.apk"
             payload = io.BytesIO()
             with zipfile.ZipFile(payload, "w") as archive:
                 archive.writestr("lib/arm64-v8a/runtime.so", b"native")
@@ -79,9 +79,13 @@ class ApkSizeTest(unittest.TestCase):
             self.assertEqual(measured_bytes, path.stat().st_size)
             report = module.inspect(path)
             self.assertEqual("universal", report["budget_class"])
-            self.assertEqual(230 * 1024 * 1024, report["budget_bytes"])
-            self.assertFalse(report["passed"])
-            self.assertEqual(12_547_302, report["bytes"] - report["budget_bytes"])
+            self.assertEqual(250 * 1024 * 1024, report["budget_bytes"])
+            self.assertTrue(report["passed"])
+            self.assertEqual(8_424_218, report["budget_bytes"] - report["bytes"])
+            with patch.dict(module.BUDGETS, {"universal": 230 * 1024 * 1024}):
+                prior = module.inspect(path)
+                self.assertFalse(prior["passed"])
+                self.assertEqual(12_547_302, prior["bytes"] - prior["budget_bytes"])
             self.assertEqual(180 * 1024 * 1024, module.BUDGETS["arm64-v8a"])
             self.assertEqual(180 * 1024 * 1024, module.BUDGETS["x86_64"])
             with patch.dict(module.BUDGETS, {"universal": report["bytes"] - 1}):

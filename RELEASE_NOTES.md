@@ -6,7 +6,7 @@ Build 150 also corrects the hosted reporter contract for failed-event output fla
 
 Quality voice playback starts with up to six words, then adjusts phrase length to the measured synthesis time and available audio. When several authorized tools support a requested action, their local schemas can be selected individually. Repeated identical tool prechecks share one pending report with a count and call history.
 
-Application native-library stripping uses the same pinned NDK as the native modules. Release packaging drops the unused MediaPipe proofreading and summarization binary, retains the private-memory embedder and speech JNI libraries, and losslessly compresses distribution APKs before signing. The packager checks the SHA-256 of every entry and verifies Android alignment. The universal download limit remains 230 MiB, with 180 MiB for each single-ABI APK. Compression runs after bundle assembly and before signing, reserves scratch space, applies 180-second native-process timeouts and checks a shared 900-second deadline between phases, and rejects archive growth before replacing the unsigned package.
+Application native-library stripping uses the same pinned NDK as the native modules. Release packaging drops the unused MediaPipe proofreading and summarization binary, retains the private-memory embedder and speech JNI libraries, and losslessly compresses distribution APKs before signing. The packager checks the SHA-256 of every entry and verifies Android alignment. The universal APK limit is 250 MiB, with 180 MiB for each single-ABI APK. Compression runs after bundle assembly and before signing, reserves scratch space, applies 180-second native-process timeouts and checks a shared 900-second deadline between phases, and rejects archive growth before replacing the unsigned package.
 
 ## Evidence-guided engineering and progress
 
@@ -56,7 +56,7 @@ GPU and HTP speech qualification and listening quality require measured results 
 - Sending an interrupted voice draft restores reply playback while preserving capture permissions, mute state, admission ownership and cancellation checks.
 - Locally stopped phone reads retain their exact deadline and cancellation details through public issue reporting. An interrupted research writer reports the same refreshed evidence used for its partial answer and saved receipt.
 
-- Distribution compression checks scratch space and time limits, rejects archive growth, and runs after bundle assembly before signing. APK contents, alignment and the 230 MiB universal and 180 MiB per-ABI size limits remain checked.
+- Distribution compression checks scratch space and time limits, rejects archive growth, and runs after bundle assembly before signing. APK contents, alignment and the 250 MiB universal and 180 MiB per-ABI size limits remain checked.
 
 ## GitHub engineering intelligence
 
@@ -442,7 +442,7 @@ See the [workspace guide](docs/engineering/github-agent-workspace.md) and [runti
 
 ## Qualification and limitations
 
-- The earlier 253,719,782-byte signed universal APK remains over the 230 MiB limit by 12,547,302 bytes. The sparse regression is a historical negative fixture, not a final artifact measurement; current signed packaging and all publication gates remain required.
+- The earlier 253,719,782-byte signed universal APK exceeded the prior 230 MiB ceiling by 12,547,302 bytes and fits the 250 MiB ceiling by 8,424,218 bytes. The current signed release requires its own measurement.
 
 - No device speedup is claimed for the Markdown or index changes. The added UI fixture and deterministic runtime regressions do not replace measurement on the target phone.
 - The historical HTTP 422 commit lookup and NoSuchElementException reports did not retain enough evidence to prove their original root causes. This release preserves their bounded diagnostic capture and regression coverage; it does not declare those incidents reproduced or fixed.

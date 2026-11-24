@@ -5518,9 +5518,9 @@
       "sha256": "c6287c7c0c0c841ea424e2d11332005a890c84d77179afad02acca47b1d884c0"
     },
     "docs/repairs/benchmark-feature-integration-2026-11-24-task.json": {
-      "blob_sha": "48c1807eb8624e6a8fc6adcbb57195754da3b57d",
+      "blob_sha": "86b0b43d8c1dba21615fd1787d32ec709620fa4c",
       "bytes": 20246,
-      "sha256": "295ac32709ec8a0054bdd3924693fb78d684703b7ce109575750cd283ec65a12"
+      "sha256": "0c1b15894b9c86fa5402d03b1cf61d68686037c09f87306b256ee5a1a9d36a98"
     },
     "docs/repairs/checksum-history-recovery-2026-11-24-task.json": {
       "blob_sha": "463f8023f0620cea78d735d6874f6ce1342cfebc",

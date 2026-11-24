@@ -99,6 +99,11 @@ internal data class IssueReportDiagnostics(
             add(dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.FEATURE)
         }
         if ((values.keys + omittedFields).any { it in incidentDetailFields }) add(INCIDENT_DETAIL_FEATURE)
+        if ((values.keys + omittedFields).any { it in recoveryReportFields } ||
+            values["replay_budget_state"] in setOf(JsonPrimitive("SAVED_PAGE_BODY_UNAVAILABLE"), JsonPrimitive("SAVED_PAGE_DELIVERY_MISMATCH"))
+        ) {
+            add(RECOVERY_REPORT_FEATURE)
+        }
         if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.tlsTransportPhaseFields }) add(IssueReportIncidentCapsule.TLS_TRANSPORT_PHASE_FEATURE)
         if (values["tool_reason_code"] == JsonPrimitive("EVIDENCE_REVISION_MISMATCH")) add(GITHUB_READ_REVISION_FEATURE)
         if ("claim_extraction_schema_hash" in values.keys + omittedFields + unavailableFields) add("CLAIM_EXTRACTION_SCHEMA_HASH_V1")
@@ -233,8 +238,10 @@ internal data class IssueReportDiagnostics(
 
     companion object {
         const val INCIDENT_DETAIL_FEATURE = "RUNTIME_INCIDENT_DETAILS_V1"
+        const val RECOVERY_REPORT_FEATURE = "RECOVERY_REPORT_EVIDENCE_V1"
         internal val researchCriteria = setOf("WRITER_INCOMPLETE", "NO_ACQUISITION_PACKET", "NO_READABLE_SOURCES", "DELIVERY_VERIFICATION", "EMPTY_REPORT", "UNKNOWN_CITATION", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED", "MISSING_SECTION", "OMITTED_LEADING_STUDY", "OMITTED_UNREAD_LEAD", "UNSOURCED_SCIENTIFIC_PARAGRAPH", "METADATA_PRESENTED_AS_READ", "NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE", "UNREGISTERED_REFERENCE_URL", "DIRECT_REFERENCE_MISSING", "QUESTION_EVIDENCE_NOT_CITED", "QUESTION_EVIDENCE_UNCOVERED", "QUESTION_EVIDENCE_METADATA_REQUIRED", "EVIDENCE_CLAIM_NOT_COVERED", "COUNTEREVIDENCE_NOT_DISCLOSED")
         private val researchEvidenceFields = setOf("research_delivery_criterion", "research_unread_sources", "research_read_sources", "research_blocked_sources", "research_blocker_receipt_hash")
+        private val recoveryReportFields = researchEvidenceFields + setOf("catalog_rejected_call_hashes", "catalog_revision_hash", "catalog_rejection_count", "catalog_selector_count", "failure_boundary", "stream_answer_state", "anr_trace_state", "anr_frame_count")
         internal val requiredSchemaDetailFields = setOf("required_schema_count", "required_catalog_schema_tokens", "required_recovery_schema_tokens", "required_github_operation_tokens")
         private val incidentDetailsByArea = mapOf(
             "PROVIDER" to requiredSchemaDetailFields + setOf("dispatch_gateway_selection_change", "reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),

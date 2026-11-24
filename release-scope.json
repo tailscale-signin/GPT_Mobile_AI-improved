@@ -347,12 +347,13 @@
     "Restrict automatic selected-repository context to leading unquoted read requests; preserve multiline escaped quotes, in-word apostrophes and complete code-span/fence delimiters while recognizing technical prompt questions. Observe raw owned output before markup aggregation, preserve honest mixed lineage and final reports, and retain session-owned recovery without stacking evidence correction after protocol or output recovery.",
     "Run the oversized saved-timeout OkHttp boundary regression with its Android runtime shadows so the actual builder limit remains covered without changing production timeout behavior or prior assertions.",
     "Restore GenieX minified packaging process isolation: preserve identical unsigned output identities across shrinking, lint and packaging, and complete mandatory release lint in a separate bounded process before APK compression. Retain all payloads, signatures, audits and existing packaging limits.",
-    "Pin application stripping to the native modules' NDK and preserve all audited default and GenieX vendor ELF bytes; retain every runtime, ABI, single-ABI APK size limit, signature, audit and mandatory release gate.",
     "Recover interrupted GitHub result replay and CI watches at the selected revision, share phone index batches and resume saved progress, retain editable silenced speech, and preserve bounded research and diagnostic evidence across the issue cohorts reported through #2526. Build unsigned packages for release candidates and retain signed payload inventory on gate failures.",
     "Raise only the universal release APK ceiling from 230 MiB to 250 MiB for the measured qualified arm64-v8a plus x86_64 native payload, retaining 8,424,218 bytes of bounded headroom.",
     "Keep the arm64-v8a and x86_64 release ceilings at 180 MiB and preserve all signing, runtime, telemetry, checksum, attestation and immutable publication gates.",
     "Add behavior coverage that admits the observed two-ABI package, rejects it one byte below its measured size and verifies both single-ABI ceilings remain unchanged.",
-    "Measure release APKs for size-policy, packaging and native-input changes on ordinary pull requests. Recover phone indexing from the map status returned for the authorized revision."
+    "Measure release APKs for size-policy, packaging and native-input changes on ordinary pull requests. Recover phone indexing from the map status returned for the authorized revision.",
+    "Pin application stripping to the native modules' NDK and preserve all audited default and GenieX vendor ELF bytes; retain every runtime, ABI, APK size limit, signature, audit and mandatory release gate.",
+    "Exclude the unused MediaPipe proofreading/summarization JNI, enforce retention of actual speech and embedding JNI, and losslessly recompress and align every unsigned APK before signature and strict size checks."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1231,7 +1232,12 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt",
     "docs/repairs/release-universal-apk-budget-2026-11-24-task.json",
     "scripts/check_apk_size.py",
-    "scripts/tests/test_check_apk_size.py"
+    "scripts/tests/test_check_apk_size.py",
+    "app/proguard-rules.pro",
+    "scripts/check_local_runtime_apk.py",
+    "scripts/install_android_native_dependencies.sh",
+    "scripts/optimize_release_apks.py",
+    "scripts/tests/test_release_apk_compression.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

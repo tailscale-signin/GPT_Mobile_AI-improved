@@ -141,8 +141,8 @@ def check_apk(apk_path, manifest):
         assert abis and abis <= {"arm64-v8a", "x86_64"}, f"Unexpected APK ABIs: {abis}"
         check_runtime_inventory(apk, manifest, abis)
         for abi in abis:
-            for library in ("libobjectbox-jni.so", "libmediapipe_tasks_jni.so", "libmediapipe_tasks_textgenai_jni.so"):
-                assert f"lib/{abi}/{library}" in names, f"Missing memory runtime {abi}/{library}"
+            for library in ("libobjectbox-jni.so", "libmediapipe_tasks_jni.so", "libmediapipe_tasks_audio_jni.so"):
+                assert f"lib/{abi}/{library}" in names, f"Missing memory or speech runtime {abi}/{library}"
         gguf = json.loads(apk.read("assets/gguf-runtime-inventory.json"))
         assert gguf["revision"] == "620d2225cc436ab0b001e3200e590e3b286ef9ab"
         assert gguf["backends"] in (["cpu"], ["cpu", "gpu"], ["cpu", "opencl"], ["cpu", "gpu", "opencl"]), "Unsupported GGUF backend inventory"

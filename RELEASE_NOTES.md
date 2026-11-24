@@ -2,7 +2,7 @@
 
 Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
-Application native-library stripping now uses the same pinned NDK as the native modules. Audited default and GenieX vendor libraries retain their exact bytes, and both supported ABIs are included. The universal APK has a 250 MiB limit. Each single-ABI APK has a 180 MiB limit.
+Application native-library stripping uses the same pinned NDK as the native modules. Release packaging drops the unused MediaPipe proofreading and summarization binary, retains the private-memory embedder and speech JNI libraries, and losslessly compresses distribution APKs before signing. The packager checks the SHA-256 of every entry and verifies Android alignment. The universal download limit remains 230 MiB.
 
 ## November 24 issue fixes
 
@@ -12,7 +12,7 @@ Application native-library stripping now uses the same pinned NDK as the native 
 - Voice chat keeps recognized words editable after Android silences the microphone mid-turn. Sending the partial transcript requires a user action.
 - URL reads share a small result allowance across sources. Catalog discovery handles empty selectors, and repeated missing-tool reports retain the catalog revision and occurrence count. Partial research reports identify the delivery check and source counts.
 - Failure diagnostics distinguish a later failure after visible output. Android freeze reports retain a bounded main-thread fingerprint when the operating system supplies a trace for the affected process.
-- Release pull requests build the unsigned packages when the publication request, Android version, size rules, packaging or native inputs change. The publisher retains its APK payload inventory for size-gate diagnostics.
+- Release pull requests build the unsigned packages when the publication request or Android version changes. The publisher retains its APK payload inventory for size-gate diagnostics.
 
 ## GitHub engineering intelligence
 
@@ -448,5 +448,3 @@ Prepared Android compilation requires at least 8,960 MiB of observed RAM/cgroup 
 - Privacy provider comparison uses at most four scored fictional pairs after two warmups. It reports deterministic fixture criteria, not general semantic quality or arbitrary-input detection recall. Missing backend/cap observations, mismatched or incomplete pairs, and strict private routes with unverified sampling parity are excluded from timing summaries; small nearest-rank samples do not establish a stable p95 distribution, causal privacy overhead or provider retention. Live selected-provider performance is not measured by implementation tests.
 
 - The ordinary modal exception is limited to positively classified I may request wording with a discovered May surname and an exact user or history surface. Other ambiguous language and system-prefix collisions remain fail-closed; general semantic name disambiguation is not claimed.
-
-This scoped correction changes an explicit universal-package size policy; it does not reduce package size or establish physical-device performance.

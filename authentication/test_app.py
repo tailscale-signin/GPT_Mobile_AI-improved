@@ -587,6 +587,7 @@ class IssueReportHttpTest(unittest.TestCase):
         additions[additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1:additions.index("CLAIM_EXTRACTION_SCHEMA_HASH_V1") + 1] = ["TLS_TRANSPORT_PHASE_EVIDENCE_V1", "GITHUB_READ_REVISION_EVIDENCE_V1"]
         additions.extend(["VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", "COMBINED_SINGLE_PASS_EVIDENCE_V1", "REPOSITORY_READ_PROGRESS_V1"])
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
+        additions.append("RECOVERY_REPORT_EVIDENCE_V1")
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
         additions.insert(additions.index("PRIVACY_ELIGIBILITY_EVIDENCE_V1") + 1, "PRIVACY_FINAL_REQUEST_EVIDENCE_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,

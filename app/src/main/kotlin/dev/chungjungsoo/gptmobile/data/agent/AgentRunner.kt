@@ -455,7 +455,7 @@ class AgentRunner(
                     // continuation; failed rounds never establish delivery proof.
                     if (pendingSavedPages.isNotEmpty() &&
                         round.completed &&
-                        nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit) != null
+                        nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, savedResultRecovery.pendingSavedPageDeliveries(exchanges, deliveredResultDigests)) != null
                     ) {
                         continue
                     }

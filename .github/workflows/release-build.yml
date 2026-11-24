@@ -245,7 +245,7 @@ jobs:
         run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
-        run: bash scripts/install_android_native_dependencies.sh
+        run: bash scripts/install_android_native_dependencies.sh --release-apks
       - name: Require green main checks on this exact candidate
         id: main_checks
         if: github.ref_name == 'main'
@@ -282,6 +282,7 @@ jobs:
       - name: Build release artifacts
         run: |
           python3 scripts/android_pipeline.py --variant release --phase package --output build/reports/pipeline/package.json
+          python3 scripts/optimize_release_apks.py --zipalign "$ANDROID_HOME/build-tools/37.0.0/zipalign" app/build/outputs/apk/release/*-unsigned.apk
           rm -rf app/build/intermediates/shrunk_resources_proto_format/release/minifyReleaseWithR8
           python3 scripts/android_pipeline.py --variant release --phase bundle --output build/reports/pipeline/bundle.json
       - name: Sign and verify APKs and bundle

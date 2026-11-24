@@ -396,6 +396,9 @@ extensions.configure<ApplicationExtension> {
             // libQnnHtpPrepare is part of Qualcomm's documented LiteRT dispatch
             // runtime, including for precompiled contexts, and must be packaged.
             excludes += "**/libQnnDsp*.so"
+            // TextEmbedder loads mediapipe_tasks_jni. Only the unused TextProofreader
+            // and TextSummarizer APIs load the separate text-generation binary.
+            excludes += "**/libmediapipe_tasks_textgenai_jni.so"
             // The opt-in Kokoro GPU prototype uses the matching QAIRT GPU backend.
             if (geniexRuntime) excludes += "**/libLiteRtDispatch_Qualcomm.so"
         }

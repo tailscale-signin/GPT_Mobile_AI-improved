@@ -35,6 +35,19 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual('NO_PATH_IN_INDEX', graph.path('Service.send', 'Service.run')['status'])
         self.assertTrue(all(n['commit_sha'] == 'a' * 40 and '#L' in n['url'] for n in result['nodes']))
 
+    def test_search_recovers_one_misspelled_symbol_and_expands_dependencies(self):
+        graph = Graph(snapshot({'engine.py': 'def dispatch(): return 1\n',
+                                'caller.py': 'from engine import dispatch\ndef run(): return dispatch()\n'}))
+        for typo in ('disptach', 'dispatxh', 'dispach', 'dispaatch'):
+            with self.subTest(typo=typo):
+                result = graph.query(typo, depth=1)
+                self.assertEqual('APPROXIMATE_SYMBOL', result['search_strategy'])
+                self.assertEqual('dispatch', result['nodes'][0]['name'])
+                self.assertIn('run', [n['name'] for n in result['nodes']])
+        self.assertEqual('LEXICAL_SYMBOL_AND_PATH', graph.query('dispatch')['search_strategy'])
+        self.assertEqual('NOT_FOUND_IN_INDEX', graph.query('unrelatedxyz')['status'])
+        self.assertTrue(graph.query('dispatch', limit=1, depth=2)['seeds_limited'])
+
     def test_same_name_and_dynamic_receivers_are_not_guessed(self):
         graph = Graph(snapshot({'a.py': 'def send(): pass\n', 'b.py': 'def send(): pass\n', 'c.py': 'def run(client):\n    client.send()\n'}))
         self.assertEqual('AMBIGUOUS', graph.neighbors('send')['status'])
@@ -443,6 +456,44 @@ class GraphServiceTests(unittest.TestCase):
         self.files['a.py'] = 'def private_function(): return 2\n'
         self.call('index')
         self.assertTrue(all(n['review_required'] for n in self.call('notes')['notes']))
+
+    def test_repair_history_matches_symptoms_before_selecting_kind_and_skips_superseded(self):
+        self.call('index')
+        first = self.call('note', kind='repair', content='HTTP 413 oversized payload', paths=['a.py'])
+        second = self.call('note', kind='repair', content='HTTP 413 compact the replay body', paths=['a.py'], supersedes=first['note_id'])
+        self.call('note', kind='repair', content='Broken microphone capture', paths=['b.py'])
+        for index in range(35):
+            self.call('note', kind='decision', content=f'HTTP 413 payload decision {index}', paths=['b.py'])
+        result = self.call('diagnose', log='413 replay failure')
+        self.assertEqual([second['note_id']], [row['id'] for row in result['previous_repairs']])
+        self.assertEqual([], self.call('diagnose', log='error failed')['previous_repairs'])
+        self.assertEqual([], self.call('query', query='unrelatedxyz')['related_memory'])
+        matched = self.call('query', query='private_funtion')
+        self.assertEqual('APPROXIMATE_SYMBOL', matched['search_strategy'])
+        self.assertIn('private_function', [node['name'] for node in matched['nodes']])
+
+    def test_ci_replan_uses_only_current_linked_blob_and_preserves_memory_boundaries(self):
+        self.call('index')
+        note = self.call('note', kind='repair', content='414 oversize target', paths=['a.py'])
+        job = {'principal': 'principal', 'request': dict(self.request, memory_mode='HYBRID'),
+               'data': {'actor_id': self.actor, 'head_sha': self.head, 'ci': {'checks_failed': True}}}
+        self.storage.runtime.LLAMA_BASE = 'http://127.0.0.1:8080'
+        result = self.service.recall(job, '414', role='planner')
+        self.assertEqual('FOUND', result['status'])
+        self.assertEqual(note['note_id'], result['previous_repairs'][0]['id'])
+        self.assertFalse(result['previous_repairs'][0]['current_evidence'])
+        self.assertNotIn('oversize', json.dumps(result))
+        self.assertEqual('NOT_FOUND_IN_INDEX', self.service.recall(job, '499', role='planner')['status'])
+        self.head = 'b' * 40
+        self.request['commit_sha'] = self.head
+        self.files['a.py'] = 'def updated(): return 3\n'
+        self.call('index')
+        job['data']['head_sha'] = self.head
+        stale = self.service.recall(job, '414', role='planner')
+        self.assertEqual([], stale['nodes'])
+        self.assertTrue(stale['previous_repairs'][0]['review_required'])
+        job['request']['memory_mode'] = 'SESSION_ONLY'
+        self.assertNotIn('previous_repairs', self.service.recall(job, '414', role='planner'))
 
     def test_no_successful_api_read_is_misreported_as_a_test(self):
         note = {'receipt': {'payload': {'head_sha': self.head, 'success': True, 'source': 'github_api'}}}

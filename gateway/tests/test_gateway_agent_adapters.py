@@ -25,7 +25,7 @@ from v14.agent_config import AgentError, credential, digest, load, save, validat
 from v14.agent_cloud import CloudAgent
 from v14.agent_candidates import unified_changes, verify_changes
 from v14.agent_process import AgentProcess, blob
-from v14.agent_local import LocalAgent
+from v14.agent_local import LocalAgent, materialize_agent_worktree
 from v14.agent_runs import AgentRuns
 from v14.agent_http_worker import HttpFailure, perform
 from v14.agent_sdk_driver import CheckoutTools, Driver
@@ -846,13 +846,54 @@ class DurableAgentTests(unittest.TestCase):
 
 
 class ProcessProtocolTests(unittest.TestCase):
+    def test_agent_worktrees_have_pinned_detached_heads_and_independent_indexes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'upstream'
+            source.mkdir()
+            def git(cwd, *args, check=True):
+                return subprocess.run(['git', *args], cwd=cwd, capture_output=True, text=True, check=check)
+            git(source, 'init', '--quiet', '--template=')
+            git(source, 'config', 'user.name', 'Fixture')
+            git(source, 'config', 'user.email', 'fixture@example.invalid')
+            (source / 'prior.txt').write_text('historical bytes')
+            git(source, 'add', '.')
+            git(source, 'commit', '-qm', 'prior')
+            prior = git(source, 'rev-parse', 'HEAD').stdout.strip()
+            git(source, 'rm', 'prior.txt')
+            (source / 'current.txt').write_text('pinned bytes')
+            (source / '.gitattributes').write_text('current.txt export-ignore\nrevision.txt export-subst\n')
+            (source / 'revision.txt').write_text('$Format:%H$')
+            git(source, 'add', '.')
+            git(source, 'commit', '-qm', 'pinned')
+            head = git(source, 'rev-parse', 'HEAD').stdout.strip()
+            job = {'data': {'head_sha': head}, 'deadline': time.time() + 60}
+            workers = []
+            for name in ('worker-a', 'worker-b'):
+                root = Path(directory) / name
+                root.mkdir()
+                work = materialize_agent_worktree(job, source / '.git', root, None)
+                self.assertEqual(head, git(work, 'rev-parse', 'HEAD').stdout.strip())
+                self.assertEqual(1, git(work, 'symbolic-ref', '-q', 'HEAD', check=False).returncode)
+                self.assertNotEqual(0, git(work, 'cat-file', '-e', prior, check=False).returncode)
+                self.assertEqual('$Format:%H$', (work / 'revision.txt').read_text())
+                self.assertEqual('', git(work, 'remote').stdout)
+                self.assertEqual('', git(work, 'status', '--porcelain').stdout)
+                self.assertFalse((work / '.git/objects/info/alternates').exists())
+                workers.append(work)
+            (workers[0] / 'current.txt').write_text('candidate')
+            git(workers[0], 'add', 'current.txt')
+            self.assertIn('current.txt', git(workers[0], 'diff', '--cached', '--name-only').stdout)
+            for untouched in (workers[1], source):
+                self.assertEqual('', git(untouched, 'status', '--porcelain').stdout)
+                self.assertEqual('pinned bytes', (untouched / 'current.txt').read_text())
+
     def test_prepare_cleans_up_lost_creation_response_and_revoked_final_claim(self):
         for failure in ('lost-create-response', 'cancel-after-seal', 'claim-after-seal'):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
                 cancelled, state = threading.Event(), {'created': False, 'removed': False, 'claims': 0}
                 now = time.time()
                 job = {'request': {'repository': 'owner/repo'}, 'deadline': now + 60,
-                       'data': {'tree': {'file.py': {'sha': blob(b'original\n'), 'mode': '100644'}}}}
+                       'data': {'head_sha': 'a' * 40, 'tree': {'file.py': {'sha': blob(b'original\n'), 'mode': '100644'}}}}
                 run = {'principal': 'owner', 'job_id': 'job', 'run_id': 'run', 'source_sha': 'a' * 40,
                        'config_digest': 'config', 'model_id': 'model-x', 'deadline': now + 60}
                 identity = LocalAgent.intent(run)['container_identity']
@@ -872,7 +913,7 @@ class ProcessProtocolTests(unittest.TestCase):
                     if args[0] == 'rm':
                         state.update(created=False, removed=True)
                     return ''
-                def materialize(job, mirror, changes, root, cancel):
+                def materialize(job, mirror, root, cancel):
                     checkout = root / 'checkout'; checkout.mkdir(); (checkout / 'file.py').write_text('original\n')
                     return checkout
                 def claim():
@@ -882,7 +923,7 @@ class ProcessProtocolTests(unittest.TestCase):
                 transport.docker = docker
                 with patch('v14.agent_local.load_policy', return_value=({}, Path(temporary), None, None, None)), \
                         patch('v14.engineering_source.prepare_source'), \
-                        patch('v14.agent_local.materialize_checkout', side_effect=materialize), \
+                        patch('v14.agent_local.materialize_agent_worktree', side_effect=materialize), \
                         patch('v14.workspace_environment.read', return_value=(None, None, {'memory_gib': 1, 'cpus': 1, 'checkout_gib': 1})), \
                         self.assertRaises(AgentError):
                     transport.prepare(backend, job, run, check_owner=claim)

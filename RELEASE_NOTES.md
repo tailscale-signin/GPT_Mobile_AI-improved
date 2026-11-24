@@ -2,6 +2,12 @@
 
 Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
+## GitHub engineering intelligence
+
+GitHub engineering now uses four intelligence levels, relevance-ranked replay and recoverable acceptance plans. Named workers, review, branch restaging and production benchmark scores retain revision, permission and evidence checks.
+
+Production GitHub intelligence scores and comparisons with ChatGPT or Codex require matched live qualification runs. Proposed performance targets remain unmeasured without the corresponding observations.
+
 ## Voice runtime rebuild and recoverable exports
 
 - Upgrade the QNN execution-provider plugin to 2.8.0 and shared QAIRT to 2.52.0 while retaining ONNX Runtime 1.28.2; package the matching hosted source-built LiteRT dispatch with exact publisher checksums, native inventory and immutable provenance.

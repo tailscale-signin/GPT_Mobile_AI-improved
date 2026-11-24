@@ -50,6 +50,54 @@ ENV_NAMES = {'codex': 'OPENAI_API_KEY', 'claude': 'ANTHROPIC_API_KEY', 'cline': 
              'openhands': 'LLM_API_KEY', 'copilot_sdk': 'GH_TOKEN', 'aider': 'OPENAI_API_KEY'}
 
 
+def materialize_agent_worktree(job, mirror, root, cancel):
+    """Give each agent its own shallow, detached repository without sharing the mirror.
+
+    Transfer exactly the pinned commit and its tree. History, refs, alternates,
+    hooks, remotes and mirror configuration stay on the host. The supervisor's
+    independent source catalog still decides which changes may leave the worker.
+    """
+    head = job['data']['head_sha']
+    if not isinstance(head, str) or not re.fullmatch(r'[a-f0-9]{40}', head):
+        raise ValueError('The agent worktree requires a pinned commit')
+
+    def git(*args, **options):
+        result = run_bounded(['git', *args], root, 60, **options)
+        if result['exit_code']:
+            raise ValueError('Could not prepare the isolated agent worktree')
+
+    private = root / 'agent-repository'
+    admin = private / '.git'
+    source = '--git-dir=' + str(mirror)
+    target = '--git-dir=' + str(admin)
+    with cancellation_scope(cancel, job.get('deadline')), tempfile.TemporaryFile(dir=root) as objects, tempfile.TemporaryFile(dir=root) as pack:
+        git(source, 'rev-list', '--objects', '--no-object-names', head + '^{tree}',
+            maximum=8 * 1024 * 1024, destination=objects)
+        objects.write((head + '\n').encode('ascii'))
+        objects.seek(0)
+        git(source, 'pack-objects', '--quiet', '--stdout', stdin=objects,
+            maximum=160 * 1024 * 1024, destination=pack)
+        git('init', '--quiet', '--template=', str(private))
+        (admin / 'shallow').write_bytes((head + '\n').encode('ascii'))
+        pack.seek(0)
+        git(target, 'index-pack', '--stdin', stdin=pack)
+        git(target, 'update-ref', '--no-deref', 'HEAD', head)
+        git(target, 'read-tree', head)
+        # An engineering worktree needs the raw accepted files, including
+        # paths and literals normally transformed in release archives.
+        attributes = admin / 'info' / 'attributes'
+        attributes.parent.mkdir(exist_ok=True)
+        attributes.write_text('* -export-ignore -export-subst -text -ident -filter -working-tree-encoding\n', encoding='ascii')
+        checkout = materialize_checkout(job, admin, [], root, cancel)
+        attributes.unlink()
+    # The package only contains metadata created in our empty directory. Never
+    # import the shared mirror's config or create a linked worktree back to it.
+    if (checkout / '.git').exists():
+        raise ValueError('The exported source conflicts with private Git metadata')
+    admin.rename(checkout / '.git')
+    return checkout
+
+
 class LocalAgent:
     def __init__(self, backend, config, *, runner=None):
         self.backend, self.config = backend, config
@@ -112,6 +160,8 @@ class LocalAgent:
             if check_owner is not None:
                 check_owner()
             return {'container': pieces[0], 'container_identity': identity}
+        if run['source_sha'] != job['data'].get('head_sha'):
+            raise AgentError('AGENT_SOURCE_CHANGED', 'The parent revision changed before agent worktree preparation.')
         policy, mirror, _, _, _ = load_policy(job['request']['repository'])
         from v14.engineering_source import prepare_source
         from v14.workspace_environment import read as environment_limits
@@ -132,7 +182,7 @@ class LocalAgent:
         container = None
         with tempfile.TemporaryDirectory(prefix='agent-source-') as temporary, cancellation_scope(cancel, job['deadline']):
             root = Path(temporary)
-            checkout = materialize_checkout(job, mirror, [], root, cancel)
+            checkout = materialize_agent_worktree(job, mirror, root, cancel)
             try:
                 if cancel.is_set():
                     raise AgentError('AGENT_PARENT_STOPPED', 'The parent stopped before isolated preparation.')

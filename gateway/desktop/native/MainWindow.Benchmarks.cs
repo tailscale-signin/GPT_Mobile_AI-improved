@@ -81,7 +81,9 @@ public partial class MainWindow
             if (epoch != viewEpoch) return;
             Ui.Rows(qualificationRuns, live.Array("qualifications").OfType<JsonObject>().Select(row => new JsonObject {
                 ["id"] = row.Text("localId"), ["title"] = row.Object("route").Text("model", "Frozen manifest route"),
-                ["state"] = row.Text("state") }));
+                ["state"] = row.Text("state"), ["detail"] =
+                    row.Object("run").Object("result").Object("githubIntelligenceScore").Number("pointsOutOf100") is { } points
+                        ? $"GitHub intelligence {points:F1} / 100" : "Awaiting measured score" }));
         }
         async Task Observe()
         {

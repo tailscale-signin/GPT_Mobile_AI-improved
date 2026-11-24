@@ -5,6 +5,7 @@ The caller supplies already-authorized jobs in a designated test repository.
 """
 import json
 import re
+from benchmarks import github_intelligence, github_intelligence_targets
 from benchmarks import workspace_qualification as workspace
 from v14.batch import digest
 from v14.execution_binding import fingerprint
@@ -194,16 +195,30 @@ def snapshot(service, principal, job_id, scenario):
     ) if complete_records else False
     verdicts = data.get('completion_verification', {}).get('requirements', [])
     accepted = {row['id'] for row in verdicts if row.get('status') == 'BEHAVIOR_VERIFIED'}
+    # Terminal CI prevents the successful acceptance gate from running. Require the actual
+    # failed/blocked check inventory for this PR head instead of a successful behavior verdict.
+    ci = data.get('ci') or {}
+    ci_blocked = (data.get('head_sha') and ci.get('head_sha') == data['head_sha'] and ci.get('pr') == data.get('pr')
+                  and bool(ci.get('pr')) and ci.get('ci_verdict') in {'BLOCKED', 'FAILED'}
+                  and (ci.get('checks_blocked') is True or ci.get('checks_failed') is True) and bool(ci.get('checks')))
+    paging_paths = (data.get('workspace_source_reads') or {}).get('paged_paths', [])
+    required_paths = {path for row in job['request'].get('acceptance', []) if row.get('id') == 'source_paging'
+                      for path in row.get('paths', [])}
+    base = job['request'].get('source_sha')
+    paged = any(digest([base, path]) in paging_paths for path in required_paths) or any(
+        row.get('action') == 'read' and row.get('head_sha') == base and row.get('path') in required_paths
+        and 200 < row.get('start_line', 0) <= row.get('end_line', 0) and row.get('content_sha256')
+        for row in data.get('workspace_receipts', []))
     signals = {
         'unfamiliar_bug': completed and bool(data.get('changed_paths')) and 'unfamiliar_bug' in accepted,
-        'source_paging': completed and any(row.get('action') == 'read' and row.get('start_line', 1) > 200 for row in data.get('workspace_receipts', [])),
+        'source_paging': completed and paged,
         'ci_repair': completed and bool(job.get('repairs')) and 'ci_repair' in accepted,
         'existing_pr': completed and bool(job.get('continuation_pr')) and job['continuation_pr'] == data.get('pr'),
         'context_rotation': completed and bool(data.get('context_compaction')),
         'lost_mutation': completed and duplicates == 0 and lost_mutation_proven and 'lost_mutation' in accepted,
         'gateway_restart': completed and len(boot_ids) > 1,
         'phone_disconnect': completed and 'phone_disconnect' in accepted,
-        'terminal_ci_blocker': job['state'] in {'NEEDS_INPUT', 'FAILED'} and bool(data.get('ci')) and not completed and 'terminal_ci_blocker' in accepted,
+        'terminal_ci_blocker': job['state'] in {'NEEDS_INPUT', 'FAILED'} and bool(ci_blocked) and not completed,
         'post_merge_failure': bool(data.get('merge_sha')) and data.get('post_merge', {}).get('status') == 'FAILED' and not completed,
     }
     if continuous:
@@ -218,7 +233,9 @@ def snapshot(service, principal, job_id, scenario):
         passed = signals.get(scenario, False) and attempts_measured and not false_completion
     latest = dispatched[-1] if dispatched else {}
     comparison_route, route_verified = selected_route(job, dispatched)
-    return {**workspace_details, 'schema': workspace.SCHEMA if scenario in workspace.ALL_CASES else CONTINUOUS_SCHEMA if continuous else PRODUCTION_SCHEMA, 'scenario': scenario, 'title': scenarios[scenario],
+    intelligence = ({'intelligence': github_intelligence.case_observations(job, scenario, signals[scenario], completed)}
+                    if scenario in SCENARIOS else {})
+    return {**intelligence, **workspace_details, 'schema': workspace.SCHEMA if scenario in workspace.ALL_CASES else CONTINUOUS_SCHEMA if continuous else PRODUCTION_SCHEMA, 'scenario': scenario, 'title': scenarios[scenario],
             'job_id': job_id, 'repository': job['request']['repository'], 'source_sha': job['request'].get('source_sha'),
             'head_sha': data.get('head_sha'), 'model': job['request']['model'],
             'model_revision': latest.get('model_revision'), 'quantization': latest.get('hardware', {}).get('quantization'),
@@ -290,10 +307,14 @@ def run_manifest(client, manifest, *, execute=False, progress=lambda _: None, ch
             result = dict(result, status='NOT_VERIFIED', comparison_binding='MISMATCH_OR_UNVERIFIED',
                           limitations=[*result.get('limitations', []), 'The exact frozen comparison route was not verified.'])
         results.append(result)
-    return {'schema': manifest['schema'], 'test_repository': repository, 'cases': results,
+    report = {'schema': manifest['schema'], 'test_repository': repository, 'cases': results,
             'passed': sum(row['status'] == 'PASSED' for row in results), 'total': len(scenarios),
             'qualified': all(row['status'] == 'PASSED' for row in results),
             **({'route': manifest['route'], 'completion_rate': sum(row['status'] == 'PASSED' for row in results) / len(scenarios)} if schema == workspace.SCHEMA else {}),
             'execution_scope': 'PRODUCTION_JOBS', 'fixture_results_included': False,
             'comparisonEligible': expected_route is not None and all(row.get('selected_route_verified') is True and row.get('comparison_route') == expected_route for row in results),
             'expected_route': expected_route}
+    if schema == PRODUCTION_SCHEMA:
+        report['githubIntelligenceScore'] = github_intelligence.score(report)
+        report['githubIntelligenceTargets'] = github_intelligence_targets.measure(report)
+    return report

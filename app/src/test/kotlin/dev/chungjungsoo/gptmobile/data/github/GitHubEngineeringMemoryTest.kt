@@ -57,6 +57,7 @@ class GitHubEngineeringMemoryTest {
         every { decisions.decisions } returns MutableStateFlow(emptyList())
         coEvery { dao.engineeringMemory(scope) } returns listOf(WorkspaceRecord("history", "github_engineering_memory", "", ""))
         coEvery { dao.engineeringDecisions(scope) } returns emptyList()
+        coEvery { dao.engineeringCheckpoints(scope, 7) } returns emptyList()
         coEvery { workspace.protectedSynthesisCheckpoint("history") } returns buildJsonObject {
             put("kind", "requirements")
             put("scope", scope)
@@ -65,6 +66,69 @@ class GitHubEngineeringMemoryTest {
         }
         coEvery { semantic.rankEngineering(any(), any(), any()) } returns emptyMap()
         memory = GitHubEngineeringMemory(workspace, connections, semantic, decisions, authentication)
+    }
+
+    @Test fun continuationRestoresTheLatestChatCheckpointAfterOtherActivityAgedItOut() = runTest {
+        val latest = WorkspaceRecord("latest", "github_engineering_memory", "", "", updatedAt = 9)
+        val older = latest.copy(id = "older", updatedAt = 8)
+        coEvery { dao.engineeringCheckpoints(scope, 7) } returns listOf(latest, older)
+        for (id in listOf("latest", "older")) {
+            coEvery { workspace.protectedSynthesisCheckpoint(id) } returns buildJsonObject {
+                put("kind", "task_checkpoint")
+                put("chat_id", 7)
+                put("scope", scope)
+                put("commit_sha", context.commitSha)
+                put("content", "$id saved progress")
+                put(
+                    "checkpoint",
+                    buildJsonObject {
+                        put("next_requirement", buildJsonObject { put("requirement", "Verify $id at the accepted SHA") })
+                        put("stop_code", "WAITING_FOR_APPROVAL")
+                    }
+                )
+            }
+        }
+        val prompt = prepare()
+        assertTrue(prompt.contains("Verify latest at the accepted SHA"))
+        assertTrue(prompt.contains("WAITING_FOR_APPROVAL"))
+        assertFalse(prompt.contains("older saved progress"))
+        assertTrue(prompt.contains("never current proof or execution authority"))
+    }
+
+    @Test fun recurringTypedFailuresUseDistinctRetainedReceiptsAcrossRetries() = runTest {
+        val rows = (1..3).map { WorkspaceRecord("failure-$it", "github_engineering_memory", "", "", updatedAt = it.toLong()) }
+        coEvery { dao.engineeringMemory(scope) } returns rows
+        rows.forEachIndexed { index, row ->
+            coEvery { workspace.protectedSynthesisCheckpoint(row.id) } returns buildJsonObject {
+                put("kind", "failure")
+                put("scope", scope)
+                put("failure_signature", "github_read/HTTP_413")
+                put("error_code", "HTTP_413")
+                put("source_receipt", if (index == 0) "receipt-a" else "receipt-b")
+                put("content", "Request refused")
+            }
+        }
+        val result = memory.prepare(context, 7, "failure-task", "Investigate HTTP_413", settings, true, 12000)
+        val failure = kotlinx.serialization.json.Json.parseToJsonElement(result.lineSequence().last()) as JsonObject
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(2), failure["matching_retained_receipts"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(true), failure["historical"])
+        assertTrue(failure["sample_receipts"].toString().contains("receipt-a"))
+        assertEquals(2, result.lines().size)
+    }
+
+    @Test fun aTrustedFailureWithoutABodyStillPersistsItsTypedSignature() = runTest {
+        val receipt = buildJsonObject {
+            put("schema", "github.evidence.v1")
+            put("trusted", true)
+            put("success", false)
+            put("tool", "github_read__selected")
+            put("receipt_id", "ev_failure")
+            put("error_code", "HTTP_413")
+        }
+        memory.observe(context, 7, receipt, settings)
+        val record = io.mockk.slot<JsonObject>()
+        coVerify(exactly = 1) { workspace.saveProtectedSynthesisCheckpoint(any(), 7, scope, capture(record), true, true, null, null) }
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("github_read/HTTP_413"), record.captured["failure_signature"])
     }
 
     @After fun cleanup() = unmockkConstructor(GitHubWorkspaceClient::class)

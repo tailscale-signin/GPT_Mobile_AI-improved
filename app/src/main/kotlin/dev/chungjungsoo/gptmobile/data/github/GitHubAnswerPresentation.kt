@@ -74,13 +74,14 @@ internal object GitHubAnswerPresentation {
     fun render(task: String, facts: List<String>, notes: List<String>, excerpts: List<String>, questions: List<String>): String = buildString {
         append("# ").append(title(task)).append("\n\n")
         // Explanations appear before supporting details. Do not turn the API's object structure into the answer.
-        val interpretations = notes.filter { it.startsWith("- **Interpretation:") }
-        val limits = notes - interpretations.toSet()
+        val interpretations = notes.filter { it.startsWith("- **Interpretation:") }.distinct()
+        val recommendations = notes.filter { it.startsWith("- **Recommendation (inference):") }.distinct()
+        val limits = notes - interpretations.toSet() - recommendations.toSet()
         if (interpretations.isNotEmpty()) {
             append(interpretations.first().removePrefix("- ")).append('\n')
             if (interpretations.size > 1) append("\n## Findings\n\n").append(interpretations.drop(1).joinToString("\n\n")).append('\n')
-        } else {
-            append(if (facts.isEmpty() && excerpts.isEmpty()) "The available evidence does not yet establish the requested result.\n" else "Current observations are listed below; unresolved work is identified separately.\n")
+        } else if (facts.isEmpty() && excerpts.isEmpty() && recommendations.isEmpty() && limits.isEmpty()) {
+            append("The available evidence does not yet establish the requested result.\n")
         }
         val usefulFacts = if (title(task) == "Investigation findings") facts.filterNot { it.substringBefore(" |", "").endsWith(" · Path") || it.contains(" · Path |") } else facts
         if (usefulFacts.isNotEmpty()) {
@@ -105,6 +106,7 @@ internal object GitHubAnswerPresentation {
             }
         }
         if (excerpts.isNotEmpty()) append("\n## Source evidence\n\n").append(excerpts.distinct().joinToString("\n\n")).append('\n')
+        if (recommendations.isNotEmpty()) append("\n## Recommendations\n\n").append(recommendations.joinToString("\n")).append('\n')
         if (limits.isNotEmpty()) append("\n## Open items\n\n").append(limits.distinct().joinToString("\n")).append('\n')
         if (questions.isNotEmpty()) append("\n## Next steps\n\n").append(questions.distinct().joinToString("\n") { "- $it" })
     }

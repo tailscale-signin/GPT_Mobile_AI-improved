@@ -446,6 +446,7 @@ class EngineeringBackendTests(unittest.TestCase):
         )
         job = copy.deepcopy(self.job)
         job['state'] = 'READ'
+        job['request']['source_sha'] = job['data']['head_sha']
         job['data'].update(plan={'paths': ['outdated.py']}, ci={'checks_failed': True})
         limited_sha = tree['second.py']['sha']
         calls = []
@@ -488,6 +489,9 @@ class EngineeringBackendTests(unittest.TestCase):
         self.assertEqual(1, calls.count(tree['first.py']['sha']))
         self.assertEqual(2, calls.count(limited_sha))
         self.assertEqual(contents, {path: value['content'] for path, value in result['files'].items()})
+        self.assertEqual(2, result['initial_source_acquisitions'])
+        from v14.batch import digest
+        self.assertEqual({digest([job['request']['source_sha'], path]) for path in contents}, set(result['initial_source_paths']))
 
     def test_log_excerpt_keeps_actual_failure_tail_with_a_download_bound(self):
         response = Mock()

@@ -320,7 +320,14 @@ class ProgressiveToolCatalog(
         }
         val explicit = (explicitlyRequiredToolNames(taskText, candidates.keys) + explicitSelections).mapNotNull { candidates[resolveName(it)] }
         val recovery = taskRequired.filter { it.name == "read_recovery_context" || AgentToolCapability.USER_DECISION in it.capabilities }
-        val ordered = explicit + recovery + focused + ranked(focus.query) + taskRequired + active.mapNotNull(candidates::get)
+        // The focused action's declared evidence sources can fit in the same schema window.
+        // Resolve exact, already-authorized aliases; prefetch never calls or acquires a tool.
+        val sources = focused.flatMap { tool ->
+            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
+            val action = focus.actions[operation] ?: return@flatMap emptyList()
+            tool.workflowLinks.filter { it.action == action && it.sourceTool != tool.name }.mapNotNull { candidates[it.sourceTool] }
+        }
+        val ordered = explicit + recovery + focused + sources + ranked(focus.query) + taskRequired + active.mapNotNull(candidates::get)
         val expanded = mutableListOf<AgentToolDefinition>()
         val included = mutableSetOf<String>()
         fun include(tool: AgentToolDefinition) {

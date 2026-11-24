@@ -5,6 +5,7 @@ import re
 import uuid
 import threading
 
+from benchmarks import github_intelligence
 from benchmarks.contracts import digest
 from benchmarks.engineering_qualification import run_manifest, snapshot, selected_route, validate_expected_route
 from benchmarks.store import BenchmarkConflict
@@ -110,6 +111,45 @@ class QualificationService:
                 return {'submissionState': 'OBSERVED', 'run': self.public(json.loads(row[0]))} if row else {'submissionState': 'NOT_OBSERVED'}
             rows = db.execute('SELECT payload FROM benchmark_qualifications WHERE principal=? ORDER BY rowid DESC LIMIT 100', (principal,)).fetchall()
             return {'runs': [self.public(json.loads(row[0])) for row in rows]}
+
+    def intelligence_score(self, principal, profile_revision):
+        """Latest saved production report for the exact owner and frozen profile. No jobs or model probes."""
+        if not principal.engineering_allowed or not self.service.engineering.authorized({'principal': principal.id}):
+            raise PermissionError('Engineering scope is required')
+        if not isinstance(profile_revision, str) or not re.fullmatch(r'[0-9a-f]{64}', profile_revision):
+            raise ValueError('Use the selected profile revision')
+        with self.store.db() as db:
+            self.schema(db)
+            row = db.execute(
+                "SELECT payload FROM benchmark_qualifications WHERE principal=? "
+                "AND json_extract(payload,'$.manifest.schema')='gateway.production-qualification.v1' "
+                "AND json_extract(payload,'$.manifest.expected_route.profile_revision')=? ORDER BY rowid DESC LIMIT 1",
+                (principal.id, profile_revision)).fetchone()
+        response = {'schema': 'gateway.profile-intelligence-score.v1', 'profile_revision': profile_revision, 'report': None}
+        if row is None:
+            return response
+        record = json.loads(row[0])
+        expected = record['manifest']['expected_route']
+        if principal.id.startswith('paired:'):
+            from desktop.control_store import retained_device_grant
+            grant = retained_device_grant(self.service.runtime.GATEWAY_JOB_DB_PATH, principal.id)
+            if (not grant or grant['role'] != 'owner' or
+                    record['manifest']['test_repository'].lower() not in json.loads(grant['repositories'])):
+                raise PermissionError('Qualification repository access changed')
+        binding, _ = self.service.engineering.bindings.bound_route(principal.id, expected['binding_id'])
+        if any(expected[field] != binding.get(key) for field, key in (
+                ('binding_id', 'binding_id'), ('model', 'requested_model_id'), ('profile_uid', 'profile_uid'),
+                ('profile_revision', 'profile_revision'), ('endpoint_identity', 'backend_endpoint_identity'),
+                ('settings_digest', 'generation_parameters_digest'))):
+            raise PermissionError('Qualification binding changed')
+        report = record.get('result') or {}
+        score = None
+        if (record['state'] in {'COMPLETED', 'AWAITING_EVIDENCE'} and report.get('expected_route') == expected
+                and report.get('schema') == 'gateway.production-qualification.v1' and report.get('execution_scope') == 'PRODUCTION_JOBS'):
+            score = github_intelligence.score(report)
+        response['report'] = {'id': record['id'], 'model': expected['model'], 'profile_uid': expected['profile_uid'],
+                              'base_sha': expected['base_sha'], 'state': record['state'], 'score': score}
+        return response
 
     def refresh(self, principal, ident, *, execute=False):
         with self.lock:

@@ -231,3 +231,37 @@ Unavailable or mismatched evidence stays unverified.
 The external-model API still uses the Gateway evaluator. The separately
 provisioned phone-to-GitHub route uses the immutable fixture bundle and typed
 Actions artifact described in [PHONE_ACTIONS.md](PHONE_ACTIONS.md).
+
+### GitHub Intelligence Score
+
+Create a ten-scenario production manifest with
+`python gateway/qualify_engineering.py --intelligence-template OWNER/REPO --output manifest.json`.
+Supply your disposable fixture cohort, exact profile route, pinned base SHA and fixed
+scenario requests. Give each scenario its named acceptance criterion, paths and trusted
+checks. Run each profile on a fresh set of fixture branches with identical starting
+contents. Use **History → Live GitHub qualification → Execute frozen manifest** to
+admit the work and **Check saved submission** to refresh the evidence.
+
+| Dimension | Points | Observation |
+| --- | ---: | --- |
+| Completion | 25 | Verified task outcome across eight implementation scenarios |
+| Code correctness | 20 | Independent exact-head behavioral tests on the bug and CI repairs |
+| Repository understanding | 15 | Fraction of required paths acquired in the initial verified batch or subsequent range reads at the pinned source |
+| Error recovery | 15 | Verified lost-write, restart and CI repair outcomes |
+| Context retention | 10 | Named acceptance behavior after observed compaction |
+| Tool efficiency | 5 | Distinct full-file acquisitions and explicit source ranges per read across the two retrieval tasks |
+| Evidence accuracy | 5 | Final reports agree with observed CI and post-merge failure state |
+| Response quality | 5 | Accurate blocker report contains a summary, concrete failure and next action |
+
+The last two dimensions assess factual, actionable reporting. Source acquisition measures
+path coverage, and repeated identical source ranges measure retrieval efficiency. Neither
+measurement assesses every tool call or general prose quality. An incomplete history,
+absent required test observation or unverified profile leaves the overall score unavailable.
+
+Run `python gateway/qualify_engineering.py --root ROOT --manifest manifest.json --output run.json`
+to export existing job evidence (supply the existing job IDs). Compare two trusted
+exports using `--compare-intelligence runA.json runB.json --output comparison.json`.
+The comparison checks all ten task contracts, initial commit of each merge target across the independent fixture branches, source revisions, policy and environment,
+settings, budgets, GitHub actor and repository permissions, binding privacy and tool policy, model bindings and separate job IDs. Its difference describes the
+observed runs. ChatGPT and Codex need equivalent capabilities and independently
+attributable run evidence before a comparison can be reported.

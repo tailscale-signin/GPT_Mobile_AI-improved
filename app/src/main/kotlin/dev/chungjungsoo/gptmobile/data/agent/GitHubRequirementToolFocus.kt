@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceDiagnostics
+import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceWork
 import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import dev.chungjungsoo.gptmobile.data.github.GitHubIssueRemediation
 import dev.chungjungsoo.gptmobile.data.github.GitHubRequestCompletion
@@ -17,14 +18,7 @@ internal object GitHubRequirementToolFocus {
 
     fun next(checkpoint: JsonObject?): Focus? {
         if (checkpoint == null || checkpoint["completion_verified"] == JsonPrimitive(true)) return null
-        val ledger = checkpoint["acceptance_ledger"] as? JsonObject
-        val rows = ((ledger?.get("requirements") ?: checkpoint["requirements"] ?: checkpoint["remaining_requirements"]) as? JsonArray)
-            .orEmpty().filterIsInstance<JsonObject>().filter {
-                it["required"] != JsonPrimitive(false) &&
-                    state(it) !in setOf("PASS", "PASSED") &&
-                    (it["readiness"] as? JsonObject)?.text("authorization") !in setOf("NOT_AUTHORIZED", "DENIED") &&
-                    it.text("blocker_code") !in setOf("AUTHORIZATION_REQUIRED", "USER_INPUT_REQUIRED", "OUT_OF_SCOPE")
-            }
+        val rows = GitHubAcceptanceWork.outstanding(checkpoint).filterNot(GitHubAcceptanceWork::deferred)
         val intake = rows.firstOrNull { it.text("id") == GitHubRequestCompletion.id(GitHubIssueRemediation.INVENTORY_REQUIREMENT) }
         if (intake != null) return focus(intake, "ISSUE_INVENTORY", "List the complete open issue inventory", listOf("github_issue"), mapOf("github_issue" to "list"))
         // Specific unfinished issue phases are actionable before the encompassing
@@ -49,6 +43,9 @@ internal object GitHubRequirementToolFocus {
                 return focus(row, "OPERATION:$operation:$action", "$operation $action", listOf(operation), mapOf(operation to action))
             }
             val criterion = row.text("criterion").ifBlank { row.text("requirement") }.take(2048)
+            GitHubAcceptanceWork.step(row)?.let { step ->
+                return focus(row, "ACCEPTANCE_GAP", step.action, step.tools)
+            }
             when (GitHubAcceptanceDiagnostics.category(criterion)) {
                 "CI_OBSERVATION", "CI_VERIFICATION" -> return focus(row, "CI", "Observe workflow runs, jobs and exact revision checks", listOf("github_ci", "github_context"))
                 "BUILD_REVISION_BINDING" -> return focus(row, "REVISION", "Read the current repository revision and branch", listOf("github_context"), mapOf("github_context" to "resolve"))

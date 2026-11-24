@@ -13,9 +13,7 @@ import kotlinx.serialization.json.put
 /** A bounded task ledger replaces accumulated plans in resumed and corrective execution requests. */
 internal object GitHubExecutionContinuation {
     fun prompt(task: String, current: String, receipts: Map<String, JsonObject>, verdict: JsonObject?, corrective: Boolean = true, readOnlyRefresh: Boolean = false): String {
-        val acceptance = verdict?.get("acceptance_ledger") as? JsonObject
-        val remaining = ((acceptance?.get("requirements") ?: verdict?.get("remaining_requirements")) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-            .filter { it["required"] != JsonPrimitive(false) && it["state"] != JsonPrimitive("PASS") && it["acceptance_state"] != JsonPrimitive("PASS") && it["status"] != JsonPrimitive("PASSED") }
+        val remaining = GitHubAcceptanceWork.outstanding(verdict)
         val ledger = buildJsonObject {
             put("retained_receipt_count", receipts.size)
             put("included_receipt_count", minOf(receipts.size, 64))
@@ -57,6 +55,7 @@ internal object GitHubExecutionContinuation {
                 }
             )
             put("remaining_requirement_count", remaining.size)
+            if (!readOnlyRefresh) put("acceptance_work", GitHubAcceptanceWork.projection(remaining, task))
             val resumeLedger = buildJsonObject {
                 put(
                     "requirements",

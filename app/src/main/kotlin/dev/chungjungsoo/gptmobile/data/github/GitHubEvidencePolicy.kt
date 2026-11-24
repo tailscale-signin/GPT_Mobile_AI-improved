@@ -262,7 +262,22 @@ internal object GitHubEvidencePolicy {
                             put("text", safe(interpretation))
                             put("sources", JsonArray(results))
                         }
-                        if (claim.string("kind") == "recommendation") "- **Recommendation (inference):** ${safe(interpretation)}" else "- **Interpretation:** ${safe(interpretation)} (not a confirmed diagnosis)"
+                        val summary = if (claim.string("kind") == "recommendation") "- **Recommendation (inference):** ${safe(interpretation)}" else "- **Interpretation:** ${safe(interpretation)} (not a confirmed diagnosis)"
+                        val sources = results.distinctBy { it["receipt_id"] to it["pointer"] }
+                        val references = sources.take(2).map { verified ->
+                            val receipt = receipts.getValue(verified.string("receipt_id"))
+                            val pointer = verified.string("pointer")
+                            // Source excerpts may contain entire functions. Cite their range, never duplicate the payload in the recommendation.
+                            val excerpt = if ("#L" in pointer) GitHubEvidenceExcerpts.collect(receipt)[pointer] else null
+                            val citation = if (excerpt != null) {
+                                "${safe(excerpt.string("resource"))} lines ${excerpt.string("start_line")}–${excerpt.string("end_line")} at ${safe(excerpt.string("revision")).take(12)}"
+                            } else {
+                                val field = label(pointer, receipt)
+                                if ((verified["observed"] as? JsonPrimitive)?.content.orEmpty().length in 1..96) "$field · ${linkedValue(verified, receipts)}" else field
+                            }
+                            "$citation (${asOf(verified["observed_at_ms"])})"
+                        }
+                        "$summary\n  Supported by ${references.joinToString(" · ")}" + if (sources.size > 2) " and ${sources.size - 2} further observations." else "."
                     }
                 }
                 "not_measured" -> {

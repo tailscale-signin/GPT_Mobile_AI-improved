@@ -54,6 +54,15 @@ class GitHubTaskCoverageTest {
         assertTrue(brief.contains("not current proof or authorization"))
     }
 
+    @Test fun workingBriefSelectsAnOlderNamedIssueBeforeTheCandidateLimit() {
+        val receipts = (1..60).associate { number ->
+            "receipt-$number" to json("""{"trusted":true,"success":true,"semantic_summary":{"schema":"github.semantic-summary.v1","operation":"github_issue","source_result_sha256":"issue-$number","resource_observations":[{"number":$number,"title":"Issue $number"}]}}""")
+        }
+        val brief = json(GitHubEngineeringMemoryPolicy.workingBrief("Investigate issue #2", null, receipts))
+        val first = (brief["findings"] as JsonArray).first() as JsonObject
+        assertEquals(JsonPrimitive("receipt-2"), first["receipt_id"])
+    }
+
     @Test fun securityFieldsRemainVerifiableWhileAppMetadataDoesNotCrowdOutChecks() {
         val source = json("""{"permissions":{"push":false},"verification":{"verified":false},"app":{"node_id":"noise"},"checks":19}""")
         val facts = GitHubEvidencePolicy.facts(source)

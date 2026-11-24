@@ -1460,6 +1460,74 @@
         "Integer and squared-unit tokens must not consume a prefix of a decimal, scientific or longer integer exponent; complete numeric fallback preserves the amount and original caption ranges.",
         "Existing integer and Unicode superscript readings, every prior pronunciation method and bounded phrase output remain required."
       ]
+    },
+    {
+      "id": "github-engineering-intelligence",
+      "title": "GitHub engineering strategy, recovery and intelligence qualification",
+      "terms": [
+        "GitHub intelligence",
+        "acceptance resolution",
+        "semantic intent",
+        "source retrieval",
+        "reasoning effort",
+        "payload recovery",
+        "independent reviewer",
+        "intelligence benchmark",
+        "Git worktree"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntelligenceLevel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringTeam.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubIntelligenceScore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositorySession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAdaptiveSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceWork.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionContinuation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRelevance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemory.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GitHubReasoningPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryConsult.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReviewerPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubQualificationPanel.kt",
+        "gateway/v14/agent_local.py",
+        "gateway/benchmarks/github_intelligence.py",
+        "gateway/benchmarks/github_intelligence_targets.py",
+        "gateway/benchmarks/engineering_qualification.py",
+        "gateway/qualify_engineering.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubIntelligenceScoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceWorkTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringStrategyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringTeamTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPatchWorkflowTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAdaptiveSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRequestByteReplanTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactorTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReviewerPolicyTest.kt",
+        "gateway/tests/test_gateway_github_intelligence.py",
+        "gateway/tests/test_gateway_github_intelligence_targets.py",
+        "gateway/tests/test_gateway_agent_adapters.py"
+      ],
+      "documents": [
+        "docs/architecture/repository-guide.md",
+        "gateway/benchmarks/README.md"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast",
+        "python3 -m unittest discover -s gateway/tests -p test_gateway_github_intelligence.py"
+      ],
+      "invariants": [
+        "Model-generated plans and delegated advice cannot grant repository write authority.",
+        "A recoverable rejection can shrink the next request only within its original permissions and resource budget.",
+        "Score comparisons require independently measured work under matching task, policy, environment and budget identities."
+      ]
     }
   ]
 }

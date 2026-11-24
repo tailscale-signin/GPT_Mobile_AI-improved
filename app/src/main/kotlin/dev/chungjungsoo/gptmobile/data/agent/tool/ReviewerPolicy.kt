@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity
+import dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver
+import dev.chungjungsoo.gptmobile.data.delegation.ModelIndependence
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
@@ -15,20 +18,20 @@ import kotlinx.serialization.json.intOrNull
 internal fun reservedReviewer(config: ModelDelegationSettings, profiles: List<PlatformV2>, source: PlatformV2): PlatformV2? {
     if (!config.reviewerEnabled) return null
     if (config.reviewerProfileUid.isNotBlank()) return profiles.firstOrNull { it.uid == config.reviewerProfileUid }
-    val worker = profiles.firstOrNull { it.uid == config.targetProfileUid }
-        ?: profiles.firstOrNull { reviewerEligible(it, config, source) }
-    return profiles.firstOrNull { reviewerEligible(it, config, source) && (worker == null || dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.independence(it, worker) == dev.chungjungsoo.gptmobile.data.delegation.ModelIndependence.DIFFERENT) }
+    val workers = DelegationPolicyResolver.ranked(profiles, config, source)
+    val worker = workers.firstOrNull { it.uid == config.targetProfileUid } ?: workers.firstOrNull() ?: return null
+    return profiles.firstOrNull { reviewerEligible(it, config, source) && CanonicalModelIdentity.independence(it, worker) == ModelIndependence.DIFFERENT }
 }
 
 internal fun reviewerEligible(candidate: PlatformV2, config: ModelDelegationSettings, source: PlatformV2): Boolean =
     candidate.enabled &&
-        dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.independence(candidate, source) == dev.chungjungsoo.gptmobile.data.delegation.ModelIndependence.DIFFERENT &&
+        CanonicalModelIdentity.independence(candidate, source) == ModelIndependence.DIFFERENT &&
         candidate.model.isNotBlank() &&
         !candidate.excludesMemory() &&
         (config.remoteWorkersAllowed() || candidate.isPrivateDestination()) &&
         !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM)
 
-internal fun sameDelegationModel(candidate: PlatformV2, reserved: PlatformV2?): Boolean = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.sameModel(candidate, reserved)
+internal fun sameDelegationModel(candidate: PlatformV2, reserved: PlatformV2?): Boolean = DelegationPolicyResolver.sameModel(candidate, reserved)
 
 internal data class ReviewerAssessment(val score: Int, val verdict: String, val issues: List<String>, val corrections: String?)
 

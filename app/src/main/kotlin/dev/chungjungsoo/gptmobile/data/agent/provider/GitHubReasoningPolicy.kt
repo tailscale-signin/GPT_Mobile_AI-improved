@@ -10,6 +10,18 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** Request-scoped effort; stored profile settings and provider output ceilings are unchanged. */
 internal object GitHubReasoningPolicy {
+    fun requestedOpenAiEffort(model: String, constraints: RequestConstraints): String {
+        val ceiling = openAiEffort(model)
+        val effort = constraints.gitHubEffort
+        return when {
+            ceiling != null && effort == dev.chungjungsoo.gptmobile.data.github.GitHubReasoningEffort.MAXIMUM -> ceiling
+            effort != null && supportsOpenAiMechanicalEffort(model) -> effort.wire
+            effort != null && ceiling != null -> ceiling
+            constraints.maximizeReasoning -> ceiling ?: "high"
+            else -> "medium"
+        }
+    }
+
     fun supportsOpenAiMechanicalEffort(model: String): Boolean {
         val name = model.lowercase().substringAfterLast('/')
         // High-effort support alone does not establish a low-effort control on

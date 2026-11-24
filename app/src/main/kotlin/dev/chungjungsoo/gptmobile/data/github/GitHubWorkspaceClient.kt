@@ -1023,7 +1023,8 @@ class GitHubWorkspaceClient(
                         put("number", number)
                     }
                 ),
-                head
+                head,
+                base
             )
         } else {
             null
@@ -1470,7 +1471,8 @@ class GitHubWorkspaceClient(
                             put("number", number)
                         }
                     ),
-                    expected
+                    expected,
+                    pr["base"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty()
                 )
                 check(health.eligible) { health.detail }
                 val latest = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, false, forceLiveRead = true).jsonObject
@@ -1551,7 +1553,7 @@ class GitHubWorkspaceClient(
                     put("prior_publication_fences", "PRESERVED")
                     put("retryable", false)
                     put("message", "Branch changed since it was read. The remote parent and complete tree did not prove this patch was applied. No new mutation was dispatched; existing uncertain publication claims remain authoritative.")
-                    put("next_action", "Inspect the observed branch head and retained execution receipts, review the diff, then stage a new patch only after prior uncertain work is reconciled.")
+                    put("next_action", "Inspect the observed branch head and retained execution receipts. For a saved stage, use github_stage_patch with restore_stage_id, branch and the observed expected_head_sha to recheck its paths. Review the new stage before publishing.")
                 }
             )
         }

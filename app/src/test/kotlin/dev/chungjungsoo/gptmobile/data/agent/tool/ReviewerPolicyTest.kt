@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.delegation.DelegationAdmissionResolver
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import org.junit.Assert.assertEquals
@@ -34,6 +35,18 @@ class ReviewerPolicyTest {
         val reserved = reservedReviewer(config, listOf(primary, worker, reviewer), primary)
         assertEquals(reviewer.uid, reserved?.uid)
         assertTrue(sameDelegationModel(reviewer.copy(uid = "alias"), reserved))
+    }
+
+    @Test fun `automatic review preserves the only approved engineering helper in any profile order`() {
+        val primary = PlatformV2(uid = "writer", name = "Writer", model = "gpt-4.1", compatibleType = ClientType.OPENAI, apiUrl = "https://api.openai.com")
+        val worker = PlatformV2(uid = "engineer", name = "Engineer", model = "qwen/qwen3-8b", compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1")
+        val reviewer = worker.copy(uid = "reviewer", model = "anthropic/claude-sonnet-4")
+        val config = ModelDelegationSettings(enabled = true, reviewerEnabled = true, approvedWorkerUids = listOf(worker.uid), allowRemoteWorkers = true, localPlatformsOnly = false)
+        for (profiles in listOf(listOf(reviewer, primary, worker), listOf(worker, primary, reviewer))) {
+            val roles = DelegationAdmissionResolver.resolve(config, profiles, primary)
+            assertEquals(worker.uid, roles.worker?.uid)
+            assertEquals(reviewer.uid, roles.reviewer?.uid)
+        }
     }
 
     @Test fun `reasoning models receive a visible answer allowance within profile limit`() {

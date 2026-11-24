@@ -1198,6 +1198,34 @@
         "Candidate artifact downloads retry only an opening HTTP429 within three attempts and two bounded waits; unusable server cooldowns retain the failure, and every publisher checksum and native qualification gate remains required.",
         "The isolated candidate retains publisher pins and structural native verification; it does not establish production promotion or physical-device performance."
       ]
+    },
+    {
+      "id": "speech-numeric-exponents",
+      "title": "Complete numeric exponents in speech",
+      "terms": [
+        "spoken exponents",
+        "decimal power",
+        "scientific exponent",
+        "dimensional units",
+        "caption ranges"
+      ],
+      "paths": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/pronunciation-complete-exponents-2026-11-24-task.json",
+        "docs/repairs/evidence/voice-pronunciation-vocabulary/required-junit-methods.json"
+      ],
+      "invariants": [
+        "Integer and squared-unit tokens must not consume a prefix of a decimal, scientific or longer integer exponent; complete numeric fallback preserves the amount and original caption ranges.",
+        "Existing integer and Unicode superscript readings, every prior pronunciation method and bounded phrase output remain required."
+      ]
     }
   ]
 }

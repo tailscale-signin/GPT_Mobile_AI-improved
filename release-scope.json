@@ -1375,6 +1375,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueueModelPreparationAuthorityTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueueModelPreparationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/VoiceQueuedAdmissionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt",
     "docs/repairs/benchmark-feature-integration-2026-11-24-task.json"
   ],
   "publicationRequest": {

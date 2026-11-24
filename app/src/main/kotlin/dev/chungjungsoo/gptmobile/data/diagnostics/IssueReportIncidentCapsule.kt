@@ -45,6 +45,7 @@ internal object IssueReportIncidentCapsule {
     val policyFieldNames = setOf(
         "profileBehavior.delegationEnabled", "profileBehavior.delegationCloudPermission", "profileBehavior.crawlersEnabled", "profileBehavior.crawlerToolIds", "profileBehavior.maxCrawlPages", "profileBehavior.toolPluginStates", "profileBehavior.researchDepthOverride", "profileBehavior.researchEnabledOverride", "profileBehavior.academicSourcesAllowed",
         "githubProfileOverride.webSearch", "githubProfileOverride.githubTools", "githubProfileOverride.engineeringMode", "githubProfileOverride.maximumContext", "githubProfileOverride.contextVariant", "githubProfileOverride.engineeringMemory", "githubProfileOverride.allowCloudEngineeringMemory", "githubProfileOverride.workflowPreset", "githubProfileOverride.quickWorkflows", "githubProfileOverride.engineeringGatewayProfileUid", "githubProfileOverride.executionBatchMode", "githubProfileOverride.sampling",
+        "githubProfileOverride.intelligenceLevel", "githubProfileOverride.recoveryConsultConsent", "githubProfileOverride.engineeringTeamConsent", "githubProfileOverride.recoveryExecutionConsent",
         "assist", "assistPolicy", "budget", "conversationDelegation", "conversationGateway",
         "conversationResearch", "delegation", "engineering", "githubProfileOverride", "githubProfileSelection",
         "llamaReasoning", "location", "plugins", "profile", "profile.accelerator",

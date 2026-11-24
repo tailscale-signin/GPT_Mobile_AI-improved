@@ -486,7 +486,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionAudit.kt",
         "scripts/scan_secret_history.sh",
         ".github/workflows/pr-validation.yml",
-        "scripts/report_secret_history.py"
+        "scripts/report_secret_history.py",
+        ".gitleaks.toml"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
@@ -522,7 +523,8 @@
         "docs/ci-cd/modernization.md",
         "docs/repairs/retrospective-session-audit-routing-2026-11-24-task.json",
         "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
-        "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json"
+        "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json",
+        "docs/repairs/checksum-history-recovery-2026-11-24-task.json"
       ],
       "invariants": [
         "Reconcile uncertain writes before replaying a mutation.",
@@ -535,7 +537,8 @@
         "Every native-admitted unconsumed saved page receives bounded final-body replay space independently of call-ID spelling; matching context remains native-validated, and projected or unknown bodies cannot establish exact delivery.",
         "Bounded explicit questions about this conversation use retained local session diagnostics; additional repository actions keep their own request, and historical inspection does not replace the active accepted task or grant new dispatch authority.",
         "The mandatory PR/main credential-history gate runs the same pinned scanner against intact, missing-object and restored synthetic histories before the unchanged real reachable-history scan; a missing Git object, failed control or malformed mode cannot produce successful qualification.",
-        "Credential-history findings retain only bounded validated rule, commit, path and line identities; scanner detection or invalid/missing report evidence cannot qualify a clean history, and raw match/secret/commit-author content is never published by the identity reporter."
+        "Credential-history findings retain only bounded validated rule, commit, path and line identities; scanner detection or invalid/missing report evidence cannot qualify a clean history, and raw match/secret/commit-author content is never published by the identity reporter.",
+        "Verified historical public checksums are exempt only at exact reviewed paths and complete declarations, with a literal frozen receipt line; actual pinned-scanner controls preserve detection for changed values, fields, paths, surrounding content and neighboring credentials, and final reachable-history qualification remains mandatory."
       ]
     },
     {
@@ -1496,6 +1499,11 @@
       "blob_sha": "0232b82eb6fd93e4d0ca15e551028d051992862a",
       "bytes": 7042,
       "sha256": "4af641dab05afd35acf5c0f3fd499c7c62091924e330d2bce32b4d9dd503c862"
+    },
+    ".gitleaks.toml": {
+      "blob_sha": "5f3fa1b284bfb68b81e27588b18e12d26e2e4551",
+      "bytes": 8051,
+      "sha256": "df2c3f2a917c2e9f9fded472fd23954de733392269a4b24874238d69ef0339c4"
     },
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBoundTransportInstrumentedTest.kt": {
       "blob_sha": "d32e8d2c6b486e6b4df8afcf7a49974d6dd5de78",
@@ -3737,6 +3745,11 @@
       "bytes": 5776,
       "sha256": "c6287c7c0c0c841ea424e2d11332005a890c84d77179afad02acca47b1d884c0"
     },
+    "docs/repairs/checksum-history-recovery-2026-11-24-task.json": {
+      "blob_sha": "463f8023f0620cea78d735d6874f6ce1342cfebc",
+      "bytes": 5105,
+      "sha256": "1f29841198a65639adc718be5ba6982d151e32fb1749820598eea715dd91c0da"
+    },
     "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json": {
       "blob_sha": "21b739240aa92fd1fd7b4e3b5b0cf77e75e0dea8",
       "bytes": 10811,
@@ -4423,14 +4436,14 @@
       "sha256": "bcb9f05294cde3830c87ec4a741dce36c69f98a582cc4f3dcd9086c147e91ef0"
     },
     "scripts/test_gitleaks_model_pin.py": {
-      "blob_sha": "810609af59f086675ce9a257ec3c1b322a8027c3",
-      "bytes": 14493,
-      "sha256": "eaea04a95dc8343e03bc5584ea1b3d7b76d21135e8f13c711a1f3565a2d136d3"
+      "blob_sha": "92f9fae9ea7688618f69d0879d870297af8e9302",
+      "bytes": 18918,
+      "sha256": "1f1512b576909143ad62a12decf3013d7e151841ae4a578b309a57898b9d3f69"
     },
     "scripts/test_secret_history_integrity.py": {
-      "blob_sha": "9ef91d771b7e4697bdd786590764251bba6ad06e",
-      "bytes": 6397,
-      "sha256": "8c865bee6d4348380e1466194b86ea37c6edd7fc587db26881af28f09fab19dc"
+      "blob_sha": "cc7ad3fff2e36deea23a50fb6693e84f75bd0a85",
+      "bytes": 6463,
+      "sha256": "920fbf6c9a786428ac30fc32a29453564c70e4b9905d1f5d794f7df2c64190ae"
     },
     "scripts/tests/test_chat_method_size.py": {
       "blob_sha": "cdbd92587cd05e8b5ceeda8425d87d81191c85a0",

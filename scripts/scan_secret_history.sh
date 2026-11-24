@@ -7,6 +7,10 @@ if [[ $(git rev-parse --is-shallow-repository) != false ]]; then
   exit 2
 fi
 python3 scripts/scan_secrets.py --history-paths
+# Gitleaks can return zero after its child Git stops at a missing object.
+# Require the complete selected patch stream before trusting scanner results.
+git log --all --full-history --diff-merges=first-parent --root \
+  --format= --patch -U0 --no-ext-diff --no-textconv --no-color >/dev/null
 version=8.30.1
 if command -v gitleaks >/dev/null && [[ $(gitleaks version) == "$version" ]]; then
   scanner=$(command -v gitleaks)

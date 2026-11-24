@@ -10,7 +10,7 @@
   "owner": "root/source_recovery_audit",
   "integrationOwner": "root",
   "recordedUtc": "2026-11-24 01:34:23 UTC",
-  "status": "COMPONENT_VALIDATED_PENDING_INTEGRATION",
+  "status": "PUBLIC_SOURCE_AND_CONTROLS_VALIDATED_FULL_HISTORY_REQUIRED",
   "intent": "Recognize one documented public MockK artifact checksum declaration in its exact benchmark evidence path while preserving complete reachable-history credential scanning and every existing scanner control.",
   "authorization": "Root reserved this exact scanner correction in the owned PR2367 block at2026-11-24T01:31:48Z before edits.",
   "publicHeadRecheck": {
@@ -26,7 +26,6 @@
     "checkoutCommit": "0e3ec66f427a869d5f2ed6fb2aec02c4e3bfafef",
     "hostedScannedCommits": 8920,
     "hostedReportedFindings": 2,
-    "reproducedAncestryCommits": 6359,
     "reproducedFindings": 2,
     "rule": "generic-api-key",
     "path": "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
@@ -36,7 +35,10 @@
       "mockk-agent-api-jvm-1.14.11.jar"
     ],
     "classification": "PUBLIC_DEPENDENCY_CHECKSUM_FALSE_POSITIVE",
-    "proof": "The evidence field equals the approved io.mockk:mockk-agent-api-jvm:1.14.11 artifact SHA256 in the introducing source's Gradle verification metadata. The same declaration is reported in the introducing commit and CI first-parent merge. No checksum or matched value is included in this ledger."
+    "proof": "The evidence field equals the approved io.mockk:mockk-agent-api-jvm:1.14.11 artifact SHA256 in the introducing source's Gradle verification metadata. The same declaration is reported in the introducing commit and CI first-parent merge. No checksum or matched value is included in this ledger.",
+    "requestedAncestryCommits": 6359,
+    "actualScannedCommits": 1174,
+    "localTraversalCompleted": false
   },
   "ownedPaths": [
     ".gitleaks.toml",
@@ -53,7 +55,7 @@
   ],
   "plannedValidation": [
     "Run actual pinned scanner controls under baseline and candidate configurations; retain all14 existing cases and add exact declaration plus changed value/path/field/prefix/trailing/adjacent-value negatives.",
-    "Verify baseline2 findings and candidate0 findings on the same immutable CI checkout ancestry6359commits; this is not the complete8920-ref CI scope.",
+    "Attempt baseline/candidate comparison on the same immutable CI checkout ancestry of 6359 reachable commits. The retained logs later showed only1174 scanned commits followed by a child Git fatal; this attempt establishes neither complete ancestry nor complete hosted-ref qualification.",
     "Check config semantics, Python syntax, task ledger and whitespace; root runs canonical integrated gates and final all-ref CI."
   ],
   "validation": {
@@ -105,17 +107,19 @@
     "frozenCheckoutHistory": {
       "sourceSha": "0e3ec66f427a869d5f2ed6fb2aec02c4e3bfafef",
       "sourceTree": "3f00f278ca97d171113bd5e4065034212ce2230f",
-      "commits": 6359,
       "baselineFindings": 2,
       "candidateFindings": 0,
       "baselineExitCode": 1,
       "candidateExitCode": 0,
-      "scope": "SAME_EXACT_CI_CHECKOUT_ANCESTRY_NOT_ALL_REF_CI_QUALIFICATION",
+      "scope": "PARTIAL_EXACT_CI_CHECKOUT_ANCESTRY_STOPPED_AT_MISSING_OBJECT",
       "receipt": {
         "file": "old2-new0-exact-checkout.json",
         "sha256": "20ec1c5e138b00dcc85ee0bfd559e4f5972159666c7aefccc276e46074746c89"
       },
-      "boundary": "This6359-commit exact-checkout ancestry is not the complete8920-ref hosted input set. The original failed hosted gate remains recorded and a complete all-ref scan is required at the integrated public source."
+      "boundary": "Both retained logs stopped after1174 scanned commits at missing object5feb3d0c7a80d099d9f9a7256a2db8ada43d56cc. The candidate exit0 and two-to-zero findings apply only to that partial traversal. Neither the requested6359-commit ancestry nor the8920-commit hosted ref set is qualified. Original raw evidence is preserved; complete hosted scanning remains required.",
+      "requestedAncestryCommits": 6359,
+      "actualScannedCommits": 1174,
+      "traversalComplete": false
     },
     "securityPolicyPreservation": {
       "allExistingAllowlistTablesUnchanged": true,
@@ -138,5 +142,23 @@
     "integratedMetadata": "Root owns release scope and generated metadata reconciliation.",
     "finalHostedFullHistory": "REQUIRED_ON_INTEGRATED_PUBLIC_SOURCE"
   },
-  "completedUtc": "2026-11-24T01:41:19.558965+00:00"
+  "completedUtc": "2026-11-24T01:41:19.558965+00:00",
+  "coverageCorrection": {
+    "recordedUtc": "2026-11-24T02:21:41.023258+00:00",
+    "receipt": "prior-history-qualification-correction.json",
+    "receiptSha256": "8e95d9ba84120fb87d5d53907efa0b0e24211f8527ed00fd2b6688ba60e20000",
+    "originalEvidencePreserved": true,
+    "correctedClaim": "Earlier fields conflated reachable commit count with completed scanner traversal. Gitleaks reported child Git failure without a failing exit code.",
+    "validEvidenceRetained": [
+      "All22 actual model-pin controls and exact declaration binding.",
+      "The same partial traversal reported two introducing/merge findings before correction and zero afterward.",
+      "The separate committed-fix single-commit scan completed without Git errors."
+    ],
+    "relatedEarlier822Ancestry": {
+      "requestedCommits": 6358,
+      "actualScannedCommits": 1159,
+      "traversalComplete": false
+    },
+    "repair": "The separate secret-history-integrity task adds a complete Git patch traversal preflight; its synthetic controls do not replace final hosted history qualification."
+  }
 }

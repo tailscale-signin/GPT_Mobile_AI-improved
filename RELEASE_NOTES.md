@@ -20,7 +20,9 @@ Application native-library stripping uses the same pinned NDK as the native modu
 - Reuse matching observed behavior-check receipts when selecting Gateway work packages. A changed candidate invalidates earlier patch evidence, and a saved conversation retains its original selection policy.
 - Grade displayed CI conclusions against their exact source revision and expose multiple eligible tools in Android engineering workflow benchmarks. Add reproducible native-product comparisons and blinded progress-renderer studies with separate evidence and preference results.
 
-Native product trials can include ChatGPT, Codex and Claude Code under the same frozen budget and tool permissions. A ChatGPT trial reads one selected conversation from a local export. Independent observations and grades are required for a measured comparison.
+Native product trials can include ChatGPT, Codex and Claude Code under the same frozen budget and tool permissions. A ChatGPT trial reads one selected conversation from a local export for independent grading.
+
+Native-product and reader-preference comparisons require independently collected observations. This release supplies the evaluation workflows and makes no measured claim of superiority over Codex or Claude Code.
 
 ## Speech benchmark and playback
 

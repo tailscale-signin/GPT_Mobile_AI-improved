@@ -26,6 +26,12 @@ class GitHubPlanningPolicyTest {
             assertEquals(request, "", GitHubPlanningContext.forRequest(request, listOf(context)))
         }
         assertTrue(GitHubPlanningContext.forRequest("Continue", listOf(context)).isNotEmpty())
+        for (request in listOf("What does this project do?", "In the selected codebase, where is authentication handled?", "Summarize these files")) {
+            assertTrue(request, GitHubPlanningContext.forRequest(request, listOf(context)).isNotEmpty())
+        }
+        for (request in listOf("Write a poem about this project", "What does this recipe do?", "Summarize these meeting notes")) {
+            assertEquals(request, "", GitHubPlanningContext.forRequest(request, listOf(context)))
+        }
     }
 
     @Test fun missingAndFabricatedTargetsAreRejectedBeforeDispatchButSelectedAndExplicitTargetsRemainUsable() {

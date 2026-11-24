@@ -32,10 +32,19 @@ data class GitHubPlanningContext(
     }
 
     companion object {
+        private fun selectedRepositoryReadIntent(request: String): Boolean {
+            val target = "(?:repository|repo|project|codebase|source(?:\\s+tree)?|implementation|files?)"
+            val selection = "(?:this|the|selected|current|these)\\s+$target"
+            val read = "(?:what|which|where|why|how|show|list|inspect|review|explain|summari[sz]e|describe|compare|find|locate|does|do|is|are)"
+            return Regex("(?i)\\b$read\\b[^\\n]{0,160}\\b$selection\\b").containsMatchIn(request) ||
+                Regex("(?i)\\b$selection\\b[^\\n]{0,160}\\b$read\\b").containsMatchIn(request)
+        }
+
         /** Repository selection is data, not permission or proof of a fresh head/access check. */
         fun forRequest(request: String, contexts: List<GitHubPlanningContext>): String {
             if (CurrentRequestContract.from(request).conversational || contexts.isEmpty()) return ""
             val repositoryIntent = GitHubOperationTool.taskTools(request).isNotEmpty() ||
+                selectedRepositoryReadIntent(request) ||
                 Regex("(?i)^(?:please\\s+)?(?:continue|resume|retry|try again|finish(?: it| that| this)?|fix(?: it| that| this)?|go ahead|do it|proceed|check again)[.!?\\s]*$").matches(request.trim())
             if (!repositoryIntent) return ""
             return buildString {

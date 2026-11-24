@@ -933,6 +933,22 @@ class AgentRunner(
         emptyAnswerRecoveryAttempted: Boolean,
         finalResponseRequested: Boolean
     ): EmptyRoundRecovery? {
+        if (round.completed &&
+            round.textEmitted &&
+            limits.githubTask &&
+            exchanges.isEmpty() &&
+            definitions.isNotEmpty() &&
+            limits.combined?.requested?.singlePass != true &&
+            !emptyAnswerRecoveryAttempted &&
+            !session.handlesToolsInternally &&
+            !finalResponseRequested
+        ) {
+            val continued = definitions.map {
+                it.copy(description = it.description + " The previous round answered before acquiring repository evidence. Use one relevant read operation now, then answer from its receipt.")
+            }
+            emit(AgentRunEvent.Notice("The GitHub answer had no repository evidence. Acquiring one bounded evidence round before finalizing.", persistent = false))
+            return EmptyRoundRecovery(continued, true, false, -1)
+        }
         if (round.completed && !round.textEmitted) {
             if (limits.combined?.requested?.singlePass != true && !emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
                 return if (limits.githubTask) {

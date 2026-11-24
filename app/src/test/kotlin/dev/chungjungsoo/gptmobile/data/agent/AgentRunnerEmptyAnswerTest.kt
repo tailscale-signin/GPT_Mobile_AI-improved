@@ -13,6 +13,62 @@ import org.junit.Test
 
 class AgentRunnerEmptyAnswerTest {
     @Test
+    fun `github prose without receipts gets one bounded evidence acquisition round`() = runBlocking {
+        var round = 0
+        var executions = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                when (round++) {
+                    0 -> emit(ProviderEvent.TextDelta("It appears complete."))
+                    1 -> emit(ProviderEvent.ToolCall("read", "repository_read", buildJsonObject {}))
+                    else -> {
+                        assertEquals("read", exchanges.single().results.single().callId)
+                        emit(ProviderEvent.TextDelta("The repository receipt confirms it."))
+                    }
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("repository_read", "read", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("verified"), false)
+            }
+        }
+
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(tool)).toList()
+
+        assertEquals(3, round)
+        assertEquals(1, executions)
+        assertTrue(events.any { it is AgentRunEvent.Notice && it.message.contains("no repository evidence") })
+        assertEquals(ProviderEvent.Completed, events.filterIsInstance<AgentRunEvent.Provider>().last().event)
+    }
+
+    @Test
+    fun `github prose evidence correction is attempted only once`() = runBlocking {
+        var rounds = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                rounds++
+                emit(ProviderEvent.TextDelta("A prose-only response."))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("repository_read", "read", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) =
+                AgentToolResult(callId, ToolResultContent.Text("unused"), false)
+        }
+
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(tool)).toList()
+
+        assertEquals(2, rounds)
+        assertEquals(1, events.count { it is AgentRunEvent.Notice && it.message.contains("no repository evidence") })
+        assertEquals(ProviderEvent.Completed, events.filterIsInstance<AgentRunEvent.Provider>().last().event)
+    }
+
+    @Test
     fun atomicCombinedAnswerCompletesExactlyOneRoundWithOrWithoutProvisionalText() = runBlocking {
         val text = "The complete answer retains the saved contributions."
         val report = CombinedQualityReport(

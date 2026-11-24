@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSha": "d74dcb445b3381920f373b3f09a7cb9e1c5877d8",
+  "baseTree": "60363a5423fb53814ddcb9d24b16872289118b6c",
+  "mainSha": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "workingBranch": "work/root-speech-sdk-call-display-7b",
+  "parentPullRequest": 2367,
+  "owner": "phone-map-publication root",
+  "recordedBeforeSourceEdit": true,
+  "recordedAt": "2026-11-24T00:30:28.625649+00:00",
+  "status": "IMPLEMENTED_PENDING_INDEPENDENT_REVIEW_AND_FINAL_VALIDATION",
+  "intent": "Preserve unknown SDK stream-call evidence in the playback result UI instead of displaying a measured zero.",
+  "sourceFinding": {
+    "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt",
+    "baselineSha256": "839e81575eee15643f0e8c8020b3539c96ac2ce86b8e52db664185139daecb1e",
+    "before": "${result.engineStreamCalls ?: 0}",
+    "after": "${result.engineStreamCalls ?: \"unknown\"}",
+    "basis": "VoiceSpeechPlaybackResult.engineStreamCalls is nullable; the schema-5 decoder accepts missing/null call evidence for failed or unsupported SDK rows and export preserves null. The existing UI substitutes zero, which is an unobserved measurement."
+  },
+  "plannedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt",
+    "docs/repairs/speech-sdk-call-display-2026-11-24-task.json",
+    "app/src/main/assets/diagnostics/app-code-inventory.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt",
+    "docs/architecture/feature-map.source.json",
+    "docs/architecture/feature-map.json",
+    "release-scope.json"
+  ],
+  "preservation": [
+    "Only the null display fallback changes; actual zero/nonzero counts and structural-validation text remain exact.",
+    "Do not change production measurement, snapshot/schema decoding or export, scoring, deadlines, native ownership, model leases, cancellation or provider behavior.",
+    "Preserve every existing test file and all concurrent source commits.",
+    "The existing privacy CI owner retains all three comparison text-fixture repairs; root does not edit those tests.",
+    "Reconcile the latest public parent and use one guarded non-force branch append."
+  ],
+  "qualification": {
+    "newTests": "No new tests for this reversible display-only change; existing behavioral/export tests and final ordinary project CI remain required.",
+    "localRuntime": "NOT_RUN; no Android/provider/privacy/standalone harness.",
+    "independentSourceReview": "REQUIRED on the exact final source bytes.",
+    "canonicalHost": "REQUIRED on the final committed candidate; result recorded separately.",
+    "pinnedKtlint": "REQUIRED on all final main-relative changed Kotlin paths.",
+    "finalSourceCI": "REQUIRED"
+  },
+  "reservation": {
+    "updatedAt": "2026-11-24T00:29:12Z",
+    "receiptSha256": "8d51e7a212168508bebe00c32ac2dd2fe172823ae06679ac7b3b652f9a566952",
+    "otherOwnedPrBytesPreserved": true
+  },
+  "implementation": {
+    "productionSha256": "31da6edfaae98b804a0027068116a11429f781729a124deabc5e39fd8612a04a",
+    "wholePriorFileReconstructedByReversingOnlyNullFallback": true,
+    "testsEdited": false
+  },
+  "integratedParent": "7b7e15f1d2628a747b5d901c8a9f9325bd40f014",
+  "integratedParentTree": "f33831c07c3d59d7d8ca3ce72baa3a2f48161fd9",
+  "preservedConcurrentAppend": "Retain all three complete comparison assertion literals, their entire test files and the privacy owner repair ledger/reference/scope changes. The production UI input is byte-identical to d74.",
+  "previousLocalCheckpoint": {
+    "commit": "90fa9341b37b48cc8e6874fd01cf86e7189e547c",
+    "parent": "d74dcb445b3381920f373b3f09a7cb9e1c5877d8",
+    "status": "UNQUALIFIED_LOCAL_INTENT_CHECKPOINT_ONLY_NO_REMOTE_WRITE"
+  }
+}

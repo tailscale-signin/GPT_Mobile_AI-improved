@@ -771,7 +771,8 @@
         "docs/architecture/repository-guide.md",
         "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
         "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json",
-        "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json"
+        "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json",
+        "docs/repairs/speech-sdk-call-display-2026-11-24-task.json"
       ],
       "invariants": [
         "Unmeasured PCM is unknown, measured silence is explicit, and signed duration evidence never wraps or invents a zero sum after overflow.",
@@ -785,7 +786,8 @@
         "Keep native generation wall time including graph preparation distinct from native inference and SDK retained-PCM production intervals; complete SDK stream-call time includes callback waits.",
         "Keep frozen export reports in ViewModel memory and encode onIO; large reports must not enter Android saved-state bundles.",
         "Preserve legacy numeric history without restoring stale qualification, and bound full stored history to4MiB by evicting older whole runs.",
-        "A failed native close retains the process-wide owner token and restart requirement across screen recreation; a stale lease cannot quarantine or release a replacement owner."
+        "A failed native close retains the process-wide owner token and restart requirement across screen recreation; a stale lease cannot quarantine or release a replacement owner.",
+        "Preserve unknown SDK stream-call counts as unknown in playback result displays; a missing observation is not a measured zero."
       ]
     }
   ]

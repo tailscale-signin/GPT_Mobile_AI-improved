@@ -775,7 +775,8 @@
         "docs/architecture/repository-guide.md",
         "docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests.json",
         "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json",
-        "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json"
+        "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json",
+        "docs/repairs/speech-sdk-call-display-2026-11-24-task.json"
       ],
       "invariants": [
         "Unmeasured PCM is unknown, measured silence is explicit, and signed duration evidence never wraps or invents a zero sum after overflow.",
@@ -789,7 +790,8 @@
         "Keep native generation wall time including graph preparation distinct from native inference and SDK retained-PCM production intervals; complete SDK stream-call time includes callback waits.",
         "Keep frozen export reports in ViewModel memory and encode onIO; large reports must not enter Android saved-state bundles.",
         "Preserve legacy numeric history without restoring stale qualification, and bound full stored history to4MiB by evicting older whole runs.",
-        "A failed native close retains the process-wide owner token and restart requirement across screen recreation; a stale lease cannot quarantine or release a replacement owner."
+        "A failed native close retains the process-wide owner token and restart requirement across screen recreation; a stale lease cannot quarantine or release a replacement owner.",
+        "Preserve unknown SDK stream-call counts as unknown in playback result displays; a missing observation is not a measured zero."
       ]
     }
   ],
@@ -1580,9 +1582,9 @@
       "sha256": "91741c3b7e2a7fa345292b29688041fbd6ab9d1e4b5c2ea236329662a839ee7f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt": {
-      "blob_sha": "92c168fbedc9595c9928200e5277297d7eeb4516",
-      "bytes": 40871,
-      "sha256": "839e81575eee15643f0e8c8020b3539c96ac2ce86b8e52db664185139daecb1e"
+      "blob_sha": "e62d9f8ae55c1fa286b94aea6546dc593a8c88f5",
+      "bytes": 40879,
+      "sha256": "31da6edfaae98b804a0027068116a11429f781729a124deabc5e39fd8612a04a"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkUiState.kt": {
       "blob_sha": "6ed91a0ad9f19eaa3c92ac2a64b96ee77fac43ae",
@@ -2388,6 +2390,11 @@
       "blob_sha": "6bc8bdd992c40bf03ea86b00ed1feb12cbcec2ba",
       "bytes": 7049,
       "sha256": "335e855cc6f86c1acc28caf5ae67f61d5cab3b1cf478b0293dc8d4392f76053e"
+    },
+    "docs/repairs/speech-sdk-call-display-2026-11-24-task.json": {
+      "blob_sha": "fead00394f3a7ed7bde8091651d04050b3db8009",
+      "bytes": 3935,
+      "sha256": "263360c10e68aaf4a0e51befe33d790086a0fb0e6242c7ee90f88866f6ce7a42"
     },
     "docs/repairs/voice-stream-pause-2026-11-23-task.json": {
       "blob_sha": "c3289dbd71b3a2f98d4b6cbb176ee804bde842c9",

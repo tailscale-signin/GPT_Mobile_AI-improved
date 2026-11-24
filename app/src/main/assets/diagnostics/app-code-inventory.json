@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "28217e5abf0f71b043c18850ebd9f676320793bfa38b9c3b60af29d6e1f58eaa",
+  "source_digest": "a7d6548412e0822efc5826949194c77860da2dd4c88af8efd927791e36ff18b1",
   "file_count": 3069,
   "indexed_line_count": 520193,
   "line_coverage_available": false,
@@ -17567,7 +17567,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "839e81575eee15643f0e8c8020b3539c96ac2ce86b8e52db664185139daecb1e",
+      "sha256": "31da6edfaae98b804a0027068116a11429f781729a124deabc5e39fd8612a04a",
       "indexed_lines": 482
     },
     {

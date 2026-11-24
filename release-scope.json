@@ -279,7 +279,8 @@
     "Describe paired privacy results by their actual checks: three bounded distinct text entries, literal anxiety omission and reported runtime-label/output-limit equality, without changing scoring, dispatch or lifecycle.",
     "Retain the final aligned unmet-criterion sample and observed total/omission counts when bounded diagnostic capsules saturate, while preserving closed validation, approval, byte limits and acceptance authority.",
     "Cover original cancellation and joined cleanup while a non-null comparison provider-authority check is suspended at opening or collection in both protection modes, without changing dispatch behavior or existing regressions.",
-    "Correct three privacy comparison UI expected strings to their complete existing messages, preserving exact matching, all behavior assertions and production source."
+    "Correct three privacy comparison UI expected strings to their complete existing messages, preserving exact matching, all behavior assertions and production source.",
+    "Keep absent SDK stream-call evidence explicitly unknown in speech playback result cards while preserving actual zero/nonzero counts and all measurement, export and ownership behavior."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -737,7 +738,8 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkOwnershipTest.kt",
     "docs/repairs/evidence/speech-benchmark-1795470489503/ownership-source-tests.json",
     "docs/repairs/evidence/speech-benchmark-1795470489503/required-junit-methods.json",
-    "docs/repairs/privacy-comparison-ui-expectations-2026-11-24-task.json"
+    "docs/repairs/privacy-comparison-ui-expectations-2026-11-24-task.json",
+    "docs/repairs/speech-sdk-call-display-2026-11-24-task.json"
   ],
   "publicationRequest": {
     "android": "0.9.66.15",

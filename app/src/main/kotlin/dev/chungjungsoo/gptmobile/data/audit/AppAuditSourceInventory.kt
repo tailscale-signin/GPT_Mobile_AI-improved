@@ -21,7 +21,7 @@ object AppAuditSourceInventory {
         "core-domain/src/jvmMain/",
         "gateway/",
         "authentication/",
-        "mcp/",
+        "mcp/"
     )
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 75, 8749),

@@ -5,4 +5,10 @@
 // profiling. Production sources and Android builds never include this file.
 void KokoroHostProfileFaultBoundary();
 
+// Independent preparation barrier. It returns normally after release so the
+// production cancellation check, rather than an injected exception, must stop.
+void KokoroHostContextPreparedBoundary();
+void KokoroHostContextCompileStarted();
+void KokoroHostContextUncachedStarted();
+
 #endif

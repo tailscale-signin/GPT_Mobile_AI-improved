@@ -9,6 +9,7 @@ from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 
 import test_gateway_benchmark_api_v2 as benchmark_api
+from test_gateway_native_product_trials import chatgpt_capture
 from benchmarks.contracts import content_digest, digest
 from benchmarks import product_trials
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -142,25 +143,28 @@ class ReferenceCliTests(unittest.TestCase):
         plan = invoke('freeze-native', '--observer-key', observer, '--definition', save('definition', definition))
         path = save('plan', plan)
         schedule = invoke('schedule-native', '--observer-public', pub, '--plan', path)
-        index, slot = next((i, v) for i, v in enumerate(schedule) if v['product'] == 'Claude Code')
-        row = dict(slot, scheduleIndex=index, planDigest=digest(plan['payload']), controlsDigest=definition['controlsDigest'],
-                   state='DELIVERED', seconds=1, costUsd=.01, cache='cold', interventions=0, version='v1')
-        capture = dict(type='result', subtype='success', is_error=False, session_id='s', result=self.proposal)
-        observation = invoke('observe-native', '--observer-key', observer, '--plan', path, '--measurements', save('row', row),
-                             '--capture', save('capture', capture), '--candidate-out', str(directory / 'candidate'))
-        self.assertEqual(self.proposal.encode(), (directory / 'candidate').read_bytes())
-        # Grade the same artifact with a fresh executable task/admission.
-        trial = directory / 'claude-trial.sqlite'
-        prepare(trial, self.task, 'Claude Code', self.proposal)
-        queued = grade(self.client, trial, self.proposal)
-        self.service.run_one(queued['runId'])
-        judged = invoke('grade-native', '--root', str(directory), '--trial', str(trial), '--observer-public', pub,
-                        '--plan', path, '--observation', save('observation', observation), '--grader-key', grader)
-        self.assertEqual('FAIL', judged['payload']['result'])
-        self.assertNotIn('product', judged['payload'])
-        results = invoke('compare-native', '--plan', path, '--observer-public', pub, '--grader-public', grader_pub,
-                         '--observations', save('observations', [observation]), '--grades', save('grades', [judged]))
-        self.assertEqual('INCOMPLETE', results['verdict'])
+        captures = {'Claude Code': dict(type='result', subtype='success', is_error=False, session_id='s', result=self.proposal),
+                    'ChatGPT': chatgpt_capture(self.proposal)}
+        for product, capture in captures.items():
+            index, slot = next((i, v) for i, v in enumerate(schedule) if v['product'] == product)
+            row = dict(slot, scheduleIndex=index, planDigest=digest(plan['payload']), controlsDigest=definition['controlsDigest'],
+                       state='DELIVERED', seconds=1, costUsd=.01, cache='cold', interventions=0, version='v1')
+            observation = invoke('observe-native', '--observer-key', observer, '--plan', path, '--measurements', save('row', row),
+                                 '--capture', save('capture', capture), '--candidate-out', str(directory / (product + '-candidate')))
+            self.assertEqual(self.proposal.encode(), (directory / (product + '-candidate')).read_bytes())
+            # Grade the same artifact with a fresh executable task/admission.
+            trial = directory / (product + '-trial.sqlite')
+            prepare(trial, self.task, product, self.proposal)
+            queued = grade(self.client, trial, self.proposal)
+            self.service.run_one(queued['runId'])
+            judged = invoke('grade-native', '--root', str(directory), '--trial', str(trial), '--observer-public', pub,
+                            '--plan', path, '--observation', save('observation', observation), '--grader-key', grader)
+            self.assertEqual('FAIL', judged['payload']['result'])
+            self.assertNotIn('product', judged['payload'])
+            results = invoke('compare-native', '--plan', path, '--observer-public', pub, '--grader-public', grader_pub,
+                             '--observations', save('observations', [observation]), '--grades', save('grades', [judged]))
+            self.assertEqual('INCOMPLETE', results['verdict'])
+            self.assertEqual({'FAIL': 1}, results['coverage'][product])
 
     def test_concurrent_submissions_share_one_admission(self):
         barrier = threading.Barrier(2)

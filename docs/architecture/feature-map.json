@@ -725,7 +725,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkContextEvidence.kt",
-        "gateway/benchmarks/preview_study.py"
+        "gateway/benchmarks/preview_study.py",
+        "gateway/benchmarks/product_trials.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkEngineeringPlanTest.kt",
@@ -743,7 +744,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkContextIdentityTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkContextEvidenceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkEngineeringContextWorkspaceTest.kt",
-        "gateway/tests/test_gateway_preview_study.py"
+        "gateway/tests/test_gateway_preview_study.py",
+        "gateway/tests/test_gateway_native_product_trials.py"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -758,7 +760,8 @@
         "Freeze source, profile, task, budget and environment before comparison.",
         "Hidden grader material never enters retrieval or model input.",
         "Unknown cost, tokens and retrieval relevance remain unknown.",
-        "Only explicit ordered invalidation identities transfer a previously exposed correction obligation; stale intermediate claims remain rejected and unexposed facts do not require a fabricated update."
+        "Only explicit ordered invalidation identities transfer a previously exposed correction obligation; stale intermediate claims remain rejected and unexposed facts do not require a fabricated update.",
+        "An observed native comparison binds GPT Mobile AI and its preregistered peers to the same controls. The ChatGPT adapter accepts a single completed public answer from the selected unbranched conversation export. Missing observations remain visible."
       ],
       "routing": {
         "role": "evidence",
@@ -5883,9 +5886,9 @@
       "sha256": "949dbd4debdafebff4339588cd9cb5b00a4ae1a9fc75c11a42b4e9820e5d2e10"
     },
     "gateway/benchmarks/README.md": {
-      "blob_sha": "474758d55fe6b413e07fc0f8f3aacfdcd1d491b9",
-      "bytes": 28051,
-      "sha256": "0e773698dc804d80c0e700521896ccad14ac66ed33c9492569b2b53be3663d57"
+      "blob_sha": "f540bc3ae20e31cd5b91b62207f445ff85e358f3",
+      "bytes": 29000,
+      "sha256": "688a9b1e346afe98256fe90f60b10c2577ef7c2fedfcc10be1bc2708bea36706"
     },
     "gateway/benchmarks/context_experiment.py": {
       "blob_sha": "043780d7cffe31a2ca9ef7914f6a240a4d8930e9",
@@ -5921,6 +5924,11 @@
       "blob_sha": "5a904717cd4bacd02144a65443baf92c6b0892ed",
       "bytes": 8169,
       "sha256": "f361bbaf2954461083d4a34ee8a1b998097dc705ff4e05ca09ed8208841ba6c5"
+    },
+    "gateway/benchmarks/product_trials.py": {
+      "blob_sha": "afd620de4a597e1d1fb87efd41d7bb53db7e7b2e",
+      "bytes": 17337,
+      "sha256": "f34f4437ed6de74bb22afc8a29d995f0adfd83590bd41ad4ae98754572d90049"
     },
     "gateway/benchmarks/service.py": {
       "blob_sha": "96bd3ffce4bca6098d88d26203684b9f102150fd",
@@ -5993,9 +6001,9 @@
       "sha256": "5106b35e83396f89070606030705a336c7cde699d6d84b6df6c805bf3fd13fa3"
     },
     "gateway/tests/test_gateway_external_reference_cli.py": {
-      "blob_sha": "c3d1f0111b10ea84b089e728c029e3caad72233a",
-      "bytes": 10353,
-      "sha256": "de69f06493660fd6819917d5f209731bd2ac5f1d8049680439d5b00a766fd0ee"
+      "blob_sha": "4aa01b6e9285b00ebe94c49e506269629f68c44d",
+      "bytes": 10711,
+      "sha256": "76db05691ef607b648fed165f77d8cd2e3234aa6e8fd5f0495d54919be417e49"
     },
     "gateway/tests/test_gateway_github_intelligence.py": {
       "blob_sha": "4addbfae86ee07b0336944c8d3c97c522e16fce8",
@@ -6021,6 +6029,11 @@
       "blob_sha": "a8c557680af18d26b4e5ef4535534efd0f391b15",
       "bytes": 8196,
       "sha256": "fa81a8ba8d99970942ace4aef9d7a44c1f6207cba6cb466f5479fa6126d36d23"
+    },
+    "gateway/tests/test_gateway_native_product_trials.py": {
+      "blob_sha": "f57a8e1cbe08c746a0cee9d5349f3141ebb4c72c",
+      "bytes": 11670,
+      "sha256": "6ec775c3bb3da833d72f0410c1c87f0fa6e7c98781ace3eab7e4986ba5d0738f"
     },
     "gateway/tests/test_gateway_preview_study.py": {
       "blob_sha": "48bf3d3fd3245e933e007c253fb6bd7a6d46446c",

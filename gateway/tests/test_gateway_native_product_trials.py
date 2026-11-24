@@ -1,11 +1,29 @@
 """Attested common-suite evidence is independent of the tested products' prose."""
+import copy
 import json
+import math
 import unittest
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from benchmarks import product_trials as trials
 from benchmarks.contracts import digest
+
+
+def chatgpt_capture(answer):
+    messages = [
+        None,
+        {'author': {'role': 'user'}, 'content': {'content_type': 'text', 'parts': ['one task']}},
+        {'author': {'role': 'assistant'}, 'recipient': 'github.search', 'end_turn': False,
+         'content': {'content_type': 'code', 'text': 'lookup'}},
+        {'author': {'role': 'tool'}, 'content': {'content_type': 'text', 'parts': ['private source']}},
+        {'author': {'role': 'assistant'}, 'recipient': 'all', 'status': 'finished_successfully', 'end_turn': True,
+         'metadata': {'finish_details': {'type': 'stop'}}, 'content': {'content_type': 'text', 'parts': [answer]}},
+    ]
+    ids = ['root', 'task', 'call', 'result', 'answer']
+    nodes = {node: {'id': node, 'parent': ids[i - 1] if i else None, 'children': ids[i + 1:i + 2], 'message': messages[i]}
+             for i, node in enumerate(ids)}
+    return {'id': 'test-conversation', 'current_node': ids[-1], 'mapping': nodes}
 
 
 class ProductTrialsTests(unittest.TestCase):
@@ -105,3 +123,53 @@ class ProductTrialsTests(unittest.TestCase):
                               ('GPT Mobile AI', json.dumps(dict(mobile, conversation=dict(mobile['conversation'], job_state='RUNNING'))))]:
             with self.assertRaises(ValueError):
                 trials.native_answer(name, capture)
+
+    def test_chatgpt_export_returns_only_the_exact_final_answer(self):
+        answer = ' answer\r\n'
+        capture = chatgpt_capture(answer)
+        capture['mapping']['answer']['message']['content']['parts'] = [' ans', 'wer\r\n']
+        expected = {'runId': digest(['ChatGPT', capture['id']]), 'artifactDigest': trials.content_digest(answer), 'answer': answer}
+        for value in (capture, [capture]):
+            self.assertEqual(expected, trials.native_answer('ChatGPT', json.dumps(value)))
+
+    def test_chatgpt_export_rejects_other_sessions_branches_and_incomplete_deliveries(self):
+        capture = chatgpt_capture('answer')
+        for mutate in (lambda c: c.update(current_node='result'), lambda c: c.update(conversation_id='another'),
+                       lambda c: c['mapping'].update(orphan=c['mapping']['answer']),
+                       lambda c: c['mapping']['root'].update(parent='answer'),
+                       lambda c: c['mapping']['task']['children'].append('answer'),
+                       lambda c: c['mapping']['result']['message'].update(author={'role': 'user'}),
+                       lambda c: c['mapping']['call']['message'].update(recipient='all', end_turn=True),
+                       lambda c: c['mapping']['answer']['message'].update(end_turn=False),
+                       lambda c: c['mapping']['answer']['message'].update(channel='commentary'),
+                       lambda c: c['mapping']['answer']['message']['metadata'].update(is_visually_hidden_from_conversation=True),
+                       lambda c: c['mapping']['answer']['message']['metadata'].update(finish_details={'type': 'max_tokens'}),
+                       lambda c: c['mapping']['answer']['message']['content'].update(parts=[{'private': 'record'}])):
+            altered = copy.deepcopy(capture)
+            mutate(altered)
+            with self.subTest(mutate=mutate), self.assertRaises(ValueError):
+                trials.native_answer('ChatGPT', json.dumps(altered))
+        with self.assertRaises(ValueError):
+            trials.native_answer('ChatGPT', json.dumps([capture, capture]))
+
+    def test_frozen_products_govern_schedule_coverage_and_joint_bound(self):
+        # Replaying signed historical plans keeps their original order and two-comparison correction.
+        legacy_products = ('GPT Mobile AI', 'Codex', 'Claude Code')
+        for selected in (legacy_products, ('GPT Mobile AI', 'ChatGPT', 'Codex'), ('GPT Mobile AI', 'ChatGPT'), trials.PRODUCTS):
+            with self.subTest(selected=selected):
+                self.plan['versions'] = dict.fromkeys(selected, '1')
+                task = self.plan['cases'][0]['taskDigest']
+                order = sorted(selected, key=lambda p: digest([self.plan['orderSeed'], task, 0, p]))
+                self.assertEqual(order, [row['product'] for row in trials.schedule(self.plan)])
+                base = self.plan['cases'][0]
+                self.plan['cases'] = [dict(base, taskDigest=digest(i), family=str(i)) for i in range(12)]
+                result = self.run_suite()
+                self.assertEqual(set(selected), set(result['coverage']))
+                self.assertEqual(set(selected[1:]), set(result['comparisonsAgainstMobile']))
+                for paired in result['comparisonsAgainstMobile'].values():
+                    self.assertAlmostEqual(100 * (1 - math.sqrt(2 * math.log((len(selected) - 1) / .05) / 12)),
+                                           paired['lowerSimultaneous95Points'])
+                self.plan['cases'] = [base]
+        for invalid in ({'GPT Mobile AI': '1'}, {'ChatGPT': '1', 'Codex': '1'}, {'GPT Mobile AI': '1', 'Copy': '1'}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                trials.schedule(dict(self.plan, versions=invalid))

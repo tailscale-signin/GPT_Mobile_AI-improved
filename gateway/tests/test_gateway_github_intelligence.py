@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 from unittest import TestCase
 from types import SimpleNamespace
 
@@ -8,7 +9,8 @@ from v14.batch import digest
 from v14.engineering_report import build_report
 
 
-def report(model='model-a', permissions='9' * 64, tool_policy=('SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET'), initial_base='a' * 40):
+def report(model='model-a', permissions='9' * 64, tool_policy=('SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET'), initial_base='a' * 40,
+           conversation_context=..., conversation_id=None, memory_mode='SESSION_ONLY', user_instructions=...):
     base, head = 'a' * 40, 'b' * 40
     route = dict(model=model, profile_uid=model, profile_revision='1', binding_id=model, endpoint_identity='endpoint',
                  base_sha=base, settings_digest='c' * 64)
@@ -32,6 +34,15 @@ def report(model='model-a', permissions='9' * 64, tool_policy=('SELECTED_ONLY', 
                    request=dict(request_id=ident, model=model, base='benchmark/' + model + '/' + case + '/base',
                                 branch='benchmark/' + model + '/' + case + '/head',
                                 repository='org/repo', objective=case, source_sha=base, acceptance=[requirement]))
+        if conversation_context is not ...:
+            job['conversation_context'] = deepcopy(conversation_context)
+        if conversation_id is not None:
+            job['conversation_id'] = conversation_id
+            job['request']['conversation_id'] = conversation_id
+        if memory_mode is not ...:
+            job['request']['memory_mode'] = memory_mode
+        if user_instructions is not ...:
+            data['user_instructions'] = deepcopy(user_instructions)
         data['final_report'] = build_report(job, job['state'], dict(passed=not failing, requirements=[],
                                            failures=['The required check did not pass'] if failing else []))
         cases.append(dict(job_id=ident, repository='org/repo', source_sha=base, scenario=case,
@@ -42,6 +53,112 @@ def report(model='model-a', permissions='9' * 64, tool_policy=('SELECTED_ONLY', 
 
 
 class GitHubIntelligenceTest(TestCase):
+    @staticmethod
+    def conversation_context():
+        return {'messages': [
+            {'role': 'user', 'content': 'fictional-private-context-instruction', 'revision': 1},
+            {'role': 'assistant', 'content': 'fictional-private-context-answer', 'revision': 2},
+        ], 'bounded_history': True, 'history_complete': False}
+
+    def test_identical_effective_context_compares_across_distinct_conversation_ids_without_exporting_text(self):
+        context = self.conversation_context()
+        before = deepcopy(context)
+        left = report('model-a', conversation_context=context, conversation_id='conversation-left')
+        right = report('model-b', conversation_context=deepcopy(context), conversation_id='conversation-right')
+        result = compare(left, right)
+        self.assertEqual(0, result['rightMinusLeftPoints'])
+        self.assertEqual(score(left)['taskSetDigest'], score(right)['taskSetDigest'])
+        self.assertEqual(before, context)
+        exported = json.dumps({'left': left, 'right': right, 'comparison': result})
+        for private in ('fictional-private-context-instruction', 'fictional-private-context-answer',
+                        'conversation-left', 'conversation-right'):
+            self.assertNotIn(private, exported)
+
+    def test_different_effective_context_content_roles_order_revisions_or_flags_cannot_compare(self):
+        context = self.conversation_context()
+        left = report('model-a', conversation_context=context)
+        for label, change in (
+            ('content', lambda c: c['messages'][0].update(content='different-fictional-instruction')),
+            ('role', lambda c: c['messages'][0].update(role='assistant')),
+            ('order', lambda c: c['messages'].reverse()),
+            ('revision', lambda c: c['messages'][0].update(revision=3)),
+            ('bounded history', lambda c: c.update(bounded_history=False)),
+            ('complete history', lambda c: c.update(history_complete=True)),
+        ):
+            with self.subTest(change=label):
+                changed = deepcopy(context)
+                change(changed)
+                right = report('model-b', conversation_context=changed)
+                with self.assertRaises(ValueError):
+                    compare(left, right)
+                self.assertNotEqual(score(left)['taskSetDigest'], score(right)['taskSetDigest'])
+        self.assertEqual(self.conversation_context(), context)
+
+    def test_absent_and_null_context_share_effective_identity_without_matching_present_empty_context(self):
+        absent = report('model-a')
+        explicit_null = report('model-b', conversation_context=None)
+        self.assertEqual(0, compare(absent, explicit_null)['rightMinusLeftPoints'])
+        self.assertEqual(score(absent)['taskSetDigest'], score(explicit_null)['taskSetDigest'])
+        for present in ({}, {'messages': []}):
+            with self.subTest(context=present):
+                right = report('model-b', conversation_context=present)
+                with self.assertRaises(ValueError):
+                    compare(absent, right)
+                self.assertNotEqual(score(absent)['taskSetDigest'], score(right)['taskSetDigest'])
+
+    def test_legacy_opaque_case_contracts_cannot_claim_current_context_qualified_comparison(self):
+        legacy = report('model-b')
+        for row in legacy['cases']:
+            row['intelligence'].pop('caseContractSchema', None)
+        self.assertIsNone(score(legacy)['pointsOutOf100'])
+        self.assertIsNone(score(legacy)['taskSetDigest'])
+        with self.assertRaises(ValueError):
+            compare(report('model-a'), legacy)
+
+    def test_unfrozen_persistent_memory_is_unavailable_instead_of_a_comparison_score(self):
+        left = report('model-a', memory_mode='SESSION_ONLY')
+        self.assertIsNotNone(score(left)['pointsOutOf100'])
+        for mode in (..., 'HYBRID', 'PERSISTENT'):
+            with self.subTest(memory_mode=mode):
+                right = report('model-b', memory_mode=mode)
+                measured = score(right)
+                self.assertIsNone(measured['pointsOutOf100'])
+                self.assertIsNone(measured['taskSetDigest'])
+                self.assertTrue(all(d['points'] is None for d in measured['dimensions'].values()))
+                with self.assertRaisesRegex(ValueError, 'session-only memory and identical admitted conversation and follow-up inputs'):
+                    compare(left, right)
+
+    def test_effective_user_instructions_bind_sent_fields_order_and_absence_without_exporting_text(self):
+        instructions = [
+            {'command_id': 'fictional-first-command', 'content': 'fictional-private-first-instruction'},
+            {'command_id': 'fictional-next-command', 'content': 'fictional-private-next-instruction'},
+        ]
+        before = deepcopy(instructions)
+        left = report('model-a', conversation_id='conversation-left', user_instructions=instructions)
+        same = report('model-b', conversation_id='conversation-right', user_instructions=deepcopy(instructions))
+        self.assertEqual(0, compare(left, same)['rightMinusLeftPoints'])
+        for label, change in (
+            ('content', lambda values: values[0].update(content='different-fictional-instruction')),
+            ('command identity', lambda values: values[0].update(command_id='different-command')),
+            ('order', lambda values: values.reverse()),
+        ):
+            with self.subTest(change=label):
+                changed = deepcopy(instructions)
+                change(changed)
+                right = report('model-b', user_instructions=changed)
+                with self.assertRaises(ValueError):
+                    compare(left, right)
+                self.assertNotEqual(score(left)['taskSetDigest'], score(right)['taskSetDigest'])
+        absent = report('model-a')
+        self.assertEqual(0, compare(absent, report('model-b', user_instructions=[]))['rightMinusLeftPoints'])
+        with self.subTest(instructions='explicit null'), self.assertRaises(ValueError):
+            compare(absent, report('model-b', user_instructions=None))
+        self.assertEqual(before, instructions)
+        exported = json.dumps({'left': left, 'right': same, 'comparison': compare(left, same)})
+        for item in instructions:
+            self.assertNotIn(item['command_id'], exported)
+            self.assertNotIn(item['content'], exported)
+
     def test_real_observation_rubric_honors_weights_and_unicode_source_paths(self):
         result = score(report())
         self.assertEqual(100, sum(d['weight'] for d in result['dimensions'].values()))

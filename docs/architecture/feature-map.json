@@ -1539,7 +1539,8 @@
       ],
       "documents": [
         "docs/architecture/repository-guide.md",
-        "gateway/benchmarks/README.md"
+        "gateway/benchmarks/README.md",
+        "docs/repairs/github-comparison-context-2026-11-24-task.json"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1548,7 +1549,8 @@
       "invariants": [
         "Model-generated plans and delegated advice cannot grant repository write authority.",
         "A recoverable rejection can shrink the next request only within its original permissions and resource budget.",
-        "Score comparisons require independently measured work under matching task, policy, environment and budget identities."
+        "Score comparisons require independently measured work under matching task, policy, environment and budget identities.",
+        "Production score comparisons require explicit SESSION_ONLY memory and versioned digests of the exact admitted conversation and follow-up instruction values; unbound historical memory remains unknown, and raw private inputs are not exported."
       ]
     },
     {
@@ -4116,6 +4118,11 @@
       "bytes": 7057,
       "sha256": "8e838c0da6b74e39b2fc6a52026438852771f4401096b4b80048b21079341763"
     },
+    "docs/repairs/github-comparison-context-2026-11-24-task.json": {
+      "blob_sha": "5f9e4f01859f95f336777cd1d340c1f88f129ad5",
+      "bytes": 5132,
+      "sha256": "52d865cb429b70ef68a2f0eb4ce69d055dd17bd8223bed49fc4858a2a1290ff1"
+    },
     "docs/repairs/github-consecutive-source-preview-2026-11-24-task.json": {
       "blob_sha": "33e3b575478ec13ecf987f8b52f045895e5d416e",
       "bytes": 7042,
@@ -4337,9 +4344,9 @@
       "sha256": "07da0ca0c167ee4d7851cae6321eb92ee821cd23b18c0e6f2732a495ab8e9433"
     },
     "gateway/benchmarks/github_intelligence.py": {
-      "blob_sha": "1d893811f3e36321f56e4461e95352efadb5cc6c",
-      "bytes": 11140,
-      "sha256": "722c88809966172d30e61c1ebc467c4d23a22a1dc1ffed232a4c313d413d74fa"
+      "blob_sha": "24f1eea9199589dbc9f160c1a7aff68fd642d82c",
+      "bytes": 12691,
+      "sha256": "210644afc8b64e5a3a9d83a3f50bbe391c3565e51fca7b61bf3e43cd5d09758b"
     },
     "gateway/benchmarks/github_intelligence_targets.py": {
       "blob_sha": "f90db5faa20baa3cb05603e0aab1efc834800541",
@@ -4417,9 +4424,9 @@
       "sha256": "b405d1b773a168a33bea7cfb91e86f31b37952a650abd1040461e3ca72be07be"
     },
     "gateway/tests/test_gateway_github_intelligence.py": {
-      "blob_sha": "fe97e3870421e93c8f0227c65f30da80f5f0ed93",
-      "bytes": 8447,
-      "sha256": "b71e9a0c7eea27cd73ffeb8a7a362365e5aa4f123a6612caf04e749f39704cb6"
+      "blob_sha": "d067d88d8e2275927c0a8c2aac9b1188c6b0bf9f",
+      "bytes": 15445,
+      "sha256": "57a35837f8b7598b112c21a41cd3a5a046a06f4fc645ff3fcf922c5cfb76d98a"
     },
     "gateway/tests/test_gateway_github_intelligence_targets.py": {
       "blob_sha": "cdb27931fd0c413de142a2bd3d5eec9a95ff63a4",

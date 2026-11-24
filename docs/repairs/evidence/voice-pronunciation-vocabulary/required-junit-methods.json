@@ -10,10 +10,16 @@
     "unchanged_tests": 2,
     "unchanged_tests_commit": "e40659976e33b2e305169f66fbb5c017f6e93282",
     "method_extraction": "Read each complete immutable Kotlin source, extract every @Test function, and check the annotation count equals the unique method count.",
-    "source_hash_algorithm": "Git blob object ID (SHA-1); no source SHA-256 is inferred."
+    "source_hash_algorithm": "Git blob object ID (SHA-1); no source SHA-256 is inferred.",
+    "complete_exponent_extension": {
+      "task": "docs/repairs/pronunciation-complete-exponents-2026-11-24-task.json",
+      "prior_method_count": 128,
+      "added_method_count": 4,
+      "execution": "REQUIRED_IN_FINAL_ORDINARY_CI_NOT_ESTABLISHED_BY_THIS_MANIFEST"
+    }
   },
   "expected_class_count": 9,
-  "expected_method_count": 128,
+  "expected_method_count": 132,
   "ordinary_ci": {
     "status": "REQUIRED_NOT_ESTABLISHED_BY_THIS_MANIFEST",
     "require_every_method": true,
@@ -92,9 +98,9 @@
     {
       "class_name": "dev.chungjungsoo.gptmobile.data.voice.KokoroSpeechVocabularyTest",
       "source_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechVocabularyTest.kt",
-      "source_git_blob_sha": "bb879fb5eb3a94b49f44680ff016f420355cbbb1",
+      "source_git_blob_sha": "6e4240d7d2425f6677c060766bc5021a3c33a272",
       "source_ref": null,
-      "required_method_count": 23,
+      "required_method_count": 27,
       "required_methods": [
         "nonDecomposingLatinNamesRemainSpeakableWithOriginalCaptionRanges",
         "expandedTitlecaseLigaturesDoNotInventCamelBoundariesForDictionaryMisses",
@@ -118,7 +124,11 @@
         "whitespaceChunkBoundariesPreserveNewVocabularyAndContext",
         "unsupportedScriptsStillFailVisiblyWithoutSpellingInventedPronunciations",
         "largeExpansionsRemainBoundedAndDoNotLogTheVocabulary",
-        "manyCorrectionsWithOneAccentRetainEveryWordAndBoundedOriginalRanges"
+        "manyCorrectionsWithOneAccentRetainEveryWordAndBoundedOriginalRanges",
+        "decimalAndScientificExponentsKeepTheirCompleteNumericValue",
+        "unitPowersDoNotConsumePrefixesOfLongerNumericExponents",
+        "completeExponentFallbackKeepsOriginalCaptionRangesAcrossPhraseBoundaries",
+        "completeIntegerAndSuperscriptPowersRetainTheirExistingReadingsAndRanges"
       ],
       "required_in_ordinary_ci": true,
       "local_component_execution_by_speech_text_worker": "NOT_EXECUTED_BY_THIS_WORKER"

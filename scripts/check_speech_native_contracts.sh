@@ -11,6 +11,11 @@ timeout 90s g++ -std=c++17 -O2 -Wall -Wextra -Werror \
 timeout 30s "$speech_contract_dir/measurement-test"
 
 timeout 90s g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+    local-kokoro-runtime/src/main/cpp/kokoro_context_cache_test.cpp \
+    -o "$speech_contract_dir/context-cache-test"
+timeout 30s "$speech_contract_dir/context-cache-test"
+
+timeout 90s g++ -std=c++17 -O2 -Wall -Wextra -Werror \
     local-kokoro-runtime/src/main/cpp/kokoro_provider_profile_test.cpp \
     -o "$speech_contract_dir/provider-profile-test"
 timeout 30s "$speech_contract_dir/provider-profile-test"

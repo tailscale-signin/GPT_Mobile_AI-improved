@@ -17,6 +17,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSpeechEngineBenchmarkRunnerTest {
+    @Test fun incrementalModeUsesOneStreamPerCompleteFixtureAndKeepsEveryInputByte() {
+        val inputs = mutableListOf<String>()
+        val runner = VoiceSpeechEngineBenchmarkRunner(
+            { backend ->
+                factory(backend) {
+                    object : TestEngine() {
+                        override val supportsIncrementalInput = true
+                        override fun stream(text: String, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean): Unit = error("Incremental input must not open phrase streams")
+                        override fun streamInput(nextText: () -> String?, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                            inputs += buildString {
+                                while (true) {
+                                    append(nextText() ?: break)
+                                    assertTrue(emit(VoicePcmChunk(floatArrayOf(.1f))))
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            File("unused"),
+            thermalStatus = { 0 },
+            scheduler = QuietScheduler
+        )
+        val result = runner.run(report()) {}.engineResults.single()
+        assertEquals(VoiceSpeechBenchmarkBackendState.COMPLETE, result.state)
+        val expected = VoiceSpeechBenchmarkFixture.entries.flatMap { fixture -> List(3) { VoiceSpeechWorkload.phrases(fixture).joinToString(" ") } }
+        assertEquals(expected, inputs)
+        assertEquals(expected.size, result.samples.size)
+        result.samples.zip(expected).forEach { (sample, text) ->
+            assertEquals(1, sample.streamCalls)
+            assertEquals(text.toByteArray(Charsets.UTF_8).size, sample.inputBytes)
+            assertEquals(VoiceSpeechWorkload.digest(text), sample.inputSha256)
+            assertTrue(sample.validatedAudio)
+        }
+    }
+
     @Test fun everySdkEngineUsesTheSelectedFactoryAndRetainsAllFixedInputWithoutInventedPlacement() {
         VoiceSpeechBenchmarkEngine.entries.filter { it != VoiceSpeechBenchmarkEngine.NATIVE_KOKORO }.forEach { selected ->
             val time = AtomicLong()

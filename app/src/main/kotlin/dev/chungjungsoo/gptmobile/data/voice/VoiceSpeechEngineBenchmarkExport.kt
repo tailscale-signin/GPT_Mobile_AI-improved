@@ -15,7 +15,7 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 
 /** SDK callback measurements are kept separate from native provider and token-duration proof. */
-internal fun speechEngineBenchmarkJson(result: VoiceSpeechEngineBenchmarkResult): JsonObject = buildJsonObject {
+internal fun speechEngineBenchmarkJson(result: VoiceSpeechEngineBenchmarkResult, includeSamples: Boolean = true): JsonObject = buildJsonObject {
     put("requestedBackend", result.requestedBackend.name)
     put("state", result.state.name)
     nullable("sessionPrepareMs", result.sessionPrepareMs)
@@ -36,7 +36,7 @@ internal fun speechEngineBenchmarkJson(result: VoiceSpeechEngineBenchmarkResult)
     nullable("timeoutElapsedMs", result.timeoutElapsedMs)
     put("measuredCostMs", result.measuredCostMs)
     put("qualityScope", "STRUCTURAL_PCM_ONLY_SEMANTIC_AND_PERCEPTUAL_QUALITY_NOT_MEASURED")
-    put("samples", buildJsonArray { result.samples.forEach { add(engineSampleJson(it)) } })
+    put("samples", buildJsonArray { result.samples.takeIf { includeSamples }.orEmpty().forEach { add(engineSampleJson(it)) } })
     put("partialSample", result.partialSample?.let(::engineSampleJson) ?: JsonNull)
     put(
         "fixtureStatistics",
@@ -62,7 +62,7 @@ internal fun speechEngineBenchmarkJson(result: VoiceSpeechEngineBenchmarkResult)
     )
 }
 
-private fun engineSampleJson(sample: VoiceSpeechEngineBenchmarkSample): JsonObject = buildJsonObject {
+internal fun engineSampleJson(sample: VoiceSpeechEngineBenchmarkSample): JsonObject = buildJsonObject {
     put("fixture", sample.fixture.name)
     put("repeat", sample.repeat)
     put("warm", sample.warm)

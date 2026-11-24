@@ -4,7 +4,7 @@ internal data class VoiceStreamAudio(val samples: FloatArray, val cues: List<Voi
 
 /** Per-phrase timing map; the limiter itself belongs to the whole playback, including later phrases. */
 internal class VoiceStreamPause(private val raw: VoiceStreamFrames, private val limiter: VoiceQuietLimiter?) {
-    private val removed = limiter?.let { RemovedFrames() }
+    private val removed = limiter?.let { RemovedFrames(raw.frameLimit) }
     private val pending = ArrayDeque<VoiceStreamCue>()
     var retainedFrames = 0L
         private set
@@ -43,13 +43,15 @@ internal class VoiceStreamPause(private val raw: VoiceStreamFrames, private val 
         check(pending.isEmpty()) { "STREAM_INCOMPLETE" }
     }
 
-    /** One bit per raw frame plus rank prefixes: 135004 bytes of primitive storage at the raw limit. */
-    private class RemovedFrames {
-        private val words = LongArray(((VoiceStreamFrames.MAX_STREAM_FRAMES + 63) / 64).toInt())
-        private val prefixes = IntArray(words.size + 1)
+    /** One bit per raw frame plus rank prefixes, bounded by this stream's declared timeline. */
+    private class RemovedFrames(frameLimit: Long) {
+        private val maximumWords = ((frameLimit + 63) / 64).toInt()
+        private var words = LongArray(minOf(maximumWords, 1_024))
+        private var prefixes = IntArray(words.size + 1)
         private var indexedWords = 0
 
         fun remove(start: Int, end: Int) {
+            ensureCapacity(end)
             var frame = start
             while (frame < end) {
                 val word = frame / 64
@@ -62,6 +64,7 @@ internal class VoiceStreamPause(private val raw: VoiceStreamFrames, private val 
         }
 
         fun observeThrough(frames: Int) {
+            ensureCapacity(frames)
             // A completed word never receives new bits. Partial-word queries mask out
             // later frames, so cues arriving at any later callback retain exact positions.
             while (indexedWords < frames / 64) {
@@ -75,6 +78,15 @@ internal class VoiceStreamPause(private val raw: VoiceStreamFrames, private val 
             val offset = frame % 64
             val partial = if (offset == 0) 0 else (words[word] and ((1L shl offset) - 1)).countOneBits()
             return frame - prefixes[word] - partial
+        }
+
+        private fun ensureCapacity(frames: Int) {
+            val required = (frames + 63) / 64
+            require(required <= maximumWords)
+            if (required <= words.size) return
+            val capacity = maxOf(required, words.size * 2).coerceAtMost(maximumWords)
+            words = words.copyOf(capacity)
+            prefixes = prefixes.copyOf(capacity + 1)
         }
     }
 }

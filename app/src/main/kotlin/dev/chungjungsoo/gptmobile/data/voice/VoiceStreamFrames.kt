@@ -20,8 +20,32 @@ internal fun consumeVoiceStream(engine: VoicePhraseEngine, text: String, speaker
     }
 }
 
+internal fun consumeVoiceInputStream(engine: VoicePhraseEngine, nextText: () -> String?, speaker: Int, speed: Float, active: () -> Boolean, emit: (VoicePcmChunk) -> Boolean) {
+    try {
+        if (!active()) throw CancellationException("Speech stream cancelled")
+        engine.streamInput({
+            if (!active()) throw CancellationException("Speech stream cancelled")
+            nextText().also { if (!active()) throw CancellationException("Speech stream cancelled") }
+        }, speaker, speed) { chunk ->
+            if (!active() || !emit(chunk)) throw CancellationException("Speech stream cancelled")
+            true
+        }
+        if (!active()) throw CancellationException("Speech stream cancelled")
+    } catch (failure: Throwable) {
+        runCatching { engine.cancel() }
+        throw failure
+    }
+}
+
 /** Validates bounded streamed PCM and maps byte-based SDK cues without retaining audio. */
-internal class VoiceStreamFrames(private val text: String, private val sourceRanges: List<IntRange>? = null, private val sourceCharacters: List<IntRange>? = null) {
+internal class VoiceStreamFrames(
+    private val text: String,
+    private val sourceRanges: List<IntRange>? = null,
+    private val sourceCharacters: List<IntRange>? = null,
+    private val incrementalText: VoiceIncrementalTextMap? = null,
+    val frameLimit: Long = MAX_STREAM_FRAMES,
+    private val cueLimit: Int = MAX_CUES
+) {
     private val byteBoundaries = utf8Boundaries(text)
     private val words = Regex("\\S+").findAll(text).map { it.range }.toList()
     private var lastCueFrame = 0L
@@ -36,27 +60,33 @@ internal class VoiceStreamFrames(private val text: String, private val sourceRan
         require(sourceRanges == null || sourceRanges.size == words.size)
         require(sourceCharacters == null || sourceCharacters.size == text.length)
         require(sourceRanges == null || sourceCharacters == null)
+        require(incrementalText == null || text.isEmpty() && sourceRanges == null && sourceCharacters == null)
+        require(frameLimit in 1..VoiceIncrementalStreamLimits.MAX_FRAMES && cueLimit in 1..VoiceIncrementalStreamLimits.MAX_CUES)
     }
 
     fun accept(chunk: VoicePcmChunk): List<VoiceStreamCue> {
         require(chunk.sampleRate == VOICE_PCM_SAMPLE_RATE) { "STREAM_SAMPLE_RATE" }
-        require(chunk.samples.size <= MAX_CHUNK_FRAMES && frames + chunk.samples.size <= MAX_STREAM_FRAMES) { "STREAM_FRAME_LIMIT" }
+        require(chunk.samples.size <= MAX_CHUNK_FRAMES && frames + chunk.samples.size <= frameLimit) { "STREAM_FRAME_LIMIT" }
         require(chunk.samples.all(Float::isFinite)) { "STREAM_PCM_INVALID" }
         nonSilent = nonSilent || chunk.samples.any { kotlin.math.abs(it) >= 1e-5f }
-        require(chunk.wordCues.size <= MAX_CUES - cues) { "STREAM_CUE_LIMIT" }
+        require(chunk.wordCues.size <= cueLimit - cues) { "STREAM_CUE_LIMIT" }
         val mapped = chunk.wordCues.map { cue ->
             require(cue.startByte >= lastCueByte && cue.endByte > cue.startByte) { "STREAM_CUE_ORDER" }
-            val start = byteBoundaries.getOrNull(cue.startByte)?.takeIf { it >= 0 } ?: error("STREAM_CUE_BYTE_BOUNDARY")
-            val end = byteBoundaries.getOrNull(cue.endByte)?.takeIf { it >= 0 } ?: error("STREAM_CUE_BYTE_BOUNDARY")
-            require(cue.startFrame >= lastCueFrame && cue.endFrame > cue.startFrame && cue.endFrame <= MAX_STREAM_FRAMES) { "STREAM_CUE_FRAME_RANGE" }
-            val range = if (sourceCharacters != null) {
-                val selected = sourceCharacters.subList(start, end).filterNot(IntRange::isEmpty)
-                if (selected.isEmpty()) IntRange.EMPTY else selected.minOf { it.first }..selected.maxOf { it.last }
-            } else if (sourceRanges == null) {
-                start until end
+            require(cue.startFrame >= lastCueFrame && cue.endFrame > cue.startFrame && cue.endFrame <= frameLimit) { "STREAM_CUE_FRAME_RANGE" }
+            val range = if (incrementalText != null) {
+                incrementalText.range(cue.startByte, cue.endByte)
             } else {
-                val selected = words.indices.filter { words[it].first < end && words[it].last >= start }.map { sourceRanges[it] }.filterNot(IntRange::isEmpty)
-                if (selected.isEmpty()) IntRange.EMPTY else selected.minOf { it.first }..selected.maxOf { it.last }
+                val start = byteBoundaries.getOrNull(cue.startByte)?.takeIf { it >= 0 } ?: error("STREAM_CUE_BYTE_BOUNDARY")
+                val end = byteBoundaries.getOrNull(cue.endByte)?.takeIf { it >= 0 } ?: error("STREAM_CUE_BYTE_BOUNDARY")
+                if (sourceCharacters != null) {
+                    val selected = sourceCharacters.subList(start, end).filterNot(IntRange::isEmpty)
+                    if (selected.isEmpty()) IntRange.EMPTY else selected.minOf { it.first }..selected.maxOf { it.last }
+                } else if (sourceRanges == null) {
+                    start until end
+                } else {
+                    val selected = words.indices.filter { words[it].first < end && words[it].last >= start }.map { sourceRanges[it] }.filterNot(IntRange::isEmpty)
+                    if (selected.isEmpty()) IntRange.EMPTY else selected.minOf { it.first }..selected.maxOf { it.last }
+                }
             }
             lastCueByte = cue.startByte
             lastCueFrame = cue.endFrame
@@ -74,6 +104,13 @@ internal class VoiceStreamFrames(private val text: String, private val sourceRan
     }
 
     companion object {
+        fun incremental(text: VoiceIncrementalTextMap): VoiceStreamFrames = VoiceStreamFrames(
+            "",
+            incrementalText = text,
+            frameLimit = VoiceIncrementalStreamLimits.MAX_FRAMES,
+            cueLimit = VoiceIncrementalStreamLimits.MAX_CUES
+        )
+
         const val MAX_CHUNK_FRAMES = VOICE_PCM_SAMPLE_RATE * 6
         const val MAX_STREAM_FRAMES = VOICE_PCM_SAMPLE_RATE * 30L
         const val MAX_CUES = 2_048

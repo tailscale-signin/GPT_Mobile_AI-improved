@@ -31,10 +31,11 @@ def digest(path, algorithm="sha256"):
 
 def checked_download(record, destination):
     destination = Path(destination)
-    if destination.exists() and digest(destination) == record["sha256"]:
-        return destination
     if not record["url"].startswith("https://") or not re.fullmatch(r"[0-9a-f]{64}", record["sha256"]):
         raise ValueError("Downloads require HTTPS and a pinned SHA-256")
+    if destination.exists() and destination.stat().st_size == record.get("bytes", destination.stat().st_size) and digest(destination) == record["sha256"]:
+        if not record.get("publisherSha1") or digest(destination, "sha1") == record["publisherSha1"]:
+            return destination
     partial = destination.with_suffix(destination.suffix + ".part")
     try:
         count = 0

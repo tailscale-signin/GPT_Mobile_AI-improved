@@ -189,8 +189,8 @@ internal class VoiceSpeechEngineBenchmarkRunner(
                         checkActive()
                         val before = thermalStatus()
                         if ((before ?: -1) >= 2) throw ThermalLimit()
-                        // The fixed workload's entire spoken text is retained. Production SDK
-                        // phrase planning bounds each native stream at the selected speaking rate.
+                        // The fixed workload's entire spoken text is retained in both modes.
+                        // The prepared factory's input mode also governs production playback.
                         val text = VoiceSpeechWorkload.phrases(fixture, configuration.workload).joinToString(" ")
                         report = report.copy(activeFixture = fixture, activeRepeat = repeat, activeChunk = null)
                         result = result.copy(failedFixture = fixture, failedRepeat = repeat, partialSample = null)
@@ -199,8 +199,31 @@ internal class VoiceSpeechEngineBenchmarkRunner(
                         val sampleMeasurement = VoiceSpeechEnginePcmMeasurement(fixture, repeat, text, before, preparedAt.takeIf { result.samples.isEmpty() }, nanoTime)
                         measurement = sampleMeasurement
                         val plan = VoiceStreamingPhrasePlan(text, emptyMap(), configuration.speechRate)
+                        if (streamEngine.supportsIncrementalInput) {
+                            sampleMeasurement.beginStream(text, incrementalInput = true)
+                            watchdog.beginPhase(VoiceSpeechBenchmarkDeadlineScope.CHUNK)
+                            VoiceNativeEngineGate.exclusive {
+                                checkActive()
+                                engine.resetCancellation()
+                                checkActive()
+                                consumeVoiceInputStream(streamEngine, {
+                                    checkActive()
+                                    plan.next(VoicePerformanceMode.BALANCED.followUpWords)?.text
+                                }, configuration.voice.speakerId, configuration.speechRate, { !cancelled.get() && timeout.get() == null }) { pcm ->
+                                    checkActive()
+                                    sampleMeasurement.accept(pcm)
+                                    // An incremental reply has one stream but many PCM chunks.
+                                    // Retain the no-progress deadline and the total backend cap.
+                                    if (pcm.samples.isNotEmpty()) watchdog.beginPhase(VoiceSpeechBenchmarkDeadlineScope.CHUNK)
+                                    true
+                                }
+                            }
+                            watchdog.endPhase()
+                            checkActive()
+                            sampleMeasurement.finishStream()
+                        }
                         var call = 0
-                        while (true) {
+                        while (!streamEngine.supportsIncrementalInput) {
                             val phrase = plan.next(VoicePerformanceMode.BALANCED.followUpWords) ?: break
                             checkActive()
                             require(call++ < VoiceSpeechWorkload.MAX_CHUNKS) { "BENCHMARK_STREAM_LIMIT" }

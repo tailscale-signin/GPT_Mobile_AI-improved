@@ -79,6 +79,29 @@ internal class VoiceSpeechBenchmarkStreamingEngine(
         }
     }
 
+    override fun streamInput(nextText: () -> String?, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+        val receipt = observation()
+        val timing = measurement()
+        val text = VoiceIncrementalTextMap()
+        val frames = VoiceStreamFrames.incremental(text)
+        receipt?.started()
+        timing?.incrementalAttemptStarted()
+        try {
+            consumeVoiceInputStream(delegate, {
+                nextText()?.also { text.append(it) }
+            }, speaker, speed, { !cancelled.get() }) { pcm ->
+                frames.accept(pcm)
+                receipt?.accepted(pcm)
+                emit(pcm)
+            }
+            frames.finish()
+            receipt?.completed()
+        } catch (failure: Throwable) {
+            receipt?.failed()
+            throw failure
+        }
+    }
+
     override fun cancel() {
         cancelled.set(true)
         delegate.cancel()

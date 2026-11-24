@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 import dev.chungjungsoo.gptmobile.presentation.ui.voice.playKokoroPreview
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -9,6 +10,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeferredKokoroOutputTest {
+    @Test fun deferredCloseRetainsTheNativeOwnerUntilItsWorkersActuallyRetire() {
+        var closed = false
+        var retired = false
+        var waits = 0
+        val output = DeferredKokoroOutput {
+            object : KokoroOutput {
+                override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) = Unit
+                override fun stop() = Unit
+                override fun close() {
+                    closed = true
+                }
+                override fun awaitClosed(timeoutMs: Long): Boolean {
+                    assertTrue(closed)
+                    waits++
+                    return retired
+                }
+            }
+        }
+        output.prewarm(KokoroVoice.HEART)
+        output.close()
+        assertFalse(output.awaitClosed(1))
+        retired = true
+        assertTrue(output.awaitClosed(1))
+        assertTrue(output.awaitClosed(1))
+        assertEquals(2, waits)
+    }
+
+    @Test fun failedDelegateCloseNeverAuthorizesReplacementAndUnopenedCloseDoesNotLoadIt() {
+        val failed = DeferredKokoroOutput {
+            object : KokoroOutput {
+                override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) = Unit
+                override fun stop() = Unit
+                override fun close(): Unit = error("Native close failed")
+            }
+        }
+        failed.prewarm(KokoroVoice.HEART)
+        failed.close()
+        assertFalse(failed.awaitClosed(1))
+        val unopened = DeferredKokoroOutput { error("Closing must not initialize a model") }
+        unopened.close()
+        assertTrue(unopened.awaitClosed(1))
+    }
+
     @Test fun settingsPreviewAppliesItsRateBeforeDeferredInitializationAndEveryPlayback() {
         var outputRate = 1f
         val constructedRates = mutableListOf<Float>()

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "status": "PROMOTED_SOURCE_AND_HOST_VERIFIED",
+  "qnnEpVersion": "2.8.0",
+  "qairtVersion": "2.52.0",
+  "preservedAndroidOrtVersion": "1.28.2",
+  "candidateInputManifestSha256": "e0f67f4f046942015c1a59c7faed517c7f18ba9cb836322388026bb4e5c85e05",
+  "buildReceiptFile": "qnn-dispatch-build-2.52.json",
+  "buildReceiptSha256": "87b552c5bfbaffc4f002603331fdc7b52a255a20a9c68ad70d4af9a5365a56f1",
+  "github": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "sourceCommit": "b50c29febaeb54808a4561955220f5b33bd09253",
+    "runId": 45309295693,
+    "jobId": 138160702479,
+    "artifactId": 14882976564,
+    "artifactArchiveSha256": "2b7f3c08ae50ced2a39742a53208dfa21ce852fa83978fb0dfd5da1eb891fad7"
+  },
+  "dispatch": {
+    "file": "libLiteRtDispatch_Qualcomm.so",
+    "sha256": "8a8b31aa09b5f0998955014ee4c8e2811f993461cfc797d95b30e3999b417e06",
+    "bytes": 642088
+  },
+  "hostContextReceiptFile": "qnn-host-context-2.8-ort-1.28.json",
+  "hostContextReceiptSha256": "a53edc3ecd6407dda909c7bc6fec1214c8d3c61b80f9a71e3df7d02e5d3ff22a",
+  "physicalDeviceQualified": false,
+  "kokoroQualified": false,
+  "listeningQualified": false,
+  "androidIntegration": "Required on the integrated application revision; host emulator is not Android or device evidence.",
+  "compatibilityProbeSourceSha256": "2515a9e1533508721f9c7ad15fed0235f9b8f70837e20eeb9c5cb1b2495a1ef7",
+  "hostPreparationSourceSha256": "7fbabee65c979c71b1d6525193cfab171b327db165b21caa7006a2e6c2ec06ce"
+}

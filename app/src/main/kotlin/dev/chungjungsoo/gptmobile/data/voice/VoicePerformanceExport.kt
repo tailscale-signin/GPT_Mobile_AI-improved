@@ -9,7 +9,17 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Numeric observations and fixed labels only. No transcript, audio, model prompt or device identifier. */
-internal fun voicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: VoiceSynthesisFeedback? = null): String {
+internal fun voicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: VoiceSynthesisFeedback? = null): String =
+    Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), voicePerformanceJson(snapshot, latest))
+
+internal fun writeVoicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: VoiceSynthesisFeedback?, output: java.io.OutputStream) {
+    VoiceExportJsonWriter(output).apply {
+        element(voicePerformanceJson(snapshot, latest))
+        finish()
+    }
+}
+
+private fun voicePerformanceJson(snapshot: VoicePerformanceSnapshot, latest: VoiceSynthesisFeedback?): JsonObject {
     val rows = snapshot.rows.filter {
         it.metric in VoicePerformanceHistory.METRICS &&
             it.engine in VoicePerformanceHistory.ENGINES &&
@@ -115,7 +125,7 @@ internal fun voicePerformanceExport(snapshot: VoicePerformanceSnapshot, latest: 
             } ?: JsonNull
         )
     }
-    return Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), document)
+    return document
 }
 
 private val MEDIAPIPE_FAMILIES = setOf("MEDIAPIPE", "MEDIAPIPE_KOKORO", "MEDIAPIPE_PHONON", "MEDIAPIPE_POCKET")
@@ -173,6 +183,14 @@ private fun performanceExecutionJson(evidence: VoiceSpeechExecutionEvidence) = b
     number("activeShapeEstimatedBytes", evidence.activeShapeEstimatedBytes, 16L * 1024 * 1024 * 1024)
     number("availableMemoryBytes", evidence.availableMemoryBytes, 256L * 1024 * 1024 * 1024)
     put("cacheAdmission", safeSpeechCacheAdmission(evidence.cacheAdmission)?.let(::JsonPrimitive) ?: JsonNull)
+    put("graphPreparationSource", safeSpeechGraphPreparation(evidence.graphPreparationSource)?.let(::JsonPrimitive) ?: JsonNull)
+    put("contextCacheStatus", safeSpeechContextCacheStatus(evidence.contextCacheStatus)?.let(::JsonPrimitive) ?: JsonNull)
+    number("contextLoadMs", evidence.contextLoadMs, 3_600_000)
+    number("contextStoreMs", evidence.contextStoreMs, 3_600_000)
+    number("contextBytes", evidence.contextBytes, 256L * 1024 * 1024)
+    number("contextCacheEvictions", evidence.contextCacheEvictions)
+    flag("contextFallback", evidence.contextFallback)
+    put("htpPerformanceMode", safeSpeechHtpPerformanceMode(evidence.htpPerformanceMode)?.let(::JsonPrimitive) ?: JsonNull)
     flag("audioMeasurementAvailable", evidence.audioMeasurementAvailable)
     val measured = evidence.audioMeasurementAvailable == true
     flag("audioFinite", evidence.audioFinite.takeIf { measured })

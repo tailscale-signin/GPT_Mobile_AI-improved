@@ -63,12 +63,27 @@ internal data class VoiceSpeechCaptionManifest(val hash: String, val spans: Set<
 }
 
 internal object VoiceSpeechPlaybackProtocol {
-    const val VERSION = 3
-    const val MAX_SAMPLES_PER_BACKEND = 32
+    const val VERSION = 4
+    const val MAX_SAMPLES_PER_BACKEND = 48
     const val MAX_CHUNKS_PER_SAMPLE = 128
     const val FIRST_AUDIO_TARGET_MS = 5_000L
     const val CANCELLATION_TARGET_MS = 500L
     const val MAX_CANCEL_TARGET_WAIT_MS = 90_000L
+
+    fun maximumSamples(configuration: VoiceSpeechBenchmarkConfiguration): Int = plans(configuration).size +
+        if (VoiceSpeechPlaybackScenario.SUSTAINED in configuration.playbackScenarios) VoiceSpeechSustainedSeries.MAX_REPLIES - 1 else 0
+
+    fun expandedPlans(configuration: VoiceSpeechBenchmarkConfiguration, sustainedReplies: Int): List<VoiceSpeechPlaybackPlan> {
+        val hasSustained = VoiceSpeechPlaybackScenario.SUSTAINED in configuration.playbackScenarios
+        require(if (hasSustained) sustainedReplies in 1..VoiceSpeechSustainedSeries.MAX_REPLIES else sustainedReplies == 0)
+        return plans(configuration).flatMap { plan ->
+            if (plan.scenario == VoiceSpeechPlaybackScenario.SUSTAINED) {
+                List(sustainedReplies) { repeat -> plan.copy(repeat = repeat, expectedResident = repeat > 0) }
+            } else {
+                listOf(plan)
+            }
+        }.also { require(it.size <= MAX_SAMPLES_PER_BACKEND) }
+    }
 
     fun plans(configuration: VoiceSpeechBenchmarkConfiguration): List<VoiceSpeechPlaybackPlan> {
         val full = configuration.mode == VoiceSpeechBenchmarkMode.FULL
@@ -88,7 +103,7 @@ internal object VoiceSpeechPlaybackProtocol {
                     VoiceSpeechPlaybackPlan(scenario, it, listOf(fixture.text), expectedResident = it > 0)
                 }
                 VoiceSpeechPlaybackScenario.SUSTAINED -> listOf(
-                    VoiceSpeechPlaybackPlan(scenario, 0, listOf(List(if (full) 6 else 3) { long }.joinToString(" ")))
+                    VoiceSpeechPlaybackPlan(scenario, 0, listOf(List(6) { long }.joinToString(" ")))
                 )
                 VoiceSpeechPlaybackScenario.CANCELLATION -> VoiceSpeechCancellationTarget.entries.mapIndexed { index, target ->
                     VoiceSpeechPlaybackPlan(scenario, index, listOf(long), cancellationTarget = target)

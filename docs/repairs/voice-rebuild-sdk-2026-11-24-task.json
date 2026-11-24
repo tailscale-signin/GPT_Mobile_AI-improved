@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "baseSHA": "d48509ecc158182f339d36b68fc3016821f0c669",
+  "workingBranch": "task/voice-rebuild-sdk",
+  "parentPR": 2367,
+  "recordedBeforeSourceEditAt": "2026-11-24T01:38:18.696999+00:00",
+  "intent": "Implement configurable Kokoro sequence buckets, persistent incremental SDK reply text streams with bounded PCM and caption ownership, and resident model reuse across per-utterance voice changes. Preserve native and Gateway paths.",
+  "owner": "speech_latency_options",
+  "status": "SDK_HOST_VALIDATED_PENDING_FULL_ANDROID_CI",
+  "upstream": "MediaPipe tasks-audio1.2.3 actual AAR javap confirms TtsStream pushText/finishInput/readNext and explicit StartStream finishInput=false C API; no SDK version change.",
+  "constraints": [
+    "No remote writes; root integrates and performs current-head publication gates.",
+    "No unvalidated hardware speed claims.",
+    "Bounded input/cues/audio timeline, cancellation and native retirement remain required.",
+    "Root owns central generated references and release-scope edits."
+  ],
+  "validation": {
+    "unit": {
+      "result": "PASS",
+      "tests": 88,
+      "command": "PATH=/workspace/scratch/02b2dec72938/kokoro-lab/jdk-21.0.13.1+2/bin:$PATH python3 /workspace/scratch/3e488fb5a6e6/rebuild-sdk-validation/run.py",
+      "manifestSha256": "4963e8eab8c54ae6ff08ff974862ef7077d5451dce065e44c06e733c74c27118",
+      "scope": "Actual changed SDK/benchmark/bucket/caption source plus shared CPU policy and same-variant native calibration identity with actual pinned tasks-audio/tasks-core1.2.3 classes; narrow compiler against recorded parent source dependency jar. Native output, preference/ViewModel, JNI/model execution and phone performance are not executed. Full combined Android/CI remains required.",
+      "compilerHeapMiB": 192,
+      "compilerMetaspaceMiB": 128,
+      "snapshotChanges": []
+    },
+    "canonical": "PENDING_ROOT_COMPOSED_CANDIDATE",
+    "format": "PASS: ktlint1.3.1 format on modified Kotlin files; git diff --check",
+    "androidChanges": "Actual-output, deferred-owner, preference and ViewModel regressions added; full Android/Robolectric gate still required. Native model-variant and calibration APIs are merged.",
+    "exportControlCompose": {
+      "result": "PASS",
+      "manifestSha256": "1ffe0edbca4d6d0b875552f4b3caaf9fd644d336568dfe610b1c62e937820479",
+      "scope": "Read-only root VoiceDiagnosticExportControl compiled with actual Kotlin2.4.20 Compose compiler, Android37, Compose1.12.1, Activity1.13, Lifecycle2.11/SavedState1.5 dependencies and root tested export ViewModel jar. No Android rendering or provider execution."
+    },
+    "benchmarkViewModelRefactor": {
+      "status": "SCOPED_KOTLIN_AND_D8_PASS_CANONICAL_APK_PENDING",
+      "reportedFailingRun": 45304806684,
+      "reportedFailingJob": 138148217124,
+      "reportedMethod": "VoiceSpeechBenchmarkViewModel.execute",
+      "reportedDexUnits": 17000,
+      "reportedDexLimit": 16383,
+      "rootBeforeRefactorSha256": "3143bf01a89bef0daa4d8413e386e43d4f6dd3c59a12e7c80aa6ba49882158e5",
+      "sourceSha256": "e1a2501ba71eae37f1c1f5244a707aafba1e409b5631981d9cd45c5e7811e3ab",
+      "checks": "Actual root VM/state/ownership, Qualcomm factory, model/capability/history stores, battery and retirement source compiled with real Android37/Lifecycle2.11/Hilt2.60.1;144MiB heap/96MiB metaspace. D8 37/minAPI31 measures execute6552 and all compiled helpers below16383. PlaybackBenchmark hardware implementation is an explicit source-inspected API boundary. This is a scoped compile/size check, not Android execution or the canonical APK gate.",
+      "compilerManifestSha256": "17537919dd504483a1f483c4d7bf76dec583918675c87953e00a34ee9519a1b7",
+      "dexManifestSha256": "3012275aa0d4895dcdcb9ad58c24e0a6cd596b4e7a81c3743e68f61da8c0a609",
+      "isolatedExecuteDexCodeUnits": 6552
+    },
+    "benchmarkSettingsCompose": {
+      "result": "PASS",
+      "compilerManifestSha256": "9b9b0d394795afe997ca353142df6a4419dae282c863394a3733864a2be91209",
+      "dexManifestSha256": "c695ab4206e95ba981ac6a2d8d2a1d5b724c103b9f10388a4755f82809fd527a",
+      "isolatedLargestMethodCodeUnits": 7480,
+      "scope": "Actual current benchmark Settings and SDK result-card source with actual Kotlin2.4.20 Compose compiler and Android/Compose/Hilt dependencies, plus exact VoiceChoice/section implementations. Fading popup rendering is an explicit API boundary, and the compiled parent VM declares its playback hardware boundary. No rendered UI or Android behavior claim. Scoped D8 largest method7480; full packaged APK gate remains required."
+    }
+  },
+  "implementation": [
+    "SDK target buckets AUTO/64/128/256 are part of factory identity and cache namespace and reach TextToSpeechOptions. No text is truncated to a guessed token count.",
+    "One incremental stream per SDK reply uses separate interruptible input owner, bounded input/cues/timeline, exact-once finish, cancellation and dual-owner retirement before native destruction. Failed retirement retains stream/task/model lease.",
+    "Per-utterance voice changes retain model/task with a separate resident identity; voice selection occurs only while idle.",
+    "Original segment/UTF8/pronunciation caption mapping remains intact over the reply; quiet-frame map grows as needed within declared bound.",
+    "Silent benchmarks exercise actual factory input mode and retain whole-fixture input hash; unsealed playback does not invent whole-attempt input identity.",
+    "Production preference, VoiceSettings screen and factory orchestration expose bucket and input mode; malformed preferences use defaults.",
+    "Auto CPU threads consume the shared cached device governor and thermal forecast; explicit benchmark and user settings remain fixed. Optional ADPF sessions target only the app-owned CPU synthesis worker, with measured generate-call duration and bounded presentation deadlines.",
+    "Original FP32 and compact INT8 have independent installations and a persisted selection; live settings changes retire the old runtime off main before publishing the replacement store. Initial preference hydration precedes initial store exposure.",
+    "Failed model destruction retains the native lease, makes awaitClosed fail, and prevents replacement in that output. Deferred output preserves the closed owner until retirement is confirmed.",
+    "Failed native factory preparation also retains its factory and surrounding asset lease while native cleanup remains pending; shutdown always retires executors after component callback unregistration failure. Added direct retirement and bucket complete-input regressions.",
+    "Split the benchmark ViewModel coroutine into bounded publication, playback, per-backend, native/SDK and lease-retirement helpers after parent reported the canonical DEX method-size failure. Preserve a single report/energy owner and release ownership in finally even if report finalization fails; sustained thermal stops retain results and stop further backends after cleanup priority."
+  ],
+  "upstreamArtifacts": {
+    "/workspace/scratch/ac674a79f1f9/tts-sdk-inspection/tasks-audio-1.2.3/classes.jar": "7959641ee8339a0914f8dfbccbf858443b32473c17dc570f3867cd514c316c97",
+    "/workspace/scratch/ac674a79f1f9/tts-sdk-inspection/tasks-core-1.2.3/classes.jar": "06e395cd0586fbb42a806a4770be86ddb2dfd71f32bce37e0ce2f44b99d89aa3"
+  },
+  "remaining": [
+    "Combined Android/Compose/Robolectric compile/test, generated references, full current-head CI and physical device acceptance owned by root"
+  ]
+}

@@ -54,6 +54,9 @@ public final class KokoroEvidenceContractTest {
         require(Boolean.FALSE.equals(notMeasured.audioMeasurementAvailable) && notMeasured.audioFinite == null &&
                 notMeasured.outputFrames == null && "BOUNDED_THREE_SHAPES".equals(notMeasured.cacheAdmission),
                 "New evidence fabricated PCM or lost cache admission");
+        require(notMeasured.graphPreparationSource == null && notMeasured.contextCacheStatus == null &&
+                notMeasured.contextLoadMs == null && notMeasured.htpPerformanceMode == null,
+                "Historical evidence fabricated compiled-context observations");
         long[] tooLong = empty();
         tooLong[33] = 4; tooLong[35] = 2; tooLong[36] = 93 * 45 * 600;
         tooLong[37] = 1; tooLong[38] = 1; tooLong[39] = 93; tooLong[40] = 7; tooLong[41] = 1;
@@ -98,10 +101,38 @@ public final class KokoroEvidenceContractTest {
         long[] wrongDtype = complete.clone(); wrongDtype[40] = 1; rejected(wrongDtype);
         long[] badCache = complete.clone(); badCache[16] = 4; rejected(badCache);
         long[] badCount = complete.clone(); badCount[39] = 512; rejected(badCount);
+
+        long[] pendingContext = Arrays.copyOf(empty(), 56);
+        pendingContext[0] = 6; pendingContext[48] = 3; pendingContext[49] = 2;
+        pendingContext[50] = 17; pendingContext[52] = 4096;
+        TimedKokoro.Evidence prepared = parse(pendingContext);
+        require("DISK_CONTEXT".equals(prepared.graphPreparationSource) && "HIT".equals(prepared.contextCacheStatus) &&
+                prepared.contextLoadMs == 17 && "balanced".equals(prepared.htpPerformanceMode) &&
+                !prepared.validatedAudio && !prepared.profileAvailable,
+                "A loaded context fabricated actual execution or PCM qualification");
+        long[] stored = Arrays.copyOf(measured(), 56);
+        stored[0] = 6; stored[1] = 3; stored[12] = 1; stored[48] = 2; stored[49] = 3;
+        stored[51] = 21; stored[52] = 4096; stored[53] = 1; stored[54] = 1; stored[55] = 2;
+        TimedKokoro.Evidence committed = parse(stored);
+        require("STORED".equals(committed.contextCacheStatus) && committed.contextStoreMs == 21 &&
+                committed.contextCacheEvictions == 1 && Boolean.TRUE.equals(committed.contextFallback) &&
+                "high_performance".equals(committed.htpPerformanceMode), "Committed context receipt lost actual fields");
+        long[] resident = stored.clone(); resident[48] = 4; resident[49] = 10; resident[14] = 1;
+        require("RESIDENT".equals(parse(resident).graphPreparationSource), "Resident graph became a disk load");
+        long[] falseStored = stored.clone(); falseStored[12] = 0; rejected(falseStored);
+        long[] falseResident = resident.clone(); falseResident[14] = 0; rejected(falseResident);
+        long[] badPath = stored.clone(); badPath[48] = 5; rejected(badPath);
+        long[] badState = stored.clone(); badState[49] = 11; rejected(badState);
+        long[] badMode = stored.clone(); badMode[55] = 3; rejected(badMode);
+        long[] tooLargeContext = stored.clone(); tooLargeContext[52] = 268435457; rejected(tooLargeContext);
+        long[] badFallback = stored.clone(); badFallback[54] = 2; rejected(badFallback);
+        for (int index = 50; index <= 53; index++) {
+            long[] negative = stored.clone(); negative[index] = -1; rejected(negative);
+        }
     }
 
     public static void main(String[] args) throws ReflectiveOperationException {
         verify();
-        System.out.println("Native evidence v2-v5 availability, validation reasons and malformed-input controls passed");
+        System.out.println("Native evidence v2-v6 availability, context preparation, validation reasons and malformed-input controls passed");
     }
 }

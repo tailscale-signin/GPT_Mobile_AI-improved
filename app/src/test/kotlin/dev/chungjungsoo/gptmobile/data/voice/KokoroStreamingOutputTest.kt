@@ -42,6 +42,144 @@ import org.robolectric.shadows.ShadowSystemClock
 @Config(sdk = [34], application = Application::class, shadows = [KokoroPlaybackObservationTest.ImmediatePcmTrack::class])
 @LooperMode(LooperMode.Mode.PAUSED)
 class KokoroStreamingOutputTest {
+    @Test fun incrementalReplyPlaysBeforeFinalTextAndKeepsOriginalSegmentCaptions() {
+        val firstPresented = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val failures = CopyOnWriteArrayList<VoicePlaybackFailure>()
+        val inputs = CopyOnWriteArrayList<String>()
+        val prepared = CopyOnWriteArrayList<Pair<Int, IntRange>>()
+        val streams = AtomicInteger()
+        val engine = object : VoicePhraseEngine {
+            override val supportsStreaming = true
+            override val supportsIncrementalInput = true
+            override fun streamInput(nextText: () -> String?, speaker: Int, speed: Float, emit: (VoicePcmChunk) -> Boolean) {
+                streams.incrementAndGet()
+                var bytes = 0
+                var frames = 0L
+                while (true) {
+                    val text = nextText() ?: break
+                    inputs += text
+                    val word = Regex("[a-z]+").find(text)!!
+                    assertTrue(emit(VoicePcmChunk(FloatArray(12_000) { .1f }, wordCues = listOf(VoiceWordCue(bytes + word.range.first, bytes + word.range.last + 1, frames, frames + 12_000)))))
+                    bytes += text.toByteArray(Charsets.UTF_8).size
+                    frames += 12_000
+                }
+            }
+            override fun resetCancellation() = Unit
+            override fun cancel() = Unit
+            override fun close() = Unit
+        }
+        val observer = object : VoicePlaybackMeasurementObserver {
+            override fun firstPresented(clockBasis: String, route: String) {
+                firstPresented.countDown()
+            }
+            override fun captionsPrepared(segment: Int, ranges: List<IntRange>) {
+                prepared += ranges.map { segment to it }
+            }
+        }
+        withStreamingOutput(false, VoicePauseDuration.NATURAL, engine, observer) { output ->
+            output.bindSpokenRange { _, _, _ -> }
+            val reply = requireNotNull(
+                output.openReplyWithFailure(KokoroVoice.HEART, { finished.countDown() }, { failure, _ ->
+                    failures += failure
+                    finished.countDown()
+                })
+            )
+            reply.enqueue("hello.")
+            awaitMain(firstPresented)
+            assertEquals(0L, firstPresented.count)
+            assertEquals(1L, finished.count)
+            reply.enqueue("word.")
+            reply.finish()
+            awaitMain(finished)
+            assertTrue("Unexpected failure: ${failures.map { it.code }}", failures.isEmpty())
+            assertEquals(1, streams.get())
+            assertEquals(listOf("hello.", " word."), inputs)
+            assertEquals(listOf(0 to (0..4), 1 to (0..3)), prepared)
+        }
+    }
+
+    @Test fun failedNativeDestructionRetainsTheModelLeaseAndBlocksReplacement() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val directory = Files.createTempDirectory("failed-speech-retirement").toFile()
+        File(directory, KokoroVoice.HEART.lexicon).writeText(listOf("here", "the", "you", "hello", "word", "voice", "answer", "this", "that", "read").joinToString("\n") { "$it HH" })
+        val models = mockk<LocalVoiceModelStore>()
+        every { models.isInstalled() } returns true
+        every { models.acquireUse() } returns true
+        every { models.releaseUse() } returns Unit
+        every { models.modelDirectory() } returns directory
+        val created = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val creations = AtomicInteger()
+        val factory = object : VoicePhraseEngineFactory {
+            override val identity = "failed-retirement-model"
+            override val selectedBackend = VoiceSpeechBackend.GATEWAY_CUDA
+            override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+                creations.incrementAndGet()
+                created.countDown()
+                return object : VoicePhraseEngine {
+                    override fun resetCancellation() = Unit
+                    override fun cancel() = Unit
+                    override fun close() {
+                        closed.countDown()
+                        error("Native handle did not retire")
+                    }
+                }
+            }
+        }
+        val output = KokoroVoiceOutput(context, models, { AudioAttributes.Builder().build() }, { 1f })
+        try {
+            output.configureEngine(factory)
+            output.prewarm(KokoroVoice.HEART)
+            assertTrue(created.await(3, TimeUnit.SECONDS))
+            output.releaseWarmModel()
+            assertTrue(closed.await(3, TimeUnit.SECONDS))
+            output.prewarm(KokoroVoice.HEART)
+            output.close()
+            assertFalse(output.awaitClosed(1_000))
+            assertEquals(1, creations.get())
+            verify(exactly = 0) { models.releaseUse() }
+        } finally {
+            output.close()
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun failedPreparationDestructionAlsoKeepsTheOuterModelLease() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val directory = Files.createTempDirectory("failed-speech-preparation").toFile()
+        File(directory, KokoroVoice.HEART.lexicon).writeText(listOf("here", "the", "you", "hello", "word", "voice", "answer", "this", "that", "read").joinToString("\n") { "$it HH" })
+        val models = mockk<LocalVoiceModelStore>()
+        every { models.isInstalled() } returns true
+        every { models.acquireUse() } returns true
+        every { models.releaseUse() } returns Unit
+        every { models.modelDirectory() } returns directory
+        val failed = CountDownLatch(1)
+        val pending = AtomicBoolean()
+        val factory = object : VoicePhraseEngineFactory {
+            override val identity = "failed-preparation-retirement"
+            override val selectedBackend = VoiceSpeechBackend.GATEWAY_CUDA
+            override val nativeCleanupPending: Boolean get() = pending.get()
+            override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+                pending.set(true)
+                failed.countDown()
+                error("Native task initialization and cleanup failed")
+            }
+        }
+        val output = KokoroVoiceOutput(context, models, { AudioAttributes.Builder().build() }, { 1f })
+        try {
+            output.configureEngine(factory)
+            output.prewarm(KokoroVoice.HEART)
+            assertTrue(failed.await(3, TimeUnit.SECONDS))
+            output.close()
+            assertFalse(output.awaitClosed(1_000))
+            verify(exactly = 0) { models.releaseUse() }
+        } finally {
+            output.close()
+            directory.deleteRecursively()
+        }
+    }
+
     @Test
     @Config(shadows = [PausePcmTrack::class])
     fun gatewayRefillsLearnDeliveryCadenceBeforeTheFirstStreamCompletes() {

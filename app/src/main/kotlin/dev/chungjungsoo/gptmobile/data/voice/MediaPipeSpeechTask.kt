@@ -14,18 +14,26 @@ internal data class MediaPipeSpeechTaskConfiguration(
     val cacheDirectory: File,
     val requestGpu: Boolean,
     val speakingRate: Float,
-    val voiceId: String
-)
+    val voiceId: String,
+    val targetBucket: Int = 0
+) {
+    init {
+        MediaPipeKokoroBucket.fromSdkValue(targetBucket)
+    }
+}
 
 /** The production implementation calls the pinned SDK directly; tests replace only this boundary. */
 internal interface MediaPipeSpeechTask : AutoCloseable {
     fun voiceIds(): Set<String>
     fun openStream(text: String, voiceId: String): MediaPipeSpeechStream
+    fun openIncrementalStream(voiceId: String): MediaPipeSpeechStream = throw UnsupportedOperationException("Incremental speech input is unavailable")
     fun cancel()
 }
 
 internal interface MediaPipeSpeechStream : AutoCloseable {
     fun readNext(): AudioChunk?
+    fun pushText(text: String): Unit = throw UnsupportedOperationException("This speech stream has sealed input")
+    fun finishInput(): Unit = throw UnsupportedOperationException("This speech stream has sealed input")
     fun cancel()
 }
 
@@ -38,7 +46,7 @@ internal class AndroidMediaPipeSpeechTask(configuration: MediaPipeSpeechTaskConf
                 .build(),
             defaultVoiceId = configuration.voiceId,
             speakingRate = configuration.speakingRate,
-            targetBucket = 0,
+            targetBucket = configuration.targetBucket,
             cacheDir = configuration.cacheDirectory.absolutePath
         )
     )
@@ -49,12 +57,18 @@ internal class AndroidMediaPipeSpeechTask(configuration: MediaPipeSpeechTaskConf
         task.openStream(initialText = text, options = SynthesisOptions(voiceId = voiceId), finishInput = true)
     )
 
+    override fun openIncrementalStream(voiceId: String): MediaPipeSpeechStream = AndroidMediaPipeSpeechStream(
+        task.openStream(initialText = "", options = SynthesisOptions(voiceId = voiceId), finishInput = false)
+    )
+
     override fun cancel() = task.cancel()
 
     override fun close() = task.close()
 
     private class AndroidMediaPipeSpeechStream(private val stream: TtsStream) : MediaPipeSpeechStream {
         override fun readNext(): AudioChunk? = stream.readNext()
+        override fun pushText(text: String) = stream.pushText(text)
+        override fun finishInput() = stream.finishInput()
         override fun cancel() = stream.cancel()
         override fun close() = stream.close()
     }

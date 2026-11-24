@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the dispatch from pinned upstream sources; validate before replacing it.
 
-Requires git, Bazel 7.6.1, Android NDK r28b and QAIRT 2.51.0.260929.
+Requires git and the Bazel, Android NDK and QAIRT versions in the pinned inputs.
 The supplied SDK root must contain include/QNN; no SDK is redistributed here.
 """
 
@@ -90,7 +90,7 @@ def main():
     manifest["dispatchBuild"] = inputs
     manifest["libraries"][LIBRARY] = {
         "sha256": digest, "bytes": len(binary),
-        "source": f'LiteRT {inputs["litertRevision"]} (LiteRT-LM {inputs["litertlmVersion"]} pin), built against QAIRT {inputs["qairtSdkVersion"]} headers with Android NDK r28b'
+        "source": f'LiteRT {inputs["litertRevision"]} (LiteRT-LM {inputs["litertlmVersion"]} pin), built against QAIRT {inputs["qairtSdkVersion"]} headers with Android NDK {inputs["ndkRevision"]}'
     }
     destination = ROOT / "app/src/main/jniLibs/arm64-v8a" / output.name
     shutil.copyfile(output, destination)

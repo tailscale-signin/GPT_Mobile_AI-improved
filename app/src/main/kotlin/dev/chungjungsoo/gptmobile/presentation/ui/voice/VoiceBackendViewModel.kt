@@ -9,8 +9,10 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.voice.GatewayVoicePhraseEngineFactory
+import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechCatalog
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechEngine
 import dev.chungjungsoo.gptmobile.data.voice.MediaPipeSpeechModelStore
@@ -80,10 +82,13 @@ internal class VoiceBackendViewModel internal constructor(
     private var catalogLoaded = false
     private var catalogError: String? = null
     private var backendStatus = "Loading speech settings…"
-    private data class Configuration(val preference: VoiceBackendPreference, val connection: ProviderConnection?, val voice: KokoroVoice, val rate: Float)
+    private data class Configuration(val preference: VoiceBackendPreference, val connection: ProviderConnection?, val voice: KokoroVoice, val rate: Float, val bucket: MediaPipeKokoroBucket, val incremental: Boolean, val nativeModelVariant: KokoroModelVariant)
     private var configuration: Configuration? = null
     private var voice = KokoroVoice.HEART
     private var speechRate = 1f
+    private var kokoroBucket = MediaPipeKokoroBucket.AUTO
+    private var incrementalSpeech = true
+    private var nativeModelVariant = KokoroModelVariant.INT8
     private val streamingStoreLock = Mutex()
     private var streamingStore: MediaPipeSpeechModelStore? = null
     private val streamingInstalls = mutableMapOf<MediaPipeSpeechEngine, Job>()
@@ -130,12 +135,15 @@ internal class VoiceBackendViewModel internal constructor(
         reconcile(force = true)
     }
 
-    fun configureSpeech(voice: KokoroVoice?, rate: Float) {
+    fun configureSpeech(voice: KokoroVoice?, rate: Float, bucket: MediaPipeKokoroBucket = kokoroBucket, incremental: Boolean = incrementalSpeech, modelVariant: KokoroModelVariant = nativeModelVariant) {
         voice ?: return
         val bounded = rate.takeIf(Float::isFinite)?.coerceIn(.5f, 2f) ?: 1f
-        if (this.voice == voice && speechRate == bounded) return
+        if (this.voice == voice && speechRate == bounded && kokoroBucket == bucket && incrementalSpeech == incremental && nativeModelVariant == modelVariant) return
         this.voice = voice
         speechRate = bounded
+        kokoroBucket = bucket
+        incrementalSpeech = incremental
+        nativeModelVariant = modelVariant
         reconcile()
     }
 
@@ -192,7 +200,7 @@ internal class VoiceBackendViewModel internal constructor(
         }
         val connection = mutable.value.gateways.firstOrNull { it.uid == preference.gatewayUid }
             .takeIf { preference.backend == VoiceSpeechBackend.GATEWAY_CUDA }
-        val next = Configuration(preference, connection, voice, speechRate)
+        val next = Configuration(preference, connection, voice, speechRate, kokoroBucket, incrementalSpeech, nativeModelVariant)
         if (!force && configuration == next) {
             publishStatus()
             return
@@ -205,6 +213,9 @@ internal class VoiceBackendViewModel internal constructor(
         val epoch = ++generation
         val capturedVoice = voice
         val capturedRate = speechRate
+        val capturedBucket = kokoroBucket
+        val capturedIncremental = incrementalSpeech
+        val capturedVariant = nativeModelVariant
         update?.cancel()
         backendStatus = "Preparing speech settings…"
         mutable.value = mutable.value.copy(loaded = false)
@@ -221,7 +232,7 @@ internal class VoiceBackendViewModel internal constructor(
             try {
                 val prepared = withContext(io) {
                     if (retest) QualcommVoicePhraseEngineFactory.requestRetest(context, preference.backend)
-                    prepare(preference, report, retest, capturedVoice, capturedRate)
+                    prepare(preference, report, retest, capturedVoice, capturedRate, capturedBucket, capturedIncremental, capturedVariant)
                 }
                 if (generation == epoch) {
                     backendStatus = prepared.status
@@ -242,10 +253,10 @@ internal class VoiceBackendViewModel internal constructor(
 
     private data class Prepared(val factory: VoicePhraseEngineFactory, val status: String)
 
-    private suspend fun prepare(value: VoiceBackendPreference, report: (String) -> Unit, retest: Boolean, voice: KokoroVoice, rate: Float): Prepared = when (value.backend) {
-        VoiceSpeechBackend.CPU -> Prepared(QualcommVoicePhraseEngineFactory(context, value.backend, report, voice = voice, speechRate = rate), "Speech runs on this phone's CPU.")
+    private suspend fun prepare(value: VoiceBackendPreference, report: (String) -> Unit, retest: Boolean, voice: KokoroVoice, rate: Float, bucket: MediaPipeKokoroBucket, incremental: Boolean, modelVariant: KokoroModelVariant): Prepared = when (value.backend) {
+        VoiceSpeechBackend.CPU -> Prepared(QualcommVoicePhraseEngineFactory(context, value.backend, report, voice = voice, speechRate = rate, modelVariant = modelVariant), "Speech runs on this phone's CPU.")
         VoiceSpeechBackend.AUTO -> Prepared(
-            QualcommVoicePhraseEngineFactory(context, value.backend, report, calibrateAll = retest, voice = voice, speechRate = rate),
+            QualcommVoicePhraseEngineFactory(context, value.backend, report, calibrateAll = retest, voice = voice, speechRate = rate, modelVariant = modelVariant),
             if (retest) {
                 "The next reply compares CPU, GPU and NPU with the selected voice and rate across varied phrase lengths. This may take several minutes; playback starts after the comparison. You can cancel while it runs."
             } else {
@@ -253,7 +264,7 @@ internal class VoiceBackendViewModel internal constructor(
             }
         )
         VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP -> Prepared(
-            QualcommVoicePhraseEngineFactory(context, value.backend, report, calibrateAll = retest, voice = voice, speechRate = rate),
+            QualcommVoicePhraseEngineFactory(context, value.backend, report, calibrateAll = retest, voice = voice, speechRate = rate, modelVariant = modelVariant),
             if (retest) {
                 "The next reply compares this accelerator with CPU using the selected voice and rate. This may take several minutes; you can cancel while it runs."
             } else {
@@ -285,7 +296,9 @@ internal class VoiceBackendViewModel internal constructor(
                     engine,
                     value.backend,
                     rate,
-                    if (engine == MediaPipeSpeechEngine.KOKORO) voice.streamingVoiceId() else descriptor.defaultVoice
+                    if (engine == MediaPipeSpeechEngine.KOKORO) voice.streamingVoiceId() else descriptor.defaultVoice,
+                    kokoroBucket = bucket,
+                    incrementalInput = incremental
                 ),
                 if (value.backend == VoiceSpeechBackend.LITERT_KOKORO_GPU) {
                     "Audio streams on this phone. GPU is requested, but this runtime does not report which processor executed it."

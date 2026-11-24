@@ -2,6 +2,23 @@
 
 Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains the Gateway 18 contract.
 
+## Voice runtime rebuild and recoverable exports
+
+- Upgrade the QNN execution-provider plugin to 2.8.0 and shared QAIRT to 2.52.0 while retaining ONNX Runtime 1.28.2; package the matching hosted source-built LiteRT dispatch with exact publisher checksums, native inventory and immutable provenance.
+- Provide separately verified original FP32 and compact INT8 Kokoro installations, persisted selection, same-model CPU references and cache identity; retire the previous native/model owner before replacement.
+- Add bounded atomic HTP compiled-context persistence with model/runtime/provider/device/shape/options identity, digest and private-path checks, nonblocking ownership, validation before publication and one source-model retry; keep unsupported GPU disk contexts disabled.
+- Distinguish engine load, graph compilation, disk-context loading, resident reuse, inference, cache size/eviction/fallback and requested HTP policy in current native evidence; preserve legacy unknown observations.
+- Provide reproducible exact-shape, representative-calibration, quantized-candidate, explicit-stage and intermediate-divergence model diagnostics with original FP32 hashes and observed execution, plus a native GPU precision probe using the SDK graph API.
+- Use the actual SDK incremental text API for one bounded reply stream with source-aligned captions, PCM backpressure and real retirement; retain a phrase-stream comparison mode and persisted Auto/64/128/256 Kokoro buckets without text truncation.
+- Reuse compatible resident SDK weights across per-utterance voice changes and retain exact voice, model, bucket and input-mode evidence; keep failed preparation/close owners and asset leases quarantined until actual retirement.
+- Follow the shared thermal governor for automatic CPU thread scheduling between replies and supply optional app-owned synthesis-worker performance hints while keeping explicit and benchmark thread counts fixed.
+- Stream speech and performance JSON into atomic private artifacts off the UI thread before the picker; save only small receipt IDs, recover staged exports across process recreation, retry picker/provider-close failures without re-encoding and remove sources only after successful destination close.
+- Preserve schema 6 evidence and complete bounded reports in streamed 8 MiB local history; expose model weights, SDK input/buckets, HTP policy and preparation/cache observations in benchmark settings and results.
+- Add playback protocol v4 with 1/5/10-minute validated-presented-audio targets, same-owner repeats, bounded wall time/reply counts, thermal interruption and recomputed duration receipts; require sustained completion but exclude unequal sustained elapsed totals from speed ranking.
+- Split benchmark execution into bounded helpers to respect the existing packaged ART method-size limit while preserving cancellation, energy observations, model leases and retirement.
+
+The runtime rebuild, original-weight tools, incremental-input controls and sustained qualification are implemented with scoped source/host checks and required Android release gates. They do not establish full-model context reload, perceptual speech quality, lower battery use or a measured GPU/NPU speedup on the target phone; fresh device reports are required.
+
 ## CPU, GPU and NPU speech follow-up
 
 - Keep CPU as the recommended default and mark the native GPU/NPU options experimental while preserving saved selections and CPU-reference admission.
@@ -10,7 +27,7 @@ Version code: **149**. Coordinated publication with Gateway **18.1.3**; retains 
 - Export the hottest observed CPU/QNN operator categories with bounded counts and timings, explicit first-inference/reuse scope and no raw node names.
 - Add optional whole-device battery-counter evidence, honest interrupted/charging/unsupported states, and engineering goals for first PCM, long-speech RTF, clipping and accelerator kernel-time share. The goals are separate from measured results.
 
-Optional battery-counter decreases describe whole-device observations, not energy attributable to a speech engine, wattage or savings; missing, coarse, interrupted or charging observations remain explicit. Silent CPU warmup and strict zero-clipping controls do not prove target-phone speed or acoustic continuity. Persistent QNN context export failed the pinned ORT 1.28.2 host control with a duplicate tensor definition, so on-disk compiled-context caching remains disabled; in-process memory-admitted shape caching is retained.
+Optional battery-counter decreases describe whole-device observations, not energy attributable to a speech engine, wattage or savings; missing, coarse, interrupted or charging observations remain explicit. Silent CPU warmup and strict zero-clipping controls do not prove target-phone speed or acoustic continuity. The earlier context-export failure remains historical evidence. The paired QNN 2.8/QAIRT 2.52 mixed-graph host test now passes embedded-context save/reload; this does not qualify the full Kokoro graph, physical-phone cache performance or arbitrary-utterance GPU/NPU correctness.
 
 ## Diagnostic recovery and export completion
 
@@ -63,9 +80,9 @@ Final-request refusal diagnostics report only the four observed typed outcomes f
 - Add preparation, chunk and backend deadlines that request cancellation and separately record native retirement. A deadline never frees or reuses an in-flight native handle.
 - Add a synthesis-only Stability mode with 20 warm repeats per fixture. Quick, Full, thermal exclusions and the minimum-20 percentile rule remain explicit.
 - Compare installed native Kokoro, LiteRT Kokoro, Phonon and Pocket engines using fixed spoken fixtures, actual voice/model/runtime identity, incremental PCM delivery and the production playback path. Starting a benchmark never downloads a missing model.
-- Preserve schema 5 results and bounded local history, including partial SDK callback traces and cleanup outcomes. Requested SDK delegates remain distinct from observed provider execution; unavailable SDK thread control remains unknown.
+- Preserve schemas 1–6 and bounded local history, including partial SDK callback traces and cleanup outcomes. Requested SDK delegates remain distinct from observed provider execution; unavailable SDK thread control remains unknown.
 - Separate native generation wall time, graph preparation and native inference costs from SDK PCM-production intervals and complete stream-call time. Keep later callback totals when the bounded trace is full, and compute streamed audio duration from accumulated frames.
-- Hold a frozen export in ViewModel memory while choosing its destination, then encode and write it off the UI thread; large Stability reports no longer enter Android saved-state bundles.
+- Stage a frozen export as a validated private artifact before choosing its destination, then stream it to the provider; large reports stay out of Android saved-state bundles and recover after process recreation.
 
 The added engine benchmark measures structural PCM, callback delivery and playback behavior. It does not establish cross-engine intelligibility, perceptual equivalence, acoustic latency, energy savings or an automatic engine winner. The supplied 631bad14 phone logs are baseline observations, not verification of these changes.
 

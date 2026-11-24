@@ -33,10 +33,13 @@ class VoiceSpeechPlaybackProtocolTest {
         measurement.underrunObserved(0, "startup")
         measurement.underrunObserved(0, "active")
         measurement.underrunObserved(0, "draining")
-        measurement.attemptStarted("the voice")
-        measurement.audioGenerated(speechReferenceFixture("the voice"))
+        val sustained = plan.scenario == VoiceSpeechPlaybackScenario.SUSTAINED
         clock = 100_000_000L
-        measurement.pcmReady(70, 24_000, 24_000, evidence())
+        repeat(if (sustained) 6 else 1) {
+            measurement.attemptStarted("the voice")
+            measurement.audioGenerated(speechReferenceFixture("the voice", if (sustained) 1200 else 98))
+            measurement.pcmReady(70, if (sustained) 720_000 else 24_000, 24_000, evidence())
+        }
         clock = 110_000_000L
         measurement.pcmQueued()
         clock = 120_000_000L
@@ -50,9 +53,21 @@ class VoiceSpeechPlaybackProtocolTest {
             measurement.captionsPrepared(segment, spans.map { it.first..it.last })
             spans.forEach { measurement.caption(VoiceCaptionTiming("local", 0, 24_000, 200, 24_000, 0, true, bufferedEndFrame = 24_000), segment, it.first..it.last) }
         }
-        clock = 1_200_000_000L
+        clock = if (sustained) 180_200_000_000L else 1_200_000_000L
         measurement.terminal(0, 0, 0, "audio_timestamp", "speaker")
-        return measurement.result(VoiceSpeechPlaybackState.COMPLETE, 0).copy(cleanupState = "RETIRED")
+        val result = measurement.result(VoiceSpeechPlaybackState.COMPLETE, 0).copy(cleanupState = "RETIRED")
+        return if (!sustained) {
+            result
+        } else {
+            result.copy(
+                sustainedTargetAudioMs = 300_000,
+                sustainedObservedAudioMs = (plan.repeat + 1) * 180_000L,
+                sustainedWallElapsedMs = (plan.repeat + 1) * 180_200L,
+                sustainedWallDeadlineMs = 720_000,
+                sustainedCompletedRepeats = plan.repeat + 1,
+                sustainedQualification = if (plan.repeat == 0) "IN_PROGRESS" else "TARGET_REACHED"
+            )
+        }
     }
 
     @Test fun independentManifestCatchesTheSameWordOmittedByBothProducerAndCaptionObserver() {
@@ -106,6 +121,14 @@ class VoiceSpeechPlaybackProtocolTest {
         assertTrue(warm.drop(1).all { it.expectedResident && !it.warmup })
         assertTrue(plans.filter { it.scenario == VoiceSpeechPlaybackScenario.STREAMED_SEGMENTS }.all { it.segments.size == 3 && it.arrivalIntervalMs == 500L })
         assertEquals(282, plans.single { it.scenario == VoiceSpeechPlaybackScenario.SUSTAINED }.manifest.spans.size)
+        val expanded = VoiceSpeechPlaybackProtocol.expandedPlans(config, VoiceSpeechSustainedSeries.MAX_REPLIES)
+        assertEquals(39, VoiceSpeechPlaybackProtocol.maximumSamples(config))
+        assertEquals(39, expanded.size)
+        assertEquals(expanded.size, expanded.map { it.identity }.distinct().size)
+        val sustained = expanded.filter { it.scenario == VoiceSpeechPlaybackScenario.SUSTAINED }
+        assertEquals(16, sustained.size)
+        assertEquals(1, sustained.map { it.manifest }.distinct().size)
+        assertTrue(sustained.drop(1).all { it.expectedResident })
         assertEquals(VoiceSpeechCancellationTarget.entries.toSet(), plans.mapNotNull { it.cancellationTarget }.toSet())
         assertEquals(47, VoiceSpeechCaptionManifest.from(listOf(VoiceSpeechBenchmarkFixture.LONG.text)).spans.size)
     }
@@ -159,7 +182,7 @@ class VoiceSpeechPlaybackProtocolTest {
 
     @Test fun qualificationRequiresTheExactDeclaredSuiteAndActualResidentReuse() {
         val configuration = configuration(full = true).copy(playbackScenarios = VoiceSpeechPlaybackScenario.entries)
-        val rows = VoiceSpeechPlaybackProtocol.plans(configuration).map { plan ->
+        val rows = VoiceSpeechPlaybackProtocol.expandedPlans(configuration, 2).map { plan ->
             observed(plan).let { result ->
                 if (plan.cancellationTarget == null) result else result.copy(state = VoiceSpeechPlaybackState.CANCELLED, cancellationMs = 7, cancellationTargetReached = true)
             }
@@ -189,7 +212,7 @@ class VoiceSpeechPlaybackProtocolTest {
 
     @Test fun playbackRankingRejectsFastShortenedNativeAudioAndUnobservedLegacySignals() {
         val configuration = configuration(full = true).copy(backends = listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU), playbackScenarios = VoiceSpeechPlaybackScenario.entries)
-        val cpu = VoiceSpeechPlaybackProtocol.plans(configuration).map { plan ->
+        val cpu = VoiceSpeechPlaybackProtocol.expandedPlans(configuration, 2).map { plan ->
             observed(plan).let { if (plan.cancellationTarget == null) it else it.copy(state = VoiceSpeechPlaybackState.CANCELLED, cancellationMs = 7, cancellationTargetReached = true) }
         }
         val gpu = cpu.map { row ->
@@ -215,6 +238,43 @@ class VoiceSpeechPlaybackProtocolTest {
         val missing = report.copy(playbackResults = report.playbackResults.map { row -> row.copy(chunkRecords = row.chunkRecords.map { it.copy(audioObservation = null) }) })
         assertNull(missing.recommendation())
         assertEquals(VoiceSpeechAudioReferenceStatus.UNOBSERVED, missing.playbackAudioReference(VoiceSpeechBackend.CPU))
+    }
+
+    @Test fun sustainedQualificationDoesNotMixDurationWorkIntoTheFixedWorkloadRanking() {
+        val config = configuration(full = true).copy(
+            backends = listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU),
+            playbackScenarios = VoiceSpeechPlaybackScenario.entries
+        )
+        val cpu = VoiceSpeechPlaybackProtocol.expandedPlans(config, 2).map { plan ->
+            observed(plan).let { if (plan.cancellationTarget == null) it else it.copy(state = VoiceSpeechPlaybackState.CANCELLED, cancellationMs = 7, cancellationTargetReached = true) }
+        }
+        val gpu = cpu.map { row ->
+            val sustained = row.scenario == VoiceSpeechPlaybackScenario.SUSTAINED
+            row.copy(
+                requestedBackend = VoiceSpeechBackend.QNN_GPU,
+                effectiveProvider = "qnn-gpu",
+                acceleratorExecutionObserved = true,
+                elapsedMs = if (sustained) 239_000 else row.elapsedMs * 9 / 10,
+                sustainedWallElapsedMs = if (sustained) (row.repeat + 1) * 239_000L else null,
+                chunkRecords = row.chunkRecords.map { it.copy(effectiveProvider = "qnn-gpu", acceleratorKernels = 40) }
+            )
+        }
+        val report = VoiceSpeechBenchmarkReport(
+            1,
+            config,
+            VoiceSpeechBenchmarkRunState.COMPLETE,
+            results = config.backends.map { VoiceSpeechBenchmarkBackendResult(it, VoiceSpeechBenchmarkBackendState.COMPLETE) },
+            playbackResults = cpu + gpu
+        )
+        assertEquals(config.backends, report.qualifiedPlaybackBackends())
+        assertTrue(gpu.sumOf { it.elapsedMs } > cpu.sumOf { it.elapsedMs })
+        assertEquals(VoiceSpeechBackend.QNN_GPU, report.recommendation())
+        val legacy = report.copy(
+            playbackResults = report.playbackResults.map {
+                if (it.scenario == VoiceSpeechPlaybackScenario.SUSTAINED) it.copy(sustainedQualification = null) else it
+            }
+        )
+        assertNull(legacy.recommendation())
     }
 
     @Test fun runtimeSetupFailureCannotBeMisclassifiedAsAnInvalidFixedFixture() {
@@ -267,7 +327,7 @@ class VoiceSpeechPlaybackProtocolTest {
             playbackResults = listOf(result)
         )
         val json = speechBenchmarkJson(report, local = true)
-        assertEquals(5, (json.getValue("schemaVersion") as JsonPrimitive).content.toInt())
+        assertEquals(6, (json.getValue("schemaVersion") as JsonPrimitive).content.toInt())
         assertTrue(json.getValue("results").jsonArray.isEmpty())
         assertEquals(1, json.getValue("backendStates").jsonArray.size)
         assertFalse(json.getValue("backendStates").toString().contains("measuredCostMs"))

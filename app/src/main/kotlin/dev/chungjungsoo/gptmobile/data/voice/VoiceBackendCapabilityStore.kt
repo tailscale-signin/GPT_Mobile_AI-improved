@@ -10,7 +10,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Small, device/model/runtime-scoped receipts. Called only by the synthesis/I/O owner. */
-internal class VoiceBackendCapabilityStore(context: Context) {
+internal class VoiceBackendCapabilityStore(
+    context: Context,
+    private val runtimeConfiguration: String = "htp=balanced;context=1",
+    private val modelSha256: String = KokoroModelPack.MODEL_SHA256
+) {
+    init {
+        require(modelSha256.matches(Regex("[0-9a-f]{64}")))
+    }
     private val preferences = context.getSharedPreferences("voice_backend_capabilities_v1", Context.MODE_PRIVATE)
     private val fixtureHash = VoiceSpeechWorkload.fixtureHash(VoiceSpeechBenchmarkWorkload.UTTERANCE)
     val deviceKey = digest("${Build.FINGERPRINT}|${Build.SUPPORTED_ABIS.joinToString()}|${Build.VERSION.SDK_INT}")
@@ -19,7 +26,7 @@ internal class VoiceBackendCapabilityStore(context: Context) {
 
     fun comparisonScope(lexicon: String, threads: Int, voice: KokoroVoice = KokoroVoice.HEART, speechRate: Float = 1f): String {
         require(threads in 1..4 && speechRate.isFinite() && speechRate in .5f..2f)
-        return digest("${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}|$fixtureHash|${TimedKokoro.RUNTIME_ID}|${KokoroModelPack.MODEL_SHA256}|$deviceKey|$lexicon|$threads|${voice.name}|${voice.speakerId}|${speechRate.toBits()}")
+        return digest("${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}|$fixtureHash|${TimedKokoro.RUNTIME_ID}|$runtimeConfiguration|$modelSha256|$deviceKey|$lexicon|$threads|${voice.name}|${voice.speakerId}|${speechRate.toBits()}")
     }
 
     fun key(backend: VoiceSpeechBackend, lexicon: String, threads: Int, voice: KokoroVoice = KokoroVoice.HEART, speechRate: Float = 1f): String =

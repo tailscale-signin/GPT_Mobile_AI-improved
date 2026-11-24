@@ -8,8 +8,6 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 
 internal object KokoroModelPack {
-    private const val REVISION = "kokoro-int8-multi-lang-v1_0"
-    private const val ARCHIVE = "$REVISION.tar.bz2"
     const val DOWNLOAD_BYTES = 132_353_410L
     const val MODEL = "model.int8.onnx"
     const val MODEL_SHA256 = "75635ea3b85a32d00094dcdd61a258aba87c160f7c264c304a7b3ae9d734195e"
@@ -18,16 +16,10 @@ internal object KokoroModelPack {
     const val US_LEXICON = "lexicon-us-en.txt"
     const val GB_LEXICON = "lexicon-gb-en.txt"
 
-    private val archive = LocalVoiceAsset(
-        ARCHIVE,
-        DOWNLOAD_BYTES,
-        "72c347230107ef8a31098ec4d468a605244beef5f1ed00db97efa13518800653",
-        listOf("https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$ARCHIVE")
-    )
-
     // Only the English renderer's inputs are installed from the verified release.
-    private val files = listOf(
-        file(MODEL, 114_202_993, MODEL_SHA256),
+    // Both releases contain byte-identical frontend, voice and licence assets.
+    private fun files(variant: KokoroModelVariant) = listOf(
+        file(variant.modelFile, variant.modelBytes, variant.modelSha256),
         file(VOICES, 28_200_960, "1c5a5b983d3d50d8586d437a51f3faa2da7919ce76a013c081e65671a3447c29"),
         file(TOKENS, 687, "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425"),
         file(US_LEXICON, 5_956_885, "7daaab53a181be9885b853a8582bf1838186317e5dadacbcef9c426d6fa0da14"),
@@ -35,19 +27,26 @@ internal object KokoroModelPack {
         file("LICENSE", 11_358, "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30")
     )
 
-    fun store(voiceModelsDirectory: File, sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() }) = LocalVoiceModelStore(
-        File(voiceModelsDirectory, REVISION),
-        listOf(archive),
-        expandedAssets = files,
-        expandArchive = ::unpack,
-        revision = archive.sha256,
-        sourceFactory = sourceFactory
-    )
+    fun store(
+        voiceModelsDirectory: File,
+        sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() },
+        variant: KokoroModelVariant = KokoroModelVariant.INT8
+    ): LocalVoiceModelStore {
+        val archive = LocalVoiceAsset(variant.archiveFile, variant.downloadBytes, variant.archiveSha256, listOf(variant.archiveUrl))
+        return LocalVoiceModelStore(
+            File(voiceModelsDirectory, variant.revision),
+            listOf(archive),
+            expandedAssets = files(variant),
+            expandArchive = { directory -> unpack(directory, variant) },
+            revision = archive.sha256,
+            sourceFactory = sourceFactory
+        )
+    }
 
     /** Called only after the archive length and SHA-256 have been checked. */
-    private suspend fun unpack(directory: File) {
-        val archiveFile = File(directory, ARCHIVE)
-        val expected = files.associateBy { "$REVISION/${it.name}" }
+    private suspend fun unpack(directory: File, variant: KokoroModelVariant) {
+        val archiveFile = File(directory, variant.archiveFile)
+        val expected = files(variant).associateBy { "${variant.revision}/${it.name}" }
         val extracted = mutableSetOf<String>()
         val buffer = ByteArray(64 * 1024)
         archiveFile.inputStream().buffered().use { source ->
@@ -74,7 +73,7 @@ internal object KokoroModelPack {
                 }
             }
         }
-        check(extracted.size == files.size) { "Could not finish preparing the Kokoro model." }
+        check(extracted.size == expected.size) { "Could not finish preparing the Kokoro model." }
     }
 
     private fun file(name: String, bytes: Long, sha256: String) = LocalVoiceAsset(name, bytes, sha256, emptyList())

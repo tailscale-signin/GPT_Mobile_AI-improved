@@ -3,7 +3,9 @@ package dev.chungjungsoo.gptmobile.presentation.ui.voice
 import android.content.Context
 import android.content.SharedPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriter
@@ -42,6 +44,9 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
                     .putInt("kokoro_threads", value.kokoroThreads).putBoolean("button_sounds", value.buttonSounds)
                     .putString("pause_duration", value.pause.name).putString("performance_mode", value.performance.name)
                     .putBoolean("speak_while_generating", value.speakWhileGenerating)
+                    .putString("litert_kokoro_bucket", value.kokoroBucket.name)
+                    .putBoolean("incremental_speech_input", value.incrementalSpeech)
+                    .putString("native_kokoro_model_variant", value.nativeModelVariant.name)
                     .putString("listening_style", value.tuning.listeningStyle.name)
                     .putInt("capture_batch_ms", value.tuning.captureBatchMs)
                     .putBoolean("hands_free_interruption", value.tuning.handsFreeInterruption)
@@ -95,6 +100,9 @@ internal fun readVoicePreferences(saved: Map<String, *>): VoicePreferences {
         pause = VoicePauseDuration.entries.firstOrNull { it.name == saved["pause_duration"] } ?: defaults.pause,
         performance = VoicePerformanceMode.entries.firstOrNull { it.name == saved["performance_mode"] } ?: defaults.performance,
         speakWhileGenerating = saved["speak_while_generating"] as? Boolean ?: defaults.speakWhileGenerating,
+        kokoroBucket = MediaPipeKokoroBucket.entries.firstOrNull { it.name == saved["litert_kokoro_bucket"] } ?: defaults.kokoroBucket,
+        incrementalSpeech = saved["incremental_speech_input"] as? Boolean ?: defaults.incrementalSpeech,
+        nativeModelVariant = KokoroModelVariant.entries.firstOrNull { it.name == saved["native_kokoro_model_variant"] } ?: defaults.nativeModelVariant,
         tuning = readVoiceTuningPreferences(saved)
     )
 }

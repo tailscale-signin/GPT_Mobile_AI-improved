@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
+import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkEngine
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechBenchmarkReport
 
@@ -12,7 +13,8 @@ internal data class VoiceSpeechBenchmarkUiState(
     val saved: Boolean = true,
     val notice: String? = null,
     val nativeCleanupPending: Boolean = false,
-    val availableEngines: Set<VoiceSpeechBenchmarkEngine> = emptySet()
+    val availableEngines: Set<VoiceSpeechBenchmarkEngine> = emptySet(),
+    val availableNativeVariants: Set<KokoroModelVariant> = emptySet()
 ) {
     fun withQuarantine(reason: VoiceSpeechBenchmarkOwnership.QuarantineReason?): VoiceSpeechBenchmarkUiState =
         if (reason == null) this else copy(nativeCleanupPending = true, notice = reason.notice)

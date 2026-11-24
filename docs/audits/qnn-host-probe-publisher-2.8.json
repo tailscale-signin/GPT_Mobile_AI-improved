@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "publisherMetadata": "https://pypi.org/pypi/onnxruntime-qnn/2.8.0/json",
+  "url": "https://files.pythonhosted.org/packages/9b/96/5b84b66907fce377e5f5b35b3ff4218e112aec96fedac627cfb912fe08de/onnxruntime_qnn-2.8.0-cp312-cp312-manylinux_2_35_x86_64.whl",
+  "bytes": 103772858,
+  "publisherSha256": "7a1a075ea8bfa1abd388a71dea750cbe004ec504e71de4489c9bddaa481d1676",
+  "downloadedSha256": "7a1a075ea8bfa1abd388a71dea750cbe004ec504e71de4489c9bddaa481d1676",
+  "files": {
+    "build_and_package_info.py": {
+      "bytes": 78,
+      "sha256": "6d6ec89b5381bf4d30f41903d5758919d7a2d910aca32138fcb1e404cbefa57a"
+    },
+    "libHtpPrepare.so": {
+      "bytes": 108817985,
+      "sha256": "e75fa2c5570b8d46e5d287115f69dfebf74ab8d12f7799a70df4c869e9742b02"
+    },
+    "libQnnHtp.so": {
+      "bytes": 108817993,
+      "sha256": "3d4b5f9981805fe784c6b70e1b41d90a59fb141fe36dd1905d920342f32ecea8"
+    },
+    "libQnnSystem.so": {
+      "bytes": 5499881,
+      "sha256": "8c3359bba288c791a8523912696761beaaa431027a3de251be92012c83de34f7"
+    },
+    "libonnxruntime_providers_qnn.so": {
+      "bytes": 5162912,
+      "sha256": "bdf648da66261d3c2633bffe6e52a753745f62fd5594cee890da23cf52f0d986"
+    },
+    "libc++-71bc274c.so.1.0": {
+      "bytes": 1364457,
+      "sha256": "46cee8e5f62e9b4a79b863b058879c5e9d4f41841650841df6f6669ebef2e2e2"
+    },
+    "libc++abi-0539aa51.so.1.0": {
+      "bytes": 259161,
+      "sha256": "2cb6d3e6acc815575d5a76acb45f99ae4ed5a4fcc04febaa8cd8981e07b89a47"
+    },
+    "libunwind-6b740a46.so.1.0": {
+      "bytes": 45809,
+      "sha256": "a00822cc6221850754a491cbafa2b2e2fefac06f61f108cc8e80f0869fe5f724"
+    }
+  },
+  "scope": "Host compatibility probe only; no Android or physical qualification"
+}

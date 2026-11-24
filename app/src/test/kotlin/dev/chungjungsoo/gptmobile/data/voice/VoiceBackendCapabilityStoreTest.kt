@@ -180,6 +180,38 @@ class VoiceBackendCapabilityStoreTest {
         assertNotEquals(factory.identity, QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.AUTO, {}, voice = KokoroVoice.HEART, speechRate = 1.25f).identity)
     }
 
+    @Test fun htpExperimentsCannotReuseBalancedAdmissionOrPairDifferentPerformanceModes() {
+        val balanced = VoiceBackendCapabilityStore(context)
+        val burst = VoiceBackendCapabilityStore(context, "htp=burst;context=1")
+        val cpu = record(balanced.key(VoiceSpeechBackend.CPU, "us", 2), VoiceSpeechBackend.CPU, now, List(6) { 100L })
+            .copy(comparisonScope = balanced.comparisonScope("us", 2))
+        val accelerator = record(burst.key(VoiceSpeechBackend.QNN_HTP, "us", 2), VoiceSpeechBackend.QNN_HTP, now, List(6) { 50L }, true)
+            .copy(comparisonScope = burst.comparisonScope("us", 2))
+        burst.save(accelerator)
+        assertNotEquals(balanced.comparisonScope("us", 2), burst.comparisonScope("us", 2))
+        assertNull(balanced.read(balanced.key(VoiceSpeechBackend.QNN_HTP, "us", 2), now))
+        assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu, accelerator), now))
+        val ordinary = QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.AUTO, {})
+        val experiment = QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.AUTO, {}, htpPerformanceMode = "burst")
+        assertNotEquals(ordinary.identity, experiment.identity)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.QNN_HTP, {}, htpPerformanceMode = "unverified-mode")
+        }
+    }
+
+    @Test fun modelVariantsCannotShareAdmissionAndResidentFactoryIdentity() {
+        val compact = VoiceBackendCapabilityStore(context)
+        val original = VoiceBackendCapabilityStore(context, modelSha256 = KokoroModelVariant.ORIGINAL_FP32.modelSha256)
+        assertNotEquals(compact.comparisonScope("us", 2), original.comparisonScope("us", 2))
+        val compactFactory = QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.CPU, {})
+        val originalFactory = QualcommVoicePhraseEngineFactory(context, VoiceSpeechBackend.CPU, {}, modelVariant = KokoroModelVariant.ORIGINAL_FP32)
+        assertNotEquals(compactFactory.identity, originalFactory.identity)
+        assertTrue(originalFactory.identity.contains(KokoroModelVariant.ORIGINAL_FP32.modelSha256))
+        assertEquals(TimedKokoroPhraseEngineFactory.forVariant(KokoroModelVariant.ORIGINAL_FP32), originalFactory.cpuCalibrationFactory)
+        assertNotEquals(compactFactory.cpuCalibrationFactory.identity, originalFactory.cpuCalibrationFactory.identity)
+        assertEquals(originalFactory.cpuCalibrationFactory, originalFactory.cpuCalibrationFactory.cpuCalibrationFactory)
+    }
+
     @Test fun invalidProbeCannotEraseWorkingHardwareReceiptAndSupportCannotRefreshRanking() {
         val store = VoiceBackendCapabilityStore(context)
         val key = store.key(VoiceSpeechBackend.QNN_HTP, "us", 2)

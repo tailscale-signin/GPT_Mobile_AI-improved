@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.PowerManager
 import dev.melo.kokoro.TimedKokoro
 import java.io.File
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -18,13 +19,17 @@ internal class QualcommVoicePhraseEngineFactory(
     private val report: (String) -> Unit,
     private val calibrateAll: Boolean = false,
     private val voice: KokoroVoice = KokoroVoice.HEART,
-    private val speechRate: Float = 1f
+    private val speechRate: Float = 1f,
+    private val htpPerformanceMode: String = "balanced",
+    private val modelVariant: KokoroModelVariant = KokoroModelVariant.INT8
 ) : VoicePhraseEngineFactory {
     init {
         require(speechRate.isFinite() && speechRate in .5f..2f)
+        require(htpPerformanceMode in setOf("balanced", "burst", "high_performance"))
     }
 
     override val selectedBackend: VoiceSpeechBackend get() = backend
+    override val cpuCalibrationFactory: VoicePhraseEngineFactory get() = TimedKokoroPhraseEngineFactory.forVariant(modelVariant)
     override val nativeCleanupPending: Boolean get() = preparationRetirement.nativeCleanupPending
 
     // Recheck visits fourteen production chunks per backend, including changed-shape graph compilation.
@@ -34,12 +39,23 @@ internal class QualcommVoicePhraseEngineFactory(
     private val preparationRetirement = VoiceNativePreparationRetirement()
     private val generation = AtomicLong()
     private val calibrated = AtomicBoolean(false)
-    private val store = runCatching { VoiceBackendCapabilityStore(context) }.getOrNull()
+    private val runtimeConfiguration = "htp=$htpPerformanceMode;context=1"
+    private val store = runCatching { VoiceBackendCapabilityStore(context, runtimeConfiguration, modelVariant.modelSha256) }.getOrNull()
     private val thermal = context.getSystemService(PowerManager::class.java)
     private val libraryDirectory = context.applicationInfo.nativeLibraryDir
     private val profileDirectory = File(context.cacheDir, "voice-provider-profiles")
+    private val compiledContextDirectory = File(runCatching { context.cacheDir.canonicalFile }.getOrDefault(context.cacheDir), "voice-compiled-contexts-v1")
+    private val compiledContextIdentity = Build.FINGERPRINT?.takeIf { it.isNotBlank() && it != "unknown" }?.let { firmware ->
+        MessageDigest.getInstance("SHA-256").digest(
+            listOf(
+                "kokoro-context-v1", modelVariant.modelSha256, TimedKokoro.RUNTIME_ID, runtimeConfiguration,
+                firmware, Build.VERSION.INCREMENTAL, Build.VERSION.SDK_INT.toString(), Build.SUPPORTED_ABIS.joinToString(),
+                Build.HARDWARE, Build.BOOTLOADER, Build.SOC_MODEL, Build.SOC_MANUFACTURER
+            ).joinToString("|").toByteArray(Charsets.UTF_8)
+        ).joinToString("") { "%02x".format(it) }
+    }.orEmpty()
     private val deviceKey = store?.deviceKey ?: "unavailable"
-    override val identity = "kokoro-${backend.name}-${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}-${TimedKokoro.RUNTIME_ID}-${KokoroModelPack.MODEL_SHA256}-$deviceKey-${voice.name}-${speechRate.toBits()}-${store?.revision() ?: 0}"
+    override val identity = "kokoro-${backend.name}-${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}-${TimedKokoro.RUNTIME_ID}-$runtimeConfiguration-${modelVariant.modelSha256}-$deviceKey-${voice.name}-${speechRate.toBits()}-${store?.revision() ?: 0}"
 
     override fun cancelPending() {
         generation.incrementAndGet()
@@ -64,7 +80,7 @@ internal class QualcommVoicePhraseEngineFactory(
                         val audio = try {
                             native.generate(text, speaker, speed)
                         } catch (error: Exception) {
-                            observed = speechFailureExecutionEvidence(error, backend, deviceKey)
+                            observed = speechFailureExecutionEvidence(error, backend, deviceKey, modelVariant.modelSha256)
                             throw error
                         }
                         val receipt = native.evidence()
@@ -200,7 +216,7 @@ internal class QualcommVoicePhraseEngineFactory(
                 val audio = try {
                     native.generate(text, speaker, speed)
                 } catch (error: Exception) {
-                    observed = speechFailureExecutionEvidence(error, backend, deviceKey)
+                    observed = speechFailureExecutionEvidence(error, backend, deviceKey, modelVariant.modelSha256)
                     throw error
                 }
                 val result = native.evidence()
@@ -246,15 +262,26 @@ internal class QualcommVoicePhraseEngineFactory(
             ) { "PROVIDER_LOAD" }
             check(profileDirectory.isDirectory || profileDirectory.mkdirs()) { "PROVIDER_LOAD" }
         }
+        // Only HTP has a verified EPContext export path in the pinned plugin.
+        // A cache directory failure leaves normal source-model synthesis usable.
+        val contextPath = if (selected == VoiceSpeechBackend.QNN_HTP && compiledContextIdentity.isNotEmpty()) {
+            runCatching { compiledContextDirectory.mkdirs() }
+            compiledContextDirectory.absolutePath
+        } else {
+            ""
+        }
         return TimedKokoro(
-            File(directory, KokoroModelPack.MODEL).absolutePath,
+            File(directory, modelVariant.modelFile).absolutePath,
             File(directory, KokoroModelPack.VOICES).absolutePath,
             File(directory, KokoroModelPack.TOKENS).absolutePath,
             File(directory, lexicon).absolutePath,
             threads,
             provider(selected),
             libraryDirectory,
-            File(profileDirectory, UUID.randomUUID().toString()).absolutePath
+            File(profileDirectory, UUID.randomUUID().toString()).absolutePath,
+            contextPath,
+            compiledContextIdentity,
+            htpPerformanceMode
         ).also { pending.set(it) }
     }
 
@@ -332,7 +359,7 @@ internal class QualcommVoicePhraseEngineFactory(
     private fun thermalStatus(): Int? = runCatching { thermal?.currentThermalStatus }.getOrNull()?.takeIf { it in 0..6 }
 
     private fun evidence(native: TimedKokoro.Evidence, effective: String, failure: VoiceBackendCapability?) = VoiceSpeechExecutionEvidence(
-        backend, effective, KokoroModelPack.MODEL_SHA256, TimedKokoro.RUNTIME_ID, deviceKey,
+        backend, effective, modelVariant.modelSha256, TimedKokoro.RUNTIME_ID, deviceKey,
         if (failure == null) VoiceSpeechStage.READY else VoiceSpeechStage.CPU_FALLBACK, failure?.failure,
         native.acceleratorKernels, native.cpuKernels, native.acceleratorMicros, native.cpuMicros, native.prepareMs,
         native.synthesisMs, native.tokenCount, native.validatedAudio, System.currentTimeMillis(), failure?.nativeCode,
@@ -378,11 +405,19 @@ internal class QualcommVoicePhraseEngineFactory(
         durationMin = native.durationMin,
         durationMax = native.durationMax,
         durationStatsAvailable = native.durationStatsAvailable,
-        durationSumOverflow = native.durationSumOverflow
+        durationSumOverflow = native.durationSumOverflow,
+        graphPreparationSource = safeSpeechGraphPreparation(native.graphPreparationSource),
+        contextCacheStatus = safeSpeechContextCacheStatus(native.contextCacheStatus),
+        contextLoadMs = native.contextLoadMs,
+        contextStoreMs = native.contextStoreMs,
+        contextBytes = native.contextBytes,
+        contextCacheEvictions = native.contextCacheEvictions,
+        contextFallback = native.contextFallback,
+        htpPerformanceMode = safeSpeechHtpPerformanceMode(native.htpPerformanceMode)
     )
 
     private fun failureEvidence(failure: VoiceBackendCapability) = VoiceSpeechExecutionEvidence(
-        backend, "cpu", KokoroModelPack.MODEL_SHA256, TimedKokoro.RUNTIME_ID, deviceKey,
+        backend, "cpu", modelVariant.modelSha256, TimedKokoro.RUNTIME_ID, deviceKey,
         VoiceSpeechStage.CPU_FALLBACK, failure.failure, tokenCount = failure.tokenCount ?: 0,
         observedAtMillis = System.currentTimeMillis(), nativeCode = failure.nativeCode,
         failureStage = failure.failureStage, failedProvider = provider(failure.backend), failedTokenCount = failure.tokenCount,

@@ -52,3 +52,12 @@ condition = "AND"
 paths = ['''^docs/repairs/evidence/speech-benchmark-1795470489503/combined-host-source-tests\.json$''']
 regexTarget = "line"
 regexes = ['''^\s*"mockk-agent-api-jvm-1\.14\.11\.jar": "9459d7eb7694b6e0039e19f7d1a89dfc7ae1fa782ff8d38f2952bda1ffa39242",\s*$''']
+
+# Exact public Compose UI test AAR checksum in the lifecycle API review.
+# Scanner controls bind it to the approved dependency pin. Only this complete
+# field/value line at this path is exempt; nearby API credentials still scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^docs/repairs/privacy-lifecycle-disposal-idle-2026-11-24-task\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"apiArtifactSha256": "2beafe8ba6c4ac2335159a7bdc08ac3eaac205f183d5d6b29b2eb87a2458b7ff"\s*$''']

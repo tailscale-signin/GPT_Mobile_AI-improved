@@ -13,6 +13,8 @@ internal class MediaPipeVoicePhraseEngineFactory(
     private val backend: VoiceSpeechBackend,
     private val speakingRate: Float,
     private val voiceId: String = MediaPipeSpeechCatalog.model(engine).defaultVoice,
+    val kokoroBucket: MediaPipeKokoroBucket = MediaPipeKokoroBucket.AUTO,
+    val incrementalInput: Boolean = true,
     private val taskFactory: (MediaPipeSpeechTaskConfiguration) -> MediaPipeSpeechTask = ::AndroidMediaPipeSpeechTask
 ) : VoicePhraseEngineFactory {
     private val model = MediaPipeSpeechCatalog.model(engine)
@@ -38,7 +40,11 @@ internal class MediaPipeVoicePhraseEngineFactory(
     override val requiresKokoroAssets: Boolean get() = false
     override val nativeCleanupPending: Boolean get() = cleanupPending.get()
     override fun isReady(): Boolean = modelStore.isReady(engine)
-    override val identity = "${MediaPipeSpeechCatalog.RUNTIME_ID}:${model.sha256}:${backend.name}:${speakingRate.toBits()}:$voiceId"
+    val effectiveTargetBucket: Int = if (engine == MediaPipeSpeechEngine.KOKORO) kokoroBucket.sdkValue else 0
+    override val residentIdentity = "${MediaPipeSpeechCatalog.RUNTIME_ID}:${model.sha256}:${backend.name}:${speakingRate.toBits()}:bucket=$effectiveTargetBucket:incremental=$incrementalInput"
+    override val identity = "$residentIdentity:voice=$voiceId"
+
+    override fun prepareForPlayback(engine: VoicePhraseEngine) = engine.selectVoice(voiceId)
 
     override fun cancelPending() {
         generation.incrementAndGet()
@@ -50,7 +56,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
         // directory/lexicon/threads belong to the legacy engine contract. The SDK exposes no
         // thread-count control, and its model/voice frontend is wholly inside the verified bundle.
         val ticket = generation.get()
-        val lease = modelStore.acquire(engine, backend, speakingRate, voiceId)
+        val lease = modelStore.acquire(engine, backend, speakingRate, model.defaultVoice, effectiveTargetBucket)
         var task: MediaPipeSpeechTask? = null
         try {
             checkTicket(ticket)
@@ -60,7 +66,8 @@ internal class MediaPipeVoicePhraseEngineFactory(
                     lease.cacheDirectory,
                     backend == VoiceSpeechBackend.LITERT_KOKORO_GPU,
                     speakingRate,
-                    voiceId
+                    model.defaultVoice,
+                    effectiveTargetBucket
                 )
             )
             synchronized(pendingLock) {
@@ -72,7 +79,7 @@ internal class MediaPipeVoicePhraseEngineFactory(
                 checkTicket(ticket)
                 pending = null
             }
-            return MediaPipeVoicePhraseEngine(task, lease, backend, speakingRate, voiceId)
+            return MediaPipeVoicePhraseEngine(task, lease, backend, speakingRate, voiceId, incrementalInput)
         } catch (failure: Throwable) {
             synchronized(pendingLock) { if (pending === task) pending = null }
             val closeFailure = runCatching { task?.close() }.exceptionOrNull()

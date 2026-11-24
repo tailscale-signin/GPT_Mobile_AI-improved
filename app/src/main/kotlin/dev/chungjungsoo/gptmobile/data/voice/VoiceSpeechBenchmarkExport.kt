@@ -22,8 +22,40 @@ import kotlinx.serialization.json.put
 internal fun voiceSpeechBenchmarkExport(report: VoiceSpeechBenchmarkReport): String =
     Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), speechBenchmarkJson(report))
 
-internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Boolean = false): JsonObject = buildJsonObject {
-    put("schemaVersion", 5)
+/** Freeze the report before calling; staging and document-provider copies run off the UI thread. */
+internal fun writeVoiceSpeechBenchmarkExport(report: VoiceSpeechBenchmarkReport, output: java.io.OutputStream, local: Boolean = false) {
+    VoiceExportJsonWriter(output).apply {
+        objectValue(
+            speechBenchmarkJson(report, local = local, includeRecords = false),
+            mapOf(
+                "results" to {
+                    array(report.results.takeUnless { report.configuration.playback }.orEmpty()) { result ->
+                        objectValue(
+                            speechBenchmarkResultJson(report, result, includeRecords = false),
+                            mapOf(
+                                "samples" to { array(result.samples) { element(speechBenchmarkSampleJson(it)) } },
+                                "incompleteChunks" to { array(result.incompleteChunks) { element(chunkJson(it)) } }
+                            )
+                        )
+                    }
+                },
+                "playbackResults" to { array(report.playbackResults) { element(playbackJson(it)) } },
+                "engineResults" to {
+                    array(report.engineResults) { result ->
+                        objectValue(
+                            speechEngineBenchmarkJson(result, includeSamples = false),
+                            mapOf("samples" to { array(result.samples) { element(engineSampleJson(it)) } })
+                        )
+                    }
+                }
+            )
+        )
+        finish()
+    }
+}
+
+internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Boolean = false, includeRecords: Boolean = true): JsonObject = buildJsonObject {
+    put("schemaVersion", 6)
     val nativeEngine = report.configuration.engine == VoiceSpeechBenchmarkEngine.NATIVE_KOKORO
     put("fixtureVersion", report.configuration.fixtureVersion)
     nullable("playbackFixture", "PER_SAMPLE_MANIFEST".takeIf { report.configuration.playback })
@@ -169,6 +201,21 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
             put("voiceScope", if (nativeEngine) "configured_native_voice" else "engineVoiceId_is_actual_sdk_voice_native_voice_field_is_not_used")
             put("threadsScope", if (nativeEngine) "configured_native_cpu_threads" else "not_exposed_by_sdk_native_threads_field_is_not_used")
             put("deepDiagnostics", c.deepDiagnostics)
+            put("kokoroBucket", c.kokoroBucket.name)
+            put("kokoroBucketTokens", c.kokoroBucket.sdkValue)
+            put("incrementalInput", c.incrementalInput)
+            put(
+                "sdkInputMode",
+                if (nativeEngine) {
+                    "NOT_APPLICABLE"
+                } else if (c.incrementalInput) {
+                    "INCREMENTAL_REPLY"
+                } else {
+                    "PHRASE_STREAMS"
+                }
+            )
+            put("htpPerformanceMode", c.htpPerformanceMode)
+            put("nativeModelVariant", c.nativeModelVariant.name)
             put(
                 "deadlines",
                 c.deadlines?.let { limits ->
@@ -196,6 +243,7 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
             put("playback", c.playback)
             put("playbackProtocolVersion", c.playbackProtocolVersion)
             put("playbackScenarios", buildJsonArray { c.playbackScenarios.forEach { add(JsonPrimitive(it.name)) } })
+            put("sustainedTargetAudioMs", c.sustainedTargetAudioMs)
             put("calibrationPolicy", c.calibrationPolicy.name)
             put("captionOffsetMs", c.captionOffsetMs)
             if (local) nullable("localDeviceKey", c.deviceKey.takeIf { it.matches(SHA256) })
@@ -204,122 +252,126 @@ internal fun speechBenchmarkJson(report: VoiceSpeechBenchmarkReport, local: Bool
     put(
         "results",
         buildJsonArray {
-            for (r in report.results.takeUnless { report.configuration.playback }.orEmpty()) {
+            for (r in report.results.takeIf { includeRecords && !report.configuration.playback }.orEmpty()) {
+                add(
+                    speechBenchmarkResultJson(report, r)
+                )
+            }
+        }
+    )
+    put("playbackResults", buildJsonArray { report.playbackResults.takeIf { includeRecords }.orEmpty().forEach { add(playbackJson(it)) } })
+    put("engineResults", buildJsonArray { report.engineResults.takeIf { includeRecords }.orEmpty().forEach { add(speechEngineBenchmarkJson(it)) } })
+}
+
+private fun speechBenchmarkResultJson(report: VoiceSpeechBenchmarkReport, r: VoiceSpeechBenchmarkBackendResult, includeRecords: Boolean = true): JsonObject = buildJsonObject {
+    put("requestedBackend", r.requestedBackend.name)
+    put("state", r.state.name)
+    nullable("sessionPrepareMs", r.sessionPrepareMs)
+    nullable("preparationThermalBefore", r.preparationThermalBefore)
+    nullable("failure", r.failure?.name)
+    nullable("failureStage", r.failureStage?.name)
+    nullable("nativeCode", r.nativeCode)
+    put("failureEffectiveProvider", provider(r.failureEffectiveProvider))
+    nullable("failureAcceleratorKernels", r.failureAcceleratorKernels)
+    nullable("failureCpuKernels", r.failureCpuKernels)
+    nullable("failedFixture", r.failedFixture?.name)
+    nullable("failedRepeat", r.failedRepeat)
+    nullable("failedChunk", r.failedChunk)
+    nullable("failedInputBytes", r.failedInputBytes)
+    nullable("failedInputByteLimit", r.failedInputByteLimit)
+    nullable("failedTokenCount", r.failedTokenCount)
+    nullable("failedTokenLimit", r.failedTokenLimit)
+    put("failedRequestedProvider", provider(r.failedRequestedProvider))
+    nullable("failedDiscoverySummary", discovery(r.failedDiscoverySummary))
+    nullable("failedAttemptMs", r.failedAttemptMs)
+    put("failureObservation", r.failureObservation?.let(::failureObservationJson) ?: JsonNull)
+    nullable("incompleteFixture", r.incompleteFixture?.name)
+    nullable("incompleteRepeat", r.incompleteRepeat)
+    put("incompleteChunks", buildJsonArray { r.incompleteChunks.takeIf { includeRecords }.orEmpty().forEach { add(chunkJson(it)) } })
+    put("executionVerified", r.executionVerified)
+    put("audioReference", audioReferenceJson(report.audioReference(r)))
+    put("shapeObservations", shapeObservationsJson(r))
+    nullable("cancellationStage", r.cancellationStage?.name)
+    nullable("cancellationNativeStage", r.cancellationNativeStage?.name)
+    nullable("cancellationNativeRetirementMs", r.cancellationNativeRetirementMs)
+    nullable("stopReason", r.stopReason?.name)
+    nullable("cleanupState", r.cleanupState?.name)
+    nullable("deadlineNativeRetirementMs", r.deadlineNativeRetirementMs)
+    put(
+        "deadline",
+        r.deadline?.let { timeout ->
+            buildJsonObject {
+                put("scope", timeout.scope.name)
+                put("limitMs", timeout.limitMs)
+                put("elapsedMs", timeout.elapsedMs)
+                nullable("stage", timeout.stage?.name)
+            }
+        } ?: JsonNull
+    )
+    put("verifiedRequestedBackend", r.verified)
+    put("qualifiedComparison", r in report.qualifiedResults())
+    put("measuredCostMs", r.measuredCostMs)
+    put("warmSampleCount", r.warmSamples.size)
+    put("medianWarmMs", number(r.medianMs))
+    nullable("p95WarmMs", r.p95Ms)
+    put("p95Availability", if (r.p95Ms == null) "INSUFFICIENT_SAMPLES" else "MEASURED")
+    put("medianWarmRealTimeFactor", number(r.medianRtf))
+    put(
+        "fixtureStatistics",
+        buildJsonArray {
+            for (fixture in VoiceSpeechBenchmarkFixture.entries) {
+                val s = r.fixtureStatistics(fixture)
                 add(
                     buildJsonObject {
-                        put("requestedBackend", r.requestedBackend.name)
-                        put("state", r.state.name)
-                        nullable("sessionPrepareMs", r.sessionPrepareMs)
-                        nullable("preparationThermalBefore", r.preparationThermalBefore)
-                        nullable("failure", r.failure?.name)
-                        nullable("failureStage", r.failureStage?.name)
-                        nullable("nativeCode", r.nativeCode)
-                        put("failureEffectiveProvider", provider(r.failureEffectiveProvider))
-                        nullable("failureAcceleratorKernels", r.failureAcceleratorKernels)
-                        nullable("failureCpuKernels", r.failureCpuKernels)
-                        nullable("failedFixture", r.failedFixture?.name)
-                        nullable("failedRepeat", r.failedRepeat)
-                        nullable("failedChunk", r.failedChunk)
-                        nullable("failedInputBytes", r.failedInputBytes)
-                        nullable("failedInputByteLimit", r.failedInputByteLimit)
-                        nullable("failedTokenCount", r.failedTokenCount)
-                        nullable("failedTokenLimit", r.failedTokenLimit)
-                        put("failedRequestedProvider", provider(r.failedRequestedProvider))
-                        nullable("failedDiscoverySummary", discovery(r.failedDiscoverySummary))
-                        nullable("failedAttemptMs", r.failedAttemptMs)
-                        put("failureObservation", r.failureObservation?.let(::failureObservationJson) ?: JsonNull)
-                        nullable("incompleteFixture", r.incompleteFixture?.name)
-                        nullable("incompleteRepeat", r.incompleteRepeat)
-                        put("incompleteChunks", buildJsonArray { r.incompleteChunks.forEach { add(chunkJson(it)) } })
-                        put("executionVerified", r.executionVerified)
-                        put("audioReference", audioReferenceJson(report.audioReference(r)))
-                        put("shapeObservations", shapeObservationsJson(r))
-                        nullable("cancellationStage", r.cancellationStage?.name)
-                        nullable("cancellationNativeStage", r.cancellationNativeStage?.name)
-                        nullable("cancellationNativeRetirementMs", r.cancellationNativeRetirementMs)
-                        nullable("stopReason", r.stopReason?.name)
-                        nullable("cleanupState", r.cleanupState?.name)
-                        nullable("deadlineNativeRetirementMs", r.deadlineNativeRetirementMs)
-                        put(
-                            "deadline",
-                            r.deadline?.let { timeout ->
-                                buildJsonObject {
-                                    put("scope", timeout.scope.name)
-                                    put("limitMs", timeout.limitMs)
-                                    put("elapsedMs", timeout.elapsedMs)
-                                    nullable("stage", timeout.stage?.name)
-                                }
-                            } ?: JsonNull
-                        )
-                        put("verifiedRequestedBackend", r.verified)
-                        put("qualifiedComparison", r in report.qualifiedResults())
-                        put("measuredCostMs", r.measuredCostMs)
-                        put("warmSampleCount", r.warmSamples.size)
-                        put("medianWarmMs", number(r.medianMs))
-                        nullable("p95WarmMs", r.p95Ms)
-                        put("p95Availability", if (r.p95Ms == null) "INSUFFICIENT_SAMPLES" else "MEASURED")
-                        put("medianWarmRealTimeFactor", number(r.medianRtf))
-                        put(
-                            "fixtureStatistics",
-                            buildJsonArray {
-                                for (fixture in VoiceSpeechBenchmarkFixture.entries) {
-                                    val s = r.fixtureStatistics(fixture)
-                                    add(
-                                        buildJsonObject {
-                                            put("fixture", fixture.name)
-                                            put("sampleCount", s.sampleCount)
-                                            put("warmSampleCount", s.warmSampleCount)
-                                            put("medianWarmMs", number(s.medianWarmMs))
-                                            nullable("p95WarmMs", s.p95WarmMs)
-                                            put("medianFirstPcmMs", number(s.medianFirstPcmMs))
-                                            put("medianWarmRtf", number(s.medianWarmRtf))
-                                            put("totalGenerationMs", s.totalGenerationMs)
-                                            put("totalAudioMs", number(s.totalAudioMs))
-                                            put("completedChunks", s.completedChunks)
-                                        }
-                                    )
-                                }
-                            }
-                        )
-                        put(
-                            "samples",
-                            buildJsonArray {
-                                for (s in r.samples) {
-                                    add(
-                                        buildJsonObject {
-                                            put("fixture", s.fixture.name)
-                                            put("repeat", s.repeat)
-                                            put("warm", s.warm)
-                                            put("generationMs", s.generationMs)
-                                            put("firstPcmMs", s.firstPcmMs)
-                                            nullable("prepareToFirstPcmMs", s.prepareToFirstPcmMs)
-                                            put("audioMs", number(s.audioMs))
-                                            put("realTimeFactor", number(s.realTimeFactor))
-                                            put("effectiveProvider", provider(s.effectiveProvider))
-                                            val unprofiled = s.chunks.isNotEmpty() && s.chunks.last().profileAvailable != true
-                                            nullable("acceleratorKernels", s.acceleratorKernels.takeUnless { unprofiled })
-                                            nullable("cpuKernels", s.cpuKernels.takeUnless { unprofiled })
-                                            nullable("acceleratorMicros", s.acceleratorMicros.takeUnless { unprofiled })
-                                            nullable("cpuMicros", s.cpuMicros.takeUnless { unprofiled })
-                                            put("graphPrepareMs", s.graphPrepareMs)
-                                            put("tokenCount", s.tokenCount)
-                                            put("validatedAudio", s.validatedAudio)
-                                            nullable("thermalBefore", s.thermalBefore)
-                                            nullable("thermalAfter", s.thermalAfter)
-                                            nullable("hardwareType", s.hardwareType)
-                                            put("chunks", buildJsonArray { s.chunks.forEach { add(chunkJson(it)) } })
-                                        }
-                                    )
-                                }
-                            }
-                        )
+                        put("fixture", fixture.name)
+                        put("sampleCount", s.sampleCount)
+                        put("warmSampleCount", s.warmSampleCount)
+                        put("medianWarmMs", number(s.medianWarmMs))
+                        nullable("p95WarmMs", s.p95WarmMs)
+                        put("medianFirstPcmMs", number(s.medianFirstPcmMs))
+                        put("medianWarmRtf", number(s.medianWarmRtf))
+                        put("totalGenerationMs", s.totalGenerationMs)
+                        put("totalAudioMs", number(s.totalAudioMs))
+                        put("completedChunks", s.completedChunks)
                     }
                 )
             }
         }
     )
-    put("playbackResults", buildJsonArray { report.playbackResults.forEach { add(playbackJson(it)) } })
-    put("engineResults", buildJsonArray { report.engineResults.forEach { add(speechEngineBenchmarkJson(it)) } })
+    put(
+        "samples",
+        buildJsonArray {
+            for (s in if (includeRecords) r.samples else emptyList()) {
+                add(
+                    speechBenchmarkSampleJson(s)
+                )
+            }
+        }
+    )
+}
+
+private fun speechBenchmarkSampleJson(s: VoiceSpeechBenchmarkSample): JsonObject = buildJsonObject {
+    put("fixture", s.fixture.name)
+    put("repeat", s.repeat)
+    put("warm", s.warm)
+    put("generationMs", s.generationMs)
+    put("firstPcmMs", s.firstPcmMs)
+    nullable("prepareToFirstPcmMs", s.prepareToFirstPcmMs)
+    put("audioMs", number(s.audioMs))
+    put("realTimeFactor", number(s.realTimeFactor))
+    put("effectiveProvider", provider(s.effectiveProvider))
+    val unprofiled = s.chunks.isNotEmpty() && s.chunks.last().profileAvailable != true
+    nullable("acceleratorKernels", s.acceleratorKernels.takeUnless { unprofiled })
+    nullable("cpuKernels", s.cpuKernels.takeUnless { unprofiled })
+    nullable("acceleratorMicros", s.acceleratorMicros.takeUnless { unprofiled })
+    nullable("cpuMicros", s.cpuMicros.takeUnless { unprofiled })
+    put("graphPrepareMs", s.graphPrepareMs)
+    put("tokenCount", s.tokenCount)
+    put("validatedAudio", s.validatedAudio)
+    nullable("thermalBefore", s.thermalBefore)
+    nullable("thermalAfter", s.thermalAfter)
+    nullable("hardwareType", s.hardwareType)
+    put("chunks", buildJsonArray { s.chunks.forEach { add(chunkJson(it)) } })
 }
 
 private fun chunkJson(c: VoiceSpeechBenchmarkChunk) = buildJsonObject {
@@ -365,6 +417,14 @@ private fun chunkJson(c: VoiceSpeechBenchmarkChunk) = buildJsonObject {
     nullable("activeShapeEstimatedBytes", c.activeShapeEstimatedBytes)
     nullable("availableMemoryBytes", c.availableMemoryBytes)
     nullable("cacheAdmission", safeSpeechCacheAdmission(c.cacheAdmission))
+    nullable("graphPreparationSource", safeSpeechGraphPreparation(c.graphPreparationSource))
+    nullable("contextCacheStatus", safeSpeechContextCacheStatus(c.contextCacheStatus))
+    nullable("contextLoadMs", c.contextLoadMs)
+    nullable("contextStoreMs", c.contextStoreMs)
+    nullable("contextBytes", c.contextBytes)
+    nullable("contextCacheEvictions", c.contextCacheEvictions)
+    nullable("contextFallback", c.contextFallback)
+    nullable("htpPerformanceMode", safeSpeechHtpPerformanceMode(c.htpPerformanceMode))
 }
 
 internal fun speechAudioObservationJson(o: VoiceSpeechAudioObservation) = buildJsonObject {
@@ -469,6 +529,14 @@ private fun failureObservationJson(o: VoiceSpeechBenchmarkFailureObservation) = 
     nullable("activeShapeEstimatedBytes", o.activeShapeEstimatedBytes)
     nullable("availableMemoryBytes", o.availableMemoryBytes)
     nullable("cacheAdmission", safeSpeechCacheAdmission(o.cacheAdmission))
+    nullable("graphPreparationSource", safeSpeechGraphPreparation(o.graphPreparationSource))
+    nullable("contextCacheStatus", safeSpeechContextCacheStatus(o.contextCacheStatus))
+    nullable("contextLoadMs", o.contextLoadMs)
+    nullable("contextStoreMs", o.contextStoreMs)
+    nullable("contextBytes", o.contextBytes)
+    nullable("contextCacheEvictions", o.contextCacheEvictions)
+    nullable("contextFallback", o.contextFallback)
+    nullable("htpPerformanceMode", safeSpeechHtpPerformanceMode(o.htpPerformanceMode))
 }
 
 private fun readFailureObservation(o: JsonObject, validatedAudio: Boolean = false): VoiceSpeechBenchmarkFailureObservation {
@@ -492,6 +560,14 @@ private fun readFailureObservation(o: JsonObject, validatedAudio: Boolean = fals
         activeShapeEstimatedBytes = o.optionalBoundedLong("activeShapeEstimatedBytes", 16L * 1024 * 1024 * 1024),
         availableMemoryBytes = o.optionalBoundedLong("availableMemoryBytes", Long.MAX_VALUE),
         cacheAdmission = o.optionalCacheAdmission(),
+        graphPreparationSource = o.optionalString("graphPreparationSource")?.also { require(safeSpeechGraphPreparation(it) != null) },
+        contextCacheStatus = o.optionalString("contextCacheStatus")?.also { require(safeSpeechContextCacheStatus(it) != null) },
+        contextLoadMs = o.optionalBoundedLong("contextLoadMs"),
+        contextStoreMs = o.optionalBoundedLong("contextStoreMs"),
+        contextBytes = o.optionalBoundedLong("contextBytes", 256L * 1024 * 1024),
+        contextCacheEvictions = o.optionalBoundedLong("contextCacheEvictions", Long.MAX_VALUE),
+        contextFallback = o.optionalBoolean("contextFallback"),
+        htpPerformanceMode = o.optionalString("htpPerformanceMode")?.also { require(safeSpeechHtpPerformanceMode(it) != null) },
         audioMeasurementAvailable = measured,
         audioFinite = o.optionalBoolean("audioFinite").takeIf { measured == true },
         validationReason = o.optionalString("validationReason")?.also { require(safeSpeechValidationReason(it) != null) },
@@ -590,6 +666,12 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
     nullable("timeoutLimitMs", r.timeoutLimitMs)
     nullable("timeoutElapsedMs", r.timeoutElapsedMs)
     nullable("timeoutScope", r.timeoutScope?.takeIf { it.matches(SAFE_CODE) })
+    nullable("sustainedTargetAudioMs", r.sustainedTargetAudioMs)
+    nullable("sustainedObservedAudioMs", r.sustainedObservedAudioMs)
+    nullable("sustainedWallElapsedMs", r.sustainedWallElapsedMs)
+    nullable("sustainedWallDeadlineMs", r.sustainedWallDeadlineMs)
+    nullable("sustainedCompletedRepeats", r.sustainedCompletedRepeats)
+    nullable("sustainedQualification", safeSpeechSustainedQualification(r.sustainedQualification))
     put("cleanupState", r.cleanupState.takeIf { it in CLEANUP_STATES } ?: "NOT_OBSERVED")
     put("arrivalIntervalMs", r.arrivalIntervalMs)
     put("synthesisRealTimeFactor", number(r.synthesisRealTimeFactor))
@@ -670,7 +752,7 @@ private fun playbackJson(r: VoiceSpeechPlaybackResult) = buildJsonObject {
 
 /** Legacy runs remain readable, but carry their old protocol and cannot qualify current settings. */
 internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchmarkReport? = runCatching {
-    val schema = value.getValue("schemaVersion").jsonPrimitive.int.also { require(it in 1..5) }
+    val schema = value.getValue("schemaVersion").jsonPrimitive.int.also { require(it in 1..6) }
     val fixtureVersion = value.getValue("fixtureVersion").jsonPrimitive.int.also { require(it in 1..1000) }
     val c = value.getValue("configuration").jsonObject
     val configuration = VoiceSpeechBenchmarkConfiguration(
@@ -698,6 +780,11 @@ internal fun speechBenchmarkReportFromJson(value: JsonObject): VoiceSpeechBenchm
         engine = c.optionalString("engine")?.let(VoiceSpeechBenchmarkEngine::valueOf) ?: VoiceSpeechBenchmarkEngine.NATIVE_KOKORO,
         engineVoiceId = c.optionalString("engineVoiceId")?.also { require(it.matches(IDENTITY)) },
         deepDiagnostics = c.optionalBoolean("deepDiagnostics") ?: false,
+        kokoroBucket = c.optionalString("kokoroBucket")?.let(MediaPipeKokoroBucket::valueOf) ?: MediaPipeKokoroBucket.AUTO,
+        incrementalInput = c.optionalBoolean("incrementalInput") ?: (c.optionalString("engine") in setOf(null, VoiceSpeechBenchmarkEngine.NATIVE_KOKORO.name)),
+        htpPerformanceMode = c.optionalString("htpPerformanceMode") ?: "balanced",
+        nativeModelVariant = c.optionalString("nativeModelVariant")?.let(KokoroModelVariant::valueOf) ?: KokoroModelVariant.INT8,
+        sustainedTargetAudioMs = c.optionalBoundedLong("sustainedTargetAudioMs", 600_000) ?: 300_000L,
         deadlines = c["deadlines"]?.takeUnless { it == JsonNull }?.jsonObject?.let { limits ->
             VoiceSpeechBenchmarkDeadlines(limits.boundedLong("preparationMs", 300_000), limits.boundedLong("chunkMs", 300_000), limits.boundedLong("backendMs", 7_200_000))
         }
@@ -836,7 +923,15 @@ private fun JsonObject.readChunks(key: String): List<VoiceSpeechBenchmarkChunk> 
         cacheBudgetBytes = c.optionalBoundedLong("cacheBudgetBytes", 16L * 1024 * 1024 * 1024),
         activeShapeEstimatedBytes = c.optionalBoundedLong("activeShapeEstimatedBytes", 16L * 1024 * 1024 * 1024),
         availableMemoryBytes = c.optionalBoundedLong("availableMemoryBytes", Long.MAX_VALUE),
-        cacheAdmission = c.optionalCacheAdmission()
+        cacheAdmission = c.optionalCacheAdmission(),
+        graphPreparationSource = c.optionalString("graphPreparationSource")?.also { require(safeSpeechGraphPreparation(it) != null) },
+        contextCacheStatus = c.optionalString("contextCacheStatus")?.also { require(safeSpeechContextCacheStatus(it) != null) },
+        contextLoadMs = c.optionalBoundedLong("contextLoadMs"),
+        contextStoreMs = c.optionalBoundedLong("contextStoreMs"),
+        contextBytes = c.optionalBoundedLong("contextBytes", 256L * 1024 * 1024),
+        contextCacheEvictions = c.optionalBoundedLong("contextCacheEvictions", Long.MAX_VALUE),
+        contextFallback = c.optionalBoolean("contextFallback"),
+        htpPerformanceMode = c.optionalString("htpPerformanceMode")?.also { require(safeSpeechHtpPerformanceMode(it) != null) }
     ).also { row ->
         require(row.profileAvailable != false || (row.acceleratorKernels == 0 && row.cpuKernels == 0 && row.acceleratorMicros == 0L && row.cpuMicros == 0L))
         require(row.cacheHit != true || row.currentPrepareMs == 0L)
@@ -881,6 +976,12 @@ private fun readPlayback(r: JsonObject) = VoiceSpeechPlaybackResult(
     cancellationTarget = r.optionalString("cancellationTarget")?.let(VoiceSpeechCancellationTarget::valueOf), cancellationTargetReached = r.optionalBoolean("cancellationTargetReached"),
     cleanupState = r.optionalString("cleanupState")?.also { require(it in CLEANUP_STATES) } ?: "NOT_OBSERVED", arrivalIntervalMs = r.optionalBoundedLong("arrivalIntervalMs", 10_000) ?: 0,
     timeoutLimitMs = r.optionalBoundedLong("timeoutLimitMs"), timeoutElapsedMs = r.optionalBoundedLong("timeoutElapsedMs"), timeoutScope = r.optionalString("timeoutScope")?.also { require(it.matches(SAFE_CODE)) },
+    sustainedTargetAudioMs = r.optionalBoundedLong("sustainedTargetAudioMs", 600_000)?.also { require(it in VoiceSpeechSustainedSeries.TARGETS) },
+    sustainedObservedAudioMs = r.optionalBoundedLong("sustainedObservedAudioMs", VoiceSpeechSustainedSeries.MAX_REPLIES * VoiceSpeechSustainedSeries.MAX_REPLY_WALL_MS),
+    sustainedWallElapsedMs = r.optionalBoundedLong("sustainedWallElapsedMs"),
+    sustainedWallDeadlineMs = r.optionalBoundedLong("sustainedWallDeadlineMs", VoiceSpeechSustainedSeries.deadlineMs(600_000)),
+    sustainedCompletedRepeats = r.optionalBoundedLong("sustainedCompletedRepeats", VoiceSpeechSustainedSeries.MAX_REPLIES.toLong())?.toInt(),
+    sustainedQualification = r.optionalString("sustainedQualification")?.also { require(safeSpeechSustainedQualification(it) != null) },
     underrunsByPhase = r["underrunsByPhase"]?.jsonObject.orEmpty().also { require(it.keys.all { key -> key in UNDERRUN_PHASES }) }.mapValues { it.value.jsonPrimitive.int.also { count -> require(count in 0..1_000_000) } },
     preparationPhases = r["preparationPhases"]?.jsonObject.orEmpty().also { require(it.keys.all { key -> key in PREPARATION_PHASES }) }.mapValues { it.value.jsonPrimitive.long.also { time -> require(time in 0..3_600_000) } },
     chunkRecords = r["chunkRecords"]?.jsonArray.orEmpty().also { require(it.size <= VoiceSpeechPlaybackProtocol.MAX_CHUNKS_PER_SAMPLE) }.mapIndexed { index, raw ->

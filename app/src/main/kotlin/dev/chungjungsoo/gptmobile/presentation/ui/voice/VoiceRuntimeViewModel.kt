@@ -19,9 +19,12 @@ import dev.chungjungsoo.gptmobile.data.voice.createKokoroVoiceOutput
 import dev.chungjungsoo.gptmobile.data.voice.shouldCheckpointDraft
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal class VoiceRuntime(
     val system: AndroidVoiceAudio,
@@ -43,12 +46,19 @@ internal class VoiceRuntime(
 internal class VoiceRuntimeViewModel @Inject constructor(@ApplicationContext private val context: Context) : ViewModel() {
     private var owner: ChatViewModel? = null
     private var runtime: VoiceRuntime? = null
+    private var runtimeStores: VoiceModelStores? = null
+    private var modelChangePending = false
     private var eviction: Job? = null
 
     fun acquire(model: ChatViewModel, stores: VoiceModelStores, restore: (VoiceSession) -> Unit): VoiceRuntime {
-        runtime?.takeIf { owner === model && it.session.state.phase != VoicePhase.CLOSED }?.let { return it }
+        runtime?.takeIf { modelChangePending }?.let { return it }
+        runtime?.takeIf { owner === model && it.session.state.phase != VoicePhase.CLOSED }?.let {
+            check(runtimeStores?.kokoro === stores.kokoro) { "The previous speech model must retire before a replacement is acquired." }
+            return it
+        }
         runtime?.session?.close()
         owner = model
+        runtimeStores = stores
         val system = AndroidVoiceAudio(context)
         val privacy = {
             val room = model.chatRoom.value
@@ -81,8 +91,31 @@ internal class VoiceRuntimeViewModel @Inject constructor(@ApplicationContext pri
         eviction = null
     }
 
+    /** Model changes are explicit settings actions. Never block main or the native engine gate. */
+    suspend fun retireForModelChange(): Boolean {
+        val previous = runtime ?: return true
+        modelChangePending = true
+        eviction?.cancel()
+        eviction = null
+        if (runCatching { previous.session.close() }.isFailure) return false
+        val retired = withContext(Dispatchers.IO) {
+            withTimeoutOrNull(30_000) {
+                while (previous.kokoro?.awaitClosed(500) == false) delay(25)
+                true
+            } ?: false
+        }
+        if (retired && runtime === previous) {
+            runtime = null
+            runtimeStores = null
+            owner = null
+            modelChangePending = false
+        }
+        return retired
+    }
+
     /** Capture/playback are paused by the session immediately; only loaded models receive a grace period. */
-    fun pause() {
+    fun pause(expected: VoiceRuntime? = null) {
+        if (expected != null && runtime !== expected) return
         if (eviction?.isActive == true) return
         eviction = viewModelScope.launch {
             delay(30_000)
@@ -95,6 +128,7 @@ internal class VoiceRuntimeViewModel @Inject constructor(@ApplicationContext pri
         eviction?.cancel()
         runtime?.session?.close()
         runtime = null
+        runtimeStores = null
         owner = null
     }
 }

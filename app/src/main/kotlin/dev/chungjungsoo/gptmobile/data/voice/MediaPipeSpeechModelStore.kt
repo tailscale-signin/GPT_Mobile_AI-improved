@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.data.voice
 import android.content.Context
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,14 +72,17 @@ internal class MediaPipeSpeechModelStore internal constructor(
     internal fun isReady(engine: MediaPipeSpeechEngine): Boolean = localStore(engine).isInstalled()
 
     /** No network access; a verified file lease remains held until the SDK handle is destroyed. */
-    internal fun acquire(engine: MediaPipeSpeechEngine, backend: VoiceSpeechBackend, speakingRate: Float, voiceId: String): ModelLease {
+    internal fun acquire(engine: MediaPipeSpeechEngine, backend: VoiceSpeechBackend, speakingRate: Float, voiceId: String, targetBucket: Int = 0): ModelLease {
+        require(voiceId.isNotBlank())
+        MediaPipeKokoroBucket.fromSdkValue(targetBucket)
         val model = manifests.single { it.engine == engine }
         val store = localStore(engine)
         if (!store.acquireUse()) throw IOException("Install or repair ${model.title} in Voice settings.")
         try {
-            val voiceHash = MessageDigest.getInstance("SHA-256").digest(voiceId.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
             val parent = modelCacheDirectory(engine)
-            val directory = File(parent, "${backend.name.lowercase()}-${speakingRate.toBits().toUInt().toString(16)}-$voiceHash")
+            // Voice embeddings are selected per utterance. Task initialization uses the
+            // bundle default, so voices share the same compiled weights and resident task.
+            val directory = File(parent, "shared-${backend.name.lowercase()}-${speakingRate.toBits().toUInt().toString(16)}-bucket-$targetBucket")
             synchronized(cacheUsers) {
                 // Cache keys include every exposed SDK configuration input. Keep the current
                 // directory and one previous unused configuration; never remove an active lease.

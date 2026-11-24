@@ -6,8 +6,10 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
+import dev.chungjungsoo.gptmobile.data.voice.KokoroModelVariant
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
+import dev.chungjungsoo.gptmobile.data.voice.MediaPipeKokoroBucket
 import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
@@ -18,6 +20,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -37,10 +41,13 @@ internal data class VoicePreferences(
     val pause: VoicePauseDuration = VoicePauseDuration.NATURAL,
     val performance: VoicePerformanceMode = VoicePerformanceMode.AUTO,
     val speakWhileGenerating: Boolean = true,
+    val kokoroBucket: MediaPipeKokoroBucket = MediaPipeKokoroBucket.AUTO,
+    val incrementalSpeech: Boolean = true,
+    val nativeModelVariant: KokoroModelVariant = KokoroModelVariant.INT8,
     val tuning: VoiceTuningPreferences = VoiceTuningPreferences()
 )
 
-internal data class VoiceModelStores(val moonshine: LocalVoiceModelStore, val kokoro: LocalVoiceModelStore)
+internal data class VoiceModelStores(val moonshine: LocalVoiceModelStore, val kokoro: LocalVoiceModelStore, val kokoroVariant: KokoroModelVariant = KokoroModelVariant.INT8)
 
 /** No preference open/read/write may block composition or microphone startup. */
 @HiltViewModel
@@ -48,20 +55,26 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
     private val _modelStores = MutableStateFlow<VoiceModelStores?>(null)
     val modelStores = _modelStores.asStateFlow()
     private var modelInstall: Job? = null
-    private var kokoroInstall: Job? = null
+    private val kokoroInstalls = mutableMapOf<KokoroModelVariant, Job>()
+    private var kokoroStores: Map<KokoroModelVariant, LocalVoiceModelStore> = emptyMap()
     val preferences = store.preferences
     val saveError = store.saveError
 
     init {
         viewModelScope.launch {
+            // Resolve the saved variant before exposing a runtime. No temporary INT8
+            // owner is created merely because preference hydration is asynchronous.
+            val selected = preferences.filterNotNull().first().nativeModelVariant
             val stores = withContext(Dispatchers.IO) {
                 val directory = File(context.noBackupFilesDir, "voice-models")
-                VoiceModelStores(LocalVoiceModelStore(directory), KokoroModelPack.store(directory))
+                val variants = KokoroModelVariant.entries.associateWith { KokoroModelPack.store(directory, variant = it) }
+                kokoroStores = variants
+                VoiceModelStores(LocalVoiceModelStore(directory), variants.getValue(selected), selected)
             }
             _modelStores.value = stores
             coroutineScope {
                 launch { stores.moonshine.refresh() }
-                launch { stores.kokoro.refresh() }
+                kokoroStores.values.forEach { model -> launch { model.refresh() } }
             }
         }
     }
@@ -84,18 +97,26 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
     }
 
     fun installKokoroModel() {
-        if (kokoroInstall?.isActive == true) return
-        val kokoroModels = _modelStores.value?.kokoro ?: return
-        kokoroInstall = viewModelScope.launch { kokoroModels.install() }
+        val selected = _modelStores.value ?: return
+        if (kokoroInstalls[selected.kokoroVariant]?.isActive == true) return
+        kokoroInstalls[selected.kokoroVariant] = viewModelScope.launch { selected.kokoro.install() }
     }
 
     fun cancelKokoroInstall() {
-        _modelStores.value?.kokoro?.cancelInstall()
-        kokoroInstall?.cancel()
+        val selected = _modelStores.value ?: return
+        selected.kokoro.cancelInstall()
+        kokoroInstalls[selected.kokoroVariant]?.cancel()
     }
 
     fun removeKokoroModel() {
-        viewModelScope.launch { _modelStores.value?.kokoro?.remove() }
+        val selected = _modelStores.value?.kokoro ?: return
+        viewModelScope.launch { selected.remove() }
+    }
+
+    /** The visible runtime must retire before the caller publishes another model store. */
+    fun selectKokoroVariant(variant: KokoroModelVariant) {
+        val previous = _modelStores.value ?: return
+        _modelStores.value = previous.copy(kokoro = kokoroStores.getValue(variant), kokoroVariant = variant)
     }
 
     // ViewModel-owned install coroutines cancel with viewModelScope. The shared

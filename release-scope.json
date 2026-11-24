@@ -353,7 +353,8 @@
     "Preserve a bound local phone deadline in public reporting, restore reply playback after explicitly sending an interrupted voice draft, and bind incomplete research diagnostics to the same refreshed authorized evidence as the partial report and receipt.",
     "Resume interrupted phone indexing from the native status body with unchanged receipt, scope, revision and cursor checks; validate unsigned packaging changes even when the version stays fixed, including the actual recompression and native provisioning helpers. Retain the 230 MiB universal limit.",
     "Wait for every observed check and commit status on a revision before continuing its authorized saved CI diagnosis. Allow one missing-capability catalog lookup per revision and require a verified, admitted reader before replaying its arguments.",
-    "Preserve distinct check suites in whole-commit monitoring, allow Stop to win during a suspended revision read, and revalidate current watch/task authority before continuation. Negotiate missing-tool diagnostic identity separately from legacy recovery evidence before sending the exact approved report."
+    "Preserve distinct check suites in whole-commit monitoring, allow Stop to win during a suspended revision read, and revalidate current watch/task authority before continuation. Negotiate missing-tool diagnostic identity separately from legacy recovery evidence before sending the exact approved report.",
+    "Qualify the Windows Gateway benchmark and diagnostic journal using a clean independent candidate checkout and isolated copies of a real, fully committed retention-boundary capture."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -1245,7 +1246,9 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatChecks.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CatalogMissRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummaryTest.kt",
-    "docs/repairs/ci-watch-catalog-negotiation-2026-11-24-task.json"
+    "docs/repairs/ci-watch-catalog-negotiation-2026-11-24-task.json",
+    "gateway/tests/test_gateway_phone_benchmark.py",
+    "gateway/tests/test_gateway_v14_diagnostic_events.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -53,6 +54,12 @@ def unpack(data):
 
 
 class DiagnosticJournalTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        directory = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(directory.cleanup)
+        cls.full_capture = Path(directory.name) / 'full.sqlite3'
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -63,6 +70,16 @@ class DiagnosticJournalTests(unittest.TestCase):
     def append(self, first, last):
         for start in range(first, last + 1, 64):
             self.store.ingest('paired-owner', batch(event(n) for n in range(start, min(last + 1, start + 64))))
+
+    def restore_full_capture(self):
+        # Create the retention boundary through real durable batch receipts once.
+        # Closing the last connection checkpoints its WAL before copying it.
+        if self.full_capture.exists():
+            shutil.copyfile(self.full_capture, self.path)
+        else:
+            self.append(1, MAX_EVENTS)
+            self.store.close()
+            shutil.copyfile(self.path, self.full_capture)
 
     def test_metadata_acknowledgment_states_survive_durable_export_without_boolean_coercion(self):
         states = ('ACCEPTED', 'NOT_REQUESTED', 'REJECTED_BEFORE_PROCESSING', 'NOT_CONFIRMED')
@@ -98,7 +115,7 @@ class DiagnosticJournalTests(unittest.TestCase):
         self.assertNotIn('private', json.dumps(result))
 
     def test_5001_unique_combined_events_evict_exactly_one_with_truthful_integrity(self):
-        self.append(1, 5000)
+        self.restore_full_capture()
         self.store.ingest('paired-owner', batch([event(1, origin='d' * 32, boot='e' * 32)]), local=True)
         manifest, rows, _ = unpack(self.store.export('paired-owner', SESSION))
         self.assertEqual(5000, len(rows))
@@ -191,7 +208,8 @@ class DiagnosticJournalTests(unittest.TestCase):
         self.assertEqual(1, receipt['last_ingest_sequence'])
 
     def test_conflicting_identity_is_rejected_while_verification_digest_survives_row_eviction(self):
-        self.append(1, 5001)
+        self.restore_full_capture()
+        self.append(5001, 5001)
         changed = event(1, bounded_attributes={'status': 500})
         receipt = self.store.ingest('paired-owner', batch([changed]))
         self.assertEqual('EVENT_ID_CONFLICT', receipt['rejected'][0]['code'])
@@ -238,7 +256,8 @@ class DiagnosticJournalTests(unittest.TestCase):
         self.assertIsNone(manifest['clock_uncertainty_ms'])
 
     def test_read_pages_never_echo_origin_and_return_eviction_gaps(self):
-        self.append(1, 5001)
+        self.restore_full_capture()
+        self.append(5001, 5001)
         page = self.store.read('paired-owner', SESSION, exclude_origin=ORIGIN)
         self.assertEqual([], page['events'])
         self.assertEqual(5001, page['next_cursor'])

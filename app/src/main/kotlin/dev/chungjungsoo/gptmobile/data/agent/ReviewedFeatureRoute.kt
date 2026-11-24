@@ -30,8 +30,10 @@ internal class ReviewedFeatureSelection(request: String, originalRequest: String
     fun route(tool: String): ReviewedFeatureRoute? = selected[tool]
     fun declined(tool: AgentToolDefinition): Boolean =
         tool.name in declined ||
-            "web_search" in declined && AgentToolCapability.WEB_SEARCH in tool.capabilities ||
-            "read_url" in declined && AgentToolCapability.PAGE_READER in tool.capabilities
+            "web_search" in declined &&
+            AgentToolCapability.WEB_SEARCH in tool.capabilities ||
+            "read_url" in declined &&
+            AgentToolCapability.PAGE_READER in tool.capabilities
 
     private companion object {
         val separator = Regex("[^\\p{L}\\p{N}]+")

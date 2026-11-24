@@ -2337,7 +2337,11 @@ class ChatRepositoryImpl(
                     scopeId = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(
                         kotlinx.serialization.json.JsonArray(
                             listOf(
-                                github.connectionUid, github.owner, github.repo, github.ref, platform.uid,
+                                github.connectionUid,
+                                github.owner,
+                                github.repo,
+                                github.ref,
+                                platform.uid,
                                 effectiveUserMessages.lastOrNull()?.chatId?.toString().orEmpty(),
                                 (acceptedSourceMessageId ?: effectiveUserMessages.lastOrNull()?.id)?.toString() ?: runId
                             ).map { kotlinx.serialization.json.JsonPrimitive(it) }

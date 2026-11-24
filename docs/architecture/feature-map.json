@@ -4930,9 +4930,9 @@
       "sha256": "ee7b3adc46e8e730d10e1149ebbfbad87850d64095c4ec4291f84d27a3e95e0d"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroStreamingOutputTest.kt": {
-      "blob_sha": "7a956757402feb4ef45883006d515c148ac81b2e",
-      "bytes": 49204,
-      "sha256": "3281828526e018b1ebb7a7b51b6a022768d77bfbf635d7a3401aaa3cfb6a0d9f"
+      "blob_sha": "4b3f577f1585f5511dd4e9a68539edadfbc052ec",
+      "bytes": 49815,
+      "sha256": "b29cab361e4b1b886e9c34e145bb7bf3d169827cff63d7fc72072d4c03751439"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStoreTest.kt": {
       "blob_sha": "09a5585d84dba675a9d23c209bb9ce653db447d5",

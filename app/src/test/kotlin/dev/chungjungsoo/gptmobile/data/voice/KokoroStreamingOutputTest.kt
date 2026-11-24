@@ -761,8 +761,14 @@ class KokoroStreamingOutputTest {
                 // The first caption may be delivered after the first 2400-frame queue
                 // slice, before the worker writes the rest of this known 4800-frame chunk.
                 assertTrue(PausePcmTrack.writes.sumOf { it.size } in 1..4_800)
+                assertTrue(
+                    "The first chunk must drain while the producer holds the tail",
+                    awaitMainCondition {
+                        output.synthesisFeedback.value.bufferState == "refilling" && PausePcmTrack.writes.sumOf { it.size } == 4_800
+                    }
+                )
                 release.countDown()
-                awaitMain(cleared)
+                awaitMain(cleared, advancePlaybackClock = true)
                 assertEquals(0L, cleared.count)
                 assertFalse(returned.get())
                 val final = timings.first { it.first.isEmpty() }.second
@@ -1003,9 +1009,11 @@ class KokoroStreamingOutputTest {
         return condition()
     }
 
-    private fun awaitMain(latch: CountDownLatch) {
+    private fun awaitMain(latch: CountDownLatch, advancePlaybackClock: Boolean = false) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
         while (latch.count > 0 && System.nanoTime() < deadline) {
+            // The playback worker measures its refill deadline on Android's clock. A paused looper keeps that clock still.
+            if (advancePlaybackClock) ShadowSystemClock.advanceBy(10, TimeUnit.MILLISECONDS)
             shadowOf(Looper.getMainLooper()).idle()
             latch.await(10, TimeUnit.MILLISECONDS)
         }

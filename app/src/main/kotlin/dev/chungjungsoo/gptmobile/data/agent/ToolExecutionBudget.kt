@@ -409,7 +409,9 @@ class ToolExecutionBudget(
                     val boundedResult = bounded(
                         result,
                         preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME,
-                        shareSourceBudget = tool.definition.name == "read_url" && !separateResultAllowance && remainingCalls()?.let { it > 0 } == true,
+                        shareSourceBudget = !separateResultAllowance &&
+                            remainingCalls()?.let { it > 0 } == true &&
+                            (tool.definition.name in setOf("read_url", "web_search") || tool.definition.capabilities.any { it == AgentToolCapability.WEB_SEARCH || it == AgentToolCapability.PAGE_READER }),
                         observationLimitBytes = if (tool.definition.name in ACADEMIC_ACQUISITION_TOOLS) 256 * 1024 else 64 * 1024
                     )
                     val normalizedResult = if (

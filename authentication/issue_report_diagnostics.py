@@ -367,6 +367,7 @@ ENUMS.update({
     "native_trace_format": {"text", "protobuf", "binary", "unknown"},
     "anr_trace_state": {"UNAVAILABLE", "NO_MATCHING_FRAMES", "MAIN_THREAD_CAPTURED"},
     "failure_boundary": {"AFTER_VISIBLE_OUTPUT", "BEFORE_VISIBLE_OUTPUT"},
+    "stream_answer_state": {"NO_TEXT_EMITTED", "PARTIAL_TEXT_EMITTED", "FINAL_TEXT_EMITTED"},
     "research_delivery_criterion": {"WRITER_INCOMPLETE", "NO_ACQUISITION_PACKET", "NO_READABLE_SOURCES", "DELIVERY_VERIFICATION", "EMPTY_REPORT", "UNKNOWN_CITATION", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED", "MISSING_SECTION", "OMITTED_LEADING_STUDY", "OMITTED_UNREAD_LEAD", "UNSOURCED_SCIENTIFIC_PARAGRAPH", "METADATA_PRESENTED_AS_READ", "NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE", "UNREGISTERED_REFERENCE_URL", "DIRECT_REFERENCE_MISSING", "QUESTION_EVIDENCE_NOT_CITED", "QUESTION_EVIDENCE_UNCOVERED", "QUESTION_EVIDENCE_METADATA_REQUIRED", "EVIDENCE_CLAIM_NOT_COVERED", "COUNTEREVIDENCE_NOT_DISCLOSED"},
     "native_trace_reason": {"no_trace_stream", "empty_trace", "trace_read_failed", "trace_access_failed", "unrecognized_binary_tombstone", "no_recognized_tombstone_fields", "text_prefix_limit", "signal_and_library_frames", "malformed_protobuf", "trace_process_mismatch", "trace_limit_before_evidence", "no_recognized_protobuf_fields", "protobuf_prefix_limit", "protobuf_crashed_thread"},
     "native_signal": {"SIGABRT", "SIGSEGV", "SIGBUS", "SIGFPE", "SIGILL", "SIGTRAP", "SIGSYS", "SIGKILL", "SIGQUIT", "SIGTERM", "SIGPIPE", "SIGSTKFLT", "SIGXCPU", "SIGXFSZ"},
@@ -376,8 +377,9 @@ ENUMS.update({
 FLAGS.update({"native_trace_truncated", "search_explicit_mode"})
 HASH_FIELDS.update({"native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash", "research_blocker_receipt_hash", "catalog_revision_hash"})
 COUNTS.update({"research_unread_sources", "research_read_sources", "research_blocked_sources", "catalog_rejection_count", "catalog_selector_count"})
-FIELDS_BY_AREA["TOOL"].update({"catalog_revision_hash", "catalog_rejection_count", "catalog_selector_count"})
-FIELDS_BY_AREA["INCIDENT"].update({"failure_boundary", "research_delivery_criterion", "research_unread_sources", "research_read_sources", "research_blocked_sources", "research_blocker_receipt_hash"})
+HASH_LISTS.add("catalog_rejected_call_hashes")
+FIELDS_BY_AREA["TOOL"].update({"catalog_revision_hash", "catalog_rejection_count", "catalog_selector_count", "catalog_rejected_call_hashes"})
+FIELDS_BY_AREA["INCIDENT"].update({"failure_boundary", "stream_answer_state", "research_delivery_criterion", "research_unread_sources", "research_read_sources", "research_blocked_sources", "research_blocker_receipt_hash"})
 COUNTS.update({"search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count"})
 REQUIRED_SCHEMA_DETAIL_FIELDS = {"required_schema_count", "required_catalog_schema_tokens", "required_recovery_schema_tokens", "required_github_operation_tokens"}
 COUNTS.update(REQUIRED_SCHEMA_DETAIL_FIELDS)

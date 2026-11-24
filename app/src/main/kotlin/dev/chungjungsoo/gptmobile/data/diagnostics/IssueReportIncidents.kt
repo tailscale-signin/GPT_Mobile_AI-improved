@@ -592,7 +592,13 @@ internal object IssueReportIncidents {
         val context = first.context ?: return false
         val diagnostic = context.diagnostics ?: return false
         val previous = (diagnostic.values["catalog_rejection_count"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return false
-        val updatedDiagnostic = diagnostic.copy(values = diagnostic.values + ("catalog_rejection_count" to JsonPrimitive((previous + 1).coerceAtMost(100_000))))
+        val call = evidence.callIdHash ?: return false
+        val samples = (diagnostic.values["catalog_rejected_call_hashes"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+        if (JsonPrimitive(call) in samples || call == context.callIdHash) return true
+        val count = "catalog_rejection_count" to JsonPrimitive((previous + 1).coerceAtMost(100_000))
+        val hashes = (samples + listOfNotNull(context.callIdHash?.let(::JsonPrimitive), JsonPrimitive(call))).distinct().take(8)
+        val updatedDiagnostic = diagnostic.copy(values = diagnostic.values + count + ("catalog_rejected_call_hashes" to kotlinx.serialization.json.JsonArray(hashes))).validated()
+            ?: diagnostic.copy(values = diagnostic.values + count).validated() ?: return false
         val updated = first.copy(context = context.copy(diagnostics = updatedDiagnostic))
         mutablePending.value = queued.toMutableList().also { it[index] = updated }
         ReportDiagnosticSnapshots.retain(updatedDiagnostic)
@@ -643,7 +649,7 @@ internal object IssueReportIncidents {
         if (oldPid <= 0 || oldPid == Process.myPid() || since <= 0 || saved.getBoolean("private", false)) return
         val manager = owner.getSystemService(ActivityManager::class.java) ?: return
         val exit = manager.getHistoricalProcessExitReasons(owner.packageName, oldPid, 4).firstOrNull {
-            it.timestamp >= since && it.processName == owner.packageName
+            it.pid == oldPid && it.timestamp >= since && it.processName == owner.packageName
         } ?: return
         val code = when (exit.reason) {
             ApplicationExitInfo.REASON_CRASH_NATIVE -> "NATIVE_CRASH"

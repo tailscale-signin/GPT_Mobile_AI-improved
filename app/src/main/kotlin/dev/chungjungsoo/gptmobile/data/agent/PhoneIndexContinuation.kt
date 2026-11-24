@@ -56,7 +56,7 @@ internal object PhoneIndexContinuation {
                 val progress = body["graph"] as? JsonObject ?: return null
                 val cursor = (body["index_cursor"] as? JsonPrimitive)?.content?.takeIf(cursorPattern::matches) ?: return null
                 if (progress["commit_sha"] != revision ||
-                    progress["has_more"] != JsonPrimitive(true) ||
+                    body["has_more"] != JsonPrimitive(true) ||
                     (stopped.arguments["options"] as? JsonObject)?.get("index_cursor") == JsonPrimitive(cursor)
                 ) {
                     return null

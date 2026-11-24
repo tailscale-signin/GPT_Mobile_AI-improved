@@ -70,7 +70,8 @@ internal data class GitHubCheckWatch(
     val followPullRequest: Boolean = false,
     val permissionRevision: String = "",
     val observationGeneration: Long = 0,
-    val runAttempt: Int? = null
+    val runAttempt: Int? = null,
+    val accountScopeHash: String = ""
 ) {
     val terminal: Boolean get() = status !in setOf("RUNNING", "UNKNOWN", "NONE", "RETRYING") && !(followPullRequest && status in setOf("PASSED", "FAILED", "SKIPPED"))
 }
@@ -105,6 +106,9 @@ class GitHubCheckWatchRepository @Inject constructor(
         val connection = requireNotNull(connections.getConnection(watch.connectionUid)) { "GitHub connection removed." }
         val permission = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl)
         require(connection.type == "GITHUB" && (if (watch.permissionRevision.isBlank()) connection.updatedAt == watch.connectionUpdatedAt else watch.permissionRevision == permission)) { "GitHub permissions changed; start a new watch." }
+        if (watch.accountScopeHash.isNotEmpty()) {
+            require(watch.accountScopeHash == GitHubRepositoryStateStore.digest(auth.durableIdentity(watch.connectionUid))) { "The GitHub account changed. Open a new check watch for the current account." }
+        }
         val savedFeatures = settings.getFeatureSettings()
         val selected = savedFeatures.conversationGitHub[watch.chatId]
         val scope = selected?.takeIf {
@@ -113,7 +117,9 @@ class GitHubCheckWatchRepository @Inject constructor(
                 it.owner.equals(watch.owner, ignoreCase = true) &&
                 it.repo.equals(watch.repo, ignoreCase = true)
         }
-        require(selected == null || scope != null) { "This conversation now uses a different repository, profile or GitHub connection. Reopen its current check card." }
+        if (selected != null && scope == null) {
+            throw GitHubReadValidation("PERMISSION_DENIED", buildJsonObject { put("message", "This conversation now uses a different repository, profile or GitHub connection. Reopen its current check card.") })
+        }
         val features = GitHubChatPolicy.features(savedFeatures, watch.profileUid, scope)
         val profile = settings.fetchPlatformV2s().firstOrNull { it.uid == watch.profileUid }
             ?.let { GitHubChatPolicy.platform(it, features, scope) }
@@ -164,7 +170,7 @@ class GitHubCheckWatchRepository @Inject constructor(
         var reattached = false
         mutex.withLock {
             val existing = workspace.dao.get(id)?.let(::decode)
-            val replace = existing == null || existing.terminal || existing.headSha != initial.headSha || existing.runAttempt != initial.runAttempt || existing.permissionRevision != initial.permissionRevision
+            val replace = existing == null || existing.terminal || existing.headSha != initial.headSha || existing.runAttempt != initial.runAttempt || existing.permissionRevision != initial.permissionRevision || existing.accountScopeHash != initial.accountScopeHash
             require(existing?.terminal == false || workspace.dao.forChat(chatId).filter { it.kind == "github_checks" }.mapNotNull(::decode).count { !it.terminal } < 20) { "Stop an existing check watch before adding another (20 active watches per chat)." }
             if (replace) {
                 save(initial)
@@ -230,7 +236,14 @@ class GitHubCheckWatchRepository @Inject constructor(
         val id = "github-checks:" + GitHubRepositoryStateStore.digest("$chatId|$connectionUid|$profileUid|$owner/$repo|$pull|$run")
         val follow = args["follow_pr"]?.jsonPrimitive?.booleanOrNull == true
         require(!follow || pull != null && run == null) { "Follow PR requires pr_number without a fixed run_id." }
-        val initial = GitHubCheckWatch(id, chatId, connectionUid, profileUid, owner, repo, pull, run, "", connection.updatedAt, followPullRequest = follow, permissionRevision = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl))
+        val provisional = GitHubCheckWatch(id, chatId, connectionUid, profileUid, owner, repo, pull, run, "", connection.updatedAt, followPullRequest = follow, permissionRevision = GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl))
+        val initial = if (background) {
+            api(provisional, true)
+            auth.accessToken(connection)
+            provisional.copy(accountScopeHash = GitHubRepositoryStateStore.digest(auth.durableIdentity(connectionUid)))
+        } else {
+            provisional
+        }
         val api = api(initial, background)
         val pullData = pull?.let { Json.parseToJsonElement(api.request("$root/pulls/$it")).jsonObject }
         val pullHead = pullData?.get("head")?.jsonObject?.get("sha")?.jsonPrimitive?.content
@@ -248,6 +261,7 @@ class GitHubCheckWatchRepository @Inject constructor(
         args["commit_sha"]?.jsonPrimitive?.content?.let { expected ->
             require(expected.equals(head, true)) { "The PR or run head differs from commit_sha. Refresh the exact revision before subscribing." }
         }
+        if (background) api(initial, true)
         return initial.copy(headSha = head, branch = branch, draft = draft, runAttempt = attempt)
     }
 
@@ -308,7 +322,7 @@ class GitHubCheckWatchRepository @Inject constructor(
             watch.copy(status = "EXPIRED", detail = "Background watch expired. CI has not been verified.")
         } else {
             try {
-                inspect(watch, api(watch))
+                inspect(watch, api(watch)).also { if (watch.accountScopeHash.isNotEmpty()) api(watch) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: EngineeringApiException) {

@@ -49,6 +49,24 @@ internal object GitHubSelfTestPullReads {
     }
 
     /** At most one fresh-header read per PR and one corrected read per failed action. */
+    fun recoverReview(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): ProviderEvent.ToolCall? {
+        val failed = receipts.lastOrNull { row ->
+            row["trusted"] == JsonPrimitive(true) &&
+                row["success"] == JsonPrimitive(false) &&
+                row["verification_eligible"] != JsonPrimitive(false) &&
+                row["repository_role"] != JsonPrimitive("READ_SOURCE") &&
+                row.text("tool").githubOperationFamily() == "github_pr" &&
+                row.text("error_code") == "GITHUB_PR_HEAD_CHANGED" &&
+                (row["arguments"] as? JsonObject)?.text("action") in reads
+        } ?: return null
+        val number = number((failed["arguments"] as? JsonObject)?.get("pull_number")) ?: return null
+        val bound = receipts.filter { row ->
+            sameScope(failed, row) && row.text("tool") == failed.text("tool") && (row["arguments"] as? JsonObject)?.get("pull_number") == number
+        }
+        val selected = select(bound) ?: Selection(JsonObject(mapOf("number" to number)), failed)
+        return recover(tools, bound, selected).firstOrNull()
+    }
+
     fun recover(tools: List<AgentToolDefinition>, receipts: List<JsonObject>, selected: Selection?): List<ProviderEvent.ToolCall> {
         if (selected == null) return emptyList()
         val source = selected.receipt

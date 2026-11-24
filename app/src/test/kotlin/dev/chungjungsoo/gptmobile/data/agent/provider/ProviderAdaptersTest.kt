@@ -199,9 +199,22 @@ class ProviderAdaptersTest {
         assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
         assertEquals(JsonPrimitive("ABSENT"), failure.failureDetails?.get("provider_error_code_state"))
         assertEquals(JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"), failure.failureDetails?.get("provider_error_origin"))
-        assertEquals(JsonPrimitive("model_invocation"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("response_stream"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("NO_TEXT_EMITTED"), failure.failureDetails?.get("stream_answer_state"))
         assertFalse(failure.failureDetails.toString().contains("Provider response failed without a typed code"))
         assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test fun unrecognizedStreamCodesPreserveAnswerStateAndTheProducingStage() {
+        val error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("private text", code = "unknown_private_code")
+        val partial = streamErrorDetails(error, visible = true, finished = false)
+        assertEquals(JsonPrimitive("PARTIAL_TEXT_EMITTED"), partial["stream_answer_state"])
+        assertEquals(JsonPrimitive("PROVIDER"), partial["failure_origin"])
+        assertFalse(partial.toString().contains("private"))
+        val original = error.copy(failureDetails = JsonObject(mapOf("failed_stage" to JsonPrimitive("verification"))))
+        val final = streamErrorDetails(original, visible = true, finished = true)
+        assertEquals(JsonPrimitive("FINAL_TEXT_EMITTED"), final["stream_answer_state"])
+        assertEquals(JsonPrimitive("verification"), final["failed_stage"])
     }
 
     @Test fun benchmarkProgressCannotReplaceVerifiedJobAffinity() = runBlocking {

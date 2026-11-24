@@ -107,12 +107,19 @@ class PhoneIndexDeadlineRecoveryTest {
         val reopened = fixture.tool()
         val continuation = if (budgeted) budget.bind(reopened) else reopened
         val recovery = body(result).getValue("recovery_call").jsonObject
-        val status = continuation.execute("readback", recovery.getValue("arguments").jsonObject)
+        val history = listOf(AgentToolExchange(listOf(call("interrupted")), listOf(result)))
+        val tools = listOf(native.definition)
+        val statusCall = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.PhoneIndexContinuation.next(history, tools))
+        assertEquals(recovery.getValue("arguments").jsonObject, statusCall.arguments)
+        val status = continuation.execute(statusCall.callId, statusCall.arguments)
         assertFalse(status.isError)
         val statusBody = body(status)
         assertEquals(JsonPrimitive(1), statusBody.getValue("graph").jsonObject["processed_files"])
         val cursor = statusBody.getValue("index_cursor").jsonPrimitive.content
-        val resumed = continuation.execute("resume", arguments("index", cursor))
+        val readback = AgentToolExchange(listOf(statusCall), listOf(status))
+        val next = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.PhoneIndexContinuation.next(history + readback, tools))
+        assertEquals(arguments("index", cursor), next.arguments)
+        val resumed = continuation.execute(next.callId, next.arguments)
         assertFalse(resumed.isError)
         assertEquals(JsonPrimitive(true), body(resumed).getValue("graph").jsonObject["coverage_complete"])
         assertEquals(1, fixture.firstBlobReads.get())

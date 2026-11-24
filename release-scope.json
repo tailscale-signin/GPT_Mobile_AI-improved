@@ -1221,7 +1221,9 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizerTest.kt",
     "authentication/test_failure_details.py",
     "scripts/check_release_trigger.py",
-    "scripts/tests/test_release_trigger.py"
+    "scripts/tests/test_release_trigger.py",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.16",

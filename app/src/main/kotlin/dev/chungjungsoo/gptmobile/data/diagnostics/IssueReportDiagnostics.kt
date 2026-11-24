@@ -239,8 +239,8 @@ internal data class IssueReportDiagnostics(
         private val incidentDetailsByArea = mapOf(
             "PROVIDER" to requiredSchemaDetailFields + setOf("dispatch_gateway_selection_change", "reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),
             "APP" to setOf("native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash", "anr_trace_state", "anr_frame_count"),
-            "INCIDENT" to researchEvidenceFields + setOf("dispatch_gateway_selection_change", "failure_boundary"),
-            "TOOL" to setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode", "catalog_revision_hash", "catalog_rejection_count", "catalog_selector_count"),
+            "INCIDENT" to researchEvidenceFields + setOf("dispatch_gateway_selection_change", "failure_boundary", "stream_answer_state"),
+            "TOOL" to setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode", "catalog_revision_hash", "catalog_rejection_count", "catalog_selector_count", "catalog_rejected_call_hashes"),
             "ACCEPTANCE" to setOf("acceptance_verified_claim_count", "acceptance_unmeasured_claim_count", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash")
         )
         private val incidentDetailFields = incidentDetailsByArea.values.flatten().toSet()
@@ -430,6 +430,7 @@ internal data class IssueReportDiagnostics(
             "native_trace_format" to setOf("text", "protobuf", "binary", "unknown"),
             "anr_trace_state" to setOf("UNAVAILABLE", "NO_MATCHING_FRAMES", "MAIN_THREAD_CAPTURED"),
             "failure_boundary" to setOf("AFTER_VISIBLE_OUTPUT", "BEFORE_VISIBLE_OUTPUT"),
+            "stream_answer_state" to setOf("NO_TEXT_EMITTED", "PARTIAL_TEXT_EMITTED", "FINAL_TEXT_EMITTED"),
             "research_delivery_criterion" to researchCriteria,
             "native_trace_reason" to setOf("no_trace_stream", "empty_trace", "trace_read_failed", "trace_access_failed", "unrecognized_binary_tombstone", "no_recognized_tombstone_fields", "text_prefix_limit", "signal_and_library_frames", "malformed_protobuf", "trace_process_mismatch", "trace_limit_before_evidence", "no_recognized_protobuf_fields", "protobuf_prefix_limit", "protobuf_crashed_thread"),
             "native_signal" to setOf("SIGABRT", "SIGSEGV", "SIGBUS", "SIGFPE", "SIGILL", "SIGTRAP", "SIGSYS", "SIGKILL", "SIGQUIT", "SIGTERM", "SIGPIPE", "SIGSTKFLT", "SIGXCPU", "SIGXFSZ"),
@@ -762,12 +763,12 @@ internal data class IssueReportDiagnostics(
 
         private fun validatedValue(key: String, value: JsonElement): JsonElement? {
             IssueReportIncidentCapsule.validValue(key, value)?.let { return it }
-            if (key in hashLists || key in enumLists) {
+            if (key in hashLists || key in enumLists || key == "catalog_rejected_call_hashes") {
                 val items = value as? JsonArray ?: return null
                 if (items.size !in 1..MAX_CRITERIA) return null
                 val copied = items.map { item ->
                     val text = string(item) ?: return null
-                    if (key in hashLists && !hashPattern.matches(text) || key in enumLists && text !in enumLists.getValue(key)) return null
+                    if ((key in hashLists || key == "catalog_rejected_call_hashes") && !hashPattern.matches(text) || key in enumLists && text !in enumLists.getValue(key)) return null
                     JsonPrimitive(text)
                 }
                 return JsonArray(copied)

@@ -317,7 +317,7 @@ internal class GitHubVerifiedSession(
         if (!GitHubTestChecklist.integration(task) && remainingToolCalls()?.let { it > 0 } != false) {
             val recorded = evidence.snapshot().first.values.toList()
             if (recorded.any { it["error_code"] == JsonPrimitive("GITHUB_PR_HEAD_CHANGED") }) {
-                val recovery = GitHubSelfTestPullReads.recover(tools, recorded, GitHubSelfTestPullReads.select(recorded)).firstOrNull()
+                val recovery = GitHubSelfTestPullReads.recoverReview(tools, recorded)
                 if (recovery != null) {
                     progress("Refreshing the changed pull request revision before continuing the read")
                     emit(recovery)

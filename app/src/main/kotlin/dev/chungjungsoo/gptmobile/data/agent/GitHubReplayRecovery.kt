@@ -116,6 +116,7 @@ internal object GitHubReplayRecovery {
             val pending = verifiedReads.filter { (id, read) ->
                 (read.deliveryDigest == null || deliveredResultDigests[id] != read.deliveryDigest) && immutablePageIdentity(read) !in deliveredPages
             }
+            if (pending.size < 2) return pending.mapValues { it.value.deliveryDigest }
             val bodies = exchanges.flatMap { it.results }.associateBy { it.callId }
             val witnesses = mutableMapOf<List<String>, String>()
             for ((id, read) in pending) {
@@ -132,11 +133,13 @@ internal object GitHubReplayRecovery {
                 .mapValues { (_, read) -> read.deliveryDigest }
         }
 
-        fun restoreMissingPage(pending: Map<String, String?>, exchanges: List<AgentToolExchange>, tools: List<AgentToolDefinition>): ProviderEvent.ToolCall? {
+        fun restoreMissingPage(pending: Map<String, String?>, exchanges: List<AgentToolExchange>, tools: List<AgentToolDefinition>, pageBudget: Int = Int.MAX_VALUE): ProviderEvent.ToolCall? {
             val bodies = exchanges.flatMap { it.results }.associateBy { it.callId }
             for ((id, digest) in pending) {
                 val read = verifiedReads[id] ?: continue
                 val identity = immutablePageIdentity(read) ?: continue
+                val capacity = GitHubSavedReadProgress.cursor(identity[1])?.bytes ?: continue
+                if ((capacity.toLong() + 2) / 3 + 512 > pageBudget) continue
                 val body = bodies[id]?.content
                 if (digest != null && body != null && ToolResultDeliveryProof.digest(body) == digest) continue
                 val retryId = "saved-result-consume-restore-" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(identity.joinToString("|")).take(24)

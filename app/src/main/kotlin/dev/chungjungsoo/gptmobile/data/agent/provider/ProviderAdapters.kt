@@ -111,6 +111,28 @@ internal fun retainSafeToolProtocolFrameKind(
     return JsonObject(previous.orEmpty() + ("tool_protocol_frame_kind" to kind))
 }
 
+internal fun streamErrorDetails(error: dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail, visible: Boolean, finished: Boolean): JsonObject = buildJsonObject {
+    put("provider_error_origin", JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"))
+    if (error.code.isNullOrBlank() && error.type.isNullOrBlank()) put("provider_error_code_state", JsonPrimitive("ABSENT"))
+    put("failed_stage", JsonPrimitive("response_stream"))
+    put("failure_origin", JsonPrimitive("PROVIDER"))
+    put("failure_boundary", JsonPrimitive(if (visible) "AFTER_VISIBLE_OUTPUT" else "BEFORE_VISIBLE_OUTPUT"))
+    put(
+        "stream_answer_state",
+        JsonPrimitive(
+            if (finished && visible) {
+                "FINAL_TEXT_EMITTED"
+            } else if (visible) {
+                "PARTIAL_TEXT_EMITTED"
+            } else {
+                "NO_TEXT_EMITTED"
+            }
+        )
+    )
+    error.retryable?.let { put("retryable", JsonPrimitive(it)) }
+    error.failureDetails?.forEach { (key, value) -> put(key, value) }
+}
+
 class OpenAIResponsesAdapter @Inject constructor(
     private val api: OpenAIAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder
@@ -1139,17 +1161,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     // A provider error *value* has no caught throwable. Record its original
                                     // code availability and observation site instead of losing it at
                                     // the chat repository's generic CHAT_FAILED boundary.
-                                    val sourceCodeMissing = error.code.isNullOrBlank() && error.type.isNullOrBlank()
-                                    val sourceObservation = if (sourceCodeMissing) {
-                                        mapOf(
-                                            "provider_error_code_state" to JsonPrimitive("ABSENT"),
-                                            "provider_error_origin" to JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"),
-                                            "failed_stage" to (error.failureDetails?.get("failed_stage") ?: JsonPrimitive("model_invocation"))
-                                        )
-                                    } else {
-                                        emptyMap()
-                                    }
-                                    failureDetails = kotlinx.serialization.json.JsonObject(error.failureDetails.orEmpty() + sourceObservation + error.retryable?.let { mapOf("retryable" to JsonPrimitive(it)) }.orEmpty())
+                                    failureDetails = streamErrorDetails(error, observedVisible, lastFinishReason == "stop")
                                     val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
                                     protocolErrorCode = contract?.code ?: error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                                         ?: error.code?.takeIf(String::isNotBlank) ?: error.type?.takeIf(String::isNotBlank) ?: protocolErrorCode ?: "PROVIDER_INVOCATION_FAILED"
@@ -1274,7 +1286,10 @@ class OpenAICompatibleAdapter @Inject constructor(
         var deliveredPayload = false
         var protocolErrorCode: String? = null
         var outputLimited = false
+        var visibleText = false
+        var finishedText = false
         suspend fun publish(event: ProviderEvent) {
+            if (event is ProviderEvent.TextDelta && event.text.isNotBlank()) visibleText = true
             if (event is ProviderEvent.TextDelta || event is ProviderEvent.ThinkingDelta || event is ProviderEvent.ToolCall) deliveredPayload = true
             if (event is ProviderEvent.Failed) {
                 roundFailed = true
@@ -1318,10 +1333,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                 chunk.error?.let { error ->
                     roundFailed = true
                     lastFailedMessage = error.message
+                    caughtEvidence = streamErrorDetails(error, visibleText, finishedText)
+                    limit = error.providerLimit
                     protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                         ?: error.code ?: error.type ?: protocolErrorCode
                     canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                 } ?: chunk.choices.orEmpty().forEach { choice ->
+                    if (choice.finishReason == "stop") finishedText = true
                     reasoningParser.append(
                         contentChunk = choice.delta?.content ?: choice.message?.content,
                         reasoningChunk = choice.delta?.reasoning ?: choice.message?.reasoning

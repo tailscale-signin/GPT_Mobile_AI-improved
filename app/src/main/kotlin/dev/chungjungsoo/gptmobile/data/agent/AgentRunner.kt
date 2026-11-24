@@ -333,7 +333,7 @@ class AgentRunner(
                 val restoringBatch = restoredCalls.isNotEmpty()
                 val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
                 val pendingSavedPages = automaticRecovery?.pendingSavedPageDeliveries(exchanges, deliveredResultDigests).orEmpty()
-                val automaticRead = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit)
+                val automaticRead = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pendingSavedPages)
                 val round = if (restoringBatch) {
                     RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
                 } else if (automaticRead != null) {
@@ -674,7 +674,8 @@ class AgentRunner(
         ciInvestigation: GitHubCiInvestigationRecovery,
         replayLimit: Int,
         executionToolCallLimit: Int,
-        observedLimit: Int
+        observedLimit: Int,
+        pendingSavedPages: Map<String, String?>
     ): AutomaticRead? {
         return with(state) {
             if (session.handlesToolResultRecovery ||
@@ -685,13 +686,11 @@ class AgentRunner(
                 return null
             }
             val remoteAllowed = !session.handlesToolsInternally && !retainedUnknownOutcome && unknownOutcomes.isEmpty() && limits.combined?.requested?.singlePass != true
-            if (limits.githubTask) {
-                val pending = savedResultRecovery.pendingSavedPageDeliveries(exchanges, deliveredResultDigests)
-                if (pending.isNotEmpty()) {
-                    if (!remoteAllowed || ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) <= 0) return null
-                    val restore = savedResultRecovery.restoreMissingPage(pending, exchanges, definitions.filter { it.name in executableToolByName })
-                    return restore?.let { AutomaticRead(it, "Restoring the exact saved page from the authorized local view.") }
-                }
+            if (pendingSavedPages.isNotEmpty()) {
+                if (!remoteAllowed || ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) <= 0) return null
+                val pageBudget = minOf(replayLimit, limits.maxRetainedEvidenceTokens.coerceIn(1024, 262_144))
+                val restore = savedResultRecovery.restoreMissingPage(pendingSavedPages, exchanges, definitions.filter { it.name in executableToolByName }, pageBudget)
+                return restore?.let { AutomaticRead(it, "Restoring the exact saved page from the authorized local view.") }
             }
             val exhaustiveSearch = limits.githubTask && dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.requiresExhaustiveSearch(limits.githubTaskRequest.orEmpty())
             if (remoteAllowed && definitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" || exhaustiveSearch && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_search" }) {

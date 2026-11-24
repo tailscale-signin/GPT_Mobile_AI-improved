@@ -5075,9 +5075,9 @@
       "sha256": "3daad90b623330f627de676f11c618d01a3096a470966071e00bc50678ea4c35"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt": {
-      "blob_sha": "77695c5dabe9c84f982665789a23a72ff73097f0",
-      "bytes": 42317,
-      "sha256": "eb6d09de179ef5b5aec676b5dafedd25b1418178534df52b5ee826cec8e45fcb"
+      "blob_sha": "ed71725c6c2f3646c6007b43457b6478cb3b277c",
+      "bytes": 42964,
+      "sha256": "41ac7bc5e3aef0fa7d508c22e87e9cc8c596f55bccba7e4af0ee3abf9faa67ec"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSilentWarmupTest.kt": {
       "blob_sha": "840035e15f13e00b29bfedfddfc6570a46b9288b",

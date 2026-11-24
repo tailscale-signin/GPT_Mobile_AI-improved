@@ -488,6 +488,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/PublicProgressInstructions.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlan.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentNormalization.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentRepairBudget.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExchangeCompactor.kt",

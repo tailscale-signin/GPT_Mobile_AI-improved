@@ -90,6 +90,20 @@ class VoiceSessionTest {
         assertEquals("Answer first.", output.spoken.joinToString("").trim())
     }
 
+    @Test fun qualityStreamsSixStableWordsAndPlaysTheRemainingReplyOnce() {
+        audio.streamsReplies = true
+        start()
+        session.performanceMode = VoicePerformanceMode.QUALITY
+        audio.listeners.last().final("Explain solar panels")
+        val opening = "Solar panels turn sunlight into electricity "
+        session.streamReply("quality", opening + "as light reaches ")
+        assertEquals(listOf(opening), audio.spoken)
+        val final = opening + "as light reaches each cell."
+        session.reply("quality", final)
+        assertEquals(final, audio.spoken.joinToString(""))
+        assertEquals(1, audio.sealed)
+    }
+
     @Test fun disablingEarlySpeechKeepsCaptionsLiveAndWaitsForTheTerminalReply() {
         audio.streamsReplies = true
         start()

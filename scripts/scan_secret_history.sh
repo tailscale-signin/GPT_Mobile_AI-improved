@@ -36,4 +36,4 @@ if [[ $verify_integrity == true ]]; then
   python3 scripts/test_secret_history_integrity.py --scanner "$scanner"
 fi
 python3 scripts/test_gitleaks_model_pin.py --scanner "$scanner"
-"$scanner" git --redact=100 --no-banner --no-color --log-opts='--all --full-history --diff-merges=first-parent --root' .
+python3 scripts/report_secret_history.py --scanner "$scanner"

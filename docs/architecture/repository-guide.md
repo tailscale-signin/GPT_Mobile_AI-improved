@@ -78,13 +78,20 @@ for tool authorization, changes, verification and the final answer.
 | Instant | Give straightforward lookups a short path to a verified answer. |
 | Intelligent | Choose reasoning effort and planning from the request and conversation. |
 | Deep Engineering | Inspect dependencies, plan implementation stages and verify outstanding criteria. |
-| Maximum Intelligence | Compare approaches and, with explicit consent and eligible profiles, consult a named helper and reviewer. |
+| Maximum Intelligence | Compare approaches, consult an approved helper or reviewer, and use a named recovery profile when a task stalls. |
 
 An advisory plan records goals and the observations that would satisfy them.
 The execution loop uses unresolved requirements and their dependencies to select
 the next authorized tool. It preserves citations when it changes strategy.
 Context selection prioritizes instructions, pending tool results and relevant
 pinned evidence. A resumed task retrieves its canonical checkpoint for that chat.
+
+To let another model investigate a stalled requirement, choose a recovery
+profile in the primary profile's GitHub settings. It can select one scoped
+repository search or source read. The existing run executes that operation
+under its remaining tool budget and records the result for the primary model.
+The advisor and the recovery profile share one reservation per task. Private
+chats retain their existing routing restrictions.
 
 The phone and Gateway can search repository symbols, related tests, architecture
 documents and historical repair records. Source references carry revision identity.
@@ -103,6 +110,10 @@ GitHub Actions verifies the result independently. The 100-point production
 qualification currently requires a private Llama or Ollama Gateway execution
 binding. Codex can run as a configured Gateway coding agent. A native ChatGPT
 or Codex session needs equivalent instrumented evidence for a production score.
+For a narrower comparison, export one public benchmark task and grade each
+assistant's saved answer with `gateway/grade_external_reference.py`. Both
+answers face the same hidden tests and execution limits. The report identifies
+the assistant name as supplied by the operator.
 
 Design references include [OpenAI's repository guidance](https://openai.com/index/harness-engineering/),
 [Git worktrees](https://git-scm.com/docs/git-worktree) and

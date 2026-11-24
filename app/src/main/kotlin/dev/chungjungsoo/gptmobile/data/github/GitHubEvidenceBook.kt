@@ -174,6 +174,8 @@ internal class GitHubEvidenceBook(
 
     @Volatile private var renewalFailure: ProviderEvent.Failed? = null
 
+    suspend fun recoveryReadHead(captured: String): String = mutex.withLock { observedHead ?: captured }
+
     /** Stable task identity already includes account, conversation, repository and branch scope. */
     fun checkpointBinding(): String = binding
 

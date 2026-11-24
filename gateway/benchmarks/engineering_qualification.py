@@ -233,7 +233,8 @@ def snapshot(service, principal, job_id, scenario):
         passed = signals.get(scenario, False) and attempts_measured and not false_completion
     latest = dispatched[-1] if dispatched else {}
     comparison_route, route_verified = selected_route(job, dispatched)
-    intelligence = ({'intelligence': github_intelligence.case_observations(job, scenario, signals[scenario], completed)}
+    intelligence = ({'intelligence': github_intelligence.case_observations(job, scenario, signals[scenario], completed),
+                     'accepted_provider_posts': github_intelligence_targets.accepted_provider_posts(job, attempts, scan.get('attempts'))}
                     if scenario in SCENARIOS else {})
     return {**intelligence, **workspace_details, 'schema': workspace.SCHEMA if scenario in workspace.ALL_CASES else CONTINUOUS_SCHEMA if continuous else PRODUCTION_SCHEMA, 'scenario': scenario, 'title': scenarios[scenario],
             'job_id': job_id, 'repository': job['request']['repository'], 'source_sha': job['request'].get('source_sha'),

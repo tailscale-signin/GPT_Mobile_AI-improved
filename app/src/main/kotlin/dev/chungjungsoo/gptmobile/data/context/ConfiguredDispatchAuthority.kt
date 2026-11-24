@@ -108,7 +108,7 @@ internal object ConfiguredDispatchAuthority {
     internal fun githubOverrideChanges(before: JsonObject, after: JsonObject): List<String> {
         val previous = (before["githubProfileOverride"] as? JsonObject).orEmpty()
         val current = (after["githubProfileOverride"] as? JsonObject).orEmpty()
-        return listOf("webSearch", "githubTools", "engineeringMode", "maximumContext", "contextVariant", "engineeringMemory", "allowCloudEngineeringMemory", "workflowPreset", "quickWorkflows", "engineeringGatewayProfileUid", "executionBatchMode", "sampling", "intelligenceLevel", "recoveryConsultConsent", "engineeringTeamConsent")
+        return listOf("webSearch", "githubTools", "engineeringMode", "maximumContext", "contextVariant", "engineeringMemory", "allowCloudEngineeringMemory", "workflowPreset", "quickWorkflows", "engineeringGatewayProfileUid", "executionBatchMode", "sampling", "intelligenceLevel", "recoveryConsultConsent", "engineeringTeamConsent", "recoveryExecutionConsent")
             .filter { previous[it] != current[it] }.map { "githubProfileOverride.$it" }
     }
 

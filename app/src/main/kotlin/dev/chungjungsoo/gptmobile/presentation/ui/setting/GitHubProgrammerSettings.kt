@@ -324,32 +324,42 @@ internal fun GitHubGatewayConnectionCheck(profileUid: String?, onCheck: (String)
 
 @Composable
 private fun GitHubRecoveryConsultSetting(state: GitHubProgrammerState, onChange: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit) {
-    val consent = state.profileSettings.recoveryConsultConsent
+    val adviceConsent = state.profileSettings.recoveryConsultConsent
+    val executionConsent = state.profileSettings.recoveryExecutionConsent
+    val consent = executionConsent ?: adviceConsent
     if (state.profileSettings.intelligenceLevel != GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE && consent == null) return
     val candidates = if (state.privacyModeLocked == false) state.recoveryAdvisors else emptyMap()
-    val selected = candidates[consent]
+    val executionProfiles = if (state.privacyModeLocked == false) state.recoveryExecutionProfiles else emptyMap()
+    val selected = executionProfiles[executionConsent] ?: candidates[adviceConsent]
     var expanded by remember { mutableStateOf(false) }
     Column {
-        Text("Recovery advisor", style = MaterialTheme.typography.titleSmall)
-        OutlinedButton(onClick = { expanded = true }, enabled = candidates.isNotEmpty() || consent != null, modifier = Modifier.testTag("github_recovery_advisor")) {
-            Text(selected?.name ?: if (consent != null) "Saved advisor unavailable" else "Selected profile only")
+        Text("Recovery profile", style = MaterialTheme.typography.titleSmall)
+        OutlinedButton(onClick = { expanded = true }, enabled = candidates.isNotEmpty() || executionProfiles.isNotEmpty() || consent != null, modifier = Modifier.testTag("github_recovery_advisor")) {
+            Text(selected?.let { "${it.name} · " + if (executionConsent != null) "Recovery read" else "Advice" } ?: if (consent != null) "Saved profile unavailable" else "Selected profile only")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("Selected profile only") }, onClick = {
                 expanded = false
-                onChange(state.profileSettings.copy(recoveryConsultConsent = null))
+                onChange(state.profileSettings.copy(recoveryConsultConsent = null, recoveryExecutionConsent = null))
             })
-            candidates.forEach { (key, helper) ->
-                DropdownMenuItem(text = { Text("${helper.name} · ${helper.model}") }, onClick = {
+            executionProfiles.forEach { (key, helper) ->
+                val destination = if (helper.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM) "on device" else "provider charges may apply"
+                DropdownMenuItem(text = { Text("Recovery read · ${helper.name} · ${helper.model} ($destination)") }, onClick = {
                     expanded = false
-                    onChange(state.profileSettings.copy(recoveryConsultConsent = key))
+                    onChange(state.profileSettings.copy(recoveryConsultConsent = null, recoveryExecutionConsent = key))
+                })
+            }
+            candidates.forEach { (key, helper) ->
+                DropdownMenuItem(text = { Text("Advice only · ${helper.name} · ${helper.model}") }, onClick = {
+                    expanded = false
+                    onChange(state.profileSettings.copy(recoveryConsultConsent = key, recoveryExecutionConsent = null))
                 })
             }
         }
         val guidance = when {
             state.privacyModeLocked == true -> "Private chats use the selected profile for recovery."
-            state.profiles.singleOrNull { it.uid == state.profileUid }?.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM -> "The primary profile already uses the on-device runtime. Recovery continues on that profile."
-            candidates.isEmpty() -> "Open a saved GitHub chat, enable delegation and automatic fallback, and approve an on-device helper in the profile’s delegation settings."
+            executionProfiles.isNotEmpty() -> "Recovery read sends the request and unfinished criterion to your chosen model. It can select one pinned search or source read. The primary receives the evidence and owns all writes. One invocation per task, up to 256 output tokens within your spend limit."
+            candidates.isEmpty() -> "Open a saved GitHub chat, enable delegation and automatic fallback, and approve a second profile. Network profiles also require remote worker permission."
             else -> "For this repository and branch, the on-device advisor can suggest a next step after an empty answer or unfinished criterion. It receives the request and sends a text proposal to the primary profile."
         }
         Text(guidance, style = MaterialTheme.typography.bodySmall)

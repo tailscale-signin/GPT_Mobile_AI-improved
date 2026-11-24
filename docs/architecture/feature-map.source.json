@@ -1473,7 +1473,9 @@
         "payload recovery",
         "independent reviewer",
         "intelligence benchmark",
-        "Git worktree"
+        "Git worktree",
+        "recovery profile",
+        "external reference grading"
       ],
       "paths": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntelligenceLevel.kt",
@@ -1498,7 +1500,9 @@
         "gateway/benchmarks/github_intelligence.py",
         "gateway/benchmarks/github_intelligence_targets.py",
         "gateway/benchmarks/engineering_qualification.py",
-        "gateway/qualify_engineering.py"
+        "gateway/qualify_engineering.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryReadSession.kt",
+        "gateway/grade_external_reference.py"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubIntelligenceScoreTest.kt",
@@ -1513,7 +1517,9 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ReviewerPolicyTest.kt",
         "gateway/tests/test_gateway_github_intelligence.py",
         "gateway/tests/test_gateway_github_intelligence_targets.py",
-        "gateway/tests/test_gateway_agent_adapters.py"
+        "gateway/tests/test_gateway_agent_adapters.py",
+        "gateway/tests/test_gateway_external_reference_cli.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRecoveryReadSessionTest.kt"
       ],
       "documents": [
         "docs/architecture/repository-guide.md",

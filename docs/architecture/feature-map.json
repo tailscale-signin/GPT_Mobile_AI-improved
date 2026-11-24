@@ -1532,6 +1532,34 @@
         "A recoverable rejection can shrink the next request only within its original permissions and resource budget.",
         "Score comparisons require independently measured work under matching task, policy, environment and budget identities."
       ]
+    },
+    {
+      "id": "publication-attestation-retention",
+      "title": "Retained Android and Windows attestation bundles",
+      "terms": [
+        "release attestation",
+        "offline provenance verification",
+        "attestation bundle"
+      ],
+      "paths": [
+        ".github/workflows/release-build.yml",
+        ".github/workflows/gateway-windows-installer.yml"
+      ],
+      "tests": [
+        "scripts/tests/test_published_release.py",
+        "scripts/tests/test_release_scope.py"
+      ],
+      "commands": [
+        "bash scripts/validate-local.sh fast"
+      ],
+      "documents": [
+        "docs/repairs/publication-attestation-retention-2026-11-24-task.json"
+      ],
+      "invariants": [
+        "Each existing package attestation retains its exact bundle-path output as a separate source/run/attempt artifact for 14 days.",
+        "Subject globs, signing, permissions, package artifacts, release assets, triggers, required gates and publication behavior remain unchanged.",
+        "Retained bundles are verification inputs; their presence does not establish cryptographic validation, final-source qualification or publication."
+      ]
     }
   ],
   "file_blobs": {
@@ -1544,6 +1572,11 @@
       "blob_sha": "e7de787d4e72ae8422ea8b8b7afc4d3304eb72c4",
       "bytes": 12520,
       "sha256": "1b2493e5927036d11b7d1efae66a076f731278bd9046f4cb1b5f075a822ea9c8"
+    },
+    ".github/workflows/gateway-windows-installer.yml": {
+      "blob_sha": "f628924e4df2bfd91a549743cd022c3945c0302a",
+      "bytes": 5809,
+      "sha256": "5a8a86bc922935a4f53b58345a783a8960b07ff44d179c0cecdb63f8996988ea"
     },
     ".github/workflows/native-memory-smoke.yml": {
       "blob_sha": "743f6dcc6670815a83e12257573fcbe3c056764a",
@@ -1564,6 +1597,11 @@
       "blob_sha": "e014d5d4585a20f7571542da5dcc705f1d7aa411",
       "bytes": 10474,
       "sha256": "5a01576356b45ec9a7045502526b8a42c58bda3c7fef69a829dd051e1ea86ca7"
+    },
+    ".github/workflows/release-build.yml": {
+      "blob_sha": "1b4c748d8892919ad7ccae42e1a633b21770a3a5",
+      "bytes": 25492,
+      "sha256": "f4f32cd51c1dfdf824ac6f10109a0d9417f4b829c210e67cf3359f87b7bb58ad"
     },
     ".github/workflows/speech-engine-smoke.yml": {
       "blob_sha": "0232b82eb6fd93e4d0ca15e551028d051992862a",
@@ -4105,6 +4143,11 @@
       "bytes": 2816,
       "sha256": "b8b9060d53c8a602ff3dafd9c4cf3b4b8ae0aff25da8b71d2908e96f614c3812"
     },
+    "docs/repairs/publication-attestation-retention-2026-11-24-task.json": {
+      "blob_sha": "89258e1b674ee47fe4bbe90bfe9d7f57618067c4",
+      "bytes": 4557,
+      "sha256": "c3244beb7f2cc836d4f89d42e623f19887f48ef3b16275d675c46692fba8d8c8"
+    },
     "docs/repairs/qnn-candidate-rate-limit-2026-11-24-task.json": {
       "blob_sha": "5a3df874bcd6116e26873300606b15e87f6ffe09",
       "bytes": 3770,
@@ -4735,6 +4778,11 @@
       "bytes": 49130,
       "sha256": "4eb7b7b2e2ecb35b64f5cdcd7fe00c57db1de6db522b22485036499b13148bd4"
     },
+    "scripts/tests/test_published_release.py": {
+      "blob_sha": "b9898d5796c10ebc8d89d9087b2ccd37f1977d32",
+      "bytes": 25212,
+      "sha256": "7ab2a342090e171bcf60cb69c2a6168195d73e51992856b4037f01e481bd1a29"
+    },
     "scripts/tests/test_qnn_host_probe_inputs.py": {
       "blob_sha": "a981ea8606d10367d3fa4e0cc2bdaa942ef7ee24",
       "bytes": 1979,
@@ -4754,6 +4802,11 @@
       "blob_sha": "71838778cb136515bd77cd45fa9bbb29755daae0",
       "bytes": 2871,
       "sha256": "b5b3cd53af611aebaa573fa9bc858083edb07c198cdf4f1f50d9d89827dcb713"
+    },
+    "scripts/tests/test_release_scope.py": {
+      "blob_sha": "50430b4897e02dafc460f8cbc2f95b834ca343dc",
+      "bytes": 5798,
+      "sha256": "136f03ae8204b7ce095ebac62fed29d0b07f168e5c968066806abf0de1f4089b"
     },
     "scripts/tests/test_secret_history_reporting.py": {
       "blob_sha": "9bd1164a6d6ae6e765cefa69271e94a9ddd0714d",

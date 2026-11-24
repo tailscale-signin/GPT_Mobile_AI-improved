@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-11-24T03:51:13.445224+00:00",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "head": "1973d18aca6be64b326d6b8f90faddccc9c4580f",
+  "base": "8095c1aee67b64584033289944eff1dfac7a7b48",
+  "scope": "EXPLICIT_PUBLIC_RELEASE_RANGE_ONLY_NOT_FULL_HISTORY",
+  "actualCurrentFindings": 11,
+  "allClassifiedByActualSourceOrApprovedArtifactPins": true,
+  "redactedReportSha256": "5b88cd874ce4194ff74aa77fb3ab8e46f304cab4d28f5ca68883377280ee5525",
+  "findings": [
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "1441fdcfb4ea7250eb0a1bd29f8257f1fe308ffe",
+      "File": "docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log",
+      "StartLine": 1,
+      "Fingerprint": "1441fdcfb4ea7250eb0a1bd29f8257f1fe308ffe:docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log:generic-api-key:1",
+      "classification": "VERIFIED_FROZEN_RECEIPT_WITH_13_PUBLIC_SOURCE_DIGESTS_AND_PINNED_SCANNER_DIGEST",
+      "sourceFileSha256": "239d494e49bd476ad148e2be462a2a0a0e3a857372dcafe7904c02b6f68e42e6",
+      "wholeLineSha256": "db9b4401caf992c261ab1e9fc649b3cdf6533602fa81151fdfa83f6021c7dd45",
+      "currentPublicBytesMatch": true
+    },
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "1441fdcfb4ea7250eb0a1bd29f8257f1fe308ffe",
+      "File": "docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log",
+      "StartLine": 1,
+      "Fingerprint": "1441fdcfb4ea7250eb0a1bd29f8257f1fe308ffe:docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log:generic-api-key:1",
+      "classification": "VERIFIED_FROZEN_RECEIPT_WITH_13_PUBLIC_SOURCE_DIGESTS_AND_PINNED_SCANNER_DIGEST",
+      "sourceFileSha256": "239d494e49bd476ad148e2be462a2a0a0e3a857372dcafe7904c02b6f68e42e6",
+      "wholeLineSha256": "db9b4401caf992c261ab1e9fc649b3cdf6533602fa81151fdfa83f6021c7dd45",
+      "currentPublicBytesMatch": true
+    },
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "1441fdcfb4ea7250eb0a1bd29f8257f1fe308ffe",
+      "File": "docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log",
+      "StartLine": 1,
+      "Fingerprint": "1441fdcfb4ea7250eb0a1bd29f8257f1fe308ffe:docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log:generic-api-key:1",
+      "classification": "VERIFIED_FROZEN_RECEIPT_WITH_13_PUBLIC_SOURCE_DIGESTS_AND_PINNED_SCANNER_DIGEST",
+      "sourceFileSha256": "239d494e49bd476ad148e2be462a2a0a0e3a857372dcafe7904c02b6f68e42e6",
+      "wholeLineSha256": "db9b4401caf992c261ab1e9fc649b3cdf6533602fa81151fdfa83f6021c7dd45",
+      "currentPublicBytesMatch": true
+    },
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "32c0a883c3ee2531e8471e7e874e9bc0f4b7cec3",
+      "File": "docs/repairs/secret-history-finding-evidence-2026-11-24-task.json",
+      "StartLine": 124,
+      "Fingerprint": "32c0a883c3ee2531e8471e7e874e9bc0f4b7cec3:docs/repairs/secret-history-finding-evidence-2026-11-24-task.json:generic-api-key:124",
+      "classification": "VERIFIED_PUBLIC_WRAPPER_SOURCE_DIGEST",
+      "sourceFileSha256": "46f6264a5f553793e921406e7544f02af563bcab1f0224065f6539d468c818da",
+      "wholeLineSha256": "e24264450fb9c2244a30db5357f151c5b2c89093560293dbee42e5e753928865",
+      "currentPublicBytesMatch": true
+    },
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "f9570b16e25eb6751d390bb46f3e1011181f3b5c",
+      "File": "docs/repairs/evidence/secret-history-finding-evidence/focused-result.json",
+      "StartLine": 9,
+      "Fingerprint": "f9570b16e25eb6751d390bb46f3e1011181f3b5c:docs/repairs/evidence/secret-history-finding-evidence/focused-result.json:generic-api-key:9",
+      "classification": "VERIFIED_PUBLIC_WRAPPER_SOURCE_DIGEST",
+      "sourceFileSha256": "7992801dd7e51f0cf982e003e71766a883bf0fea202bf74a990b3ca8270422ed",
+      "wholeLineSha256": "896a3a161ae3b70a79cac3a6cfda06eaf8dc1a9a2fad52ddcbc91ff2715f7d5d",
+      "currentPublicBytesMatch": true
+    },
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "f9570b16e25eb6751d390bb46f3e1011181f3b5c",
+      "File": "docs/repairs/evidence/secret-history-finding-evidence/focused-result.json",
+      "StartLine": 137,
+      "Fingerprint": "f9570b16e25eb6751d390bb46f3e1011181f3b5c:docs/repairs/evidence/secret-history-finding-evidence/focused-result.json:generic-api-key:137",
+      "classification": "VERIFIED_PUBLIC_WRAPPER_SOURCE_DIGEST",
+      "sourceFileSha256": "7992801dd7e51f0cf982e003e71766a883bf0fea202bf74a990b3ca8270422ed",
+      "wholeLineSha256": "e24264450fb9c2244a30db5357f151c5b2c89093560293dbee42e5e753928865",
+      "currentPublicBytesMatch": true
+    },
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "be94fb53e14e9fc0188a87b72f8b224b207fd2af",
+      "File": "docs/repairs/evidence/voice-pronunciation-vocabulary/independent-review-reconstructed.json",
+      "StartLine": 33,
+      "Fingerprint": "be94fb53e14e9fc0188a87b72f8b224b207fd2af:docs/repairs/evidence/voice-pronunciation-vocabulary/independent-review-reconstructed.json:generic-api-key:33",
+      "classification": "VERIFIED_PUBLIC_MODEL_ASSET_DIGEST",
+      "sourceFileSha256": "5d562af7d61bdec8b71c6a66ac0809eed4b546673298f4bae9709bc5e1d3a3de",
+      "wholeLineSha256": "a326a92d7c169ef591da9db28ea90ef3c4df14e25eafb87494a6ae35f4375064",
+      "currentPublicBytesMatch": true
+    },
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "e40659976e33b2e305169f66fbb5c017f6e93282",
+      "File": "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
+      "StartLine": 35,
+      "Fingerprint": "e40659976e33b2e305169f66fbb5c017f6e93282:docs/repairs/secret-history-integrity-ci-2026-11-24-task.json:generic-api-key:35",
+      "classification": "VERIFIED_PUBLIC_WRAPPER_SOURCE_DIGEST",
+      "sourceFileSha256": "53f46c3490a5aa26cdd95ca0d21b2069260c7d8a8582764722e301498b5bee3e",
+      "wholeLineSha256": "d1757b41c093a0d14c3ca5cf44d51e83389af0f33d25108beb7359282e7a3493",
+      "currentPublicBytesMatch": true
+    },
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "e40659976e33b2e305169f66fbb5c017f6e93282",
+      "File": "docs/repairs/secret-history-integrity-ci-2026-11-24-task.json",
+      "StartLine": 187,
+      "Fingerprint": "e40659976e33b2e305169f66fbb5c017f6e93282:docs/repairs/secret-history-integrity-ci-2026-11-24-task.json:generic-api-key:187",
+      "classification": "VERIFIED_PUBLIC_WRAPPER_SOURCE_DIGEST",
+      "sourceFileSha256": "53f46c3490a5aa26cdd95ca0d21b2069260c7d8a8582764722e301498b5bee3e",
+      "wholeLineSha256": "07e5f118935761e0fe62d65f3f020b50823b8a1629581cbf6327530bf986fbf0",
+      "currentPublicBytesMatch": true
+    },
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "e8552961c988df4ba5b89e04f3c3cdaa36cc5a3c",
+      "File": "docs/repairs/diagnostic-93d824fd-secret-history-integrity-2026-11-24-task.json",
+      "StartLine": 127,
+      "Fingerprint": "e8552961c988df4ba5b89e04f3c3cdaa36cc5a3c:docs/repairs/diagnostic-93d824fd-secret-history-integrity-2026-11-24-task.json:generic-api-key:127",
+      "classification": "VERIFIED_PUBLIC_WRAPPER_SOURCE_DIGEST",
+      "sourceFileSha256": "7ec4b45567cebaa08f213dc8cdf84032d8251cf36ead70c448649c5c4df64761",
+      "wholeLineSha256": "62618757ddb8943ff011134eae6e25d587451e8e6b399c0df3ad70b3ac8d7332",
+      "currentPublicBytesMatch": true
+    },
+    {
+      "RuleID": "generic-api-key",
+      "Commit": "55b8490ffdb7a11d78f9721d422c78b2ea467948",
+      "File": "docs/repairs/privacy-lifecycle-disposal-idle-2026-11-24-task.json",
+      "StartLine": 31,
+      "Fingerprint": "55b8490ffdb7a11d78f9721d422c78b2ea467948:docs/repairs/privacy-lifecycle-disposal-idle-2026-11-24-task.json:generic-api-key:31",
+      "classification": "VERIFIED_APPROVED_COMPOSE_AAR_CHECKSUM_DECLARATION",
+      "sourceFileSha256": "249fb575a68b206c8148fdb2c5fdf88ccf5b7d166fbe8653371f54229d55fbca",
+      "wholeLineSha256": "fa856dbf213de9030655241048a3e6128805bef828d5badf3bfb77a763991059",
+      "currentPublicBytesMatch": true
+    }
+  ],
+  "wrapperProvenance": [
+    {
+      "path": "scripts/scan_secret_history.sh",
+      "commit": "e8552961c988df4ba5b89e04f3c3cdaa36cc5a3c",
+      "sha256": "f19efdac6e205f9ecfb69e9c957c65d79b46e38d741eace05cc3c1200a3836ce",
+      "bytes": 1563,
+      "gitBlob": "cd28cf7d607ac40c5b8a24ff2418b5fcad3762e1"
+    },
+    {
+      "path": "scripts/scan_secret_history.sh",
+      "commit": "e40659976e33b2e305169f66fbb5c017f6e93282",
+      "sha256": "b3f807b708d932b6f0d2015afe69ee1ff5ec192a6086afbb9bc4f5e4f88b7f63",
+      "bytes": 1887,
+      "gitBlob": "793de6820819a2384d033ce87b976c9e66adb658"
+    },
+    {
+      "path": "scripts/scan_secret_history.sh",
+      "commit": "1973d18aca6be64b326d6b8f90faddccc9c4580f",
+      "sha256": "d3c62151d7cf40467999121e949ab5bdaf9195635b075b8d6b4d97b4f5744074",
+      "bytes": 1828,
+      "gitBlob": "0dcaffafc85068fdf79a73098df186da3e46c724"
+    }
+  ],
+  "tokenAsset": {
+    "bytes": 687,
+    "sha256": "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425",
+    "downloadedBytesRehashed": true,
+    "currentModelPackMatches": true
+  },
+  "composeArtifact": {
+    "group": "androidx.compose.ui",
+    "name": "ui-test-android",
+    "version": "1.12.1",
+    "artifact": "ui-test.aar",
+    "sha256": "2beafe8ba6c4ac2335159a7bdc08ac3eaac205f183d5d6b29b2eb87a2458b7ff",
+    "approvedDependencyPinMatches": true,
+    "newBinaryDownload": false
+  },
+  "frozenReceipt": {
+    "path": "docs/repairs/evidence/secret-history-finding-evidence/outer.stdout.log",
+    "fileSha256": "239d494e49bd476ad148e2be462a2a0a0e3a857372dcafe7904c02b6f68e42e6",
+    "lineBytes": 2287,
+    "lineSha256": "db9b4401caf992c261ab1e9fc649b3cdf6533602fa81151fdfa83f6021c7dd45",
+    "all13SourceInputsMatchPublicGitBytes": true
+  },
+  "original821422ProofRecovered": false,
+  "historical9473CompleteIdentityReportRecovered": false,
+  "runtimeOrModelExecution": false,
+  "fullHistoryQualified": false
+}

@@ -30,6 +30,7 @@ INPUTS = (
     ".gitleaks.toml",
     ".gitleaksignore",
     "scripts/scan_secret_history.sh",
+    "scripts/report_secret_history.py",
     "scripts/scan_secrets.py",
     "scripts/test_gitleaks_model_pin.py",
     NATIVE_PATH,

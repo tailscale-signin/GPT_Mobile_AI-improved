@@ -48,6 +48,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var lastSummaryKey = ""
     private val publishedAuthoredSummaries = linkedSetOf<Pair<String, String>>()
     private val resourceStates = linkedMapOf<String, String>()
+    private val sourceIdentities = linkedMapOf<String, String>()
     private var summaryEvidenceEpoch = 0L
     private val reportedFactKeys = linkedSetOf<String>()
     private var lastSummaryRevision = -1L
@@ -200,7 +201,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             savedResults += call.callId
             while (savedResults.size > 256) savedResults.remove(savedResults.first())
         }
-        val facts = (result.executionReceipt?.get("semantic_summary") as? JsonObject)
+        val receiptFacts = result.executionReceipt?.get("semantic_summary") as? JsonObject
+        val facts = receiptFacts
             ?: listOf(result.retainedContent, result.content).firstNotNullOfOrNull { content ->
                 (((content as? ToolResultContent.Json)?.value as? JsonObject)?.get("semantic_summary") as? JsonObject)
             } ?: return null
@@ -209,7 +211,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         ) {
             return null
         }
-        val observation = semanticObservation(call.name, call.arguments, facts, saved) ?: return null
+        val observation = semanticObservation(call.name, call.arguments, facts, saved)?.copy(
+            sourceIdentity = if (!saved && receiptFacts === facts) capturedSourceIdentity(call, result.executionReceipt, facts) else null
+        ) ?: return null
         resultObservations[call.callId] = observation
         while (resultObservations.size > 256) resultObservations.remove(resultObservations.keys.first())
         return observation.preview
@@ -301,6 +305,10 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         val saved = savedResults.remove(progress.toolCallId)
                         val freshResult = observed?.saved != true && !saved
                         if (freshResult && observed != null) {
+                            observed.sourceIdentity?.let { (source, identity) ->
+                                if (sourceIdentities.put(source, identity) != identity) summaryEvidenceEpoch++
+                                while (sourceIdentities.size > 256) sourceIdentities.remove(sourceIdentities.keys.first())
+                            }
                             observed.resourceStates.forEach { (resource, text) ->
                                 resourceStates.put(resource, text)?.takeIf { it != text }?.let { previous ->
                                     recentSteps.removeAll { it == previous }
@@ -448,8 +456,63 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             val unresolvedConditions: Set<String> = emptySet(),
             val resolvedConditions: Set<String> = emptySet(),
             val summaries: List<String> = listOf(summary),
-            val resourceStates: Map<String, String> = emptyMap()
+            val resourceStates: Map<String, String> = emptyMap(),
+            val sourceIdentity: Pair<String, String>? = null
         )
+
+        /** A locally captured identity changes preview deduplication, never source or completion authority. */
+        private fun capturedSourceIdentity(call: ProviderEvent.ToolCall, receipt: JsonObject?, facts: JsonObject): Pair<String, String>? {
+            if (call.name.githubOperationFamily() != "github_read" ||
+                call.name.length > 256 ||
+                receipt == null ||
+                facts["hash_scope"] != JsonPrimitive("IMMUTABLE_SOURCE_RESULT") ||
+                "source_read_verified" in facts &&
+                facts["source_read_verified"] != JsonPrimitive(true) ||
+                "read_source" in receipt &&
+                receipt["read_source"] !in setOf(JsonPrimitive("LIVE"), JsonPrimitive("MIXED")) ||
+                "parent_result_successful" in receipt &&
+                receipt["parent_result_successful"] != JsonPrimitive(true) ||
+                "requires_reconciliation" in receipt &&
+                receipt["requires_reconciliation"] != JsonPrimitive(false) ||
+                receipt["saved_view_source_call_id"] != JsonPrimitive(call.callId)
+            ) {
+                return null
+            }
+            fun text(source: JsonObject, key: String, limit: Int = 256): String? =
+                (source[key] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() && it.length <= limit }
+            val commit = text(facts, "commit_sha")?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return null
+            val digest = text(facts, "source_result_sha256")?.takeIf { it.matches(Regex("[a-fA-F0-9]{64}")) } ?: return null
+            if (!digest.equals(text(receipt, "saved_view_source_sha256"), ignoreCase = true)) return null
+            val range = facts["source_range"] as? JsonObject ?: return null
+            // The producer truncates paths at 256 characters. An exact identity cannot use that ambiguous boundary.
+            val path = text(range, "path", 255) ?: return null
+            val start = (range["start"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it > 0 } ?: return null
+            val end = (range["end"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it >= start } ?: return null
+            fun repository(fields: JsonObject): Pair<String?, String?>? {
+                if (listOf("owner", "repo").any { it in fields && text(fields, it, 512) == null }) return null
+                return runCatching { normalizeGitHubRepository(text(fields, "owner", 512), text(fields, "repo", 512)) }.getOrNull()
+            }
+            val requested = repository(call.arguments) ?: return null
+            val context = receipt["resource_context"] as? JsonObject
+            if ("resource_context" in receipt && context == null) return null
+            val captured = if (context == null) requested else repository(context) ?: return null
+            val owner = captured.first ?: return null
+            val repo = captured.second ?: return null
+            if (requested.first?.equals(owner, ignoreCase = true) == false || requested.second?.equals(repo, ignoreCase = true) == false) return null
+            if ("path" in call.arguments && text(call.arguments, "path") != path) return null
+            if ("commit_sha" in call.arguments && !commit.equals(text(call.arguments, "commit_sha"), ignoreCase = true)) return null
+            val source = JsonArray(
+                listOf(
+                    JsonPrimitive(call.name),
+                    JsonPrimitive(owner.lowercase(java.util.Locale.ROOT)),
+                    JsonPrimitive(repo.lowercase(java.util.Locale.ROOT)),
+                    JsonPrimitive(path),
+                    JsonPrimitive(start),
+                    JsonPrimitive(end)
+                )
+            ).toString()
+            return source to "${commit.lowercase(java.util.Locale.ROOT)}:${digest.lowercase(java.util.Locale.ROOT)}"
+        }
 
         private fun problemScope(job: String, name: String, args: JsonObject?): String {
             val canonical = GitHubActionIdentity.canonicalArguments(name, args ?: JsonObject(emptyMap()))

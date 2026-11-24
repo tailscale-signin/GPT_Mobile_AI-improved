@@ -1072,7 +1072,8 @@
       ],
       "documents": [
         "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23.md",
-        "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json"
+        "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json",
+        "docs/repairs/github-progress-source-identity-2026-11-24-task.json"
       ],
       "invariants": [
         "Primary preview instructions remain outside the bounded repository snapshot and leave tool-free finalization; no extra remote narration call is added.",
@@ -1081,7 +1082,8 @@
         "New analysis can use already-read evidence; suppress repeated wording only within the same observed state and preserve new blockers and recoveries.",
         "Issue and pull-request titles are descriptive data, not evidence of current failures or check counts.",
         "Charts and exports preserve structured check counts, source identity and complete or incomplete captured coverage.",
-        "Routine summaries retain the existing 45-second first and 135-second follow-up cadence."
+        "Routine summaries retain the existing 45-second first and 135-second follow-up cadence.",
+        "Only a bounded, call-bound immutable source capture can refresh preview repetition after a commit or result change; saved, negative, malformed or mismatched receipts do not gain current-source or completion authority."
       ]
     }
   ],
@@ -1377,9 +1379,9 @@
       "sha256": "1feb5df2a828eae4eeceab9cad0ffd5e2d38d68d9c509e4ab49f76a6dff2cc4b"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt": {
-      "blob_sha": "e6cc9d35ebecf53aab1d267406f35c5a7a2ffa7d",
-      "bytes": 47924,
-      "sha256": "1f28632fb855520aa37635070ebb01fae1543f380e941105c4d60b3415266e1b"
+      "blob_sha": "987162906a6bd26d95675162438f82613da3362b",
+      "bytes": 52506,
+      "sha256": "270ce30e2291eb2a7131c1163007f97e7045b8102acd996f9a2d16a7469a36d4"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContext.kt": {
       "blob_sha": "abf765caeaf2ade796d7894e5d367bbd7aab981b",
@@ -2432,9 +2434,9 @@
       "sha256": "e120de9b6c75635dc609bf1ec6e997a44161f9b483498118402f5053032352a9"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressSummaryRegressionTest.kt": {
-      "blob_sha": "988d19d38479311c817de3cd12685f8e8f4e1d2d",
-      "bytes": 11957,
-      "sha256": "89008ad3a1844c04177bf9b595bc34380969c489acc6f260eaf577698c3c868b"
+      "blob_sha": "83954eb4c15174667903c9228e61ee34bb963b08",
+      "bytes": 22834,
+      "sha256": "3338a34cfeb604b785b2b96a3a0c93630e5d59378e8001dc17b0532adfc998b4"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRecoveryTest.kt": {
       "blob_sha": "129c5425324d0562e22f6bc8755ac25cb6fb8ed2",
@@ -3200,6 +3202,11 @@
       "blob_sha": "e91e7966fc38824a9caf3b14a40e7536205eac3e",
       "bytes": 9775,
       "sha256": "11e8309a920ad344493cd7d6c220b893d2139dab2c0b18a1fcaf0ca7c1bac12c"
+    },
+    "docs/repairs/github-progress-source-identity-2026-11-24-task.json": {
+      "blob_sha": "416586638daafdfd3d121ca7920598d545479a5c",
+      "bytes": 6557,
+      "sha256": "a4098ea8ffe2e46ceda70086c086b5bd20065638a3ce1a247f32fc2d1e98fbfd"
     },
     "docs/repairs/github-unheaded-context-recovery-2026-11-24-task.json": {
       "blob_sha": "cfd5f93c8aa984b196a527ccb6c59b7d3b135e65",

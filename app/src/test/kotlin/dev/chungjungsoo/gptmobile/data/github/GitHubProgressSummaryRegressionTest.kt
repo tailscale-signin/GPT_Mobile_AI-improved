@@ -3,10 +3,12 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -188,6 +190,177 @@ class GitHubProgressSummaryRegressionTest {
             assertEquals(null, GitHubRichSummaryPresentation.csv(markdown))
         }
         assertFalse(GitHubRichSummaryPresentation.isRich("Issue #2440 is open; inspect pkg/__init__.py next."))
+    }
+
+    @Test fun changedCapturedCommitAllowsEarlierExplanationWithoutPromotingModelProse() {
+        listOf(false, true).forEach { selectedRepositoryDefault ->
+            val fixture = SourcePreviewFixture()
+            val (call, result) = capturedRead("changed-commit", commit = "b".repeat(40))
+            val request = if (selectedRepositoryDefault) call.copy(arguments = JsonObject(call.arguments - "owner" - "repo")) else call
+            val priorFacts = GitHubRichSummaryPresentation.factKeys(fixture.progress.summarySnapshot())
+            fixture.observe(request to result)
+            assertEquals(priorFacts, GitHubRichSummaryPresentation.factKeys(fixture.progress.summarySnapshot()))
+            val explanation = fixture.repeatedExplanation()
+            assertEquals(explanation, fixture.progress.forward(explanation))
+            assertTrue(explanation.modelAuthored)
+            val source = fixture.progress.summarySnapshot()
+            assertFalse(source.recentSteps.any { it.contains("retries before") || it.contains("Writer.kt") })
+            assertTrue(GitHubRichSummaryPresentation.chartData(GitHubRichSummaryPresentation.render(source)).isEmpty())
+        }
+    }
+
+    @Test fun changedCapturedBytesAtTheSameCommitAllowEarlierExplanation() {
+        val fixture = SourcePreviewFixture()
+        fixture.observe(capturedRead("changed-result", content = "The captured source now includes a cancellation guard."))
+        val explanation = fixture.repeatedExplanation()
+        assertEquals(explanation, fixture.progress.forward(explanation))
+    }
+
+    @Test fun sameCapturedSourceOnAnotherCallStillSuppressesFormattedRepeats() {
+        val fixture = SourcePreviewFixture()
+        fixture.observe(capturedRead("same-source-new-call"))
+        fixture.assertRepeatedExplanationSuppressed()
+    }
+
+    @Test fun capturedRepositoryAndConnectionKeepSameLookingSourceRangesDistinct() {
+        listOf(
+            capturedRead("other-repository", repo = "other-project"),
+            capturedRead("other-connection", tool = "github_read__second_connection")
+        ).forEach { read ->
+            val fixture = SourcePreviewFixture()
+            val priorFacts = GitHubRichSummaryPresentation.factKeys(fixture.progress.summarySnapshot())
+            fixture.observe(read)
+            assertEquals(priorFacts, GitHubRichSummaryPresentation.factKeys(fixture.progress.summarySnapshot()))
+            val explanation = fixture.repeatedExplanation()
+            assertEquals(explanation, fixture.progress.forward(explanation))
+        }
+    }
+
+    @Test fun savedSourceIdentitiesCannotRefreshOrReplaceTheCurrentCapture() {
+        listOf("shared", "retained").forEach { mode ->
+            val fixture = SourcePreviewFixture(savedBeforeNarration = mode)
+            val (call, result) = capturedRead("new-saved-source", commit = "c".repeat(40))
+            fixture.observe(call to asSaved(result, mode))
+            fixture.assertRepeatedExplanationSuppressed()
+            fixture.observe(capturedRead("same-current-source"))
+            fixture.assertRepeatedExplanationSuppressed()
+            assertTrue(fixture.progress.summarySnapshot().recentSteps.any { it.startsWith("From saved results:") })
+        }
+    }
+
+    @Test fun missingNegativeAndMismatchedCaptureReceiptsCannotRefreshAuthoredHistory() {
+        listOf(
+            "content-only", "missing-call", "wrong-call", "missing-digest", "invalid-digest", "digest-mismatch",
+            "missing-commit", "invalid-commit", "missing-scope", "wrong-scope", "negative-verification", "unverified-read",
+            "unknown-read-source", "failed-parent", "malformed-parent", "reconciliation", "malformed-context", "wrong-repository"
+        ).forEach { kind ->
+            val fixture = SourcePreviewFixture()
+            val (call, result) = capturedRead("rejected-$kind", commit = "b".repeat(40))
+            val receipt = requireNotNull(result.executionReceipt)
+            val facts = receipt.getValue("semantic_summary") as JsonObject
+            fun withFact(key: String, value: String) = JsonObject(receipt + ("semantic_summary" to JsonObject(facts + (key to JsonPrimitive(value)))))
+            val rejected = when (kind) {
+                "content-only" -> null
+                "missing-call" -> JsonObject(receipt - "saved_view_source_call_id")
+                "wrong-call" -> JsonObject(receipt + ("saved_view_source_call_id" to JsonPrimitive("another-call")))
+                "missing-digest" -> JsonObject(receipt + ("semantic_summary" to JsonObject(facts - "source_result_sha256")))
+                "invalid-digest" -> withFact("source_result_sha256", "not-a-digest")
+                "digest-mismatch" -> JsonObject(receipt + ("saved_view_source_sha256" to JsonPrimitive("f".repeat(64))))
+                "missing-commit" -> JsonObject(receipt + ("semantic_summary" to JsonObject(facts - "commit_sha")))
+                "invalid-commit" -> withFact("commit_sha", "main")
+                "missing-scope" -> JsonObject(receipt + ("semantic_summary" to JsonObject(facts - "hash_scope")))
+                "wrong-scope" -> withFact("hash_scope", "DISPLAY_PAGE")
+                "negative-verification" -> JsonObject(receipt + ("semantic_summary" to JsonObject(facts + ("source_read_verified" to JsonPrimitive(false)))))
+                "unverified-read" -> JsonObject(receipt + ("read_source" to JsonPrimitive("UNVERIFIED")))
+                "unknown-read-source" -> JsonObject(receipt + ("read_source" to JsonPrimitive("UNKNOWN")))
+                "failed-parent" -> JsonObject(receipt + ("parent_result_successful" to JsonPrimitive(false)))
+                "malformed-parent" -> JsonObject(receipt + ("parent_result_successful" to JsonPrimitive("true")))
+                "reconciliation" -> JsonObject(receipt + ("requires_reconciliation" to JsonPrimitive(true)))
+                "malformed-context" -> JsonObject(receipt + ("resource_context" to JsonPrimitive("sample-owner/project")))
+                "wrong-repository" -> JsonObject(receipt + ("resource_context" to json("""{"owner":"another-owner","repo":"project"}""")))
+                else -> error("Unexpected negative control")
+            }
+            fixture.observe(call to result.copy(executionReceipt = rejected))
+            fixture.assertRepeatedExplanationSuppressed()
+        }
+    }
+
+    @Test fun absentRepositoryIdentityAndMismatchedRequestedSourceCannotRefreshTheCapture() {
+        listOf("missing-repository", "wrong-commit", "wrong-path").forEach { kind ->
+            val fixture = SourcePreviewFixture()
+            val (call, result) = capturedRead("rejected-$kind", commit = "b".repeat(40))
+            val changed = if (kind == "missing-repository") {
+                call.copy(arguments = JsonObject(call.arguments - "owner" - "repo")) to
+                    result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) - "resource_context"))
+            } else if (kind == "wrong-commit") {
+                call.copy(arguments = JsonObject(call.arguments + ("commit_sha" to JsonPrimitive("a".repeat(40))))) to result
+            } else {
+                call.copy(arguments = JsonObject(call.arguments + ("path" to JsonPrimitive("src/Other.kt")))) to result
+            }
+            fixture.observe(changed)
+            fixture.assertRepeatedExplanationSuppressed()
+        }
+    }
+
+    private inner class SourcePreviewFixture(savedBeforeNarration: String? = null) {
+        var clock = 0L
+        val progress = GitHubChatProgress("Review cancellation") { clock }
+        private val first = ApiState.ActivitySummary("Reader.kt retries before recording the response. I’ll check cancellation next.", modelAuthored = true, invocationId = "analysis-a")
+        private val second = ApiState.ActivitySummary("The cancellation guard is in Writer.kt; I’ll inspect that call next.", modelAuthored = true, invocationId = "analysis-b")
+
+        init {
+            progress.tick()
+            observe(capturedRead("initial-source"))
+            if (savedBeforeNarration != null) {
+                val (call, result) = capturedRead("initial-saved-source", commit = "b".repeat(40))
+                observe(call to asSaved(result, savedBeforeNarration))
+            }
+            progress.forward(first)
+            clock = 45_000
+            assertEquals(first, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
+            assertEquals(null, progress.forward(second))
+            clock = 180_000
+            assertEquals(second, progress.tick().filterIsInstance<ApiState.ActivitySummary>().single())
+            clock = 315_000
+        }
+
+        fun observe(read: Pair<ProviderEvent.ToolCall, AgentToolResult>) {
+            val (call, result) = read
+            assertTrue(progress.observeResult(call, result) != null)
+            complete(progress, call.callId, call.name, call.arguments.toString())
+        }
+
+        fun repeatedExplanation() = first.copy(text = "**Reader.kt** retries before recording the response. I will check cancellation next.", invocationId = "analysis-a-again")
+
+        fun assertRepeatedExplanationSuppressed() {
+            assertEquals(null, progress.forward(repeatedExplanation()))
+            assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+            assertEquals(second.text, progress.heartbeat())
+        }
+    }
+
+    private fun capturedRead(
+        id: String,
+        commit: String = "a".repeat(40),
+        content: String = "The captured source records a response.",
+        repo: String = "project",
+        tool: String = "github_read__first_connection"
+    ): Pair<ProviderEvent.ToolCall, AgentToolResult> {
+        val call = ProviderEvent.ToolCall(id, tool, json("""{"owner":"sample-owner","repo":"$repo","path":"src/Reader.kt","commit_sha":"$commit","start_line":1,"end_line":4}"""))
+        val source = json("""{"commit_sha":"$commit","items":[{"path":"src/Reader.kt","start_line":1,"end_line":4,"range_complete":true,"content":"$content"}]}""")
+        val upstream = AgentToolResult(
+            id,
+            ToolResultContent.Json(source),
+            false,
+            executionReceipt = json("""{"read_source":"LIVE","parent_result_successful":true,"requires_reconciliation":false,"resource_context":{"owner":"sample-owner","repo":"$repo"}}""")
+        )
+        return call to GitHubResultViews().present("progress-source-test", "github_read", tool, upstream, call.arguments)
+    }
+
+    private fun asSaved(result: AgentToolResult, mode: String) = if (mode == "shared") {
+        result.copy(sharedResult = true)
+    } else {
+        result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) + ("read_source" to JsonPrimitive("RETAINED"))))
     }
 
     private fun complete(progress: GitHubChatProgress, id: String, name: String, args: String, event: String = "tool_completed") {

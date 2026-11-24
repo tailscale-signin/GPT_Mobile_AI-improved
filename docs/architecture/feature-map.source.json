@@ -1068,7 +1068,8 @@
       ],
       "documents": [
         "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23.md",
-        "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json"
+        "docs/repairs/diagnostic-2a97f916-progress-previews-2026-11-23-task.json",
+        "docs/repairs/github-progress-source-identity-2026-11-24-task.json"
       ],
       "invariants": [
         "Primary preview instructions remain outside the bounded repository snapshot and leave tool-free finalization; no extra remote narration call is added.",
@@ -1077,7 +1078,8 @@
         "New analysis can use already-read evidence; suppress repeated wording only within the same observed state and preserve new blockers and recoveries.",
         "Issue and pull-request titles are descriptive data, not evidence of current failures or check counts.",
         "Charts and exports preserve structured check counts, source identity and complete or incomplete captured coverage.",
-        "Routine summaries retain the existing 45-second first and 135-second follow-up cadence."
+        "Routine summaries retain the existing 45-second first and 135-second follow-up cadence.",
+        "Only a bounded, call-bound immutable source capture can refresh preview repetition after a commit or result change; saved, negative, malformed or mismatched receipts do not gain current-source or completion authority."
       ]
     }
   ]

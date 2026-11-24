@@ -6,10 +6,11 @@ import dev.chungjungsoo.gptmobile.data.delegation.DelegationFallback
 import dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
+import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** Optional text-only recovery advice. The original selected profile owns every action and verification. */
+/** Binds separate advice and read-selection grants to the named profiles and workspace. */
 internal object GitHubRecoveryConsult {
     const val ROLE = "github-recovery-consult"
 
@@ -36,16 +37,21 @@ internal object GitHubRecoveryConsult {
         context: GitHubConversationContext,
         primary: PlatformV2,
         profiles: List<PlatformV2>,
-        policy: ModelDelegationSettings
+        policy: ModelDelegationSettings,
+        execution: Boolean = false
     ): Map<String, PlatformV2> {
         if (!preferences.githubTools || preferences.intelligenceLevel != GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE || primary.uid != context.mainProfileUid || !policy.enabled || policy.processingOwnership >= 100) return emptyMap()
         if (policy.fallbackPolicy in setOf(DelegationFallback.NONE, DelegationFallback.ASK) || policy.fallbackPolicy == null && !policy.fallbackToAnotherProfile) return emptyMap()
         return profiles.filter { helper ->
-            helper.compatibleType == ClientType.LITERT_LM &&
+            (helper.compatibleType == ClientType.LITERT_LM || execution && policy.remoteWorkersAllowed()) &&
+                (!execution || !helper.disableAllTools && !helper.disableRemoteTools && !helper.excludesMemory() && !primary.excludesMemory() && helper.model.isNotBlank() && !helper.model.endsWith(":batch")) &&
                 helper.uid != primary.uid &&
                 (policy.selectionMode != dev.chungjungsoo.gptmobile.data.delegation.WorkerSelectionMode.FIXED || helper.uid == policy.targetProfileUid) &&
                 (helper.uid in policy.approvedWorkerUids.orEmpty() || helper.uid == policy.targetProfileUid) &&
                 DelegationPolicyResolver.reasons(helper, policy, primary).isEmpty()
-        }.groupBy { consent(context, primary, it) }.mapNotNull { (key, matches) -> matches.singleOrNull()?.let { key to it } }.toMap()
+        }.groupBy {
+            val key = consent(context, primary, it)
+            if (execution) GitHubRepositoryStateStore.digest("read-recovery-v1|$key") else key
+        }.mapNotNull { (key, matches) -> matches.singleOrNull()?.let { key to it } }.toMap()
     }
 }

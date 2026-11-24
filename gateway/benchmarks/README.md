@@ -126,6 +126,41 @@ unconfirmed execution, unavailable provider observations, or changed frozen
 identities remain incomplete evidence. Summary `outcomeComplete` and attempt
 rates are separate from complete secondary `score` qualification.
 
+### Grade a separately obtained ChatGPT or Codex answer
+
+The desktop CLI exports the public prompt and output schema for one fixture. Give
+the same prompt, schema, starting files and generation budget to each assistant.
+Save each complete answer as UTF-8, preserving whitespace and any malformed
+output. The grader applies the same independent hidden checks to each candidate.
+
+Run from the repository root using the Gateway Python environment. Replace
+`ROOT` with the installed Gateway desktop configuration directory. The commands
+use its existing owner and permissions.
+
+```sh
+python gateway/grade_external_reference.py task --root ROOT --id pagination-1 --seed 17 --pack python --output task.json
+python gateway/grade_external_reference.py prepare --task task.json --source ChatGPT --candidate answer.json --trial chatgpt.sqlite
+python gateway/grade_external_reference.py submit --root ROOT --trial chatgpt.sqlite --candidate answer.json
+python gateway/grade_external_reference.py status --root ROOT --trial chatgpt.sqlite
+```
+
+For Codex, use the same `task.json`, `--source Codex`, its answer file and a new
+trial file. Compare completed outcomes with matching task, grader and environment
+digests, pack and seed. The source label is operator-supplied. The CLI reports
+provider identity as unverified and leaves generation settings, token usage and
+cost unknown. The result measures one executable fixture. The separate
+ten-job GitHub Intelligence Score requires production execution receipts.
+
+Keep the trial file. It holds the frozen answer digest and original request ID.
+The CLI records the attempted submission durably before contacting the grader.
+Subsequent `submit` and `status` calls on that trial perform readback. An attempted
+trial with `NOT_OBSERVED` still has an uncertain admission. Keep checking using
+`status`; the existing cancellation-by-request procedure below can retire the
+original identity if the operator decides to stop. A reported `REMOVED` is final
+for that identity. If retirement explicitly reports `NOT_DISPATCHED`, a new trial
+can be prepared for a new submission. Preserve any observed original run in the
+comparison history.
+
 ### Cancellation before an admission reply
 
 `POST /gateway/benchmarks/cancel-request` with `{"request_id":"<original-id>"}`

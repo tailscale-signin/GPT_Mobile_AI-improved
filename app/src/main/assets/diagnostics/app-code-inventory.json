@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "4f5700ebb256350db9cca8f783aefa1887608a32a8e9c5aeeeb47564f2a913e7",
+  "source_digest": "79a57df0fb0b3481df462d0db2f8cb539c3d22e0bb4a8e5938a93c4693f27886",
   "file_count": 3083,
-  "indexed_line_count": 522363,
+  "indexed_line_count": 522360,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -101,7 +101,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 114,
-      "indexed_line_count": 11722
+      "indexed_line_count": 11719
     },
     {
       "id": "github",
@@ -10392,8 +10392,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "19934e1e6cbcdb23281e07de400326491801724a5ce8d934346697b65c7d0aac",
-      "indexed_lines": 1527
+      "sha256": "6c7ff3de07febb795ca2c2df0a60d168a8cd5f1a08657f6f0a29e3c5d72f1465",
+      "indexed_lines": 1524
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAICompletionDecoder.kt",

@@ -819,7 +819,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunProviderWaitTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
         "scripts/tests/test_chat_method_size.py",
-        "authentication/test_incident_report_contract.py"
+        "authentication/test_incident_report_contract.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderToolRejectionTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -830,7 +831,9 @@
         "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json",
         "docs/ci-cd/provider-http-remote-evidence-2026-11-24-task.md",
         "docs/ci-cd/provider-acceptance-2026-11-24-task.md",
-        "docs/ci-cd/provider-ordinary-ci-2026-11-24-task.md"
+        "docs/ci-cd/provider-ordinary-ci-2026-11-24-task.md",
+        "docs/repairs/responses-retained-backend-work-2026-11-24-task.json",
+        "docs/repairs/responses-retained-http400-2026-11-24-task.json"
       ],
       "invariants": [
         "Only the actual dispatched remote command or job creates Gateway uncertainty; a saved local conversation key alone does not.",
@@ -840,7 +843,8 @@
         "The packaged named-method guard measures unminified debug/benchmark DEX; release obfuscation and device latency are separate evidence.",
         "HTTP error-body remote-job and reconciliation evidence prevents a new durable wait or manual budget delay and remains attached to the terminal failure.",
         "Standalone accepted or unknown remote state, a closed reconciliation code and an explicit typed retry or replay refusal cannot establish a new known-unaccepted provider wait; raw string and true replay values cannot grant authority.",
-        "Durable-wait scheduling diagnostics are projected only for callers requesting durable waiting; ordinary transport retryability and the selected endpoint/model fence remain intact."
+        "Durable-wait scheduling diagnostics are projected only for callers requesting durable waiting; ordinary transport retryability and the selected endpoint/model fence remain intact.",
+        "Validated retained backend attempts and partial usage survive HTTP rejection without sampling repair, tool-free replay, transient retry or credential rotation; complete bounded failure details retain observed status and stage, while missing token usage remains unknown."
       ]
     },
     {

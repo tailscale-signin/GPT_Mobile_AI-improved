@@ -353,6 +353,60 @@ class OpenAIRecoveryTransportTest {
         }
     }
 
+    @Test fun responsesHttp429RetainsEarlierBackendAttemptsWithoutReplayOrCredentialRotation() = runBlocking {
+        for (measured in listOf(false, true)) {
+            val credentials = mutableListOf<String?>()
+            val selected = PlatformV2(uid = "responses-retained-$measured-$fixtureHost", name = "Fixture", compatibleType = ClientType.OPENAI, apiUrl = "https://responses-retained-$measured.$fixtureHost/v1/", model = "fixture", token = "one,two", timeout = 30)
+            val usage = if (measured) """, "usage_origin":"PROVIDER_REPORTED","usage_estimated":false,"completed_attempts":1,"failed_attempt":2,"failed_attempt_usage_available":false,"attempt_usage":[{"prompt_tokens":12,"completion_tokens":7,"total_tokens":19}]""" else ""
+            val body = """{"error":{"code":"429","message":"Rate limit exceeded","gateway_recovery":{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"},{"attempt":2,"output_allowance":43,"finish_reason":"UNKNOWN","visible_output_bytes":null,"reasoning_output_bytes":null,"terminal_error_code":"backend_http_error","terminal_status_code":429,"backend_response_observed":true,"status":"FAILED"}]$usage}}}"""
+            val expectedRecovery = NetworkClient.json.parseToJsonElement(body).jsonObject.getValue("error").jsonObject.getValue("gateway_recovery")
+            withApi(
+                MockEngine { outgoing ->
+                    credentials += outgoing.headers[HttpHeaders.Authorization]
+                    assertEquals("/v1/responses", outgoing.url.encodedPath)
+                    assertFalse(NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject.containsKey("gateway"))
+                    respond(body, HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("600")))
+                }
+            ) { api ->
+                withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                    val events = dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder())
+                        .openSession(transportTurns(), selected).streamRound(emptyList(), emptyList()).toList()
+                    val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                    assertEquals(listOf("Bearer one"), credentials)
+                    assertEquals("429", failure.errorCode)
+                    assertNull(failure.providerLimit)
+                    assertFalse(failure.transportComplete)
+                    assertFalse(events.any { it is ProviderEvent.Completed })
+                    val timingUsage = events.filterIsInstance<ProviderEvent.Usage>().single()
+                    assertEquals(dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INITIAL, timingUsage.phase)
+                    assertEquals(429, timingUsage.providerResponseTiming?.httpStatus)
+                    assertNull(timingUsage.inputTokens)
+                    assertNull(timingUsage.outputTokens)
+                    assertNull(timingUsage.totalTokens)
+                    assertNull(timingUsage.reasoningTokens)
+                    assertNull(timingUsage.finishReason)
+                    val details = requireNotNull(failure.failureDetails)
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(429), details["http_status"])
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                    assertFalse(details["logical_continuation_allowed"] == kotlinx.serialization.json.JsonPrimitive(true))
+                    assertFalse(details["remote_acceptance"] == kotlinx.serialization.json.JsonPrimitive("NO"))
+                    assertFalse(details["generation_completed"] == kotlinx.serialization.json.JsonPrimitive(true))
+                    assertFalse(details.containsKey("cause_types"))
+                    assertEquals(expectedRecovery, details["gateway_recovery"])
+                    val retained = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromDetails(details)
+                    assertTrue(dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.observedBackendExecution(retained))
+                    val known = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(details)
+                    assertEquals(if (measured) 12 else null, known?.inputTokens)
+                    assertEquals(if (measured) 7 else null, known?.outputTokens)
+                    assertFalse(known?.inputComplete == true)
+                    assertFalse(known?.outputComplete == true)
+                    if (!measured) assertNull(known)
+                }
+            }
+        }
+    }
+
     @org.junit.Before fun resetConnectivity() = LocalServiceHealth.networkChanged()
 
     @org.junit.After fun clearConnectivity() = LocalServiceHealth.networkChanged()
@@ -1343,6 +1397,106 @@ class OpenAIRecoveryTransportTest {
                 assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details?.get("logical_continuation_allowed"))
                 assertFalse(requireNotNull(details).containsKey("failure_kind"))
                 assertFalse(details.containsKey("http_status"))
+            }
+        }
+    }
+
+    @Test fun retainedSamplingRejectionCannotReplayOrDropBackendWorkThroughEitherAdapter() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (measured in listOf(false, true)) {
+                assertRetainedHttpRejection(responses, 400, measured, "temperature")
+            }
+        }
+    }
+
+    @Test fun retainedToolRejectionCannotEscapeAsAReplayableCapabilityFailureThroughEitherAdapter() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (measured in listOf(false, true)) {
+                assertRetainedHttpRejection(responses, 400, measured, "tools")
+            }
+        }
+    }
+
+    @Test fun retainedTransientHttpRejectionCannotReplayOrDropBackendWorkThroughEitherAdapter() = runBlocking {
+        for (responses in listOf(false, true)) {
+            for (status in listOf(502, 503, 504)) {
+                for (measured in listOf(false, true)) {
+                    assertRetainedHttpRejection(responses, status, measured, null)
+                }
+            }
+        }
+    }
+
+    private suspend fun assertRetainedHttpRejection(responses: Boolean, status: Int, measured: Boolean, parameter: String?) {
+        val credentials = mutableListOf<String?>()
+        val rejectedParameter = parameter.orEmpty()
+        val kind = parameter ?: "transient"
+        val selected = PlatformV2(uid = "retained-$responses-$status-$kind-$measured-$fixtureHost", name = "Fixture", compatibleType = if (responses) ClientType.OPENAI else ClientType.OPENROUTER, apiUrl = "https://retained-$responses-$status-$kind-$measured.$fixtureHost/v1/", model = "fixture", token = "one,two", temperature = .4f, timeout = 30)
+        val usage = if (measured) """, "usage_origin":"PROVIDER_REPORTED","usage_estimated":false,"completed_attempts":1,"failed_attempt":2,"failed_attempt_usage_available":false,"attempt_usage":[{"prompt_tokens":12,"completion_tokens":7,"total_tokens":19}]""" else ""
+        val message = if (parameter != null) "Unsupported parameter: '$parameter' is not supported with this model." else "Backend unavailable"
+        val body = """{"error":{"code":"$status","message":"$message","param":"$rejectedParameter","failed_stage":"gateway_recovery","http_status":599,"retryable":true,"request_replay_allowed":true,"gateway_recovery":{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"},{"attempt":2,"output_allowance":43,"finish_reason":"UNKNOWN","visible_output_bytes":null,"reasoning_output_bytes":null,"terminal_error_code":"backend_http_error","terminal_status_code":$status,"backend_response_observed":true,"status":"FAILED"}]$usage}}}"""
+        val expectedRecovery = NetworkClient.json.parseToJsonElement(body).jsonObject.getValue("error").jsonObject.getValue("gateway_recovery")
+        assertFalse(body.contains("job_id") || body.contains("requires_reconciliation") || body.contains("command_outcome_unknown"))
+        val tools = if (parameter == "tools") {
+            listOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("fixture_read", "Read a fictional value.", NetworkClient.json.parseToJsonElement("""{"type":"object","properties":{}}""").jsonObject))
+        } else {
+            emptyList()
+        }
+        withApi(
+            MockEngine { outgoing ->
+                credentials += outgoing.headers[HttpHeaders.Authorization]
+                assertEquals(io.ktor.http.HttpMethod.Post, outgoing.method)
+                assertEquals(if (responses) "/v1/responses" else "/v1/chat/completions", outgoing.url.encodedPath)
+                val sent = NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(.4f), sent["temperature"])
+                assertFalse(sent.containsKey("gateway"))
+                if (parameter == "tools") assertEquals(1, (sent["tools"] as kotlinx.serialization.json.JsonArray).size)
+                respond(body, HttpStatusCode.fromValue(status), headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+        ) { api ->
+            withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                val session = if (responses) {
+                    dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter(api, transportEncoder()).openSession(transportTurns(), selected)
+                } else {
+                    OpenAICompatibleAdapter(api, mockk<GroqAPI>(), transportEncoder()).openSession(transportTurns(), selected)
+                }
+                val events = session.streamRound(tools, emptyList()).toList()
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                assertEquals(listOf("Bearer one"), credentials)
+                assertEquals(status.toString(), failure.errorCode)
+                assertNull(failure.providerLimit)
+                assertFalse(failure.transportComplete)
+                assertFalse(events.any { it is ProviderEvent.Completed || it is ProviderEvent.TextDelta || it is ProviderEvent.ToolCall })
+                val timingUsage = events.filterIsInstance<ProviderEvent.Usage>().single { it.providerResponseTiming != null }
+                assertEquals(status, timingUsage.providerResponseTiming?.httpStatus)
+                assertEquals(if (responses) dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INITIAL else dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INTERIM, timingUsage.phase)
+                events.filterIsInstance<ProviderEvent.Usage>().forEach {
+                    assertNull(it.inputTokens)
+                    assertNull(it.outputTokens)
+                    assertNull(it.totalTokens)
+                    assertNull(it.reasoningTokens)
+                    assertNull(it.finishReason)
+                }
+                val details = requireNotNull(failure.failureDetails)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(status), details["http_status"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("gateway_recovery"), details["failed_stage"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(if (responses) "OPENAI_RESPONSES" else "CHAT_COMPLETIONS"), details["payload_contract"])
+                parameter?.let { assertEquals(kotlinx.serialization.json.JsonPrimitive(it), details["provider_parameter"]) }
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["retryable"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                assertFalse(details["logical_continuation_allowed"] == kotlinx.serialization.json.JsonPrimitive(true))
+                assertFalse(details["remote_acceptance"] == kotlinx.serialization.json.JsonPrimitive("NO"))
+                assertFalse(details["generation_completed"] == kotlinx.serialization.json.JsonPrimitive(true))
+                assertFalse(details.containsKey("cause_types"))
+                assertEquals(expectedRecovery, details["gateway_recovery"])
+                val retained = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromDetails(details)
+                assertTrue(dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.observedBackendExecution(retained))
+                val known = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(details)
+                assertEquals(if (measured) 12 else null, known?.inputTokens)
+                assertEquals(if (measured) 7 else null, known?.outputTokens)
+                assertFalse(known?.inputComplete == true)
+                assertFalse(known?.outputComplete == true)
+                if (!measured) assertNull(known)
             }
         }
     }

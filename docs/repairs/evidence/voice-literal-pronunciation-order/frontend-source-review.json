@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "status": "SCOPED_TEST_DELTA_SOURCE_CLEAR_ORDINARY_ANDROID_CI_REQUIRED",
+  "reviewedAtUtc": "2026-11-24T04:20:07.638136+00:00",
+  "sourceSha": "376cd9fa3d0cf4f0db0e0b0dfffac38a82c89321",
+  "sourceTree": "8cc3df8e3af9cf916f025e6bad10945366b14d9b",
+  "soleParent": "66cb39d22d810f20f5bc9c54a3e88e6e807af619",
+  "productionBytesUnchangedFrom66": true,
+  "priorMethods": 185,
+  "requiredMethods": 186,
+  "requiredClasses": 11,
+  "newMethods": [
+    "dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudioTest.interiorSourceAddressesStayFilteredBeforeAndroidLiteralCorrections"
+  ],
+  "retentionProof": [
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
+      "addedLines": 32,
+      "exactReversalRestoresPreviousBytes": true
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt",
+      "addedLines": 8,
+      "exactReversalRestoresPreviousBytes": true
+    }
+  ],
+  "reviewedCoverage": {
+    "actualAndroidVoiceAudioAndTextToSpeechMock": true,
+    "realPlaybackBufferBeforeAndroidProjection": true,
+    "fiveRawEncodedReferenceCases": true,
+    "validatedSavedAliasesOnFilteredTerms": true,
+    "exactExpectedTtsInvocation": true,
+    "newEngineAndFinallyClosePerCase": true,
+    "nativeWithPolicyComparedWithLegacyFilteredBaseline": true,
+    "sdkPhrasePlanComparedWithLegacyFilteredBaseline": true,
+    "phraseSourceCharacterCountChecked": true,
+    "allEarlierLiteralCaptionSnapshotCancellationControlsRetained": true
+  },
+  "concreteRemainingSourceHolds": [],
+  "executionByReviewer": "NONE: no Kotlin, Android, app, model, native or project execution",
+  "ownerExecutionQualification": "Root-owned pure125 result and pinned lint remain separately bound; this review does not assert Android runtime execution.",
+  "sourceManifest": [
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudioTest.kt",
+      "bytes": 27657,
+      "sha256": "cc517acc45277aab14e202b063dac2ce1f2580fc614d0af3f213512e6432620b",
+      "gitBlob": "8b952a4bc8f5847cae0db9609cb41ab67a9e566f"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceLiteralPronunciationPipelineTest.kt",
+      "bytes": 9288,
+      "sha256": "58af15dd61e566b428c36404e8a0a62fe093e80c0ec27481d7fd30d43446602d",
+      "gitBlob": "8f1d9b52827fd7fc4c521989d2808be00dbce3e0"
+    }
+  ],
+  "componentDiffSha256": "3a688328628ff605d1d3934ebde9d0e2ffd719113c1b15d5892e0b05a7ca7780",
+  "publicWrites": false,
+  "mutableMetadataTouched": false
+}

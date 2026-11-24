@@ -317,6 +317,35 @@ class GitHubSavedPageCapacityTest {
         assertTrue(state.pendingSavedPageDeliveries(listOf(AgentToolExchange(listOf(call), listOf(original))), ToolResultDeliveryProof.capture(listOf(original))).isEmpty())
     }
 
+    @Test fun restorationPreservesTheSelectorsAdmittedWithTheOriginalPage() {
+        val fixture = Fixture()
+        val issued = requireNotNull(fixture.next(tokens = 3000))
+        val selectors = buildJsonObject {
+            put("owner", "o".repeat(39))
+            put("repo", "r".repeat(100))
+        }
+        val call = issued.copy(arguments = JsonObject(issued.arguments + selectors))
+        val original = fixture.read(call, selectors)
+        assertFalse(original.isError)
+        val projected = original.copy(content = requireNotNull(GitHubReplayRecovery.compact(original.content, 512)))
+        val exchange = AgentToolExchange(listOf(call), listOf(projected))
+        val state = GitHubReplayRecovery.State(exchange.calls, exchange.results)
+        val pending = state.pendingSavedPageDeliveries(listOf(exchange), emptyMap())
+        val restore = requireNotNull(state.restoreMissingPage(pending, listOf(exchange), fixture.tools))
+        assertEquals(call.name, restore.name)
+        assertEquals(issued.arguments, restore.arguments)
+        assertTrue(ToolArgumentValidator.errors(restore.arguments, fixture.tools.single().inputSchema).isEmpty())
+        val reread = fixture.read(restore)
+        assertFalse(reread.dispatched)
+        assertEquals(original.content, reread.content)
+        val mismatchedCall = call.copy(arguments = JsonObject(call.arguments + ("owner" to JsonPrimitive("different"))))
+        val mismatchedExchange = AgentToolExchange(listOf(mismatchedCall), listOf(projected))
+        val mismatchedState = GitHubReplayRecovery.State(mismatchedExchange.calls, mismatchedExchange.results)
+        assertFalse(mismatchedState.hasRead(call.name, issued.arguments.getValue("view_cursor").jsonPrimitive.content))
+        val mismatchedPending = mismatchedState.pendingSavedPageDeliveries(listOf(mismatchedExchange), emptyMap())
+        assertTrue(mismatchedPending.isEmpty())
+    }
+
     @Test fun exactDeliveredRereadResolvesAnOldUnknownPageWithoutInventingItsBodyProof() {
         val fixture = Fixture()
         val call = requireNotNull(fixture.next(tokens = 3000))

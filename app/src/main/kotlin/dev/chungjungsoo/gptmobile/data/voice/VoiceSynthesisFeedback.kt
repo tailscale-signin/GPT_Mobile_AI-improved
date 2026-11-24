@@ -86,7 +86,7 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
 
     @Synchronized fun phraseWords(bufferedMs: Long): Int {
         if (mode != VoicePerformanceMode.AUTO) return mode.followUpWords
-        if (observations == 0) return 8
+        if (observations == 0) return OPENING_WORDS
         val wordCost = recentWordCostMs.maxOrNull()
         if (wordCost != null && bufferedMs >= 300) {
             val continuityBudget = (bufferedMs / (wordCost * 1.2)).toInt().coerceIn(6, 16)
@@ -101,6 +101,8 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     }
 
     companion object {
+        const val OPENING_WORDS = 6
+
         // Use existing queue headroom for measured slow phrases and refill margin.
         // Leave one slice of duration headroom; priming also exits if phrase tails fill every queue slot.
         const val MAX_RESERVE_MS = KokoroPcmBatches.QUEUE_LIMIT_MS - KokoroPcmBatches.DURATION_MS

@@ -428,9 +428,12 @@ class IssueReportIncidentCapsuleTest {
     @Test fun intelligencePolicyNamesFromAuthorityRetainOnlyClosedChangeEvidence() {
         val additions = mapOf(
             "intelligenceLevel" to JsonPrimitive("MAXIMUM_INTELLIGENCE"),
+            "nextActionPolicy" to JsonPrimitive("SHADOW"),
+            "evidenceElaboration" to JsonPrimitive(false),
             "recoveryConsultConsent" to JsonPrimitive("PRIVATE_RECOVERY_CONSENT"),
             "engineeringTeamConsent" to JsonPrimitive("PRIVATE_TEAM_CONSENT"),
-            "recoveryExecutionConsent" to JsonPrimitive("PRIVATE_EXECUTION_CONSENT")
+            "recoveryExecutionConsent" to JsonPrimitive("PRIVATE_EXECUTION_CONSENT"),
+            "primaryPatchReviewConsent" to JsonPrimitive("PRIVATE_PATCH_REVIEW_CONSENT")
         )
         for ((name, setting) in additions) {
             val field = "githubProfileOverride.$name"
@@ -489,7 +492,7 @@ class IssueReportIncidentCapsuleTest {
     }
 
     @Test fun everyKnownPolicyNameSurvivesWithoutChangingAuthorityOrUnknownOutcomeEvidence() {
-        assertEquals(81, IssueReportIncidentCapsule.policyFieldNames.size)
+        assertEquals(84, IssueReportIncidentCapsule.policyFieldNames.size)
         for (field in IssueReportIncidentCapsule.policyFieldNames) {
             val context = capture(
                 ReportFeature.CHAT,

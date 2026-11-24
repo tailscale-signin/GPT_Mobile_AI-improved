@@ -182,7 +182,15 @@ struct Model : Frontend {
   }
 
   std::string ContextIdentity(int64_t token_count) const {
-    if (config.provider != "qnn-htp" || context_directory.empty() || !kokoro_runtime::IsSha256(context_identity)) return {};
+    if (config.provider != "qnn-htp") return {};
+    if (context_directory.empty()) {
+      if (!context_identity.empty()) context_status = kokoro_runtime::ContextCacheStatus::DirectoryUnavailable;
+      return {};
+    }
+    if (!kokoro_runtime::IsSha256(context_identity)) {
+      context_status = kokoro_runtime::ContextCacheStatus::IdentityUnavailable;
+      return {};
+    }
     // Discover before loading a context, and bind the actual device rather than
     // trusting a phone label. Every binary affecting the compiled graph is
     // content-bound as well as the Java runtime/device/options identity.
@@ -190,6 +198,17 @@ struct Model : Frontend {
     const auto device = kokoro_runtime::LastSelectedDevice();
     try {
       if (context_seed.empty()) {
+        std::string firmware;
+#if defined(__ANDROID__)
+        // Vendor/DSP firmware can change separately from the system image.
+        // Hash detected versions; never expose these strings in diagnostics.
+        for (const auto *property : {"ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint"}) {
+          char value[PROP_VALUE_MAX]{};
+          const auto size = __system_property_get(property, value);
+          if (size <= 0) { context_status = kokoro_runtime::ContextCacheStatus::FirmwareUnavailable; return {}; }
+          firmware += "|" + std::string(value, size);
+        }
+#endif
         auto seed = context_identity + "|" + Ort::GetVersionString() + "|" +
             kokoro_runtime::DigestFile(config.kokoro.model, 512LL * 1024 * 1024);
         for (const auto *name : {"libtimed_kokoro.so", "libkokoro_qnn_adapter.so", "libonnxruntime_providers_qnn.so", "libQnnHtp.so"})
@@ -204,23 +223,14 @@ struct Model : Frontend {
         std::sort(helpers.begin(), helpers.end());
         for (const auto &name : helpers) seed += "|" + name + "=" +
             kokoro_runtime::DigestFile(library_dir + "/" + name, 512LL * 1024 * 1024);
-#if defined(__ANDROID__)
-        // Vendor/DSP firmware can change separately from the system image.
-        // Hash detected versions; never expose these strings in diagnostics.
-        for (const auto *property : {"ro.vendor.build.fingerprint", "ro.bootimage.build.fingerprint"}) {
-          char value[PROP_VALUE_MAX]{};
-          const auto size = __system_property_get(property, value);
-          if (size <= 0) { context_status = kokoro_runtime::ContextCacheStatus::Unavailable; return {}; }
-          seed += "|" + std::string(value, size);
-        }
-#endif
-        context_seed = kokoro_runtime::Digest(seed);
+
+        context_seed = kokoro_runtime::Digest(seed + firmware);
       }
       return kokoro_runtime::Digest(context_seed + "|" + kokoro_runtime::kContextExportRecipe + "|qnn-htp|" + std::to_string(config.num_threads) + "|" +
           htp_performance_mode + "|" + std::to_string(token_count) + "|" + std::to_string(device.type) + "|" +
           std::to_string(device.vendor) + "|" + std::to_string(device.id));
     } catch (const std::exception &) {
-      context_status = kokoro_runtime::ContextCacheStatus::Unavailable;
+      context_status = kokoro_runtime::ContextCacheStatus::IdentityUnavailable;
       return {};  // Cache identity I/O cannot prevent the original model run.
     }
   }

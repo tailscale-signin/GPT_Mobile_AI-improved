@@ -4,23 +4,61 @@ Version code: **150**. Coordinated publication with Gateway **18.1.3**; retains 
 
 Application native-library stripping uses the same pinned NDK as the native modules. Release packaging drops the unused MediaPipe proofreading and summarization binary, retains the private-memory embedder and speech JNI libraries, and losslessly compresses distribution APKs before signing. The packager checks the SHA-256 of every entry and verifies Android alignment. The universal download limit remains 230 MiB.
 
+## Evidence-guided engineering and progress
+
+- Saved GitHub pages retain their admitted selector identity across restoration. A legacy cursor-only recovery requires matching local proof and the current tool schema.
+- Automatic missing-tool recovery accepts only the selected local catalog; a foreign catalog does not create a retry or dispatch.
+
+- Choose the next GitHub action from unmet requirements, their dependencies, scoped evidence and retry budgets. Each Android GitHub profile can use the original policy, record a shadow choice, or enable evidence-guided selection independently of progress elaboration.
+- Use a bounded, authorized source range on small context windows when it is available. Keep cloud recall, private chat state and the reusable repository graph within their existing access boundaries.
+- Connect 44 reviewed feature routes to their normal entry points, proof requirements and positive and negative fixtures. Use the local route catalog to rank eligible tools and verify revision-bound source guidance before presenting it.
+- Present GitHub findings from scoped evidence on Android and Gateway desktop. Coalesce repeats, correct superseded CI findings, and keep bare source reads in the activity preview.
+- Reuse matching observed behavior-check receipts when selecting Gateway work packages. A changed candidate invalidates earlier patch evidence, and a saved conversation retains its original selection policy.
+- Grade displayed CI conclusions against their exact source revision and expose multiple eligible tools in Android engineering workflow benchmarks. Add reproducible native-product comparisons and blinded progress-renderer studies with separate evidence and preference results.
+
+Native-product and reader-preference comparisons require independently collected observations. This release supplies the evaluation workflows and makes no measured claim of superiority over Codex or Claude Code.
+
+## Speech benchmark and playback
+
+- Opening a foreground voice room starts preparation for Moonshine and the selected speech pack. During web lookups, a ready answer takes priority over a progress update that has not started playing. The Performance panel records the timing.
+- Auto can warm its admitted CPU session on voice entry. Adaptive playback takes a short opening clause or up to six complete opening words before adjusting phrase lengths to the audio queue.
+- Synthesis benchmarks can alternate short, medium and long fixtures. Reports show the native rejection reason, matched CPU frame counts, recoverable timing differences and distinct first-inference kernel time.
+- HTP cache reports distinguish storage, firmware, identity and directory failures. A validated disk load can identify a context stored by an earlier process. Model diagnostics can trace token-duration predictions and report observed kernel time by provider and operator.
+- Hosted speech validation adds the pinned public 43-token Heart fixture on the real compact CPU model. Diagnostic-copy graph ordering retains ONNX validation and leaves the original model bytes unchanged.
+
+GPU and HTP speech qualification and listening quality require measured results on the target phone. A rejected tensor comparison, a cache hit or an instrumented model capture alone does not qualify an accelerator.
+
 ## November 24 issue fixes
 
+- Queued GitHub findings are checked again when displayed, so superseded evidence does not reappear merely because it was valid when queued.
+- Reports about GitHub policy selection check the receiver's distinct capability before sending the exact approved details; older report types keep their existing behavior.
+- Regression controls exercise small reader budgets, local empty-catalog discovery and the existing CI read aliases while preserving dispatch and malformed-input boundaries.
 - CI can wait for all observed checks and commit statuses on a revision, then resume the saved diagnosis once after rechecking the account, repository, profile and revision.
-- Checks from different workflow suites retain their own results. Stopping a watch during its final revision lookup prevents the saved diagnosis from being queued.
+- A queued diagnosis rechecks its original task, account, repository, revision, model and profile before it resumes. The queue consumes the bound continuation once and retains the original task budget.
+- Whole-commit monitoring retains every returned check result. A later success with the same name cannot hide another failed or unfinished check. Stopping a watch during its final revision lookup prevents the saved diagnosis from being queued.
 - When a tool is missing, one catalog lookup can recover an authorized reader. Each catalog revision retains its own attempt history. Recovery checks the reader's declared capabilities and schema before using the original arguments.
 - GitHub chat can reopen an exact missing local result page, make room for it before optional history, and recover a pull request read after the branch head changes.
 - Running CI can look up a matching workflow, register or reattach its watch, and report why monitoring is pending. Watches distinguish workflow attempts. Integration reports identify the blocked capability and the prerequisites to resume.
 - Concurrent phone index requests share the same authorized batch. Each caller checks repository access, and an interrupted batch can resume from its saved revision and issued cursor. Recovery recognizes the phone's own status response before resuming that cursor.
 - Voice chat keeps recognized words editable after Android silences the microphone mid-turn. Sending the partial transcript requires a user action.
 - URL reads share a small result allowance across sources. Catalog discovery handles empty selectors, and repeated missing-tool reports retain the catalog revision and occurrence count. Partial research reports identify the delivery check and source counts.
-- Failure diagnostics distinguish a later failure after visible output. Android freeze reports retain a bounded main-thread fingerprint when the operating system supplies a trace for the affected process.
+- Provider diagnostics distinguish answer text actually delivered to the caller from reasoning-only output and retain upstream failure details. Android freeze reports retain a bounded main-thread fingerprint when the operating system supplies a trace for the affected process.
 - Missing-tool reports confirm that the receiver supports the new diagnostic identity before sending the approved report; older compatible reports keep their existing delivery behavior.
 - Release pull requests build the unsigned packages when the publication request, Android version or packaging inputs change. The publisher retains its APK payload inventory for size-gate diagnostics.
 - Sending an interrupted voice draft restores reply playback while preserving capture permissions, mute state, admission ownership and cancellation checks.
 - Locally stopped phone reads retain their exact deadline and cancellation details through public issue reporting. An interrupted research writer reports the same refreshed evidence used for its partial answer and saved receipt.
 
+- Distribution compression checks scratch space and time limits, rejects archive growth, and runs after bundle assembly before signing. APK contents, alignment and the 230 MiB universal and 180 MiB per-ABI size limits remain checked.
+
 ## GitHub engineering intelligence
+
+- Fixed sampling profiles can interpret indirect and mixed requests using admitted conversation history. A malformed completed advisory proposal falls back to the original request; unexpected planning tool calls remain blocked.
+- Replay gives priority to source observations cited by unfinished criteria and their prerequisites. Compact profiles can start with up to four unread paths from the pinned repository tree.
+- New chats reuse the phone's file and symbol relationships when connection, tree, parser, focus and indexed sources match. Missing cached pages trigger reconstruction; each request retains current access and revision checks.
+- Groq request-size recovery uses the actual serialized request. A measured rejection can reduce both tool schemas and retained results while preserving the current handoff and settled operations.
+
+- Deep Engineering and Maximum Intelligence can send staged excerpts to a separately authorized independent reviewer. Accepted literal clauses are used consistently in planning and verification.
+- The Gateway can resume CI after a verified, disjoint branch advance. The benchmark credits CI recovery only after a failure-triggered repair and passing checks on the replacement revision. It counts duplicate immutable source ranges across initial and follow-up reads.
 
 GitHub engineering now uses four intelligence levels, relevance-ranked replay and recoverable acceptance plans. Named workers, review, branch restaging and production benchmark scores retain revision, permission and evidence checks.
 

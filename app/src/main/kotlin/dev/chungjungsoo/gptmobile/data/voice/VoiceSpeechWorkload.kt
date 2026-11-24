@@ -5,7 +5,8 @@ import java.security.MessageDigest
 internal enum class VoiceSpeechBenchmarkWorkload(val label: String) {
     UTTERANCE("Production phrases"),
     NATIVE_PHRASE("Native phrase"),
-    VARIED_SHAPES("Changing phrase shapes")
+    VARIED_SHAPES("Changing phrase shapes"),
+    INTERLEAVED_UTTERANCES("Production phrases, alternating lengths")
 }
 
 /** Only fixed fixture identities and input sizes leave a failed workload; never arbitrary text. */
@@ -34,7 +35,7 @@ internal object VoiceSpeechWorkload {
 
     private fun createPhrases(fixture: VoiceSpeechBenchmarkFixture, workload: VoiceSpeechBenchmarkWorkload): List<String> {
         val phrases = when (workload) {
-            VoiceSpeechBenchmarkWorkload.UTTERANCE -> KokoroSpeechText.timed(fixture.text) { true }.parts
+            VoiceSpeechBenchmarkWorkload.UTTERANCE, VoiceSpeechBenchmarkWorkload.INTERLEAVED_UTTERANCES -> KokoroSpeechText.timed(fixture.text) { true }.parts
                 ?: throw VoiceSpeechWorkloadFailure("FRONTEND_INPUT_INVALID", fixture.text.toByteArray(Charsets.UTF_8).size)
             VoiceSpeechBenchmarkWorkload.NATIVE_PHRASE -> listOf(nativeTexts.getValue(fixture))
             VoiceSpeechBenchmarkWorkload.VARIED_SHAPES -> listOf(
@@ -46,6 +47,16 @@ internal object VoiceSpeechWorkload {
         if (phrases.isEmpty() || phrases.size > MAX_CHUNKS) throw VoiceSpeechWorkloadFailure("FRONTEND_INPUT_INVALID", 0)
         phrases.forEach(::validate)
         return phrases
+    }
+
+    fun schedule(workload: VoiceSpeechBenchmarkWorkload, mode: VoiceSpeechBenchmarkMode): List<Pair<VoiceSpeechBenchmarkFixture, Int>> {
+        val fixtures = VoiceSpeechBenchmarkFixture.entries
+        val repeats = 0..mode.warmRepeats
+        return if (workload == VoiceSpeechBenchmarkWorkload.INTERLEAVED_UTTERANCES) {
+            repeats.flatMap { repeat -> fixtures.map { it to repeat } }
+        } else {
+            fixtures.flatMap { fixture -> repeats.map { fixture to it } }
+        }
     }
 
     fun validate(text: String) {

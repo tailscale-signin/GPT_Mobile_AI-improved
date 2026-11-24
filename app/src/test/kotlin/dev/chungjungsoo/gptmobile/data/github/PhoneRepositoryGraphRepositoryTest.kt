@@ -25,6 +25,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -182,6 +183,41 @@ class PhoneRepositoryGraphRepositoryTest {
             val failure = runCatching { repository(transport).executeForMap(context, action("status")) }.exceptionOrNull() as GatewayGraphOperationException
             assertEquals("PERMISSION_REVOKED", failure.failureCode)
             assertFalse(failure.indexOutcomeUnknown)
+        }
+    }
+
+    @Test fun compactLookupReusesAuthorizedTreeAndOneBlobAfterASecondOpen() = runTest {
+        val args = buildJsonObject {
+            put("action", "cached_path_hints")
+            put("query", "Read src/Example.kt:2")
+        }
+        val sha = "c".repeat(40)
+        http().use { transport ->
+            repository(transport).executeForMap(context, action("status"))
+            state.write(
+                "$account:owner/repo",
+                "blob:$sha",
+                buildJsonObject {
+                    put("sha", sha)
+                    put("content", "unread first line\nfun example() {}")
+                }
+            )
+            val second = repository(transport)
+            val result = second.executeForMap(context, args, forModel = true).result
+            assertEquals(JsonPrimitive(true), result["tree_reused"])
+            val range = result.getValue("source_window").jsonObject
+            assertEquals(JsonPrimitive(sha), range["blob_sha"])
+            assertEquals(JsonPrimitive(2), range["start_line"])
+            assertEquals(JsonPrimitive("fun example() {}"), range["excerpt"])
+            assertEquals(2, repositoryReads)
+            assertEquals("Only authorization should be read on the warm lookup", 4, requests)
+            features = features.copy(githubBlobCache = false)
+            val hints = second.executeForMap(context, args, forModel = true).result
+            assertFalse("source_window" in hints)
+            assertEquals(JsonPrimitive("src/Example.kt"), hints.getValue("source_read_candidates").jsonArray.single())
+            repositoryStatus = HttpStatusCode.Forbidden
+            features = features.copy(githubBlobCache = true)
+            assertTrue(runCatching { second.executeForMap(context, args, forModel = true) }.exceptionOrNull() is GatewayGraphOperationException)
         }
     }
 

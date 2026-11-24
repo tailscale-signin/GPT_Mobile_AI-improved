@@ -4,7 +4,8 @@ package dev.chungjungsoo.gptmobile.data.voice
 internal class VoiceSpeechBuffer(
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
     private val includeDetails: Boolean = false,
-    private val preserveLiteralTerms: Boolean = false
+    private val preserveLiteralTerms: Boolean = false,
+    private val skipPreamble: Boolean = false
 ) {
     constructor(clock: () -> Long) : this(clock, false)
     private var previous = ""
@@ -16,10 +17,15 @@ internal class VoiceSpeechBuffer(
         val end = minOf(text.length, 12000).let { if (it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
         val boundedText = text.substring(0, end)
         if (!final && boundedText == previous && !adaptive) return emptyList()
-        val visible = if (preserveLiteralTerms) {
-            VoiceSpeechText.forPlayback(text, final = final, includeDetails = includeDetails)
+        val visible = if (!final && boundedText == previous) {
+            previousSpeech
         } else {
-            VoiceSpeechText.project(text, final = final, includeDetails = includeDetails)
+            val projected = if (preserveLiteralTerms) {
+                VoiceSpeechText.forPlayback(text, final = final, includeDetails = includeDetails)
+            } else {
+                VoiceSpeechText.project(text, final = final, includeDetails = includeDetails)
+            }
+            if (skipPreamble) VoiceSpokenLead.trim(projected, final) else projected
         }
         // Captions and unspoken words can be revised. Only the part already queued for
         // playback is irrevocable, including a final persistence trim of trailing space.
@@ -36,9 +42,7 @@ internal class VoiceSpeechBuffer(
             while (consumed < speechEnd) {
                 val tail = visible.substring(consumed)
                 val wordLimit = if (!startedSpeech) {
-                    // Prefer the completed opening clause over a four-word fragment.
-                    // A bounded eight-word fallback still starts long/unpunctuated answers.
-                    8
+                    if (adaptive) VoiceAdaptivePlayback.OPENING_WORDS else 8
                 } else if (adaptive) {
                     (feedback?.suggestedFollowUpWords ?: 12).coerceIn(6, 24)
                 } else {
@@ -54,11 +58,12 @@ internal class VoiceSpeechBuffer(
                             completeWord.findAll(tail.substring(0, boundary.range.last + 1)).take(3).count() >= 3
                     }?.range?.last?.plus(1)
                 val bounded = words.lastOrNull { it.range.last < characterLimit }?.range?.last?.plus(1)?.takeIf { tail.length >= characterLimit }
-                val budgetMs = if ((feedback?.bufferedAudioMs ?: 0) < 300) 200 else 500
+                val budgetMs = arrivalBudgetMs(feedback)
                 val arrivalBoundary = words.lastOrNull()?.range?.last?.plus(1)?.takeIf {
                     adaptive && words.size >= 2 && now() - (firstPendingAt ?: now()) >= budgetMs
                 }
-                val boundary = clause?.takeIf { it <= 96 } ?: listOfNotNull(clause, wordEnd, bounded, arrivalBoundary).minOrNull()?.takeIf { it <= characterLimit } ?: break
+                val naturalClause = clause?.takeIf { it <= 96 && (startedSpeech || !adaptive || completeWord.findAll(tail.substring(0, it)).take(wordLimit + 1).count() <= wordLimit) }
+                val boundary = naturalClause ?: listOfNotNull(clause, wordEnd, bounded, arrivalBoundary).minOrNull()?.takeIf { it <= characterLimit } ?: break
                 val chunk = tail.substring(0, boundary)
                 chunks += chunk
                 if (chunk.isNotBlank()) startedSpeech = true
@@ -82,6 +87,18 @@ internal class VoiceSpeechBuffer(
         val chunks = speechChunks(visible.substring(consumed, stableEnd)).filter(String::isNotBlank)
         consumed = stableEnd
         return chunks
+    }
+
+    fun nextFlushDelayMs(feedback: VoiceSynthesisFeedback?): Long? {
+        val since = firstPendingAt ?: return null
+        if (completeWord.findAll(previousSpeech, consumed).take(2).count() < 2) return null
+        return (arrivalBudgetMs(feedback) - (now() - since)).coerceAtLeast(0)
+    }
+
+    private fun arrivalBudgetMs(feedback: VoiceSynthesisFeedback?): Long = when {
+        !startedSpeech -> 120L
+        (feedback?.bufferedAudioMs ?: 0) < 300 -> 200L
+        else -> 500L
     }
 
     private companion object {

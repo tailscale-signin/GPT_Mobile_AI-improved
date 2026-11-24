@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import dev.chungjungsoo.gptmobile.data.github.GitHubIssueRemediation
+import dev.chungjungsoo.gptmobile.data.github.GitHubNextActionMode
 import dev.chungjungsoo.gptmobile.data.github.GitHubRequestCompletion
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
@@ -169,6 +171,83 @@ class GitHubRequirementToolFocusTest {
         assertEquals(2, rounds)
         assertFalse(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.Failed })
         assertNotNull(events.filterIsInstance<AgentRunEvent.ToolFinished>().singleOrNull())
+    }
+
+    @Test fun activeChoosesAnAvailablePrerequisiteAndShadowRetainsLegacyChoice() {
+        val definitions = definitions("github_ci", "github_issue")
+        val report = checkpoint(
+            row("github_ci:jobs"),
+            row("github_pr:context"),
+            row("github_issue:list"),
+            JsonObject(row("github_issue:context") + ("pending_dependencies" to JsonArray(listOf(JsonPrimitive("github_issue:list")))))
+        )
+        val catalog = ProgressiveToolCatalog(definitions, "Inspect the repository and compare its results", githubMode = true)
+        val planned = catalog.nextAction(report)
+        assertEquals("github_issue:list", planned.focus?.criterion)
+        assertEquals(1, planned.dependentCount)
+        assertEquals(1, planned.unavailableCount)
+        fun book(mode: GitHubNextActionMode) = GitHubEvidenceBook("task", "owner/repo", "main", emptySet(), nextActionMode = mode, chooseNextAction = catalog::nextAction)
+        assertEquals(report, book(GitHubNextActionMode.LEGACY).withNextAction(report))
+        val shadow = book(GitHubNextActionMode.SHADOW).withNextAction(report)
+        assertEquals(JsonPrimitive(true), shadow.getValue("next_action_decision").jsonObject["legacy_choice_differs"])
+        assertNull(GitHubNextActionPolicy.activeDecision(shadow))
+        catalog.focusRequirement(shadow, GitHubNextActionMode.SHADOW)
+        assertEquals("github_ci__native", catalog.selected(definitions + catalog.definition).first().name)
+        val active = book(GitHubNextActionMode.ACTIVE).withNextAction(shadow)
+        catalog.focusRequirement(active, GitHubNextActionMode.ACTIVE)
+        assertEquals("github_issue__native", catalog.selected(definitions + catalog.definition).first().name)
+        assertEquals(JsonPrimitive("UNBLOCKS_DEPENDENTS"), GitHubNextActionPolicy.activeDecision(active)?.get("reason"))
+        assertFalse(active.getValue("next_action_decision").toString().contains("github_issue:list"))
+    }
+
+    @Test fun reconciliationBudgetAndRetainedEvidenceConstrainActiveAction() {
+        val catalog = ProgressiveToolCatalog(definitions("github_context", "github_commit", "github_ci"), "Implement a GitHub repair", githubMode = true)
+        val report = checkpoint(row("github_commit:commit_staged_patch"), row("github_ci:jobs"))
+        val pending = JsonObject(report + ("execution_ledger" to buildJsonObject { put("unresolved_remote_outcomes", 1) }))
+        val reconciliation = catalog.nextAction(pending)
+        assertEquals(GitHubNextActionPolicy.Action.RECONCILE, reconciliation.action)
+        assertEquals(mapOf("github_context" to "recovery"), reconciliation.focus?.actions)
+        val exhausted = JsonObject(report + ("stage_budget" to buildJsonObject { put("acquisition_allowed", false) }))
+        assertEquals("PRESERVE_VERIFICATION_RESERVE", catalog.nextAction(exhausted).reason)
+        val saved = checkpoint(
+            JsonObject(
+                row("github_commit:commit_staged_patch") + buildJsonObject {
+                    put("eligible_receipt_count", 1)
+                    put("acceptance_mismatch", "NO_MATCHING_CLAIMS")
+                }
+            )
+        )
+        assertEquals(GitHubNextActionPolicy.Action.REUSE_EVIDENCE, catalog.nextAction(saved).action)
+        assertTrue(catalog.nextAction(saved).focus?.operations?.isEmpty() == true)
+    }
+
+    @Test fun liveCiWatchYieldsOnlyToIndependentSourceWork() {
+        val catalog = ProgressiveToolCatalog(definitions("github_ci", "github_commit", "github_read"), "Fix and verify the repository", githubMode = true)
+        fun waiting(vararg rows: JsonObject) = JsonObject(checkpoint(*rows) + ("observation_state" to JsonPrimitive("WAITING_FOR_CI")))
+        val ci = row("github_ci:jobs")
+        val mutation = row("github_commit:commit_staged_patch")
+        assertEquals(GitHubNextActionPolicy.Action.WAIT, catalog.nextAction(waiting(ci, mutation)).action)
+        val independent = catalog.nextAction(waiting(ci, mutation, row("github_read:ranges")))
+        assertEquals("INDEPENDENT_DURING_CI", independent.reason)
+        assertEquals("github_read:ranges", independent.focus?.criterion)
+    }
+
+    @Test fun measuresOnlyTheExactAdmittedActionAndIgnoresSharedOrSingleSamples() {
+        val catalog = ProgressiveToolCatalog(definitions("github_ci", "github_issue"), "Inspect jobs and issues", githubMode = true)
+        val report = checkpoint(row("github_ci:jobs"), row("github_issue:list"))
+        val args = buildJsonObject { put("action", "list") }
+        fun result(id: String) = AgentToolResult(id, ToolResultContent.Text("OK"), false, measurement = ToolPayloadMetrics(durationMs = 75))
+        catalog.recordObservation("github_issue__native", result("A"), arguments = args)
+        catalog.recordObservation("github_issue__native", result("A"), arguments = args)
+        catalog.recordObservation("github_issue__native", result("shared").copy(sharedResult = true), arguments = args)
+        assertNull(catalog.nextAction(report).measurement)
+        catalog.recordObservation("github_issue__native", result("B"), arguments = args)
+        catalog.recordObservation("github_issue__native", result("C"), arguments = args)
+        val decision = catalog.nextAction(report)
+        assertEquals("github_issue:list", decision.focus?.criterion)
+        assertEquals(3, decision.measurement?.samples)
+        assertEquals(75L, decision.measurement?.latencyMillis)
+        assertNull(catalog.nextAction(checkpoint(row("github_issue:context"))).measurement)
     }
 
     private fun definitions(vararg operations: String) = operations.map { GitHubOperationTool.definition(it, it + "__native") }

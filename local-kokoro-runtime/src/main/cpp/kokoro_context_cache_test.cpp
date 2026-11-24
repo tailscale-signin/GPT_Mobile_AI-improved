@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <limits>
+#include <sys/wait.h>
 
 namespace {
 using namespace kokoro_runtime;
@@ -64,7 +65,27 @@ void TestPublicationAndIdentity() {
   {
     CompiledContextCache loaded(directory.path.string(), key);
     Check(!loaded.Lookup().empty() && loaded.status == ContextCacheStatus::Hit && loaded.bytes > 300,
-        "Fresh process transaction did not load complete context + CPU sidecar");
+        "Same-process transaction did not load complete context + CPU sidecar");
+  }
+  const auto child = fork();
+  Check(child >= 0, "Second process could not start");
+  if (child == 0) {
+    CompiledContextCache prior(directory.path.string(), key);
+    _exit(!prior.Lookup().empty() && prior.status == ContextCacheStatus::HitPreviousProcess ? 0 : 1);
+  }
+  int child_status = 0;
+  Check(waitpid(child, &child_status, 0) == child && WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0,
+      "A different process did not identify the validated disk context");
+  {
+    const auto path = directory.path / key / "manifest";
+    std::ifstream modern(path);
+    std::string version, identity, private_origin;
+    std::getline(modern, version); std::getline(modern, identity); std::getline(modern, private_origin);
+    std::ostringstream legacy;
+    legacy << "kokoro-ep-context-v1\n" << identity << '\n' << modern.rdbuf();
+    Put(path, legacy.str());
+    CompiledContextCache old(directory.path.string(), key);
+    Check(!old.Lookup().empty() && old.status == ContextCacheStatus::Hit, "Legacy entry acquired a false process marker");
   }
   for (const auto *different : {"model2|runtime1|phone1|htp-balanced|shape93", "model1|runtime2|phone1|htp-balanced|shape93",
       "model1|runtime1|phone2|htp-balanced|shape93", "model1|runtime1|phone1|htp-burst|shape93",
@@ -130,7 +151,7 @@ void TestRetentionAndWriteFailure() {
     Check(!missing.Commit() && missing.status == ContextCacheStatus::WriteFailed, "Incomplete provider export was accepted");
   }
   CompiledContextCache unavailable((directory.path / "missing").string(), a);
-  Check(!unavailable.available() && unavailable.BeginExport().empty(), "Missing app cache was treated as prepared");
+  Check(!unavailable.available() && unavailable.BeginExport().empty() && unavailable.status == ContextCacheStatus::DirectoryUnavailable, "Missing app cache was treated as prepared");
 }
 void TestPrivatePreparationSource() {
   Directory directory, outside;
@@ -138,7 +159,7 @@ void TestPrivatePreparationSource() {
   {
     CompiledContextCache cache(directory.path.string(), key);
     Check(cache.BeginExport(std::numeric_limits<int64_t>::max()).empty() &&
-        cache.status == ContextCacheStatus::Unavailable, "Transient preparation bytes were not included in free-space admission");
+        cache.status == ContextCacheStatus::InsufficientStorage, "Transient preparation bytes were not included in free-space admission");
   }
   {
     CompiledContextCache cache(directory.path.string(), key);

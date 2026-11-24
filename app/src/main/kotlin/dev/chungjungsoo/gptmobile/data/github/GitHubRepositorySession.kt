@@ -159,9 +159,16 @@ internal class GitHubRepositorySession(
         }
     }
 
+    private suspend fun retainedTree(context: GitHubTaskSnapshot): JsonObject? {
+        val sourceScope = blobScope(context)
+        val treeKey = "phone-graph:tree-v1:${context.treeSha}"
+        return cachedSource(sourceScope, treeKey)?.takeIf { it.s("tree_sha") == context.treeSha }
+            ?: cachedSource(sourceScope, "tree:${context.commitSha}")?.takeIf { it.s("tree_sha") == context.treeSha }?.also { store.write(sourceScope, treeKey, it) }
+    }
+
     private suspend fun tree(context: GitHubTaskSnapshot): JsonObject {
         val scope = blobScope(context)
-        cachedSource(scope, "tree:${context.commitSha}")?.let { return it }
+        retainedTree(context)?.let { return it }
         val response = request("${root(context.owner, context.repo)}/git/trees/${context.treeSha}?recursive=1").jsonObject
         val entries = response["tree"]?.jsonArray.orEmpty()
         val bounded = buildJsonObject {
@@ -169,11 +176,7 @@ internal class GitHubRepositorySession(
             put("truncated", entries.size > 20000 || response["truncated"]?.jsonPrimitive?.booleanOrNull == true)
             put("tree_sha", context.treeSha)
         }
-        store.write(scope, "tree:${context.commitSha}", bounded)
-        val old = store.read(scope, "tree_keys")?.get("keys")?.jsonArray.orEmpty().map { it.jsonPrimitive.content }.filter { it != context.commitSha }
-        val keys = old + context.commitSha
-        keys.dropLast(12).forEach { store.remove(scope, "tree:$it") }
-        store.write(scope, "tree_keys", buildJsonObject { put("keys", JsonArray(keys.takeLast(12).map(::JsonPrimitive))) })
+        store.write(scope, "phone-graph:tree-v1:${context.treeSha}", bounded)
         return bounded
     }
 
@@ -496,7 +499,7 @@ internal class GitHubRepositorySession(
     internal suspend fun repositoryMap(owner: String, repo: String, args: JsonObject): JsonObject = withContext(Dispatchers.Default) {
         require(args.toString().length <= 64_000) { "Repository map request is too large." }
         val action = args.s("action").ifBlank { "status" }
-        if (action !in setOf("status", "index", "architecture", "query", "node", "callers", "callees", "path", "impact", "metrics", "task_context_bundle")) {
+        if (action !in setOf("status", "index", "architecture", "query", "node", "callers", "callees", "path", "impact", "metrics", "task_context_bundle", "cached_path_hints")) {
             throw GatewayGraphResultException("PHONE_GRAPH_OPERATION_UNSUPPORTED", "This operation requires the optional Gateway map.", "SELECT_GATEWAY_ANALYSIS")
         }
         require(args.s("commit_sha").sha()) { "Repository map requires an immutable selected commit." }
@@ -506,6 +509,11 @@ internal class GitHubRepositorySession(
         val budget = GitHubReadWorkBudget(readOperationTimeoutMs)
         val context = budget.run { resolve(owner, repo, args) }
             ?: throw GatewayGraphResultException("READ_DEADLINE", "The pinned repository could not be resolved within the read budget.", "REFRESH_PHONE_MAP")
+        if (action == "cached_path_hints") {
+            return@withContext GitHubCompactTaskContext.prepare(context, retainedTree(context), args.s("query")) { sha ->
+                if (args["allow_cached_source"] == JsonPrimitive(true)) cachedSource(blobScope(context), "blob:$sha") else null
+            }
+        }
         val tree = budget.run {
             if (action == "task_context_bundle") taskContextPhase(PhoneTaskContextPhase.TREE_SELECTION) { tree(context) } else tree(context)
         } ?: throw readBudgetExpired(context, "phone_index_tree")
@@ -681,7 +689,11 @@ internal class GitHubRepositorySession(
             put("index_coverage_scope", "ELIGIBLE_TEXT_SOURCE_ONLY")
             put("compiler_resolution", false)
         }
-        val result = PhoneRepositoryGraph.execute(context, tree, cached, status, args)
+        val topologyKey = if (inspect && !forceLiveReads()) PhoneMapTopology.key(context, cached, args["paths"] as? JsonArray) else null
+        val retained = topologyKey?.let { PhoneMapTopology.load(store, sourceScope, it) }
+        var built: PhoneMapTopology? = null
+        val result = PhoneRepositoryGraph.execute(context, tree, cached, status, args, retained) { built = it }
+        if (topologyKey != null) built?.save(store, sourceScope, topologyKey)
         if (action == "status") {
             val summary = store.read(scope, "phone-context-summary:${context.commitSha}")?.takeIf { it.s("source_sha") == context.commitSha }
             JsonObject(result + mapOf("source_storage" to store.sourceStorageStatus()) + summary?.let { mapOf("task_context" to it) }.orEmpty())

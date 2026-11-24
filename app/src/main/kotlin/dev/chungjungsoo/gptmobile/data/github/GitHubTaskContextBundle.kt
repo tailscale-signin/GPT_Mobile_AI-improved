@@ -24,13 +24,42 @@ data class GitHubContextSource(val path: String, val blobSha: String, val text: 
 /** Bounded, source-pinned retrieval. Documents and commands are data; this class never executes them. */
 object GitHubTaskContextBundle {
     const val SCHEMA = "repository.task_context.v1"
-    const val VERSION = 5
+    const val VERSION = 6
     const val FEATURE_MAP = "docs/architecture/feature-map.json"
+    private const val MAX_MANIFEST_BYTES = 512 * 1024
     private const val MAX_FILE_BYTES = 2 * 1024 * 1024
     private val sha = Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")
     private val word = Regex("[\\p{L}\\p{N}]+")
     private val camelBoundary = Regex("([a-z0-9])([A-Z])")
     private val ignoredTerms = setOf("the", "this", "that", "with", "from", "and", "for", "please", "fix", "improve", "implement", "feature", "code", "file", "files", "github", "repo", "repository", "all", "can", "how", "what", "does", "should", "would")
+
+    /** Small profiles receive ranked path pointers only. Source still requires an authorized read. */
+    internal fun cachedPathHints(repository: String, ref: String, commit: String, tree: JsonObject?, query: String): JsonObject {
+        val candidates = mutableListOf<JsonPrimitive>()
+        fun packet() = buildJsonObject {
+            put("repository", repository)
+            put("branch", ref)
+            put("commit_sha", commit)
+            put("source_sha", commit)
+            put("source_read_candidates", JsonArray(candidates.toList()))
+        }
+        val queryTerms = terms(query.take(2048), 32)
+        if (tree == null || queryTerms.isEmpty()) return packet()
+        val ranked = (tree["tree"] as? JsonArray).orEmpty().asSequence().filterIsInstance<JsonObject>()
+            .filter { it["type"] == JsonPrimitive("blob") && it["mode"] !in setOf(JsonPrimitive("120000"), JsonPrimitive("160000")) }
+            .mapNotNull { entry ->
+                val path = (entry["path"] as? JsonPrimitive)?.contentOrNull?.takeIf(::validPath) ?: return@mapNotNull null
+                val matches = terms(path).intersect(queryTerms).size
+                val score = matches + if (query.contains(path, ignoreCase = true)) 100 else 0
+                (path to score).takeIf { score > 0 }
+            }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+        for ((path) in ranked) {
+            candidates.add(JsonPrimitive(path))
+            if (packet().toString().toByteArray(Charsets.UTF_8).size > 640) candidates.removeAt(candidates.lastIndex)
+            if (candidates.size == 4) break
+        }
+        return packet()
+    }
 
     suspend fun build(
         repository: String,
@@ -102,13 +131,14 @@ object GitHubTaskContextBundle {
         var manifestStatus = "ABSENT"
         val selectedFeatures = mutableListOf<JsonObject>()
         val featurePaths = linkedSetOf<String>()
+        val featureEntries = linkedSetOf<String>()
         val featureTests = linkedSetOf<String>()
         val featureDocuments = linkedSetOf<String>()
         val staleManifestPaths = linkedSetOf<String>()
-        if (variant != GitHubContextVariant.CURRENT && accepted[FEATURE_MAP]?.size?.let { it <= 256 * 1024 } == true) {
+        if (variant != GitHubContextVariant.CURRENT && accepted[FEATURE_MAP]?.size?.let { it <= MAX_MANIFEST_BYTES } == true) {
             val raw = source(FEATURE_MAP)
             taskContextPhase(PhoneTaskContextPhase.MANIFEST_RANKING) {
-                manifest = raw?.text?.takeIf { it.toByteArray(Charsets.UTF_8).size <= 256 * 1024 }?.let { text ->
+                manifest = raw?.text?.takeIf { it.toByteArray(Charsets.UTF_8).size <= MAX_MANIFEST_BYTES }?.let { text ->
                     runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
                 }?.takeIf { it.number("schema_version") == 1 }
                 manifestStatus = if (manifest == null) "INVALID_OR_UNAVAILABLE" else "VALID"
@@ -144,7 +174,24 @@ object GitHubTaskContextBundle {
                     featurePaths += feature.strings("paths").take(32).filter { verified[it] == true }
                     featureTests += feature.strings("tests").take(24).filter { verified[it] == true }
                     featureDocuments += feature.strings("documents").take(8).filter { it.endsWith(".md", true) && verified[it] == true }
+                    val route = (feature["routing"] as? JsonObject)?.takeIf { metadata ->
+                        freshness == "REFERENCED_BLOBS_VERIFIED" &&
+                            metadata.text("entry") in feature.strings("paths") &&
+                            listOf("role", "proof", "admission", "decline").all { metadata.text(it).length in 1..200 }
+                    }
+                    route?.let { featureEntries += it.text("entry") }
                     selectedFeatures += buildJsonObject {
+                        if (route != null) {
+                            put(
+                                "routing",
+                                buildJsonObject {
+                                    for (field in listOf("role", "entry", "proof", "admission", "decline")) {
+                                        put(field, route.text(field).take(if (field == "entry") 512 else 200))
+                                    }
+                                    put("execution_authority", false)
+                                }
+                            )
+                        }
                         put("id", feature.text("id").take(120))
                         put("title", feature.text("title").take(200))
                         put("freshness", freshness)
@@ -167,6 +214,7 @@ object GitHubTaskContextBundle {
                     val score = pathTerms.intersect(queryTerms).size * 10 + terms(entry.symbols, 2048).intersect(queryTerms).size * 15 +
                         (if (query.contains(entry.path, true)) 200 else 0) +
                         (if (entry.path in featurePaths) 80 else 0) +
+                        (if (entry.path in featureEntries) 20 else 0) +
                         (if (entry.path in featureTests) 50 else 0)
                     entry.path to score
                 }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first }).take(12).toList()

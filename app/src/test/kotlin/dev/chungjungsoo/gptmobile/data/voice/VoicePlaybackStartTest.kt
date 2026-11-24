@@ -191,6 +191,59 @@ class VoicePlaybackStartTest {
         output.close()
     }
 
+    @Test fun anAnswerPreemptsAnUnheardLookupAndIgnoresItsLateCallbacks() {
+        val audio = ObservedAudio()
+        val session = session(audio)
+        audio.listeners.last().final("What is the forecast?")
+        assertTrue(session.beginMessage("current"))
+        session.offerSearchOpening("other", "Wrong topic.")
+        session.offerSearchOpening("current", "I’m checking the forecast.")
+        val oldStart = audio.starts.single()
+        val oldFinish = audio.completions.single()
+        session.streamReply("current", "Rain is likely. ")
+        oldStart()
+        oldFinish()
+        assertEquals(listOf("I’m checking the forecast.", "Rain is likely. "), audio.spoken)
+        assertEquals(VoicePhase.PREPARING, session.state.phase)
+        assertEquals("Rain is likely. ", session.state.reply)
+        audio.starts.last().invoke()
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        session.close()
+    }
+
+    @Test fun audibleLookupFinishesOnceWhileTheFullAnswerContinuesArriving() {
+        val audio = ObservedAudio().apply { streamsReplies = true }
+        val session = session(audio)
+        audio.listeners.last().final("What is the forecast?")
+        session.beginMessage("current")
+        val line = "I’m checking the forecast."
+        session.offerSearchOpening("current", line)
+        audio.starts.single().invoke()
+        session.streamReply("current", "Rain is likely. ")
+        session.reply("current", "Rain is likely. Bring an umbrella.")
+        assertEquals(listOf(line), audio.spoken)
+        audio.completions.single().invoke()
+        assertEquals("Rain is likely. Bring an umbrella.", audio.spoken.drop(1).joinToString(""))
+        session.offerSearchOpening("current", line)
+        assertEquals(1, audio.spoken.count { it == line })
+        session.close()
+    }
+
+    @Test fun stoppedLookupCannotResumeSpeechOrConsumeTheReply() {
+        val audio = ObservedAudio()
+        val session = session(audio)
+        audio.listeners.last().final("What is the forecast?")
+        session.beginMessage("current")
+        session.offerSearchOpening("current", "I’m checking the forecast.")
+        val stale = audio.completions.single()
+        session.stopSpeaking()
+        session.reply("current", "Rain.")
+        stale()
+        assertEquals(1, audio.spoken.size)
+        assertEquals("Rain.", session.state.reply)
+        session.close()
+    }
+
     private fun session(audio: VoiceAudio) = VoiceSession(audio, { true }, {}).apply {
         autoContinue = true
         access(true, true, true)

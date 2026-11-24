@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import kotlin.math.abs
 import kotlin.math.ceil
 
 internal enum class VoiceSpeechBenchmarkMode(val label: String, val warmRepeats: Int) {
@@ -281,6 +282,21 @@ internal data class VoiceSpeechBenchmarkBackendResult(
         get() = state == VoiceSpeechBenchmarkBackendState.COMPLETE && samples.isNotEmpty() && executionVerified && failure == null
     val measuredCostMs: Long get() = (sessionPrepareMs ?: 0) + samples.sumOf { it.generationMs } + incompleteChunks.sumOf { it.generationMs } + (failedAttemptMs ?: 0)
 
+    fun firstInferenceProfiles(): VoiceSpeechKernelProfiles? {
+        val profiles = mutableMapOf<Long, Pair<Long, Long>>()
+        fun record(available: Boolean?, id: Long?, reused: Boolean?, acceleratorUs: Long, cpuUs: Long) {
+            if (available == true && id != null && id > 0 && reused == false) {
+                profiles.putIfAbsent(id, acceleratorUs to cpuUs)
+            }
+        }
+        for (chunk in samples.flatMap { it.chunks } + incompleteChunks) {
+            record(chunk.profileAvailable, chunk.profileId, chunk.profileReused, chunk.acceleratorMicros, chunk.cpuMicros)
+        }
+        failureObservation?.let { record(it.profileAvailable, it.profileId, it.profileReused, it.acceleratorMicros, it.cpuMicros) }
+        if (profiles.isEmpty()) return null
+        return VoiceSpeechKernelProfiles(profiles.size, profiles.values.sumOf { it.first }, profiles.values.sumOf { it.second })
+    }
+
     fun fixtureStatistics(fixture: VoiceSpeechBenchmarkFixture): VoiceSpeechBenchmarkFixtureStatistics {
         val rows = samples.filter { it.fixture == fixture }
         val warm = rows.filter { it.warm }
@@ -329,6 +345,17 @@ internal data class VoiceSpeechBenchmarkAudioReference(
     val repeat: Int? = null,
     val chunk: Int? = null
 )
+
+internal data class VoiceSpeechKernelProfiles(val count: Int, val acceleratorMicros: Long, val cpuMicros: Long) {
+    val acceleratorShare: Double? get() {
+        val total = acceleratorMicros.toDouble() + cpuMicros
+        return if (total > 0) acceleratorMicros / total else null
+    }
+}
+
+internal data class VoiceSpeechRejectedOutput(val cpuFrames: Int, val candidateFrames: Long, val tokenTimingDistance: Double?) {
+    val durationRatio: Double get() = candidateFrames.toDouble() / cpuFrames
+}
 
 internal data class VoiceSpeechBenchmarkReport(
     val startedAtMillis: Long,
@@ -460,6 +487,10 @@ internal data class VoiceSpeechBenchmarkReport(
         val expected = VoiceSpeechBenchmarkFixture.entries.size * (configuration.mode.warmRepeats + 1)
         val complete = results.filter { result ->
             result.verified &&
+                (
+                    configuration.workload != VoiceSpeechBenchmarkWorkload.INTERLEAVED_UTTERANCES ||
+                        result.samples.map { it.fixture to it.repeat } == VoiceSpeechWorkload.schedule(configuration.workload, configuration.mode)
+                    ) &&
                 result.samples.size == expected &&
                 result.sessionPrepareMs != null &&
                 result.preparationThermalBefore in 0..1 &&
@@ -514,6 +545,50 @@ internal data class VoiceSpeechBenchmarkReport(
                 compared,
                 rows.size
             )
+    }
+
+    /** A rejected tensor can retain scalar measurements even when native validation returns no PCM. */
+    fun rejectedOutput(result: VoiceSpeechBenchmarkBackendResult): VoiceSpeechRejectedOutput? {
+        if (configuration.playback ||
+            !configuration.currentProtocol ||
+            configuration.engine != VoiceSpeechBenchmarkEngine.NATIVE_KOKORO ||
+            result.requestedBackend == VoiceSpeechBackend.CPU ||
+            result.failure != VoiceSpeechFailureCode.OUTPUT_INVALID ||
+            result.failureStage != VoiceSpeechStage.VALIDATING
+        ) {
+            return null
+        }
+        val receipt = result.failureObservation ?: return null
+        val fixture = result.failedFixture ?: return null
+        val index = result.failedChunk ?: return null
+        val phrase = VoiceSpeechWorkload.phrases(fixture, configuration.workload).getOrNull(index) ?: return null
+        val cpu = results.singleOrNull { it.requestedBackend == VoiceSpeechBackend.CPU } ?: return null
+        val sample = cpu.samples.singleOrNull { it.fixture == fixture && it.repeat == result.failedRepeat } ?: return null
+        val chunk = sample.chunks.singleOrNull { it.index == index && it.validatedAudio && it.effectiveProvider == "cpu" } ?: return null
+        val reference = chunk.audioObservation ?: return null
+        if (!reference.valid ||
+            reference.clippedSamples != 0L ||
+            reference.inputSha256 != VoiceSpeechWorkload.digest(phrase) ||
+            reference.inputBytes != result.failedInputBytes ||
+            chunk.inputSha256 != reference.inputSha256 ||
+            chunk.inputBytes != reference.inputBytes ||
+            receipt.tokenCount != result.failedTokenCount ||
+            reference.tokenDurations.size != receipt.tokenCount
+        ) {
+            return null
+        }
+        val frames = receipt.outputFrames?.takeIf { it > 0 } ?: return null
+        // Min and max reconstruct every token only when all durations are identical.
+        val constant = receipt.durationMin?.takeIf {
+            it in 1L..1200L &&
+                it == receipt.durationMax &&
+                receipt.durationStatsAvailable == true &&
+                receipt.durationSumOverflow == false &&
+                receipt.durationCount == receipt.tokenCount.toLong() &&
+                receipt.durationSum == it * receipt.tokenCount
+        }
+        val distance = constant?.let { duration -> reference.tokenDurations.sumOf { abs(it - duration) }.toDouble() / reference.tokenDurations.sum() }
+        return VoiceSpeechRejectedOutput(reference.sampleCount, frames, distance)
     }
 
     /** An accelerator must win the same three-shape workload by >=10%, including setup. */

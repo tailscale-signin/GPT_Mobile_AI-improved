@@ -34,6 +34,24 @@ import org.robolectric.shadows.ShadowAudioTrack
 @Config(sdk = [34], application = Application::class, shadows = [KokoroPlaybackObservationTest.ImmediatePcmTrack::class])
 @LooperMode(LooperMode.Mode.PAUSED)
 class KokoroSilentWarmupTest {
+    @Test fun openingAssetsArePreparedWhileCaptureOwnsTheGateWithoutCreatingOrSpeakingAModel() {
+        withOutput { fixture ->
+            VoiceNativeEngineGate.exclusive {
+                fixture.output.prewarm(KokoroVoice.HEART, assetsOnly = true)
+                awaitSynthesis(fixture.output)
+                io.mockk.verify(exactly = 1) { fixture.models.acquireUse() }
+                io.mockk.verify(exactly = 1) { fixture.models.releaseUse() }
+                assertEquals(0, fixture.creations.get())
+                assertEquals(0, fixture.audioWrites.get())
+            }
+            fixture.output.prewarm(KokoroVoice.HEART)
+            awaitSynthesis(fixture.output)
+            io.mockk.verify(exactly = 2) { fixture.models.acquireUse() }
+            assertEquals(1, fixture.creations.get())
+            assertEquals(0, fixture.audioWrites.get())
+        }
+    }
+
     @Test fun cpuWarmupIsSilentAndReusesOnlyTheExactVoiceAndRate() {
         withOutput { fixture ->
             val output = fixture.output
@@ -173,8 +191,8 @@ class KokoroSilentWarmupTest {
         }
     }
 
-    @Test fun nonCpuSelectionsNeverReceiveASilentInference() {
-        VoiceSpeechBackend.entries.filter { it != VoiceSpeechBackend.CPU }.forEach { backend ->
+    @Test fun explicitAcceleratorsNeverReceiveASilentInference() {
+        VoiceSpeechBackend.entries.filter { it != VoiceSpeechBackend.CPU && it != VoiceSpeechBackend.AUTO }.forEach { backend ->
             withOutput(backend) { fixture ->
                 fixture.output.prewarm(KokoroVoice.HEART)
                 awaitSynthesis(fixture.output)
@@ -186,7 +204,20 @@ class KokoroSilentWarmupTest {
         }
     }
 
-    private class Fixture(val context: Context, val directory: File, backend: VoiceSpeechBackend) {
+    @Test fun autoWarmsOnlyTheAdmittedCpuEngine() {
+        for (provider in listOf("cpu", "qnn-gpu", "qnn-htp")) {
+            withOutput(VoiceSpeechBackend.AUTO, provider) { fixture ->
+                fixture.output.prewarm(KokoroVoice.HEART)
+                awaitSynthesis(fixture.output)
+                assertEquals(provider, 1, fixture.creations.get())
+                assertEquals(provider, if (provider == "cpu") 1 else 0, fixture.warmCalls.size)
+                assertEquals(provider, 0, fixture.liveCalls.get())
+                assertEquals(0, fixture.audioWrites.get())
+            }
+        }
+    }
+
+    private class Fixture(val context: Context, val directory: File, backend: VoiceSpeechBackend, provider: String) {
         var rate = 1f
         val creations = AtomicInteger()
         val liveCalls = AtomicInteger()
@@ -211,6 +242,7 @@ class KokoroSilentWarmupTest {
             override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
                 creations.incrementAndGet()
                 val native = object : VoicePhraseEngine {
+                    override val executionProvider = provider
                     override fun warmFirstInference(speaker: Int, speed: Float): Boolean {
                         warmCalls += speaker to speed
                         return warm()
@@ -256,14 +288,14 @@ class KokoroSilentWarmupTest {
         }
     }
 
-    private fun withOutput(backend: VoiceSpeechBackend = VoiceSpeechBackend.CPU, test: (Fixture) -> Unit) {
+    private fun withOutput(backend: VoiceSpeechBackend = VoiceSpeechBackend.CPU, provider: String = "cpu", test: (Fixture) -> Unit) {
         val context = ApplicationProvider.getApplicationContext<Context>()
         shadowOf(requireNotNull(context.getSystemService(AudioManager::class.java))).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
         val directory = Files.createTempDirectory("silent-warmup-test").toFile()
         File(directory, KokoroVoice.HEART.lexicon).writeText(
             listOf("here", "the", "you", "hello", "word", "voice", "answer", "this", "that", "read").joinToString("\n") { "$it HH" }
         )
-        val fixture = Fixture(context, directory, backend)
+        val fixture = Fixture(context, directory, backend, provider)
         try {
             test(fixture)
         } finally {

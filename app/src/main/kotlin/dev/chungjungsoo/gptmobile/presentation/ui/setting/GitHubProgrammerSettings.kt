@@ -28,6 +28,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
 import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.data.github.GitHubIntelligenceLevel
+import dev.chungjungsoo.gptmobile.data.github.GitHubNextActionMode
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -244,6 +245,16 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
             onSettings(state.profileSettings.copy(sampling = it))
         }
         GitHubRecoveryConsultSetting(state, onSettings)
+        if (state.profileSettings.intelligenceLevel in dev.chungjungsoo.gptmobile.data.github.GitHubPrimaryPatchReview.levels) {
+            val key = state.patchReviewerKey
+            GitHubOverrideSwitch(
+                "Independent patch review",
+                state.patchReviewerName?.let { "Send up to three staged file excerpts to $it once per task." }
+                    ?: "Select a different named reviewer in Model Delegation.",
+                key != null && key == state.profileSettings.primaryPatchReviewConsent,
+                key != null && state.privacyModeLocked == false
+            ) { enabled -> onSettings(state.profileSettings.copy(primaryPatchReviewConsent = key.takeIf { enabled })) }
+        }
         if (state.profileSettings.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE) {
             val key = state.engineeringTeamKey
             GitHubOverrideSwitch(
@@ -373,6 +384,7 @@ private fun GitHubRecoveryConsultSetting(state: GitHubProgrammerState, onChange:
 private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride, enabled: Boolean, configuredCallLimit: Int?, onChange: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var intelligenceMenu by remember { mutableStateOf(false) }
+    var nextActionMenu by remember { mutableStateOf(false) }
     var workflowMenu by remember { mutableStateOf(false) }
     var contextMenu by remember { mutableStateOf(false) }
     var advanced by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
@@ -434,6 +446,22 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
             }
             TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced settings" else "Advanced settings") }
             if (advanced) {
+                Column {
+                    Text("Next action selection", style = MaterialTheme.typography.titleSmall)
+                    OutlinedButton(onClick = { nextActionMenu = true }, enabled = enabled, modifier = Modifier.testTag("github_next_action_policy")) {
+                        Text(value.nextActionPolicy.title)
+                    }
+                    DropdownMenu(expanded = nextActionMenu, onDismissRequest = { nextActionMenu = false }) {
+                        GitHubNextActionMode.entries.forEach { mode ->
+                            DropdownMenuItem(text = { Text(mode.title) }, onClick = {
+                                nextActionMenu = false
+                                onChange(value.copy(nextActionPolicy = mode))
+                            })
+                        }
+                    }
+                    Text(value.nextActionPolicy.description, style = MaterialTheme.typography.bodySmall)
+                }
+                GitHubOverrideSwitch("Evidence-based progress summaries", "Show what changed and why it matters as verified findings arrive.", value.evidenceElaboration, enabled) { onChange(value.copy(evidenceElaboration = it)) }
                 GitHubOverrideSwitch("Maximum context expansion", "Expand up to the provider or local model capacity, with room for results and review.", value.maximumContext, enabled) { onChange(value.copy(maximumContext = it)) }
                 Text("Engineering memory", style = MaterialTheme.typography.titleSmall)
                 if (value.engineeringMemory != dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.SESSION_ONLY) {

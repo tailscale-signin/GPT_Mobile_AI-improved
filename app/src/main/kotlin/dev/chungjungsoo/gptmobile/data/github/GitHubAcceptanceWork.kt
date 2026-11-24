@@ -20,6 +20,26 @@ internal object GitHubAcceptanceWork {
         }.sortedBy { deferred(it) }
     }
 
+    /** Rehydrate proof for actionable criteria and their prerequisites, including already-passed prerequisites. */
+    fun replayReceiptIds(report: JsonObject?): Set<String> {
+        val ledger = report?.get("acceptance_ledger") as? JsonObject ?: return emptySet()
+        val rows = (ledger["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().associateBy { it.text("id") }
+        val pending = ArrayDeque(outstanding(report))
+        val visited = mutableSetOf<String>()
+        val receipts = linkedSetOf<String>()
+        while (pending.isNotEmpty()) {
+            val row = pending.removeFirst()
+            val id = row.text("id")
+            if (id.isBlank() || !visited.add(id) || row["required"] == JsonPrimitive(false) || gated(row)) continue
+            (row["receipt_ids"] as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>().forEach { receipts += it.content }
+            val contract = row["criterion_contract"] as? JsonObject
+            for (dependencies in listOf(row["pending_dependencies"], contract?.get("depends_on"))) {
+                (dependencies as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>().forEach { rows[it.content]?.let(pending::addLast) }
+            }
+        }
+        return receipts
+    }
+
     private fun gated(row: JsonObject): Boolean = row.text("acceptance_mismatch") == "UNRESOLVED_USER_DECISION" ||
         row.text("blocker_code") in setOf("AUTHORIZATION_REQUIRED", "USER_DECISION_REQUIRED", "APPROVAL_REQUIRED", "USER_INPUT_REQUIRED", "OUT_OF_SCOPE", "REPOSITORY_SCOPE_EXCLUDED") ||
         (row["readiness"] as? JsonObject)?.text("authorization") in setOf("DENIED", "NOT_AUTHORIZED")

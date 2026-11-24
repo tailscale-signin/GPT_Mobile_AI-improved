@@ -214,7 +214,11 @@ internal fun safeSpeechGraphPreparation(value: String?): String? = value?.takeIf
 }
 
 internal fun safeSpeechContextCacheStatus(value: String?): String? = value?.takeIf {
-    it in setOf("DISABLED", "MISS", "HIT", "STORED", "INVALIDATED", "UNAVAILABLE", "PENDING", "WRITE_FAILED", "TOO_LARGE", "BUSY", "NOT_ACCESSED")
+    it in setOf(
+        "DISABLED", "MISS", "HIT", "STORED", "INVALIDATED", "UNAVAILABLE", "PENDING", "WRITE_FAILED", "TOO_LARGE", "BUSY", "NOT_ACCESSED",
+        "INVALID_CONFIGURATION", "IDENTITY_UNAVAILABLE", "FIRMWARE_UNAVAILABLE", "DIRECTORY_UNAVAILABLE",
+        "LOCK_UNAVAILABLE", "INVENTORY_UNAVAILABLE", "SPACE_QUERY_FAILED", "INSUFFICIENT_STORAGE", "HIT_PREVIOUS_PROCESS"
+    )
 }
 
 internal fun safeSpeechHtpPerformanceMode(value: String?): String? = value?.takeIf {

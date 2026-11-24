@@ -4,9 +4,13 @@ import android.content.Context
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.Lazy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
+import dev.chungjungsoo.gptmobile.data.readiness.ChatReadinessCoordinator
+import dev.chungjungsoo.gptmobile.data.readiness.ReadinessSettings
 import dev.chungjungsoo.gptmobile.data.voice.AndroidVoiceAudio
 import dev.chungjungsoo.gptmobile.data.voice.KokoroOutput
 import dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer
@@ -43,7 +47,16 @@ internal class VoiceRuntime(
 
 /** Navigation owns native runtimes; a recreated composition only attaches a presentation. */
 @HiltViewModel
-internal class VoiceRuntimeViewModel @Inject constructor(@ApplicationContext private val context: Context) : ViewModel() {
+internal class VoiceRuntimeViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val readiness: Lazy<ChatReadinessCoordinator>
+) : ViewModel() {
+    suspend fun prepareProfile(profile: PlatformV2, settings: ReadinessSettings, roomId: Int, privateRoom: Boolean) {
+        withContext(Dispatchers.IO) {
+            readiness.get().prepareVoiceProfile(profile, settings, ConversationPrivacyContext(roomId, privateRoom))
+        }
+    }
+
     private var owner: ChatViewModel? = null
     private var runtime: VoiceRuntime? = null
     private var runtimeStores: VoiceModelStores? = null

@@ -14,11 +14,14 @@ import kotlinx.serialization.json.contentOrNull
 
 /** A schema-selection hint from accepted progress, never an execution plan or authorization. */
 internal object GitHubRequirementToolFocus {
-    data class Focus(val identity: String, val query: String, val operations: List<String>, val actions: Map<String, String> = emptyMap())
+    data class Focus(val identity: String, val query: String, val operations: List<String>, val actions: Map<String, String>, val criterion: String, val stage: String)
 
     fun next(checkpoint: JsonObject?): Focus? {
         if (checkpoint == null || checkpoint["completion_verified"] == JsonPrimitive(true)) return null
-        val rows = GitHubAcceptanceWork.outstanding(checkpoint).filterNot(GitHubAcceptanceWork::deferred)
+        return fromRows(GitHubAcceptanceWork.outstanding(checkpoint).filterNot(GitHubAcceptanceWork::deferred))
+    }
+
+    internal fun fromRows(rows: List<JsonObject>): Focus? {
         val intake = rows.firstOrNull { it.text("id") == GitHubRequestCompletion.id(GitHubIssueRemediation.INVENTORY_REQUIREMENT) }
         if (intake != null) return focus(intake, "ISSUE_INVENTORY", "List the complete open issue inventory", listOf("github_issue"), mapOf("github_issue" to "list"))
         // Specific unfinished issue phases are actionable before the encompassing
@@ -63,7 +66,7 @@ internal object GitHubRequirementToolFocus {
     }
 
     private fun focus(row: JsonObject, step: String, query: String, operations: List<String>, actions: Map<String, String> = emptyMap()) =
-        Focus(GitHubEvidenceBook.digest(row.text("id") + "|" + step + "|" + query), query, operations, actions)
+        Focus(GitHubEvidenceBook.digest(row.text("id") + "|" + step + "|" + query), query, operations, actions, row.text("id"), step)
     private fun state(row: JsonObject) = row.text("state").ifBlank { row.text("acceptance_state").ifBlank { row.text("status") } }
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
 }

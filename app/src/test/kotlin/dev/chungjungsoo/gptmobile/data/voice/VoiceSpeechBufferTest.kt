@@ -7,6 +7,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSpeechBufferTest {
+    @Test fun adaptiveDeadlineStartsAtTheFirstStableWordAndSchedulesOnlyUsefulWork() {
+        var now = 20L
+        val buffer = VoiceSpeechBuffer { now }
+        fun append(text: String) = buffer.append(text, final = false, earlyStart = true, adaptive = true)
+        assertTrue(append("Toronto ").orEmpty().isEmpty())
+        assertNull(buffer.nextFlushDelayMs(null))
+        now += 70
+        assertTrue(append("Toronto has ").orEmpty().isEmpty())
+        assertEquals(50L, buffer.nextFlushDelayMs(null))
+        now += 50
+        assertEquals(listOf("Toronto has "), append("Toronto has "))
+        assertNull(buffer.nextFlushDelayMs(null))
+        assertTrue(append("Toronto has ").orEmpty().isEmpty())
+        assertEquals(listOf("snow."), buffer.append("Toronto has snow.", true))
+    }
+
+    @Test fun aWaitingLineCannotLeakAsPartialAudioAndLiteralRequestsKeepTheirWording() {
+        val prompt = "What is the capital of Canada?"
+        val buffer = VoiceSpeechBuffer(skipPreamble = VoiceSpokenLead.forQuestion(prompt))
+        val reply = "Sure. Let me get that info for you. Ottawa is the capital."
+        val spoken = buildList {
+            for (end in 1..reply.length) addAll(requireNotNull(buffer.append(reply.take(end), false, earlyStart = true, adaptive = true)))
+            addAll(requireNotNull(buffer.append(reply, true)))
+        }.joinToString("")
+        assertEquals("Ottawa is the capital.", spoken)
+        assertFalse(VoiceSpokenLead.forQuestion("What does the phrase great question mean?"))
+        assertFalse(VoiceSpokenLead.forQuestion("Can you repeat exactly what I said?"))
+        assertEquals("Great questions take practice.", VoiceSpokenLead.trim("Great questions take practice.", true))
+        assertEquals("Let me explain.", VoiceSpokenLead.trim("Let me explain.", true))
+        assertEquals("Absolutely.", VoiceSpokenLead.trim("Absolutely.", true))
+        assertEquals("", VoiceSpokenLead.trim("Let me get that info for you", true))
+    }
+
     @Test fun conversationalModesKeepTheFirstPhraseShortAndUseLargerFollowups() {
         val first = "One two three four five six seven eight "
         val followUp = "nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo twentythree twentyfour "
@@ -16,6 +49,16 @@ class VoiceSpeechBufferTest {
         assertEquals(emptyList<String>(), buffer.append(first + "nine ten eleven ", final = false, earlyStart = true, followUpWords = words))
         assertEquals(listOf(followUp), buffer.append(first + followUp, final = false, earlyStart = true, followUpWords = words))
         assertEquals(listOf("Finished."), buffer.append(first + followUp + "Finished.", final = true, earlyStart = true, followUpWords = words))
+    }
+
+    @Test fun adaptiveOpeningPreservesANaturalClauseAndBoundsLongOpeningsWithoutLosingText() {
+        val buffer = VoiceSpeechBuffer()
+        val reply = "One two three four five six seven eight nine ten more words."
+        val opening = buffer.append(reply, final = false, earlyStart = true, adaptive = true).orEmpty()
+        assertEquals("One two three four five six ", opening.first())
+        val rest = buffer.append(reply, final = true, earlyStart = true, adaptive = true).orEmpty()
+        assertEquals(reply, (opening + rest).joinToString(""))
+        assertEquals(listOf("Here is the answer. "), VoiceSpeechBuffer().append("Here is the answer. More", false, earlyStart = true, adaptive = true))
     }
 
     @Test fun openingPrefersTheCompleteClauseOverAnArbitraryFourWordFragment() {

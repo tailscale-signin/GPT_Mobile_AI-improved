@@ -42,5 +42,7 @@ data class PendingPromptPayload(
     val requestId: String? = null,
     val gateway: GatewayQueuedSelection? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val recovery: dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor? = null
+    val recovery: dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val githubCiWatch: dev.chungjungsoo.gptmobile.data.github.GitHubCiWatchContinuation? = null
 )

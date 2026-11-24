@@ -1011,10 +1011,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                         var protocolErrorCode: String? = null
                         var providerLimitDecision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
                         var failureDetails: kotlinx.serialization.json.JsonObject? = null
+                        var adapterObservedFailure = false
                         var observedModel: String? = null
                         var observedBackend: String? = null
                         var observedReasoning = false
                         var observedVisible = false
+                        var publishedVisible = false
                         var writerObservationKey: String? = null
                         var boundModel: String? = null
                         var boundBackend: String? = null
@@ -1034,7 +1036,27 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 if (lastFinishReason != "length") lastFailedMessage = event.message
                             } else {
                                 emit(if (event is ProviderEvent.Usage && event.finishReason != null) event.copy(writerObservationKey = writerObservationKey) else event)
+                                if (event is ProviderEvent.TextDelta && event.text.isNotBlank()) publishedVisible = true
                             }
+                        }
+
+                        fun publishedFailureDetails(): JsonObject? {
+                            val details = failureDetails ?: return null
+                            if (!adapterObservedFailure || details["provider_error_origin"] != JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE")) return details
+                            return JsonObject(
+                                details + mapOf(
+                                    "failure_boundary" to JsonPrimitive(if (publishedVisible) "AFTER_VISIBLE_OUTPUT" else "BEFORE_VISIBLE_OUTPUT"),
+                                    "stream_answer_state" to JsonPrimitive(
+                                        if (!publishedVisible) {
+                                            "NO_TEXT_EMITTED"
+                                        } else if (lastFinishReason == "stop") {
+                                            "FINAL_TEXT_EMITTED"
+                                        } else {
+                                            "PARTIAL_TEXT_EMITTED"
+                                        }
+                                    )
+                                )
+                            )
                         }
 
                         openAIAPI.streamChatCompletion(request, platform.timeout, requestConfig)
@@ -1164,9 +1186,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     // A provider error *value* has no caught throwable. Record its original
                                     // code availability and observation site instead of losing it at
                                     // the chat repository's generic CHAT_FAILED boundary.
+                                    adapterObservedFailure = error.failureDetails == null
+                                    failureDetails = error.failureDetails ?: streamErrorDetails(error, publishedVisible, lastFinishReason == "stop")
                                     val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
-                                    failureDetails = error.failureDetails?.takeIf { it.isNotEmpty() && contract != null }
-                                        ?: streamErrorDetails(error, observedVisible, lastFinishReason == "stop")
                                     protocolErrorCode = contract?.code ?: error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                                         ?: error.code?.takeIf(String::isNotBlank) ?: error.type?.takeIf(String::isNotBlank) ?: protocolErrorCode ?: "PROVIDER_INVOCATION_FAILED"
                                     if (error.failureDetails?.containsKey("failed_stage") == true) protocolErrorCode = contract?.code ?: error.code ?: protocolErrorCode
@@ -1198,7 +1220,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 }
                             }
                         if (dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), protocolErrorCode)) {
-                            emit(ProviderEvent.Failed(lastFailedMessage.orEmpty(), errorCode = dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, providerLimit = providerLimitDecision, failureDetails = failureDetails))
+                            emit(ProviderEvent.Failed(lastFailedMessage.orEmpty(), errorCode = dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, providerLimit = providerLimitDecision, failureDetails = publishedFailureDetails()))
                             return@flow
                         }
                         if (roundFailed && parsedRouting != null) {
@@ -1234,7 +1256,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             break
                         } else {
                             val completeOutputLimit = !streamInterrupted && terminalReceived && protocolErrorCode == null && lastFinishReason == "length"
-                            emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit, providerLimit = providerLimitDecision, failureDetails = failureDetails))
+                            emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit, providerLimit = providerLimitDecision, failureDetails = publishedFailureDetails()))
                             return@flow
                         }
                     }
@@ -1337,7 +1359,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 chunk.error?.let { error ->
                     roundFailed = true
                     lastFailedMessage = error.message
-                    caughtEvidence = streamErrorDetails(error.code, error.type, visibleText, finishedText)
+                    caughtEvidence = streamErrorDetails(error.code, error.type, visibleText, finishedText, details = error.failureDetails)
                     protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                         ?: error.code ?: error.type ?: protocolErrorCode
                     canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)

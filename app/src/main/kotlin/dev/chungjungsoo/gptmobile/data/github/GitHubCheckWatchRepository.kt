@@ -374,6 +374,28 @@ class GitHubCheckWatchRepository @Inject constructor(
         }
     }
 
+    /** Recheck the captured account and scope after waiting in the durable queue. */
+    internal suspend fun validateQueuedContinuation(prompt: dev.chungjungsoo.gptmobile.data.queue.PendingPrompt): Boolean {
+        val payload = prompt.details()
+        val continuation = payload.githubCiWatch ?: return false
+        val watch = workspace.dao.get(continuation.watchId)?.let(::decode) ?: return false
+        val descriptor = payload.recovery ?: return false
+        val prior = workspace.database.agentRunDao().getById(descriptor.generationId) ?: return false
+        val original = workspace.database.agentPersistenceDao().rawRecoveryMessage(descriptor.sourceMessageId) ?: return false
+        val room = workspace.database.agentPersistenceDao().getChatRoom(prompt.chatId) ?: return false
+        if (!continuation.matches(prompt, watch, prior, original, room)) return false
+        val current = GitHubCiWatchTask.capture(prior.runId, watch.chatId, watch.profileUid, watch.owner, watch.repo, workspace.database, settings)
+        if (current != continuation.task(payload)) return false
+        val selected = settings.getFeatureSettings().conversationGitHub[watch.chatId] ?: return false
+        if (selected.copy(commitSha = watch.headSha) != payload.tools.github) return false
+        try {
+            api(watch)
+        } catch (_: IllegalArgumentException) {
+            return false
+        }
+        return true
+    }
+
     /** A persistent queue key fences delivery if the worker restarts after inserting the continuation. */
     internal suspend fun deliverTerminalTasks(id: String, queue: dagger.Lazy<DurablePromptQueue>): Boolean {
         val watch = mutex.withLock { workspace.dao.get(id)?.let(::decode) } ?: return true

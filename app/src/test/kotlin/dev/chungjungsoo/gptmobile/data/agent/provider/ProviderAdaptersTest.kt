@@ -205,6 +205,61 @@ class ProviderAdaptersTest {
         assertFalse(events.contains(ProviderEvent.Completed))
     }
 
+    @Test fun streamErrorAnswerEvidenceUsesPublishedTextAfterReasoningSeparation() = runBlocking {
+        val error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("Provider response failed", retryable = false)
+        val scenarios = listOf(
+            Triple(
+                listOf(
+                    ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "<think>Unpublished reasoning</think>")))),
+                    ChatCompletionChunk(error = error)
+                ),
+                "",
+                "NO_TEXT_EMITTED"
+            ),
+            Triple(
+                listOf(
+                    ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "<think>Unpublished reasoning</think>Retained answer.")))),
+                    ChatCompletionChunk(error = error)
+                ),
+                "Retained answer.",
+                "PARTIAL_TEXT_EMITTED"
+            ),
+            Triple(
+                listOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Retained answer."), finishReason = "stop")), error = error)),
+                "Retained answer.",
+                "PARTIAL_TEXT_EMITTED"
+            ),
+            Triple(
+                listOf(
+                    ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Retained answer."), finishReason = "stop"))),
+                    ChatCompletionChunk(error = error)
+                ),
+                "Retained answer.",
+                "FINAL_TEXT_EMITTED"
+            )
+        )
+        for (type in listOf(ClientType.LLAMA, ClientType.NVIDIA)) {
+            for ((chunks, expectedText, expectedState) in scenarios) {
+                val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flow { chunks.forEach { emit(it) } })))
+                val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                    .openSession(turns(), platform(type).copy(token = "one,two"))
+                    .streamRound(emptyList(), emptyList()).toList()
+                assertEquals(expectedText, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
+                assertEquals(JsonPrimitive(expectedState), failure.failureDetails?.get("stream_answer_state"))
+                assertEquals(JsonPrimitive(if (expectedText.isEmpty()) "BEFORE_VISIBLE_OUTPUT" else "AFTER_VISIBLE_OUTPUT"), failure.failureDetails?.get("failure_boundary"))
+                assertEquals(JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"), failure.failureDetails?.get("provider_error_origin"))
+                assertEquals(JsonPrimitive("ABSENT"), failure.failureDetails?.get("provider_error_code_state"))
+                assertEquals(JsonPrimitive(false), failure.failureDetails?.get("retryable"))
+                assertFalse(failure.failureDetails.toString().contains("Unpublished reasoning"))
+                assertFalse(events.contains(ProviderEvent.Completed))
+                assertEquals(1, api.chatRequests.size)
+                assertNull(error.failureDetails)
+            }
+        }
+    }
+
     @Test fun unrecognizedStreamCodesPreserveAnswerStateAndTheProducingStage() {
         val error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("private text", code = "unknown_private_code")
         val partial = streamErrorDetails(error, visible = true, finished = false)

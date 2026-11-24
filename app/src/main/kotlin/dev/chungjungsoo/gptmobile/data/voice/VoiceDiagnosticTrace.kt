@@ -360,8 +360,17 @@ class VoiceDiagnosticTrace internal constructor(
                 owner.moments["queue"]?.let { first -> owner.performance.observe("queue_to_pcm", owner.now() - first, owner.performanceEngine("synthesis_to_audio"), owner.values["voice_engine_warm"] as? Boolean) }
             }
         }
+        internal fun lookupAudioStarted() = owner.record(this) {
+            owner.moments["accepted"]?.let { accepted -> owner.performance.observe("request_to_lookup_audio", owner.now() - accepted) }
+        }
+
         fun firstAudio(basis: FirstAudio) = owner.record(this) {
             val first = owner.moments.putIfAbsent("audio", owner.now()) == null
+            if (first && owner.moments.putIfAbsent("answer_audio", owner.now()) == null) {
+                owner.moments["accepted"]?.let { accepted ->
+                    owner.performance.observe("request_to_answer_audio", owner.now() - accepted, owner.performanceEngine("synthesis_to_audio"), owner.values["voice_engine_warm"] as? Boolean)
+                }
+            }
             if (first) owner.moments["pcm"]?.let { pcm -> owner.performance.observe("pcm_to_audio", owner.now() - pcm, owner.performanceEngine("synthesis_to_audio"), owner.values["voice_engine_warm"] as? Boolean) }
             if (first && basis != FirstAudio.AUDIO_TIMESTAMP) {
                 // Detailed timestamp-clock evidence stays in the local dashboard. Existing hosted

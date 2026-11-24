@@ -11,6 +11,7 @@ import ast
 import collections
 from contextlib import nullcontext
 import hashlib
+import heapq
 import json
 import math
 import os
@@ -127,6 +128,46 @@ def new_artifact(output, generate):
     return output / "manifest.json"
 
 
+def order_captured_inputs(graph):
+    """Stably order nodes, including outer-scope tensors consumed in nested graphs."""
+    import onnx
+    nodes = list(graph.node)
+    producers = {name: i for i, node in enumerate(nodes) for name in node.output if name}
+    available = {v.name for v in graph.input} | {v.name for v in graph.initializer}
+    available.update(v.values.name for v in graph.sparse_initializer)
+    external = {v.name for v in graph.output} - producers.keys() - available
+    indegree, consumers = [], [[] for _ in nodes]
+    for index, node in enumerate(nodes):
+        inputs = {name for name in node.input if name}
+        for attribute in node.attribute:
+            if attribute.type == onnx.AttributeProto.GRAPH:
+                inputs.update(order_captured_inputs(attribute.g))
+            elif attribute.type == onnx.AttributeProto.GRAPHS:
+                for child in attribute.graphs:
+                    inputs.update(order_captured_inputs(child))
+        external.update(inputs - producers.keys() - available)
+        dependencies = {producers[name] for name in inputs if name in producers}
+        indegree.append(len(dependencies))
+        for dependency in dependencies:
+            consumers[dependency].append(index)
+    ready = [i for i, degree in enumerate(indegree) if degree == 0]
+    heapq.heapify(ready)
+    ordered = []
+    while ready:
+        current = heapq.heappop(ready)
+        ordered.append(current)
+        for consumer in consumers[current]:
+            indegree[consumer] -= 1
+            if indegree[consumer] == 0:
+                heapq.heappush(ready, consumer)
+    if len(ordered) != len(nodes):
+        raise ValueError("Model contains a dependency cycle")
+    if ordered != list(range(len(nodes))):
+        del graph.node[:]
+        graph.node.extend(nodes[i] for i in ordered)
+    return external
+
+
 def load_model(path, expected):
     import onnx
     model = onnx.load(str(checked_file(path, expected)), load_external_data=False)
@@ -134,8 +175,21 @@ def load_model(path, expected):
     # accepts self-contained models so an untracked sidecar cannot change a result.
     if any(t.data_location == onnx.TensorProto.EXTERNAL for t in all_tensors(model.graph)):
         raise ValueError("External initializers must first be bundled into a fingerprinted model")
-    onnx.checker.check_model(model)
+    validate_model_order(model)
     return model
+
+
+def validate_model_order(model):
+    import onnx
+    try:
+        onnx.checker.check_model(model)
+    except onnx.checker.ValidationError as error:
+        if "must be topologically sorted" not in str(error):
+            raise
+        # The compact export and QDQ tooling can serialize a Loop before a
+        # captured sequence producer. Reorder only the derived graph.
+        order_captured_inputs(model.graph)
+        onnx.checker.check_model(model)
 
 
 def all_nodes(graph):
@@ -457,6 +511,12 @@ def prepare(args):
     if args.backend == "htp" and args.precision not in {"float", "a16w8", "a8w8"}:
         raise ValueError("HTP supports the float/FP16-math or calibrated QDQ variants")
 
+    convolutions_only = getattr(args, "convolutions_only", False)
+    if convolutions_only and (args.backend != "htp" or args.precision not in {"a16w8", "a8w8"}):
+        raise ValueError("Convolution calibration requires an HTP QDQ candidate")
+    if convolutions_only and not any(node.op_type == "Conv" for node in model.graph.node):
+        raise ValueError("No top-level Conv operator was found for calibration")
+
     def generate(directory):
         output = directory / "model.onnx"
         onnx.save(model, output)
@@ -493,7 +553,7 @@ def prepare(args):
             config = get_qnn_qdq_config(str(quant_input), Reader(),
                                        activation_type=QuantType.QUInt16 if args.precision == "a16w8" else QuantType.QUInt8,
                                        weight_type=QuantType.QUInt8,
-                                       init_overrides=overrides)
+                                       init_overrides=overrides, op_types_to_quantize=["Conv"] if convolutions_only else None)
             quantized = directory / "quantized.onnx"
             quantize(str(quant_input), str(quantized), config)
             quantized.replace(output)
@@ -501,11 +561,11 @@ def prepare(args):
                 preprocessed.unlink()
             calibration = {"manifestSha256": calibration_hash, "cases": len(feeds),
                            "onnxruntimeVersion": ort.__version__,
-                           "overridesSha256": overrides_hash}
+                           "overridesSha256": overrides_hash, "operatorSelection": ["Conv"] if convolutions_only else "QNN_DEFAULTS"}
         generated = onnx.load(str(output))
         del generated.metadata_props[:]
         generated.metadata_props.extend(model.metadata_props)
-        onnx.checker.check_model(generated)
+        validate_model_order(generated)
         onnx.save(generated, output)
         return {"kind": "kokoro-model-variant", "sourceModelSha256": args.model_sha256,
                 "modelFile": output.name, "modelSha256": digest(output),
@@ -517,12 +577,96 @@ def prepare(args):
     return new_artifact(args.output_dir, generate)
 
 
+def short_reference(args):
+    """Rebuild the public 43-token Heart reference using the pinned pack data."""
+    import numpy as np
+    publisher = read_json(Path(__file__).resolve().parents[1] / "docs/audits/kokoro-original-fp32.json")["files"]
+
+    def pack_bytes(name):
+        record = publisher[name]
+        with local_file(args.pack, name).open("rb") as stream:
+            data = stream.read(record["bytes"] + 1)
+        if len(data) != record["bytes"] or hashlib.sha256(data).hexdigest() != record["sha256"]:
+            raise ValueError("Public reference requires the verified voice and frontend files")
+        return data
+
+    symbols = dict((token, int(index)) for line in pack_bytes("tokens.txt").decode().splitlines()
+                   for token, index in [line.rsplit(" ", 1)])
+    phrase = "the voice is ready for your next question."
+    words = set(re.findall("[a-z]+", phrase))
+    lexicon = {}
+    for line in pack_bytes("lexicon-us-en.txt").decode().splitlines():
+        fields = line.split()
+        if fields and fields[0] in words:
+            lexicon[fields[0]] = [symbols[p] for p in fields[1:] if p in symbols]
+    tokens = [0]
+    for part in re.findall("[a-z]+|[^a-z]", phrase):
+        tokens.extend(lexicon[part] if part in words else [symbols[part]])
+    tokens.append(0)
+    if len(tokens) != 43:
+        raise ValueError("Public reference token shape differs from the native fixture")
+    voices = np.frombuffer(pack_bytes("voices.bin"), dtype="<f4").reshape(-1, 510, 256)
+    speed = np.float32(1.1445191)
+    def generate(directory):
+        case = directory / "case.npz"
+        np.savez(case, tokens=np.asarray([tokens], dtype=np.int64), style=voices[3, len(tokens) - 2].reshape(1, 256),
+                 speed=np.asarray([speed], dtype=np.float32))
+        return {"kind": "kokoro-fixed-input", "caseFile": case.name, "caseSha256": digest(case),
+                "speechInputSha256": hashlib.sha256(phrase.encode()).hexdigest(), "tokenCount": len(tokens),
+                "speakerId": 3, "speechRate": float(speed)}
+    return new_artifact(args.output_dir, generate)
+
+
+def duration_checkpoints(graph, types):
+    """Choose bounded prediction checkpoints from the native two-output contract."""
+    import onnx
+    outputs = list(graph.output)
+    if len(outputs) != 2 or outputs[1].type.tensor_type.elem_type != onnx.TensorProto.INT64:
+        raise ValueError("Duration tracing requires the Kokoro waveform and int64 token-duration outputs")
+    waveform, duration = (value.name for value in outputs)
+    required = {duration}
+    candidates = []
+    # ONNX nodes are topologically ordered. Track only ancestors of duration,
+    # excluding weights, shape calculation and the independent waveform branch.
+    prediction_ops = {"LSTM", "Gemm", "MatMul", "Conv", "ConvInteger", "Sigmoid", "ReduceSum",
+                      "Div", "Round", "Clip", "Max", "Cast", "QuantizeLinear", "DequantizeLinear"}
+    for node in reversed(graph.node):
+        selected = [name for name in node.output if name in required]
+        if not selected:
+            continue
+        required.update(name for name in node.input if name)
+        if node.op_type in prediction_ops:
+            candidates.extend(name for name in selected if name in types and types[name].type.HasField("tensor_type"))
+    return list(dict.fromkeys([*reversed(candidates[:12]), duration, waveform]))
+
+
+def kernel_placement(events):
+    by_provider = collections.Counter()
+    durations = collections.Counter()
+    operators = collections.Counter()
+    for event in events:
+        args = event.get("args", {})
+        provider = args.get("provider")
+        micros = event.get("dur", 0)
+        if (event.get("cat") != "Node" or not event.get("name", "").endswith("_kernel_time") or
+                not isinstance(provider, str) or not provider or not isinstance(micros, (int, float)) or
+                not math.isfinite(micros) or micros <= 0):
+            continue
+        by_provider[provider] += 1
+        durations[provider] += micros
+        operators[(provider, args.get("op_name") or "unknown")] += micros
+    total = sum(durations.values())
+    return dict(by_provider), {
+        "basis": "summed_profiled_node_kernel_microseconds",
+        "providerMicros": dict(durations),
+        "qnnKernelTimeShare": durations["QNNExecutionProvider"] / total if total else None,
+        "topOperators": [{"provider": provider, "operator": op, "micros": micros}
+                         for (provider, op), micros in operators.most_common(24)]}
+
+
 def trace(args):
     import onnx
     model = load_model(args.model, args.model_sha256)
-    wanted = list(dict.fromkeys(args.tensor))
-    if not 1 <= len(wanted) <= MAX_TRACE_TENSORS:
-        raise ValueError("Select between one and 64 named intermediate tensors")
     # Seed each stochastic node independently in this diagnostic copy. This is
     # explicitly recorded because instrumentation can also change partitioning.
     for index, node in enumerate(all_nodes(model.graph)):
@@ -533,9 +677,14 @@ def trace(args):
             node.attribute.append(onnx.helper.make_attribute("seed", float(args.seed + index)))
     model = onnx.shape_inference.infer_shapes(model, strict_mode=False, data_prop=True)
     types = {v.name: v for v in [*model.graph.input, *model.graph.value_info, *model.graph.output]}
+    wanted = duration_checkpoints(model.graph, types) if getattr(args, "duration_path", False) else list(dict.fromkeys(args.tensor))
+    if not 1 <= len(wanted) <= MAX_TRACE_TENSORS:
+        raise ValueError("Select between one and 64 named intermediate tensors")
     order = [name for node in model.graph.node for name in node.output if name in wanted]
     if set(order) != set(wanted) or any(name not in types or not types[name].type.HasField("tensor_type") for name in wanted):
         raise ValueError("Every selected intermediate requires an inferred tensor type in the top-level graph")
+    if getattr(args, "duration_path", False):
+        order = wanted
     existing = {v.name for v in model.graph.output}
     model.graph.output.extend(types[name] for name in order if name not in existing)
 
@@ -599,10 +748,8 @@ def capture(args):
             if profile_path.stat().st_size > MAX_CAPTURE_BYTES:
                 raise ValueError("Profile exceeds the memory limit")
             events = json.loads(profile_path.read_text())
-            providers = collections.Counter(e.get("args", {}).get("provider") for e in events
-                                             if e.get("cat") == "Node" and e.get("name", "").endswith("_kernel_time")
-                                             and e.get("dur", 0) > 0)
-            if args.backend != "cpu" and providers["QNNExecutionProvider"] == 0:
+            providers, placement = kernel_placement(events)
+            if args.backend != "cpu" and not providers.get("QNNExecutionProvider"):
                 raise ValueError("QNN registration without observed QNN execution is not a successful capture")
             checked_file(model, manifest["modelSha256"])
             checked_file(case, args.case_sha256, MAX_CAPTURE_BYTES)
@@ -611,7 +758,7 @@ def capture(args):
                     "inputSha256": args.case_sha256, "backend": args.backend,
                     "onnxruntimeVersion": ort.__version__, "outputsFile": archive.name,
                     "outputsSha256": digest(archive), "traceOrder": manifest.get("traceOrder", names),
-                    "kernelEvents": dict(providers), "profileFile": profile_path.name,
+                    "kernelEvents": providers, "kernelPlacement": placement, "profileFile": profile_path.name,
                     "qnnPluginSha256": digest(library) if library else None,
                     "qnnBackendSha256": digest(args.qnn_backend) if library else None,
                     "scope": "host-emulator" if args.backend == "qnn-emulator" else "runtime-tensor-diagnostic"}
@@ -730,11 +877,17 @@ def main(argv=None):
             sub.add_argument("--token-count", required=True, type=int)
             sub.add_argument("--calibration", type=Path)
             sub.add_argument("--overrides", type=Path)
+            sub.add_argument("--convolutions-only", action="store_true", help="Calibrate only Conv operators in an HTP QDQ experiment")
         elif command == "trace":
-            sub.add_argument("--tensor", action="append", required=True)
+            selection = sub.add_mutually_exclusive_group(required=True)
+            selection.add_argument("--tensor", action="append")
+            selection.add_argument("--duration-path", action="store_true", help="Trace prediction, token durations and waveform from the native output contract")
             sub.add_argument("--seed", type=int, default=7)
         elif command == "stages":
             sub.add_argument("--specification", required=True, type=Path)
+    sub = commands.add_parser("short-reference")
+    sub.add_argument("--pack", required=True, type=Path)
+    sub.add_argument("--output-dir", required=True, type=Path)
     sub = commands.add_parser("capture")
     sub.add_argument("--model-manifest", required=True, type=Path)
     sub.add_argument("--case", required=True, type=Path)
@@ -755,7 +908,7 @@ def main(argv=None):
         write_report(args.output, inspect_model(load_model(args.model, args.model_sha256), args.model_sha256), [args.model])
         result = args.output
     else:
-        result = {"prepare": prepare, "trace": trace, "capture": capture, "compare": compare, "stages": stages}[args.command](args)
+        result = {"prepare": prepare, "trace": trace, "short-reference": short_reference, "capture": capture, "compare": compare, "stages": stages}[args.command](args)
     print(result)
 
 

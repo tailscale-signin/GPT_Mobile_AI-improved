@@ -127,7 +127,8 @@ class AgentRunner(
     private val diagnosticRunId: String? = null,
     private val prepareToolSelection: (suspend () -> Unit)? = null,
     private val verificationOnlyRequested: Boolean = false,
-    private val taskAdmissionFailure: (suspend () -> ProviderEvent.Failed?)? = null
+    private val taskAdmissionFailure: (suspend () -> ProviderEvent.Failed?)? = null,
+    private val replayPriorityCallIds: () -> Set<String> = { emptySet() }
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
     private val replayCompactionLogGate = ReplayCompactionLogGate()
@@ -156,7 +157,8 @@ class AgentRunner(
             consumed,
             replayRenderCache,
             if (limits.githubTask) GitHubReplayRecovery.savedPageResultAllowances(exchanges, consumed, maxReplayTokens, maxResultTokens) else emptyMap(),
-            taskRequest = limits.githubTaskRequest.takeIf { limits.githubTask }
+            taskRequest = limits.githubTaskRequest.takeIf { limits.githubTask },
+            priorityCallIds = if (limits.githubTask) replayPriorityCallIds() else emptySet()
         )
         ReplayProjection(
             exchanges = compacted,
@@ -538,6 +540,17 @@ class AgentRunner(
         }
         if (admission["http_status"] != JsonPrimitive(413) && round.errorCode != RequestByteBudget.CODE) return null
         if (kotlinx.coroutines.currentCoroutineContext()[RequestByteBudgetScope]?.consumeReplan(admission) != true) return null
+        val joint = RequestByteBudget.jointTarget(admission, minOf(state.replayTokens, admittedReplayLimit.toLong()), definitions.sumOf { providerSchemaTokens(it, limits.githubMode) })
+        if (joint != null) {
+            val compacted = prepareReplay(exchanges, joint.replayTokens, limits.maxReplayResultTokens, state.consumedCallIds, state.deliveredResultDigests)
+            val narrower = narrowerSchemaWindow(definitions, admission, initialSchemaTokens, compacted.compactedTokens.toLong(), joint.schemaTokens)
+            if (narrower != null && compacted.compactedTokens <= joint.replayTokens && compacted.compactedTokens.toLong() < state.replayTokens) {
+                state.retrySchemaNames = narrower
+                state.replayTokens = compacted.compactedTokens.toLong()
+                emit(AgentRunEvent.Notice("Reduced tool descriptions and replay together to fit the provider's measured request limit.", persistent = false))
+                return joint.replayTokens
+            }
+        }
         val target = RequestByteBudget.replayTarget(admission, state.replayTokens, admittedReplayLimit)
         if (target != null) {
             val fit = prepareReplay(exchanges, target, limits.maxReplayResultTokens, state.consumedCallIds, state.deliveredResultDigests)
@@ -553,10 +566,10 @@ class AgentRunner(
     }
 
     /** Defer optional schemas for the rejected model round. Discovery may still select every authorized operation. */
-    private fun narrowerSchemaWindow(definitions: List<AgentToolDefinition>, admission: JsonObject?, initialSchemaTokens: Long, replayTokens: Long): Set<String>? {
+    private fun narrowerSchemaWindow(definitions: List<AgentToolDefinition>, admission: JsonObject?, initialSchemaTokens: Long, replayTokens: Long, targetOverride: Int? = null): Set<String>? {
         if (definitions.none { it.name == ProgressiveToolCatalog.NAME }) return null
         val current = definitions.sumOf { providerSchemaTokens(it, limits.githubMode) }
-        val target = RequestByteBudget.schemaTarget(admission, current) ?: return null
+        val target = targetOverride ?: RequestByteBudget.schemaTarget(admission, current) ?: return null
         val selected = try {
             fitProviderToolSchemas(definitions, limits, initialSchemaTokens, replayTokens, target)
         } catch (_: GitHubToolContextBudgetException) {
@@ -1476,7 +1489,7 @@ class AgentRunner(
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.completeTool(call: ProviderEvent.ToolCall, result: AgentToolResult, invalidatedAuthority: AtomicReference<AgentToolResult?>): AgentToolResult {
         checkpoint?.complete(call, result)
-        healthCatalog?.recordObservation(call.name, result)
+        healthCatalog?.recordObservation(call.name, result, arguments = call.arguments)
         val observed = try {
             onToolResult?.invoke(call, result)
             onToolResultCommitted?.invoke(call, result)

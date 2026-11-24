@@ -273,3 +273,12 @@ Primary specifications used: [QNN EP 2.8 documentation](https://github.com/onnxr
 [official source-build workflow](https://github.com/onnxruntime/onnxruntime-qnn/blob/v2.8.0/docs/execution_providers/build.md),
 [GPU graph configuration API](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-10/api-rst_file_include_QNN_GPU_QnnGpuGraph_h.html),
 and [ORT quantization diagnostics](https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html).
+
+
+## Investigating collapsed token durations
+
+Use `short-reference --pack <verified-pack> --output-dir <new-directory>` to rebuild the public 43-token Heart fixture and its case SHA-256. Both packs use the same frontend, voice embedding and speech rate. Use `trace --duration-path` on the exact model from the failed run. It selects up to twelve typed prediction checkpoints feeding the native duration output, followed by token durations and waveform. Capture one pinned token, style and rate input on CPU and GPU using that diagnostic model, then run `compare` to find the first observed difference. Repeat both captures with the original FP32 variant. Separate variant pairs carry different model hashes.
+
+Capture manifests include per-provider kernel microseconds and the 24 most expensive provider/operator pairs. For the HTP path, compare CPU `ConvInteger` time with QNN convolution placement. Use `prepare --backend htp --precision a16w8 --convolutions-only` with the original FP32 weights and a fingerprinted, exact-shape calibration corpus. For production-equivalent partitioning, supply the matching built `libkokoro_qnn_adapter.so` to `capture --qnn-plugin` and keep the pinned QNN provider library available to its loader. The capture fails if profiling records no QNN kernels. Instrumentation can alter placement. Repeat the uninstrumented comparison before selecting a model for playback.
+
+On the phone, compare **Production phrases** with **Production phrases, alternating lengths**. Stability collects 20 warm repetitions per length. Full playback with all six workloads and controlled-zero caption calibration exercises presentation, cancellation and five minutes of sustained playback. Compare the same model, voice, rate, device and thread count. A stored HTP context carries a private process marker. After restarting the app, a validated disk load can report `HIT_PREVIOUS_PROCESS`. An in-memory reuse reports `RESIDENT`. The marker stays in the private cache.

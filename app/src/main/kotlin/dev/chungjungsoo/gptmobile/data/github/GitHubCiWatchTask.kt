@@ -66,7 +66,8 @@ internal data class GitHubCiWatchTask(
             profileUids = listOf(watch.profileUid),
             models = mapOf(watch.profileUid to model),
             tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(watch.connectionUid), github = scope.copy(commitSha = watch.headSha)),
-            recovery = TaskResumeDescriptor("${watch.chatId}:$sourceMessageId", sourceMessageId, runId, TaskRecoveryAction.CONTINUE_RUN)
+            recovery = TaskResumeDescriptor("${watch.chatId}:$sourceMessageId", sourceMessageId, runId, TaskRecoveryAction.CONTINUE_RUN),
+            githubCiWatch = GitHubCiWatchContinuation.capture(watch, this)
         )
         return Delivery.Ready(payload)
     }

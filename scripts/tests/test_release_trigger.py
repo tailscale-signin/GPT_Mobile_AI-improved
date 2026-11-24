@@ -96,7 +96,7 @@ class ReleaseTriggerTests(unittest.TestCase):
         self.assertEqual("build=true\n", selected())
         self.config.write_text(BASE_CONFIG)
         for path in ("scripts/check_apk_size.py", "local-kokoro-runtime/src/main/cpp/CMakeLists.txt",
-                     "scripts/optimize_release_apks.py", "scripts/install_android_native_dependencies.sh"):
+                     "scripts/optimize_release_apks.py", "scripts/check_local_runtime_apk.py", "scripts/install_android_native_dependencies.sh"):
             with self.subTest(packaging_input=path):
                 source = self.root / path
                 source.parent.mkdir(parents=True, exist_ok=True)

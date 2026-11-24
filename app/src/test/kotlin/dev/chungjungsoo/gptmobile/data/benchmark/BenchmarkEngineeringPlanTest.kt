@@ -70,7 +70,7 @@ class BenchmarkEngineeringPlanTest {
         val workflows = BenchmarkEngineeringRegistry.cases(BenchmarkEngineeringLane.WORKFLOW_SIMULATION)
         assertEquals(contracts.size + workflows.size, combined.size)
         assertEquals(combined.map { it.id }, BenchmarkSuiteRegistry.cases(BenchmarkMode.GITHUB_INTEGRATION, 0).map { it.id })
-        assertTrue(workflows.all { it.validatorVersion == "benchmark-validator-v7" })
+        assertTrue(workflows.all { it.validatorVersion == "benchmark-validator-v8" })
         assertTrue(benchmarkSuiteForVersion(11, BenchmarkMode.GITHUB_INTEGRATION).filter { it.workload == GitHubEngineeringBenchmarkSuite.WORKLOAD }.all { it.validatorVersion == "benchmark-validator-v6" })
         val oldRun = BenchmarkEngineeringTestFixtures().runs().first().copy(engineeringPlan = null, suiteVersion = 10, caseManifest = contracts.take(2))
         assertEquals(contracts.take(2), benchmarkSuiteForRun(oldRun))

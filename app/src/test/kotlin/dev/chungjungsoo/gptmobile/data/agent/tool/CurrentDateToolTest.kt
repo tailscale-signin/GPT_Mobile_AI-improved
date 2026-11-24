@@ -1,11 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -14,6 +16,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CurrentDateToolTest {
+    @Test fun callersCannotOverrideTheConfiguredClockThroughArguments() {
+        val arguments = JsonObject(mapOf("zone" to JsonPrimitive("UTC")))
+        assertTrue(ToolArgumentValidator.errors(arguments, CurrentDateTool().definition.inputSchema).isNotEmpty())
+    }
+
     @Test
     fun `no argument tool exposes an explicit object schema accepted by strict providers`() {
         val schema = CurrentDateTool().definition.inputSchema

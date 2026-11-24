@@ -42,6 +42,24 @@ class ToolExchangeCompactorTest {
         assertTrue(replay.size < exchanges.size)
     }
 
+    @Test fun outstandingCriterionRehydratesItsCitedReadEvenWhenALaterDuplicateExists() {
+        fun read(id: String, path: String, text: String): AgentToolExchange {
+            val call = ProviderEvent.ToolCall(id, "github_read", buildJsonObject { put("path", path) })
+            return AgentToolExchange(listOf(call), listOf(AgentToolResult(id, ToolResultContent.Text(text), false)))
+        }
+        val proof = "observed validated implementation ".repeat(10)
+        val original = read("cited", "src/Rules.kt", proof)
+        val duplicate = read("duplicate", "src/Rules.kt", proof)
+        val other = (1..10).map { read("unrelated-$it", "src/Other$it.kt", "unrelated observation") }
+        val pending = read("pending", "src/Last.kt", "latest handoff")
+        val budget = ToolExchangeCompactor.estimateTokens(listOf(original, pending)) + 130
+        val result = ToolExchangeCompactor.compact(listOf(original, duplicate) + other + pending, budget, 200, consumedCallIds = setOf("cited"), taskRequest = "Inspect Other", priorityCallIds = setOf("cited"))
+        assertEquals(original, result.first())
+        assertEquals(pending, result.last())
+        assertTrue(result.none { it == duplicate })
+        assertTrue(ToolExchangeCompactor.estimateTokens(result) <= budget)
+    }
+
     @Test fun taskMatchesCannotDisplaceAnAdmittedUnreadPageDuringHardCompaction() {
         fun exchange(call: ProviderEvent.ToolCall) = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("selected source"), false)))
         val tool = "github_read__account"

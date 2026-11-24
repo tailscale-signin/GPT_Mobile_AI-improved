@@ -2,7 +2,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
 
 
@@ -152,6 +152,13 @@ class AppAuditInventoryTest(unittest.TestCase):
         found = [row['path'] for row in inventory.document(self.root)['files']]
         self.assertEqual([regular, localized], found)
         self.assertNotEqual(sorted(found), found)
+
+    def test_mixed_case_paths_have_the_same_component_order_and_area_on_windows(self):
+        paths = ['gateway/Zed.py', 'gateway/alpha.py']
+        for relative in reversed(paths):
+            self.write(relative)
+        self.assertEqual(paths, [row['path'] for row in inventory.document(self.root)['files']])
+        self.assertEqual('gateway_software', inventory.source_area(PureWindowsPath(paths[0])))
 
     def test_committed_inventory_matches_current_source(self):
         root = SCRIPT.parents[1]

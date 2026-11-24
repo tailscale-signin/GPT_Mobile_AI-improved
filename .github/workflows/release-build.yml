@@ -282,9 +282,9 @@ jobs:
       - name: Build release artifacts
         run: |
           python3 scripts/android_pipeline.py --variant release --phase package --output build/reports/pipeline/package.json
-          python3 scripts/optimize_release_apks.py --zipalign "$ANDROID_HOME/build-tools/37.0.0/zipalign" app/build/outputs/apk/release/*-unsigned.apk
           rm -rf app/build/intermediates/shrunk_resources_proto_format/release/minifyReleaseWithR8
           python3 scripts/android_pipeline.py --variant release --phase bundle --output build/reports/pipeline/bundle.json
+          python3 scripts/optimize_release_apks.py --zipalign "$ANDROID_HOME/build-tools/37.0.0/zipalign" app/build/outputs/apk/release/*-unsigned.apk
       - name: Sign and verify APKs and bundle
         env:
           EXPECTED_CERT_SHA256: ${{ vars.RELEASE_CERT_SHA256 }}

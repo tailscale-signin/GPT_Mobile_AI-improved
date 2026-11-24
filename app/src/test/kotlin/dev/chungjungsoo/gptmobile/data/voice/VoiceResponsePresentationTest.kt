@@ -40,6 +40,16 @@ class VoiceResponsePresentationTest {
         assertEquals(true, restored.tools.reasoning)
     }
 
+    @Test fun newVoiceTurnsKeepTheirPromptAfterQueueingAndLegacyPromptsStayDistinct() {
+        val next = VoiceResponsePolicy.RESPONSIVE
+        val tools = ChatMcpToolConfig(voiceResponsePolicy = next)
+        val payload = PendingPromptPayload(profileUids = listOf("selected"), tools = tools)
+        val restored = PendingPrompt("queued", 7, "Question", Json.encodeToString(payload), 1).details()
+        assertEquals(next, restored.tools.voiceResponsePolicy)
+        assertTrue(VoiceResponsePresentation.compose(null, next)!!.contains("first breath"))
+        assertFalse(policy.instruction().contains("first breath"))
+    }
+
     @Test fun oldTextSnapshotsDoNotAcquireVoicePresentation() {
         val restored = Json.decodeFromString<PendingPromptPayload>("{\"tools\":{},\"profileUids\":[\"selected\"]}")
         assertNull(restored.tools.voiceResponsePolicy)

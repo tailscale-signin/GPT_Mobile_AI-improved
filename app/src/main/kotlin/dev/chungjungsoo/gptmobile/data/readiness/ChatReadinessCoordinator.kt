@@ -9,8 +9,11 @@ import dev.chungjungsoo.gptmobile.data.assist.AssistPreparation
 import dev.chungjungsoo.gptmobile.data.assist.LocalAssistPreparation
 import dev.chungjungsoo.gptmobile.data.assist.allowsProcessing
 import dev.chungjungsoo.gptmobile.data.assist.resolveAssistPolicy
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
+import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
 import dev.chungjungsoo.gptmobile.data.repository.OpenRouterModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.presentation.AppForegroundTracker
@@ -18,12 +21,15 @@ import dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 /** Lifecycle owner calls leaves only; never constructs ChatRepository or AgentRunCoordinator. */
 @Singleton
@@ -63,6 +69,31 @@ class ChatReadinessCoordinator @Inject constructor(
     }
     private fun idle(): Boolean = AppForegroundTracker.visibility.value && uiReady.value && ReadinessWorkloadSignals.active.value == 0 && !InferenceAdmission.isExclusiveBusy && !runtime.getHardwareState().isModeratePressure && !runtime.getHardwareState().isThrottlingRequired
     private fun networkAllowed(metered: Boolean): Boolean = metered || (context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)?.isActiveNetworkMetered == false
+
+    /** Called from the visible voice room's coroutine; leaving or switching profile cancels this work. */
+    internal suspend fun prepareVoiceProfile(
+        profile: PlatformV2,
+        readiness: ReadinessSettings,
+        privacy: ConversationPrivacyContext
+    ): Unit = withContext(Dispatchers.IO + privacy) {
+        if (!readiness.enabled || !profile.enabled || privacy.chatId == null || ReadinessWorkloadSignals.active.value != 0 || InferenceAdmission.isExclusiveBusy) return@withContext
+        try {
+            val hardware = runtime.getHardwareState()
+            if (hardware.isModeratePressure || hardware.isThrottlingRequired) return@withContext
+            when (profile.compatibleType) {
+                ClientType.LITERT_LM -> if (readiness.prepareSelectedLocalModel) helper.preparePrimary(profile)
+                // The room's GatewayModelSelectionController owns exact-model reconciliation for llama.cpp.
+                ClientType.LLAMA -> Unit
+                else -> if (!privacy.enabled && networkAllowed(readiness.warmMeteredNetworks)) {
+                    transport.warm(profile.apiUrl, ReadinessHints.networkEpoch.value, ReadinessInvalidation.epoch)
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Optional preparation cannot reject the user's actual turn.
+        }
+    }
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
@@ -118,7 +149,7 @@ class ChatReadinessCoordinator @Inject constructor(
                     if (networkAllowed(features.readiness.warmMeteredNetworks)) {
                         // Prime the shared inference transport first. Never send a draft, API credential or token.
                         if (composerEngaged) {
-                            targets.filter { it.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }.forEach { profile ->
+                            targets.filter { it.compatibleType != ClientType.LITERT_LM }.forEach { profile ->
                                 scheduler.request("provider:${profile.uid}", ::idle) {
                                     transport.warm(profile.apiUrl, ReadinessHints.networkEpoch.value, ReadinessInvalidation.epoch)
                                 }
@@ -127,10 +158,10 @@ class ChatReadinessCoordinator @Inject constructor(
                         targets.forEach { profile ->
                             if (features.remoteMcpConnections) scheduler.request("mcp:${profile.uid}", ::idle) { tools.warmSelectedCatalogues(profile.uid, if (features.readiness.strategy == PreparationStrategy.MINIMAL_RESOURCES) 1 else 4) }
                         }
-                        if (features.providerModelDiscovery && targets.any { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.OPENROUTER && dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.officialEndpoint(it.apiUrl) }) scheduler.request("public-models", ::idle) { models.fetchModels() }
+                        if (features.providerModelDiscovery && targets.any { it.compatibleType == ClientType.OPENROUTER && dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.officialEndpoint(it.apiUrl) }) scheduler.request("public-models", ::idle) { models.fetchModels() }
                     }
                     if (composerEngaged && features.readiness.prepareSelectedLocalModel) {
-                        targets.firstOrNull { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }?.let { primary ->
+                        targets.firstOrNull { it.compatibleType == ClientType.LITERT_LM }?.let { primary ->
                             scheduler.requestFor("primary:${primary.uid}", ::idle, ReadinessResource.LOCAL) { helper.preparePrimary(primary) }
                         }
                     }

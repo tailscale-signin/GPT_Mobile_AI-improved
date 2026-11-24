@@ -371,7 +371,7 @@ class DeferredKokoroOutputTest {
         override fun configureThreads(value: Int) {
             threads = value
         }
-        override fun prewarm(voice: KokoroVoice) {
+        override fun prewarm(voice: KokoroVoice, assetsOnly: Boolean) {
             prewarmed += voice
         }
         override fun stop() = Unit

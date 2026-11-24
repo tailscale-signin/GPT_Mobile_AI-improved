@@ -98,6 +98,58 @@ class VoiceSpeechBenchmarkTest {
         assertTrue(report.results.all { it.verified })
     }
 
+    @Test fun rejectedTensorMatchesCpuEvenWhenCpuRunsLaterAndNeverQualifiesGpu() {
+        val clock = Clock()
+        val baseline = VoiceSpeechBenchmarkRunner(create = { Engine(it, clock) }, nanoTime = { clock.nanos }, thermalStatus = { 0 })
+            .run(VoiceSpeechBenchmarkReport(1, configuration())) {}
+        val cpu = baseline.results.single { it.requestedBackend == VoiceSpeechBackend.CPU }
+        val chunk = cpu.samples.first().chunks.first()
+        val failed = VoiceSpeechBenchmarkBackendResult(
+            VoiceSpeechBackend.QNN_GPU, VoiceSpeechBenchmarkBackendState.FAILED,
+            failure = VoiceSpeechFailureCode.OUTPUT_INVALID, failureStage = VoiceSpeechStage.VALIDATING,
+            failedFixture = VoiceSpeechBenchmarkFixture.SHORT, failedRepeat = 0, failedChunk = 0,
+            failedInputBytes = chunk.inputBytes, failedTokenCount = 3,
+            failureObservation = VoiceSpeechBenchmarkFailureObservation.from(
+                VoiceSpeechExecutionEvidence(
+                    VoiceSpeechBackend.QNN_GPU, "qnn-gpu", "a".repeat(64), "test-runtime", "device", VoiceSpeechStage.VALIDATING,
+                    failure = VoiceSpeechFailureCode.OUTPUT_INVALID, observedAtMillis = 1, tokenCount = 3, validationReason = "CLIPPED_PCM",
+                    outputFrames = 3600, durationStatsAvailable = true, durationSumOverflow = false, durationCount = 3, durationMin = 2, durationMax = 2, durationSum = 6
+                )
+            )
+        )
+        val report = baseline.copy(results = listOf(failed, cpu))
+        val comparison = requireNotNull(report.rejectedOutput(failed))
+        assertEquals(2.0, comparison.durationRatio, .001)
+        assertEquals(1.0, comparison.tokenTimingDistance!!, .001)
+        assertEquals(VoiceSpeechAudioReferenceStatus.UNOBSERVED, report.audioReference(failed).comparison.status)
+        assertFalse(failed in report.qualifiedResults())
+        assertNull(report.rejectedOutput(failed.copy(failedInputBytes = 1)))
+        assertNull(report.rejectedOutput(failed.copy(failedRepeat = 19)))
+        val nonuniform = failed.copy(failureObservation = failed.failureObservation!!.copy(durationMax = 3))
+        assertNull(report.rejectedOutput(nonuniform)?.tokenTimingDistance)
+        val encoded = speechBenchmarkJson(report, local = true).getValue("results").jsonArray.first().jsonObject
+        assertEquals(JsonPrimitive(2.0), encoded.getValue("rejectedOutputComparison").jsonObject["durationRatio"])
+    }
+
+    @Test fun interleavedRunnerRotatesLengthsAndCountsFreshProfilesOnce() {
+        val clock = Clock()
+        val workload = VoiceSpeechBenchmarkWorkload.INTERLEAVED_UTTERANCES
+        val config = configuration().copy(workload = workload, fixtureHash = VoiceSpeechWorkload.fixtureHash(workload))
+        val report = VoiceSpeechBenchmarkRunner(create = { Engine(it, clock) }, nanoTime = { clock.nanos }, thermalStatus = { 0 })
+            .run(VoiceSpeechBenchmarkReport(1, config)) {}
+        val gpu = report.results.single { it.requestedBackend == VoiceSpeechBackend.QNN_GPU }
+        assertEquals(VoiceSpeechWorkload.schedule(workload, config.mode), gpu.samples.map { it.fixture to it.repeat })
+        assertTrue(gpu in report.qualifiedResults())
+        val reordered = gpu.copy(samples = gpu.samples.sortedBy { it.fixture.ordinal })
+        assertFalse(reordered in report.copy(results = report.results.map { if (it == gpu) reordered else it }).qualifiedResults())
+        val original = gpu.samples.first().chunks.first()
+        val first = original.copy(profileId = 1, profileReused = false, acceleratorMicros = 10, cpuMicros = 90)
+        val second = first.copy(profileId = 2, acceleratorMicros = 50, cpuMicros = 50)
+        val totals = requireNotNull(gpu.copy(samples = emptyList(), incompleteChunks = listOf(first, first, first.copy(profileReused = true), second)).firstInferenceProfiles())
+        assertEquals(2, totals.count)
+        assertEquals(.30, totals.acceleratorShare!!, .001)
+    }
+
     @Test fun cpuFallbackIsNotAcceptedAsGpuPerformanceAndOtherBackendsStillRun() {
         val clock = Clock()
         val report = VoiceSpeechBenchmarkRunner(

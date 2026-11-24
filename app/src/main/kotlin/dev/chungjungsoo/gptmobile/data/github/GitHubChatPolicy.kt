@@ -34,8 +34,19 @@ data class GitHubChatProfileOverride(
     val intelligenceLevel: GitHubIntelligenceLevel = GitHubIntelligenceLevel.INTELLIGENT,
     val recoveryConsultConsent: String? = null,
     val engineeringTeamConsent: String? = null,
-    val recoveryExecutionConsent: String? = null
+    val recoveryExecutionConsent: String? = null,
+    val primaryPatchReviewConsent: String? = null,
+    val nextActionPolicy: GitHubNextActionMode = GitHubNextActionMode.ACTIVE,
+    val evidenceElaboration: Boolean = true
 )
+
+/** Rollout controls only the selection of a next action within an admitted GitHub request. */
+@Serializable
+enum class GitHubNextActionMode(val title: String, val description: String) {
+    LEGACY("Original selection", "Use the original requirement order."),
+    SHADOW("Compare decisions", "Record the proposed next action while the original selection runs."),
+    ACTIVE("Evidence-guided selection", "Choose the next permitted action from the evidence each open requirement needs.")
+}
 
 /** Selects the task controller. GitHub executes accepted cloud work in either mode. */
 @Serializable
@@ -147,6 +158,13 @@ internal object GitHubChatPolicy {
             request.delegation?.enabled != false &&
             "delegate_to_model" !in request.disabledToolIds &&
             connection !in request.disabledToolIds
+        val patchReview = config.githubTools &&
+            config.intelligenceLevel in GitHubPrimaryPatchReview.levels &&
+            config.primaryPatchReviewConsent != null &&
+            !request.allToolsDisabled &&
+            request.delegation?.enabled != false &&
+            "delegate_to_model" !in request.disabledToolIds &&
+            connection !in request.disabledToolIds
         val enabled = buildSet {
             add("github_decide")
             if (config.intelligenceLevel == GitHubIntelligenceLevel.MAXIMUM_INTELLIGENCE &&
@@ -169,7 +187,8 @@ internal object GitHubChatPolicy {
             maxTools = maxOf(request.maxTools ?: 0, 64),
             maxToolCalls = minOf(request.maxToolCalls ?: Int.MAX_VALUE, callLimit(config.engineeringMode)),
             reasoning = request.reasoning,
-            delegation = request.delegation.takeIf { recovery || "delegate_to_model" in enabled },
+            delegation = request.delegation.takeIf { recovery || patchReview || "delegate_to_model" in enabled },
+            githubPatchReviewAllowed = patchReview,
             githubRecoveryExecutionAllowed = recovery,
             research = null,
             combined = null

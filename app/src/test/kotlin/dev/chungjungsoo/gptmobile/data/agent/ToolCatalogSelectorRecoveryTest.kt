@@ -271,6 +271,12 @@ class ToolCatalogSelectorRecoveryTest {
         assertEquals(validSingle, catalog.canonicalArguments(validSingle))
         val emptyNames = Json.parseToJsonElement("""{"action":"catalog","names":[]}""").jsonObject
         assertEquals(buildJsonObject { put("catalog_only", true) }, catalog.canonicalArguments(emptyNames))
+        val inventory = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 1)).bind(catalog).execute("empty-catalog", emptyNames)
+        assertFalse(inventory.toString(), inventory.isError)
+        assertFalse(inventory.dispatched)
+        assertEquals("empty-catalog", inventory.callId)
+        assertEquals(buildJsonObject { put("catalog_only", true) }, inventory.executionReceipt?.get("canonical_arguments"))
+        assertTrue(inventory.content.toString().contains("authorized_inventory"))
         for (raw in listOf(
             """{"action":"catalog","names":[],"catalog_only":false}""",
             """{"action":"write","names":[]}""",

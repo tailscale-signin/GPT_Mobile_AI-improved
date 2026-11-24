@@ -1,28 +1,33 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class VoicePreparationPolicyTest {
-    @Test fun localPreparationCanOverlapFinalizationReviewAndAdmission() {
-        assertTrue(VoicePreparationPolicy.shouldPrepare(VoicePhase.FINALIZING, false, false, true, false))
-        assertTrue(VoicePreparationPolicy.shouldPrepare(VoicePhase.REVIEWING, false, true, true, false))
-        assertTrue(VoicePreparationPolicy.shouldPrepare(VoicePhase.THINKING, true, false, true, false))
+    @Test fun onEntryFileWorkYieldsTheNativeGateToTheMicrophone() {
+        fun stage(phase: VoicePhase, openingMicrophone: Boolean = true) =
+            VoicePreparationPolicy.stage(phase, awaitingReply = false, hasDraft = false, local = true, admitted = false, openingMicrophone = openingMicrophone)
+        assertEquals(VoicePreparation.ASSETS, stage(VoicePhase.PAUSED))
+        assertEquals(VoicePreparation.ASSETS, stage(VoicePhase.STARTING))
+        assertEquals(VoicePreparation.MODEL, stage(VoicePhase.PAUSED, openingMicrophone = false))
+        assertEquals(VoicePreparation.MODEL, stage(VoicePhase.LISTENING))
+        assertEquals(VoicePreparation.MODEL, stage(VoicePhase.FINALIZING))
+        for (phase in listOf(VoicePhase.PREPARING, VoicePhase.SPEAKING, VoicePhase.CLOSED, VoicePhase.ERROR)) {
+            assertEquals(VoicePreparation.NONE, stage(phase))
+        }
+        for (phase in listOf(VoicePhase.SPEAKING, VoicePhase.CLOSED, VoicePhase.ERROR)) {
+            assertEquals(VoicePreparation.NONE, VoicePreparationPolicy.stage(phase, true, true, true, true, false))
+        }
     }
 
-    @Test fun remotePreparationStillRequiresTheAcceptedReply() {
+    @Test fun localDraftAndRemoteConsentRemainTurnScoped() {
         for (phase in VoicePhase.entries) {
-            assertFalse(VoicePreparationPolicy.shouldPrepare(phase, true, true, false, false))
+            assertEquals(VoicePreparation.NONE, VoicePreparationPolicy.stage(phase, true, true, false, false, false))
         }
-        assertTrue(VoicePreparationPolicy.shouldPrepare(VoicePhase.THINKING, true, false, false, true))
-    }
-
-    @Test fun coldScreenCaptureAndInactiveSessionsDoNotStartModelPreparation() {
-        for (phase in listOf(VoicePhase.PAUSED, VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.SPEAKING, VoicePhase.CLOSED, VoicePhase.ERROR)) {
-            assertFalse(VoicePreparationPolicy.shouldPrepare(phase, true, true, true, true))
-        }
-        assertFalse(VoicePreparationPolicy.shouldPrepare(VoicePhase.REVIEWING, false, false, true, false))
-        assertFalse(VoicePreparationPolicy.shouldPrepare(VoicePhase.THINKING, false, false, true, true))
+        assertEquals(VoicePreparation.MODEL, VoicePreparationPolicy.stage(VoicePhase.THINKING, true, false, false, true, false))
+        assertEquals(VoicePreparation.MODEL, VoicePreparationPolicy.stage(VoicePhase.THINKING, true, false, true, false, false))
+        assertEquals(VoicePreparation.NONE, VoicePreparationPolicy.stage(VoicePhase.THINKING, false, false, true, true, false))
+        assertEquals(VoicePreparation.NONE, VoicePreparationPolicy.stage(VoicePhase.REVIEWING, false, false, true, false, false))
+        assertEquals(VoicePreparation.MODEL, VoicePreparationPolicy.stage(VoicePhase.REVIEWING, false, true, true, false, false))
     }
 }

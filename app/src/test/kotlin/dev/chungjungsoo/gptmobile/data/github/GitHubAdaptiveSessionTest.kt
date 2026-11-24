@@ -62,16 +62,23 @@ class GitHubAdaptiveSessionTest {
         assertEquals(3, roles.size)
     }
 
-    @Test fun invalidSelectionAndToolCallsCannotReachExecution() = runBlocking {
+    @Test fun malformedAdviceFallsBackAndUnexpectedPlanningToolsStillBlock() = runBlocking {
         for (bad in listOf(ProviderEvent.TextDelta(selection.replace("\"A\"", "\"missing\"")), ProviderEvent.ToolCall("mutation", "github_commit", JsonObject(emptyMap())))) {
             var executes = false
-            val wrapper = GitHubAdaptiveSession(session(), "github-design-options", "task", open = { role, _ ->
+            val primary = session(ProviderEvent.TextDelta("original"), ProviderEvent.Completed)
+            val wrapper = GitHubAdaptiveSession(primary, "github-design-options", "task", open = { role, _ ->
                 if (role.endsWith("options")) session(ProviderEvent.TextDelta(options), ProviderEvent.Completed) else session(bad, ProviderEvent.Completed)
             }, continueWith = {
                 executes = true
                 session()
             }, load = { null }, save = {})
-            assertTrue(wrapper.streamRound(emptyList(), emptyList()).toList().any { it is ProviderEvent.Failed })
+            val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+            if (bad is ProviderEvent.ToolCall) {
+                assertTrue(events.any { it is ProviderEvent.Failed })
+                assertTrue(events.none { it is ProviderEvent.TextDelta })
+            } else {
+                assertEquals("original", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+            }
             assertFalse(executes)
         }
     }

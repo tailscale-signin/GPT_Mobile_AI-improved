@@ -218,6 +218,35 @@ class GitHubCiObservationReportTest {
         assertFalse(scoped.containsKey("run_id"))
     }
 
+    @Test fun pendingRunLookupPreservesTheReadFacadeConnection() {
+        for ((operation, expectedLookup) in listOf(
+            "github_ci" to "github_ci",
+            "github_context" to "github_ci",
+            "github_context_inspect" to "github_ci",
+            "github_context__selected" to "github_ci__selected",
+            "github_context_inspect__selected" to "github_ci__selected"
+        )) {
+            val receipts = evidence(emptyList()).apply { put("snapshot", runningSnapshot(operation)) }
+            val report = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2)).second
+            assertEquals(operation, JsonPrimitive(expectedLookup), report["run_lookup_tool"])
+            assertEquals(JsonPrimitive("WAITING_FOR_CI"), report["observation_state"])
+            assertEquals(JsonPrimitive(head), report["head_sha"])
+            assertFalse(report.containsKey("run_id"))
+            assertFalse(report.containsKey("run_attempt"))
+            assertFalse(report.containsKey("pending_job_id"))
+            assertFalse(report.containsKey("watch_tool"))
+            assertEquals(JsonPrimitive(false), report["background_monitoring_registered"])
+            assertEquals(JsonPrimitive(false), report["completion_verified"])
+            assertEquals(JsonPrimitive(false), report["build_health_verified"])
+            assertEquals(JsonPrimitive(false), report["new_test_execution_verified"])
+            assertEquals(4, (report["remaining_requirements"] as JsonArray).size)
+        }
+        for (operation in listOf("github_context_unlisted", "untrusted_github_context_inspect__selected")) {
+            val receipts = evidence(emptyList()).apply { put("snapshot", runningSnapshot(operation)) }
+            assertNull(operation, GitHubCiObservationReport.render(task, receipts, now, 2))
+        }
+    }
+
     @Test fun wrongRevisionStaleIncompleteAndFailedObservationsNeverBecomePendingSuccess() {
         val base = evidence(listOf(run(17, "", "in_progress")))
         for (snapshot in listOf(

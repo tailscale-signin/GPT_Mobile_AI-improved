@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.github.GitHubExecutionJournal
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -385,7 +386,11 @@ internal class GitHubResultViews(
             errorCode = entry.originalErrorCode,
             sharedResult = true,
             dispatched = false,
-            executionReceipt = JsonObject(sourceIdentity(entry) + savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256))
+            executionReceipt = JsonObject(
+                sourceIdentity(entry) + savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256) + buildJsonObject {
+                    if (context.isNotEmpty()) put("saved_view_selectors_hash", selectorsHash(cursor, context))
+                }
+            )
         )
     }
 
@@ -1013,6 +1018,10 @@ internal class GitHubResultViews(
             "min_lines", "max_lines", "context_lines", "max_new_blobs", "batch_size",
             "index_cursor", "search_id", "path", "ranges", "start_line", "end_line", "pull_number",
             "response_detail", "page", "per_page", "ref", "branch", "head_sha", "workflow_id", "run_id", "job_id"
+        )
+
+        fun selectorsHash(cursor: String, selectors: JsonObject): String = GitHubRepositoryStateStore.digest(
+            "github.saved-view.selectors.v1\u0000$cursor\u0000${GitHubExecutionJournal.canonical(selectors)}"
         )
 
         /** Saved pages only deliver captured bytes; backend mutations keep their task-specific receipts. */

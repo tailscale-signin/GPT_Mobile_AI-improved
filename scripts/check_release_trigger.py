@@ -86,7 +86,8 @@ def main() -> None:
                 ":(glob)**/src/**/assets/**", ":(glob)**/*-rules.pro",
                 "gradle/", "gradle.properties", "settings.gradle.kts",
                 "scripts/check_apk_size.py", "scripts/android_pipeline.py",
-                "scripts/optimize_release_apks.py", "scripts/install_android_native_dependencies.sh",
+                "scripts/optimize_release_apks.py", "scripts/check_local_runtime_apk.py",
+                "scripts/install_android_native_dependencies.sh",
                 ".github/workflows/unsigned-release-build.yml", ".github/workflows/release-build.yml",
             )
             changed = bool(subprocess.check_output(["git", "diff", "--name-only", "-z", base, "--", *packaging]))

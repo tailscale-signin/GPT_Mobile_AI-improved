@@ -60,6 +60,50 @@ internal object GitHubAcceptanceContract {
         return parts.takeIf { it.all { part -> start.containsMatchIn(part.replace(quoted) { " ".repeat(it.value.length) }) } } ?: listOf(text)
     }
 
+    /** Only literal, complete clause partitions may refine proof requirements. The accepted instruction still governs authorization. */
+    fun semanticSteps(task: String, plan: JsonObject): JsonObject? {
+        val steps = (plan["steps"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .mapNotNull { (it["criterion"] as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull }
+            .filter { it.length in 8..480 }.distinct()
+        val request = GitHubTaskContinuity.request(task)
+        if (steps.size !in 2..8 || GitHubTestChecklist.integration(task) || GitHubStatusRequest.matches(task)) return null
+        val parts = buildJsonObject {
+            for (row in GitHubRequestCompletion.requirements(task)) {
+                if (row !in request) continue
+                val proposals = steps.filter { it in row }
+                if (validPartition(row, proposals)) put(GitHubRequestCompletion.id(row), JsonArray(proposals.map(::JsonPrimitive)))
+            }
+        }
+        if (parts.isEmpty()) return null
+        return buildJsonObject {
+            put("request_digest", GitHubEvidenceBook.digest(request))
+            put("parts", parts)
+        }
+    }
+
+    private fun validPartition(row: String, parts: List<String>): Boolean {
+        if (parts.size !in 2..8 || parts.distinct().size != parts.size || quoted.containsMatchIn(row) || conditional.containsMatchIn(row)) return false
+        if (Regex("""(?i)\b(?:no|not|never|without|except|only|before|after|unless|mustn['’]t|don['’]t|as long as|as soon as|subject to)\b""").containsMatchIn(row)) return false
+        var offset = 0
+        val separator = Regex("""(?i)(?:\s*[,;.!?]\s*(?:(?:and|then|also)\s+)?|\s+(?:and(?:\s+then)?|then|also)\s+)""")
+        for ((index, part) in parts.withIndex()) {
+            if (part.length !in 8..480 || part.trim() != part) return false
+            val start = row.indexOf(part, offset)
+            if (start < 0 || index == 0 && start != 0 || index > 0 && !separator.matches(row.substring(offset, start))) return false
+            offset = start + part.length
+        }
+        return row.substring(offset).trim().all { it in ".!?" }
+    }
+
+    fun applySemanticSteps(task: String, requirements: List<String>, semantic: JsonObject?): List<String> {
+        if (semantic == null || semantic["request_digest"] != JsonPrimitive(GitHubEvidenceBook.digest(GitHubTaskContinuity.request(task)))) return requirements
+        val parts = semantic["parts"] as? JsonObject ?: return requirements
+        return requirements.flatMap { row ->
+            val clauses = (parts[GitHubRequestCompletion.id(row)] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull }
+            clauses.takeIf { validPartition(row, it) } ?: listOf(row)
+        }.distinct()
+    }
+
     fun producer(text: String): Producer {
         val plain = text.replace(quoted) { " ".repeat(it.value.length) }.trim().removePrefix("- ").replaceFirst(politePrefix, "")
         if (conditional.containsMatchIn(plain) || split(text).size > 1) return Producer.REQUEST_SPECIFIC

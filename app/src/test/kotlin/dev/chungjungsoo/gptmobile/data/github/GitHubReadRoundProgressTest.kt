@@ -163,6 +163,32 @@ class GitHubReadRoundProgressTest {
         }
     }
 
+    @Test fun equivalentFailedReadsTriggerOneReplanWithoutReplayingWritesOrBreakingAChangedSelector() {
+        fun failure(id: String, path: String, tool: String = "github_read"): AgentToolExchange {
+            val call = ProviderEvent.ToolCall(
+                id,
+                tool,
+                buildJsonObject {
+                    put("action", "ranges")
+                    put("path", path)
+                }
+            )
+            return AgentToolExchange(listOf(call), listOf(AgentToolResult(id, ToolResultContent.Text("gone"), true, errorCode = "GITHUB_NOT_FOUND_OR_INACCESSIBLE")))
+        }
+        val active = GitHubReadRoundProgress()
+        assertFalse(active.replan(failure("one", "A.kt"), 1))
+        assertFalse(active.replan(failure("two", "B.kt"), 1))
+        assertFalse(active.replan(failure("two", "B.kt"), 1))
+        assertTrue(active.replan(failure("three", "B.kt"), 1))
+        assertFalse(active.replan(failure("four", "B.kt"), 1))
+        val legacy = GitHubReadRoundProgress(detectFailedReads = false)
+        val writes = GitHubReadRoundProgress()
+        repeat(4) {
+            assertFalse(legacy.replan(failure(it.toString(), "A.kt"), 1))
+            assertFalse(writes.replan(failure(it.toString(), "A.kt", "github_commit"), 1))
+        }
+    }
+
     private fun searchPage(id: Int, start: Int, end: Int, items: String = "[]", query: String = "needle"): AgentToolExchange {
         val pageSearchId = if (query == "needle") searchId else GitHubRepositoryStateStore.digest(query)
         val rows = Json.parseToJsonElement(items) as JsonArray

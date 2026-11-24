@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.PhoneIndexContinuation
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
@@ -57,6 +58,28 @@ import org.junit.Test
 
 /** Both deadline owners execute the real native facade, admission, session and persistent store. */
 class PhoneIndexDeadlineRecoveryTest {
+    @Test fun overlappingIndexReadsShareTheBatchAndRecheckAccessForStatus() = runBlocking {
+        Fixture().use { fixture ->
+            val tool = fixture.tool()
+            val owner = async { tool.execute("owner", arguments("index")) }
+            withTimeout(8000) { fixture.secondBlobEntered.await() }
+            val joined = async { tool.execute("second-chat", arguments("index")) }
+            withTimeout(8000) {
+                while (fixture.repositoryReads.get() < 2) kotlinx.coroutines.delay(10)
+            }
+            val independent = withTimeout(8000) { tool.execute("separate-status", arguments("status")) }
+            assertFalse(independent.isError)
+            assertEquals(JsonPrimitive(1), body(independent).getValue("graph").jsonObject["processed_files"])
+            owner.cancelAndJoin()
+            val snapshot = withTimeout(8000) { joined.await() }
+            assertFalse(snapshot.isError)
+            assertEquals(1, fixture.firstBlobReads.get())
+            assertEquals(1, fixture.secondBlobReads.get())
+            assertTrue(body(snapshot).containsKey("index_cursor"))
+            assertEquals(0, fixture.mutations.get())
+        }
+    }
+
     @Test fun runnerDeadlineReadsBackAndResumesPersistedPhoneProgress() = runBlocking {
         Fixture().use { fixture -> verifyInterruptedProgress(fixture, budgeted = false) }
     }
@@ -85,12 +108,23 @@ class PhoneIndexDeadlineRecoveryTest {
         val reopened = fixture.tool()
         val continuation = if (budgeted) budget.bind(reopened) else reopened
         val recovery = body(result).getValue("recovery_call").jsonObject
-        val status = continuation.execute("readback", recovery.getValue("arguments").jsonObject)
+        val history = listOf(AgentToolExchange(listOf(call("interrupted")), listOf(result)))
+        val tools = listOf(native.definition)
+        val statusCall = requireNotNull(PhoneIndexContinuation.next(history, tools))
+        assertEquals(recovery.getValue("arguments").jsonObject, statusCall.arguments)
+        val status = continuation.execute(statusCall.callId, statusCall.arguments)
         assertFalse(status.isError)
         val statusBody = body(status)
         assertEquals(JsonPrimitive(1), statusBody.getValue("graph").jsonObject["processed_files"])
         val cursor = statusBody.getValue("index_cursor").jsonPrimitive.content
-        val resumed = continuation.execute("resume", arguments("index", cursor))
+        val readback = AgentToolExchange(listOf(statusCall), listOf(status))
+        val next = requireNotNull(PhoneIndexContinuation.next(history + readback, tools))
+        val wrongScope = status.copy(executionReceipt = JsonObject(requireNotNull(status.executionReceipt) + ("scope_hash" to JsonPrimitive("0".repeat(64)))))
+        assertNull(PhoneIndexContinuation.next(history + AgentToolExchange(listOf(statusCall), listOf(wrongScope)), tools))
+        val otherSource = status.copy(content = ToolResultContent.Json(JsonObject(statusBody + ("map_source" to JsonPrimitive("gateway")))))
+        assertNull(PhoneIndexContinuation.next(history + AgentToolExchange(listOf(statusCall), listOf(otherSource)), tools))
+        assertEquals(arguments("index", cursor), next.arguments)
+        val resumed = continuation.execute(next.callId, next.arguments)
         assertFalse(resumed.isError)
         assertEquals(JsonPrimitive(true), body(resumed).getValue("graph").jsonObject["coverage_complete"])
         assertEquals(1, fixture.firstBlobReads.get())

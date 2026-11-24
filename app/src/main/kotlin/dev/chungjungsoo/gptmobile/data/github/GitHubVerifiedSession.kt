@@ -314,24 +314,57 @@ internal class GitHubVerifiedSession(
                 return@flow
             }
         }
+        if (!GitHubTestChecklist.integration(task) && remainingToolCalls()?.let { it > 0 } != false) {
+            val recorded = evidence.snapshot().first.values.toList()
+            if (recorded.any { it["error_code"] == JsonPrimitive("GITHUB_PR_HEAD_CHANGED") }) {
+                val recovery = GitHubSelfTestPullReads.recoverReview(tools, recorded)
+                if (recovery != null) {
+                    progress("Refreshing the changed pull request revision before continuing the read")
+                    emit(recovery)
+                    emit(ProviderEvent.Completed)
+                    return@flow
+                }
+            }
+        }
         if (GitHubCiObservationReport.matches(task)) {
             val (receipts, epoch) = evidence.snapshot()
             val observed = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
             if (observed != null) {
                 val report = observed.second
+                if (report["observation_state"] == JsonPrimitive("WAITING_FOR_CI") && report["run_id"] == null && remainingToolCalls()?.let { it > 0 } != false) {
+                    val lookup = tools.singleOrNull { it.modelVisible && JsonPrimitive(it.name) == report["run_lookup_tool"] }
+                    val args = buildJsonObject {
+                        put("action", "runs")
+                        put("commit_sha", report.getValue("head_sha"))
+                        put("per_page", 20)
+                    }
+                    if (lookup != null && dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, lookup.inputSchema).isEmpty()) {
+                        val id = "ci-running-workflow-" + GitHubEvidenceBook.digest("${evidence.checkpointBinding()}|${lookup.name}|$args").take(24)
+                        if (receipts.values.none { it["call_id"] == JsonPrimitive(id) || it["tool"] == JsonPrimitive(lookup.name) && it["arguments"] == args }) {
+                            progress("Locating the active workflow at the observed commit")
+                            emit(ProviderEvent.ToolCall(id, lookup.name, args))
+                            emit(ProviderEvent.Completed)
+                            return@flow
+                        }
+                    }
+                }
                 if (report["observation_state"] == JsonPrimitive("WAITING_FOR_CI") && report["run_id"] != null && report["background_monitoring_registered"] != JsonPrimitive(true)) {
                     val watch = tools.singleOrNull { it.modelVisible && JsonPrimitive(it.name) == report["watch_tool"] }
                     val args = buildJsonObject {
                         put("run_id", report.getValue("run_id"))
                         put("commit_sha", report.getValue("head_sha"))
+                        if ((watch?.inputSchema?.get("properties") as? JsonObject)?.containsKey("run_attempt") == true) report["run_attempt"]?.let { put("run_attempt", it) }
                     }
+                    val previous = receipts.values.filter { it["tool"] == report["watch_tool"] && it["arguments"] == args }
+                    val reattach = previous.isNotEmpty() && previous.all(GitHubVerificationRecovery::watchPlanningChange)
                     if (watch != null &&
                         remainingToolCalls()?.let { it > 0 } != false &&
                         dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, watch.inputSchema).isEmpty() &&
-                        receipts.values.none { it["tool"] == JsonPrimitive(watch.name) && it["arguments"] == args }
+                        (previous.isEmpty() || reattach)
                     ) {
-                        val id = "ci-watch-" + GitHubEvidenceBook.digest("${evidence.checkpointBinding()}|$args").take(24)
+                        val id = (if (reattach) "ci-watch-reattach-" else "ci-watch-") + GitHubEvidenceBook.digest("${evidence.checkpointBinding()}|$args").take(24)
                         if (receipts.values.none { it["call_id"] == JsonPrimitive(id) }) {
+                            if (reattach) validatePublication()
                             progress("Registering a background check for the active workflow")
                             emit(ProviderEvent.ToolCall(id, watch.name, args))
                             emit(ProviderEvent.Completed)
@@ -341,7 +374,7 @@ internal class GitHubVerifiedSession(
                 }
                 // Complete this bounded factual diagnosis directly from retained
                 // evidence; another model request cannot discover a missing failure.
-                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.CI_OBSERVATION))
+                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.CI_OBSERVATION, continuationTools = tools, continuationExchanges = exchanges))
                 return@flow
             }
         }

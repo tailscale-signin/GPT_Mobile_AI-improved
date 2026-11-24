@@ -287,12 +287,17 @@ internal object GitHubCiObservationReport {
         )
         val neutral = counts["neutral"]?.let { ", $it neutral" }.orEmpty()
         val watchName = runSources.values.lastOrNull()?.text("tool")?.let { "github_watch_checks" + it.substringAfter("github_ci") }
+        val inventoryTool = inventory.receiptIds.firstNotNullOfOrNull { fresh[it]?.text("tool") }
+        val runLookup = inventoryTool?.takeIf { it.substringBefore("__") in setOf("github_ci", "github_context") }?.let {
+            "github_ci" + it.removePrefix(it.substringBefore("__"))
+        }
         val subscription = receipts.entries.lastOrNull { (_, row) ->
             val result = row.data()
             watchName != null &&
                 row.text("tool") == watchName &&
                 result?.get("background_subscription") == JsonPrimitive(true) &&
                 result["run_id"] == runId &&
+                (result["run_attempt"] == attempt || result["run_attempt"] == null && attempt == JsonPrimitive(1)) &&
                 result.text("head_sha") == head &&
                 result.text("subscription_id").isNotEmpty()
         }
@@ -301,7 +306,11 @@ internal object GitHubCiObservationReport {
             (if (run != null) "Workflow run `$runId`, attempt $attempt, is still active at `${head.take(12)}`. " else "The captured checks at `${head.take(12)}` are still active. ") +
             (if (jobId != null) "Logs for job `$jobId` are pending. " else "") +
             "The workflow outcome remains open; no passing build or new test execution is established." +
-            if (subscription != null) "\n\nBackground monitoring is registered for this run. Updates will appear in its check card." else ""
+            when {
+                subscription != null -> "\n\nBackground monitoring is registered for this run. Updates will appear in its check card."
+                runId == null -> "\n\nA workflow run and attempt at this revision have yet to be identified. Background monitoring requires that match. Refresh the checks at this commit to continue."
+                else -> "\n\nBackground monitoring has no confirmed subscription. Reopen the check at this commit to register or refresh it under the current GitHub connection."
+            }
         return text to buildJsonObject {
             put("schema", "github.ci-observation.v1")
             put("task", task)
@@ -316,6 +325,7 @@ internal object GitHubCiObservationReport {
             attempt?.let { put("run_attempt", it) }
             jobId?.let { put("pending_job_id", it) }
             watchName?.let { put("watch_tool", it) }
+            if (runId == null) runLookup?.let { put("run_lookup_tool", it) }
             put("background_monitoring_registered", subscription != null)
             subscription?.let { put("watch_receipt_id", it.key) }
             if (logs != null) put("logs_available", false)

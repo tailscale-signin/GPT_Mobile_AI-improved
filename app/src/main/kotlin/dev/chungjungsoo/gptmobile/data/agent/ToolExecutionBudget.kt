@@ -409,6 +409,9 @@ class ToolExecutionBudget(
                     val boundedResult = bounded(
                         result,
                         preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME,
+                        shareSourceBudget = !separateResultAllowance &&
+                            remainingCalls()?.let { it > 0 } == true &&
+                            (tool.definition.name in setOf("read_url", "web_search") || tool.definition.capabilities.any { it == AgentToolCapability.WEB_SEARCH || it == AgentToolCapability.PAGE_READER }),
                         observationLimitBytes = if (tool.definition.name in ACADEMIC_ACQUISITION_TOOLS) 256 * 1024 else 64 * 1024
                     )
                     val normalizedResult = if (
@@ -604,6 +607,7 @@ class ToolExecutionBudget(
     private fun bounded(
         rawResult: AgentToolResult,
         preserveSuccessfulHandoff: Boolean = false,
+        shareSourceBudget: Boolean = false,
         observationLimitBytes: Int = 64 * 1024
     ): AgentToolResult {
         // Academic acquisition must see the bounded typed page before model compaction.
@@ -625,7 +629,11 @@ class ToolExecutionBudget(
         // Debit the admitted excerpt, rather than allowing a single raw JSON/page
         // payload to consume the entire turn's research budget. Keep full results
         // separately for UI and recovery, as before.
-        val resultAllowance = if (evidenceBytesPerResult != null) {
+        val resultAllowance = if (shareSourceBudget) {
+            // Charge metadata and excerpts together. The reader's body cap alone
+            // cannot leave room for another source when the URL envelope is large.
+            minOf(16 * 1024, (outputByteLimit.get() / 4).coerceAtLeast(1))
+        } else if (evidenceBytesPerResult != null) {
             outputByteLimit.get()
         } else if (preserveSuccessfulHandoff) {
             Int.MAX_VALUE

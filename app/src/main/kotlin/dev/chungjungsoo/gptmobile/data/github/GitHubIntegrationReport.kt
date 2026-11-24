@@ -89,6 +89,7 @@ internal object GitHubIntegrationReport {
                     "FIXTURE_CLEANUP_UNVERIFIED" -> if (cleanupStoppedBeforeDispatch) "RECHECK_OWNED_FIXTURE_PREFLIGHT" else "RECONCILE_OWNED_FIXTURE"
                     "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED" -> "REVIEW_REMAINING_SCOPE_AND_BUDGET"
                     "CAPABILITY_PREREQUISITES_MISSING" -> "RESOLVE_CAPABILITY_PREREQUISITE"
+                    "RECORDED_OPERATION_BLOCKERS" -> if (actionable) "RESUME_UNVERIFIED_REQUIREMENTS" else "RESOLVE_CAPABILITY_PREREQUISITE"
                     "ACCEPTANCE_COMPLETE" -> "NONE"
                     else -> "RESUME_UNVERIFIED_REQUIREMENTS"
                 }
@@ -100,6 +101,16 @@ internal object GitHubIntegrationReport {
             put("pending_remote_continuations", pending.count { (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true })
             put("exhaustive_inventory_required", exhaustiveInventory)
             put("required_capability_blocker_counts", buildJsonObject { blockers.forEach { (code, count) -> put(code, count) } })
+            if (reason.first in setOf("RECORDED_OPERATION_BLOCKERS", "CAPABILITY_PREREQUISITES_MISSING")) {
+                put(
+                    "blocking_capabilities",
+                    JsonArray(
+                        unmet.take(12).map { row ->
+                            JsonObject(row.filterKeys { it in setOf("id", "blocker_code", "receipt_ids", "next_action") })
+                        }
+                    )
+                )
+            }
             if (graphInputs > 0) put("graph_input_blocked_count", graphInputs)
             put("receipt_count", receipts.size)
             if (schedule != null) {

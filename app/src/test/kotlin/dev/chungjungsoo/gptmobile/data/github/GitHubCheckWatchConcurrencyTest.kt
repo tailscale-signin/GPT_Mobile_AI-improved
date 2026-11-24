@@ -256,7 +256,11 @@ class GitHubCheckWatchConcurrencyTest {
             coEvery { getFeatureSettings() } returns features
         }
         val factory = mockk<GitHubEngineeringApiFactory> { every { createForEndpoint(any(), any()) } returns api }
-        return Fixture(GitHubCheckWatchRepository(mockk(relaxed = true), workspace, connections, settings, mockk(), factory), workspace, dao, stored, settings)
+        val auth = mockk<GitHubPublicAuthCoordinator> {
+            coEvery { accessToken(connection) } returns "fixture-token"
+            coEvery { durableIdentity("connection") } returns "verified-test-account"
+        }
+        return Fixture(GitHubCheckWatchRepository(mockk(relaxed = true), workspace, connections, settings, auth, factory), workspace, dao, stored, settings)
     }
 
     private inner class Fixture(val repository: GitHubCheckWatchRepository, val workspace: WorkspaceRepository, val dao: WorkspaceDao, val record: AtomicReference<WorkspaceRecord>, val settings: SettingRepository) {

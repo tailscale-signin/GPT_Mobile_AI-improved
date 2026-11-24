@@ -303,6 +303,17 @@ class GitHubSavedPageCapacityTest {
         val pending = state.pendingSavedPageDeliveries(listOf(exchange), ToolResultDeliveryProof.capture(listOf(projected)))
         assertEquals(setOf(call.callId), pending.keys)
         assertNull(pending.getValue(call.callId))
+        assertNull(state.restoreMissingPage(pending, listOf(exchange), emptyList()))
+        val restore = requireNotNull(state.restoreMissingPage(pending, listOf(exchange), fixture.tools))
+        assertEquals(call.name, restore.name)
+        assertEquals(call.arguments, restore.arguments)
+        val restored = fixture.read(restore)
+        assertFalse(restored.isError)
+        assertFalse(restored.dispatched)
+        val history = listOf(exchange, AgentToolExchange(listOf(restore), listOf(restored)))
+        val reopened = GitHubReplayRecovery.State(history.flatMap { it.calls }, history.flatMap { it.results })
+        assertTrue(reopened.pendingSavedPageDeliveries(history, ToolResultDeliveryProof.capture(listOf(restored))).isEmpty())
+        assertNull(reopened.restoreMissingPage(pending, history, fixture.tools))
         assertTrue(state.pendingSavedPageDeliveries(listOf(AgentToolExchange(listOf(call), listOf(original))), ToolResultDeliveryProof.capture(listOf(original))).isEmpty())
     }
 

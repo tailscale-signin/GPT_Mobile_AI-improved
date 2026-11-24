@@ -7,13 +7,13 @@ import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -38,7 +38,26 @@ class PhoneRepositoryGraphRepository internal constructor(
         state: GitHubRepositoryStateStore
     ) : this(settings, connections, authentication, state, clientFactory = { config -> config.createClient() })
 
-    private val operations = Mutex()
+    private data class IndexBatch(val identity: String, val connection: String, val repository: String, val arguments: JsonObject, val cache: Boolean)
+    private val activeBatches = ConcurrentHashMap<IndexBatch, CompletableDeferred<Unit>>()
+
+    private class IndexTiming {
+        private var started = System.nanoTime()
+        private val durations = mutableMapOf<String, Long>()
+        var phase = "access"
+            private set
+
+        fun enter(next: String) {
+            val now = System.nanoTime()
+            durations[phase] = (durations[phase] ?: 0L) + (now - started) / 1_000_000
+            phase = next
+            started = now
+        }
+
+        fun snapshot() = buildJsonObject {
+            for (key in listOf("access", "queue", "index", "status")) put(key + "_ms", durations[key] ?: 0L)
+        }
+    }
 
     internal suspend fun executeForMap(
         context: GitHubConversationContext,
@@ -46,11 +65,10 @@ class PhoneRepositoryGraphRepository internal constructor(
         forModel: Boolean = false
     ): GatewayGraphResponse {
         if (arguments["action"] != JsonPrimitive("index")) return executeAdmittedForMap(context, arguments, forModel)
-        // This phone-only deadline includes mutex queueing, authentication and the
-        // current access check. Gateway indexing and notes never enter this path.
-        return GitHubReadWorkBudget(indexOperationTimeoutMs).run { executeAdmittedForMap(context, arguments, forModel) }
+        val timing = IndexTiming()
+        return GitHubReadWorkBudget(indexOperationTimeoutMs).run { executeAdmittedForMap(context, arguments, forModel, timing) }
             ?: throw GatewayGraphOperationException(
-                GatewayGraphResultException("READ_DEADLINE", "The foreground phone index reached its read deadline. Completed immutable source is retained; read current phone status before continuing.", "READ_PHONE_INDEX_STATUS"),
+                GatewayGraphResultException("READ_DEADLINE", "The foreground phone index reached its deadline during ${timing.phase}. Completed immutable source is retained. Read current phone status before continuing.", "READ_PHONE_INDEX_STATUS"),
                 "",
                 "On this phone",
                 "READ_PHONE_INDEX_STATUS",
@@ -62,79 +80,109 @@ class PhoneRepositoryGraphRepository internal constructor(
     private suspend fun executeAdmittedForMap(
         context: GitHubConversationContext,
         arguments: JsonObject,
-        forModel: Boolean
-    ): GatewayGraphResponse = operations.withLock {
-        try {
-            require(context.commitSha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) { "Resolve the repository revision before opening its map." }
-            require(arguments.keys.none { it in setOf("repository", "owner", "repo", "branch", "commit_sha", "ref") }) {
-                "Repository map arguments cannot replace the selected repository or revision."
-            }
-            val admitted = admission(context)
-            val initialToken = token(admitted.connection)
-            val identity = identity(admitted.connection)
-            verifyAdmission(context, admitted, identity)
-            currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.PhoneIndexInterruption.AttemptKey]?.admit(context, identity, arguments)
-            val credentials: suspend () -> String = {
-                verifyAdmission(context, admitted, identity)
-                token(requireNotNull(connections.getConnection(context.connectionUid)))
-                    .also { verifyAdmission(context, admitted, identity) }
-            }
-            val config = PhoneGraphClientConfiguration(initialToken, identity, admitted.connection, admitted.features, context, state, credentials)
-            val client = clientFactory(config)
-            // Credential and repository authorization precede cached source reads too.
-            // The immutable tree and blobs remain reusable after this current access check.
-            val repository = client.execute(
-                "get_repository",
-                buildJsonObject {
-                    put("owner", context.owner)
-                    put("repo", context.repo)
-                }
-            ).jsonObject
-            val observedName = (repository["full_name"] as? JsonPrimitive)?.contentOrNull
-            if (observedName == null || !observedName.equals(context.repository.fullName, true)) {
-                throw GatewayGraphIntegrityException("PHONE_GRAPH_REPOSITORY_CHANGED", "GitHub did not confirm the selected repository identity.")
-            }
-            verifyAdmission(context, admitted, identity)
-            val result = client.repositoryMap(
-                context.owner,
-                context.repo,
-                JsonObject(arguments + mapOf("ref" to JsonPrimitive(context.ref), "commit_sha" to JsonPrimitive(context.commitSha)))
-            )
-            currentCoroutineContext().ensureActive()
-            verifyAdmission(context, admitted, identity)
-            val graph = result["graph"] as? JsonObject ?: result
-            if (!(graph["repository"] as? JsonPrimitive)?.contentOrNull.equals(context.repository.fullName, true) ||
-                !(graph["commit_sha"] as? JsonPrimitive)?.contentOrNull.equals(context.commitSha, true) ||
-                (graph["branch"] as? JsonPrimitive)?.contentOrNull?.let { it != context.ref } == true
-            ) {
-                throw GatewayGraphIntegrityException("GRAPH_REVISION_MISMATCH", "The phone map does not match the selected repository revision.")
-            }
-            val action = (arguments["action"] as? JsonPrimitive)?.contentOrNull ?: "status"
-            GatewayGraphResponse(
-                JsonObject(result + ("map_source" to JsonPrimitive("phone"))),
-                action,
-                "",
-                "On this phone",
-                durableIndexJobs = false,
-                modelAccess = if (forModel) "NATIVE_GITHUB_AUTHORIZED" else "LOCAL_GITHUB_MAP"
-            )
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            throw GatewayGraphOperationException(
-                failure,
-                "",
-                "On this phone",
-                when {
-                    failure.isLocalPrivacyPolicyRejection() -> "REVIEW_PRIVACY_MODE"
-                    failure is GatewayGraphAdmissionException -> failure.repairAction
-                    failure is GatewayGraphResultException -> failure.repairAction
-                    else -> null
-                },
-                false,
-                targetRevision = context.commitSha
-            )
+        forModel: Boolean,
+        timing: IndexTiming? = null
+    ): GatewayGraphResponse = try {
+        require(context.commitSha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) { "Resolve the repository revision before opening its map." }
+        require(arguments.keys.none { it in setOf("repository", "owner", "repo", "branch", "commit_sha", "ref") }) {
+            "Repository map arguments cannot replace the selected repository or revision."
         }
+        val admitted = admission(context)
+        val initialToken = token(admitted.connection)
+        val identity = identity(admitted.connection)
+        verifyAdmission(context, admitted, identity)
+        currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.PhoneIndexInterruption.AttemptKey]?.admit(context, identity, arguments)
+        val credentials: suspend () -> String = {
+            verifyAdmission(context, admitted, identity)
+            token(requireNotNull(connections.getConnection(context.connectionUid)))
+                .also { verifyAdmission(context, admitted, identity) }
+        }
+        val config = PhoneGraphClientConfiguration(initialToken, identity, admitted.connection, admitted.features, context, state, credentials)
+        val client = clientFactory(config)
+        // Credential and repository authorization precede cached source reads too.
+        // The immutable tree and blobs remain reusable after this current access check.
+        val repository = client.execute(
+            "get_repository",
+            buildJsonObject {
+                put("owner", context.owner)
+                put("repo", context.repo)
+            }
+        ).jsonObject
+        val observedName = (repository["full_name"] as? JsonPrimitive)?.contentOrNull
+        if (observedName == null || !observedName.equals(context.repository.fullName, true)) {
+            throw GatewayGraphIntegrityException("PHONE_GRAPH_REPOSITORY_CHANGED", "GitHub did not confirm the selected repository identity.")
+        }
+        verifyAdmission(context, admitted, identity)
+        val pinned = JsonObject(arguments + mapOf("ref" to JsonPrimitive(context.ref), "commit_sha" to JsonPrimitive(context.commitSha)))
+        val result = if (timing == null) {
+            client.repositoryMap(context.owner, context.repo, pinned)
+        } else {
+            val batch = IndexBatch(identity, context.connectionUid, context.repository.fullName.lowercase(), pinned, admitted.features.githubBlobCache)
+            val done = CompletableDeferred<Unit>()
+            val existing = activeBatches.putIfAbsent(batch, done)
+            if (existing == null) {
+                timing.enter("index")
+                try {
+                    client.repositoryMap(context.owner, context.repo, pinned)
+                } finally {
+                    activeBatches.remove(batch, done)
+                    done.complete(Unit)
+                }
+            } else {
+                timing.enter("queue")
+                existing.await()
+                timing.enter("status")
+                verifyAdmission(context, admitted, identity)
+                // A stopped owner may have saved only one shard. Read the
+                // actual checkpoint with this caller's own credentials.
+                val status = buildJsonObject {
+                    put("action", "status")
+                    put("ref", context.ref)
+                    put("commit_sha", context.commitSha)
+                }
+                client.repositoryMap(context.owner, context.repo, status)
+            }
+        }
+        currentCoroutineContext().ensureActive()
+        verifyAdmission(context, admitted, identity)
+        val graph = result["graph"] as? JsonObject ?: result
+        if (!(graph["repository"] as? JsonPrimitive)?.contentOrNull.equals(context.repository.fullName, true) ||
+            !(graph["commit_sha"] as? JsonPrimitive)?.contentOrNull.equals(context.commitSha, true) ||
+            (graph["branch"] as? JsonPrimitive)?.contentOrNull?.let { it != context.ref } == true
+        ) {
+            throw GatewayGraphIntegrityException("GRAPH_REVISION_MISMATCH", "The phone map does not match the selected repository revision.")
+        }
+        val action = (arguments["action"] as? JsonPrimitive)?.contentOrNull ?: "status"
+        timing?.enter("complete")
+        GatewayGraphResponse(
+            JsonObject(
+                result + buildJsonObject {
+                    put("map_source", "phone")
+                    timing?.let { put("phone_index_timing", it.snapshot()) }
+                }
+            ),
+            action,
+            "",
+            "On this phone",
+            durableIndexJobs = false,
+            modelAccess = if (forModel) "NATIVE_GITHUB_AUTHORIZED" else "LOCAL_GITHUB_MAP"
+        )
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        throw GatewayGraphOperationException(
+            failure,
+            "",
+            "On this phone",
+            when {
+                failure.isLocalPrivacyPolicyRejection() -> "REVIEW_PRIVACY_MODE"
+                failure is GatewayGraphAdmissionException -> failure.repairAction
+                failure is GatewayGraphResultException -> failure.repairAction
+                else -> null
+            },
+            false,
+            targetRevision = context.commitSha
+        )
     }
 
     private data class Admission(val connection: ToolConnection, val profile: PlatformV2, val features: AppFeatureSettings)

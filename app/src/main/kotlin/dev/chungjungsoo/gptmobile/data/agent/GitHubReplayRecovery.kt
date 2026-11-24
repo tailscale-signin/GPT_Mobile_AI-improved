@@ -113,10 +113,44 @@ internal object GitHubReplayRecovery {
             // even if that projection has its own successful provider receipt.
             // An exact later reread may satisfy the same immutable page obligation;
             // this does not mark the older call or its unknown body as delivered.
-            return verifiedReads.filter { (id, read) ->
+            val pending = verifiedReads.filter { (id, read) ->
                 (read.deliveryDigest == null || deliveredResultDigests[id] != read.deliveryDigest) && immutablePageIdentity(read) !in deliveredPages
             }
+            if (pending.size < 2) return pending.mapValues { it.value.deliveryDigest }
+            val bodies = exchanges.flatMap { it.results }.associateBy { it.callId }
+            val witnesses = mutableMapOf<List<String>, String>()
+            for ((id, read) in pending) {
+                val identity = immutablePageIdentity(read) ?: continue
+                val body = bodies[id]?.content ?: continue
+                if (read.deliveryDigest != null &&
+                    envelope(body)?.get("schema") == JsonPrimitive("github.operation.v1") &&
+                    ToolResultDeliveryProof.digest(body) == read.deliveryDigest
+                ) {
+                    witnesses[identity] = id
+                }
+            }
+            return pending.filter { (id, read) -> immutablePageIdentity(read)?.let(witnesses::get)?.let { it == id } != false }
                 .mapValues { (_, read) -> read.deliveryDigest }
+        }
+
+        fun restoreMissingPage(pending: Map<String, String?>, exchanges: List<AgentToolExchange>, tools: List<AgentToolDefinition>, pageBudget: Int = Int.MAX_VALUE): ProviderEvent.ToolCall? {
+            val bodies = exchanges.flatMap { it.results }.associateBy { it.callId }
+            for ((id, digest) in pending) {
+                val read = verifiedReads[id] ?: continue
+                val identity = immutablePageIdentity(read) ?: continue
+                val capacity = GitHubSavedReadProgress.cursor(identity[1])?.bytes ?: continue
+                if ((capacity.toLong() + 2) / 3 + 512 > pageBudget) continue
+                val body = bodies[id]?.content
+                if (digest != null && body != null && ToolResultDeliveryProof.digest(body) == digest) continue
+                val retryId = "saved-result-consume-restore-" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(identity.joinToString("|")).take(24)
+                if (hasAttempt(retryId) || exhausted()) continue
+                val tool = tools.singleOrNull { it.modelVisible && it.name == read.call.name } ?: continue
+                val args = buildJsonObject { put("view_cursor", identity[1]) }
+                if (ToolArgumentValidator.errors(args, tool.inputSchema).isEmpty()) {
+                    return ProviderEvent.ToolCall(retryId, tool.name, args)
+                }
+            }
+            return null
         }
 
         private fun immutablePageIdentity(read: VerifiedRead): List<String>? {
@@ -482,7 +516,7 @@ internal object GitHubReplayRecovery {
     /** Native-admitted local pages get space until exact delivery, independently of the call ID's origin. */
     fun savedPageResultAllowances(exchanges: List<AgentToolExchange>, consumedCallIds: Set<String>, maxReplayTokens: Int, defaultResultTokens: Int): Map<String, Int> {
         val available = (maxReplayTokens.toLong() - 512).coerceAtLeast(0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        if (available <= defaultResultTokens) return emptyMap()
+        if (available == 0 || defaultResultTokens <= 0) return emptyMap()
         return buildMap {
             exchanges.forEach { exchange ->
                 val results = exchange.results.groupBy { it.callId }
@@ -502,7 +536,7 @@ internal object GitHubReplayRecovery {
                     // final unprojected body must fit too; allowance is not a delivery proof.
                     val bytes = maxOf(cursor.bytes.toLong(), ToolHandoffReceipt.payload(result.content).encodeToByteArray().size.toLong())
                     val required = ((bytes + 2) / 3).toInt()
-                    if (required > defaultResultTokens && required <= available) put(call.callId, required)
+                    if (required <= available) put(call.callId, required)
                 }
             }
         }

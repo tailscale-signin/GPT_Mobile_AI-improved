@@ -173,6 +173,7 @@ dependencies {
 extensions.configure<ApplicationExtension> {
     namespace = "dev.chungjungsoo.gptmobile"
     compileSdk = 37
+    ndkVersion = "29.0.14206865"
     buildToolsVersion = "37.0.0"
 
     // AGP's built-in Kotlin compiler does not consume Kotlin files added to Java source roots.
@@ -196,8 +197,8 @@ extensions.configure<ApplicationExtension> {
         targetSdk = 37
         // Interim release: Play-ready artifact gates remain mandatory while full
         // Unified Reliability v2 milestone acceptance is still in progress.
-        versionCode = 149
-        versionName = "0.9.66.15"
+        versionCode = 150
+        versionName = "0.9.66.16"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -358,6 +359,37 @@ extensions.configure<ApplicationExtension> {
                 "**/libdatastore_shared_counter.so",
                 "**/libandroidx.graphics.path.so",
                 "**/libQnn*.so"
+            )
+            // Both native-library audit manifests pin vendor ELF bytes exactly.
+            // Keep these bytes unchanged when the app's NDK strips other libraries.
+            keepDebugSymbols += setOf(
+                "**/libonnxruntime_providers_qnn.so",
+                "**/libCalculator_skel.so",
+                "**/libPlatformValidatorShared.so",
+                "**/libcalculator.so",
+                "**/libgeniex-proc-vision.so",
+                "**/libgeniex-proc.so",
+                "**/libgeniex.so",
+                "**/libgeniex_core.so",
+                "**/libgeniex_plugin_llama_cpp.so",
+                "**/libgeniex_plugin_qairt.so",
+                "**/libgeniex_vlm.so",
+                "**/libggml-base.so",
+                "**/libggml-cpu.so",
+                "**/libggml-hexagon.so",
+                "**/libggml-htp-v73.so",
+                "**/libggml-htp-v75.so",
+                "**/libggml-htp-v79.so",
+                "**/libggml-htp-v81.so",
+                "**/libggml-opencl.so",
+                "**/libggml.so",
+                "**/libhta_hexagon_runtime_qnn.so",
+                "**/libhta_hexagon_runtime_snpe.so",
+                "**/libllama-common.so",
+                "**/libllama.so",
+                "**/libmtmd.so",
+                "**/libnpu_jni.so",
+                "**/libomp.so"
             )
             // LLM packages are AOT compiled. Keep one QAIRT version from qnn-runtime;
             // do not mix it with checked-in HTP stubs/skeletons via pickFirsts.

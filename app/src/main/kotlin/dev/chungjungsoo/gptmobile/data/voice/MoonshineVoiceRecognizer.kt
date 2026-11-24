@@ -291,7 +291,9 @@ internal class MoonshineVoiceRecognizer internal constructor(
             requestEnd(run)
             // stop is capture-only. It never calls native stop/free from this thread's callers.
             joinCapture(run)
-            if (!run.cancelled.get() && run.failure.get() == null) {
+            val interruptedInput = run.failure.get()?.code == "MICROPHONE_CAPTURE_SILENCED" &&
+                (run.acceptedChunks.get() > 0 || run.audio.isNotEmpty())
+            if (!run.cancelled.get() && (run.failure.get() == null || interruptedInput)) {
                 // Done speaking can race a partially filled recorder batch. Capture
                 // flushes that last batch before closing, so consume it before finalize.
                 while (true) {
@@ -364,7 +366,12 @@ internal class MoonshineVoiceRecognizer internal constructor(
                     active = null
                     when {
                         missingModel -> run.listener.failure("Install the English local speech model in Voice settings to use offline voice chat.", "VOICE_MODEL_REQUIRED", recoveryAction = VoiceRecoveryAction.LOCAL_MODEL)
-                        run.failure.get() != null -> deliverFailure(run)
+                        run.failure.get() != null -> {
+                            if (run.failure.get()?.code == "MICROPHONE_CAPTURE_SILENCED" && run.transcript.isNotBlank()) {
+                                run.listener.partial(run.transcript)
+                            }
+                            deliverFailure(run)
+                        }
                         run.transcript.isBlank() -> run.listener.failure("No speech was detected. Tap the microphone and try again.", "VOICE_NO_SPEECH", retryMillis = 500, retryable = true)
                         else -> run.listener.final(run.transcript)
                     }
@@ -504,7 +511,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
             } finally {
                 run.cancelSilenceDeadline?.invoke()
                 run.cancelTurnDeadline?.invoke()
-                if (run.ending.get() && !run.cancelled.get() && run.failure.get() == null) {
+                if (run.ending.get() && !run.cancelled.get() && (run.failure.get() == null || run.failure.get()?.code == "MICROPHONE_CAPTURE_SILENCED")) {
                     val remainder = capture?.drainPending() ?: FloatArray(0)
                     if (remainder.isNotEmpty() && !run.audio.offer(CapturedAudio(remainder, System.nanoTime()) {})) {
                         recordFailure(run, "AUDIO_QUEUE_OVERFLOW", "Local speech could not keep up with the microphone. Your captured text is retained; close other heavy apps and try again.")

@@ -125,8 +125,9 @@ internal object ToolExchangeCompactor {
                 if (relevance != null) {
                     val projected = (result.content as? ToolResultContent.Json)?.value as? JsonObject
                     val summary = (result.executionReceipt?.get("semantic_summary") ?: projected?.get("semantic_summary")) as? JsonObject
-                    scores[result.callId] = if (result.callId in resultTokenAllowances) Int.MAX_VALUE else relevance.score(call?.arguments, summary)
+                    scores[result.callId] = relevance.score(call?.arguments, summary)
                 }
+                if (result.callId in resultTokenAllowances) scores[result.callId] = Int.MAX_VALUE
                 // A missing call is never deduplicated with an unrelated result.
                 fingerprint("${call?.name ?: result.callId}|${call?.arguments}|${result.isError}|${result.errorCode}|${measurements[fingerprintIndex++].digest}")
             }
@@ -157,7 +158,7 @@ internal object ToolExchangeCompactor {
         // observations, spend the same fixed budget on task matches, with recency breaking ties.
         val resultBudgets = IntArray(fingerprints.size)
         val newestFirst = fingerprints.indices.reversed()
-        val order = if (relevance == null) {
+        val order = if (relevance == null && resultTokenAllowances.isEmpty()) {
             newestFirst.toList()
         } else {
             newestFirst.sortedWith(

@@ -32,12 +32,21 @@ internal class ResearchDeliverySession(
     private val prepareInitial: suspend (AgentProviderSession, String) -> AgentProviderSession = { session, _ -> session },
     private val create: suspend (String, Boolean) -> AgentProviderSession
 ) : AgentProviderSession {
-    private fun partialResearch(message: String, stage: String) = ProviderEvent.Failed(
+    private fun partialResearch(message: String, stage: String, criterion: String, packet: ResearchDeliveryPacket? = null) = ProviderEvent.Failed(
         "RESEARCH_PARTIAL: $message",
         errorCode = "RESEARCH_PARTIAL",
         failureDetails = buildJsonObject {
             put("failed_stage", stage)
             put("failure_origin", "APPLICATION")
+            put("research_delivery_criterion", criterion)
+            packet?.let {
+                put("research_unread_sources", it.unread.size)
+                put("research_read_sources", it.studies.size)
+                val blocked = it.unread.filter { source -> source.status in setOf("Blocked", "Failed") }
+                put("research_blocked_sources", blocked.size)
+                val reference = blocked.singleOrNull()?.retrievalReceipt?.takeIf(String::isNotBlank)
+                dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("research-retrieval", reference)?.let { hash -> put("research_blocker_receipt_hash", hash) }
+            }
         }
     )
 
@@ -143,7 +152,7 @@ internal class ResearchDeliverySession(
         if (hasCalls || failure != null || !completed && !overflow) {
             val denied = failure?.let(::isAuthorizationFailure) == true
             if (!denied && !hasCalls) {
-                if (failure == null) failure = partialResearch("The writer stopped before completion. Saved evidence is retained.", "final_synthesis")
+                if (failure == null) failure = partialResearch("The writer stopped before completion. Saved evidence is retained.", "final_synthesis", "WRITER_INCOMPLETE", evidence)
                 // Internal tool rounds can have accepted evidence after the initial packet.
                 evidence = withContext(Dispatchers.Default) { packet() } ?: evidence
                 validateAccess()
@@ -173,7 +182,7 @@ internal class ResearchDeliverySession(
         val delivery = evidence
         if (delivery == null && expectResearch) {
             receipt(ResearchReportValidity.INCOMPLETE, null, "", listOf("NO_ACQUISITION_PACKET"))
-            emit(partialResearch("No acquisition packet was retained; resume source collection before report delivery.", "retrieval"))
+            emit(partialResearch("No acquisition packet was retained. Resume source collection before report delivery.", "retrieval", "NO_ACQUISITION_PACKET"))
             return@flow
         }
         if (delivery == null) {
@@ -188,7 +197,7 @@ internal class ResearchDeliverySession(
             val fallback = ResearchDeliveryValidator.fallback(delivery)
             publish(fallback)
             receipt(ResearchReportValidity.EVIDENCE_ONLY, delivery, fallback, listOf("NO_READABLE_SOURCES"))
-            emit(partialResearch("No readable sources were acquired. Saved discovery leads remain available; retry collection when sources and network access are available.", "retrieval"))
+            emit(partialResearch("No readable sources were acquired. ${delivery.unread.size} unread leads remain in the saved collection.", "retrieval", "NO_READABLE_SOURCES", delivery))
             return@flow
         }
         var text = ResearchReportReviewStatus.disclose(ResearchReportReferences.render(draft.toString(), delivery), delivery)
@@ -301,7 +310,11 @@ internal class ResearchDeliverySession(
         )
         if (partialFallback) {
             val correctionStatus = repairRejection?.let { " ${it.description}" }.orEmpty()
-            emit(partialResearch("Evidence is retained, but the report did not pass its delivery checks.$correctionStatus Resume writing from saved evidence.", "verification"))
+            val issues = deliveryIssues.map { it.substringBefore(':') }.distinct()
+            val criteria = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics.researchCriteria
+            val criterion = issues.firstOrNull { it in criteria } ?: "DELIVERY_VERIFICATION"
+            val details = issues.filter { it in criteria }.take(4).joinToString { it.lowercase().replace('_', ' ') }
+            emit(partialResearch("The saved report has ${delivery.studies.size} read sources and ${delivery.unread.size} unread leads. Outstanding checks: ${details.ifBlank { "delivery verification" }}.$correctionStatus Resume from the saved evidence.", "verification", criterion, delivery))
         } else {
             emit(ProviderEvent.Completed)
         }

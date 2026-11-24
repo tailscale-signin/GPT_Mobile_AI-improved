@@ -455,12 +455,13 @@ class ProgressiveToolCatalog(
         val inventoryAction = normalized["action"] == JsonPrimitive("catalog_only") ||
             normalized["action"] == JsonPrimitive("catalog") &&
             names != null &&
-            names.size > 1
+            names.size != 1
         if (inventoryAction &&
             names != null &&
             normalized["catalog_only"] in setOf(null, JsonPrimitive(true))
         ) {
             normalized.remove("action")
+            if (names.isEmpty()) normalized.remove("names")
             normalized["catalog_only"] = JsonPrimitive(true)
         }
         val name = (normalized["names"] as? JsonPrimitive)?.takeIf { it.isString }?.content

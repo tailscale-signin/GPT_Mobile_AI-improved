@@ -333,7 +333,7 @@ class AgentRunner(
                 val restoringBatch = restoredCalls.isNotEmpty()
                 val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
                 val pendingSavedPages = automaticRecovery?.pendingSavedPageDeliveries(exchanges, deliveredResultDigests).orEmpty()
-                val automaticRead = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit)
+                val automaticRead = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pendingSavedPages)
                 val round = if (restoringBatch) {
                     RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
                 } else if (automaticRead != null) {
@@ -674,19 +674,24 @@ class AgentRunner(
         ciInvestigation: GitHubCiInvestigationRecovery,
         replayLimit: Int,
         executionToolCallLimit: Int,
-        observedLimit: Int
+        observedLimit: Int,
+        pendingSavedPages: Map<String, String?>
     ): AutomaticRead? {
         return with(state) {
             if (session.handlesToolResultRecovery ||
                 finalResponseRequested ||
                 restoredCalls.isNotEmpty() ||
-                observedToolCalls >= observedLimit ||
-                limits.githubTask &&
-                savedResultRecovery.pendingSavedPageDeliveries(exchanges, deliveredResultDigests).isNotEmpty()
+                observedToolCalls >= observedLimit
             ) {
                 return null
             }
             val remoteAllowed = !session.handlesToolsInternally && !retainedUnknownOutcome && unknownOutcomes.isEmpty() && limits.combined?.requested?.singlePass != true
+            if (pendingSavedPages.isNotEmpty()) {
+                if (!remoteAllowed || ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) <= 0) return null
+                val pageBudget = minOf(replayLimit, limits.maxRetainedEvidenceTokens.coerceIn(1024, 262_144))
+                val restore = savedResultRecovery.restoreMissingPage(pendingSavedPages, exchanges, definitions.filter { it.name in executableToolByName }, pageBudget)
+                return restore?.let { AutomaticRead(it, "Restoring the exact saved page from the authorized local view.") }
+            }
             val exhaustiveSearch = limits.githubTask && dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.requiresExhaustiveSearch(limits.githubTaskRequest.orEmpty())
             if (remoteAllowed && definitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" || exhaustiveSearch && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_search" }) {
                 GitHubReplayRecovery.nextRemoteRead(exchanges, definitions, savedResultRecovery, allowSearchContinuation = exhaustiveSearch, searchTask = limits.githubTaskRequest)?.let {
@@ -694,6 +699,11 @@ class AgentRunner(
                 }
             }
             if (!limits.githubTask) return null
+            if (remoteAllowed && !limits.githubTaskRequest.isNullOrBlank() && ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) > 0) {
+                PhoneIndexContinuation.next(exchanges, definitions.filter { it.name in executableToolByName })?.let {
+                    return AutomaticRead(it, "Checking retained phone index progress at the selected revision.")
+                }
+            }
             GitHubReplayRecovery.nextSavedRead(exchanges, definitions, minOf(limits.maxReplayResultTokens, replayLimit / 2), savedResultRecovery, replayLimit, limits.maxToolOutputBytes)?.let {
                 return AutomaticRead(it, "Reading the saved GitHub result; the remote operation is not being repeated.")
             }
@@ -1372,7 +1382,14 @@ class AgentRunner(
         val pausedGitHubNames = exposedDefinitions.filter { limits.githubMode && ProgressiveToolCatalog.isGitHubTool(it) && it.name !in executableToolByName }.mapTo(hashSetOf()) { it.name }
         val admittedIds = executableCalls.mapTo(hashSetOf()) { it.callId }
         val availableCatalog = roundDefinitions.filter { it.modelVisible && it.name in executableToolByName }.associateBy { it.name }
-        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, availableCatalog, exchanges, pausedGitHubNames).map { result ->
+        val catalogHash = if (plan.unavailableIds.isEmpty()) {
+            null
+        } else {
+            dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(
+                availableCatalog.toSortedMap().values.joinToString("\n") { it.name + ":" + it.inputSchema.toString() }
+            )
+        }
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, availableCatalog, exchanges, pausedGitHubNames, catalogHash).map { result ->
             fun admissionReason(id: String) = when (id) {
                 in plan.dependencyDeferredIds -> ToolDependencyDiagnostics.Admission.PREREQUISITE_DEFERRED
                 in plan.unavailableIds -> if (decisionCalls.isEmpty()) ToolDependencyDiagnostics.Admission.TOOL_UNAVAILABLE else ToolDependencyDiagnostics.Admission.DECISION_REQUIRED
@@ -1485,7 +1502,7 @@ class AgentRunner(
         return SearchRoundContext(names, successful)
     }
 
-    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableCatalog: Map<String, AgentToolDefinition>, exchanges: List<AgentToolExchange>, pausedGitHubNames: Set<String> = emptySet()): List<AgentToolResult> = calls.map { call ->
+    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableCatalog: Map<String, AgentToolDefinition>, exchanges: List<AgentToolExchange>, pausedGitHubNames: Set<String> = emptySet(), catalogHash: String? = null): List<AgentToolResult> = calls.map { call ->
         if (call.callId in unavailableIds) {
             if (call.name in pausedGitHubNames) {
                 return@map ToolResultEnvelope.error(
@@ -1495,6 +1512,18 @@ class AgentRunner(
                 )
             }
             val availableNames = availableCatalog.keys
+            val previouslyUnavailable = catalogHash != null &&
+                exchanges.any { exchange ->
+                    exchange.calls.any { prior ->
+                        prior.name == call.name &&
+                            exchange.results.any { result ->
+                                result.callId == prior.callId &&
+                                    result.errorCode == "TOOL_NOT_AVAILABLE" &&
+                                    !result.dispatched &&
+                                    result.executionReceipt?.get("catalog_revision_hash") == JsonPrimitive(catalogHash)
+                            }
+                    }
+                }
             val suggested = when {
                 call.name in availableNames -> null
                 call.name.substringAfterLast("__") in setOf("read_url", "firecrawl_scrape", "fetch_url") && "url" in call.arguments && "read_url" in availableNames -> "read_url"
@@ -1522,7 +1551,7 @@ class AgentRunner(
             }
             return@map AgentToolResult(
                 call.callId,
-                ToolResultContent.Text("The requested tool '${call.name}' is not available in this round. Nothing was dispatched. Use an exact advertised tool name and its schema. Available tools: $availableList.$recovery"),
+                ToolResultContent.Text(if (previouslyUnavailable) "The authorized tool catalog is unchanged. The previous lookup for this tool found no executable route. Continue independent work using an advertised tool." else "The requested tool '${call.name}' is not available in this round. Nothing was dispatched. Use an exact advertised tool name and its schema. Available tools: $availableList.$recovery"),
                 isError = true,
                 dispatched = false,
                 errorCode = "TOOL_NOT_AVAILABLE",
@@ -1537,6 +1566,7 @@ class AgentRunner(
                         put("dispatched", false)
                         put("retryable", false)
                         put("available_tool_count", availableNames.size)
+                        catalogHash?.let { put("catalog_revision_hash", it) }
                         put("discovery_available", ProgressiveToolCatalog.NAME in availableNames)
                         suggested?.let { put("suggested_tool", it) }
                     }
@@ -2041,7 +2071,7 @@ class AgentRunner(
                             put("dispatched", false)
                             put("logical_continuation_allowed", false)
                             put("failure_origin", "APPLICATION")
-                            put("replay_budget_state", "REQUIRED_SAVED_PAGE_NOT_PRESENT")
+                            put("replay_budget_state", if (requiredSavedPageDigests.values.any { it == null }) "SAVED_PAGE_BODY_UNAVAILABLE" else "SAVED_PAGE_DELIVERY_MISMATCH")
                             put("pending_saved_page_count", requiredSavedPageDigests.size)
                             put("replay_exchange_count", exchanges.size)
                             put("retryable", false)
@@ -2242,7 +2272,15 @@ class AgentRunner(
                     failureCode = event.errorCode
                     failureTransportComplete = event.transportComplete
                     taskOutcome = event.taskOutcome
-                    failureDetails = event.failureDetails
+                    failureDetails = if (!event.failureDetails.isNullOrEmpty()) {
+                        event.failureDetails
+                    } else {
+                        buildJsonObject {
+                            put("failed_stage", invocationStage)
+                            put("failed_event_details_present", false)
+                            put("failure_boundary", if (textEmitted) "AFTER_VISIBLE_OUTPUT" else "BEFORE_VISIBLE_OUTPUT")
+                        }
+                    }
                     failureInvocationId = event.invocationId
                     providerLimit = event.providerLimit
                 }

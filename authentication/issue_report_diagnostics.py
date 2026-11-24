@@ -304,7 +304,7 @@ FLAGS.update({"composer_focused", "composer_ime_visible", "composer_enabled", "c
 SEARCH_ATTEMPT_FIELDS = {"search_attempt_count", "search_dispatched_attempt_count", "search_budget_rejected_attempt_count"}
 REPLAY_BUDGET_COUNTS = {"replay_allowance", "replay_tokens", "replay_exchange_count", "pending_saved_page_count"}
 COUNTS.update(REPLAY_BUDGET_COUNTS)
-ENUMS["replay_budget_state"] = {"NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT"}
+ENUMS["replay_budget_state"] = {"NO_INITIAL_ALLOWANCE", "NO_CONTINUATION_ALLOWANCE", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE", "REQUIRED_SAVED_PAGE_NOT_PRESENT", "SAVED_PAGE_BODY_UNAVAILABLE", "SAVED_PAGE_DELIVERY_MISMATCH"}
 FIELDS_BY_AREA["INCIDENT"].update(REPLAY_BUDGET_COUNTS | {"replay_budget_state"})
 COUNTS.add("reconciliation_tracked_signature_count")
 FLAGS.add("round_catalog_discovery_available")
@@ -365,19 +365,27 @@ ENUMS.update({
     "dispatch_gateway_selection_change": {"SELECTED", "CLEARED", "REPLACED"},
     "read_handle_kind": {"SAVED_CURSOR", "NO_HANDLE", "DIGEST_SHAPED", "VERIFICATION_RECEIPT", "NONCANONICAL_HANDLE"},
     "native_trace_format": {"text", "protobuf", "binary", "unknown"},
+    "anr_trace_state": {"UNAVAILABLE", "NO_MATCHING_FRAMES", "MAIN_THREAD_CAPTURED"},
+    "failure_boundary": {"AFTER_VISIBLE_OUTPUT", "BEFORE_VISIBLE_OUTPUT"},
+    "stream_answer_state": {"NO_TEXT_EMITTED", "PARTIAL_TEXT_EMITTED", "FINAL_TEXT_EMITTED"},
+    "research_delivery_criterion": {"WRITER_INCOMPLETE", "NO_ACQUISITION_PACKET", "NO_READABLE_SOURCES", "DELIVERY_VERIFICATION", "EMPTY_REPORT", "UNKNOWN_CITATION", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED", "MISSING_SECTION", "OMITTED_LEADING_STUDY", "OMITTED_UNREAD_LEAD", "UNSOURCED_SCIENTIFIC_PARAGRAPH", "METADATA_PRESENTED_AS_READ", "NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE", "UNREGISTERED_REFERENCE_URL", "DIRECT_REFERENCE_MISSING", "QUESTION_EVIDENCE_NOT_CITED", "QUESTION_EVIDENCE_UNCOVERED", "QUESTION_EVIDENCE_METADATA_REQUIRED", "EVIDENCE_CLAIM_NOT_COVERED", "COUNTEREVIDENCE_NOT_DISCLOSED"},
     "native_trace_reason": {"no_trace_stream", "empty_trace", "trace_read_failed", "trace_access_failed", "unrecognized_binary_tombstone", "no_recognized_tombstone_fields", "text_prefix_limit", "signal_and_library_frames", "malformed_protobuf", "trace_process_mismatch", "trace_limit_before_evidence", "no_recognized_protobuf_fields", "protobuf_prefix_limit", "protobuf_crashed_thread"},
     "native_signal": {"SIGABRT", "SIGSEGV", "SIGBUS", "SIGFPE", "SIGILL", "SIGTRAP", "SIGSYS", "SIGKILL", "SIGQUIT", "SIGTERM", "SIGPIPE", "SIGSTKFLT", "SIGXCPU", "SIGXFSZ"},
     "reasoning_probe_enable_thinking": REASONING_PROBE_NEGATIVES,
     "reasoning_probe_thinking": REASONING_PROBE_NEGATIVES,
 })
 FLAGS.update({"native_trace_truncated", "search_explicit_mode"})
-HASH_FIELDS.update({"native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash"})
+HASH_FIELDS.update({"native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash", "research_blocker_receipt_hash", "catalog_revision_hash"})
+COUNTS.update({"research_unread_sources", "research_read_sources", "research_blocked_sources", "catalog_rejection_count", "catalog_selector_count"})
+HASH_LISTS.add("catalog_rejected_call_hashes")
+FIELDS_BY_AREA["TOOL"].update({"catalog_revision_hash", "catalog_rejection_count", "catalog_selector_count", "catalog_rejected_call_hashes"})
+FIELDS_BY_AREA["INCIDENT"].update({"failure_boundary", "stream_answer_state", "research_delivery_criterion", "research_unread_sources", "research_read_sources", "research_blocked_sources", "research_blocker_receipt_hash"})
 COUNTS.update({"search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count"})
 REQUIRED_SCHEMA_DETAIL_FIELDS = {"required_schema_count", "required_catalog_schema_tokens", "required_recovery_schema_tokens", "required_github_operation_tokens"}
 COUNTS.update(REQUIRED_SCHEMA_DETAIL_FIELDS)
 FIELDS_BY_AREA["PROVIDER"].update(REQUIRED_SCHEMA_DETAIL_FIELDS)
 FIELDS_BY_AREA["PROVIDER"].update({"reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"})
-FIELDS_BY_AREA["APP"].update({"native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash"})
+FIELDS_BY_AREA["APP"].update({"native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash", "anr_trace_state", "anr_frame_count"})
 for area in ("INCIDENT", "PROVIDER", "TOOL"):
     FIELDS_BY_AREA[area].add("dispatch_gateway_selection_change")
 FIELDS_BY_AREA["TOOL"].update({"read_handle_kind", "search_query_length", "search_explicit_mode"})
@@ -425,6 +433,8 @@ def _valid_value(key, value):
         return False
     if key == "native_trace_frames":
         return 0 <= value <= 16
+    if key == "anr_frame_count":
+        return 0 <= value <= 32
     if key == "composer_generation":
         return 1 <= value <= 16_000_000
     if key == "composer_events_dropped":

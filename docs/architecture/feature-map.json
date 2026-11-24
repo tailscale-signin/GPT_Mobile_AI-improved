@@ -752,7 +752,8 @@
         "scripts/check_issue_reporting_configuration.py",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingWindowTest.kt",
@@ -777,7 +778,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestFailureReportTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestSubmissionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFinalRequestIncidentTest.kt",
-        "authentication/test_privacy_final_request_evidence.py"
+        "authentication/test_privacy_final_request_evidence.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast"
@@ -790,7 +792,8 @@
         "docs/repairs/diagnostic-93d824fd-implementation-2026-11-23-task.json",
         "docs/repairs/diagnostic-deployment-probe-2026-11-24-task.json",
         "docs/repairs/privacy-final-request-refusal-2026-11-23-task.json",
-        "docs/repairs/diagnostic-readiness-selection-2026-11-24-task.json"
+        "docs/repairs/diagnostic-readiness-selection-2026-11-24-task.json",
+        "docs/repairs/incident-policy-vocabulary-parity-2026-11-24-task.json"
       ],
       "invariants": [
         "Keep diagnostic values within the shared closed vocabulary and exclude raw source/provider text.",
@@ -802,7 +805,8 @@
         "Memory-pressure recovery preserves all source limits and headroom guards; complete export needs every bounded continuation part.",
         "Require the shipped saved-page replay, local graph failure and provider-limit capabilities in hosted readiness probes, retaining the4096-byte bound and native-only no-probe routing.",
         "Public final-request privacy evidence requires the exact typed code, admission/domain tuple, closed four-outcome vocabulary and negotiated capability. Keep raw private receipts out of approved reports, preserve prior unknown/accepted work against a later negative observation, and never infer an omitted historical reason.",
-        "Select the bounded extended readiness catalogue for saved-page replay, graph-local, provider-limit, replay-budget, graph-transport, task/tool and reader/run failure evidence before posting the exact approved report bytes; missing support never authorizes dispatch."
+        "Select the bounded extended readiness catalogue for saved-page replay, graph-local, provider-limit, replay-budget, graph-transport, task/tool and reader/run failure evidence before posting the exact approved report bytes; missing support never authorizes dispatch.",
+        "Incident policy-change field names exactly match the fixed production producers across Android and the receiver; names alone never expose setting values or grant dispatch or replay authority."
       ]
     },
     {
@@ -1838,6 +1842,11 @@
       "blob_sha": "b128a2e36fcb39ac493411824bce98628f57827a",
       "bytes": 86617,
       "sha256": "fe82d3fb494d3e1d15eae0e149aa554261bd91cd7c65b66c9957fc362f1de9cf"
+    },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt": {
+      "blob_sha": "0d72fe9f856e5ac106c8e84ea83eb7094664c7df",
+      "bytes": 61262,
+      "sha256": "9b6e868161010a2440fb3fb1d40b6009e28c7c01ce9ddcc67d2b4483a8404d85"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt": {
       "blob_sha": "50a19f1fbaccb24fe76d3c4a00c4aa9e8cd6379c",
@@ -3054,6 +3063,11 @@
       "bytes": 15750,
       "sha256": "0fa29dac18b467ed2f0694882923c6acdb0bc4123069a1cedb298777c87dc7f2"
     },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt": {
+      "blob_sha": "8895479fee0531879ef6cc01b30a6d7ff7c20968",
+      "bytes": 57980,
+      "sha256": "b5fe2390957282670adbfae6da6661946cb5253865432919d663d2221b376125"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportPrecheckTest.kt": {
       "blob_sha": "a25cf912ea26f673f038b0eec3462e1bd1b59680",
       "bytes": 2964,
@@ -3840,9 +3854,9 @@
       "sha256": "7e4e3da6ee54ae6ee329ada673724906f6fc7736b265a22a7a8d59b964a5a9f9"
     },
     "authentication/incident_report_contract.py": {
-      "blob_sha": "87e18e56dc49134d3e9f555377f6111c3a2a594c",
-      "bytes": 53676,
-      "sha256": "0bf1e2d975e87c04a0c6c032923654c8c185a7594ccb94269595bbe631ecc403"
+      "blob_sha": "a98f09c0079bdd7156ca7cdc26d6c550794b8dcf",
+      "bytes": 53881,
+      "sha256": "917a189df090dd51cfc8d0038327fdfb4463de0e9760b917867eb8031eec9c86"
     },
     "authentication/issue_report_app.py": {
       "blob_sha": "05727ab16a68c499dfe5ad906390c3c97f4dc9ef",
@@ -3880,9 +3894,9 @@
       "sha256": "a9fca5be129d805197175d5091cfb6dec7cd0f3f4c21322a830fda475632026c"
     },
     "authentication/test_incident_report_contract.py": {
-      "blob_sha": "57972a116057653e2c8ea9c78a0044c309440430",
-      "bytes": 185952,
-      "sha256": "33cc88dbdf261d2bb0b7189b7578c25f78735ec440ffcb195c6d1936e4d877cf"
+      "blob_sha": "58873a91e0035b452e132d1943d7fd780fac7e6c",
+      "bytes": 187943,
+      "sha256": "ded97b09844494be49f18188820f295a5a3a2fb7df53b70e5a2f8bc5a5929486"
     },
     "authentication/test_privacy_final_request_evidence.py": {
       "blob_sha": "9198f389de32c29163ab5da7178170f8789c7b13",
@@ -4118,6 +4132,11 @@
       "blob_sha": "3781c3fc81691568600bf44aac99610909814f7f",
       "bytes": 3046,
       "sha256": "94ef00f637809c44cfab8f59e569a4e4e84ece3713f74991a694a6cfe1c5845f"
+    },
+    "docs/repairs/incident-policy-vocabulary-parity-2026-11-24-task.json": {
+      "blob_sha": "654c6f3db4226dc569055fba0e6bab5dc35886cb",
+      "bytes": 6173,
+      "sha256": "625a364db5ab6f1673f5842efdcff80972f406777d52c9b9f7fea01a3e86c6e9"
     },
     "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json": {
       "blob_sha": "5c3b2654c0a667692912244ebd7e333f3ac9103c",

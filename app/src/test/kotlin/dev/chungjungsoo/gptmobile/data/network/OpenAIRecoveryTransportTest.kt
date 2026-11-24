@@ -662,11 +662,13 @@ class OpenAIRecoveryTransportTest {
     @Test fun persistedDirectChatsHandOffHttpAndStreamedRateLimitsForBothApis() = runTest {
         for (responses in listOf(false, true)) {
             for (streamed in listOf(false, true)) {
+                val selectedEndpoint = "https://saved-limit-$responses-$streamed.$fixtureHost/v1/"
                 val selected = config.copy(
-                    apiUrl = "https://saved-limit-$responses-$streamed.$fixtureHost/v1/",
+                    apiUrl = selectedEndpoint,
                     profileUid = "saved-chat",
                     providerType = "OPENROUTER",
                     lockedModel = "fixture",
+                    lockedApiUrl = selectedEndpoint,
                     queuePersistent = true,
                     gatewayConversationKey = "local-chat-identity"
                 )

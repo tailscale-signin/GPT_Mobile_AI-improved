@@ -27,6 +27,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Validate immutable candidate inputs
+        shell: bash
         run: |
           mkdir -p artifacts
           python3 scripts/build_qualcomm_dispatch_candidate.py --check-inputs-only | tee artifacts/candidate-inputs.log

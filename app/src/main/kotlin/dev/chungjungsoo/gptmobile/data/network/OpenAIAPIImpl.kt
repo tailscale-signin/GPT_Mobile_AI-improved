@@ -268,7 +268,11 @@ class OpenAIAPIImpl @Inject constructor(
                 val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown || receivedGatewayToolActivity
                 val transportFailure = networkFailureKind(e)
                 val providerFailure = providerExceptionDetails(e, receivedAssistantPayload)?.let { failure ->
-                    failure.copy(failureDetails = JsonObject(failure.failureDetails.orEmpty() + providerLimitRefusalDetails(config, request.model, receivedAssistantPayload, e)))
+                    if (ProviderCooldown.durableRateLimits()) {
+                        failure.copy(failureDetails = JsonObject(failure.failureDetails.orEmpty() + providerLimitRefusalDetails(config, request.model, receivedAssistantPayload, e)))
+                    } else {
+                        failure
+                    }
                 }
                 val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
                 val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity) && (providerFailure?.retryable ?: transportFailure.retryable)
@@ -948,7 +952,11 @@ class OpenAIAPIImpl @Inject constructor(
                 val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown
                 val transportFailure = networkFailureKind(e)
                 val providerFailure = providerExceptionDetails(e, receivedResponsePayload)?.let { failure ->
-                    failure.copy(failureDetails = JsonObject(failure.failureDetails.orEmpty() + providerLimitRefusalDetails(effectiveConfig, request.model, receivedResponsePayload, e)))
+                    if (ProviderCooldown.durableRateLimits()) {
+                        failure.copy(failureDetails = JsonObject(failure.failureDetails.orEmpty() + providerLimitRefusalDetails(effectiveConfig, request.model, receivedResponsePayload, e)))
+                    } else {
+                        failure
+                    }
                 }
                 val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
                 val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && dispatchRetryGuard.mayRetry(receivedResponsePayload) && (providerFailure?.retryable ?: transportFailure.retryable)

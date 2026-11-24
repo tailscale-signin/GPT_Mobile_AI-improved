@@ -833,7 +833,8 @@
         "docs/repairs/diagnostic-93d824fd-provider-2026-11-23-task.json",
         "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json",
         "docs/ci-cd/provider-http-remote-evidence-2026-11-24-task.md",
-        "docs/ci-cd/provider-acceptance-2026-11-24-task.md"
+        "docs/ci-cd/provider-acceptance-2026-11-24-task.md",
+        "docs/ci-cd/provider-ordinary-ci-2026-11-24-task.md"
       ],
       "invariants": [
         "Only the actual dispatched remote command or job creates Gateway uncertainty; a saved local conversation key alone does not.",
@@ -842,7 +843,8 @@
         "Request, response and stream helper state belongs to one collection, preserving cancellation, accounting and cleanup order.",
         "The packaged named-method guard measures unminified debug/benchmark DEX; release obfuscation and device latency are separate evidence.",
         "HTTP error-body remote-job and reconciliation evidence prevents a new durable wait or manual budget delay and remains attached to the terminal failure.",
-        "Standalone accepted or unknown remote state, a closed reconciliation code and an explicit typed retry or replay refusal cannot establish a new known-unaccepted provider wait; raw string and true replay values cannot grant authority."
+        "Standalone accepted or unknown remote state, a closed reconciliation code and an explicit typed retry or replay refusal cannot establish a new known-unaccepted provider wait; raw string and true replay values cannot grant authority.",
+        "Durable-wait scheduling diagnostics are projected only for callers requesting durable waiting; ordinary transport retryability and the selected endpoint/model fence remain intact."
       ]
     },
     {
@@ -1523,9 +1525,9 @@
       "sha256": "ab0dd1002fc7b007c2fe9ec9071c4e7345dcbb950376dcdf72618624ebcc842e"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt": {
-      "blob_sha": "b0473647ac515ebcf9871cf7c2e99c79d1ca1f35",
-      "bytes": 109918,
-      "sha256": "74977de553c296eb8c2e9624e62a0415673e6a833bce54b8f3d975ce070013dd"
+      "blob_sha": "a037b6483264901b64cad12165752e1cee4e2605",
+      "bytes": 110220,
+      "sha256": "19934e1e6cbcdb23281e07de400326491801724a5ce8d934346697b65c7d0aac"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderCooldown.kt": {
       "blob_sha": "0872c0d8828cbb19110a844b2f468f46709fda1d",
@@ -2513,9 +2515,9 @@
       "sha256": "3c4be9e7352c61a00fb64be4d6422f88ab877f1bc96b1edf8962a8120f0d760f"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt": {
-      "blob_sha": "346fb657178249961fede4e2f61ec111221fa1d0",
-      "bytes": 130228,
-      "sha256": "df4e37c96569fcaea278f08785a42f859482ee76d120705aa5450cc811334281"
+      "blob_sha": "c08d0d8d57c05211db4439dba3836fc61612a9e7",
+      "bytes": 130337,
+      "sha256": "2374e21984a63340072e43410b1efee8025d5586170ab2831676db67ff1e31c9"
     },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/PrivateFinalRequestBoundaryTest.kt": {
       "blob_sha": "7bf29c7c0ca4ae413da57f376c5e0359eebafcb1",
@@ -3031,6 +3033,11 @@
       "blob_sha": "e87f4be01a23bba1820dd42aa89ee313087c62dc",
       "bytes": 3682,
       "sha256": "ec36878d8e5cab4b4ab53e53224e3cee64f83c2ecc2350b6afd9427e97116a5e"
+    },
+    "docs/ci-cd/provider-ordinary-ci-2026-11-24-task.md": {
+      "blob_sha": "de093fb12864f4fa789473d3607a1629db86f673",
+      "bytes": 5960,
+      "sha256": "da52cde37467409375ffa43951dc5104223b5d52123321384867b161ea3d6b0e"
     },
     "docs/contracts/repository-operation-report-v1.json": {
       "blob_sha": "400c7f87751327b59b63c563578d440eb0a67bd9",

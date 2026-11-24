@@ -829,7 +829,8 @@
         "docs/repairs/diagnostic-93d824fd-provider-2026-11-23-task.json",
         "docs/repairs/openai-recovery-header-compile-2026-11-24-task.json",
         "docs/ci-cd/provider-http-remote-evidence-2026-11-24-task.md",
-        "docs/ci-cd/provider-acceptance-2026-11-24-task.md"
+        "docs/ci-cd/provider-acceptance-2026-11-24-task.md",
+        "docs/ci-cd/provider-ordinary-ci-2026-11-24-task.md"
       ],
       "invariants": [
         "Only the actual dispatched remote command or job creates Gateway uncertainty; a saved local conversation key alone does not.",
@@ -838,7 +839,8 @@
         "Request, response and stream helper state belongs to one collection, preserving cancellation, accounting and cleanup order.",
         "The packaged named-method guard measures unminified debug/benchmark DEX; release obfuscation and device latency are separate evidence.",
         "HTTP error-body remote-job and reconciliation evidence prevents a new durable wait or manual budget delay and remains attached to the terminal failure.",
-        "Standalone accepted or unknown remote state, a closed reconciliation code and an explicit typed retry or replay refusal cannot establish a new known-unaccepted provider wait; raw string and true replay values cannot grant authority."
+        "Standalone accepted or unknown remote state, a closed reconciliation code and an explicit typed retry or replay refusal cannot establish a new known-unaccepted provider wait; raw string and true replay values cannot grant authority.",
+        "Durable-wait scheduling diagnostics are projected only for callers requesting durable waiting; ordinary transport retryability and the selected endpoint/model fence remain intact."
       ]
     },
     {

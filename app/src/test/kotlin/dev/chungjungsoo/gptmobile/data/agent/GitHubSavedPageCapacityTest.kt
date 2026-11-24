@@ -260,18 +260,119 @@ class GitHubSavedPageCapacityTest {
         val page = fixture.read(call)
         val exchanges = listOf(AgentToolExchange(listOf(call), listOf(page)))
         val digest = ToolResultDeliveryProof.digest(page.content)
-        suspend fun read(reply: List<ProviderEvent>): List<ProviderEvent> {
+        suspend fun read(reply: List<ProviderEvent>, fresh: Boolean = true): List<ProviderEvent> {
             val session = object : AgentProviderSession {
                 override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
                     assertTrue(tools.isEmpty())
                     assertNotNull(kotlinx.coroutines.currentCoroutineContext()[SavedPageDeliveryRound])
                     assertEquals(digest, ToolResultDeliveryProof.digest(exchanges.single().results.single().content))
                     reply.forEach { emit(it) }
-                }
+                }.let { if (fresh) SavedPageDeliveryRound.providerRound(exchanges, it) else it }
             }
             return SavedPageDeliveryRound.read(session, exchanges).toList()
         }
         assertEquals(listOf(ProviderEvent.Completed), read(listOf(ProviderEvent.TextDelta("page received"), ProviderEvent.Completed)))
+        // Bare cached UNKNOWN text cannot witness a physical provider read.
+        assertEquals("REPLAY_EVIDENCE_REQUIRED", (read(listOf(ProviderEvent.TextDelta("cached"), ProviderEvent.Completed), fresh = false).single() as ProviderEvent.Failed).errorCode)
+        val reviewRows = mutableMapOf<String, JsonObject>()
+        val review = dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint("Read the saved page", { reviewRows[it] }, { key, value -> reviewRows[key] = value })
+        val reviewEvidence = dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence()
+        reviewEvidence.observe(call, page)
+        review.save("cached reviewed draft", reviewEvidence.snapshot(), reviewerRevision = "reviewer")
+        review.reviewed()
+        val modelLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT)
+        var providerCheckpoint: JsonObject? = null
+        // Create an actual interrupted ordinary draft, including its source-bound
+        // recovery fields, rather than constructing a permissive checkpoint fixture.
+        val ordinary = GitHubOutputContinuationSession(
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    emit(ProviderEvent.TextDelta("saved ordinary answer draft", modelLineage))
+                    throw kotlinx.coroutines.CancellationException("Ordinary request interrupted")
+                }
+            },
+            readCheckpoint = { providerCheckpoint },
+            saveCheckpoint = { providerCheckpoint = it }
+        ) { _, _, _ -> error("Interrupted ordinary fixture must not reopen") }
+        var ordinaryCancelled = false
+        try {
+            ordinary.streamRound(emptyList(), exchanges).toList()
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            ordinaryCancelled = true
+        }
+        assertTrue(ordinaryCancelled)
+        val savedOrdinary = requireNotNull(providerCheckpoint)
+        assertEquals(JsonPrimitive("CANCELLED"), savedOrdinary["state"])
+        assertEquals(JsonPrimitive("saved ordinary answer draft"), savedOrdinary["draft"])
+
+        var freshReads = 0
+        val privateNotes = "<progress>private saved-page detail</progress>fresh page notes"
+        val publicProgress = mutableListOf<String>()
+        val privateWrites = mutableListOf<JsonObject>()
+        var checkpointReads = 0
+        var reopens = 0
+        fun reviewed(interrupt: Boolean): AgentProviderSession {
+            val delegate = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = SavedPageDeliveryRound.providerRound(
+                    exchanges,
+                    flow {
+                        freshReads++
+                        assertTrue(tools.isEmpty())
+                        assertEquals(digest, ToolResultDeliveryProof.digest(exchanges.single().results.single().content))
+                        emit(ProviderEvent.TextDelta(privateNotes, modelLineage))
+                        if (interrupt) throw kotlinx.coroutines.CancellationException("Private read interrupted")
+                        emit(ProviderEvent.Completed)
+                    }
+                )
+            }
+            val continued = GitHubOutputContinuationSession(
+                delegate,
+                publishProgress = { text, _ -> publicProgress += text },
+                readCheckpoint = {
+                    checkpointReads++
+                    providerCheckpoint
+                },
+                saveCheckpoint = {
+                    privateWrites += it
+                    providerCheckpoint = it
+                }
+            ) { _, _, _ ->
+                reopens++
+                error("A private page read must not reopen an ordinary answer draft")
+            }
+            return dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession(
+                continued,
+                reviewEvidence,
+                "Read the saved page",
+                8192,
+                openReview = { _, _ -> error("A private page read must not review a cached final draft") },
+                progress = {},
+                checkpoint = review,
+                reviewerRevision = "reviewer"
+            )
+        }
+        var notes = ""
+        var privateCancelled = false
+        try {
+            SavedPageDeliveryRound.read(reviewed(interrupt = true), exchanges, retainNotes = { notes = it }).toList()
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            privateCancelled = true
+        }
+        assertTrue(privateCancelled)
+        assertEquals("", notes)
+        assertEquals(savedOrdinary, providerCheckpoint)
+        assertTrue(privateWrites.isEmpty())
+        // New continuation/review wrappers read the same ordinary checkpoint after
+        // cancellation, but must send the admitted pages to a fresh selected adapter.
+        assertEquals(listOf(ProviderEvent.Completed), SavedPageDeliveryRound.read(reviewed(interrupt = false), exchanges, retainNotes = { notes = it }).toList())
+        assertEquals(2, freshReads)
+        assertEquals(privateNotes, notes)
+        assertTrue(publicProgress.isEmpty())
+        assertTrue(checkpointReads >= 2)
+        assertEquals(0, reopens)
+        assertTrue(privateWrites.isEmpty())
+        assertEquals(savedOrdinary, providerCheckpoint)
+        assertEquals("cached reviewed draft", requireNotNull(review.load()).draft)
         val proposedWrite = ProviderEvent.ToolCall("rejected", "github_pr", buildJsonObject { put("action", "merge") })
         for (reply in listOf(listOf(proposedWrite, ProviderEvent.Completed), listOf(ProviderEvent.Completed), listOf(ProviderEvent.TextDelta("local", dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)), ProviderEvent.Completed))) {
             assertEquals("REPLAY_EVIDENCE_REQUIRED", (read(reply).single() as ProviderEvent.Failed).errorCode)

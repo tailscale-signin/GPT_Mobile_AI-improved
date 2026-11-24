@@ -627,7 +627,7 @@ internal object IssueReportIncidents {
         if (seen != null && seen.size >= 1024) return false
         val prior = (listOfNotNull(context.callIdHash?.let(::JsonPrimitive)) + samples).distinct()
         val latest = diagnostic.values.toMutableMap()
-        latest[countField] = JsonPrimitive(previous + 1)
+        latest[countField] = JsonPrimitive((previous + 1).coerceAtMost(100_000))
         latest["precheck_span_ms"] = JsonPrimitive((evidence.occurredAtMillis - context.occurredAtMillis).coerceIn(0, 86_400_000))
         for (field in listOf("argument_repair_attempt", "argument_repair_exhausted")) fields[field]?.let { latest[field] = it }
         // Keep the first and latest call joinable even when the diagnostic capsule is near its byte ceiling.

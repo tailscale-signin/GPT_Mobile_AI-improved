@@ -342,7 +342,7 @@ internal class GitHubVerifiedSession(
         if (GitHubCiObservationReport.matches(task)) {
             val (receipts, epoch) = evidence.snapshot()
             val observed = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
-            if (observed != null) {
+            if (observed != null && !pendingPackagingRepair(observed.second)) {
                 val report = observed.second
                 if (report["observation_state"] == JsonPrimitive("WAITING_FOR_CI") && report["run_id"] == null && remainingToolCalls()?.let { it > 0 } != false) {
                     val lookup = tools.singleOrNull { it.modelVisible && JsonPrimitive(it.name) == report["run_lookup_tool"] }
@@ -1051,7 +1051,8 @@ internal class GitHubVerifiedSession(
                 null
             }
             verificationPhase = GitHubVerificationFault.Phase.CLAIM_PLANNING
-            val verificationPlan = if (draft == null || status != null || coverage != null || ciObservation != null) {
+            val verifyPackagingDraft = pendingPackagingRepair(ciObservation?.second) && !draft.isNullOrBlank()
+            val verificationPlan = if (draft == null || status != null || coverage != null || ciObservation != null && !verifyPackagingDraft) {
                 null
             } else {
                 progress("Verifying factual claims against exact tool receipts")
@@ -1059,9 +1060,18 @@ internal class GitHubVerifiedSession(
             }
             val requests = (verificationPlan as? VerificationPlan.Ready)?.requests
             verificationPhase = GitHubVerificationFault.Phase.CLAIM_EXTRACTION
-            val extraction = requests?.let { extract(requireNotNull(draft), it, receipts, epoch) }
+            val extraction = requests?.let { extract(requireNotNull(draft), it, receipts, epoch, verifyPackagingDraft) }
             verificationPhase = GitHubVerificationFault.Phase.ACCEPTANCE_RENDERING
-            val rendered = status ?: coverage ?: ciObservation ?: extraction?.rendered ?: partial(receipts, epoch, publicationFailureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE")
+            val packagingRepair = if (verifyPackagingDraft) verifiedPackagingRepair(ciObservation, extraction) else null
+            val selectedCiObservation = ciObservation.takeIf { packagingRepair == null }?.let { observed ->
+                if (verifyPackagingDraft && extraction?.failure != null) {
+                    val failureFields = setOf("verification_failure", "extraction_batches_completed", "extraction_batches_total", "resume_required")
+                    observed.first to JsonObject(observed.second + extraction.rendered.second.filterKeys { it in failureFields })
+                } else {
+                    observed
+                }
+            }
+            val rendered = status ?: coverage ?: packagingRepair ?: selectedCiObservation ?: extraction?.rendered ?: partial(receipts, epoch, publicationFailureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE")
             // Claim extraction and deterministic rendering can be slower than an
             // owned tool receipt reaching the evidence book. Never publish a
             // verdict for an older epoch after new repository evidence arrives.
@@ -1207,14 +1217,14 @@ internal class GitHubVerifiedSession(
                         evidenceAdvanced -> GitHubAcceptancePublicationEvidence.Source.EVIDENCE_ADVANCED
                         status != null -> GitHubAcceptancePublicationEvidence.Source.STATUS
                         coverage != null -> GitHubAcceptancePublicationEvidence.Source.COVERAGE
-                        ciObservation != null -> GitHubAcceptancePublicationEvidence.Source.CI_OBSERVATION
+                        selectedCiObservation != null -> GitHubAcceptancePublicationEvidence.Source.CI_OBSERVATION
                         extraction != null -> GitHubAcceptancePublicationEvidence.Source.CLAIM_EXTRACTION
                         else -> GitHubAcceptancePublicationEvidence.Source.PARTIAL_FALLBACK
                     }
                     val rejectedPlan = verificationPlan as? VerificationPlan.Rejected
                     val extractionObservation = when {
                         evidenceAdvanced -> null
-                        status != null || coverage != null || ciObservation != null -> GitHubAcceptancePublicationEvidence.Extraction.NOT_NEEDED
+                        status != null || coverage != null || ciObservation != null && !verifyPackagingDraft -> GitHubAcceptancePublicationEvidence.Extraction.NOT_NEEDED
                         draft == null -> GitHubAcceptancePublicationEvidence.Extraction.NO_DRAFT
                         rejectedPlan != null -> rejectedPlan.observation
                         extraction?.failure != null -> GitHubAcceptancePublicationEvidence.Extraction.FAILED
@@ -1564,7 +1574,40 @@ internal class GitHubVerifiedSession(
         val extractionFailure: ProviderEvent.Failed? = null
     )
 
-    private data class ClaimExtraction(val rendered: Pair<String, JsonObject>, val failure: ProviderEvent.Failed? = null)
+    private data class ClaimExtraction(
+        val rendered: Pair<String, JsonObject>,
+        val failure: ProviderEvent.Failed? = null,
+        val repairRecommendationVerified: Boolean = false
+    )
+
+    private fun pendingPackagingRepair(report: JsonObject?): Boolean =
+        report != null &&
+            report["observation_state"] == JsonPrimitive("OBSERVED_PACKAGING_FAILURE") &&
+            report["completion_verified"] != JsonPrimitive(true)
+
+    private fun verifiedPackagingRepair(observation: Pair<String, JsonObject>?, extraction: ClaimExtraction?): Pair<String, JsonObject>? {
+        if (!pendingPackagingRepair(observation?.second) || extraction == null || extraction.failure != null) return null
+        val observed = requireNotNull(observation).second
+        val gate = observed["apk_size_failure"] as? JsonObject ?: return null
+        val (text, report) = extraction.rendered
+        val repairId = JsonPrimitive(GitHubRequestCompletion.id(GitHubWorkflowPreset.selected("diagnose_ci").acceptance.last()))
+        val repairPassed = (report["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .any { it["id"] == repairId && it["status"] == JsonPrimitive("PASSED") }
+        if (!repairPassed || !extraction.repairRecommendationVerified) return null
+        // A verified recommendation completes only answer coverage. Preserve the
+        // actual failed package and never turn advice into a new build result.
+        val observedFields = setOf(
+            "observation_state",
+            "completion_scope",
+            "head_sha",
+            "apk_size_failure",
+            "evidence_receipt_ids",
+            "full_history_verified",
+            "build_health_verified",
+            "new_test_execution_verified"
+        )
+        return (GitHubCiSizeGate.describe(gate) + "\n\n" + text) to JsonObject(report + observed.filterKeys { it in observedFields })
+    }
 
     private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null, fixturePreflight: JsonObject? = null, inspectExtractorFailure: Boolean = false): Pair<String, JsonObject> = withContext(computationDispatcher) {
         val budget = evidence.stageBudget(receipts, remainingToolCalls(), GitHubSelfTestFixtures.minimumCalls(authorizedTools))
@@ -1580,7 +1623,7 @@ internal class GitHubVerifiedSession(
         GitHubEvidenceBook.digest("$task\n$epoch\n$identity")
     }
 
-    private suspend fun extract(draft: String, requests: List<GitHubClaimBatches.Request>, receipts: Map<String, JsonObject>, epoch: Long): ClaimExtraction {
+    private suspend fun extract(draft: String, requests: List<GitHubClaimBatches.Request>, receipts: Map<String, JsonObject>, epoch: Long, verifyPackagingDraft: Boolean): ClaimExtraction {
         val context = claimExtractionContext(receipts, epoch)
         val schemaHash = GitHubEvidenceBook.digest(GitHubClaimBatches.responseSchemaJson())
         val plan = withContext(computationDispatcher) {
@@ -1704,10 +1747,37 @@ internal class GitHubVerifiedSession(
                 }
                 val batches = completed.map { requireNotNull(it) }
                 val result = withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.render(GitHubClaimBatches.combine(batches), receipts, now(), epoch, task, acceptedContract = evidence.acceptedPromptContract(), issueWork = issueWork)
+                    val combined = GitHubClaimBatches.combine(batches)
+                    val at = now()
+                    val acceptedContract = evidence.acceptedPromptContract()
+                    val rendered = GitHubEvidencePolicy.render(combined, receipts, at, epoch, task, acceptedContract = acceptedContract, issueWork = issueWork)
+                    val repairId = GitHubRequestCompletion.id(GitHubWorkflowPreset.selected("diagnose_ci").acceptance.last())
+                    val mapped = ((combined["requirement_claims"] as? JsonObject)?.get(repairId) as? JsonArray).orEmpty()
+                        .mapNotNull { (it as? JsonPrimitive)?.intOrNull }.toSet()
+                    val recommendations = (combined["claims"] as? JsonArray).orEmpty().filterIndexed { index, claim ->
+                        index in mapped && claim is JsonObject && claim["kind"] == JsonPrimitive("recommendation")
+                    }
+                    // Keep the exact requirement-to-claim mapping before rendering
+                    // can omit optional claims. Verify only its recommendations by
+                    // the same policy; sharing a receipt is not a claim binding.
+                    val repairVerified = verifyPackagingDraft &&
+                        recommendations.isNotEmpty() &&
+                        (
+                            GitHubEvidencePolicy.render(
+                                buildJsonObject { put("claims", JsonArray(recommendations)) },
+                                receipts,
+                                at,
+                                epoch,
+                                task,
+                                acceptedContract = acceptedContract,
+                                issueWork = issueWork
+                            ).second["claims"] as? JsonArray
+                            ).orEmpty().filterIsInstance<JsonObject>()
+                            .any { it["kind"] == JsonPrimitive("recommendation") && it["status"] == JsonPrimitive("INFERRED") }
+                    ClaimExtraction(rendered, repairRecommendationVerified = repairVerified)
                 }
                 evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = false)
-                ClaimExtraction(result)
+                result
             } ?: failed(attempt.terminalFailure?.errorCode ?: "GITHUB_EXTRACTION_TIMEOUT", attempt.failureAtDeadline())
         } catch (failure: GitHubClaimExtraction.Failure) {
             failed(failure.code, failure.providerFailure, failure.observations, GitHubClaimExtraction.rejectedDecision(failure))

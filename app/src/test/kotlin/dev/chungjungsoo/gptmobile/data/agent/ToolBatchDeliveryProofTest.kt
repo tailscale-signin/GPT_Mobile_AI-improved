@@ -76,7 +76,7 @@ class ToolBatchDeliveryProofTest {
             }
             journal.finish()
             val required = ToolResultDeliveryProof.capture(history.flatMap { it.results })
-            val budget = (1800..12_000 step 100).first { tokens ->
+            val budget = (1800..12_000 step 100).last { tokens ->
                 val allowances = GitHubReplayRecovery.savedPageResultAllowances(history, emptySet(), tokens, 512)
                 val replay = ToolExchangeCompactor.compact(history, tokens, 512, resultTokenAllowances = allowances, requiredSavedPageDigests = required)
                 val seen = ToolResultDeliveryProof.capture(replay.flatMap { it.results })
@@ -90,7 +90,7 @@ class ToolBatchDeliveryProofTest {
                     if (partial) privateReads++ else regularReads++
                     emit(ProviderEvent.TextDelta(if (partial) "private acknowledgement" else "Reviewed the retained pages."))
                     emit(ProviderEvent.Completed)
-                }
+                }.let { SavedPageDeliveryRound.providerRound(exchanges, it) }
             }
             val limits = AgentRunLimits(githubTask = true, maxReplayTokens = budget, maxReplayResultTokens = 512, maxRounds = 24)
             val admittedTool = object : AgentTool {

@@ -160,7 +160,8 @@ data class AgentToolResult(
     val combinedWorkBudgetExhausted: Boolean = false,
     val repeatAdmissionEvidence: ToolRepeatAdmissionEvidence? = null,
     val inventoryPaginationEvidence: ToolInventoryPaginationEvidence? = null,
-    val searchValidationEvidence: GitHubSearchValidationEvidence? = null
+    val searchValidationEvidence: GitHubSearchValidationEvidence? = null,
+    val savedPageReading: JsonObject? = null
 )
 
 /** Managed content reference, never an arbitrary local path or remote download instruction. */

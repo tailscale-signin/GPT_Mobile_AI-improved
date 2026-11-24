@@ -215,6 +215,26 @@ internal class GitHubOutputContinuationSession(
             return@flow
         }
 
+        if (kotlinx.coroutines.currentCoroutineContext()[SavedPageDeliveryRound] != null) {
+            require(tools.isEmpty()) { "Saved-page reads cannot advertise tools." }
+            // The validation and recovery refusals above still apply. Private notes
+            // start at the selected adapter, never by reopening an ordinary draft.
+            // Only the runner's ToolBatchCheckpoint may commit a completed note.
+            val generated = collectSegment(delegate, emptyList(), exchanges, "") { _, _, _ -> }
+            val limited = generated.finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") ||
+                generated.failure?.let { isProviderOutputLimitFailure(it.message) } == true
+            when {
+                generated.failure != null -> emit(generated.failure)
+                generated.calls.isNotEmpty() || generated.receivedToolResult -> emit(ProviderEvent.Failed("The private saved-page read proposed or observed a tool; its notes were not accepted.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                limited || !generated.completed -> emit(ProviderEvent.Failed("The private saved-page read did not reach a complete response boundary; its notes were not accepted.", errorCode = if (limited) "OUTPUT_LIMIT" else "INCOMPLETE_PROVIDER_STREAM"))
+                else -> {
+                    if (generated.text.isNotEmpty()) emit(ProviderEvent.TextDelta(generated.text, generated.lineage))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            return@flow
+        }
+
         while (true) {
             if (needsContinuation) {
                 if (noOutputProgress.visibleOutputRepairPending && reopenForVisibleOutput == null) {
@@ -511,7 +531,9 @@ internal class GitHubOutputContinuationSession(
         checkpoint: suspend (state: String, text: String, resumable: Boolean) -> Unit
     ): GeneratedSegment {
         val segment = StringBuilder()
-        val publicProgress = GitHubPublicProgress(publishProgress)
+        // A private saved-page read must not publish ActivitySummary callbacks or
+        // discard tagged source notes before the outer reading boundary retains them.
+        val publicProgress = if (kotlinx.coroutines.currentCoroutineContext()[SavedPageDeliveryRound] == null) GitHubPublicProgress(publishProgress) else null
         val segmentLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
         val calls = mutableListOf<ProviderEvent.ToolCall>()
         val admission = ToolRoundAdmission()
@@ -531,7 +553,7 @@ internal class GitHubOutputContinuationSession(
                 when (event) {
                     is ProviderEvent.TextDelta -> {
                         check(draft.length.toLong() + segment.length + event.text.length <= maxCharacters) { "GitHub draft exceeded its retention allowance; completed evidence remains saved." }
-                        segment.append(publicProgress.accept(event))
+                        segment.append(publicProgress?.accept(event) ?: event.text)
                         segmentLineage.append(event.lineage)
                         event.lineage.invocationId?.let(invocationIds::add)
                         if (segment.length - savedAt >= CHECKPOINT_CHARACTER_INTERVAL) {
@@ -570,7 +592,7 @@ internal class GitHubOutputContinuationSession(
                     else -> emit(event)
                 }
             }
-            segment.append(publicProgress.finish())
+            segment.append(publicProgress?.finish().orEmpty())
         } catch (error: Exception) {
             withContext(NonCancellable) {
                 try {

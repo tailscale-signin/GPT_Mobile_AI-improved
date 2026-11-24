@@ -154,6 +154,7 @@ internal class IssueReportSubmission(
             IssueReportDiagnostics.MISSING_TOOL_IDENTITY_FEATURE,
             IssueReportDiagnostics.PRECHECK_GROUP_FEATURE,
             IssueReportDiagnostics.POLICY_SELECTION_FEATURE,
+            "AUDIO_FOCUS_MODE_V1",
             IssueReportDiagnostics.VOICE_FOCUS_RETRIES_FEATURE,
             IssueReportIncidentCapsule.FAILED_EVENT_OUTPUT_FEATURE,
             "CLAIM_EXTRACTION_SCHEMA_HASH_V1",

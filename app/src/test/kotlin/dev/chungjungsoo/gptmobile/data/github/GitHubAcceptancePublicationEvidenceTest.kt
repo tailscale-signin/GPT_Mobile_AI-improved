@@ -536,6 +536,191 @@ class GitHubAcceptancePublicationEvidenceTest {
         }
     }
 
+    @Test fun partialPackagingDiagnosisVerifiesALaterRepairDraftAndRetainsMeasuredFailureOnRejection() = runBlocking {
+        val diagnosis = GitHubWorkflowPreset.selected("diagnose_ci").prompt()
+        val repairRequirement = GitHubWorkflowPreset.selected("diagnose_ci").acceptance.last()
+        val head = "a".repeat(40)
+        val config = "packaging.jniLibs.keepDebugSymbols += \"**/*.so\""
+        val recommendation = "Remove the native debug-symbol retention rule while preserving the shipped ABI set, then rebuild and measure the signed package against the existing budget."
+        for (outcome in listOf("supported", "contradicted", "unrelated", "failed", "blank")) {
+            val fixture = fixture(setOf("github_context", "github_ci", "github_read", "github_write"))
+            suspend fun observe(id: String, tool: String, arguments: JsonObject, data: JsonObject) {
+                fixture.book.observe(
+                    ProviderEvent.ToolCall(id, tool, arguments),
+                    AgentToolResult(id, ToolResultContent.Json(buildJsonObject { put("data", data) }), false)
+                )
+            }
+            observe("package-head", "github_context", json("""{"action":"status"}"""), json("""{"commit_sha":"$head","branch":"main"}"""))
+            observe(
+                "package-run",
+                "github_ci",
+                json("""{"action":"runs","commit_sha":"$head"}"""),
+                json("""{"workflow_runs":[{"id":17,"run_attempt":1,"head_sha":"$head","status":"completed","conclusion":"failure"}],"returned":1,"has_more":false}""")
+            )
+            observe(
+                "package-jobs",
+                "github_ci",
+                json("""{"action":"jobs","run_id":17,"run_attempt":1}"""),
+                json("""{"head_sha":"$head","run_attempt":1,"page":1,"has_more":false,"total_count":1,"jobs":[{"id":29,"run_id":17,"run_attempt":1,"head_sha":"$head","status":"completed","conclusion":"failure"}]}""")
+            )
+            val gate = json("""{"budget_class":"universal","bytes":253719782,"budget_bytes":241172480,"over_budget_bytes":12547302,"passed":false,"start_line":3843,"end_line":3846}""")
+            observe(
+                "package-log",
+                "github_ci",
+                json("""{"action":"logs","run_id":17,"run_attempt":1,"job_id":29,"commit_sha":"$head"}"""),
+                buildJsonObject {
+                    put("head_sha", head)
+                    put("run_id", 17)
+                    put("run_attempt", 1)
+                    put("job_id", 29)
+                    put("apk_size_failure", gate)
+                }
+            )
+            observe(
+                "package-config",
+                "github_read",
+                json("""{"commit_sha":"$head","path":"app/build.gradle.kts"}"""),
+                buildJsonObject {
+                    put("commit_sha", head)
+                    put(
+                        "items",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("path", "app/build.gradle.kts")
+                                    put("sha", "b".repeat(40))
+                                    put("start_line", 1)
+                                    put("content", config)
+                                }
+                            )
+                        )
+                    )
+                }
+            )
+            val (receipts, epoch) = fixture.book.snapshot()
+            fun receiptId(call: String) = receipts.entries.single { it.value["call_id"] == JsonPrimitive(call) }.key
+            val observed = requireNotNull(GitHubCiObservationReport.render(diagnosis, receipts, now, epoch)).second
+            assertEquals(JsonPrimitive(false), observed["completion_verified"])
+            assertEquals(1, (observed.getValue("remaining_requirements") as JsonArray).size)
+            val published = mutableListOf<JsonObject>()
+            var drafts = 0
+            var extractions = 0
+            val source = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    drafts++
+                    emit(ProviderEvent.TextDelta(if (outcome == "blank") "" else recommendation))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val events = session(fixture, published, diagnosis, source = source) { prompt ->
+                extractions++
+                if (outcome == "failed") {
+                    provider(ProviderEvent.Failed("fixture extractor unavailable", errorCode = "PROVIDER_RATE_LIMITED", transportComplete = true))
+                } else {
+                    val request = json(prompt)
+                    assertEquals(JsonPrimitive(recommendation), request["candidate"])
+                    val claims = JsonArray(
+                        listOf(
+                            json("""{"kind":"fact","receipt_id":"${receiptId("package-run")}","pointer":"/data/workflow_runs/0/conclusion","value":"failure"}"""),
+                            json("""{"kind":"fact","receipt_id":"${receiptId("package-log")}","pointer":"/data/apk_size_failure/over_budget_bytes","value":12547302}"""),
+                            buildJsonObject {
+                                put("kind", "inferred")
+                                put("text", "The retained size check establishes a packaging-budget failure, without establishing signing or runner health.")
+                                put("sources", JsonArray(listOf(json("""{"receipt_id":"${receiptId("package-log")}","pointer":"/data/apk_size_failure/passed","value":false}"""))))
+                            },
+                            buildJsonObject {
+                                put("kind", "recommendation")
+                                put("text", recommendation)
+                                put(
+                                    "sources",
+                                    JsonArray(
+                                        listOf(
+                                            buildJsonObject {
+                                                put("receipt_id", receiptId("package-config"))
+                                                put("pointer", "/data/items/0/content#L1-L1")
+                                                put("value", if (outcome == "contradicted") "packaging.jniLibs.keepDebugSymbols.clear()" else config)
+                                            }
+                                        )
+                                    )
+                                )
+                            },
+                            json("""{"kind":"fact","receipt_id":"${receiptId("package-config")}","pointer":"/data/items/0/path","value":"app/build.gradle.kts"}""")
+                        )
+                    )
+                    answer(
+                        buildJsonObject {
+                            put("claims", claims)
+                            put(
+                                "requirement_claims",
+                                buildJsonObject {
+                                    for (row in (request.getValue("requirements") as JsonArray).filterIsInstance<JsonObject>()) {
+                                        val indexes = when (row["text"]) {
+                                            JsonPrimitive(repairRequirement) -> if (outcome == "unrelated") listOf(4) else listOf(3)
+                                            JsonPrimitive(GitHubWorkflowPreset.selected("diagnose_ci").acceptance[1]) -> if (outcome == "unrelated") listOf(2, 3) else listOf(2)
+                                            else -> listOf(0, 1)
+                                        }
+                                        put((row.getValue("id") as JsonPrimitive).content, JsonArray(indexes.map(::JsonPrimitive)))
+                                    }
+                                }
+                            )
+                        }.toString()
+                    )
+                }
+            }.streamRound(emptyList(), emptyList()).toList()
+            assertEquals(1, drafts)
+            assertEquals(if (outcome == "blank") 0 else 1, extractions)
+            val report = published.single()
+            val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
+            assertTrue(text.contains("253719782"))
+            assertTrue(text.contains("241172480"))
+            assertTrue(text.contains("12547302"))
+            assertEquals(head, (report.getValue("head_sha") as JsonPrimitive).content)
+            val retainedGate = report.getValue("apk_size_failure") as JsonObject
+            assertEquals(JsonPrimitive(17), retainedGate["run_id"])
+            assertEquals(JsonPrimitive(1), retainedGate["run_attempt"])
+            assertEquals(JsonPrimitive(29), retainedGate["job_id"])
+            assertEquals(JsonPrimitive(false), report["build_health_verified"])
+            assertEquals(JsonPrimitive(false), report["new_test_execution_verified"])
+            assertEquals(JsonPrimitive(false), report["full_history_verified"])
+            val observation = report.getValue(GitHubAcceptancePublicationEvidence.KEY) as JsonObject
+            if (outcome == "supported") {
+                assertEquals(ProviderEvent.Completed, events.last())
+                assertEquals(JsonPrimitive("COMPLETED"), report["task_outcome"])
+                assertEquals(JsonPrimitive(true), report["completion_verified"])
+                assertTrue((report.getValue("remaining_requirements") as JsonArray).isEmpty())
+                assertTrue(text.contains(recommendation))
+                assertTrue(text.contains("Recommendation (inference)"))
+                assertEquals(JsonPrimitive("CLAIM_EXTRACTION"), observation["acceptance_publication_source"])
+            } else {
+                assertEquals(JsonPrimitive("PARTIAL"), report["task_outcome"])
+                assertEquals(JsonPrimitive(false), report["completion_verified"])
+                assertEquals(JsonPrimitive(true), report["resume_required"])
+                assertEquals(1, (report.getValue("remaining_requirements") as JsonArray).size)
+                assertFalse(text.contains(recommendation))
+                assertTrue(text.contains("A specific repair recommendation remains pending"))
+                assertEquals(JsonPrimitive("CI_OBSERVATION"), observation["acceptance_publication_source"])
+            }
+            if (outcome == "failed") {
+                val failure = report.getValue("verification_failure") as JsonObject
+                assertEquals(JsonPrimitive("PROVIDER_RATE_LIMITED"), failure["code"])
+                assertEquals(JsonPrimitive("claim_extraction"), failure["failed_stage"])
+                assertEquals(JsonPrimitive(0), report["extraction_batches_completed"])
+                assertEquals(JsonPrimitive(1), report["extraction_batches_total"])
+                assertEquals("PROVIDER_RATE_LIMITED", (events.last() as ProviderEvent.Failed).errorCode)
+            }
+            assertEquals(
+                JsonPrimitive(
+                    when (outcome) {
+                        "blank" -> "NOT_NEEDED"
+                        "failed" -> "FAILED"
+                        else -> "COMPLETED"
+                    }
+                ),
+                observation["acceptance_extraction_observation"]
+            )
+        }
+    }
+
     @Test fun deterministicStatusCoverageAndCiReportsDoNotInventExtraction() = runBlocking {
         for ((task, expectedSource) in listOf("status" to "STATUS", "test all functionality" to "COVERAGE", "Diagnose CI failures" to "CI_OBSERVATION")) {
             val fixture = fixture()

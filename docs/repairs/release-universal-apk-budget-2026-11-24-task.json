@@ -15,19 +15,21 @@
     "prior_budget_bytes": 241172480,
     "arm64_bytes": 185614407,
     "x86_64_bytes": 108177898,
-    "publication_created": false
+    "publication_created": false,
+    "qualification_scope": "Historical signed package at the recorded main commit and workflow run; not a measurement of the final release candidate."
   },
   "change": {
-    "universal_budget_bytes": 262144000,
-    "bounded_headroom_bytes": 8424218,
+    "universal_budget_bytes": 241172480,
     "arm64_budget_bytes": 188743680,
     "x86_64_budget_bytes": 188743680,
-    "rationale": "The universal package intentionally contains the qualified arm64-v8a and x86_64 voice/native runtimes. The new 250 MiB ceiling admits the measured two-ABI package with about 3.2% headroom while retaining both ABI-specific ceilings and every signing, runtime, telemetry, checksum, attestation and publication gate."
+    "rationale": "Preserve the reviewed 230 MiB universal and 180 MiB per-ABI release limits. Retain the existing native stripping and bounded lossless compression before signing, and require a fresh signed package measurement to pass the unchanged size gate.",
+    "historical_package_passed": false,
+    "historical_over_budget_bytes": 12547302
   },
   "behavior_coverage": [
-    "Classifies a sparse measured two-ABI artifact as universal.",
-    "Accepts the measured package under exactly 250 MiB.",
-    "Rejects the same package when the universal ceiling is one byte below its observed size.",
+    "Classifies a sparse fixture with both ABI entries as universal.",
+    "Rejects the historical 253,719,782-byte size under the unchanged 230 MiB limit, with exactly 12,547,302 bytes of overage.",
+    "Rejects the same fixture when the universal ceiling is one byte below its size.",
     "Asserts that both single-ABI release ceilings remain 180 MiB."
   ],
   "qualification": [
@@ -38,9 +40,16 @@
     "Verify Android 0.9.66.16 build 150 and Gateway 18.1.3 public assets, checksums and attestations against the actual merge commit."
   ],
   "limitations": [
-    "The limit change does not reduce package size or establish device performance.",
+    "The historical signed package remains over budget. A synthetic fixture does not establish a current artifact size or device performance.",
+    "The superseded 250 MiB proposal is retained only as history; the active universal release gate remains 230 MiB.",
     "No release may be claimed until the normal publisher completes and public readback is verified."
   ],
+  "superseded_proposal": {
+    "universal_budget_bytes": 262144000,
+    "nominal_headroom_bytes": 8424218,
+    "status": "superseded_by_preserved_230_MiB_publication_contract",
+    "reason": "Increasing the limit does not reduce the observed package and is not part of the reviewed release contract."
+  },
   "build_150_followup": {
     "repository": "tailscale-signin/GPT_Mobile_AI-improved",
     "base_branch": "main",

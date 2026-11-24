@@ -223,37 +223,44 @@ internal object GitHubCiObservationReport {
                 job["run_id"] in setOf(null, run["id"])
         } ?: return null
         val ids = JsonArray(listOf(runReceipt.key, jobsReceipt.key, receiptId).distinct().map(::JsonPrimitive))
+        val repairRequirement = GitHubWorkflowPreset.selected("diagnose_ci").acceptance.last()
         val requirements = JsonArray(
             GitHubRequestCompletion.requirements(task).map { requirement ->
+                val repairPending = requirement == repairRequirement
                 buildJsonObject {
                     put("id", GitHubRequestCompletion.id(requirement))
                     put("requirement", requirement)
-                    put("status", "PASSED")
-                    put("acceptance_state", "PASS")
+                    put("status", if (repairPending) "PENDING" else "PASSED")
+                    put("acceptance_state", if (repairPending) "NOT_TESTED" else "PASS")
+                    if (repairPending) put("acceptance", "The retained size measurements do not identify a specific repair; a supported recommendation remains pending.")
                     put("evidence_receipt_ids", ids)
                 }
             }
         )
+        val remaining = JsonArray(requirements.filterIsInstance<JsonObject>().filter { it["status"] == JsonPrimitive("PENDING") })
+        val complete = remaining.isEmpty()
         val text = GitHubCiSizeGate.describe(gate) +
-            "\n\nThe failed size gate explains the captured job outcome. The retained measurements provide no evidence of a signing or runner failure. " +
-            "The proposed repair still requires a new build. Evidence receipts: `${runReceipt.key}`, `${jobsReceipt.key}`, `$receiptId`."
+            "\n\nThe captured log records this failed size check. These measurements alone do not establish signing or runner health. " +
+            "A specific repair recommendation remains pending; the measured overage does not identify which package contribution should change. " +
+            "Any proposed repair requires a new build. Evidence receipts: `${runReceipt.key}`, `${jobsReceipt.key}`, `$receiptId`."
         return text to buildJsonObject {
             put("schema", "github.ci-observation.v1")
             put("task", task)
-            put("task_outcome", "COMPLETED")
+            put("task_outcome", if (complete) "COMPLETED" else "PARTIAL")
             put("observation_state", "OBSERVED_PACKAGING_FAILURE")
             put("completion_scope", "FAILED_JOB_IN_RETURNED_WORKFLOW_SET")
             put("head_sha", head)
             put("apk_size_failure", gate)
-            put("completion_verified", true)
+            put("completion_verified", complete)
             put("answer_verified", true)
             put("claims_verified", true)
-            put("partial", false)
+            put("partial", !complete)
+            put("resume_required", !complete)
             put("full_history_verified", false)
             put("build_health_verified", false)
             put("new_test_execution_verified", false)
             put("requirements", requirements)
-            put("remaining_requirements", JsonArray(emptyList()))
+            put("remaining_requirements", remaining)
             put("evidence_receipt_ids", ids)
             put("verified_at_ms", now)
         }

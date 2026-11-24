@@ -157,7 +157,7 @@ class VoiceSynthesisPerformanceTest {
         assertEquals(4_250L, legacy.primeWaitMs())
     }
 
-    @Test fun fixedModesKeepTheirLimitsAndIgnoreInvalidSynthesisMeasurements() {
+    @Test fun explicitPhraseModesKeepTheirLimitsButAllModesProtectMeasuredContinuity() {
         val fixed = VoiceAdaptivePlayback(VoicePerformanceMode.FAST)
         fixed.observe(6_000, 100)
         fixed.underrun()

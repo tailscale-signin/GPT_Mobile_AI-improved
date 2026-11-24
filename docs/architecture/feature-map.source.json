@@ -642,7 +642,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRetrospectiveSessionAuditTest.kt",
         "scripts/test_secret_history_integrity.py",
         "scripts/test_gitleaks_model_pin.py",
-        "scripts/tests/test_secret_history_reporting.py"
+        "scripts/tests/test_secret_history_reporting.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageStatelessContinuityTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -674,7 +675,8 @@
         "Credential-history findings retain only bounded validated rule, commit, path and line identities; scanner detection or invalid/missing report evidence cannot qualify a clean history, and raw match/secret/commit-author content is never published by the identity reporter.",
         "Verified historical public checksums are exempt only at exact reviewed paths and complete declarations, with a literal frozen receipt line; actual pinned-scanner controls preserve detection for changed values, fields, paths, surrounding content and neighboring credentials, and final reachable-history qualification remains mandatory.",
         "Both constrained-heap CI invocations retain Gradle worker lifecycle and actual heap command evidence without changing their exact suite selectors, memory limits, retry policy or timeout.",
-        "Cursor-only restoration requires exact issued selectors proof and current schema validity; restored local contents do not imply dispatch."
+        "Cursor-only restoration requires exact issued selectors proof and current schema validity; restored local contents do not imply dispatch.",
+        "A completed private saved-page read requires a fresh provider response for the exact projected exchanges and atomically retains bounded source-bound reading notes with its delivery acknowledgements. Later requests and restart carry those notes as untrusted derived context, never current raw source or verified claims. Legacy delivery receipts without notes replay retained bodies within the original budget; private conversation transport stays admission-gated, and intermediate notes cannot invoke public progress callbacks."
       ],
       "routing": {
         "role": "executor",
@@ -1159,7 +1161,9 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunCoordinator.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
         "scripts/check_chat_method_size.py",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlan.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageDeliveryRound.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIRecoveryTransportTest.kt",
@@ -1171,7 +1175,8 @@
         "authentication/test_incident_report_contract.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderToolRejectionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/PlatformTimeoutTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ResponseContinuationPlanTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -1892,7 +1897,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneMapTopology.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceBook.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPrimaryPatchReview.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceContract.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceContract.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedPageReading.kt"
       ],
       "tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubIntelligenceScoreTest.kt",
@@ -1984,7 +1990,7 @@
         "Each existing package attestation retains its exact bundle-path output as a separate source/run/attempt artifact for 14 days.",
         "Package attestation subject globs, retained bundles, signing and signature verification, permissions, artifact and release asset names, publication triggers, required gates and immutable publication checks retain their existing contracts when release packaging changes.",
         "Retained bundles are verification inputs; their presence does not establish cryptographic validation, final-source qualification or publication.",
-        "Compression occurs after bundle assembly and before signing, verifies unchanged expanded contents, rejects growth and enforces the coordinated 250 MiB universal and 180 MiB per-ABI limits. Native children have 180 second ceilings; the 900 second batch deadline is checked at phase boundaries."
+        "Compression occurs after bundle assembly and before signing, verifies unchanged expanded contents, rejects growth and retains 230 MiB universal and 180 MiB per-ABI limits. Native children have 180 second ceilings; the 900 second batch deadline is checked at phase boundaries."
       ],
       "routing": {
         "role": "evidence",

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6341d8a89dc99cac7b76cea0f15f8f4581f83dabe279e4095255be6785dc4715",
+  "source_digest": "bdae0e409df5196121c70b4f91ca8ed233cce8d749f76d35ee86494ce4e34f67",
   "file_count": 3113,
   "indexed_line_count": 528500,
   "line_coverage_available": false,
@@ -7319,7 +7319,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiObservationReport.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "82040526fc1b261cadd70a9b30e81303aa2069348e80dfe7a5b9e77e86524e8c",
+      "sha256": "41080111ebf9370011c0ec58c67166c63d7c9fce6e9230f51ac770a9236b514a",
       "indexed_lines": 344
     },
     {

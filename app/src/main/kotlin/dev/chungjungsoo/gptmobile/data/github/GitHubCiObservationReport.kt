@@ -288,7 +288,7 @@ internal object GitHubCiObservationReport {
         val neutral = counts["neutral"]?.let { ", $it neutral" }.orEmpty()
         val watchName = runSources.values.lastOrNull()?.text("tool")?.let { "github_watch_checks" + it.substringAfter("github_ci") }
         val inventoryTool = inventory.receiptIds.firstNotNullOfOrNull { fresh[it]?.text("tool") }
-        val runLookup = inventoryTool?.takeIf { it.substringBefore("__") in setOf("github_ci", "github_context") }?.let {
+        val runLookup = inventoryTool?.takeIf { it.githubOperationFamily() in setOf("github_ci", "github_context") }?.let {
             "github_ci" + it.removePrefix(it.substringBefore("__"))
         }
         val subscription = receipts.entries.lastOrNull { (_, row) ->

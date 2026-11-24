@@ -24,6 +24,43 @@ struct ContextCacheLimits {
   int64_t free_reserve_bytes = 64LL * 1024 * 1024;
 };
 
+// The temporary BASIC model belongs only to one private export transaction.
+// Its hidden name is deliberately inadmissible to the published-cache inventory.
+// The size bound is checked after ORT saves it; it is not an in-flight writer cap.
+class ContextSourceSnapshot {
+ public:
+  static constexpr int64_t kMaximumBytes = 512LL * 1024 * 1024;
+  explicit ContextSourceSnapshot(const std::string &context_path) {
+    const std::filesystem::path output(context_path), parent = output.parent_path();
+    struct stat metadata{};
+    if (!output.is_absolute() || output.filename() != "context.onnx" ||
+        parent.filename().string().rfind("pending-", 0) != 0 ||
+        std::filesystem::canonical(parent) != parent || lstat(parent.c_str(), &metadata) ||
+        !S_ISDIR(metadata.st_mode) || metadata.st_uid != geteuid() || (metadata.st_mode & 0777) != 0700)
+      throw std::runtime_error("Speech context source directory invalid");
+    path_ = parent / ".source.onnx";
+    const int fd = open(path_.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0) throw std::runtime_error("Speech context source unavailable");
+    close(fd);
+  }
+  ContextSourceSnapshot(const ContextSourceSnapshot &) = delete;
+  ContextSourceSnapshot &operator=(const ContextSourceSnapshot &) = delete;
+  ~ContextSourceSnapshot() { if (!path_.empty()) unlink(path_.c_str()); }
+  std::string path() const { return path_.string(); }
+  void Validate() const {
+    struct stat metadata{};
+    if (lstat(path_.c_str(), &metadata) || !S_ISREG(metadata.st_mode) ||
+        metadata.st_uid != geteuid() || metadata.st_nlink != 1 || metadata.st_size <= 0 || metadata.st_size > kMaximumBytes)
+      throw std::runtime_error("Speech context source bounds");
+  }
+  void Remove() {
+    if (path_.empty() || unlink(path_.c_str())) throw std::runtime_error("Speech context source cleanup failed");
+    path_.clear();
+  }
+ private:
+  std::filesystem::path path_;
+};
+
 // One transaction holds a nonblocking process lock through context loading or
 // first inference. Busy/unwritable/unsupported caches never prevent synthesis.
 // A published directory is complete: embedded EPContext model, any generated
@@ -76,12 +113,13 @@ class CompiledContextCache {
       return (path_ / "context.onnx").string();
     } catch (...) { Invalidate(); return {}; }
   }
-  std::string BeginExport() {
+  std::string BeginExport(int64_t temporary_bytes = 0) {
     if (!locked_) return {};
     try {
       struct statvfs space{};
-      if (statvfs(root_.c_str(), &space) ||
-          static_cast<long double>(space.f_bavail) * space.f_frsize < limits_.entry_bytes + limits_.free_reserve_bytes) {
+      if (temporary_bytes < 0 || statvfs(root_.c_str(), &space) ||
+          static_cast<long double>(space.f_bavail) * space.f_frsize <
+              static_cast<long double>(limits_.entry_bytes) + limits_.free_reserve_bytes + temporary_bytes) {
         status = ContextCacheStatus::Unavailable; return {};
       }
       std::string pattern = (root_ / "pending-XXXXXX").string();

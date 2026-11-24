@@ -175,16 +175,21 @@ def load_model(path, expected):
     # accepts self-contained models so an untracked sidecar cannot change a result.
     if any(t.data_location == onnx.TensorProto.EXTERNAL for t in all_tensors(model.graph)):
         raise ValueError("External initializers must first be bundled into a fingerprinted model")
+    validate_model_order(model)
+    return model
+
+
+def validate_model_order(model):
+    import onnx
     try:
         onnx.checker.check_model(model)
     except onnx.checker.ValidationError as error:
         if "must be topologically sorted" not in str(error):
             raise
-        # The compact publisher model's Loop captures a sequence produced later
-        # in the serialized node list. Only the diagnostic copy is reordered.
+        # The compact export and QDQ tooling can serialize a Loop before a
+        # captured sequence producer. Reorder only the derived graph.
         order_captured_inputs(model.graph)
         onnx.checker.check_model(model)
-    return model
 
 
 def all_nodes(graph):
@@ -506,6 +511,12 @@ def prepare(args):
     if args.backend == "htp" and args.precision not in {"float", "a16w8", "a8w8"}:
         raise ValueError("HTP supports the float/FP16-math or calibrated QDQ variants")
 
+    convolutions_only = getattr(args, "convolutions_only", False)
+    if convolutions_only and (args.backend != "htp" or args.precision not in {"a16w8", "a8w8"}):
+        raise ValueError("Convolution calibration requires an HTP QDQ candidate")
+    if convolutions_only and not any(node.op_type == "Conv" for node in model.graph.node):
+        raise ValueError("No top-level Conv operator was found for calibration")
+
     def generate(directory):
         output = directory / "model.onnx"
         onnx.save(model, output)
@@ -542,7 +553,7 @@ def prepare(args):
             config = get_qnn_qdq_config(str(quant_input), Reader(),
                                        activation_type=QuantType.QUInt16 if args.precision == "a16w8" else QuantType.QUInt8,
                                        weight_type=QuantType.QUInt8,
-                                       init_overrides=overrides)
+                                       init_overrides=overrides, op_types_to_quantize=["Conv"] if convolutions_only else None)
             quantized = directory / "quantized.onnx"
             quantize(str(quant_input), str(quantized), config)
             quantized.replace(output)
@@ -550,11 +561,11 @@ def prepare(args):
                 preprocessed.unlink()
             calibration = {"manifestSha256": calibration_hash, "cases": len(feeds),
                            "onnxruntimeVersion": ort.__version__,
-                           "overridesSha256": overrides_hash}
+                           "overridesSha256": overrides_hash, "operatorSelection": ["Conv"] if convolutions_only else "QNN_DEFAULTS"}
         generated = onnx.load(str(output))
         del generated.metadata_props[:]
         generated.metadata_props.extend(model.metadata_props)
-        onnx.checker.check_model(generated)
+        validate_model_order(generated)
         onnx.save(generated, output)
         return {"kind": "kokoro-model-variant", "sourceModelSha256": args.model_sha256,
                 "modelFile": output.name, "modelSha256": digest(output),
@@ -866,6 +877,7 @@ def main(argv=None):
             sub.add_argument("--token-count", required=True, type=int)
             sub.add_argument("--calibration", type=Path)
             sub.add_argument("--overrides", type=Path)
+            sub.add_argument("--convolutions-only", action="store_true", help="Calibrate only Conv operators in an HTP QDQ experiment")
         elif command == "trace":
             selection = sub.add_mutually_exclusive_group(required=True)
             selection.add_argument("--tensor", action="append")

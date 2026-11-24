@@ -53,6 +53,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechCalibrationPolicy
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechEnergyStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackResult
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechPlaybackScenario
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechRejectedOutput
 import dev.chungjungsoo.gptmobile.data.voice.mediaPipeEngine
 import dev.melo.kokoro.TimedKokoro
 import java.text.DateFormat
@@ -335,7 +336,10 @@ private fun VoiceSpeechBenchmarkResults(report: VoiceSpeechBenchmarkReport) {
         }
     } else if (nativeEngine) {
         Text("${report.configuration.workload.label} · ${report.completedSamples}/${report.totalSamples} fixture iterations · ${report.completedChunks} native chunks", style = MaterialTheme.typography.bodySmall)
-        for (result in report.results) VoiceSpeechBenchmarkResultCard(result, report.audioReference(result), result in report.qualifiedResults())
+        val qualified = report.qualifiedResults()
+        for (result in report.results) {
+            VoiceSpeechBenchmarkResultCard(result, report.audioReference(result), report.rejectedOutput(result), result in qualified)
+        }
     } else {
         Text("${report.configuration.workload.label} · ${report.completedSamples}/${report.totalSamples} fixture iterations", style = MaterialTheme.typography.bodySmall)
         for (result in report.engineResults) VoiceSpeechEngineBenchmarkCard(result)
@@ -381,7 +385,12 @@ private fun VoiceSpeechBenchmarkEnergySummary(observation: VoiceSpeechBenchmarkE
 }
 
 @Composable
-private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendResult, reference: VoiceSpeechBenchmarkAudioReference, qualified: Boolean) {
+private fun VoiceSpeechBenchmarkResultCard(
+    result: VoiceSpeechBenchmarkBackendResult,
+    reference: VoiceSpeechBenchmarkAudioReference,
+    rejectedOutput: VoiceSpeechRejectedOutput?,
+    qualified: Boolean
+) {
     var expanded by remember(result.requestedBackend) { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -422,7 +431,7 @@ private fun VoiceSpeechBenchmarkResultCard(result: VoiceSpeechBenchmarkBackendRe
                 if (observation.audioMeasurementAvailable != true) Text("PCM statistics were not measured or are unknown for this failure.", style = MaterialTheme.typography.bodySmall)
                 VoiceContextPreparationDetails(observation.graphPreparationSource, observation.contextCacheStatus, observation.contextLoadMs, observation.contextStoreMs, observation.contextBytes, observation.contextFallback)
             }
-            report.rejectedOutput(result)?.let {
+            rejectedOutput?.let {
                 Text(
                     "Rejected output ${it.candidateFrames} frames / CPU ${it.cpuFrames} frames · duration ratio ${format(it.durationRatio)}" +
                         it.tokenTimingDistance?.let { distance -> " · normalized token timing difference ${format(distance)}" }.orEmpty(),

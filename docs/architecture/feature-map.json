@@ -2894,9 +2894,9 @@
       "sha256": "91741c3b7e2a7fa345292b29688041fbd6ab9d1e4b5c2ea236329662a839ee7f"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkSettings.kt": {
-      "blob_sha": "633f817a02de5898f414130526a1ccf35e29b5e0",
-      "bytes": 49414,
-      "sha256": "b808564a5768f601f9677afc96edc06a7d4d3593ba1493f4f8a0045e51a860eb"
+      "blob_sha": "c40bf18723663f796d2aa84f39fb00415d583fc4",
+      "bytes": 49621,
+      "sha256": "ae08df844fc3ed1ba1f137b2aae78db39898592aab783bf79681c4105202681a"
     },
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceSpeechBenchmarkUiState.kt": {
       "blob_sha": "f3e8197eb42079200599eddb9cf8e98a8908aee8",
@@ -4034,9 +4034,9 @@
       "sha256": "87e64d50ee1b3927465bc1f95b905e4ab0e339c3054815515b08642f745a5e03"
     },
     "docs/audits/kokoro-model-workbench.md": {
-      "blob_sha": "00c5b10620eee7281e75165be3b37547f79831f4",
-      "bytes": 16138,
-      "sha256": "8fe8fb142fccba5aae562996075e55953443bbe1877b47f8d2dc5fdf3d3d5ea6"
+      "blob_sha": "bbff58ae26e13b9e4c2f517669e2282903563d2a",
+      "bytes": 16462,
+      "sha256": "002f6045ed8186bbbf7668b482c5aca9d354b73740e628d682e479d3e66a05dd"
     },
     "docs/audits/kokoro-original-fp32.json": {
       "blob_sha": "3411c3effa62be651b712751b78560e041ec9e23",
@@ -4814,9 +4814,9 @@
       "sha256": "c9c759719603e0b8ac4b957b42b4198964ba5f60af9f95dce76fe82c002545cf"
     },
     "local-kokoro-runtime/src/testHost/test_kokoro_model_workbench.py": {
-      "blob_sha": "8f445776c7baf90a362f043d5f41853c5f8257e1",
-      "bytes": 18210,
-      "sha256": "6a0bd3240b139de7373b3e60375be41d2f6da5b8aa781a8bdb013280f8bcb547"
+      "blob_sha": "1adc928f69c073b42460a7abc1491bb7b9b7b813",
+      "bytes": 20152,
+      "sha256": "4ed408f87d3084a3e20a5bdacc77ce188b855c1811c8434952f0863d3fb62d4b"
     },
     "local-kokoro-runtime/src/testHost/test_kokoro_reference_comparison.py": {
       "blob_sha": "66a603c04e3e28bc875743b72827ffae7387228f",
@@ -4874,9 +4874,9 @@
       "sha256": "dc9322958558bcf334b2b8f7cde834add051ac16986809260bd9e7464950fbca"
     },
     "scripts/kokoro_model_workbench.py": {
-      "blob_sha": "74ab61d9130b1389920999f81aa1e95438002269",
-      "bytes": 47309,
-      "sha256": "508eb1a2ceea7ab6d9cad449890709280ca2eddd3171e995ad1f718cb2e90fb9"
+      "blob_sha": "6a7a082a890bf4f5fd03abe4e1cf23e7ea09b369",
+      "bytes": 48063,
+      "sha256": "7a599055204cd733b12f89be85e400efd6f79c1b4219a214ed6ac413158c6fa7"
     },
     "scripts/native/qnn_gpu_precision_probe.cpp": {
       "blob_sha": "2500df8478fb60c2210c8373dd341e130d8e19ac",

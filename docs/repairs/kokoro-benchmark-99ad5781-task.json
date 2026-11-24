@@ -27,7 +27,7 @@
     "C++ native output validation harness",
     "JVM native evidence parser including cross-process and invalid receipts",
     "35 dependency-free model-workbench tests",
-    "14 actual ONNX/ONNX Runtime preparation, capture and comparison tests using the repository hash-locked dependencies, including the new duration-branch trace",
+    "15 actual ONNX/ONNX Runtime preparation, capture and comparison tests using the repository hash-locked dependencies, including the new duration-branch trace",
     "Release scope validated across 848 changed paths",
     "The full fast validation suite passed 809 tests on the integration revision."
   ],
@@ -50,5 +50,25 @@
       "clippedSamples": 0
     },
     "execution": "Desktop CPU with ONNX Runtime 1.28.0. Each capture uses its own verified source model and the same case file."
+  },
+  "convolutionCandidateHostEvidence": {
+    "source": "original FP32",
+    "precision": "a16w8",
+    "operators": [
+      "Conv"
+    ],
+    "calibrationCases": 6,
+    "tokenCount": 43,
+    "modelSha256": "f9696bc149c0974dd7fb0fdad6d11e4b8d0f44b4c70212a9cecd24eef82c5c6b",
+    "physicalDeviceQualified": false,
+    "cpuFrames": 60600,
+    "htpEmulatorFrames": 60600,
+    "sameTokenDurations": true,
+    "htpEmulatorClippedSamples": 0,
+    "qnnKernelEvents": 7,
+    "cpuKernelEvents": 1838,
+    "qnnKernelMicroseconds": 12676763,
+    "cpuKernelMicroseconds": 1204707,
+    "scope": "One fixed-shape Linux QNN emulator capture with the production adapter. A phone speedup has not been measured."
   }
 }

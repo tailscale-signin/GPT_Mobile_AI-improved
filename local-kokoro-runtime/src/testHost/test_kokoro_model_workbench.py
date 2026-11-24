@@ -124,6 +124,32 @@ class ModelWorkbenchExecutionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must match"):
             workbench.main(arguments)
 
+    def test_convolution_calibration_records_the_selected_operator_and_yields_a_valid_graph(self):
+        model = onnx.load(self.model)
+        with self.assertRaisesRegex(ValueError, "No top-level Conv"):
+            self.run_model("prepare", self.root / "empty-conv", "--backend", "htp", "--precision", "a16w8",
+                           "--token-count", "3", "--convolutions-only")
+        model.graph.initializer.extend([
+            numpy_helper.from_array(np.asarray([1], dtype=np.int64), "axis"),
+            numpy_helper.from_array(np.asarray([[[.5]]], dtype=np.float32), "filter")])
+        model.graph.node.extend([helper.make_node("Unsqueeze", ["audio", "axis"], ["acoustic"]),
+                                 helper.make_node("Conv", ["acoustic", "filter"], ["waveform"], kernel_shape=[1])])
+        model.graph.output.extend([helper.make_tensor_value_info("waveform", TensorProto.FLOAT, [1, 1, "tokens"])])
+        onnx.save(model, self.model)
+        self.model_hash = workbench.digest(self.model)
+        corpus = self.root / "conv-corpus.json"
+        workbench.write_json(corpus, {"schemaVersion": 1, "purpose": "calibration", "cases": [
+            {"id": "conv", "file": self.case.name, "sha256": workbench.digest(self.case)}]})
+        output = self.root / "conv-candidate"
+        manifest = self.run_model("prepare", output, "--backend", "htp", "--precision", "a16w8",
+                                  "--token-count", "3", "--calibration", str(corpus), "--convolutions-only")
+        self.assertEqual(["Conv"], manifest["calibration"]["operatorSelection"])
+        candidate = onnx.load(output / "model.onnx")
+        onnx.checker.check_model(candidate)
+        conv = next(n for n in candidate.graph.node if n.op_type == "Conv")
+        self.assertTrue(any(n.op_type == "DequantizeLinear" and conv.input[1] in n.output for n in candidate.graph.node))
+        self.assertFalse(manifest["physicalDeviceQualified"])
+
     def test_quantization_requires_real_inputs_and_executes_with_fixture_calibration(self):
         output = self.root / "quantized"
         with self.assertRaisesRegex(ValueError, "calibration corpus"):

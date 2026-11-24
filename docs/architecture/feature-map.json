@@ -920,6 +920,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderTransportFailure.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderCooldown.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/PlatformTimeout.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderBudgetEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderFailure.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailure.kt",
@@ -937,7 +938,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
         "scripts/tests/test_chat_method_size.py",
         "authentication/test_incident_report_contract.py",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderToolRejectionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderToolRejectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/PlatformTimeoutTest.kt"
       ],
       "commands": [
         "bash scripts/validate-local.sh fast",
@@ -957,6 +959,7 @@
         "Durable retry requires current route authority, an unchanged output contract and replay-safe typed evidence.",
         "Unknown or malformed budget metadata stays unknown; budget rejection never automatically changes output limits, spending policy or credentials.",
         "Request, response and stream helper state belongs to one collection, preserving cancellation, accounting and cleanup order.",
+        "Saved streaming timeouts remain bounded at the actual OkHttp builder boundary under the Android runtime shadows used by the application.",
         "The packaged named-method guard measures unminified debug/benchmark DEX; release obfuscation and device latency are separate evidence.",
         "HTTP error-body remote-job and reconciliation evidence prevents a new durable wait or manual budget delay and remains attached to the terminal failure.",
         "Standalone accepted or unknown remote state, a closed reconciliation code and an explicit typed retry or replay refusal cannot establish a new known-unaccepted provider wait; raw string and true replay values cannot grant authority.",
@@ -2897,6 +2900,11 @@
       "bytes": 46463,
       "sha256": "4f40a7e71b792087380c97ebb33c311bb7d2d2aa7e9e10e9b376f9e1cb9b393d"
     },
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/PlatformTimeout.kt": {
+      "blob_sha": "e886d7db1fb4bde6a22da50b27a73a6a9f797010",
+      "bytes": 2513,
+      "sha256": "b74988d81dbaf25dad324dd4f653541d910521cec026c2d73ddca4a982560650"
+    },
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRequestByteReplanTest.kt": {
       "blob_sha": "a53ef3692cc50b550c245b2052b4ab0f2a4cc506",
       "bytes": 9821,
@@ -3911,6 +3919,11 @@
       "blob_sha": "44b379ed2e2153a8443ee8c5312f1f12c77c134a",
       "bytes": 66196,
       "sha256": "7e4e3da6ee54ae6ee329ada673724906f6fc7736b265a22a7a8d59b964a5a9f9"
+    },
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/PlatformTimeoutTest.kt": {
+      "blob_sha": "c183e3c0e47ead50998103aa9d5a9d114f5861f2",
+      "bytes": 4827,
+      "sha256": "9fff298a93e24d51d77540fe16eb2251fe9efb0da29382bba42d0ac26a9065ba"
     },
     "authentication/incident_report_contract.py": {
       "blob_sha": "a98f09c0079bdd7156ca7cdc26d6c550794b8dcf",

@@ -152,6 +152,7 @@ internal class IssueReportSubmission(
             IssueReportDiagnostics.INCIDENT_DETAIL_FEATURE,
             IssueReportDiagnostics.RECOVERY_REPORT_FEATURE,
             IssueReportDiagnostics.MISSING_TOOL_IDENTITY_FEATURE,
+            IssueReportDiagnostics.PRECHECK_GROUP_FEATURE,
             IssueReportDiagnostics.POLICY_SELECTION_FEATURE,
             IssueReportDiagnostics.VOICE_FOCUS_RETRIES_FEATURE,
             IssueReportIncidentCapsule.FAILED_EVENT_OUTPUT_FEATURE,

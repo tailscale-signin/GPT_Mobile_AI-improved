@@ -157,17 +157,29 @@ class VoiceSynthesisPerformanceTest {
         assertEquals(4_250L, legacy.primeWaitMs())
     }
 
-    @Test fun explicitPhraseModesKeepTheirLimitsButAllModesProtectMeasuredContinuity() {
+    @Test fun fixedModesKeepTheirLimitsAndIgnoreInvalidSynthesisMeasurements() {
         val fixed = VoiceAdaptivePlayback(VoicePerformanceMode.FAST)
         fixed.observe(6_000, 100)
         fixed.underrun()
         assertEquals(VoiceAdaptivePlayback.MAX_RESERVE_MS, fixed.bufferMs())
         assertEquals(12, fixed.phraseWords(2_000))
-        assertEquals(24, VoiceAdaptivePlayback(VoicePerformanceMode.QUALITY).phraseWords(2_000))
+        assertEquals(16, VoiceAdaptivePlayback(VoicePerformanceMode.BALANCED).phraseWords(2_000))
         val auto = VoiceAdaptivePlayback(VoicePerformanceMode.AUTO)
         auto.observe(-1, 1_000)
         auto.observe(1_000, 0)
         assertEquals(100, auto.bufferMs())
+    }
+
+    @Test fun qualityUsesAShortOpeningAndEarnsLongPhrasesFromMeasuredRefillHeadroom() {
+        val quality = VoiceAdaptivePlayback(VoicePerformanceMode.QUALITY)
+        assertEquals(6, quality.phraseWords(5_000))
+        quality.observe(900, 2_000, recurringMs = 600, spokenWords = 6)
+        assertEquals(6, quality.phraseWords(200))
+        assertEquals(10, quality.phraseWords(1_200))
+        assertEquals(24, quality.phraseWords(5_000))
+        val slow = VoiceAdaptivePlayback(VoicePerformanceMode.QUALITY)
+        slow.observe(2_400, 1_200, spokenWords = 6)
+        assertEquals(8, slow.phraseWords(10_000))
     }
 
     @Test fun productionTailRetainsSlowPhrasesAndReservesRemainBounded() {

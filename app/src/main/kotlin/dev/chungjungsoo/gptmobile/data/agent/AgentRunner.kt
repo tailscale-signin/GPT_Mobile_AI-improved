@@ -2649,7 +2649,7 @@ class AgentRunner(
         AgentContractValidation.admission(tool.definition, call.callId)?.let { return it }
         if (!tool.managesExecutionBudget) {
             val errors = ToolArgumentValidator.errors(call.arguments, tool.definition.inputSchema)
-            if (errors.isNotEmpty()) return requireNotNull(kotlinx.coroutines.currentCoroutineContext()[ToolArgumentRepairScope]).budget.rejection(call.callId, tool.definition, call.arguments, errors, searchValidationOwner = tool.searchValidationOwner)
+            if (errors.isNotEmpty()) return requireNotNull(kotlinx.coroutines.currentCoroutineContext()[ToolArgumentRepairScope]).budget.rejection(call.callId, tool.definition, call.arguments, errors, searchValidationOwner = tool.searchValidationOwner, catalog = tool.argumentCatalog())
         }
         val replayableRead = replayableRead(call, tool)
         val phoneInterruption = PhoneIndexInterruption(call)

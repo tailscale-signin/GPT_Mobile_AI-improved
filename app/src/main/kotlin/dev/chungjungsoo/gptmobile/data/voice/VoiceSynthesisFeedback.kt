@@ -85,18 +85,18 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     private fun reserveCostMs(startup: Boolean): Long? = if (streamCadence.started) streamCadence.reserveCostMs() else predictedSynthesisMs(startup)
 
     @Synchronized fun phraseWords(bufferedMs: Long): Int {
-        if (mode != VoicePerformanceMode.AUTO) return mode.followUpWords
+        if (!mode.usesMeasuredPhraseLength) return mode.followUpWords
         if (observations == 0) return OPENING_WORDS
         val wordCost = recentWordCostMs.maxOrNull()
         if (wordCost != null && bufferedMs >= 300) {
-            val continuityBudget = (bufferedMs / (wordCost * 1.2)).toInt().coerceIn(6, 16)
+            val continuityBudget = (bufferedMs / (wordCost * 1.2)).toInt().coerceIn(OPENING_WORDS, mode.followUpWords)
             return if (productionRatio >= 1.0) minOf(8, continuityBudget) else continuityBudget
         }
         return when {
             bufferedMs < 300 -> 6
             productionRatio >= 1.0 -> 8
             bufferedMs < 1_000 -> 12
-            else -> 16
+            else -> mode.followUpWords
         }
     }
 

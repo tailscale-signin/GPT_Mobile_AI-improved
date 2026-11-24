@@ -188,7 +188,7 @@ class ToolExecutionBudget(
                 }
             }
             if (invalid.isNotEmpty()) {
-                val rejected = argumentRepairs.rejection(callId, definition, arguments, invalid, searchValidationOwner = tool.searchValidationOwner)
+                val rejected = argumentRepairs.rejection(callId, definition, arguments, invalid, searchValidationOwner = tool.searchValidationOwner, catalog = tool.argumentCatalog())
                 return { withBudgetState(rejected) }
             }
             semanticArgumentRejections[signature]?.let { previous ->

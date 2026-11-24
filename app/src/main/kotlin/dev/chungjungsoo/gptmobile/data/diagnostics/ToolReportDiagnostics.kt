@@ -139,6 +139,48 @@ internal object ToolReportDiagnostics {
         }
     }
 
+    /** Exists only in memory. Receipt JSON cannot impersonate a recorder-owned group key. */
+    internal data class PrecheckIdentity(val digest: String)
+
+    private fun precheckIdentity(event: ToolEvent, result: AgentToolResult, arguments: JsonObject): PrecheckIdentity? {
+        val receipt = result.executionReceipt ?: return null
+        if (!result.isError ||
+            result.dispatched ||
+            event.runId.isBlank() ||
+            event.modelToolName.isBlank() ||
+            receipt["requires_reconciliation"] == JsonPrimitive(true) ||
+            receipt["remote_acceptance"] in setOf(JsonPrimitive("YES"), JsonPrimitive("UNKNOWN"))
+        ) {
+            return null
+        }
+        val eligible = receipt["argument_validation_call_id"] == JsonPrimitive(event.callId) &&
+            result.errorCode == "INVALID_ARGUMENTS" ||
+            receipt["schema"] == JsonPrimitive("gptmobile.round-tool-catalog.v1") &&
+            receipt["call_id"] == JsonPrimitive(event.callId) &&
+            receipt["reason_code"] == JsonPrimitive("UNKNOWN_TOOL") &&
+            receipt["catalog_revision_hash"] != null ||
+            receipt["failed_stage"] == JsonPrimitive("tool_precheck") &&
+            receipt["dependency_admission_reasons"] is JsonArray &&
+            result.errorCode in setOf("DEPENDENCY_DEFERRED", "DEPENDENCY_FAILED", "NOT_DISPATCHED")
+        if (!eligible) return null
+        val scope = receipt.filterKeys { key ->
+            key in setOf("schema", "reason_code", "reasonCode", "missing_tool_hash", "discovery_available", "native_dependency_state", "dependency_admission_reasons", "dependency_call_id_hashes", "dependency_repeat_scope", "dependency_repeat_limit", "argument_repair_signature_hash", "tool_schema_hash", "recovery_action", "repair_action") ||
+                listOf("grant", "policy", "authority", "revision", "checkpoint_binding").any(key::contains)
+        }
+        val identity = JsonArray(
+            listOf(
+                JsonPrimitive(event.runId),
+                JsonPrimitive(event.connectionUidSnapshot),
+                JsonPrimitive(event.toolName),
+                JsonPrimitive(event.modelToolName),
+                arguments,
+                JsonPrimitive(result.errorCode),
+                JsonObject(scope)
+            )
+        )
+        return PrecheckIdentity(dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(identity))
+    }
+
     fun fields(event: ToolEvent?, result: AgentToolResult, precheckReason: String? = null): Map<String, Any?> = buildMap {
         if (event == null || event.callId != result.callId) return@buildMap
         put("diagnostic_area", "TOOL")
@@ -265,6 +307,7 @@ internal object ToolReportDiagnostics {
         if (missingPathPrecheck) put("tool_reason_code", "GITHUB_PATH_NOT_FOUND")
         val arguments = event.arguments.takeIf { it.length <= MAX_ARGUMENT_CHARS }
             ?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+        if (arguments != null) precheckIdentity(event, result, arguments)?.let { put("local_precheck_identity", it) }
         val stoppedPhoneIndex = result.isError &&
             result.errorCode == "PHONE_INDEX_INTERRUPTED" &&
             event.modelToolName.substringBefore("__") == "repository_graph" &&

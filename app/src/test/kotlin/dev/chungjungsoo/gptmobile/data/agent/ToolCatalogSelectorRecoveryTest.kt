@@ -65,6 +65,38 @@ class ToolCatalogSelectorRecoveryTest {
         assertEquals(0, coldCalls)
     }
 
+    @Test fun splitOneSupportedLocalActionAcrossExactNamesWithoutDispatchingAnyRepositoryOperation() = runTest {
+        val definitions = listOf("github_pr__first", "github_pr__second").map { GitHubOperationTool.definition("github_pr", it) }
+        var coldCalls = 0
+        val catalog = ProgressiveToolCatalog(definitions, "Inspect pull requests", githubMode = true, acquireCold = { _, _ ->
+            coldCalls++
+            emptyList()
+        })
+        val budgeted = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 8)).bind(catalog.withRunContext("multi-selector"))
+        val original = buildJsonObject {
+            put("names", JsonArray(definitions.map { JsonPrimitive(it.name) }))
+            put("action", "list")
+        }
+        val rejected = budgeted.execute("original", original)
+        assertTrue(rejected.isError)
+        assertFalse(rejected.dispatched)
+        val payload = (rejected.content as ToolResultContent.Json).value.jsonObject
+        val selectors = payload.getValue("correction_calls") as JsonArray
+        assertEquals(2, selectors.size)
+        selectors.forEachIndexed { index, value ->
+            val selector = value.jsonObject.getValue("arguments").jsonObject
+            assertEquals(JsonArray(listOf(JsonPrimitive(definitions[index].name))), selector["names"])
+            assertEquals(JsonPrimitive(true), selector["catalog_only"])
+            val selected = budgeted.execute("single-$index", selector)
+            assertFalse(selected.toString(), selected.isError)
+            assertFalse(selected.dispatched)
+        }
+        assertEquals(0, coldCalls)
+        assertTrue(catalog.singleActionSelectors(JsonObject(original + ("catalog_only" to JsonPrimitive(false)))).isEmpty())
+        assertTrue(catalog.singleActionSelectors(JsonObject(original + ("action" to JsonPrimitive("unsupported")))).isEmpty())
+        assertTrue(catalog.singleActionSelectors(JsonObject(original + ("names" to JsonArray(listOf(JsonPrimitive(definitions.first().name), JsonPrimitive("unassigned")))))).isEmpty())
+    }
+
     @Test fun searchAliasPreservesNamedActionsAndRejectsConflictingOrMalformedSelectors() = runTest {
         val definition = GitHubOperationTool.definition("github_search", "github_search__native")
         val catalog = ProgressiveToolCatalog(listOf(definition), "Read repository instructions", githubMode = true)

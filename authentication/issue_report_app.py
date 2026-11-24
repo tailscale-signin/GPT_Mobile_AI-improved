@@ -79,6 +79,7 @@ def create_app(public_url, reporter, rate_key):
                 "SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1",
                 "RECOVERY_REPORT_EVIDENCE_V1",
                 "CATALOG_MISSING_TOOL_IDENTITY_V1",
+                "TOOL_PRECHECK_GROUP_V1",
                 "GITHUB_POLICY_SELECTION_FIELDS_V1",
                 "VOICE_FOCUS_RETRY_COUNT_V1",
                 "FAILED_EVENT_OUTPUT_FIELDS_V1",

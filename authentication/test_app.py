@@ -589,6 +589,7 @@ class IssueReportHttpTest(unittest.TestCase):
         additions.extend(["SAVED_PAGE_REPLAY_EVIDENCE_V1", "GRAPH_LOCAL_CONTEXT_FAILURE_V1", "PROVIDER_LIMIT_CAUSE_EVIDENCE_V1"])
         additions.append("RECOVERY_REPORT_EVIDENCE_V1")
         additions.append("CATALOG_MISSING_TOOL_IDENTITY_V1")
+        additions.append("TOOL_PRECHECK_GROUP_V1")
         additions.extend(["GITHUB_POLICY_SELECTION_FIELDS_V1", "VOICE_FOCUS_RETRY_COUNT_V1", "FAILED_EVENT_OUTPUT_FIELDS_V1"])
         additions.insert(0, "FRAMEWORK_EXCEPTION_FRAMES_V1")
         additions.insert(additions.index("PRIVACY_ELIGIBILITY_EVIDENCE_V1") + 1, "PRIVACY_FINAL_REQUEST_EVIDENCE_V1")
@@ -644,6 +645,20 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
                 self.assertIn("| changed_policy_field_count | `" + str(len(names)) + "` |", self.issued[-1]["body"])
         self.assertEqual(6, len(self.issued))
+
+    def test_grouped_tool_prechecks_keep_bounded_call_evidence_at_the_http_receiver(self):
+        feature = "TOOL_PRECHECK_GROUP_V1"
+        self.assertIn(feature, self.client.get("/health/ready?capabilities=extended").json()["reportDiagnosticFeatures"])
+        self.assertNotIn(feature, self.client.get("/health/ready").json()["reportDiagnosticFeatures"])
+        values = {"precheck_rejection_count": 3, "precheck_call_hashes": ["a" * 64, "b" * 64], "precheck_span_ms": 567}
+        capture = self.diagnostics("TOOL", values)
+        context = self.context(schemaVersion=5, source="TOOL_RESULT", diagnostics=capture)
+        report = {**self.manual(), "context": context}
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertIn("precheck_rejection_count", self.issued[-1]["body"])
+        for key, invalid in (("precheck_rejection_count", True), ("precheck_call_hashes", ["private-call"]), ("precheck_span_ms", -1)):
+            changed = {**capture, "values": {**values, key: invalid}}
+            self.assertEqual(422, self.submit({**report, "reportId": str(uuid4()), "context": {**context, "diagnostics": changed}}).status_code)
 
     def test_catalog_missing_tool_identity_is_advertised_with_receiver_validation(self):
         feature = "CATALOG_MISSING_TOOL_IDENTITY_V1"

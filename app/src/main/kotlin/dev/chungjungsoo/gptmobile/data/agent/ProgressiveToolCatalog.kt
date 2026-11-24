@@ -510,10 +510,31 @@ class ProgressiveToolCatalog(
         return corrected.takeIf { ToolArgumentValidator.errors(it, definition.inputSchema).isEmpty() } ?: arguments
     }
 
+    /** Split an invalid local action selection only when every exact tool supports that action. */
+    @Synchronized
+    internal fun singleActionSelectors(arguments: JsonObject): List<JsonObject> {
+        if (arguments.keys.any { it !in setOf("action", "names", "query", "catalog_only") } ||
+            arguments["catalog_only"] !in setOf(null, JsonPrimitive(true))
+        ) {
+            return emptyList()
+        }
+        val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return emptyList()
+        val names = arguments["names"] as? JsonArray ?: return emptyList()
+        if (names.size !in 2..12 || names.distinct().size != names.size) return emptyList()
+        return names.map { name ->
+            val literal = (name as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return emptyList()
+            val candidate = candidates[literal] ?: return emptyList()
+            if (GitHubActionSchema.project(candidate, action) == null) return emptyList()
+            val selector = JsonObject(arguments + ("names" to JsonArray(listOf(name))) + ("catalog_only" to JsonPrimitive(true)))
+            if (ToolArgumentValidator.errors(selector, definition.inputSchema).isNotEmpty()) return emptyList()
+            selector
+        }
+    }
+
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val arguments = canonicalArguments(arguments)
         val invalid = ToolArgumentValidator.errors(arguments, definition.inputSchema)
-        if (invalid.isNotEmpty()) return ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, invalid)
+        if (invalid.isNotEmpty()) return ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, invalid, catalog = this)
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val repositoryHint = RepositoryToolHint.parse(arguments)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)

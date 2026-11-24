@@ -119,5 +119,7 @@ internal enum class VoicePerformanceMode(val label: String, val followUpWords: I
     AUTO("Auto", 16, 100, 60),
     QUALITY("Quality", 24, 180, 100),
     BALANCED("Balanced", 16, 100, 60),
-    FAST("Fast", 12, 45, 0)
+    FAST("Fast", 12, 45, 0);
+
+    val usesMeasuredPhraseLength: Boolean get() = this == AUTO || this == QUALITY
 }

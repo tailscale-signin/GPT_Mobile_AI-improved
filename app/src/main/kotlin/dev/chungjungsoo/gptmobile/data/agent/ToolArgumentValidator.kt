@@ -74,7 +74,8 @@ internal object ToolArgumentValidator {
     }
 
     /** A safe read recipe is constructed from the actual registered schema; no ID is inferred. */
-    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema), readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet(), ciRejections: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.CiRejection> = emptySet(), searchValidationOwner: GitHubSearchValidationEvidence.Owner? = null): AgentToolResult {
+    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema), readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet(), ciRejections: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.CiRejection> = emptySet(), searchValidationOwner: GitHubSearchValidationEvidence.Owner? = null, catalog: ProgressiveToolCatalog? = null): AgentToolResult {
+        val selectors = catalog?.singleActionSelectors(arguments).orEmpty()
         val correction = discoveryCorrection(toolName, arguments, schema)
         val selector = selectorProblem(toolName, arguments)
         val rejected = AgentToolResult(
@@ -84,12 +85,32 @@ internal object ToolArgumentValidator {
                     put("schema", "gptmobile.arguments.v2")
                     put("operation", toolName)
                     val message = repairMessage(toolName, validationErrors, schema, arguments)
-                    put("message", if (correction == null) message else "$message Use correction_call for the bounded read.")
+                    put(
+                        "message",
+                        when {
+                            selectors.isNotEmpty() -> "$message Use each correction_calls entry once with a fresh call ID to inspect its local action schema."
+                            correction != null -> "$message Use correction_call for the bounded read."
+                            else -> message
+                        }
+                    )
                     put("validation_errors", JsonArray(validationErrors.map(::JsonPrimitive)))
                     put("state", "PRECHECK_REJECTED")
                     put("dispatched", false)
                     put("retryable", false)
-                    put("corrected_proposal_limit", 1)
+                    put("corrected_proposal_limit", selectors.size.coerceAtLeast(1))
+                    if (selectors.isNotEmpty()) {
+                        put(
+                            "correction_calls",
+                            JsonArray(
+                                selectors.map { selectorArguments ->
+                                    buildJsonObject {
+                                        put("tool", toolName)
+                                        put("arguments", selectorArguments)
+                                    }
+                                }
+                            )
+                        )
+                    }
                     if (selector != null) {
                         put("reason", selector.reason)
                         put(

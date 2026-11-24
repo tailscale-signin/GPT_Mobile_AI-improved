@@ -630,12 +630,12 @@ class VoiceSession(
 
     /** Stable words may meet the adaptive time budget while the provider pauses between chunks. */
     internal fun nextSpeechFlushDelayMs(): Long? {
-        if (performanceMode != VoicePerformanceMode.AUTO || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !accessAllowed()) return null
+        if (!performanceMode.usesMeasuredPhraseLength || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !accessAllowed()) return null
         return speechBuffer.nextFlushDelayMs(synthesisFeedback())
     }
 
     fun flushSpeech() {
-        if (performanceMode != VoicePerformanceMode.AUTO || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !accessAllowed()) return
+        if (!performanceMode.usesMeasuredPhraseLength || !speakWhileGenerating || !waiting || streamComplete || !streamAudio || !accessAllowed()) return
         streamId?.let { streamReply(it, state.reply) }
     }
 
@@ -654,7 +654,7 @@ class VoiceSession(
         // While generating, start after a stable phrase. A completed response or explicit
         // replay already has its full text and can retain natural sentence boundaries.
         val chunks = if (complete || speakWhileGenerating) {
-            speechBuffer.append(text, complete, earlyStart = !complete, followUpWords = performanceMode.followUpWords, feedback = synthesisFeedback(), adaptive = performanceMode == VoicePerformanceMode.AUTO)
+            speechBuffer.append(text, complete, earlyStart = !complete, followUpWords = performanceMode.followUpWords, feedback = synthesisFeedback(), adaptive = performanceMode.usesMeasuredPhraseLength)
         } else {
             emptyList()
         }

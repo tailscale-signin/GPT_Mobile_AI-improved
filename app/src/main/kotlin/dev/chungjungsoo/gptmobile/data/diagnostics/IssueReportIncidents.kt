@@ -54,6 +54,9 @@ internal object IssueReportIncidents {
         val stage: String?,
         val exceptionFingerprint: String?
     )
+    private data class PendingPrecheck(val identity: ToolReportDiagnostics.PrecheckIdentity, val calls: MutableSet<String>)
+
+    private val pendingPrechecks = mutableMapOf<String, PendingPrecheck>()
     private val lastFailures = mutableMapOf<FailureKey, Long>()
     private val lastCauses = mutableMapOf<IssueReportIncidentCapsule.CausalIdentity, Long>()
     private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -121,6 +124,7 @@ internal object IssueReportIncidents {
         events.clear()
         lastFailures.clear()
         lastCauses.clear()
+        pendingPrechecks.clear()
         clearDiagnosticSnapshots()
     }
 
@@ -295,7 +299,12 @@ internal object IssueReportIncidents {
             // neither raw exception text nor stack details are stored in this index.
             val fingerprint = evidence.exceptionFingerprint ?: error?.let(IssueReportContext::exceptionFingerprint)
             val key = FailureKey(feature, publicCode, evidence.runIdHash, evidence.invocationIdHash, evidence.callIdHash, evidence.jobIdHash, evidence.activeJobIdHash, evidence.stage, fingerprint)
-            if (feature == ReportFeature.TOOLS && mergeCatalogRejection(evidence, publicCode)) return
+            val precheck = if (feature == ReportFeature.TOOLS && reportSource == "TOOL_RESULT" && evidence.dispatched == false && evidence.requiresReconciliation != true) {
+                fields["local_precheck_identity"] as? ToolReportDiagnostics.PrecheckIdentity
+            } else {
+                null
+            }
+            if (feature == ReportFeature.TOOLS && mergePrecheck(evidence, publicCode, precheck)) return
             evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
             addEvent('E', feature, publicCode)
             val cause = IssueReportIncidentCapsule.identity(evidence, publicCode)
@@ -310,7 +319,7 @@ internal object IssueReportIncidents {
                 lastCauses[cause] = now
             }
             val report = IssueReport.debug(feature, publicCode, recentEvents(), error, evidence)
-            addPending(if (error == null) report.withCapturedException(fields) else report)
+            addPending(if (error == null) report.withCapturedException(fields) else report, precheck)
         }
     }
 
@@ -543,6 +552,7 @@ internal object IssueReportIncidents {
         if (!enabled) {
             synchronized(lock) {
                 mutablePending.value = emptyList()
+                pendingPrechecks.clear()
                 clearDiagnosticSnapshots()
                 if (!AppLogRecorder.enabled.value) clearRecent()
             }
@@ -555,7 +565,10 @@ internal object IssueReportIncidents {
     }
 
     suspend fun dismiss(reportId: String) {
-        synchronized(lock) { mutablePending.value = mutablePending.value.filterNot { it.reportId == reportId } }
+        synchronized(lock) {
+            mutablePending.value = mutablePending.value.filterNot { it.reportId == reportId }
+            pendingPrechecks.remove(reportId)
+        }
         withContext(Dispatchers.IO) { crashFile(reportId)?.delete() }
     }
 
@@ -576,38 +589,52 @@ internal object IssueReportIncidents {
         events.addLast(RecentEvent(now, line, code != null && level in "WEF"))
     }
 
-    private fun mergeCatalogRejection(evidence: IssueReportContext, code: String): Boolean {
+    private fun mergePrecheck(evidence: IssueReportContext, code: String, identity: ToolReportDiagnostics.PrecheckIdentity?): Boolean {
         val run = evidence.runIdHash ?: return false
         val fields = evidence.diagnostics?.values ?: return false
-        val catalog = fields["catalog_revision_hash"] ?: return false
-        val missingTool = fields["missing_tool_hash"] ?: return false
-        if (fields["catalog_rejection_count"] != JsonPrimitive(1) || fields["tool_reason_code"] != JsonPrimitive("UNKNOWN_TOOL")) return false
+        val catalog = fields["catalog_revision_hash"]
+        val missingTool = fields["missing_tool_hash"]
+        val catalogMiss = catalog != null &&
+            missingTool != null &&
+            fields["catalog_rejection_count"] == JsonPrimitive(1) &&
+            fields["tool_reason_code"] == JsonPrimitive("UNKNOWN_TOOL")
+        if (identity == null && !catalogMiss) return false
         val queued = mutablePending.value
         val index = queued.indexOfFirst {
             val previousContext = it.context ?: return@indexOfFirst false
             val earlier = previousContext.diagnostics?.values.orEmpty()
             it.errorCode == code &&
                 previousContext.runIdHash == run &&
+                pendingPrechecks[it.reportId]?.identity == identity &&
                 earlier["catalog_revision_hash"] == catalog &&
                 earlier["missing_tool_hash"] == missingTool &&
                 previousContext.operation == evidence.operation &&
                 previousContext.checkpointBindingHash == evidence.checkpointBindingHash &&
                 previousContext.recoveryAction == evidence.recoveryAction &&
-                listOf("tool_reason_code", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "round_catalog_discovery_available").all { name -> earlier[name] == fields[name] }
+                listOf("tool_name_hash", "tool_reason_code", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "round_catalog_discovery_available", "mcp_connection_hash").all { name -> earlier[name] == fields[name] }
         }
         if (index < 0) return false
         val first = queued[index]
         val context = first.context ?: return false
         val diagnostic = context.diagnostics ?: return false
-        val previous = (diagnostic.values["catalog_rejection_count"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return false
         val call = evidence.callIdHash ?: return false
-        val samples = (diagnostic.values["catalog_rejected_call_hashes"] as? kotlinx.serialization.json.JsonArray).orEmpty()
-        if (JsonPrimitive(call) in samples || call == context.callIdHash) return true
-        val count = "catalog_rejection_count" to JsonPrimitive((previous + 1).coerceAtMost(100_000))
+        val countField = if (catalogMiss) "catalog_rejection_count" else "precheck_rejection_count"
+        val sampleField = if (catalogMiss) "catalog_rejected_call_hashes" else "precheck_call_hashes"
+        val previous = (diagnostic.values[countField] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
+        val samples = (diagnostic.values[sampleField] as? JsonArray).orEmpty()
+        val seen = pendingPrechecks[first.reportId]?.calls
+        if (call == context.callIdHash || call in seen.orEmpty() || JsonPrimitive(call) in samples) return true
+        if (seen != null && seen.size >= 1024) return false
         val prior = (listOfNotNull(context.callIdHash?.let(::JsonPrimitive)) + samples).distinct()
-        val hashes = prior.take(7) + JsonPrimitive(call)
-        val updatedDiagnostic = diagnostic.copy(values = diagnostic.values + count + ("catalog_rejected_call_hashes" to kotlinx.serialization.json.JsonArray(hashes))).validated()
-            ?: diagnostic.copy(values = diagnostic.values + count).validated() ?: return false
+        val latest = diagnostic.values.toMutableMap()
+        latest[countField] = JsonPrimitive(previous + 1)
+        latest["precheck_span_ms"] = JsonPrimitive((evidence.occurredAtMillis - context.occurredAtMillis).coerceIn(0, 86_400_000))
+        for (field in listOf("argument_repair_attempt", "argument_repair_exhausted")) fields[field]?.let { latest[field] = it }
+        // Keep the first and latest call joinable even when the diagnostic capsule is near its byte ceiling.
+        val updatedDiagnostic = (minOf(prior.size, 7) downTo 1).firstNotNullOfOrNull { kept ->
+            diagnostic.copy(values = latest + (sampleField to JsonArray(prior.take(kept) + JsonPrimitive(call)))).validated()
+        } ?: return false
+        seen?.add(call)
         val updated = first.copy(context = context.copy(diagnostics = updatedDiagnostic))
         mutablePending.value = queued.toMutableList().also { it[index] = updated }
         ReportDiagnosticSnapshots.retain(updatedDiagnostic)
@@ -615,8 +642,10 @@ internal object IssueReportIncidents {
         return true
     }
 
-    private fun addPending(report: IssueReport) {
+    private fun addPending(report: IssueReport, precheck: ToolReportDiagnostics.PrecheckIdentity? = null) {
         if (mutablePending.value.size < PENDING_LIMIT && mutablePending.value.none { it.reportId == report.reportId }) {
+            val call = report.context?.callIdHash
+            if (precheck != null && call != null) pendingPrechecks[report.reportId] = PendingPrecheck(precheck, mutableSetOf(call))
             mutablePending.value = (mutablePending.value + report).take(PENDING_LIMIT)
             // The queue is bounded; Send/export also retain every still-pending report synchronously.
             pendingCorrelations.trySend(report)

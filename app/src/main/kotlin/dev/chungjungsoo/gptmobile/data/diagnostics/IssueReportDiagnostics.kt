@@ -99,6 +99,7 @@ internal data class IssueReportDiagnostics(
             add(dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.FEATURE)
         }
         if ((values.keys + omittedFields).any { it in incidentDetailFields }) add(INCIDENT_DETAIL_FEATURE)
+        if ((values.keys + omittedFields).any { it in precheckGroupFields }) add(PRECHECK_GROUP_FEATURE)
         if ("missing_tool_hash" in values.keys + omittedFields) add(MISSING_TOOL_IDENTITY_FEATURE)
         if ((values.keys + omittedFields).any { it in recoveryReportFields } ||
             values["replay_budget_state"] in setOf(JsonPrimitive("SAVED_PAGE_BODY_UNAVAILABLE"), JsonPrimitive("SAVED_PAGE_DELIVERY_MISMATCH"))
@@ -249,6 +250,8 @@ internal data class IssueReportDiagnostics(
     companion object {
         const val INCIDENT_DETAIL_FEATURE = "RUNTIME_INCIDENT_DETAILS_V1"
         const val RECOVERY_REPORT_FEATURE = "RECOVERY_REPORT_EVIDENCE_V1"
+        const val PRECHECK_GROUP_FEATURE = "TOOL_PRECHECK_GROUP_V1"
+        private val precheckGroupFields = setOf("precheck_rejection_count", "precheck_call_hashes", "precheck_span_ms")
         const val MISSING_TOOL_IDENTITY_FEATURE = "CATALOG_MISSING_TOOL_IDENTITY_V1"
         const val POLICY_SELECTION_FEATURE = "GITHUB_POLICY_SELECTION_FIELDS_V1"
         const val VOICE_FOCUS_RETRIES_FEATURE = "VOICE_FOCUS_RETRY_COUNT_V1"
@@ -262,7 +265,7 @@ internal data class IssueReportDiagnostics(
             "PROVIDER" to requiredSchemaDetailFields + setOf("dispatch_gateway_selection_change", "reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),
             "APP" to setOf("native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash", "anr_trace_state", "anr_frame_count"),
             "INCIDENT" to researchEvidenceFields + setOf("dispatch_gateway_selection_change", "failure_boundary", "stream_answer_state"),
-            "TOOL" to setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode", "catalog_revision_hash", "missing_tool_hash", "catalog_rejection_count", "catalog_selector_count", "catalog_rejected_call_hashes"),
+            "TOOL" to precheckGroupFields + setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode", "catalog_revision_hash", "missing_tool_hash", "catalog_rejection_count", "catalog_selector_count", "catalog_rejected_call_hashes"),
             "ACCEPTANCE" to setOf("acceptance_verified_claim_count", "acceptance_unmeasured_claim_count", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash")
         )
         private val incidentDetailFields = incidentDetailsByArea.values.flatten().toSet()
@@ -415,6 +418,7 @@ internal data class IssueReportDiagnostics(
         )
         private val attempts = completionEvidenceFields + setOf("backend_attempts", "backend_completed_attempts", "backend_failed_attempt", "repair_attempts", "repair_attempt_limit")
         private val durations = setOf(
+            "precheck_span_ms",
             "reasoning_probe_age_ms", "reasoning_metadata_age_ms",
             "github_transport_wait_ms",
             "voice_speech_end_to_transcript_ms",
@@ -427,7 +431,7 @@ internal data class IssueReportDiagnostics(
             "voice_warmup_ms"
         )
         private val counts = replayBudgetCounts + capacityEvidenceCounts + githubSchemaBudgetFields + requiredSchemaDetailFields + setOf(
-            "research_unread_sources", "research_read_sources", "research_blocked_sources", "catalog_rejection_count", "catalog_selector_count",
+            "precheck_rejection_count", "research_unread_sources", "research_read_sources", "research_blocked_sources", "catalog_rejection_count", "catalog_selector_count",
             "search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count",
             "tool_budget_bytes_available",
             "github_cooldown_remaining_requests",
@@ -785,12 +789,12 @@ internal data class IssueReportDiagnostics(
 
         private fun validatedValue(key: String, value: JsonElement): JsonElement? {
             IssueReportIncidentCapsule.validValue(key, value)?.let { return it }
-            if (key in hashLists || key in enumLists || key == "catalog_rejected_call_hashes") {
+            if (key in hashLists || key in enumLists || key in setOf("catalog_rejected_call_hashes", "precheck_call_hashes")) {
                 val items = value as? JsonArray ?: return null
                 if (items.size !in 1..MAX_CRITERIA) return null
                 val copied = items.map { item ->
                     val text = string(item) ?: return null
-                    if ((key in hashLists || key == "catalog_rejected_call_hashes") && !hashPattern.matches(text) || key in enumLists && text !in enumLists.getValue(key)) return null
+                    if ((key in hashLists || key in setOf("catalog_rejected_call_hashes", "precheck_call_hashes")) && !hashPattern.matches(text) || key in enumLists && text !in enumLists.getValue(key)) return null
                     JsonPrimitive(text)
                 }
                 return JsonArray(copied)

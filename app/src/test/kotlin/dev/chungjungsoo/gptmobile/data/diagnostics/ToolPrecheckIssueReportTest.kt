@@ -65,6 +65,41 @@ class ToolPrecheckIssueReportTest {
         assertFalse(report.toString().contains("private rejected request"))
     }
 
+    @Test fun repeatedArgumentPrechecksKeepFirstAndLastCallWithoutCombiningTargetsOrGrants() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        suspend fun reject(id: String, path: String = "private-a", grant: String = "grant-a", attempt: Int = 1) {
+            val event = ToolEvent("event-$id", "same-run", 1, id, grant, null, "github_read", "github_read", buildJsonObject { put("path", path) }.toString(), null, null, ToolEventStatus.RUNNING)
+            val dao = mockk<AgentPersistenceDao>()
+            coEvery { dao.getToolEventById(event.eventId) } returns event
+            coEvery { dao.finishToolEvent(any(), any(), any(), any(), any(), any(), any(), any()) } returns 1
+            val receipt = buildJsonObject {
+                put("failed_stage", "tool_precheck")
+                put("argument_validation_call_id", id)
+                put("reason_code", "TOOL_ARGUMENT_SCHEMA_REJECTED")
+                put("argument_repair_attempt", attempt)
+                put("argument_repair_exhausted", attempt >= 2)
+            }
+            val result = ToolResultEnvelope.error(id, "INVALID_ARGUMENTS", "Invalid arguments").copy(dispatched = false, executionReceipt = receipt)
+            ToolEventRecorder(dao, mockk()).finishTool(event.eventId, result, 2L)
+        }
+        reject("one")
+        val original = IssueReportIncidents.pending.value.single()
+        reject("two", attempt = 2)
+        reject("two", attempt = 2)
+        val grouped = IssueReportIncidents.pending.value.single()
+        assertEquals(original.reportId, grouped.reportId)
+        val fields = checkNotNull(grouped.context?.diagnostics).values
+        assertEquals(JsonPrimitive(2), fields["precheck_rejection_count"])
+        assertEquals(JsonPrimitive(2), fields["argument_repair_attempt"])
+        val calls = kotlinx.serialization.json.JsonArray(listOf("one", "two").map { JsonPrimitive(IssueReportContext.identifierHash("call", it)) })
+        assertEquals(calls, fields["precheck_call_hashes"])
+        assertFalse("precheck_rejection_count" in checkNotNull(original.context?.diagnostics).values)
+        assertFalse(grouped.toString().contains("private-a"))
+        reject("other-target", path = "private-b")
+        reject("other-grant", grant = "grant-b")
+        assertEquals(3, IssueReportIncidents.pending.value.size)
+    }
+
     @Before
     @After
     fun reset() {

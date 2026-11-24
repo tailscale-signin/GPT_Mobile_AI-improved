@@ -40,5 +40,13 @@
   "limitations": [
     "The limit change does not reduce package size or establish device performance.",
     "No release may be claimed until the normal publisher completes and public readback is verified."
-  ]
+  ],
+  "build_150_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "67dce0e844603c704bf87c51112de243eac73c48",
+    "working_branch": "fix/release-universal-apk-budget-2026-11-24",
+    "reviewed_head": "49ed78143b5bc4a1a954b62b4f8820584b1dd3f7",
+    "intent": "Complete the remaining Quality playback and tool precheck findings from the build 150 audit and qualify the coordinated release."
+  }
 }

@@ -8,8 +8,11 @@ the audited QNN2.8/QAIRT2.52 package. Host and application versions must match.
 Nothing is downloaded.
 The copied host build selects QNN's x86 CPU-emulator device instead of Android
 HTP and adds its documented architecture settings. One test-only barrier throws
-after actual ORT execution, before Sherpa ends profiling. Model/cache/JNI code,
-the real graph, real outputs and production profile parsing are unchanged.
+after actual ORT execution, before Sherpa ends profiling. A separate barrier
+pauses after actual BASIC source preparation and returns normally after release,
+so production cancellation must prevent compilation and uncached fallback.
+Model/cache/JNI behavior, the real graph, real outputs and profile parsing remain
+production code; every explicit test-only port is retained in the receipt.
 This is neither a physical device nor Android packaging qualification.
 """
 
@@ -192,6 +195,22 @@ def main():
     port(native / "kokoro_execution_provider.h", provider_port)
     for name in ["kokoro_profile_fault.h", "kokoro_profile_fault.cpp"]:
         shutil.copy2(test_host / name, native / name)
+
+    def context_port(text):
+        text = replace_once(text, '#include "kokoro_execution_provider.h"',
+                            '#include "kokoro_execution_provider.h"\n#include "kokoro_profile_fault.h"')
+        text = replace_once(text, '  }  // Release the CPU preparation session before allocating QNN graphs.\n',
+                            '  }  // Release the CPU preparation session before allocating QNN graphs.\n'
+                            '  KokoroHostContextPreparedBoundary();  // Test-only barrier after the real save.\n')
+        return replace_once(text, '    Ort::ThrowOnError(compile_api.CompileModel(env, compilation));',
+                            '    KokoroHostContextCompileStarted();  // Count actual attempted compiler entries.\n'
+                            '    Ort::ThrowOnError(compile_api.CompileModel(env, compilation));')
+
+    port(native / "kokoro_context_export.h", context_port)
+    port(native / "timed_kokoro.cpp", lambda text: replace_once(text,
+         '        session->model = create(config.kokoro.model, "", "-uncached");',
+         '        KokoroHostContextUncachedStarted();  // Test-only optional-cache retry counter.\n'
+         '        session->model = create(config.kokoro.model, "", "-uncached");'))
     port(native / "CMakeLists.txt", lambda text: text +
          '\n# Test-only fault barrier, never an Android source.\n'
          'target_sources(timed_kokoro PRIVATE kokoro_profile_fault.cpp)\n'

@@ -118,11 +118,32 @@ class SavedPageStatelessContinuityTest {
 
             // Recreate the checkpoint, both production wrappers and the actual adapter.
             // The shared ordinary/review stores have received no private-note draft.
-            val restartedApi = StatelessApi()
+            var concurrentReading: JsonObject? = null
+            val restartedApi = StatelessApi(beforeResponse = { count, privateRead ->
+                if (count == 1) {
+                    assertTrue(privateRead)
+                    val competingJournal = ToolBatchCheckpoint(file, "same-authorized-task-and-profile")
+                    val competingApi = StatelessApi(beforeResponse = { competingCount, _ ->
+                        if (competingCount == 2) throw CancellationException("Competing runner stopped after its first durable read")
+                    })
+                    try {
+                        AgentRunner(limits, competingJournal).run(session(competingApi, WrapperState()), listOf(admitted), selectDefinitions = { emptyList() }).toList()
+                    } catch (_: CancellationException) {
+                        // Only the second competing response was interrupted.
+                    }
+                    assertEquals(2, competingApi.requests.size)
+                    concurrentReading = requireNotNull(competingJournal.recoverySnapshot().savedPageReading)
+                    assertTrue(SavedPageReading.fingerprints(concurrentReading).size > carriedIds.size)
+                }
+            })
             val restartedJournal = ToolBatchCheckpoint(file, "same-authorized-task-and-profile")
             val visible = AgentRunner(limits, restartedJournal).run(session(restartedApi, wrappers), listOf(admitted), selectDefinitions = { emptyList() }).toList()
                 .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
-            assertTrue(restartedApi.requests.isNotEmpty())
+            assertTrue(restartedApi.requests.size >= 2)
+            val concurrent = requireNotNull(concurrentReading)
+            val reconciledRequest = resultRows(restartedApi.requests[1])
+            val reconciledReading = reconciledRequest.firstNotNullOf { it["saved_page_reading"] as? JsonObject }
+            assertEquals(concurrent["reads"], reconciledReading["reads"])
             val firstRestoredRows = resultRows(restartedApi.requests.first())
             assertTrue(firstRestoredRows.any { it["saved_page_reading"] != null })
             assertTrue(firstFacts.all { it in carriedFacts(firstRestoredRows) })
@@ -214,7 +235,7 @@ class SavedPageStatelessContinuityTest {
     }
 
     /** Responses derive solely from this request's serialized messages, with no remembered facts. */
-    private class StatelessApi(private val stopDuringSecondResponse: Boolean = false) : OpenAIAPI {
+    private class StatelessApi(private val stopDuringSecondResponse: Boolean = false, private val beforeResponse: suspend (Int, Boolean) -> Unit = { _, _ -> }) : OpenAIAPI {
         val requests = mutableListOf<JsonObject>()
         var partialSecondResponseEmitted = false
             private set
@@ -225,6 +246,7 @@ class SavedPageStatelessContinuityTest {
             val previous = carriedFacts(rows)
             val current = rawFacts(rows)
             val privateRead = texts(wire).any { "This is a private reading stage" in it }
+            beforeResponse(requests.size, privateRead)
             val response = if (privateRead) (current - previous).sorted().joinToString(" ").ifBlank { "No additional fact." } else "Final facts: " + (current + previous).sorted().joinToString(" ")
             if (stopDuringSecondResponse && requests.size == 2) {
                 assertTrue("The interrupted second response must be another private page read", privateRead)

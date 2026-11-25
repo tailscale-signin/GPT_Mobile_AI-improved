@@ -347,6 +347,21 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         GitHubProviderReplayEvidence.settledHandoffDigest(checkpoint, receipts)
     }
 
+    /** A private reading round can append notes only for the exact invocation and bytes in this journal. */
+    internal suspend fun eligibleReadingSources(calls: Map<String, ProviderEvent.ToolCall>, bodies: Map<String, String?>): Set<String> = locked {
+        val state = read()
+        val acknowledged = SavedPageReading.fingerprints(state.savedPageReading)
+        bodies.filter { (id, digest) ->
+            val entry = state.entries[id]
+            val result = entry?.result
+            id !in acknowledged &&
+                result != null &&
+                calls[id] == entry.call.event() &&
+                result.canProveDelivery() &&
+                (result.projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body)) == digest
+        }.keys
+    }
+
     /** Preserve legacy consumption while qualifying only the exact delivered checkpoint projection. */
     suspend fun markConsumed(ids: Set<String>, deliveredResultDigests: Map<String, String> = emptyMap(), savedPageReading: JsonObject? = null) = locked {
         require(deliveredResultDigests.size <= ToolResultDeliveryProof.MAX_RESULTS && deliveredResultDigests.all { (id, digest) -> id in ids && ToolResultDeliveryProof.valid(digest) }) { "Delivered-result proof is malformed or exceeds capacity." }
@@ -360,14 +375,21 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         // Later summaries also cannot erase a previously witnessed full projection.
         val delivered = state.deliveredResultDigests + matched
         if (savedPageReading != null) {
-            SavedPageReading.requireAppend(state.savedPageReading, savedPageReading, deliveredResultDigests.keys)
-            SavedPageReading.validate(savedPageReading, state.entries.mapValues { (_, entry) -> ToolHandoffReceipt.fingerprint(entry.call.event()) }, delivered)
+            if (matched.size != deliveredResultDigests.size) return@locked false
+            try {
+                SavedPageReading.requireAppend(state.savedPageReading, savedPageReading, deliveredResultDigests.keys)
+                SavedPageReading.validate(savedPageReading, state.entries.mapValues { (_, entry) -> ToolHandoffReceipt.fingerprint(entry.call.event()) }, delivered)
+            } catch (_: IllegalArgumentException) {
+                // Another runner can advance the journal between preparation and acknowledgement.
+                return@locked false
+            }
         }
         val reading = savedPageReading ?: state.savedPageReading
         if (consumed != state.consumedCallIds || delivered != state.deliveredResultDigests || reading != state.savedPageReading) {
             // The note and its full-body delivery proof are one AtomicFile transaction.
             write(state.copy(consumedCallIds = consumed, deliveredResultDigests = delivered, savedPageReading = reading))
         }
+        true
     }
 
     // A claimed call with no receipt may have executed. A saved pre-dispatch

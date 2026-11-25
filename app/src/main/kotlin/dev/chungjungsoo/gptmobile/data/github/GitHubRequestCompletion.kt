@@ -18,6 +18,7 @@ internal object GitHubRequestCompletion {
     private val knowledge = Regex("(?i)^$POLITE(?:explain|describe|show(?: me)?)\\s+(?:how|why|what|whether)\\b")
     private val compoundMutation = Regex("(?i)(?:\\band(?:\\s+then)?|\\bthen|\\balso|\\bafterwards|,)\\s+$POLITE$ACTION\\b")
     private val quotedMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"(?:\\\\.|[^\"\\\\])*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'")
+    private val repositoryInspection = Regex("(?i)^$POLITE(?:inspect|examine|review|read|look at)\\s+(?:(?:the|this|our|my|selected|current)\\s+)+(?:repo(?:sitory)?|codebase|branch|pull request)\\b")
     private val repositorySubject = Regex("(?i)\\b(?:repo(?:sitory)?|repositories|codebase|branches|branch|pull requests?|ci|workflows?|tests?|build|files?|features?|bugs?|fixes|patch(?:es)?|implementation|commits?)\\b|\\b[A-Za-z0-9_.-]+\\.(?:kt|java|md|py|js|ts|tsx|yml|yaml|json|xml)\\b")
     private val sessionReviewIntent = Regex("(?i)\\b(?:review|audit|diagnose|investigate|inspect|analy[sz]e|examine|summarize|read)\\b")
     private val sessionReviewSource = Regex("(?i)\\b(?:sessions?|captures?|diagnostic exports?|(?:app|diagnostic|saved|retained|attached|this|these)\\s+(?:logs?|traces?))\\b")
@@ -36,7 +37,7 @@ internal object GitHubRequestCompletion {
     fun requiresRepositoryEvidence(task: String): Boolean {
         if (GitHubRepositoryLifecycle.intent(task) != null || GitHubIssueRemediation.requested(task)) return true
         val request = requestText(task)
-        return requestsAction(request) && repositorySubject.containsMatchIn(request)
+        return repositoryInspection.containsMatchIn(request) || requestsAction(request) && repositorySubject.containsMatchIn(request)
     }
 
     fun informational(task: String): Boolean {

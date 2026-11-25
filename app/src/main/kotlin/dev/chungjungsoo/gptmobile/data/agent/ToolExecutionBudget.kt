@@ -230,7 +230,7 @@ class ToolExecutionBudget(
             } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
                 authorityPrecheck(callId, definition.name, rejected)?.let { return { bounded(it) } }
                 if (ToolResultEnvelope.isAuthorizationRejection(rejected.code)) terminalToolFailures[tool.definition.name] = rejected.code
-                return { bounded(ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty())) }
+                return { bounded(authorizationRefusal(callId, rejected)) }
             } catch (error: Exception) {
                 authorityPrecheck(callId, definition.name, error)?.let { return { bounded(it) } }
                 // An unexpected admission exception is not a failed tool
@@ -475,7 +475,7 @@ class ToolExecutionBudget(
                         statistics?.rejectedBeforeDispatch(statisticsId)
                         statisticsId = null
                         if (ToolResultEnvelope.isAuthorizationRejection(error.code)) terminalToolFailures[tool.definition.name] = error.code
-                        val result = bounded(ToolResultEnvelope.error(callId, error.code, error.message.orEmpty()))
+                        val result = bounded(authorizationRefusal(callId, error))
                         combinedResult = result
                         return@execution result
                     }
@@ -578,6 +578,19 @@ class ToolExecutionBudget(
                 }
             }
         }
+    }
+
+    private fun authorizationRefusal(callId: String, failure: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected): AgentToolResult {
+        val result = ToolResultEnvelope.error(callId, failure.code, failure.message.orEmpty())
+        if (failure !is dev.chungjungsoo.gptmobile.data.permissions.DuplicateToolAction) return result
+        return result.copy(
+            executionReceipt = buildJsonObject {
+                put("schema", "gptmobile.duplicate-approval.v1")
+                put("call_id", callId)
+                put("previous_approval_state", failure.previousState)
+                put("failed_stage", "tool_precheck")
+            }
+        )
     }
 
     private fun recordAuthorityFailure(result: AgentToolResult) {

@@ -68,6 +68,18 @@
         "Fixture proof was conditional, one CI claim lacked supporting evidence, and the path preflight rejected a missing path.",
         "The provider connection failed after the request body was sent. Remote acceptance was unknown."
       ]
+    },
+    "open_issue_review": {
+      "starting_head": "a48b458f7ab0a7f585fddfeb28881730808f4979",
+      "issue_ranges": [[2441, 2526], [2529, 2553]],
+      "closure_basis": "Record the action for each report, including whether the result is a code fix, verified existing behavior, or improved diagnostics for an unreproducible incident.",
+      "affected_paths": [
+        "Saved-page reading and checkpoint reconciliation",
+        "Repository evidence collection and CI diagnosis",
+        "Premature provider stream termination",
+        "Repository-map revision assertions and duplicate tool approvals"
+      ],
+      "original_report_check": "All 111 approved payloads matched their recorded SHA-256 digests. Posting each twice to the local HTTP fixture produced 111 distinct publisher writes."
     }
   }
 }

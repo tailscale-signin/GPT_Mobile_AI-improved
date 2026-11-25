@@ -54,7 +54,29 @@ internal class RepositoryGraphTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val errors = dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, definition.inputSchema)
         if (errors.isNotEmpty()) return AgentToolResult(callId, ToolResultContent.Text(errors.joinToString("; ")), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
-        val options = (arguments["options"] as? JsonObject).orEmpty()
+        val requestedOptions = (arguments["options"] as? JsonObject).orEmpty()
+        val requestedCommit = requestedOptions["commit_sha"] as? JsonPrimitive
+        // A copied commit on a status read is an assertion about the selected workspace.
+        // Check it locally, then leave the repository binding as the only revision sent downstream.
+        val options = if (repositoryScope != null && arguments["action"] == JsonPrimitive("status") && "commit_sha" in requestedOptions) {
+            if (requestedCommit?.isString != true || !repositoryScope.commitSha.equals(requestedCommit.content, ignoreCase = true)) {
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Text("Select the intended repository revision before reading its map. An explicit commit in options must match the selected commit."),
+                    isError = true,
+                    errorCode = "GITHUB_VALIDATION_FAILED",
+                    dispatched = false,
+                    executionReceipt = buildJsonObject {
+                        put("call_id", callId)
+                        put("phase", "PREFLIGHT_REJECTED")
+                        put("reason_code", "EVIDENCE_REVISION_MISMATCH")
+                    }
+                )
+            }
+            requestedOptions - "commit_sha"
+        } else {
+            requestedOptions
+        }
         if (options.keys.any { it in setOf("repository", "owner", "repo", "branch", "commit_sha", "ref", "action", "map_source") }) {
             return AgentToolResult(callId, ToolResultContent.Text("Repository revision, action and map source cannot be overridden through options."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }

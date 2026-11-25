@@ -338,13 +338,35 @@ class AgentRunner(
                 val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
                 val pendingSavedPages = automaticRecovery?.pendingSavedPageDeliveries(exchanges, deliveredResultDigests).orEmpty()
                 val automaticRead = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pendingSavedPages)
-                val round = if (restoringBatch) {
+                val preparedRound = if (restoringBatch) {
                     RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
                 } else if (automaticRead != null) {
                     emit(AgentRunEvent.Notice(automaticRead.notice, persistent = false))
                     RoundResult(calls = listOf(automaticRead.call), completed = true, observedCalls = 1)
                 } else {
                     collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, deliveredResultDigests, retainedUnknownOutcome || unknownOutcomes.isNotEmpty(), admittedReplayLimit, pendingSavedPages, savedPageReading)
+                }
+                val round = if (preparedRound.unacknowledgedSavedPages.isNotEmpty()) {
+                    val latest = checkpoint?.recoverySnapshot()
+                    if (latest != null && latest.savedPageReading != savedPageReading) {
+                        val knownCalls = SavedPageReading.fingerprints(savedPageReading) + exchanges.flatMap { it.calls }.associate { it.callId to ToolHandoffReceipt.fingerprint(it) }
+                        if (!SavedPageReading.canRefresh(savedPageReading, latest.savedPageReading, knownCalls)) {
+                            emit(AgentRunEvent.Provider(ProviderEvent.Failed("Another runner changed the saved reading context outside the current source history. Resume from the authorized checkpoint.", errorCode = "REPLAY_EVIDENCE_REQUIRED", taskOutcome = "BLOCKED")))
+                            return
+                        }
+                        restoreReadingState(latest)
+                        continue
+                    }
+                    val pending = pendingSavedPages.filterKeys { it in preparedRound.unacknowledgedSavedPages }
+                    val restore = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pending, reopenAvailable = true)
+                    if (restore == null) {
+                        emit(AgentRunEvent.Provider(ProviderEvent.Failed("The saved page no longer matches its checkpoint. Resume from the original authorized view. Prior notes and tool receipts remain intact.", errorCode = "REPLAY_EVIDENCE_REQUIRED", taskOutcome = "BLOCKED")))
+                        return
+                    }
+                    emit(AgentRunEvent.Notice(restore.notice, persistent = false))
+                    RoundResult(calls = listOf(restore.call), completed = true, observedCalls = 1)
+                } else {
+                    preparedRound
                 }
                 observedToolCalls += round.observedCalls
                 if (round.savedPageDelivery) {
@@ -696,13 +718,16 @@ class AgentRunner(
         replayLimit: Int,
         executionToolCallLimit: Int,
         observedLimit: Int,
-        pendingSavedPages: Map<String, String?>
+        pendingSavedPages: Map<String, String?>,
+        reopenAvailable: Boolean = false
     ): AutomaticRead? {
         return with(state) {
             if (session.handlesToolResultRecovery ||
                 finalResponseRequested ||
                 restoredCalls.isNotEmpty() ||
-                observedToolCalls >= observedLimit
+                observedToolCalls >= observedLimit ||
+                reopenAvailable &&
+                pendingSavedPages.isEmpty()
             ) {
                 return null
             }
@@ -710,7 +735,7 @@ class AgentRunner(
             if (pendingSavedPages.isNotEmpty()) {
                 if (!remoteAllowed || ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) <= 0) return null
                 val pageBudget = minOf(replayLimit, limits.maxRetainedEvidenceTokens.coerceIn(1024, 262_144))
-                val restore = savedResultRecovery.restoreMissingPage(pendingSavedPages, exchanges, definitions.filter { it.name in executableToolByName }, pageBudget)
+                val restore = savedResultRecovery.restoreMissingPage(pendingSavedPages, exchanges, definitions.filter { it.name in executableToolByName }, pageBudget, reopenAvailable)
                 return restore?.let { AutomaticRead(it, "Restoring the exact saved page from the authorized local view.") }
             }
             val exhaustiveSearch = limits.githubTask && dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.requiresExhaustiveSearch(limits.githubTaskRequest.orEmpty())
@@ -788,19 +813,28 @@ class AgentRunner(
         val consecutiveToolFailures = mutableMapOf<String, Int>()
         val blockedReadScopes = mutableSetOf<String>()
         val unknownOutcomes = java.util.concurrent.ConcurrentHashMap<String, JsonObject>()
-        val consumedCallIds = recovery?.consumedCallIds.orEmpty().toMutableSet()
-        val deliveredResultDigests = recovery?.deliveredResultDigests.orEmpty().toMutableMap()
-        var savedPageReading = recovery?.savedPageReading
+        val consumedCallIds = mutableSetOf<String>()
+        val deliveredResultDigests = mutableMapOf<String, String>()
+        var savedPageReading: JsonObject? = null
         val catalogRecoveryAttempts = recovery?.completedExchanges.orEmpty().flatMap { it.calls }.map { it.callId }.filter(CatalogMissRecovery::isRecovery).toMutableSet()
         val savedResultRecovery = GitHubReplayRecovery.State(
             recovery?.completedExchanges.orEmpty().flatMap { it.calls } + recovery?.pending.orEmpty(),
             recovery?.completedExchanges.orEmpty().flatMap { it.results } + recovery?.pendingCompletedExchange?.results.orEmpty()
         )
         init {
+            if (recovery != null) restoreReadingState(recovery)
+        }
+
+        fun restoreReadingState(recovery: ToolBatchRecoverySnapshot) {
+            consumedCallIds.clear()
+            consumedCallIds += recovery.consumedCallIds
+            deliveredResultDigests.clear()
+            deliveredResultDigests += recovery.deliveredResultDigests
+            savedPageReading = recovery.savedPageReading
             // Historical schema-2 delivery is not a stateless request's context. Re-admit
             // retained full pages lacking durable notes, without repeating their tools.
             // Admission-only/missing bodies still fail the ordinary pending-page guard.
-            val restored = recovery?.completedExchanges.orEmpty() + listOfNotNull(recovery?.pendingCompletedExchange)
+            val restored = recovery.completedExchanges + listOfNotNull(recovery.pendingCompletedExchange)
             val withoutNotes = GitHubReplayRecovery.savedPageResultAllowances(restored, emptySet(), Int.MAX_VALUE, 512).keys - SavedPageReading.fingerprints(savedPageReading).keys
             consumedCallIds.removeAll(withoutNotes)
             deliveredResultDigests.keys.removeAll(withoutNotes)
@@ -1974,7 +2008,8 @@ class AgentRunner(
         val applicationReportEmitted: Boolean = false,
         val evidenceCorrectionEligible: Boolean = false,
         val savedPageDelivery: Boolean = false,
-        val savedPageReading: JsonObject? = null
+        val savedPageReading: JsonObject? = null,
+        val unacknowledgedSavedPages: Set<String> = emptySet()
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -2043,6 +2078,7 @@ class AgentRunner(
         var deliveredCallIds: Set<String> = emptySet()
         var deliveredBodies: Map<String, String> = emptyMap()
         var deliveryOnly = false
+        var unacknowledgedSavedPages = emptySet<String>()
         var completedReading: JsonObject? = null
         var invocationStage = "planning"
         var invocationStarted = false
@@ -2113,14 +2149,27 @@ class AgentRunner(
             var replay = project(requiredSavedPageDigests)
             var exact = delivered(replay)
             deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
-            if (mayStage && requiredSavedPageDigests.none { (id, digest) -> deliveredBodies[id] == digest }) {
-                val first = requiredSavedPageDigests.keys.mapNotNull(originalResults::get)
-                    .filter { ToolResultDeliveryProof.digest(it.content, replayRenderCache) == requiredSavedPageDigests[it.callId] }
-                    .minByOrNull { replayRenderCache.measure(it.content).tokens }
-                if (first != null) {
-                    replay = project(mapOf(first.callId to requiredSavedPageDigests[first.callId]))
-                    exact = delivered(replay)
-                    deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
+            if (mayStage && requiredSavedPageDigests.any { (id, digest) -> deliveredBodies[id] != digest }) {
+                // A private note must match the durable projection. A page containing a
+                // later wrap-up instruction can still be read in the ordinary final round.
+                val eligible = checkpoint?.eligibleReadingSources(exchanges.flatMap { it.calls }.associateBy { it.callId }, requiredSavedPageDigests)
+                    ?: requiredSavedPageDigests.keys
+                if (eligible.none { deliveredBodies[it] == requiredSavedPageDigests[it] }) {
+                    val first = eligible.mapNotNull(originalResults::get)
+                        .filter { ToolResultDeliveryProof.digest(it.content, replayRenderCache) == requiredSavedPageDigests[it.callId] }
+                        .minByOrNull { replayRenderCache.measure(it.content).tokens }
+                    if (first != null) {
+                        replay = project(mapOf(first.callId to requiredSavedPageDigests[first.callId]))
+                        exact = delivered(replay)
+                        deliveredBodies = ToolResultDeliveryProof.capture(exact, replayRenderCache)
+                    }
+                }
+                if (eligible.size < requiredSavedPageDigests.size) {
+                    deliveredBodies = deliveredBodies.filterKeys { it in eligible }
+                    if (eligible.none { deliveredBodies[it] == requiredSavedPageDigests[it] }) {
+                        unacknowledgedSavedPages = requiredSavedPageDigests.keys - eligible
+                        return@flow
+                    }
                 }
             }
             val owed = requiredSavedPageDigests.filter { (id, digest) -> digest == null || deliveredBodies[id] != digest }
@@ -2128,7 +2177,14 @@ class AgentRunner(
             if (deliveryOnly) deliveredBodies = deliveredBodies.filterKeys { it in requiredSavedPageDigests && it !in owed }
             deliveredCallIds = if (deliveryOnly) deliveredBodies.keys else exact.mapTo(mutableSetOf()) { it.callId }
             val rawReplayTokens = replay.rawTokens
-            val replayExchanges = replay.exchanges
+            val replayExchanges = if (deliveryOnly) {
+                replay.exchanges.mapNotNull { exchange ->
+                    val calls = exchange.calls.filter { it.callId in deliveredBodies }
+                    calls.takeIf { it.isNotEmpty() }?.let { AgentToolExchange(it, exchange.results.filter { result -> result.callId in deliveredBodies }) }
+                }
+            } else {
+                replay.exchanges
+            }
             if (owed.isNotEmpty() && !deliveryOnly) {
                 emit(
                     ProviderEvent.Failed(
@@ -2426,6 +2482,7 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
+        if (unacknowledgedSavedPages.isNotEmpty()) return RoundResult(unacknowledgedSavedPages = unacknowledgedSavedPages)
         if (!verificationOnlyRequested &&
             completed &&
             failure == null &&
@@ -2436,7 +2493,9 @@ class AgentRunner(
                 SavedPageReading.requireAppend(savedPageReading, reading, deliveredBodies.keys)
                 SavedPageReading.validate(reading, SavedPageReading.fingerprints(savedPageReading) + exchanges.flatMap { it.calls }.associate { it.callId to ToolHandoffReceipt.fingerprint(it) }, deliveredResultDigests + deliveredBodies)
             }
-            checkpoint?.markConsumed(deliveredCallIds, deliveredBodies, completedReading.takeIf { deliveryOnly })
+            if (checkpoint?.markConsumed(deliveredCallIds, deliveredBodies, completedReading.takeIf { deliveryOnly }) == false) {
+                return RoundResult(unacknowledgedSavedPages = deliveredBodies.keys)
+            }
             consumedCallIds += deliveredCallIds
             deliveredResultDigests.putAll(deliveredBodies)
             while (deliveredResultDigests.size > ToolResultDeliveryProof.MAX_RESULTS) deliveredResultDigests.remove(deliveredResultDigests.keys.first())

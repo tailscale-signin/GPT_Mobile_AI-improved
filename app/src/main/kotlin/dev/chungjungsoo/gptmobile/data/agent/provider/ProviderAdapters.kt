@@ -113,6 +113,20 @@ internal fun retainSafeToolProtocolFrameKind(
     return JsonObject(previous.orEmpty() + ("tool_protocol_frame_kind" to kind))
 }
 
+private fun missingStreamTerminal(message: String, visible: Boolean) = ProviderEvent.Failed(
+    message,
+    errorCode = "INCOMPLETE_PROVIDER_STREAM",
+    failureDetails = buildJsonObject {
+        put("failed_stage", JsonPrimitive("response_stream"))
+        put("failure_boundary", JsonPrimitive(if (visible) "AFTER_VISIBLE_OUTPUT" else "BEFORE_VISIBLE_OUTPUT"))
+        put("stream_answer_state", JsonPrimitive(if (visible) "PARTIAL_TEXT_EMITTED" else "NO_TEXT_EMITTED"))
+        put("generation_completed", JsonPrimitive(false))
+        // A missing receipt gives no authority to repeat the request or continue remote work.
+        put("request_replay_allowed", JsonPrimitive(false))
+        put("logical_continuation_allowed", JsonPrimitive(false))
+    }
+)
+
 internal fun streamErrorDetails(error: dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail, visible: Boolean, finished: Boolean): JsonObject =
     streamErrorDetails(error.code, error.type, visible, finished, error.retryable, error.failureDetails)
 
@@ -281,6 +295,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                     var failureDetails: JsonObject? = null
                     var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
                     var responseObserved = false
+                    var visibleText = false
                     issuedCalls = emptyMap()
 
                     api.streamResponses(request, platform.timeout, config)
@@ -334,14 +349,17 @@ class OpenAIResponsesAdapter @Inject constructor(
                                         emit(mapped)
                                     }
 
-                                    else -> emit(mapped)
+                                    else -> {
+                                        emit(mapped)
+                                        if (mapped is ProviderEvent.TextDelta && mapped.text.isNotBlank()) visibleText = true
+                                    }
                                 }
                             }
                         }
 
                     if (!roundFailed && !terminalReceived) {
-                        roundFailed = true
-                        lastFailedMessage = "OpenAI response was interrupted before its terminal receipt. Partial output was retained."
+                        emit(missingStreamTerminal("OpenAI response was interrupted before its terminal receipt. Partial output was retained.", visibleText))
+                        return@flow
                     }
                     if (!roundFailed) {
                         issuedCalls = if (receivedResponseId) roundCalls else emptyMap()
@@ -1249,8 +1267,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                             continue
                         }
                         if (!roundFailed && !terminalReceived) {
-                            roundFailed = true
-                            lastFailedMessage = "Provider response was interrupted before its terminal receipt. Partial output was retained."
+                            emit(missingStreamTerminal("Provider response was interrupted before its terminal receipt. Partial output was retained.", publishedVisible))
+                            return@flow
                         }
                         if (!roundFailed) {
                             emit(ProviderEvent.Completed)
@@ -1397,8 +1415,8 @@ class OpenAICompatibleAdapter @Inject constructor(
         }
 
         if (!roundFailed && !terminalReceived) {
-            roundFailed = true
-            lastFailedMessage = "Groq response was interrupted before its terminal receipt. Partial output was retained."
+            emit(missingStreamTerminal("Groq response was interrupted before its terminal receipt. Partial output was retained.", visibleText))
+            return false
         }
         if (!roundFailed) {
             emit(ProviderEvent.Completed)

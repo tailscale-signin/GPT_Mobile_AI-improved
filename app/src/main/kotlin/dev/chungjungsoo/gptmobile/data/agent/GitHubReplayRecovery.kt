@@ -133,7 +133,7 @@ internal object GitHubReplayRecovery {
                 .mapValues { (_, read) -> read.deliveryDigest }
         }
 
-        fun restoreMissingPage(pending: Map<String, String?>, exchanges: List<AgentToolExchange>, tools: List<AgentToolDefinition>, pageBudget: Int = Int.MAX_VALUE): ProviderEvent.ToolCall? {
+        fun restoreMissingPage(pending: Map<String, String?>, exchanges: List<AgentToolExchange>, tools: List<AgentToolDefinition>, pageBudget: Int = Int.MAX_VALUE, reopenAvailable: Boolean = false): ProviderEvent.ToolCall? {
             val bodies = exchanges.flatMap { it.results }.associateBy { it.callId }
             for ((id, digest) in pending) {
                 val read = verifiedReads[id] ?: continue
@@ -141,7 +141,7 @@ internal object GitHubReplayRecovery {
                 val capacity = GitHubSavedReadProgress.cursor(identity[1])?.bytes ?: continue
                 if ((capacity.toLong() + 2) / 3 + 512 > pageBudget) continue
                 val body = bodies[id]?.content
-                if (digest != null && body != null && ToolResultDeliveryProof.digest(body) == digest) continue
+                if (!reopenAvailable && digest != null && body != null && ToolResultDeliveryProof.digest(body) == digest) continue
                 val retryId = "saved-result-consume-restore-" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(identity.joinToString("|")).take(24)
                 if (hasAttempt(retryId) || exhausted()) continue
                 val tool = tools.singleOrNull { it.modelVisible && it.name == read.call.name } ?: continue

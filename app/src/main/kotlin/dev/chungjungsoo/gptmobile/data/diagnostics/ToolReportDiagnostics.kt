@@ -153,7 +153,12 @@ internal object ToolReportDiagnostics {
         ) {
             return null
         }
-        val eligible = receipt["argument_validation_call_id"] == JsonPrimitive(event.callId) &&
+        val duplicateApproval = result.errorCode == "DUPLICATE_ACTION" &&
+            receipt["schema"] == JsonPrimitive("gptmobile.duplicate-approval.v1") &&
+            receipt["call_id"] == JsonPrimitive(event.callId) &&
+            (receipt["previous_approval_state"] as? JsonPrimitive)?.content in setOf("PENDING", "APPROVED", "EXECUTING", "COMPLETED", "OUTCOME_UNKNOWN", "INTERRUPTED")
+        val eligible = duplicateApproval ||
+            receipt["argument_validation_call_id"] == JsonPrimitive(event.callId) &&
             result.errorCode == "INVALID_ARGUMENTS" ||
             receipt["schema"] == JsonPrimitive("gptmobile.round-tool-catalog.v1") &&
             receipt["call_id"] == JsonPrimitive(event.callId) &&
@@ -164,7 +169,7 @@ internal object ToolReportDiagnostics {
             result.errorCode in setOf("DEPENDENCY_DEFERRED", "DEPENDENCY_FAILED", "NOT_DISPATCHED")
         if (!eligible) return null
         val scope = receipt.filterKeys { key ->
-            key in setOf("schema", "reason_code", "reasonCode", "missing_tool_hash", "discovery_available", "native_dependency_state", "dependency_admission_reasons", "dependency_call_id_hashes", "dependency_repeat_scope", "dependency_repeat_limit", "argument_repair_signature_hash", "tool_schema_hash", "recovery_action", "repair_action") ||
+            key in setOf("schema", "previous_approval_state", "reason_code", "reasonCode", "missing_tool_hash", "discovery_available", "native_dependency_state", "dependency_admission_reasons", "dependency_call_id_hashes", "dependency_repeat_scope", "dependency_repeat_limit", "argument_repair_signature_hash", "tool_schema_hash", "recovery_action", "repair_action") ||
                 listOf("grant", "policy", "authority", "revision", "checkpoint_binding").any(key::contains)
         }
         val identity = JsonArray(

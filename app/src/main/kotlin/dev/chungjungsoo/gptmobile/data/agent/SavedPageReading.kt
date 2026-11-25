@@ -81,6 +81,12 @@ internal object SavedPageReading {
         }
     }.toMap()
 
+    fun canRefresh(previous: JsonObject?, latest: JsonObject?, knownCalls: Map<String, String>): Boolean {
+        val old = reads(previous)
+        val current = reads(latest)
+        return current.size > old.size && current.take(old.size) == old && fingerprints(latest).all { (id, fingerprint) -> knownCalls[id] == fingerprint }
+    }
+
     fun requireAppend(previous: JsonObject?, next: JsonObject, ids: Set<String>) {
         val old = reads(previous)
         val current = reads(next)

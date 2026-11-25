@@ -793,6 +793,35 @@ class ProviderAdaptersTest {
         }
     }
 
+    @Test fun missingTerminalReceiptRetainsVisibleTextAndNeverBindsAReplay() = runBlocking {
+        for (visible in listOf(false, true)) {
+            val text = "Retained partial"
+            val responses = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(if (visible) flowOf(OutputTextDeltaEvent("item", 0, 0, text)) else emptyFlow())))
+            val compatible = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(if (visible) flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = text))))) else emptyFlow())))
+            val groq = FakeGroqAPI(ArrayDeque(listOf(if (visible) flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(index = 0, delta = GroqDelta(content = text))))) else emptyFlow())))
+            val sessions = listOf(
+                OpenAIResponsesAdapter(responses, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI)),
+                OpenAICompatibleAdapter(compatible, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OPENROUTER)),
+                OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ))
+            )
+            for (session in sessions) {
+                val events = session.streamRound(emptyList(), emptyList()).toList()
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                assertEquals(if (visible) text else "", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+                assertEquals("INCOMPLETE_PROVIDER_STREAM", failure.errorCode)
+                assertEquals(JsonPrimitive("response_stream"), failure.failureDetails?.get("failed_stage"))
+                assertEquals(JsonPrimitive(if (visible) "PARTIAL_TEXT_EMITTED" else "NO_TEXT_EMITTED"), failure.failureDetails?.get("stream_answer_state"))
+                assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+                assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+                assertFalse(failure.transportComplete)
+                assertFalse(events.contains(ProviderEvent.Completed))
+            }
+            assertEquals(1, responses.responseRequests.size)
+            assertEquals(1, compatible.chatRequests.size)
+            assertEquals(1, groq.requests.size)
+        }
+    }
+
     @Test fun compatiblePartialUsageStaysInterimUntilTheFinalUsageReceipt() = runBlocking {
         val partial = NetworkClient.json.decodeFromString<ChatCompletionChunk>(
             """{"choices":[{"index":0,"delta":{"content":"Partial"}}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}"""

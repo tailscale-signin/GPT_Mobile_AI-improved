@@ -80,6 +80,7 @@ class GitHubAuthorizationBoundaryTest {
             manager.authorizeOrThrow("github", "run", "retry", "github", buildJsonObject { put("action", "create_branch") })
         }.exceptionOrNull()
         assertEquals("DUPLICATE_ACTION", (failure as? ToolAuthorizationRejected)?.code)
+        assertEquals("OUTCOME_UNKNOWN", (failure as? DuplicateToolAction)?.previousState)
         coVerify(exactly = 0) { dao.insert(any()) }
     }
 

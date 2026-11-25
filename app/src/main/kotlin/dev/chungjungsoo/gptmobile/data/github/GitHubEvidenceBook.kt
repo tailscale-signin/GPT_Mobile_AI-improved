@@ -686,6 +686,8 @@ internal class GitHubEvidenceBook(
         corrected
     }
 
+    fun trustsTool(name: String): Boolean = name in trustedTools
+
     suspend fun complete(): Boolean = mutex.withLock { !overflow }
 
     /** Page persistence can recover independently without invalidating an accepted mutation. */

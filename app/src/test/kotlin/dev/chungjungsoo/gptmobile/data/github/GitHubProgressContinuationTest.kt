@@ -94,6 +94,83 @@ class GitHubProgressContinuationTest {
         assertEquals(1, book.snapshot().first.size)
     }
 
+    @Test fun twoProseOnlyAttemptsCanStartOneRealReadWithBothFacadesOnTheSameConnection() = runBlocking {
+        val full = GitHubOperationTool.definition("github_context", "github_context__selected")
+        val inspect = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__selected")
+        val inspection = "Inspect the repository source and identify a defect"
+        val diagnosis = GitHubWorkflowPreset.selected("diagnose_ci").prompt()
+        val prose = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) =
+                flowOf(ProviderEvent.TextDelta("I will inspect the source."), ProviderEvent.Completed)
+        }
+        suspend fun firstRound(tools: List<AgentToolDefinition>, task: String): List<ProviderEvent.ToolCall> {
+            val book = GitHubEvidenceBook("initial-read", "owner/repo", "main", tools.map { it.name }.toSet())
+            book.retainTaskContract(task, 1, tools, 24)
+            val session = GitHubVerifiedSession(
+                prose, book, task, { 32_768 }, { error("No draft may be credited as source evidence") }, {}, {},
+                authorizedTools = tools, executionCallLimit = 24, remainingToolCalls = { 24 }, openExecutionContinuation = { prompt ->
+                    if (task == diagnosis) assertTrue(prompt.contains("Read-only refresh"))
+                    prose
+                }
+            )
+            return session.streamRound(tools, emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>()
+        }
+        for (task in listOf(inspection, diagnosis)) {
+            val call = firstRound(listOf(inspect, full), task).single()
+            assertEquals(inspect.name, call.name)
+            assertEquals(JsonPrimitive("status"), call.arguments["action"])
+        }
+        assertTrue(firstRound(listOf(full, inspect.copy(name = "github_context_inspect__other")), inspection).isEmpty())
+    }
+
+    @Test fun ciRecoveryAdmitsOnlyAdvertisedReadsAndCannotStartABackendOwnedToolSession() = runBlocking {
+        val ci = GitHubOperationTool.definition("github_ci", "github_ci__selected")
+        val write = GitHubOperationTool.definition("github_write", "github_write__selected")
+        val untrusted = ci.copy(name = "github_ci__other")
+        val definitions = listOf(ci, write, untrusted)
+        val task = GitHubWorkflowPreset.selected("diagnose_ci").prompt()
+        val prose = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) =
+                flowOf(ProviderEvent.TextDelta("I will inspect the failure."), ProviderEvent.Completed)
+        }
+        suspend fun attempt(call: ProviderEvent.ToolCall, internal: Boolean = false): List<ProviderEvent> {
+            val book = GitHubEvidenceBook("diagnosis", "owner/repo", "main", setOf(ci.name, write.name))
+            book.retainTaskContract(task, 1, definitions, 24)
+            val correction = object : AgentProviderSession {
+                override val handlesToolsInternally = internal
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> {
+                    check(!internal) { "A backend-owned tool session must be rejected before invocation" }
+                    assertEquals(listOf(ci), tools)
+                    return flowOf(call, ProviderEvent.Completed)
+                }
+            }
+            val session = GitHubVerifiedSession(
+                prose, book, task, { 32_768 }, { error("Verification must not run") }, {}, {},
+                authorizedTools = definitions, remainingToolCalls = { 24 }, openExecutionContinuation = { correction }
+            )
+            return session.streamRound(definitions, emptyList()).toList()
+        }
+        val read = ProviderEvent.ToolCall(
+            "read-jobs",
+            ci.name,
+            buildJsonObject {
+                put("action", "jobs")
+                put("run_id", 7)
+            }
+        )
+        val rerun = read.copy(
+            arguments = buildJsonObject {
+                put("action", "rerun")
+                put("run_id", 7)
+            }
+        )
+        assertEquals(listOf(read), attempt(read).filterIsInstance<ProviderEvent.ToolCall>())
+        for (events in listOf(attempt(rerun), attempt(read.copy(name = write.name)), attempt(read.copy(name = untrusted.name)), attempt(read, internal = true))) {
+            assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.ToolResult })
+            assertEquals("GITHUB_OPERATION_BLOCKED", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        }
+    }
+
     @Test fun runtimeLimitationsAndCapabilityQuestionsAreBoundToTheExecutionLedger() {
         val task = "Fix the repository implementation and run tests"
         val answer = kotlinx.serialization.json.Json.parseToJsonElement(

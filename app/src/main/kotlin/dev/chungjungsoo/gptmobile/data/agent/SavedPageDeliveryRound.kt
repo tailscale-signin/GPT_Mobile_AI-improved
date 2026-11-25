@@ -7,6 +7,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -15,6 +16,19 @@ internal class SavedPageDeliveryRound private constructor(private val expectedPr
     @Volatile private var freshRequestCompleted = false
 
     companion object Key : CoroutineContext.Key<SavedPageDeliveryRound> {
+        fun blocked(message: String, stage: String, measurements: JsonObjectBuilder.() -> Unit = {}): ProviderEvent.Failed = ProviderEvent.Failed(
+            message,
+            errorCode = "REPLAY_EVIDENCE_REQUIRED",
+            taskOutcome = "BLOCKED",
+            failureDetails = buildJsonObject {
+                put("failed_stage", stage)
+                put("failure_origin", "APPLICATION")
+                put("logical_continuation_allowed", false)
+                if (stage in setOf("planning", "provider_admission")) put("dispatched", false)
+                measurements()
+            }
+        )
+
         /** Called only around actual provider adapters, never around cached/decorated sessions. */
         fun providerRound(exchanges: List<AgentToolExchange>, events: Flow<ProviderEvent>): Flow<ProviderEvent> = flow {
             val read = currentCoroutineContext()[Key]
@@ -68,17 +82,7 @@ internal class SavedPageDeliveryRound private constructor(private val expectedPr
                     !completed || !read.freshRequestCompleted -> "The saved-page request has no matching fresh completion."
                     else -> "The saved-page response returned empty reading notes."
                 }
-                emit(
-                    ProviderEvent.Failed(
-                        "$reason Its pending pages remain checkpointed.",
-                        errorCode = "REPLAY_EVIDENCE_REQUIRED",
-                        failureDetails = buildJsonObject {
-                            put("failed_stage", "response_stream")
-                            put("failure_origin", "APPLICATION")
-                            put("logical_continuation_allowed", false)
-                        }
-                    )
-                )
+                emit(blocked("$reason Its pending pages remain checkpointed.", "response_stream"))
             }
         }
     }

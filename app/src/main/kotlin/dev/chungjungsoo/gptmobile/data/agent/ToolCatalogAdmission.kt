@@ -208,6 +208,12 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     return selected
 }
 
+/** Pause unchanged discovery for one actionable round. Admission still reserves a path to every authorized schema. */
+internal fun afterRepeatedGitHubDiscovery(admitted: List<AgentToolDefinition>, paused: Boolean): List<AgentToolDefinition> {
+    if (!paused || admitted.none { it.name != ProgressiveToolCatalog.NAME && ProgressiveToolCatalog.isGitHubTool(it) }) return admitted
+    return admitted.filterNot { it.name == ProgressiveToolCatalog.NAME }
+}
+
 /** Use the resolver's catalog for both planning and execution, including telemetry-wrapped tools. */
 internal fun planAuthorizedToolContext(
     turns: List<ConversationTurn>,

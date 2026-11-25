@@ -130,7 +130,7 @@ internal class GitHubVerifiedSession(
             when {
                 denied != null -> emit(denied)
                 handlesToolResultRecovery || verificationOnlyRequested || delegate.handlesToolsInternally || tools.isNotEmpty() ->
-                    emit(ProviderEvent.Failed("This session cannot admit a private saved-page read.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                    emit(dev.chungjungsoo.gptmobile.data.agent.SavedPageDeliveryRound.blocked("This session cannot admit a private saved-page read.", "provider_admission"))
                 else -> emitAll(delegate.streamRound(emptyList(), exchanges))
             }
             return@flow

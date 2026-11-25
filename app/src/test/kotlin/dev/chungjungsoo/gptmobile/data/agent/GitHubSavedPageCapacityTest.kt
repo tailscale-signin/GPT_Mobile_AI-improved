@@ -21,6 +21,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSavedPageCapacityTest {
+    @Test fun aSavedPageFailureIdentifiesItsBoundaryWithoutInventingADispatchOutcome() {
+        for (stage in listOf("planning", "provider_admission", "response_stream")) {
+            val failure = SavedPageDeliveryRound.blocked("Retained page", stage)
+            assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
+            assertEquals("BLOCKED", failure.taskOutcome)
+            val details = requireNotNull(failure.failureDetails)
+            assertEquals(JsonPrimitive(stage), details["failed_stage"])
+            assertEquals(JsonPrimitive("APPLICATION"), details["failure_origin"])
+            assertEquals(JsonPrimitive(false), details["logical_continuation_allowed"])
+            assertEquals(if (stage == "response_stream") null else JsonPrimitive(false), details["dispatched"])
+        }
+    }
+
     @Test fun nativeCapacityRefusalStopsIdenticalAutomaticReadsWithoutConsumingThePage() {
         val fixture = Fixture()
         assertNull(fixture.next())

@@ -2352,7 +2352,11 @@ class ChatRepositoryImpl(
             }
             suspend fun sendPublicState(state: ApiState) {
                 if (githubProgress != null && (state is ApiState.ActivitySummary || state is ApiState.ProgressCheckpoint)) {
-                    dispatchAuthority.validate()
+                    try {
+                        dispatchAuthority.validate()
+                    } catch (changed: dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException) {
+                        throw dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException(changed.fields, changed.gatewaySelectionChange, "delivery").also { it.initCause(changed) }
+                    }
                     if (!githubProgress.currentPublication(state)) return
                 }
                 send(state)
@@ -3078,6 +3082,10 @@ class ChatRepositoryImpl(
                     put("authority_invalidation_code", "DISPATCH_POLICY_CHANGED")
                     put("resume_required", true)
                     put("changed_policy_fields", kotlinx.serialization.json.JsonArray(policy.fields.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                    policy.blockedStage?.let {
+                        put("authority_failed_stage", it)
+                        put("failed_stage", it)
+                    }
                     policy.gatewaySelectionChange?.let { put("dispatch_gateway_selection_change", it) }
                 }
             )

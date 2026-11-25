@@ -215,6 +215,24 @@ class ToolCatalogAdmissionTest {
         assertFalse(selected.contains(large))
     }
 
+    @Test fun aPausedDirectoryKeepsAllSixOperationsReachableOnA4096TokenRoute() {
+        val discovery = ProgressiveToolCatalog(emptyList(), "discover").definition
+        val names = listOf("github_context", "github_pr", "github_ci", "github_read", "github_search", "github_issue")
+        val operations = names.map { AgentToolDefinition(it, "bounded operation ".repeat(134), buildJsonObject {}) }
+        val limits = AgentRunLimits(githubMode = true, contextTokens = 4096, initialContextTokens = 218, finalResponseReserveTokens = 617)
+        assertTrue(operations.sumOf { providerSchemaTokens(it, true) } > 3005)
+        assertThrows(GitHubToolContextBudgetException::class.java) { fitProviderToolSchemas(operations, limits, 0, 0) }
+        for (chosen in operations) {
+            val available = fitProviderToolSchemas((listOf(chosen) + operations + discovery).distinctBy { it.name }, limits, 0, 0)
+            val paused = afterRepeatedGitHubDiscovery(available, true)
+            assertTrue(chosen in paused)
+            assertFalse(discovery in paused)
+            assertTrue(available.sumOf { providerSchemaTokens(it, true) } <= 3005)
+            assertTrue(discovery in afterRepeatedGitHubDiscovery(available, false))
+        }
+        assertEquals(listOf(discovery), afterRepeatedGitHubDiscovery(listOf(discovery), true))
+    }
+
     @Test fun defaultReplyReserveYieldsToRequiredSchemasWhileExplicitReserveStaysPinned() {
         val github = GitHubTool().operations().filter { it.definition.name in setOf("github_context", "github_pr") }
         val tools = github.map { ResolvedAgentTool(it, null, "GitHub", it.definition.name, it.definition.name) }

@@ -225,7 +225,7 @@ internal class GitHubOutputContinuationSession(
                 generated.failure?.let { isProviderOutputLimitFailure(it.message) } == true
             when {
                 generated.failure != null -> emit(generated.failure)
-                generated.calls.isNotEmpty() || generated.receivedToolResult -> emit(ProviderEvent.Failed("The private saved-page read proposed or observed a tool; its notes were not accepted.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                generated.calls.isNotEmpty() || generated.receivedToolResult -> emit(SavedPageDeliveryRound.blocked("The private saved-page read proposed or observed a tool; its notes were not accepted.", "response_stream"))
                 limited || !generated.completed -> emit(ProviderEvent.Failed("The private saved-page read did not reach a complete response boundary; its notes were not accepted.", errorCode = if (limited) "OUTPUT_LIMIT" else "INCOMPLETE_PROVIDER_STREAM"))
                 else -> {
                     if (generated.text.isNotEmpty()) emit(ProviderEvent.TextDelta(generated.text, generated.lineage))

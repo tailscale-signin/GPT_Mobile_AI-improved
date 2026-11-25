@@ -22,7 +22,8 @@
     "Verify the two public routing requirement digests in the credential history scan across PR merge revisions, with controls for different values, paths, fields and adjacent content.",
     "Stream the complete compiled JVM call index to a temporary file and publish it atomically within a shared 128 MiB decoded bound, retaining the 32 MiB Gateway archive bound and revision checks.",
     "Use a single authorized repository status read when the first verified draft has no receipts, zero spent calls and explicit remaining evidence work. Preserve time, approval, scope and verification limits.",
-    "Update the speech recognition, archive and Gateway CUDA runtimes. Wake capture and synthesis on events, reuse verified installations, bound caption mapping and response scans, retire cancelled routes, and release Gateway audio when a reply drains."
+    "Update the speech recognition, archive and Gateway CUDA runtimes. Wake capture and synthesis on events, reuse verified installations, bound caption mapping and response scans, retire cancelled routes, and release Gateway audio when a reply drains.",
+    "Retain a path to authorized GitHub tools on small routes while pausing unchanged discovery for an actionable round. Record privacy protection changes at delivery without settings values, and explain how to resume after changing the engineering Gateway. Preserve the measured stage and replay allowance when a saved-page handoff stops."
   ],
   "limitations": [
     "The SDK exposes no per-kernel processor or arithmetic receipt. The 17-partition SM8750 vocoder is host-compiled and requires physical playback, CPU-reference validation and listening tests. Hexagon accepts floating-point partitions at hardware-supported reduced precision.",
@@ -409,7 +410,14 @@
     "scripts/tests/test_locked_dependency_audit.py",
     "scripts/tests/test_release_evidence.py",
     "scripts/validate-local.sh",
-    "scripts/voice_listening_trial.py"
+    "scripts/voice_listening_trial.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolFailureMetadata.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolFailureMetadataTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubOutputContinuationSession.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.17",

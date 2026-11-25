@@ -328,7 +328,8 @@ class AgentRunner(
                 val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
                 val roundDefinitions = try {
                     val available = fitProviderToolSchemas(selectedForRound(exposedDefinitions, selectDefinitions), limits, initialSchemaTokens, replayTokens + SavedPageReading.reservation(savedPageReading, false))
-                    retrySchemaNames?.let { names -> available.filter { it.name in names } } ?: available
+                    val fitted = retrySchemaNames?.let { names -> available.filter { it.name in names } } ?: available
+                    afterRepeatedGitHubDiscovery(fitted, unproductiveDiscoveryRounds >= 2)
                 } catch (capacity: GitHubToolContextBudgetException) {
                     emit(AgentRunEvent.Provider(capacity.providerFailure()))
                     return
@@ -351,7 +352,7 @@ class AgentRunner(
                     if (latest != null && latest.savedPageReading != savedPageReading) {
                         val knownCalls = SavedPageReading.fingerprints(savedPageReading) + exchanges.flatMap { it.calls }.associate { it.callId to ToolHandoffReceipt.fingerprint(it) }
                         if (!SavedPageReading.canRefresh(savedPageReading, latest.savedPageReading, knownCalls)) {
-                            emit(AgentRunEvent.Provider(ProviderEvent.Failed("Another runner changed the saved reading context outside the current source history. Resume from the authorized checkpoint.", errorCode = "REPLAY_EVIDENCE_REQUIRED", taskOutcome = "BLOCKED")))
+                            emit(AgentRunEvent.Provider(SavedPageDeliveryRound.blocked("Another runner changed the saved reading context outside the current source history. Resume from the authorized checkpoint.", "planning")))
                             return
                         }
                         restoreReadingState(latest)
@@ -360,7 +361,7 @@ class AgentRunner(
                     val pending = pendingSavedPages.filterKeys { it in preparedRound.unacknowledgedSavedPages }
                     val restore = nextAutomaticRead(session, exchanges, roundDefinitions, state, ciInvestigation, admittedReplayLimit, executionToolCallLimit, observedLimit, pending, reopenAvailable = true)
                     if (restore == null) {
-                        emit(AgentRunEvent.Provider(ProviderEvent.Failed("The saved page no longer matches its checkpoint. Resume from the original authorized view. Prior notes and tool receipts remain intact.", errorCode = "REPLAY_EVIDENCE_REQUIRED", taskOutcome = "BLOCKED")))
+                        emit(AgentRunEvent.Provider(SavedPageDeliveryRound.blocked("The saved page no longer matches its checkpoint. Resume from the original authorized view. Prior notes and tool receipts remain intact.", "planning")))
                         return
                     }
                     emit(AgentRunEvent.Notice(restore.notice, persistent = false))
@@ -1366,7 +1367,11 @@ class AgentRunner(
         // A choice and a mutation in the same model batch must not race. Replan
         // dependent actions after the answer has been returned to the model.
         val decisionCalls = calls.filter { it.name in questionNames }
-        val toolsForBatch = if (decisionCalls.isNotEmpty()) executableToolByName.filterKeys { it in questionNames } else executableToolByName
+        val toolsForBatch = when {
+            decisionCalls.isNotEmpty() -> executableToolByName.filterKeys { it in questionNames }
+            unproductiveDiscoveryRounds >= 2 && roundDefinitions.none { it.name == ProgressiveToolCatalog.NAME } -> executableToolByName - ProgressiveToolCatalog.NAME
+            else -> executableToolByName
+        }
         val batchAllowance = when {
             decisionCalls.any { it.callId in restoredCompleted } -> 0
             decisionCalls.isNotEmpty() -> minOf(1, remainingCalls)
@@ -1530,10 +1535,6 @@ class AgentRunner(
         if (finalResponseRequested) {
             exposedDefinitions = emptyList()
             executableToolByName = emptyMap()
-        } else if (completedBatch.suppressDiscovery) {
-            // Stop the repeated directory operation while retaining useful authorized work.
-            exposedDefinitions = exposedDefinitions.filterNot { it.name == ProgressiveToolCatalog.NAME }
-            executableToolByName = executableToolByName - ProgressiveToolCatalog.NAME
         }
         return ToolRoundCompletion(executableToolByName, exposedDefinitions, toolCallCount, executedResults.any { it.dispatched }, suppressedReadRounds, completedBatch)
     }
@@ -1787,7 +1788,7 @@ class AgentRunner(
         return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
     }
 
-    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean, val suppressDiscovery: Boolean)
+    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean)
 
     /** Separate tool-result publication/finalization from the dispatch coroutine for ART compilation. */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishBatch(
@@ -1958,8 +1959,8 @@ class AgentRunner(
             allResults[allResults.lastIndex] = appendInstruction(allResults.last(), "This exact read produced no new evidence and remains suppressed. Follow its issued remote continuation, or use a different required action or unread range. Other authorized tools remain available within the current task budget. Workflow definitions do not establish executed checks or repository health.")
             emit(AgentRunEvent.Notice("Repeated reads were skipped. Continuing with remaining checks and unread pages.", persistent = false))
         } else if (suppressDiscovery && allResults.isNotEmpty()) {
-            allResults[allResults.lastIndex] = appendInstruction(allResults.last(), "Repeated discovery returned no new schemas. Discovery is paused for this response. The attached authorized GitHub tools remain available; use their exact schemas to continue the requested work. Do not repeat discovery or claim that GitHub tools are unavailable.")
-            emit(AgentRunEvent.Notice("Repeated discovery is paused. Continuing with the available GitHub tools.", persistent = false))
+            allResults[allResults.lastIndex] = appendInstruction(allResults.last(), "Repeated discovery returned no new schemas. Use an attached GitHub operation next. If only discovery fits, select one exact tool and action. Do not repeat the unchanged request.")
+            emit(AgentRunEvent.Notice("Repeated discovery is paused when a GitHub operation fits. Continuing with the available tools.", persistent = false))
         } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
             val wrapUpPrompt = ToolBudgetPolicy.buildWrapUpPrompt(remainingAllowance, combined = limits.combined != null)
             allResults[allResults.lastIndex] = appendInstruction(allResults.last(), wrapUpPrompt)
@@ -1986,7 +1987,7 @@ class AgentRunner(
         ).exchanges
         exchanges.clear()
         exchanges.addAll(retained)
-        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError }, suppressDiscovery)
+        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError })
     }
 
     private data class RoundResult(
@@ -2299,7 +2300,13 @@ class AgentRunner(
             val readingSources = if (deliveryOnly) SavedPageReading.sources(exchanges, deliveredBodies) else null
             val noteBytes = readingSources?.let { SavedPageReading.noteAllowance(savedPageReading, it, replayLimit) }
             if (noteBytes != null && noteBytes == 0) {
-                emit(ProviderEvent.Failed("No bounded space remains for the next saved-page reading note. Prior notes and pending source pages remain checkpointed.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                emit(
+                    SavedPageDeliveryRound.blocked("No bounded space remains for the next saved-page reading note. Prior notes and pending source pages remain checkpointed.", "planning") {
+                        put("replay_budget_state", "NO_CONTINUATION_ALLOWANCE")
+                        put("pending_saved_page_count", requiredSavedPageDigests.size)
+                        put("replay_allowance", replayLimit)
+                    }
+                )
                 return@flow
             }
             val preparedExchanges = SavedPageReading.project(
@@ -2307,14 +2314,28 @@ class AgentRunner(
                 savedPageReading,
                 noteBytes
             )
-            if (SavedPageReading.projectionTokens(preparedExchanges, replayRenderCache) > replayLimit) {
-                emit(ProviderEvent.Failed("The saved-page bodies and mandatory reading context exceed this request's replay allowance. No page was acknowledged.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+            val projectedTokens = SavedPageReading.projectionTokens(preparedExchanges, replayRenderCache)
+            if (projectedTokens > replayLimit) {
+                emit(
+                    SavedPageDeliveryRound.blocked("The saved-page bodies and mandatory reading context exceed this request's replay allowance. No page was acknowledged.", "planning") {
+                        put("replay_budget_state", "SAVED_PAGE_EXCEEDS_ALLOWANCE")
+                        put("pending_saved_page_count", requiredSavedPageDigests.size)
+                        put("replay_allowance", replayLimit)
+                        put("replay_tokens", projectedTokens)
+                    }
+                )
                 return@flow
             }
             if (requiredSavedPageDigests.isNotEmpty()) {
                 val onWire = ToolResultDeliveryProof.capture(preparedExchanges.flatMap { it.results }, replayRenderCache)
                 if (requiredSavedPageDigests.keys.any { it in deliveredBodies && onWire[it] != deliveredBodies[it] }) {
-                    emit(ProviderEvent.Failed("The final provider projection changed a required saved page. Its original receipt is available for recovery.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                    emit(
+                        SavedPageDeliveryRound.blocked("The final provider projection changed a required saved page. Its original receipt is available for recovery.", "planning") {
+                            put("replay_budget_state", "SAVED_PAGE_DELIVERY_MISMATCH")
+                            put("pending_saved_page_count", requiredSavedPageDigests.size)
+                            put("replay_allowance", replayLimit)
+                        }
+                    )
                     return@flow
                 }
             }

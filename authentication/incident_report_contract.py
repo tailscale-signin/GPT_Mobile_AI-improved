@@ -163,6 +163,7 @@ FIELD_NAMES = {
 
 # Counts cover supplied array entries; omitted counts distinct known names beyond the retained eight.
 POLICY_FIELD_NAMES = {
+    'devicePrivacy',
     'profileBehavior.delegationEnabled', 'profileBehavior.delegationCloudPermission', 'profileBehavior.crawlersEnabled', 'profileBehavior.crawlerToolIds', 'profileBehavior.maxCrawlPages', 'profileBehavior.toolPluginStates', 'profileBehavior.researchDepthOverride', 'profileBehavior.researchEnabledOverride', 'profileBehavior.academicSourcesAllowed',
     'assist',
     'assistPolicy',
@@ -663,7 +664,7 @@ ENUM_LISTS = {
     'semantic_ci_rules': {'BRANCH_NAME', 'COMMIT_SHA', 'POSITIVE_ID', 'WORKFLOW_SELECTOR', 'MISSING_SELECTOR', 'UNUSED_FIELD', 'LOG_START', 'LOG_ORDER', 'LOG_SPAN'},
     'search_validation_field_names': {'fuzzy_threshold', 'context_lines', 'max_new_blobs', 'batch_size'},
     'dependency_admission_reasons': {'TOOL_UNAVAILABLE', 'REPEATED_FAILURE', 'REPEAT_LIMIT', 'CALL_ALLOWANCE', 'DECISION_REQUIRED', 'PREREQUISITE_DEFERRED'},
-    'dispatch_policy_sections': {'PROFILE', 'BUDGET', 'SPEND', 'TOOLS', 'MCP', 'PERMISSIONS', 'ASSIST', 'DELEGATION', 'RESEARCH', 'GATEWAY', 'GITHUB', 'REASONING', 'ENGINEERING'},
+    'dispatch_policy_sections': {'PRIVACY', 'PROFILE', 'BUDGET', 'SPEND', 'TOOLS', 'MCP', 'PERMISSIONS', 'ASSIST', 'DELEGATION', 'RESEARCH', 'GATEWAY', 'GITHUB', 'REASONING', 'ENGINEERING'},
     'changed_policy_fields': POLICY_FIELD_NAMES,
     'privacy_blockers': {'MODEL_NOT_IN_ZDR_CATALOG', 'PROVIDER_ALLOWLIST', 'PROVIDER_DENYLIST', 'FALLBACK_ORDER'},
     'github_error_resources': {'PullRequest', 'Repository', 'Milestone', 'Label', 'Reference', 'Search', 'Release', 'Issue', 'Review', 'Commit'},

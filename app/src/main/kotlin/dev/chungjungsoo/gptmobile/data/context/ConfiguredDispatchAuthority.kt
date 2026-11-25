@@ -242,7 +242,7 @@ internal object ConfiguredDispatchAuthority {
 }
 
 /** Safe field names only; never include settings values, prompts or credentials. */
-internal class DispatchPolicyChangedException(val fields: List<String>, val gatewaySelectionChange: String? = null) :
+internal class DispatchPolicyChangedException(val fields: List<String>, val gatewaySelectionChange: String? = null, val blockedStage: String? = null) :
     IllegalStateException(
         "DISPATCH_POLICY_CHANGED: changed fields=${fields.joinToString(",")}. " +
             "Resume the unfinished task to revalidate saved results under the current settings; no stale request was sent."

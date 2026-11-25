@@ -49,7 +49,7 @@ data class GitHubConversationContext(
         return buildString {
             append("GitHub workspace: $workspace\nBranch: $branch\nCaptured head at chat binding: $commitSha (newer explicit tool receipts supersede this snapshot)\n")
             append("Refresh before writes/claims. Reconcile uncertain writes. Respect approvals, budgets and cancellation. Use github_decide for consequential choices: 2-4 options, one recommendation. Honor prior answers; never infer write approval.\n")
-            append("Cite source by pinned path, lines and digest; cite tests by job and tested SHA. Retain receipts and findings. Resume the first unfinished authorized item or name its blocker.\n")
+            append("Cite pinned source path/lines/digest and test job/tested SHA. Retain receipts/findings; resume the first unfinished authorized item or name its blocker.\n")
             if (status) appendLine(GitHubStatusRequest.INSTRUCTION)
             if (review) appendLine(GitHubReviewComparison.CORE_INSTRUCTION)
             if (GitHubTaskCoverage.matches(request)) {

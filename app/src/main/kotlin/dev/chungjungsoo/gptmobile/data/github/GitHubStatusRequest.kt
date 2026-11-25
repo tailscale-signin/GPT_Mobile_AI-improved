@@ -339,6 +339,6 @@ internal object GitHubStatusRequest {
 
     fun isGreeting(text: String): Boolean = GitHubTaskContinuity.request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '?', '!').trim() in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening")
 
-    const val INSTRUCTION = "Status: inspect the branch, recent commits, open PRs and checks read-only at the observed SHA. For health include branch policy, recent failures and PR review decisions. Respect the call budget and report missing observations."
+    const val INSTRUCTION = "Status: read-only selected repo/branch, recent commits, open PRs and checks; pin all pages to selected repo and observed SHA. Health needs branch policy, recent failures and current PR review decisions. Keep call limits; missing/incomplete data stays partial. Do not read source, resume work, edit or poll. Separate latest workflow from required checks; unknown worktree/tests stay unknown."
     const val DETAIL_INSTRUCTION = "Keep continuation pages pinned to the same repository and commit. Do not read source, resume work, edit or poll. Distinguish the latest workflow from required checks and leave unknown worktree or test results unverified."
 }

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2b82cdac4637ca4b699029e5e883e4077dce6d1e6098e84b332d259ee9bd1998",
+  "source_digest": "d0d27004b813b756aaac1045604a0ebaae8e70ed3ec7adb16a0ef4ae647a33e7",
   "file_count": 3132,
   "indexed_line_count": 534052,
   "line_coverage_available": false,
@@ -7459,7 +7459,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "3ffac167ff72c0406e54d8bf074adc7d8bcd5a86956aebbe460f9d5add98866d",
+      "sha256": "37278222c055457e20f2089ab5f2132fd9e04c545e53d35f667acd5e1b948cbe",
       "indexed_lines": 80
     },
     {
@@ -8180,7 +8180,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewComparison.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "94322fa4a845c3b8fa6a887b463a21b39a621c15fcd696206b24af6b8d68b3f1",
+      "sha256": "c7b25e81b89bdb8dd959aeb1e4ff95fa8c517cca2450cb0293a069a9fe04a066",
       "indexed_lines": 544
     },
     {
@@ -8432,7 +8432,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusRequest.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "e3366028f6398fa490a8ef4e3beb43c9796f833e49cfff2bf07f5085277711b2",
+      "sha256": "4e9d02d1043496beca9beaad713a83be8774ca3c704553eaf2767fe4959282a3",
       "indexed_lines": 344
     },
     {

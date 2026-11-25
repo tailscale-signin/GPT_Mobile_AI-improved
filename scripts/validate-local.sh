@@ -11,6 +11,7 @@ python3 scripts/generate_repository_reference.py --check
 python3 scripts/generate_diagnostic_schema.py --check
 python3 scripts/generate_app_audit_inventory.py --check
 python3 scripts/check_dependency_catalog.py
+PYTHONPATH=gateway python3 -c "from pathlib import Path; from v14.package import validate_package; validate_package(Path('gateway'))"
 python3 scripts/scan_secrets.py
 python3 -m unittest discover -s scripts/tests
 python3 scripts/check_android_regex.py

@@ -5,11 +5,24 @@ internal object GitHubTaskContinuity {
     private fun normalized(text: String): String = request(text).lowercase(java.util.Locale.ROOT)
         .trimEnd('.', '!', '?').trim().replace(Regex("\\s+"), " ").removePrefix("please ")
 
+    private val workspaceHeader = Regex("""^GitHub workspace: ([^\s/]+)/([^\s/]+)\r?\nBranch: ([^\r\n]+)\r?\n\r?\n""")
+
     /** Strip only the exact workspace header emitted by GitHubProgrammerViewModel. */
-    fun request(text: String): String = text.trim().replaceFirst(
-        Regex("^GitHub workspace: [^\\s/]+/[^\\s/]+\\r?\\nBranch: [^\\r\\n]+\\r?\\n\\r?\\n"),
-        ""
-    ).trim()
+    fun request(text: String): String = text.trim().replaceFirst(workspaceHeader, "").trim()
+
+    private fun headerRepository(text: String): GitHubRepositoryContext? = workspaceHeader.find(text.trim())?.destructured?.let { (owner, repo, ref) ->
+        GitHubRepositoryContext(owner.lowercase(java.util.Locale.ROOT), repo.lowercase(java.util.Locale.ROOT), ref)
+    }
+
+    /** An unwrapped source needs its own accepted queue snapshot. Null leaves ordinary chat recovery available. */
+    fun sharesLookupWorkspace(previous: String, current: String, selected: GitHubConversationContext? = null, saved: GitHubConversationContext? = null): Boolean? {
+        val source = headerRepository(previous)
+        val target = headerRepository(current)
+        if (selected == null) return if (source == null && target == null) null else source != null && source == target
+        val expected = GitHubRepositoryContext(selected.owner.lowercase(java.util.Locale.ROOT), selected.repo.lowercase(java.util.Locale.ROOT), selected.ref)
+        if (source != null && source != expected || target != null && target != expected) return false
+        return saved?.sameWorkspace(selected) ?: (source != null && target != null)
+    }
 
     fun diagnostic(text: String): Boolean {
         if (sessionAudit(text)) return true
@@ -54,13 +67,15 @@ internal object GitHubTaskContinuity {
         GitHubNativeContinuation.matches(text) ||
         GitHubExecutionLimits.renewedDuration(text) != null
 
-    fun followUp(text: String): Boolean = normalized(text) in
-        setOf(
-            "yes", "yes please", "do it", "fix", "fix it", "fix them", "apply the fixes", "implement the fixes",
-            "finish", "finish it", "finish the task", "finish the work", "finalize", "complete the task",
-            "do the remaining work", "do all remaining work", "finish the remaining work", "complete the remaining work",
-            "continue the work", "proceed with the remaining work", "go ahead"
-        )
+    private val fixControls = setOf("fix", "fix it", "fix them", "apply the fixes", "implement the fixes")
+
+    private val followUpControls = fixControls + setOf(
+        "yes", "yes please", "do it", "finish", "finish it", "finish the task", "finish the work", "finalize", "complete the task",
+        "do the remaining work", "do all remaining work", "finish the remaining work", "complete the remaining work",
+        "continue the work", "proceed with the remaining work", "go ahead"
+    )
+
+    fun followUp(text: String): Boolean = normalized(text) in followUpControls
 
     /** A request for the saved report authorizes delivery, not another mutation or test run. */
     fun reportOnly(text: String): Boolean = dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.from(request(text)) == dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.STATUS ||
@@ -71,7 +86,7 @@ internal object GitHubTaskContinuity {
 
     fun resolved(current: String, previous: String): String {
         if (!followUp(current) || previous.isBlank()) return request(current)
-        val action = if (Regex("(?i)fix|implement|apply").containsMatchIn(current)) "Implement and validate the fixes identified for the following saved request" else "Continue the following saved request using its retained findings and the user's accepted next step"
+        val action = if (normalized(current) in fixControls) "Implement and validate the fixes identified for the following saved request" else "Continue the following saved request using its retained findings and the user's accepted next step"
         return "$action:\n\n${request(previous)}"
     }
 

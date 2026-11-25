@@ -84,7 +84,15 @@ class GitHubEvidencePolicyTest {
 
     @Test fun explicitContinuationRestoresOriginalReceiptsWithoutRefreshingTheirTime() = runBlocking {
         val stored = linkedMapOf<String, JsonObject>()
-        val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 1000 }, save = { id, value -> stored[id] = value })
+        val book = GitHubEvidenceBook(
+            "binding",
+            "owner/repo",
+            "main",
+            setOf("github_ci"),
+            { 1000 },
+            save = { id, value -> stored[id] = value },
+            toolWebOrigins = mapOf("github_ci" to "https://git.example")
+        )
         book.observe(ProviderEvent.ToolCall("read", "github_ci", json("""{"action":"status"}""")), AgentToolResult("read", ToolResultContent.Json(json("""{"count":3}""")), false))
         val next = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 200000 }, load = { stored[it] }, retainedIds = { stored.keys.toList() })
         next.restore()
@@ -93,6 +101,7 @@ class GitHubEvidencePolicyTest {
         assertEquals(1, receipts.size)
         assertEquals(0L, epoch)
         assertEquals(JsonPrimitive(1000), receipts.values.single()["observed_at_ms"])
+        assertEquals(JsonPrimitive("https://git.example"), receipts.values.single()["web_origin"])
         val foreign = GitHubEvidenceBook("other-binding", "owner/repo", "main", setOf("github_ci"), load = { stored[it] }, retainedIds = { stored.keys.toList() })
         assertTrue(runCatching { foreign.restore() }.isFailure)
     }

@@ -22,7 +22,8 @@ internal class GitHubBoundRepositoryTool(
     repository: GitHubRepositoryContext,
     private val connectionMatches: Boolean = true,
     private val readSources: Set<String> = emptySet(),
-    private val readOnly: Boolean = false
+    private val readOnly: Boolean = false,
+    private val readReference: GitHubReadReference? = null
 ) : PreparableAgentTool,
     OwnedAgentTool {
     private val repository = normalizeGitHubRepository(repository.owner, repository.repo).let { (owner, repo) ->
@@ -36,11 +37,12 @@ internal class GitHubBoundRepositoryTool(
 
     override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool =
         GitHubBoundRepositoryTool(
-            delegate.withChildBudget { child -> bind(GitHubBoundRepositoryTool(child, repository, connectionMatches, readSources, readOnly)) },
+            delegate.withChildBudget { child -> bind(GitHubBoundRepositoryTool(child, repository, connectionMatches, readSources, readOnly, readReference)) },
             repository,
             connectionMatches,
             readSources,
-            readOnly
+            readOnly,
+            readReference
         )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = try {
@@ -84,6 +86,9 @@ internal class GitHubBoundRepositoryTool(
     }
 
     private fun boundArguments(arguments: JsonObject): JsonObject {
+        if (readReference != null && !readReference.permits(GitHubOperationTool.operationName(definition.name), arguments)) {
+            throw Rejected("PERMISSION_DENIED", "Use the requested issue or pull request number with a context or headers read.", null)
+        }
         // Saved views are authorized local evidence, with their own exact cursor contract.
         // Graph operations already carry an immutable workspace scope and reject target overrides.
         if (GitHubOperationTool.operationName(definition.name) != null && "view_cursor" in arguments) return arguments
@@ -108,7 +113,8 @@ internal class GitHubBoundRepositoryTool(
         }
         val owner = requested.first ?: repository.owner
         val repo = requested.second ?: repository.repo
-        val sourceRead = connectionMatches &&
+        val sourceRead = readReference == null &&
+            connectionMatches &&
             GitHubTargetPolicy.isReadAction(action) &&
             "$owner/$repo".lowercase(java.util.Locale.ROOT) in readSources
         if (sourceRead) return GitHubActionIdentity.bind(arguments, GitHubRepositoryContext(owner, repo, ""))

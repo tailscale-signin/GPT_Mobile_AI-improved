@@ -26,6 +26,44 @@ class TaskRecoveryActionTest {
         assertNull(resolveTaskRecovery(listOf(user(1, "show the full report"))))
     }
 
+    @Test fun savedLookupReportsAndDiagnosticsUseTheOriginalMessageOnlyInTheSameWorkspace() {
+        val header = "GitHub workspace: teams/app\nBranch: main\n\n"
+        for (task in listOf("Summarize PR #42", "List open issues")) {
+            val source = user(4, header + task)
+            for (control in listOf("Show the full report", "Why did the previous response stop?", "Retry writing")) {
+                val history = listOf(source, user(6, header + control))
+                val recovered = requireNotNull(resolveTaskRecovery(history))
+                assertEquals("1:4", rootWorkId(history, "new-run"))
+                assertEquals(source.content, recovered.originalRequest)
+                assertFalse(recovered.renewsToolBudget)
+                assertFalse(recovered.retryUndispatchedBudgetFailures)
+                assertNull(resolveTaskRecovery(history + user(8, header.replace("main", "Main") + control)))
+                assertNull(resolveTaskRecovery(history + user(8, header.replace("teams/app", "other/app") + control)))
+                assertNull(resolveTaskRecovery(listOf(source, user(8, header + control).copy(chatId = 2))))
+            }
+            assertNull(resolveTaskRecovery(listOf(source, user(5, header + "Explain the water cycle"), user(6, header + "Show the full report"))))
+            assertNull(resolveTaskRecovery(listOf(source, user(6, header + "Close issue #42"))))
+            assertNull(resolveTaskRecovery(listOf(source, user(6, header + "fix it"))))
+        }
+    }
+
+    @Test fun rawLookupReportsRequireTheSourceMessagesSavedRepositoryConnectionAndProfile() {
+        val selected = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("account", "teams", "app", "main", "a".repeat(40), "profile")
+        val messages = listOf(user(3, "List open issues"), user(6, "Show the full report"))
+        fun recover(saved: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?) = resolveTaskRecovery(messages) { source, latest ->
+            assertEquals(3, source.id)
+            dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sharesLookupWorkspace(source.content, latest.content, selected, saved)
+        }
+        assertEquals(3, recover(selected.copy(commitSha = "b".repeat(40)))?.sourceMessageId)
+        assertNull(resolveTaskRecovery(messages))
+        assertNull(resolveTaskRecovery(listOf(user(3, "List pull requests"), user(6, "Show the full report"))))
+        assertNull(recover(null))
+        assertNull(recover(selected.copy(repo = "other")))
+        assertNull(recover(selected.copy(ref = "Main")))
+        assertNull(recover(selected.copy(connectionUid = "other-account")))
+        assertNull(recover(selected.copy(mainProfileUid = "other-profile")))
+    }
+
     @Test fun approvedCommitAndFailureQuestionsRetainTheOriginalTaskAcrossRestart() {
         val task = user(1, "Test all authorized GitHub integration tools")
         val commit = user(3, "GitHub workspace: o/r\nBranch: test-branch\n\nCommit ${"a".repeat(40)} was approved and published. Continue from the saved task using this exact commit. Subscribe with github_watch_checks when CI is pending; do not repeat the commit.")

@@ -244,7 +244,9 @@ internal object GitHubEvidencePolicy {
                     val binding = if (sourceReceipt != null && entry != null) GitHubEvidenceExcerpts.sourceClaimBinding(sourceReceipt, pointer, result, entry) else null
                     checked += if (binding == null) result else JsonObject(result + ("source_binding" to binding))
                     if (result.string("status") == "VERIFIED" && entry != null) {
-                        val source = safe(entry.string("resource"))
+                        val path = entry.string("resource")
+                        val url = if (sourceReceipt != null && binding != null) GitHubEvidenceLink.excerptUrl(sourceReceipt, path, binding) else null
+                        val source = if (url == null) safe(path) else "[${safe(path)}]($url)"
                         val text = entry.string("value")
                         val fence = "`".repeat(maxOf(3, (Regex("`+").findAll(text).maxOfOrNull { it.value.length } ?: 0) + 1))
                         val sourceRef = binding?.string("call_id_sha256")?.take(16)?.let { " · source receipt `$it`" }.orEmpty()
@@ -839,7 +841,15 @@ internal object GitHubEvidencePolicy {
     private fun linkedValue(claim: JsonObject, receipts: Map<String, JsonObject>): String {
         val value = display(claim["observed"] ?: JsonNull)
         val receipt = receipts[claim.string("receipt_id")] ?: return value
-        val repo = receipt.string("repository").split('/').takeIf { it.size == 2 && it.all { part -> part.matches(Regex("[A-Za-z0-9_.-]+")) } } ?: return value
+        val base = if ("web_origin" in receipt) GitHubEvidenceLink.recordedRepositoryUrl(receipt) else legacyRepositoryUrl(receipt)
+        val pointer = claim.string("pointer")
+        val observed = (claim["observed"] as? JsonPrimitive)?.contentOrNull ?: return value
+        val url = base?.let { GitHubEvidenceLink.url(it, pointer, observed, receipt) } ?: return value
+        return "[$value]($url)"
+    }
+
+    private fun legacyRepositoryUrl(receipt: JsonObject): String? {
+        val repo = receipt.string("repository").split('/').takeIf { it.size == 2 && it.all { part -> part.matches(Regex("[A-Za-z0-9_.-]+")) && part !in setOf(".", "..") } } ?: return null
         fun findHtmlUrl(node: JsonElement?): String? = when (node) {
             is JsonObject -> (node["html_url"] as? JsonPrimitive)?.contentOrNull ?: node.values.firstNotNullOfOrNull(::findHtmlUrl)
             is JsonArray -> node.firstNotNullOfOrNull(::findHtmlUrl)
@@ -848,11 +858,7 @@ internal object GitHubEvidencePolicy {
         val origin = findHtmlUrl(receipt["result"])?.let { runCatching { java.net.URI(it) }.getOrNull() }
             ?.takeIf { it.scheme in setOf("https", "http") && it.host != null && it.userInfo == null }
             ?.let { "${it.scheme}://${it.rawAuthority}" } ?: "https://github.com"
-        val base = "$origin/${repo[0]}/${repo[1]}"
-        val pointer = claim.string("pointer")
-        val observed = (claim["observed"] as? JsonPrimitive)?.contentOrNull ?: return value
-        val url = GitHubEvidenceLink.url(base, pointer, observed, receipt) ?: return value
-        return "[$value]($url)"
+        return "$origin/${repo[0]}/${repo[1]}"
     }
 
     private fun label(pointer: String, receipt: JsonObject? = null): String {

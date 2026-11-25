@@ -2422,6 +2422,18 @@ class IncidentReportContractTest(unittest.TestCase):
                 with self.assertRaises(ReportError):
                     issue_from_report(self.report(capture))
 
+    def test_private_delivery_stop_retains_only_the_public_policy_name(self):
+        values = {"dispatch_policy_sections": ["PRIVACY"], "dispatch_policy_stage": "delivery",
+                  "dispatch_policy_resume_required": True, "changed_policy_fields": ["devicePrivacy"],
+                  "changed_policy_field_count": 1, "changed_policy_unknown_count": 0,
+                  "changed_policy_malformed_count": 0, "changed_policy_omitted_count": 0,
+                  "changed_policy_observation": "OBSERVED"}
+        capture = self.capture("INCIDENT", values)
+        self.assertEqual(capture, validate_diagnostics(capture))
+        issue_from_report(self.report(capture))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("INCIDENT", dict(values, changed_policy_fields=["devicePrivacy.privateTerm"])))
+
     def test_dispatch_policy_diagnostics_keep_closed_categories(self):
         capture = self.capture("INCIDENT", {"dispatch_policy_sections": ["PROFILE", "TOOLS", "PERMISSIONS"],
                                             "dispatch_policy_stage": "delivery", "dispatch_policy_resume_required": True,
@@ -2655,8 +2667,11 @@ class IncidentReportContractTest(unittest.TestCase):
         behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
         behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
         self.assertEqual(9, len(behavior_keys))
-        self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
-        self.assertEqual(84, len(capsule.POLICY_FIELD_NAMES))
+        private_turn = (base / "data/privacy/PrivateTurn.kt").read_text()
+        privacy_keys = set(re.findall(r'DispatchPolicyChangedException\(listOf\("([A-Za-z]+)"\)\)', private_turn))
+        self.assertEqual({"devicePrivacy"}, privacy_keys)
+        self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | privacy_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
+        self.assertEqual(85, len(capsule.POLICY_FIELD_NAMES))
 
     def test_replay_capacity_reason_and_estimates_are_bounded_incident_fields(self):
         code = "REPLAY_EVIDENCE_REQUIRED"

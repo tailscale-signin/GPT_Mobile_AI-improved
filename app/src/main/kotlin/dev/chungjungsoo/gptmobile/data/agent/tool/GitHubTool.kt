@@ -114,7 +114,8 @@ class GitHubTool(
             modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty(),
             planningTarget,
             snapshot?.commitSha ?: repositoryScope?.commitSha,
-            snapshot?.updatedAt ?: repositoryScope?.observedAtMillis
+            snapshot?.updatedAt ?: repositoryScope?.observedAtMillis,
+            webOrigin = apiOrigins.authorization
         )
     }
     internal fun planningDescription() = dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext(

@@ -38,7 +38,7 @@ internal object IssueReportIncidentCapsule {
         "url", "download_url", "accept", "since", "until", "filter", "status", "conclusion", "inputs", "files", "encoding", "recursive", "names", "inventory_cursor", "inventory_version", "catalog_only"
     )
     val dispatchPolicyFields = setOf("dispatch_policy_sections", "dispatch_policy_stage", "dispatch_policy_resume_required")
-    private val policySections = setOf("PROFILE", "BUDGET", "SPEND", "TOOLS", "MCP", "PERMISSIONS", "ASSIST", "DELEGATION", "RESEARCH", "GATEWAY", "GITHUB", "REASONING", "ENGINEERING")
+    private val policySections = setOf("PROFILE", "BUDGET", "SPEND", "TOOLS", "MCP", "PERMISSIONS", "ASSIST", "DELEGATION", "RESEARCH", "GATEWAY", "GITHUB", "REASONING", "ENGINEERING", "PRIVACY")
     private val policyStages = setOf("provider_admission", "tool_precheck", "tool_dispatch", "tool_execution", "delivery", "verification")
 
     /** Serialized production policy/profile keys only; never scope IDs or settings values. */
@@ -47,7 +47,7 @@ internal object IssueReportIncidentCapsule {
         "githubProfileOverride.webSearch", "githubProfileOverride.githubTools", "githubProfileOverride.engineeringMode", "githubProfileOverride.maximumContext", "githubProfileOverride.contextVariant", "githubProfileOverride.engineeringMemory", "githubProfileOverride.allowCloudEngineeringMemory", "githubProfileOverride.workflowPreset", "githubProfileOverride.quickWorkflows", "githubProfileOverride.engineeringGatewayProfileUid", "githubProfileOverride.executionBatchMode", "githubProfileOverride.sampling",
         "githubProfileOverride.intelligenceLevel", "githubProfileOverride.nextActionPolicy", "githubProfileOverride.evidenceElaboration", "githubProfileOverride.recoveryConsultConsent", "githubProfileOverride.engineeringTeamConsent", "githubProfileOverride.recoveryExecutionConsent", "githubProfileOverride.primaryPatchReviewConsent",
         "assist", "assistPolicy", "budget", "conversationDelegation", "conversationGateway",
-        "conversationResearch", "delegation", "engineering", "githubProfileOverride", "githubProfileSelection",
+        "conversationResearch", "delegation", "devicePrivacy", "engineering", "githubProfileOverride", "githubProfileSelection",
         "llamaReasoning", "location", "plugins", "profile", "profile.accelerator",
         "profile.apiUrl", "profile.batchApiUrl", "profile.batchMode", "profile.compatibleType", "profile.dangerousContentSafetyThreshold",
         "profile.disableAllTools", "profile.disableLocalTools", "profile.disableRemoteTools", "profile.enabled", "profile.harassmentSafetyThreshold",
@@ -633,6 +633,7 @@ internal object IssueReportIncidentCapsule {
 
     private fun policySection(field: String?): String? = when (field?.substringBefore('.')) {
         "profile", "profileBehavior" -> "PROFILE"
+        "devicePrivacy" -> "PRIVACY"
         "budget" -> "BUDGET"
         "spend" -> "SPEND"
         "tools", "plugins", "tool_inventory" -> "TOOLS"

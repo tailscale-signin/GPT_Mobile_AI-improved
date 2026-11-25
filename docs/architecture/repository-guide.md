@@ -73,6 +73,8 @@ GitHub chat opens on the selected repository and branch. The empty composer offe
 
 Fresh profiles use adaptive budgeting and task context, with evidence-based progress and next-action selection enabled. Saved overrides retain their settings. Direct requests for issues, pull requests, branches, commits, workflows, runs, releases and tags start with the matching read. Compound tasks use the broader engineering planner. Source caching and sharing with another model follow the connection and profile settings.
 
+Numbered follow-ups use the current workspace and the immediately preceding admitted read to resolve issue or pull-request references. Ambiguous numbers prompt for the record type. Requests for a previous report retain its original evidence scope. Source citations use the selected connection’s web origin, the checked revision, and the quoted line range.
+
 Choose the strategy in the selected AI profile's GitHub programmer settings.
 Existing profiles start with Intelligent. The primary profile retains responsibility
 for tool authorization, changes, verification and the final answer.

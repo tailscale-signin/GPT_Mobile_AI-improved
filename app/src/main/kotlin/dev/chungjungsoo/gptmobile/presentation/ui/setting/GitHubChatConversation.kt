@@ -15,6 +15,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubTurnApproval
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubTurnApproval
 
 /** A real Chat destination supplies its own SavedStateHandle and lifecycle to the standard chat renderer. */
 @Composable
@@ -35,7 +37,7 @@ internal fun GitHubChatConversation(
     exportRequested: Boolean = false,
     onExportHandled: () -> Unit = {},
     onProfileSettings: (String) -> Unit = {},
-    approvalPending: Boolean = false,
+    nativeApproval: GitHubTurnApproval? = null,
     nativeDecisions: List<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt> = emptyList(),
     bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
@@ -49,8 +51,8 @@ internal fun GitHubChatConversation(
         val room by model.chatRoom.collectAsStateWithLifecycle()
         val grouped by model.groupedMessages.collectAsStateWithLifecycle()
         val savedRuns by model.agentRunsById.collectAsStateWithLifecycle()
-        androidx.compose.runtime.DisposableEffect(model, approvalPending) {
-            model.bindGitHubApprovalPending(approvalPending)
+        androidx.compose.runtime.DisposableEffect(model, nativeApproval != null) {
+            model.bindGitHubApprovalPending(nativeApproval != null)
             onDispose { model.bindGitHubApprovalPending(false) }
         }
         androidx.compose.runtime.LaunchedEffect(model, room.id, recoveryRequest, grouped, savedRuns) {
@@ -77,7 +79,7 @@ internal fun GitHubChatConversation(
         androidx.compose.runtime.CompositionLocalProvider(
             dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true,
             dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubFadeProfile provides fadeProfile,
-            dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubApprovalPending provides approvalPending,
+            LocalGitHubTurnApproval provides nativeApproval,
             dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubNativeDecisions provides nativeDecisions
         ) {
             val typography = MaterialTheme.typography

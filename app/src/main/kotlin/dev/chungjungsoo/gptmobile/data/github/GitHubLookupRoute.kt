@@ -15,20 +15,57 @@ internal enum class GitHubLookupRoute(val operation: String, val action: String,
 
     private val targetPattern = Regex(target)
 
+    data class Request(
+        val route: GitHubLookupRoute,
+        val number: Int?,
+        val state: String?,
+        val pageSize: Int?,
+        val newestFirst: Boolean,
+        val filesOnly: Boolean,
+        val patches: Boolean
+    )
+
     companion object {
         private val requestPattern = Regex(
             """(?:please )?(?:(?:can|could|would) you (?:please )?)?(?:list|show(?: me)?|inspect|read|summari[sz]e|what (?:is|are)|which) """ +
-                """(?:(?:all|the|our|latest|recent|git|github|last \d+) )*(.+?)(?: (?:in|on|for|from) (?:the |this |our |my )?(?:github )?repo(?:sitory)?)?"""
+                """((?:(?:all|the|our|latest|recent|git|github|last \d+) )*)(.+?)(?: (?:in|on|for|from) (?:the |this |our |my )?(?:github )?repo(?:sitory)?)?"""
         )
 
         private val spaces = Regex("[ \\t]+")
 
-        fun from(task: String): GitHubLookupRoute? {
+        private val count = Regex("last ([0-9]+)")
+        private val record = Regex("[0-9]+$")
+
+        fun from(task: String): GitHubLookupRoute? = request(task)?.route
+
+        fun request(task: String): Request? {
             val request = GitHubTaskContinuity.request(task)
             if (request.length > 240 || '\n' in request || '\r' in request) return null
             val prose = request.trimEnd('.', '!', '?').trim().lowercase(java.util.Locale.ROOT).replace(spaces, " ")
-            val target = requestPattern.matchEntire(prose)?.groupValues?.get(1) ?: return null
-            return entries.firstOrNull { it.targetPattern.matches(target) }
+            val match = requestPattern.matchEntire(prose) ?: return null
+            val (modifiers, target) = match.destructured
+            val route = entries.firstOrNull { it.targetPattern.matches(target) } ?: return null
+            val counts = count.findAll(modifiers).toList()
+            if (counts.size > 1) return null
+            val size = counts.singleOrNull()?.groupValues?.get(1)?.let { it.toIntOrNull()?.takeIf { n -> n > 0 } ?: return null }
+            val number = if (route == ISSUE || route == PULL_REQUEST) {
+                if (size != null) return null
+                record.find(target)?.value?.toIntOrNull() ?: return null
+            } else {
+                null
+            }
+            val state = if (route == ISSUES || route == PULL_REQUESTS) {
+                when {
+                    target.startsWith("closed ") -> "closed"
+                    target.startsWith("open ") -> "open"
+                    "all" in modifiers.split(' ') -> "all"
+                    else -> null
+                }
+            } else {
+                null
+            }
+            val newestFirst = (route == ISSUES || route == PULL_REQUESTS) && (size != null || "recent " in modifiers || "latest " in modifiers)
+            return Request(route, number, state, size?.coerceAtMost(100), newestFirst, target.startsWith("files ") || target.startsWith("changes "), target.startsWith("changes "))
         }
     }
 }

@@ -74,6 +74,8 @@ internal class GitHubVerifiedSession(
     private var replannedReader: AgentProviderSession? = null
     private var replanBoundary: String? = null
     private var completedDecisionMillis = 0L
+    private val lookup = GitHubLookupRoute.request(task)
+    private var initialLookupIssued = false
     private var executionCorrectionAttempted = false
     private var correctionProgress: Set<String> = emptySet()
     private var progressCorrections = 0
@@ -130,7 +132,7 @@ internal class GitHubVerifiedSession(
             when {
                 denied != null -> emit(denied)
                 handlesToolResultRecovery || verificationOnlyRequested || delegate.handlesToolsInternally || tools.isNotEmpty() ->
-                    emit(ProviderEvent.Failed("This session cannot admit a private saved-page read.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                    emit(dev.chungjungsoo.gptmobile.data.agent.SavedPageDeliveryRound.blocked("This session cannot admit a private saved-page read.", "provider_admission"))
                 else -> emitAll(delegate.streamRound(emptyList(), exchanges))
             }
             return@flow
@@ -527,6 +529,16 @@ internal class GitHubVerifiedSession(
             }
             return@flow
         }
+        if (lookup != null && !delegate.handlesToolsInternally && !resumeClaimExtraction && !initialLookupIssued) {
+            firstRepositoryObservation(tools, exchanges)?.let { next ->
+                validatePublication()
+                initialLookupIssued = true
+                lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                emit(next)
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
+        }
         if (GitHubStatusRequest.matches(task) && tools.isNotEmpty()) {
             val (receipts, epoch) = evidence.snapshot()
             val acceptedRepository = (evidence.acceptedPromptContract()?.get("repository") as? JsonPrimitive)?.contentOrNull
@@ -769,6 +781,7 @@ internal class GitHubVerifiedSession(
                 // If neither attempt started work, establish the selected repository through its
                 // ordinary read tool. The next provider round receives the real tool result.
                 firstRepositoryObservation(tools, exchanges)?.let { next ->
+                    if (lookup != null) initialLookupIssued = true
                     lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                     emit(next)
                     emit(ProviderEvent.Completed)
@@ -795,10 +808,17 @@ internal class GitHubVerifiedSession(
         ) {
             return null
         }
-        val contexts = tools.filter { it.modelVisible && evidence.trustsTool(it.name) && GitHubOperationTool.operationName(it.name) == "github_context" }
-        if (contexts.isEmpty() || contexts.any { !it.name.githubReadFacadeMatches(contexts.first().name) }) return null
         val contract = evidence.acceptedPromptContract() ?: return null
         val repository = (contract["repository"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
+        val trusted = tools.filter { it.modelVisible && evidence.trustsTool(it.name) }
+        if (lookup != null) {
+            val accepted = evidence.acceptedTaskRequest() ?: return null
+            val request = GitHubTaskContinuity.request(task)
+            if (initialLookupIssued || delegate.handlesToolsInternally || resumeClaimExtraction || GitHubTaskContinuity.request(accepted) != request || GitHubTaskContinuity.request(currentRequest) != request) return null
+            return lookup.firstRead(trusted, repository, (contract["accepted_branch"] as? JsonPrimitive)?.contentOrNull)
+        }
+        val contexts = trusted.filter { GitHubOperationTool.operationName(it.name) == "github_context" }
+        if (contexts.isEmpty() || contexts.any { !it.name.githubReadFacadeMatches(contexts.first().name) }) return null
         return GitHubStatusRequest.nextCall(contexts, emptyMap(), now(), acceptedRepository = repository)
     }
 
@@ -1588,6 +1608,7 @@ internal class GitHubVerifiedSession(
             firstRepositoryObservation(continuationTools, continuationExchanges)?.let { next ->
                 validatePublication()
                 evidence.retainVerdict(JsonObject(report + ("response_delivered" to JsonPrimitive(false))))
+                if (lookup != null) initialLookupIssued = true
                 executionCorrectionAttempted = true
                 lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                 emit(next)

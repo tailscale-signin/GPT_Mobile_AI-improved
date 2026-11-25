@@ -44,6 +44,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun issueOnlyCatalogGroundsTheFirstRoundInTheRequestedIssueWithoutModelDiscovery() = runBlocking {
+        val task = "Show issue #42"
+        val issue = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_issue", "github_issue__mobile")
+        val book = GitHubEvidenceBook("issue-read", "owner/project", "topic", setOf(issue.name))
+        book.retainTaskContract(task, 1, listOf(issue), 24)
+        val model = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) =
+                error("The first observation already has an authorized reader")
+        }
+        var admissions = 0
+        val gate = GitHubVerifiedSession(model, book, task, { 8192 }, { error("No claim yet") }, { admissions++ }, {}, remainingToolCalls = { 24 }, executionCallLimit = 24)
+        val events = gate.streamRound(listOf(issue), emptyList()).toList()
+        val call = events.filterIsInstance<ProviderEvent.ToolCall>().single()
+        assertEquals(issue.name, call.name)
+        assertEquals(JsonPrimitive(42), call.arguments["issue_number"])
+        assertEquals(JsonPrimitive("project"), call.arguments["repo"])
+        assertTrue(admissions > 0)
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+        assertTrue(book.snapshot().first.isEmpty())
+    }
+
     @Test fun activeEvidenceRouteEmitsOnlyTheSelectedRequirementsAuthorizedLiveRead() = runBlocking {
         val binding = "binding"
         val criterion = "diff-criterion"

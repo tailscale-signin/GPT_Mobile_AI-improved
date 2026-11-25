@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecision
+import dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
 
 internal data class GitHubTurnPresentation(
@@ -15,6 +16,17 @@ internal data class GitHubTurnPresentation(
     val awaitingTurn: Boolean
 )
 
+/** Older approval records may lack a source message. Keep their chat-wide pause until it can be resolved. */
+internal data class GitHubTurnApproval(val chatId: Int, val sourceMessageId: Int?) {
+    fun appliesTo(message: MessageV2?): Boolean = message != null && message.chatId == chatId && (sourceMessageId == null || sourceMessageId == message.id)
+}
+
+internal fun pendingGitHubTurnApproval(chatId: Int, taskId: String?, pending: Boolean, progress: GitHubNativeApprovalProgress?): GitHubTurnApproval? {
+    if (!pending) return null
+    val source = progress?.takeIf { it.chatId == chatId }?.tasks?.singleOrNull { it.taskId == taskId }
+    return GitHubTurnApproval(source?.chatId ?: chatId, source?.sourceMessageId)
+}
+
 /** Keep collection scans out of the large Compose method without moving its state ownership. */
 internal fun gitHubTurnPresentation(
     userMessages: List<MessageV2>,
@@ -22,7 +34,7 @@ internal fun gitHubTurnPresentation(
     agentRunsById: Map<String, AgentRun>,
     activeRunIds: Set<String>,
     isIdle: Boolean,
-    approvalPending: Boolean,
+    nativeApproval: GitHubTurnApproval?,
     approvals: List<ToolApproval>,
     inputRequests: List<McpInputRequest>,
     visibleDecisions: List<GitHubChatDecision>,
@@ -38,7 +50,7 @@ internal fun gitHubTurnPresentation(
     }
     val responseStarting = !isIdle &&
         latestResponses.none { response -> response.currentRunId?.let(agentRunsById::get)?.status in AgentRunStatus.terminal }
-    val pendingInput = approvalPending ||
+    val pendingInput = nativeApproval?.appliesTo(latestUser) == true ||
         approvals.any { agentRunsById[it.runId]?.userMessageId == latestUser?.id } ||
         inputRequests.any { it.runId?.let(agentRunsById::get)?.userMessageId == latestUser?.id }
     val waitingForInput = pendingInput || visibleDecisions.any { it.sourceMessageId == latestUser?.id }

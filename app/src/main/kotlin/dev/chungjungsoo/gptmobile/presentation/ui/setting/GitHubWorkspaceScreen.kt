@@ -92,6 +92,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as Drop
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubFadeProfile
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.pendingGitHubTurnApproval
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -491,7 +492,12 @@ fun GitHubWorkspaceScreen(
                                                 onRecoveryHandled = { recoveryRequest = null },
                                                 exportRequested = exportChatId == chatId,
                                                 onExportHandled = { exportChatId = null },
-                                                approvalPending = savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" },
+                                                nativeApproval = pendingGitHubTurnApproval(
+                                                    chatId,
+                                                    pendingCommit,
+                                                    savedEngineeringTasks.any { it.taskId == pendingCommit && it.state == "AWAITING_APPROVAL" },
+                                                    nativeApprovalProgress?.takeIf { it.matches(commandContext, chatId) }
+                                                ),
                                                 nativeDecisions = nativeDecisions.filter { it.chatId == chatId },
                                                 bottomInteractionContent = {
                                                     dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubChatApprovalCard(commitReview) { sha ->

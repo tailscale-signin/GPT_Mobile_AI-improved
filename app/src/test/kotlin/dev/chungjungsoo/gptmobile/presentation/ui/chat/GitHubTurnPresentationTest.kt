@@ -6,7 +6,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecision
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionOption
+import dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.JsonObject
@@ -52,6 +54,27 @@ class GitHubTurnPresentationTest {
         assertEquals(GitHubTurnPresentation(false, false, false, false), presentation(run = earlier, approvals = listOf(approval), inputRequests = listOf(request)))
     }
 
+    @Test fun anEarlierPatchApprovalDoesNotWithholdACompletedFollowUpAnswer() {
+        val earlier = user.copy(id = 9)
+        val source = GitHubNativeApprovalProgress.Task("patch", "work", "AWAITING_APPROVAL", user.chatId, earlier.id)
+        val progress = GitHubNativeApprovalProgress(GitHubConversationContext("github", "owner", "repo", "work", "a".repeat(40), "profile"), user.chatId, listOf(source), emptyList())
+        val card = pendingGitHubTurnApproval(user.chatId, "patch", true, progress)
+
+        assertTrue(requireNotNull(card).appliesTo(earlier))
+        assertFalse(card.appliesTo(user))
+        assertFalse(card.appliesTo(earlier.copy(chatId = 99)))
+        val followUp = presentation(
+            userMessages = listOf(earlier, user),
+            assistantMessages = listOf(emptyList(), listOf(response)),
+            run = run(AgentRunStatus.COMPLETED),
+            nativeApproval = card
+        )
+        assertEquals(GitHubTurnPresentation(false, false, false, false), followUp)
+        assertTrue(presentation(nativeApproval = card.copy(sourceMessageId = user.id)).pendingInput)
+        assertTrue(requireNotNull(pendingGitHubTurnApproval(user.chatId, "other", true, progress)).appliesTo(user))
+        assertEquals(null, pendingGitHubTurnApproval(user.chatId, "patch", false, progress))
+    }
+
     @Test fun visibleDecisionWaitsWithoutPretendingAnApprovalIsPending() {
         val decision = GitHubChatDecision("decision", 7, user.id, "profile", "workspace", "Which file?", "", listOf(GitHubDecisionOption("First"), GitHubDecisionOption("Second")))
         assertEquals(GitHubTurnPresentation(false, false, false, true), presentation(visibleDecisions = listOf(decision)))
@@ -83,10 +106,11 @@ class GitHubTurnPresentationTest {
         activeRunIds: Set<String> = emptySet(),
         isIdle: Boolean = true,
         approvalPending: Boolean = false,
+        nativeApproval: GitHubTurnApproval? = if (approvalPending) GitHubTurnApproval(user.chatId, null) else null,
         approvals: List<ToolApproval> = emptyList(),
         inputRequests: List<McpInputRequest> = emptyList(),
         visibleDecisions: List<GitHubChatDecision> = emptyList(),
         githubPromptMode: Boolean = true,
         conversationMode: String = ConversationMode.GATEWAY
-    ) = gitHubTurnPresentation(userMessages, assistantMessages, run?.let { mapOf(it.runId to it) }.orEmpty(), activeRunIds, isIdle, approvalPending, approvals, inputRequests, visibleDecisions, githubPromptMode, conversationMode)
+    ) = gitHubTurnPresentation(userMessages, assistantMessages, run?.let { mapOf(it.runId to it) }.orEmpty(), activeRunIds, isIdle, nativeApproval, approvals, inputRequests, visibleDecisions, githubPromptMode, conversationMode)
 }

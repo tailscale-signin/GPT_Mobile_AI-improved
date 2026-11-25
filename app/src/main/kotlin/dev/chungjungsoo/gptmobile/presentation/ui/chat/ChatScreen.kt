@@ -531,7 +531,7 @@ private fun ChatScreenContent(
         agentRunsById = agentRunsById,
         activeRunIds = activeAgentRuns.keys,
         isIdle = isIdle,
-        approvalPending = LocalGitHubApprovalPending.current,
+        nativeApproval = LocalGitHubTurnApproval.current,
         approvals = approvals,
         inputRequests = inputRequests,
         visibleDecisions = visibleGitHubDecisions,
@@ -2073,7 +2073,7 @@ internal fun ChatMessagePair(
     val githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs }
     val savedFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
     val nativeDecisions = LocalGitHubNativeDecisions.current
-    val approvalCardOrReceipt = LocalGitHubApprovalPending.current || nativeDecisions.any { it.sourceMessageId == message.id }
+    val approvalCardOrReceipt = LocalGitHubTurnApproval.current?.appliesTo(message) == true || nativeDecisions.any { it.chatId == message.chatId && it.sourceMessageId == message.id }
     val awaitingGitHubDelivery = awaitingGitHubTurn || githubTask != null && gitHubApprovalRetryBlock(savedFailure, approvalCardOrReceipt) != null
     val readAssistantActionText: suspend () -> String = {
         when {

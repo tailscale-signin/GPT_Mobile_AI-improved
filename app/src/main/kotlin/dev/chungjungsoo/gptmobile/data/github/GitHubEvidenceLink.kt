@@ -39,12 +39,33 @@ internal object GitHubEvidenceLink {
 
     private fun fileUrl(base: String, file: JsonObject, result: JsonObject, receipt: JsonObject): String? {
         val path = file.text("path").ifBlank { file.text("filename") }
-        if (path.isBlank() || path.startsWith('/') || path.split('/').any { it in setOf("", ".", "..") } || path.any { it.code < 32 || it == '\\' }) return null
         val data = (result["data"] as? JsonObject) ?: result
         val commit = sequenceOf(file.text("commit_sha"), data.text("commit_sha"), data.text("head_sha"), (receipt["arguments"] as? JsonObject)?.text("commit_sha").orEmpty())
             .firstOrNull { sha.matches(it) } ?: return null
         val start = (file["start_line"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 }
         val end = (file["end_line"] as? JsonPrimitive)?.intOrNull?.takeIf { start != null && it >= start }
+        return sourceUrl(base, path, commit, start, end)
+    }
+
+    /** The origin is recorded by the admitted native tool, independently of the remote response. */
+    fun recordedRepositoryUrl(receipt: JsonObject): String? {
+        val origin = receipt.text("web_origin").takeIf(String::isNotBlank) ?: return null
+        if (runCatching { GitHubApiOrigins.fromEndpoint(origin).authorization }.getOrNull() != origin) return null
+        val repository = receipt.text("repository").split('/')
+        if (repository.size != 2 || repository.any { !it.matches(Regex("[A-Za-z0-9_.-]+")) || it in setOf(".", "..") }) return null
+        return "$origin/${repository.joinToString("/")}"
+    }
+
+    fun excerptUrl(receipt: JsonObject, path: String, binding: JsonObject): String? {
+        val base = recordedRepositoryUrl(receipt) ?: return null
+        val start = (binding["start_line"] as? JsonPrimitive)?.intOrNull ?: return null
+        val end = (binding["end_line"] as? JsonPrimitive)?.intOrNull ?: return null
+        if (start < 1 || end < start) return null
+        return sourceUrl(base, path, binding.text("commit_sha"), start, end)
+    }
+
+    private fun sourceUrl(base: String, path: String, commit: String, start: Int?, end: Int?): String? {
+        if (!sha.matches(commit) || path.isBlank() || path.split('/').any { it in setOf("", ".", "..") } || path.any { it.code < 32 || it == '\\' }) return null
         val lines = if (start == null) {
             ""
         } else if (end == null || end == start) {

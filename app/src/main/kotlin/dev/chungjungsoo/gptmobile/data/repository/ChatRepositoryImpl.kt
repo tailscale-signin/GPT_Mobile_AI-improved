@@ -92,6 +92,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.measurePreparation
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.github.GitHubPrimaryPatchReview
+import dev.chungjungsoo.gptmobile.data.github.GitHubReadReference
 import dev.chungjungsoo.gptmobile.data.github.GitHubRecoveryReadSession
 import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.localmodel.resolveLocalModelSelection
@@ -2280,7 +2281,7 @@ class ChatRepositoryImpl(
                 val room = userMessages.lastOrNull()?.let { agentPersistenceDao.getChatRoom(it.chatId) }
                 journal.setRunPrivacy(runId, isTemporary = room?.isTemporary != false)
             }
-            val acceptedRecovery = prepareRecoveryRequest(acceptedUserMessages, acceptedAssistantMessages, runId)
+            val acceptedRecovery = prepareRecoveryRequest(acceptedUserMessages, acceptedAssistantMessages, runId, chatToolConfig?.github)
             val recovery = if (freshRepositoryTurn && acceptedRecovery != null) {
                 // Isolation removes personal content, not the task's content-free
                 // identity, spent allowance or unresolved-operation fences.
@@ -2299,7 +2300,8 @@ class ChatRepositoryImpl(
             val resumeDescriptor = recovery.resumeDescriptor
             val taskRecovery = recovery.taskRecovery
             val acceptedSourceMessageId = stage?.acceptedTask?.originatingUserMessageId ?: recovery.acceptedSourceMessageId
-            savedUserTurns.lastOrNull()?.let { user ->
+            val githubScope = chatToolConfig?.github
+            val readReference = savedUserTurns.lastOrNull()?.let { user ->
                 val savedHistory = if (user.chatId > 0) agentPersistenceDao.getMessages(user.chatId) else emptyList()
                 val priorRuns = if (user.chatId > 0) agentRunDao.getByChatId(user.chatId) else emptyList()
                 try {
@@ -2315,6 +2317,18 @@ class ChatRepositoryImpl(
                     emit(ApiState.Error(rejected.message.orEmpty(), errorCode = dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE))
                     return@authorizedRun
                 }
+                if (githubScope != null && stage == null && taskRecovery == null && resumeDescriptor == null && chatToolConfig.combined == null) {
+                    GitHubReadReference.forTurn(user, recovery.effectiveUserMessages, assistantMessages, savedHistory, githubScope) {
+                        pendingPromptDao?.savedGitHubWorkspace(it)
+                    }
+                } else {
+                    null
+                }
+            }
+            if (readReference != null && readReference.kind == null) {
+                emit(ApiState.Success(readReference.question, GitHubReadReference.clarificationLineage))
+                emit(ApiState.Done)
+                return@authorizedRun
             }
             if (freshRepositoryTurn) {
                 userMessages.lastOrNull()?.let { user ->
@@ -2326,7 +2340,11 @@ class ChatRepositoryImpl(
                     ).requireFreshPersonalContext()
                 }
             }
-            val effectiveUserMessages = recovery.effectiveUserMessages
+            val effectiveUserMessages = if (readReference == null) {
+                recovery.effectiveUserMessages
+            } else {
+                recovery.effectiveUserMessages.dropLast(1) + recovery.effectiveUserMessages.last().copy(content = readReference.question)
+            }
             val verificationOnlyRequested = taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RESUME_VERIFICATION
             val followUps = if (verificationOnlyRequested) null else followUpInbox(this, platform, effectiveUserMessages.lastOrNull(), runId, chatToolConfig, effectiveUserMessages)
             val activity = AtomicReference("Preparing response")
@@ -2352,7 +2370,11 @@ class ChatRepositoryImpl(
             }
             suspend fun sendPublicState(state: ApiState) {
                 if (githubProgress != null && (state is ApiState.ActivitySummary || state is ApiState.ProgressCheckpoint)) {
-                    dispatchAuthority.validate()
+                    try {
+                        dispatchAuthority.validate()
+                    } catch (changed: dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException) {
+                        throw dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException(changed.fields, changed.gatewaySelectionChange, "delivery").also { it.initCause(changed) }
+                    }
                     if (!githubProgress.currentPublication(state)) return
                 }
                 send(state)
@@ -2469,7 +2491,7 @@ class ChatRepositoryImpl(
             // methods have aborted with an invalid exception PC during native errors.
             // The helper keeps the same authorized snapshot and the same finally path.
             suspend fun executePreparedRequest() {
-                val preparationInput = PrimaryPreparationInput(platform, runId, effectiveUserMessages, assistantMessages, savedUserTurns, taskRecovery, resumeDescriptor, stage, chatToolConfig, acceptedSourceMessageId, recovery.continuingAcceptedTask)
+                val preparationInput = PrimaryPreparationInput(platform, runId, effectiveUserMessages, assistantMessages, savedUserTurns, taskRecovery, resumeDescriptor, stage, chatToolConfig, acceptedSourceMessageId, recovery.continuingAcceptedTask, readReference)
                 val admission = preparePrimaryAdmission(preparationInput, ::emit) ?: return
                 val exclusions = admission.exclusions
                 val resumeWriterOnly = admission.resumeWriterOnly
@@ -2950,7 +2972,8 @@ class ChatRepositoryImpl(
                                 researchJournal = admittedResearchJournal,
                                 recoveredResearch = { recovery?.researchSnapshotForDelivery() },
                                 originalUserRequest = savedUserTurns.lastOrNull()?.content.orEmpty(),
-                                acceptanceRequest = taskRecovery?.originalRequest ?: savedUserTurns.lastOrNull()?.content.orEmpty(),
+                                acceptanceRequest = readReference?.question ?: taskRecovery?.originalRequest ?: savedUserTurns.lastOrNull()?.content.orEmpty(),
+                                readReference = readReference,
                                 restoreGatewayHandoffRequested = taskRecovery != null && !synthesisRun && taskRecovery.action != dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RESUME_VERIFICATION,
                                 verificationOnlyRequested = verificationOnlyRequested,
                                 validateSavedEvidence = {
@@ -3078,6 +3101,10 @@ class ChatRepositoryImpl(
                     put("authority_invalidation_code", "DISPATCH_POLICY_CHANGED")
                     put("resume_required", true)
                     put("changed_policy_fields", kotlinx.serialization.json.JsonArray(policy.fields.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                    policy.blockedStage?.let {
+                        put("authority_failed_stage", it)
+                        put("failed_stage", it)
+                    }
                     policy.gatewaySelectionChange?.let { put("dispatch_gateway_selection_change", it) }
                 }
             )
@@ -3255,7 +3282,7 @@ class ChatRepositoryImpl(
         val continuingAcceptedTask: Boolean = taskRecovery != null
     )
 
-    private suspend fun prepareRecoveryRequest(userMessages: List<MessageV2>, assistantMessages: List<List<MessageV2>>, runId: String): RecoveryRequest? {
+    private suspend fun prepareRecoveryRequest(userMessages: List<MessageV2>, assistantMessages: List<List<MessageV2>>, runId: String, github: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?): RecoveryRequest? {
         val recoveryAction = dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.fromText(userMessages.lastOrNull()?.content.orEmpty())
         val currentRequest = userMessages.lastOrNull()?.content.orEmpty()
         val savedUserTurns = if (recoveryAction != null ||
@@ -3269,7 +3296,16 @@ class ChatRepositoryImpl(
             userMessages
         }
         val resumeDescriptor = assistantMessages.flatten().firstOrNull { it.currentRunId == runId }?.timeline?.mapNotNull { it.recovery }?.firstOrNull { it.generationId == runId }
-        val taskRecovery = if (resumeDescriptor != null) dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns, resumeDescriptor) else dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns)
+        val taskRecovery = if (resumeDescriptor != null) {
+            dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns, resumeDescriptor)
+        } else {
+            dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(savedUserTurns) { prior, latest ->
+                val saved = if (github != null) pendingPromptDao?.savedGitHubWorkspace(prior) else null
+                val sameWorkspace = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sharesLookupWorkspace(prior.content, latest.content, github, saved)
+                if (sameWorkspace == false || (github == null && sameWorkspace == true)) return null
+                sameWorkspace
+            }
+        }
         if ((recoveryAction != null || resumeDescriptor != null) && taskRecovery == null) {
             return null
         }
@@ -4409,7 +4445,8 @@ class ChatRepositoryImpl(
         val stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?,
         val chatToolConfig: ChatMcpToolConfig?,
         val acceptedSourceMessageId: Int?,
-        val continuingAcceptedTask: Boolean
+        val continuingAcceptedTask: Boolean,
+        val readReference: GitHubReadReference?
     ) {
         val githubTask: Boolean get() = chatToolConfig?.github != null ||
             dev.chungjungsoo.gptmobile.data.agent.requiresNativeGitHubAcceptance(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty(), true)
@@ -4687,6 +4724,7 @@ class ChatRepositoryImpl(
         val privateConversation = memoryBoundary?.isTemporary == true
         val resolvedTools = preparePrimaryTools(
             platform, chatToolConfig, effectiveUserMessages, taskRecovery, preparationPlan, preparationStarted, sourceAcquisitionRequested, supportsTools, privateConversation, contextTurns, runId, unavailableConnections,
+            readReference = input.readReference,
             delegate = delegate,
             prepareRecovery = prepareRecovery,
             onRecovery = onRecovery
@@ -4709,6 +4747,7 @@ class ChatRepositoryImpl(
         contextTurns: List<ConversationTurn>,
         runId: String,
         unavailableConnections: MutableList<String>,
+        readReference: GitHubReadReference?,
         delegate: suspend (PlatformV2, String, Int) -> String,
         prepareRecovery: suspend (List<ResolvedAgentTool>) -> dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext?,
         onRecovery: (dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext?) -> Unit
@@ -4720,7 +4759,8 @@ class ChatRepositoryImpl(
                 emptyList()
             } else {
                 agentToolResolver.resolve(platform.uid, chatToolConfig, effectiveUserMessages.lastOrNull()?.let { message -> taskRecovery?.let { message.copy(id = it.sourceMessageId, content = it.originalRequest) } ?: message }, delegate, onConnectionError = { if (it !in unavailableConnections) unavailableConnections += it }, cachedCataloguesOnly = cachedOnly, requestedModel = platform.model).filterNot { resolved ->
-                    ((taskRecovery?.primaryOnly == true || chatToolConfig?.combined != null) && resolved.realToolName == "delegate_to_model") ||
+                    (readReference != null && (!resolved.nativeGitHub || resolved.connectionUid != chatToolConfig?.github?.connectionUid || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(resolved.modelToolName) != readReference.kind?.operation)) ||
+                        ((taskRecovery?.primaryOnly == true || chatToolConfig?.combined != null) && resolved.realToolName == "delegate_to_model") ||
                         (chatToolConfig?.combined?.plan?.searchAllowed == false && resolved.isWebSearchEngine()) ||
                         privateConversation &&
                         (
@@ -5102,6 +5142,7 @@ class ChatRepositoryImpl(
                 branch = repository.ref,
                 trustedTools = evidenceTools.filter { it.nativeGitHub }.mapTo(hashSetOf()) { it.modelToolName } + listOfNotNull(catalog?.definition?.name),
                 currentToolContracts = evidenceTools.filter { it.nativeGitHub }.associate { it.modelToolName to it.tool.definition.inputSchema },
+                toolWebOrigins = evidenceTools.filter { it.nativeGitHub }.mapNotNull { tool -> tool.gitHubPlanningContext?.webOrigin?.let { tool.modelToolName to it } }.toMap(),
                 authorizationRevision = dispatchAuthority.revision,
                 sourceRunId = runId,
                 inferenceProfile = platform,
@@ -5619,6 +5660,7 @@ class ChatRepositoryImpl(
         recoveredResearch: suspend () -> dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? = { null },
         originalUserRequest: String = latestUser?.content.orEmpty(),
         acceptanceRequest: String = originalUserRequest,
+        readReference: GitHubReadReference? = null,
         restoreGatewayHandoffRequested: Boolean = false,
         verificationOnlyRequested: Boolean = false,
         validateSavedEvidence: suspend () -> Boolean = { true }
@@ -5643,7 +5685,8 @@ class ChatRepositoryImpl(
                     boundGitHubRepository,
                     resolved.connectionUid == boundGitHubConnection,
                     dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(acceptanceRequest),
-                    readOnly = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(originalUserRequest)
+                    readOnly = readReference != null || dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(originalUserRequest),
+                    readReference = readReference
                 )
             } else if (boundGitHubRepository != null && dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.GITHUB in resolved.tool.definition.capabilities) {
                 dev.chungjungsoo.gptmobile.data.github.GitHubMcpRepositoryTool(

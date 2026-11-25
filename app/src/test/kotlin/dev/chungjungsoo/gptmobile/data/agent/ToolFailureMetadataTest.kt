@@ -252,6 +252,18 @@ class ToolFailureMetadataTest {
         assertEquals("RECONCILIATION_REQUIRED", ToolFailureMetadata.authorityFailure(queued, hasUnknownOutcome = true).errorCode)
     }
 
+    @Test fun selectingAGatewayDuringDeliveryRequiresResumingFromRetainedEvidence() {
+        val change = dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException(listOf("githubProfileOverride", "githubProfileOverride.engineeringGatewayProfileUid"), "SELECTED")
+        val result = AgentToolResult("completed", ToolResultContent.Text("Retained read"), false)
+        val blocked = requireNotNull(ToolFailureMetadata.withAuthorityFailure(result, change, "delivery"))
+        val failure = ToolFailureMetadata.authorityFailure(blocked, hasUnknownOutcome = false)
+        assertEquals("CONFIGURATION_INVALIDATED", failure.taskOutcome)
+        assertEquals(JsonPrimitive("delivery"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("resume_required"))
+        assertTrue(failure.message.contains("authorize it for the remaining work"))
+        assertEquals("RECONCILIATION_REQUIRED", ToolFailureMetadata.authorityFailure(blocked, hasUnknownOutcome = true).errorCode)
+    }
+
     @Test fun policyDriftRetainsChangedFieldsWithoutReplacingSuccessfulReceipts() {
         val observed = AgentToolResult("completed", ToolResultContent.Text("written"), false, executionReceipt = buildJsonObject { put("remote_receipt", "observed-write") })
         val policy = dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException(listOf("tool_connections", "allowed_tools"))

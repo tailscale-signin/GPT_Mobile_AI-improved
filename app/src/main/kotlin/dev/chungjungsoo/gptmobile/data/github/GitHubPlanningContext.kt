@@ -12,7 +12,8 @@ data class GitHubPlanningContext(
     val toolSuffix: String,
     val repository: GitHubRepositoryContext?,
     val observedCommitSha: String? = null,
-    val observedAtMillis: Long? = null
+    val observedAtMillis: Long? = null,
+    val webOrigin: String? = null
 ) {
     fun toolDescription(): String = repository?.let {
         " Selected repository: ${it.fullName}; ref: ${JsonPrimitive(it.ref)}. Omitted owner/repo/ref use this selection. Resolve it before dependent operations; never invent repository or fixture names."

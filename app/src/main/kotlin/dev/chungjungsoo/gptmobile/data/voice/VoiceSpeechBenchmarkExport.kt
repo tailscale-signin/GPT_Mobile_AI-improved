@@ -605,7 +605,7 @@ private fun readFailureObservation(o: JsonObject, validatedAudio: Boolean = fals
         contextCacheStatus = o.optionalString("contextCacheStatus")?.also { require(safeSpeechContextCacheStatus(it) != null) },
         contextLoadMs = o.optionalBoundedLong("contextLoadMs"),
         contextStoreMs = o.optionalBoundedLong("contextStoreMs"),
-        contextBytes = o.optionalBoundedLong("contextBytes", 512L * 1024 * 1024),
+        contextBytes = o.optionalBoundedLong("contextBytes", 256L * 1024 * 1024),
         contextCacheEvictions = o.optionalBoundedLong("contextCacheEvictions", Long.MAX_VALUE),
         contextFallback = o.optionalBoolean("contextFallback"),
         htpPerformanceMode = o.optionalString("htpPerformanceMode")?.also { require(safeSpeechHtpPerformanceMode(it) != null) },

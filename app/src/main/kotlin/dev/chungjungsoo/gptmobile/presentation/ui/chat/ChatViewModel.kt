@@ -570,8 +570,8 @@ class ChatViewModel @Inject constructor(
         },
         onAccepted = { ids, chatId, messageId ->
             if (_voiceAdmission.value?.requestId == request.requestId && chatId == request.chatId) {
-                updateVoiceAdmission(request.copy(stage = VoiceAdmissionStage.ACCEPTED, userMessageId = messageId, runIds = ids))
                 if (question.text.toString() == text) question.clearText()
+                updateVoiceAdmission(request.copy(stage = VoiceAdmissionStage.ACCEPTED, userMessageId = messageId, runIds = ids))
             }
         }
     )
@@ -3566,7 +3566,7 @@ class ChatViewModel @Inject constructor(
                                 prior.userMessages + persisted.userMessage,
                                 prior.assistantMessages + listOf(normalizeAssistantRow(persisted.assistantMessages, enabledPlatformsInChat, persisted.chatRoom.id))
                             )
-                        } ?: acceptedHistory(persisted.chatRoom.id, persisted.userMessage.id)
+                        } ?: acceptedHistoryWithPersistedTurn(persisted)
                         dispatchTools.combined?.let {
                             chatRepository.prepareCombinedTurn(
                                 it,
@@ -3944,6 +3944,36 @@ class ChatViewModel @Inject constructor(
             val grouped = groupPersistedMessages(rows, slots, chatId)
             if (throughUserId == null) grouped else historyThroughUser(grouped, throughUserId)
         }
+    }
+
+    /**
+     * A committed turn can be returned before an eventually updated history source exposes it.
+     * Preserve the complete durable history, but bind dispatch to the exact persisted receipt
+     * instead of failing or accidentally including a later turn.
+     */
+    private suspend fun acceptedHistoryWithPersistedTurn(persisted: dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult): GroupedMessages {
+        val history = acceptedHistory(persisted.chatRoom.id)
+        val persistedIndex = history.userMessages.indexOfFirst { it.id == persisted.userMessage.id && it.platformType == null }
+        if (persistedIndex >= 0) return groupedMessagesThroughTurn(history, persistedIndex)
+
+        val priorCount = history.userMessages.indexOfFirst { user ->
+            compareValuesBy(
+                user,
+                persisted.userMessage,
+                MessageV2::createdAt,
+                MessageV2::id
+            ) > 0
+        }.let { if (it < 0) history.userMessages.size else it }
+        val prior = history.copy(
+            userMessages = history.userMessages.take(priorCount),
+            assistantMessages = history.assistantMessages.take(priorCount)
+        )
+        return prior.copy(
+            userMessages = prior.userMessages + persisted.userMessage,
+            assistantMessages = prior.assistantMessages + listOf(
+                normalizeAssistantRow(persisted.assistantMessages, enabledPlatformsInChat, persisted.chatRoom.id)
+            )
+        )
     }
 
     private data class ReadinessDraftInput(
